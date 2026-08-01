@@ -249,6 +249,7 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
     def test_bind_backfills_legacy_group_in_propose_only_mode(self) -> None:
         policy = supervision_log.default_policy(self.init_args())
         policy.pop("execution_economy")
+        policy.pop("decision_resolution")
         policy.pop("skill_maintenance")
         policy["permissions"].pop("allowlisted_skill_maintenance")
         policy["permissions"].pop("gmail_priority_notification")
@@ -271,6 +272,7 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
         self.assertTrue(json.loads(output.getvalue())["changed"])
         self.assertEqual(policy["skill_maintenance"]["mode"], "propose-only")
         self.assertTrue(policy["execution_economy"]["enabled"])
+        self.assertTrue(policy["decision_resolution"]["continuation_first"])
         self.assertFalse(policy["permissions"]["allowlisted_skill_maintenance"])
         self.assertFalse(policy["permissions"]["gmail_priority_notification"])
         self.assertFalse(policy["notifications"]["gmail_priority"]["enabled"])
@@ -583,6 +585,240 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
             "priority lifecycle binding is incomplete",
         ):
             supervision_log.validate_policy(policy)
+
+
+class DecisionResolutionTests(unittest.TestCase):
+    target = "target-1234"
+    decision = "DECISION-1234"
+    hash_a = "a" * 64
+    hash_b = "b" * 64
+    hash_c = "c" * 64
+
+    def init_args(self) -> argparse.Namespace:
+        return argparse.Namespace(
+            target_thread=self.target,
+            target_label="target",
+            watcher_thread="watcher-1234",
+            reviewer_thread="reviewer-1234",
+            base_reviewer_thread="base-1234",
+            notice_reviewer_thread=None,
+            fix_executor_thread="fixer-1234",
+        )
+
+    def record(
+        self,
+        directory: Path,
+        policy: dict[str, object],
+        *,
+        classification: str,
+        phase: str,
+        safe_frontier: str = "nonempty",
+        attempt: int = 0,
+        outcome: str = "",
+        now: str = "2026-08-01T12:00:00+00:00",
+    ) -> dict[str, object]:
+        args = supervision_log.parser().parse_args(
+            [
+                "decision-record",
+                "--target-thread",
+                self.target,
+                "--decision-id",
+                self.decision,
+                "--classification",
+                classification,
+                "--phase",
+                phase,
+                "--safe-frontier",
+                safe_frontier,
+                "--attempt",
+                str(attempt),
+                "--outcome",
+                outcome,
+                "--decision-packet-hash",
+                self.hash_a,
+                "--blocked-scope-hash",
+                self.hash_b,
+                "--safe-frontier-hash",
+                self.hash_c,
+                "--state-fingerprint",
+                "state-1234",
+                "--evidence",
+                "EVT-SOURCE-1234",
+                "--now",
+                now,
+            ]
+        )
+        output = io.StringIO()
+        with (
+            mock.patch.object(
+                supervision_log, "load_policy", return_value=(directory, policy)
+            ),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_decision_record(args)
+        return json.loads(output.getvalue())
+
+    def gate(
+        self,
+        directory: Path,
+        policy: dict[str, object],
+        now: str,
+    ) -> dict[str, object]:
+        args = supervision_log.parser().parse_args(
+            [
+                "decision-gate",
+                "--target-thread",
+                self.target,
+                "--decision-id",
+                self.decision,
+                "--now",
+                now,
+            ]
+        )
+        output = io.StringIO()
+        with (
+            mock.patch.object(
+                supervision_log, "load_policy", return_value=(directory, policy)
+            ),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_decision_gate(args)
+        return json.loads(output.getvalue())
+
+    def test_default_policy_has_fixed_continuation_first_contract(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        contract = policy["decision_resolution"]
+
+        self.assertTrue(contract["continuation_first"])
+        self.assertEqual(contract["human_response_minutes"], 20)
+        self.assertEqual(contract["attempt_minutes"], 20)
+        self.assertEqual(contract["max_attempts"], 3)
+        self.assertEqual(contract["attempt_model"], "gpt-5.6-sol")
+        self.assertEqual(contract["attempt_reasoning"], "max")
+
+    def test_delegable_decision_resolves_immediately_without_human_wait(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = supervision_log.default_policy(self.init_args())
+            self.record(directory, policy, classification="delegable", phase="decision-ready")
+
+            result = self.gate(directory, policy, "2026-08-01T12:00:00+00:00")
+
+            self.assertEqual(result["action"], "resolve-immediately-and-continue")
+            self.assertTrue(result["must_continue_safe_frontier"])
+            self.assertFalse(result["notification_send_now"])
+            self.assertFalse(result["blocking_permitted"])
+
+    def test_human_window_keeps_safe_work_running_then_starts_max(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = supervision_log.default_policy(self.init_args())
+            policy["notifications"]["gmail_priority"].update(
+                {"enabled": True, "reply_message_id": "gmail-priority-1234"}
+            )
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="decision-ready",
+            )
+
+            waiting = self.gate(directory, policy, "2026-08-01T12:19:59+00:00")
+            timed_out = self.gate(directory, policy, "2026-08-01T12:20:00+00:00")
+
+            self.assertEqual(waiting["action"], "await-user-and-continue-safe-frontier")
+            self.assertTrue(waiting["must_continue_safe_frontier"])
+            self.assertTrue(waiting["notification_send_now"])
+            self.assertEqual(timed_out["action"], "start-sol-max-attempt")
+            self.assertEqual(timed_out["next_attempt"], 1)
+
+    def test_three_unresolved_attempts_force_selection_for_preference(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = supervision_log.default_policy(self.init_args())
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="decision-ready",
+            )
+            for attempt in (1, 2, 3):
+                self.record(
+                    directory,
+                    policy,
+                    classification="human-preference",
+                    phase="attempt-started",
+                    attempt=attempt,
+                    now=f"2026-08-01T1{attempt + 1}:00:00+00:00",
+                )
+                self.record(
+                    directory,
+                    policy,
+                    classification="human-preference",
+                    phase="attempt-unresolved",
+                    attempt=attempt,
+                    now=f"2026-08-01T1{attempt + 1}:20:00+00:00",
+                )
+
+            result = self.gate(directory, policy, "2026-08-01T14:20:00+00:00")
+
+            self.assertEqual(result["action"], "choose-and-handoff")
+            self.assertEqual(result["attempt"], 3)
+            self.assertFalse(result["blocking_permitted"])
+
+    def test_three_unresolved_attempts_safe_defer_missing_fact(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = supervision_log.default_policy(self.init_args())
+            self.record(
+                directory,
+                policy,
+                classification="missing-fact",
+                phase="decision-ready",
+                safe_frontier="empty",
+            )
+            for attempt in (1, 2, 3):
+                self.record(
+                    directory,
+                    policy,
+                    classification="missing-fact",
+                    phase="attempt-started",
+                    safe_frontier="empty",
+                    attempt=attempt,
+                    now=f"2026-08-01T1{attempt + 1}:00:00+00:00",
+                )
+                self.record(
+                    directory,
+                    policy,
+                    classification="missing-fact",
+                    phase="attempt-unresolved",
+                    safe_frontier="empty",
+                    attempt=attempt,
+                    now=f"2026-08-01T1{attempt + 1}:20:00+00:00",
+                )
+
+            result = self.gate(directory, policy, "2026-08-01T14:20:00+00:00")
+
+            self.assertEqual(result["action"], "safe-defer-and-handoff")
+            self.assertFalse(result["blocking_permitted"])
+
+    def test_delegable_decision_cannot_start_resolution_attempt(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = supervision_log.default_policy(self.init_args())
+            self.record(directory, policy, classification="delegable", phase="decision-ready")
+
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "delegable decision must resolve immediately",
+            ):
+                self.record(
+                    directory,
+                    policy,
+                    classification="delegable",
+                    phase="attempt-started",
+                    attempt=1,
+                )
 
 
 if __name__ == "__main__":

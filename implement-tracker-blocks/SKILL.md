@@ -53,6 +53,32 @@ the deadline/first dependent Block, and the scope it alone blocks. Continue all
 safe, independent, pre-decision work; do not wait until the stop boundary to
 give the first warning.
 
+When input genuinely remains unresolved, treat it as a dependency cut rather
+than a full-run stop:
+
+1. Freeze the exact decision packet and classify it as delegable judgment,
+   unresolved human preference, missing fact, or reserved authority.
+2. Identify the smallest blocked subject set and compute its exact descendant
+   closure through the tracker's existing dependencies.
+3. Compute the maximal safe-work frontier. Continue common work shared by all
+   alternatives, unaffected subjects and Blocks, reversible preparation, tests,
+   and evidence that do not consume the unresolved answer.
+4. Mark the bounded decision or subjects `waiting-for-input`; keep the Block
+   `in-progress` or `completed-with-open-items`. Never present provisional work,
+   an excluded subject set, or a branch alternative as accepted authority.
+5. Recompute the frontier when the decision, dependencies, or currentness change.
+   Late input selectively reopens only mapped descendants and must not duplicate
+   already valid work.
+
+For a supervised run, keep working during the maintained 20-minute response
+window. If no response arrives, consume up to three bounded Sol Max resolution
+attempts of at most 20 minutes each without idle waits between attempts. A
+delegable choice or unresolved preference ends in a supported selection and
+exact handoff. A missing fact or reserved action ends in a safe bounded deferral,
+not an invented fact or unauthorized operation. Apply the handoff at the next
+safe boundary and preserve its trade-offs, exclusions, and downstream
+obligations.
+
 Choose the smallest reliable causal path. Reuse current manifests, indexes,
 snapshots, exact source copies, prior accepted reviews, and configured runtimes.
 Use a cheap exact revision/root/currentness check before a deep scan or
@@ -96,6 +122,12 @@ a preferred confirmation, generic confidence request, unresolved but bounded
 engineering choice, or work that can proceed independently into a full-run
 stop. If the requested response would only repeat the system's recommended
 candidate and rationale, proceed under standing authorization instead.
+An empty current action queue is not proof of a blocker: first compute the
+dependency-independent safe frontier across the user's requested Block range.
+If it is nonempty, continuing it is mandatory. For a one-Block request, remain
+inside that Block; for a requested range, a later dependency-independent slice
+may proceed only with the unresolved subjects expressly excluded and without
+marking the earlier Block accepted.
 
 ## Apply a live supervision correction
 
@@ -197,6 +229,13 @@ For each subsequent block in the requested range:
 3. implement, validate, independently review where required, and update
    evidence;
 4. audit it before advancing again.
+
+The only exception to whole-Block sequential acceptance is a declared
+continuation slice around a bounded unresolved input. It must have no dependency
+on the unresolved answer, preserve the earlier Block's non-accepted posture,
+forbid dependent promotion/freeze/release, and record exact exclusions and the
+rejoin condition. This is dependency-respecting continuation, not silent Block
+skipping.
 
 End with a concise outcome: completed blocks, material files changed,
 validation and review evidence, preserved open items, and the next eligible

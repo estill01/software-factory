@@ -125,6 +125,16 @@ particular:
 - If a later requirement materially changes an accepted earlier invariant,
   append a bounded remediation block or preserved remediation delta rather than
   rewriting historical evidence.
+- Treat an unresolved decision as a bounded dependency cut, not a global stop.
+  Record the exact blocked subjects, descendant closure, nonempty safe frontier,
+  provisional/common work permitted, authoritative effects forbidden, and
+  revisit trigger. Dependency-independent slices may continue without marking
+  the blocked Block or excluded subjects accepted.
+- Use `waiting-for-input` for the bounded decision/item posture. Keep the Block
+  `in-progress` or `completed-with-open-items` while safe work remains. A whole
+  Block or run may be `blocked` only after the safe frontier is proven empty and
+  the maintained resolution/default protocol cannot produce an authorized
+  selection or safe deferral.
 
 ## Tracker-level sections
 
@@ -136,6 +146,7 @@ Use only those that improve execution:
 - Prior-work/source-adaptation map
 - Scope, non-goals, and proportionality
 - Block execution contract
+- Decision and continuation contract
 - Completion-evidence template
 - Status and required order
 - Blocks

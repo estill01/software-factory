@@ -138,6 +138,20 @@ Repeat independently for additional targets.
   early while safe work continues. Use the ordinary primary user-action lane
   for this advance notice; reserve the dedicated priority lifecycle thread for
   an actual `blocked`, `failed`, or explicit `stopped` transition.
+- Treat continuation as the default while a genuine decision remains open.
+  Require the target to freeze the decision packet, exact blocked subjects and
+  descendant closure, and maximal safe-work frontier. If that frontier is
+  nonempty, target idleness or a whole-run wait is a high-severity supervision
+  defect: steer the target to continue the independent slice and keep the
+  incident open until resumed evidence exists. Provisional/common work may not
+  be promoted or called accepted.
+- Record and drive genuine decisions through `decision-record` and
+  `decision-gate`. Allow 20 minutes for a user response while safe work
+  continues, then route up to three consecutive Sol Max attempts, each capped at
+  20 minutes. Stop early on resolution. After the third attempt, select and
+  proceed for delegated judgment or human preference; for a missing fact or
+  reserved authority, hand off an exact safe deferral. Never fabricate a fact or
+  self-authorize a reserved action.
 - Treat every unresolved Important/Critical notice as an incident, not a
   terminal notification. Route it immediately to the event-driven Sol XHigh
   notice reviewer. A corrective steer changes the incident to
@@ -189,6 +203,11 @@ Repeat independently for additional targets.
 
 - Record every bounded check as one compact JSONL event. Create Markdown only for
   material incidents and effectiveness reviews.
+- Keep decision timing and continuation evidence in the same JSONL ledger:
+  classification, decision-ready/deadline times, attempt number, packet hash,
+  blocked-scope hash, safe-frontier hash/posture, disposition, handoff, and
+  target acknowledgement. Do not add a decision ledger or copy substantive
+  packet content into supervision records.
 - Use only `scripts/supervision_log.py` for supervisor filesystem writes. Never
   place patent prose, project paths, credentials, prompts, or copied tool output
   in supervision records.
@@ -259,6 +278,13 @@ Repeat independently for additional targets.
   when the email carries this explicitly authorized brief. Send before applying
   any stop-condition pause; the four-hour
   reviewer repairs a missing priority or ordinary lifecycle notification.
+- Use the same dedicated priority thread for a genuinely non-delegable
+  decision-ready notice and its automatic-resolution phase changes. The initial
+  notice states that safe work continues, gives the 20-minute response deadline,
+  and includes the complete decision brief. Send phase updates only when the
+  helper makes them eligible: automatic resolution started, final disposition,
+  and target resumed. A procedural or immediately delegable choice does not
+  generate a human-input notice.
 - Start every notification with the monitored project, target, writer role, and
   job being performed. A role that does not own email delivery escalates to the
   owning writer instead of sending a competing message.
@@ -303,8 +329,11 @@ Repeat independently for additional targets.
 
 ## Pause, resume, or stop
 
-- Pause all project supervision automations when the target completes, awaits user input for a
-  material decision, becomes inactive, or the user requests a pause.
+- Pause all project supervision automations when the target completes, becomes
+  genuinely inactive after the decision protocol and safe-frontier check, or the
+  user requests a pause. Do not pause merely because a material decision awaits
+  user input; the watcher must continue the timed resolution protocol and verify
+  safe-frontier progress.
 - Before pausing supervision for a blocked, failed, or explicitly stopped
   target, ensure its deduplicated priority-thread lifecycle email was sent.
   Before pausing for a completed or noncritical paused target, ensure its
@@ -314,6 +343,10 @@ Repeat independently for additional targets.
   decision-ready packet has been exposed, and all safe scoped work is exhausted.
   Otherwise steer the target to continue or narrow the stop. Record when the
   blocker was first foreseeable and when it became decision-ready.
+- A nonempty safe-work frontier makes a blocked posture invalid. After the timed
+  protocol, missing facts and reserved actions use safe deferral; a full stop is
+  permitted only when that deferral still leaves the declared terminal outcome
+  impossible and the exact safe frontier is empty.
 - The necessity review asks what new fact, preference, reserved judgment, or
   authority the user response contributes. If it adds none and only repeats the
   system's sole eligible reviewed recommendation, classify the stop as

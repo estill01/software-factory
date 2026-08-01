@@ -72,6 +72,15 @@ failure tied to this tracker's objective.
     changed-during-validation runs diagnostic.
 11. Audit and accept one Block before advancing, then stop rather than search
     for optional hardening.
+12. A genuine input dependency blocks only its exact subjects and descendant
+    closure. Record its decision packet, blocked-scope root, safe-frontier root,
+    permitted provisional/common work, prohibited authority effects, and revisit
+    trigger; continue every dependency-independent slice. Do not mark a Block or
+    run blocked while the safe frontier is nonempty.
+13. For supervised input gates, wait at most 20 minutes for user guidance while
+    safe work continues, then run up to three bounded 20-minute Sol Max attempts.
+    Select and proceed only within delegated authority; otherwise use a bounded
+    safe deferral with the missing fact or reserved action explicit.
 
 ### Completion-evidence template
 
@@ -89,6 +98,8 @@ failure tied to this tracker's objective.
 - Resource posture: `<bounds, actual use, widening or not-applicable>`
 - Independent review: `<evidence or not-applicable with reason>`
 - Retained open work: `<items or none>`
+- Decision/continuation posture: `<decision packet, blocked scope, safe frontier,
+  timed attempts, handoff, resumed evidence, or not-applicable>`
 - Post-block audit: `<accepted, reopened, or blocked with reason>`
 - Git durability: `<commit and push posture>`
 ```

@@ -4,6 +4,7 @@
 
 - [Defaults](#defaults)
 - [Execution economy and reusable maintenance](#execution-economy-and-reusable-maintenance)
+- [Continuation-first decision resolution](#continuation-first-decision-resolution)
 - [Target-state fingerprint](#target-state-fingerprint)
 - [Gmail notification and closed-loop review](#gmail-notification-channel)
 - [Role prompts](#watcher-role-prompt)
@@ -38,6 +39,9 @@
 - Roundup writer when enabled: `gpt-5.6-sol`, reasoning `xhigh`, at 7:00 AM,
   1:00 PM, 5:00 PM, and 11:00 PM in `America/Los_Angeles` (Pacific time,
   DST-aware), using a separate persistent project roundup email thread.
+- Genuine input window: 20 minutes while all safe work continues.
+- Automatic decision resolution: `gpt-5.6-sol`, reasoning `max`, at most three
+  consecutive attempts of at most 20 minutes each.
 
 The scheduled wake is not a polling loop. Between runs, no model is active. A
 single scheduled run uses one configured model. Terra routes every changed state
@@ -150,6 +154,43 @@ reference. `bind` or resume backfills a missing economy contract and
 allowlisted skill maintenance. Refresh the existing role and heartbeat prompts
 after that policy update and before the next target check.
 
+## Continuation-first decision resolution
+
+An unresolved decision is a bounded dependency cut, not a default reason to
+stop a tracker run. At decision readiness, classify it as `delegable`,
+`human-preference`, `missing-fact`, or `reserved-authority`; freeze the exact
+decision packet, blocked subject/descendant closure, and maximal safe-work
+frontier through `decision-record`.
+
+- Resolve `delegable` choices immediately under standing authority. Do not ask
+  for a rubber stamp or start a timer.
+- For the other classes, send the complete priority-thread decision brief and
+  allow 20 minutes for user input while the target continues every independent
+  safe slice.
+- At timeout, run Sol Max attempt 1 for no more than 20 minutes. If unresolved,
+  start attempts 2 and 3 without another idle human-wait interval. Each attempt
+  must test the governing objectives and evidence anew; stop early when one
+  resolves the decision.
+- After attempt 3, select and hand off the best supported path for a delegated
+  judgment or human preference. For a missing fact or reserved action, hand off
+  a bounded safe deferral that preserves the unknown/authority boundary and
+  continues unaffected work. Never fabricate the fact or self-authorize filing,
+  release, communication, credentials, budget, destructive ambiguity, or
+  counsel-reserved action.
+
+Use `decision-gate` at each watcher wake and after every decision event. Its
+`must_continue_safe_frontier` result is mandatory. A target that is idle or
+claims a whole-run block while this value is true has a high-severity
+continuation defect. Steer it in place and keep the incident open until target
+evidence proves resumed work. Dependency-independent later slices may run only
+when expressly requested by the tracker range, with the unresolved subjects
+excluded and no false acceptance, promotion, freeze, or release.
+
+Keep decision timing, packet/scope/frontier hashes, attempts, disposition,
+handoff, and target acknowledgement in the existing content-minimized JSONL
+ledger. Substantive alternatives and rationale remain in the tracker/project's
+existing decision owners. Do not add a second decision ledger or status service.
+
 ## Target-state fingerprint
 
 Construct a content-minimized fingerprint from the target thread ID and the
@@ -199,6 +240,11 @@ Email is an alert projection, not another authority or complete event mirror:
   `completed` or noncritical `paused` on the primary thread. This is a status
   transition, not an incident-importance judgment. Deduplicate it by exact
   lifecycle source record and target-state fingerprint.
+- Send a priority decision email when `decision-gate` makes a genuine
+  decision-ready phase eligible. State the response deadline and that safe work
+  continues. Use the same thread for eligible automatic-resolution-started,
+  final-disposition, and target-resumed phases; do not send a user-input alert
+  for a delegable or procedural choice.
 - Send immediately only for a critical condition, genuine user action or
   decision, blocked or failed remediation, or a supported corrective steer that
   was issued. A material incident is not automatically an urgent email.
@@ -303,6 +349,16 @@ or defer` instruction without this brief is not an adequate decision notice.
 Never substitute the primary or roundup
 thread for an absent priority binding. Record the returned Gmail ID with
 category `gmail-priority-lifecycle`.
+
+For an eligible decision phase, obey `decision-gate`'s exact source record,
+banner, category, deduplication key, and priority seed. The decision-ready body
+contains the exact question, recommendation and why, material alternatives,
+trade-offs/uncertainties, consequences, response options, authoritative detail
+link, 20-minute deadline, blocked scope, and a concise statement of the safe
+work continuing in parallel. The automatic-resolution notice names the Sol Max
+attempt contract; the final notice states selected or safely deferred posture;
+the resume notice cites target acknowledgement. Record each receipt as
+`gmail-priority-decision` without copying substantive content into the ledger.
 
 For `completed` or noncritical `paused`, use the same lifecycle event and gate,
 but send `IMPLEMENTATION STATUS` to the primary seed and record category
@@ -555,9 +611,10 @@ substitute your own narrower objective for the user's instruction.
 
 ## Dedicated blocked/stopped priority channel
 
-When enabled, maintain exactly one notification-only priority Gmail thread per
-monitored project. It carries only exact `blocked`, `failed`, and explicit
-`stopped` lifecycle transitions. It is immediate, unmistakable, and separate
+When enabled, maintain exactly one priority Gmail thread per monitored project.
+It carries exact `blocked`, `failed`, and explicit `stopped` lifecycle
+transitions plus the bounded genuine-decision phases returned by
+`decision-gate`. It is immediate, unmistakable, and separate
 from incident discussion, user-reply processing, ordinary completion/paused
 status, digests, and roundups. It reuses the lifecycle event, gate, and outbound
 ledger; it is not another monitor, incident owner, status authority, or polling
@@ -692,7 +749,18 @@ At each scheduled wake:
    primary-thread user-action notice while safe work continues. Do not treat an
    ordinary bounded implementation choice as a user gate and do not use the
    priority lifecycle thread before an actual stop.
-7. When the compact status or newest target turn explicitly reports that the
+7. Read `status` for open decision heads. For each one, call `decision-gate`.
+   If it returns `must_continue_safe_frontier=true`, verify the target is
+   advancing that exact independent frontier; idle waiting is a high-severity
+   defect and requires a narrow continuation steer. If the action is
+   `start-sol-max-attempt`, send the exact decision packet references, attempt
+   number, deadline, and classification to Sol Max. If it is
+   `record-attempt-unresolved`, require the attempt result to be recorded and
+   immediately gate the next attempt. If it is `choose-and-handoff` or
+   `safe-defer-and-handoff`, route the final bounded disposition to Sol Max.
+   Send only helper-approved priority phase notices and keep the incident open
+   until target acknowledgement.
+8. When the compact status or newest target turn explicitly reports that the
    implementation entered `completed`, `paused`, `blocked`, `failed`, or explicit `stopped`, record one
    deduplicated `lifecycle` event for that state and fingerprint, call
    `lifecycle-gate`, and, when permitted, use its exact channel and seed. Send
@@ -741,6 +809,9 @@ Ask what new fact, preference, reserved judgment, or authority the requested
 response contributes. If it contributes none and only repeats the sole eligible
 reviewed recommendation, the stop is procedural: route an in-place correction
 and require narrow continuation instead of waiting for a rubber stamp.
+A nonempty safe frontier categorically invalidates a full-run block. A genuine
+decision does not pause this watcher: maintain the 20-minute user window, three
+bounded Sol Max attempts, priority phase notices, and target-resume verification.
 ```
 
 ## Semantic base-reviewer role prompt
@@ -776,6 +847,10 @@ For each changed-state packet:
    evidence of necessity. If the requested reply would only repeat the sole
    eligible, independently reviewed recommendation and rationale, classify the
    stop as a supported procedural blocker rather than a genuine user decision.
+   For a genuine decision, verify the blocked descendant closure and maximal
+   safe frontier. Treat target idleness with a nonempty frontier, provisional
+   work presented as accepted, or broad invalidation outside the closure as a
+   supported concern.
 3. Classify the state as no supported intervention, supported concern, material
    uncertainty/trade-off, or checkpoint/major-plan transition.
 4. For a concern or uncertainty, send a concise evidence-bound escalation to Sol
@@ -840,6 +915,20 @@ non-delegable, require a decision-ready packet before accepting the stop and,
 when priority decision context is enabled, ensure the alert contains every
 required decision field rather than a bare `adopt, reject, or defer` request.
 
+For a `decision-gate` resolution attempt, use Sol Max for at most the maintained
+20-minute ceiling. Attempt 1 reconstructs the best answer from governing
+objectives and exact evidence. If unresolved, attempt 2 adversarially challenges
+assumptions and alternatives. Attempt 3 applies the maintained non-scalar
+tie-break: reject unsupported/boundary-crossing options; preserve root
+objectives, evidence ceilings, optionality, and reversibility; prefer the
+narrowest supported effect; retain alternatives and reopen triggers. Stop early
+on resolution. After attempt 3, choose and hand off a supported delegated path,
+or safe-defer a missing fact/reserved action. Do not invent facts or authority.
+Every handoff names the decision/packet identity, disposition, rationale hash,
+constraints, downstream obligations, blocked/safe scope roots, and attempt.
+Keep the incident open until the target records acknowledgement and resumed
+evidence.
+
 For an escalation from the Sol XHigh base reviewer, independently assess the
 cited concern or uncertainty and own the final intervention decision.
 
@@ -892,6 +981,9 @@ Also inspect open-incident heads for missing notice adjudication, missing later
 evidence checks, a steer incorrectly treated as resolution, or a required Gmail
 outcome that was never sent. Route stale open incidents to the notice reviewer
 instead of inventing a parallel review path.
+Also inspect open decision heads and their gate results. Repair missed deadlines,
+unstarted or overlong attempts, absent priority phase notices, idle targets with
+safe work, missing handoffs, and decisions lacking target acknowledgement.
 Independently inspect the latest explicit target lifecycle posture and the
 helper's `last_lifecycle` plus outbound ledger. If a completed, paused, blocked,
 failed, or explicit stopped transition lacks its required email, record or reuse
@@ -986,6 +1078,10 @@ conclusions. Avoid feature creep and solve only supported supervision defects.
 Inspect every open incident head for a missing notice review, missing next-state
 verification, or missing same-thread outcome. Route such gaps to
 <NOTICE_REVIEWER_THREAD_ID> rather than duplicating its adjudication.
+Inspect every open decision head through `decision-gate`. Correct a missed
+20-minute deadline, missing Sol Max attempt, idle target with a nonempty safe
+frontier, unrecorded disposition/handoff, missing phase notification, or absent
+target acknowledgement. Do not pause supervision while this protocol is active.
 Also reconcile the latest explicit target lifecycle posture against
 `last_lifecycle` and the outbound ledger. Immediately repair any missing
 completed/noncritical-paused primary status or blocked/failed/stopped priority
@@ -1156,6 +1252,24 @@ banner, and deduplication key. Never fall back from a missing priority binding
 to the primary or roundup seed. When `decision_context_required` is true, the
 email must include every returned `required_decision_fields` entry.
 
+Record and gate one continuation-first decision:
+
+```bash
+python3 <LOG_HELPER> decision-record --target-thread <TARGET> \
+  --decision-id <DECISION_ID> \
+  --classification <delegable|human-preference|missing-fact|reserved-authority> \
+  --phase decision-ready --safe-frontier <empty|nonempty> --attempt 0 \
+  --decision-packet-hash <HASH> --blocked-scope-hash <HASH> \
+  --safe-frontier-hash <HASH> --evidence <SOURCE_RECORD>
+python3 <LOG_HELPER> decision-gate --target-thread <TARGET> \
+  --decision-id <DECISION_ID>
+```
+
+Record `attempt-started`, `attempt-unresolved`, `resolved`, `safe-deferred`,
+`handoff-sent`, and `target-acknowledged` as append-only successor phases. Use
+the gate's exact action, attempt, deadline, priority-notification fields, and
+`must_continue_safe_frontier` result.
+
 After a successful self-email reply, record its delivery:
 
 ```bash
@@ -1215,10 +1329,13 @@ belong in the existing role threads.
 
 ## Stop conditions
 
-Pause all project supervision automations when the target is complete, blocked on user authority,
-inactive beyond the maintained threshold, or explicitly paused. A watcher may
+Pause all project supervision automations when the target is complete, genuinely
+inactive after the decision protocol with an empty safe frontier, or explicitly
+paused. A watcher may
 report the terminal condition, but it must not delete logs or archive threads
 unless the user requested it.
 Before an applicable pause, ensure blocked/failed/stopped has its deduplicated
 priority-thread lifecycle email and completed/noncritical-paused has its
 deduplicated primary-thread status email.
+Do not pause for an open decision. Continue the timed resolution state machine,
+priority phase delivery, safe-frontier verification, and target acknowledgement.

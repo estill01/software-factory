@@ -87,6 +87,18 @@ rather than recreating the document shape from memory.
    Place decision readiness before the hard stop whenever dependencies permit;
    never let an ordinary implementation choice become a user gate merely
    because the tracker author did not choose a bounded default.
+17. Make every genuine input gate continuation-first. Define the exact blocked
+    subject set and descendant dependency closure, the independent safe-work
+    frontier, work that may be prepared provisionally or across alternatives,
+    authoritative effects that remain forbidden, and the revisit trigger. A
+    pending fact, preference, or reserved action blocks only its mapped closure.
+    Keep the Block `in-progress` or `completed-with-open-items` while independent
+    work continues; do not claim `blocked` while a nonempty safe frontier exists.
+    For supervised runs, use the maintained 20-minute human-response window and
+    up to three 20-minute Sol Max resolution attempts. The final posture is a
+    supported selection within delegated authority or a bounded safe deferral
+    for an unavailable fact or reserved action—never a fabricated fact or
+    unauthorized act.
 
 Use concise boilerplate. Do not duplicate a global rule inside every block;
 reference the governing section and add only the block-specific consequence.
@@ -107,6 +119,9 @@ Before finalizing each Block, apply this feature-creep test:
 - Would the requested user response contribute new information or authority, or
   merely rubber-stamp the system's single eligible reviewed recommendation? A
   rubber stamp is not a valid gate.
+- If input genuinely remains necessary, does the tracker isolate its exact
+  dependency cone and let every independent safe slice continue without false
+  acceptance or provisional authority effects?
 
 If any answer is no, narrow the Block, reuse the owner, defer the adjacent work,
 or create a later single-focused Block when that work is genuinely required.

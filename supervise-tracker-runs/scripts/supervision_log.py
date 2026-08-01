@@ -29,6 +29,7 @@ KINDS = {
     "notification",
     "inbound-message",
     "roundup",
+    "decision",
 }
 STANDARD_LIFECYCLE_STATES = {"completed", "paused"}
 PRIORITY_LIFECYCLE_STATES = {"blocked", "failed", "stopped"}
@@ -84,6 +85,24 @@ EXECUTION_ECONOMY_DIMENSIONS = [
     "stability",
     "stopping",
 ]
+DECISION_CLASSIFICATIONS = {
+    "delegable",
+    "human-preference",
+    "missing-fact",
+    "reserved-authority",
+}
+DECISION_PHASES = {
+    "decision-ready",
+    "user-responded",
+    "attempt-started",
+    "attempt-unresolved",
+    "resolved",
+    "safe-deferred",
+    "handoff-sent",
+    "target-acknowledged",
+}
+SAFE_FRONTIER_POSTURES = {"empty", "nonempty"}
+DECISION_OUTCOMES = {"", "selected", "safe-deferred", "user-supplied"}
 
 
 class SupervisionLogError(RuntimeError):
@@ -114,6 +133,32 @@ def skill_maintenance_contract(mode: str = "propose-only") -> dict[str, Any]:
     }
 
 
+def decision_resolution_contract() -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "continuation_first": True,
+        "blocking_requires_empty_safe_frontier": True,
+        "human_response_minutes": 20,
+        "attempt_model": "gpt-5.6-sol",
+        "attempt_reasoning": "max",
+        "attempt_minutes": 20,
+        "max_attempts": 3,
+        "start_next_attempt_without_idle_wait": True,
+        "final_disposition": {
+            "delegable": "select-and-proceed",
+            "human-preference": "select-and-proceed",
+            "missing-fact": "safe-defer-with-open-fact",
+            "reserved-authority": "safe-defer-with-open-authority",
+        },
+        "priority_phase_notifications": [
+            "decision-ready",
+            "automatic-resolution-started",
+            "final-disposition",
+            "target-resumed",
+        ],
+    }
+
+
 def gmail_priority_contract() -> dict[str, Any]:
     return {
         "enabled": False,
@@ -122,7 +167,7 @@ def gmail_priority_contract() -> dict[str, Any]:
         "project_key": None,
         "reply_message_id": None,
         "subject": None,
-        "delivery_policy": "immediate-blocked-failed-stopped-only",
+        "delivery_policy": "immediate-genuine-decision-and-blocked-failed-stopped",
         "lifecycle_states": sorted(PRIORITY_LIFECYCLE_STATES),
         "banner": "🚨 IMPLEMENTATION BLOCKED / STOPPED 🚨",
         "decision_context_enabled": False,
@@ -145,6 +190,10 @@ def ensure_execution_economy_policy(policy: dict[str, Any]) -> bool:
     expected_economy = execution_economy_contract()
     if policy.get("execution_economy") != expected_economy:
         policy["execution_economy"] = expected_economy
+        changed = True
+    expected_decisions = decision_resolution_contract()
+    if policy.get("decision_resolution") != expected_decisions:
+        policy["decision_resolution"] = expected_decisions
         changed = True
     current_maintenance = policy.get("skill_maintenance")
     mode = (
@@ -175,6 +224,23 @@ def ensure_execution_economy_policy(policy: dict[str, Any]) -> bool:
 
 def utc_now() -> str:
     return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat()
+
+
+def parse_time(value: str | None) -> dt.datetime:
+    if not value:
+        return dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
+    normalized = value.strip().replace("Z", "+00:00")
+    try:
+        result = dt.datetime.fromisoformat(normalized)
+    except ValueError as exc:
+        raise SupervisionLogError("Time must be ISO-8601") from exc
+    if result.tzinfo is None:
+        raise SupervisionLogError("Time must include a timezone")
+    return result.astimezone(dt.timezone.utc).replace(microsecond=0)
+
+
+def iso_time(value: dt.datetime) -> str:
+    return value.astimezone(dt.timezone.utc).replace(microsecond=0).isoformat()
 
 
 def canonical(value: Any) -> bytes:
@@ -301,6 +367,7 @@ def default_policy(args: argparse.Namespace) -> dict[str, Any]:
             "gmail_roundup_notification": False,
         },
         "execution_economy": execution_economy_contract(),
+        "decision_resolution": decision_resolution_contract(),
         "skill_maintenance": skill_maintenance_contract(),
         "notifications": {
             "gmail": {
@@ -376,6 +443,9 @@ def validate_policy(policy: dict[str, Any]) -> None:
     economy = policy.get("execution_economy")
     if economy is not None and economy != execution_economy_contract():
         raise SupervisionLogError("Execution-economy contract differs")
+    decisions = policy.get("decision_resolution")
+    if decisions is not None and decisions != decision_resolution_contract():
+        raise SupervisionLogError("Decision-resolution contract differs")
     priority = policy.get("notifications", {}).get("gmail_priority")
     if priority is not None:
         expected_priority = gmail_priority_contract()
@@ -391,6 +461,12 @@ def validate_policy(policy: dict[str, Any]) -> None:
             if key in {"decision_context_policy", "required_decision_fields"} and key not in priority:
                 # Additive decision-context fields are backfilled by `bind` so
                 # already-running supervisors can adopt the new contract in place.
+                continue
+            if (
+                key == "delivery_policy"
+                and priority.get(key) == "immediate-blocked-failed-stopped-only"
+            ):
+                # `bind` upgrades already-running supervisors in place.
                 continue
             if priority.get(key) != expected_priority[key]:
                 raise SupervisionLogError("Gmail priority lifecycle contract differs")
@@ -727,7 +803,7 @@ def cmd_bind(args: argparse.Namespace) -> None:
             "project_key": priority_project_key,
             "reply_message_id": priority_message_id,
             "subject": priority_subject,
-            "delivery_policy": "immediate-blocked-failed-stopped-only",
+            "delivery_policy": gmail_priority_contract()["delivery_policy"],
             "lifecycle_states": sorted(PRIORITY_LIFECYCLE_STATES),
             "banner": "🚨 IMPLEMENTATION BLOCKED / STOPPED 🚨",
         }
@@ -1241,6 +1317,323 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
     )
 
 
+def decision_events(
+    all_events: list[dict[str, Any]], decision_id: str
+) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in all_events
+        if item.get("kind") == "decision" and item.get("decision_id") == decision_id
+    ]
+
+
+def validate_decision_transition(
+    prior: dict[str, Any] | None,
+    *,
+    classification: str,
+    phase: str,
+    attempt: int,
+    outcome: str,
+) -> None:
+    if phase not in {"resolved", "safe-deferred", "handoff-sent", "target-acknowledged"} and outcome:
+        raise SupervisionLogError("Only a disposition or handoff may carry an outcome")
+    if prior is None:
+        if phase != "decision-ready" or attempt != 0 or outcome:
+            raise SupervisionLogError(
+                "A decision must begin decision-ready with attempt zero and no outcome"
+            )
+        return
+    if prior.get("classification") != classification:
+        raise SupervisionLogError("Decision classification cannot change")
+    prior_phase = prior.get("phase")
+    prior_attempt = int(prior.get("attempt", 0))
+    transitions = {
+        "decision-ready": {
+            "user-responded",
+            "attempt-started",
+            "resolved",
+            "safe-deferred",
+        },
+        "user-responded": {"resolved", "safe-deferred"},
+        "attempt-started": {
+            "attempt-unresolved",
+            "user-responded",
+            "resolved",
+            "safe-deferred",
+        },
+        "attempt-unresolved": {
+            "attempt-started",
+            "user-responded",
+            "resolved",
+            "safe-deferred",
+        },
+        "resolved": {"handoff-sent"},
+        "safe-deferred": {"handoff-sent"},
+        "handoff-sent": {"target-acknowledged"},
+        "target-acknowledged": set(),
+    }
+    if phase not in transitions.get(str(prior_phase), set()):
+        raise SupervisionLogError(
+            f"Decision transition {prior_phase!s} -> {phase!s} is not allowed"
+        )
+    if phase == "attempt-started":
+        if classification == "delegable":
+            raise SupervisionLogError("A delegable decision must resolve immediately")
+        if attempt != prior_attempt + 1:
+            raise SupervisionLogError("Decision attempts must be continuous")
+    elif attempt != prior_attempt:
+        raise SupervisionLogError("Only attempt-started may increment the attempt")
+    if phase == "attempt-unresolved" and prior_phase != "attempt-started":
+        raise SupervisionLogError("Only an active attempt may become unresolved")
+    if phase == "resolved" and outcome not in {"selected", "user-supplied"}:
+        raise SupervisionLogError("Resolved decisions require a selected outcome")
+    if phase == "safe-deferred" and outcome != "safe-deferred":
+        raise SupervisionLogError("Safe deferral requires the safe-deferred outcome")
+    if phase in {"handoff-sent", "target-acknowledged"}:
+        if outcome != prior.get("outcome"):
+            raise SupervisionLogError("Handoff must preserve the exact decision outcome")
+
+
+def cmd_decision_record(args: argparse.Namespace) -> None:
+    directory, policy = load_policy(args)
+    decision_id = safe_id(args.decision_id, label="decision ID")
+    classification = args.classification
+    phase = args.phase
+    safe_frontier = args.safe_frontier
+    outcome = args.outcome
+    attempt = int(args.attempt)
+    contract = policy["decision_resolution"]
+    if attempt < 0 or attempt > int(contract["max_attempts"]):
+        raise SupervisionLogError("Decision attempt is outside the maintained bound")
+    evidence_values = [
+        clean(item, label="evidence", maximum=160) for item in args.evidence
+    ]
+    if not evidence_values or not all(evidence_values):
+        raise SupervisionLogError("Decision records require nonempty exact evidence")
+    if len(evidence_values) > 12:
+        raise SupervisionLogError("Too many decision evidence references")
+    exact_hashes = {
+        "decision packet hash": args.decision_packet_hash,
+        "blocked scope hash": args.blocked_scope_hash,
+        "safe frontier hash": args.safe_frontier_hash,
+    }
+    for label, value in exact_hashes.items():
+        if not clean(value, label=label, maximum=128):
+            raise SupervisionLogError(f"{label.title()} is required")
+    now = parse_time(args.now)
+    with append_lock(directory):
+        all_events = events(directory / "events.jsonl")
+        prior_records = decision_events(all_events, decision_id)
+        prior = prior_records[-1] if prior_records else None
+        if (
+            prior is not None
+            and prior.get("classification") == classification
+            and prior.get("phase") == phase
+            and prior.get("safe_frontier") == safe_frontier
+            and int(prior.get("attempt", 0)) == attempt
+            and prior.get("outcome", "") == outcome
+            and prior.get("state_fingerprint", "")
+            == clean(
+                args.state_fingerprint,
+                label="state fingerprint",
+                maximum=128,
+            )
+            and prior.get("decision_packet_hash") == args.decision_packet_hash
+            and prior.get("blocked_scope_hash") == args.blocked_scope_hash
+            and prior.get("safe_frontier_hash") == args.safe_frontier_hash
+            and prior.get("evidence") == evidence_values
+        ):
+            print(
+                json.dumps(
+                    {"duplicate": True, "record_id": prior["record_id"]},
+                    sort_keys=True,
+                )
+            )
+            return
+        validate_decision_transition(
+            prior,
+            classification=classification,
+            phase=phase,
+            attempt=attempt,
+            outcome=outcome,
+        )
+        if phase == "decision-ready":
+            decision_ready_at = iso_time(now)
+            wait_minutes = 0 if classification == "delegable" else int(
+                contract["human_response_minutes"]
+            )
+            deadline_at = iso_time(now + dt.timedelta(minutes=wait_minutes))
+        elif phase == "attempt-started":
+            decision_ready_at = str(prior["decision_ready_at"])
+            deadline_at = iso_time(
+                now + dt.timedelta(minutes=int(contract["attempt_minutes"]))
+            )
+        else:
+            decision_ready_at = str(prior["decision_ready_at"])
+            deadline_at = ""
+        record: dict[str, Any] = {
+            "schema_version": 1,
+            "record_id": f"EVT-{len(all_events) + 1:06d}",
+            "timestamp": iso_time(now),
+            "target_thread_id": args.target_thread,
+            "kind": "decision",
+            "decision_id": decision_id,
+            "classification": classification,
+            "phase": phase,
+            "safe_frontier": safe_frontier,
+            "attempt": attempt,
+            "outcome": outcome,
+            "decision_ready_at": decision_ready_at,
+            "deadline_at": deadline_at,
+            "decision_packet_hash": clean(
+                args.decision_packet_hash,
+                label="decision packet hash",
+                maximum=128,
+            ),
+            "blocked_scope_hash": clean(
+                args.blocked_scope_hash,
+                label="blocked scope hash",
+                maximum=128,
+            ),
+            "safe_frontier_hash": clean(
+                args.safe_frontier_hash,
+                label="safe frontier hash",
+                maximum=128,
+            ),
+            "state_fingerprint": clean(
+                args.state_fingerprint,
+                label="state fingerprint",
+                maximum=128,
+            ),
+            "evidence": evidence_values,
+            "policy_sha256": policy["policy_sha256"],
+        }
+        append_raw_locked(directory / "events.jsonl", record)
+    print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
+
+
+def decision_notification(
+    policy: dict[str, Any],
+    all_events: list[dict[str, Any]],
+    head: dict[str, Any],
+    action: str,
+) -> dict[str, Any]:
+    phase = ""
+    if head["phase"] == "decision-ready" and head["classification"] != "delegable":
+        phase = "decision-ready"
+    elif head["phase"] == "attempt-started" and int(head["attempt"]) == 1:
+        phase = "automatic-resolution-started"
+    elif head["phase"] in {"resolved", "safe-deferred"}:
+        phase = "final-disposition"
+    elif head["phase"] == "target-acknowledged":
+        phase = "target-resumed"
+    source_record = str(head["record_id"])
+    category = "gmail-priority-decision"
+    dedup_key = f"{category}:{source_record}:{phase}"
+    duplicate = any(
+        item.get("kind") == "notification"
+        and item.get("category") == category
+        and (
+            item.get("dedup_key") == dedup_key
+            or source_record in item.get("evidence", [])
+        )
+        for item in all_events
+    )
+    priority = policy.get("notifications", {}).get("gmail_priority", {})
+    send_now = bool(phase and priority.get("enabled") and not duplicate)
+    banners = {
+        "decision-ready": "🚨 HUMAN INPUT REQUESTED — WORK CONTINUES 🚨",
+        "automatic-resolution-started": "⚠️ AUTOMATIC DECISION RESOLUTION STARTED",
+        "final-disposition": "SUPERVISION DECISION OUTCOME",
+        "target-resumed": "IMPLEMENTATION RESUMED",
+    }
+    return {
+        "notification_phase": phase,
+        "notification_send_now": send_now,
+        "notification_duplicate": duplicate,
+        "notification_banner": banners.get(phase) if send_now else None,
+        "notification_category": category if send_now else None,
+        "notification_dedup_key": dedup_key if send_now else None,
+        "notification_reply_message_id": (
+            priority.get("reply_message_id") if send_now else None
+        ),
+        "notification_action": action,
+    }
+
+
+def cmd_decision_gate(args: argparse.Namespace) -> None:
+    directory, policy = load_policy(args)
+    decision_id = safe_id(args.decision_id, label="decision ID")
+    all_events = events(directory / "events.jsonl")
+    records = decision_events(all_events, decision_id)
+    if not records:
+        raise SupervisionLogError("Decision does not exist")
+    head = records[-1]
+    now = parse_time(args.now)
+    phase = str(head["phase"])
+    classification = str(head["classification"])
+    attempt = int(head.get("attempt", 0))
+    safe_work = head.get("safe_frontier") == "nonempty"
+    contract = policy["decision_resolution"]
+    if phase == "decision-ready":
+        deadline = parse_time(str(head["deadline_at"]))
+        if classification == "delegable":
+            action = "resolve-immediately-and-continue"
+        elif now < deadline:
+            action = "await-user-and-continue-safe-frontier"
+        else:
+            action = "start-sol-max-attempt"
+    elif phase == "attempt-started":
+        deadline = parse_time(str(head["deadline_at"]))
+        action = (
+            "continue-sol-max-attempt-and-safe-frontier"
+            if now < deadline
+            else "record-attempt-unresolved"
+        )
+    elif phase == "attempt-unresolved":
+        if attempt < int(contract["max_attempts"]):
+            action = "start-sol-max-attempt"
+        elif classification in {"delegable", "human-preference"}:
+            action = "choose-and-handoff"
+        else:
+            action = "safe-defer-and-handoff"
+    elif phase == "user-responded":
+        action = "resolve-user-response-and-handoff"
+    elif phase in {"resolved", "safe-deferred"}:
+        action = "send-exact-handoff"
+    elif phase == "handoff-sent":
+        action = "await-target-evidence-and-continue-safe-frontier"
+    else:
+        action = "closed"
+    next_attempt = attempt + 1 if action == "start-sol-max-attempt" else attempt
+    blocking_permitted = bool(
+        phase == "handoff-sent"
+        and head.get("outcome") == "safe-deferred"
+        and not safe_work
+        and classification in {"missing-fact", "reserved-authority"}
+    )
+    result = {
+        "decision_id": decision_id,
+        "source_record": head["record_id"],
+        "classification": classification,
+        "phase": phase,
+        "attempt": attempt,
+        "next_attempt": next_attempt,
+        "action": action,
+        "must_continue_safe_frontier": safe_work,
+        "safe_frontier": head["safe_frontier"],
+        "blocking_permitted": blocking_permitted,
+        "attempt_model": contract["attempt_model"],
+        "attempt_reasoning": contract["attempt_reasoning"],
+        "attempt_minutes": contract["attempt_minutes"],
+        "max_attempts": contract["max_attempts"],
+        "deadline_at": head.get("deadline_at", ""),
+        "policy_sha256": policy["policy_sha256"],
+    }
+    result.update(decision_notification(policy, all_events, head, action))
+    print(json.dumps(result, sort_keys=True))
+
+
 def cmd_adjust(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     reason = clean(args.reason, label="reason")
@@ -1508,6 +1901,15 @@ def cmd_status(args: argparse.Namespace) -> None:
     lifecycle_events = [
         item for item in all_events if item.get("kind") == "lifecycle"
     ]
+    decision_heads: dict[str, dict[str, Any]] = {}
+    for item in all_events:
+        if item.get("kind") == "decision" and item.get("decision_id"):
+            decision_heads[str(item["decision_id"])] = item
+    open_decisions = [
+        item
+        for item in decision_heads.values()
+        if item.get("phase") != "target-acknowledged"
+    ]
     print(
         json.dumps(
             {
@@ -1534,6 +1936,8 @@ def cmd_status(args: argparse.Namespace) -> None:
                 "last_lifecycle": (
                     lifecycle_events[-1] if lifecycle_events else None
                 ),
+                "decision_count": len(decision_heads),
+                "open_decisions": open_decisions,
             },
             sort_keys=True,
         )
@@ -1631,6 +2035,32 @@ def parser() -> argparse.ArgumentParser:
     lifecycle_gate.add_argument("--source-record", required=True)
     lifecycle_gate.add_argument("--state-fingerprint", default="")
     lifecycle_gate.set_defaults(func=cmd_lifecycle_gate)
+
+    decision_record = subparsers.add_parser("decision-record")
+    decision_record.add_argument("--target-thread", required=True)
+    decision_record.add_argument("--decision-id", required=True)
+    decision_record.add_argument(
+        "--classification", choices=sorted(DECISION_CLASSIFICATIONS), required=True
+    )
+    decision_record.add_argument("--phase", choices=sorted(DECISION_PHASES), required=True)
+    decision_record.add_argument(
+        "--safe-frontier", choices=sorted(SAFE_FRONTIER_POSTURES), required=True
+    )
+    decision_record.add_argument("--attempt", type=int, default=0)
+    decision_record.add_argument("--outcome", choices=sorted(DECISION_OUTCOMES), default="")
+    decision_record.add_argument("--decision-packet-hash", required=True)
+    decision_record.add_argument("--blocked-scope-hash", required=True)
+    decision_record.add_argument("--safe-frontier-hash", required=True)
+    decision_record.add_argument("--state-fingerprint", default="")
+    decision_record.add_argument("--evidence", action="append", required=True)
+    decision_record.add_argument("--now")
+    decision_record.set_defaults(func=cmd_decision_record)
+
+    decision_gate = subparsers.add_parser("decision-gate")
+    decision_gate.add_argument("--target-thread", required=True)
+    decision_gate.add_argument("--decision-id", required=True)
+    decision_gate.add_argument("--now")
+    decision_gate.set_defaults(func=cmd_decision_gate)
 
     gmail_gate = subparsers.add_parser("gmail-gate")
     gmail_gate.add_argument("--target-thread", required=True)

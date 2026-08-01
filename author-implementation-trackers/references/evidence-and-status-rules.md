@@ -19,6 +19,14 @@ Use `complete` only when an inherited tracker already distinguishes it from
 blocking finding, unresolved dependency, reserved decision, missing migration,
 or absent exact evidence remains explicit.
 
+`waiting-for-input` is normally a decision, subject, or work-slice posture—not a
+reason to mark an entire Block blocked. Bind it to the exact question, decision
+packet, affected subjects, blocked descendant closure, safe-work frontier,
+revisit trigger, and permitted default. Preserve provisional work separately
+from accepted authority effects. Use `blocked` only when the safe frontier is
+empty and no authorized selection or bounded safe deferral can advance the
+declared goal.
+
 ## Completion evidence
 
 For an implemented block, record the applicable subset of:
@@ -34,6 +42,8 @@ For an implemented block, record the applicable subset of:
 - independent review identity, evidence hash, findings, and corrected-revision
   recheck;
 - retained open work and explicit exclusions;
+- unresolved-decision identity, blocked-scope and safe-frontier hashes, timed
+  resolution posture, exact handoff, and resumed-target evidence when applicable;
 - post-block audit disposition;
 - push or remote-durability posture when repository policy requires it.
 
