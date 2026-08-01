@@ -125,6 +125,18 @@ def gmail_priority_contract() -> dict[str, Any]:
         "delivery_policy": "immediate-blocked-failed-stopped-only",
         "lifecycle_states": sorted(PRIORITY_LIFECYCLE_STATES),
         "banner": "🚨 IMPLEMENTATION BLOCKED / STOPPED 🚨",
+        "decision_context_enabled": False,
+        "decision_context_policy": "concise-decision-brief-when-user-action-required",
+        "required_decision_fields": [
+            "decision",
+            "recommendation",
+            "why-recommended",
+            "material-alternatives",
+            "tradeoffs-and-uncertainties",
+            "consequence-of-no-action",
+            "response-options",
+            "authoritative-detail-link",
+        ],
     }
 
 
@@ -367,7 +379,15 @@ def validate_policy(policy: dict[str, Any]) -> None:
     priority = policy.get("notifications", {}).get("gmail_priority")
     if priority is not None:
         expected_priority = gmail_priority_contract()
-        for key in ("recipient", "thread_scope", "delivery_policy", "lifecycle_states", "banner"):
+        for key in (
+            "recipient",
+            "thread_scope",
+            "delivery_policy",
+            "lifecycle_states",
+            "banner",
+            "decision_context_policy",
+            "required_decision_fields",
+        ):
             if priority.get(key) != expected_priority[key]:
                 raise SupervisionLogError("Gmail priority lifecycle contract differs")
         if priority.get("enabled"):
@@ -664,7 +684,13 @@ def cmd_bind(args: argparse.Namespace) -> None:
         "gmail_priority", gmail_priority_contract()
     )
     for key, value in gmail_priority_contract().items():
-        if key in {"enabled", "project_key", "reply_message_id", "subject"}:
+        if key in {
+            "enabled",
+            "project_key",
+            "reply_message_id",
+            "subject",
+            "decision_context_enabled",
+        }:
             continue
         if priority.get(key) != value:
             priority[key] = value
@@ -707,6 +733,14 @@ def cmd_bind(args: argparse.Namespace) -> None:
                 changed = True
         if policy["permissions"].get("gmail_priority_notification") is not True:
             policy["permissions"]["gmail_priority_notification"] = True
+            changed = True
+    if args.gmail_priority_decision_context:
+        if not priority.get("enabled") or not priority.get("reply_message_id"):
+            raise SupervisionLogError(
+                "Bind the Gmail priority seed before enabling decision context"
+            )
+        if priority.get("decision_context_enabled") is not True:
+            priority["decision_context_enabled"] = True
             changed = True
     inbound_binding_requested = any(
         (
@@ -1152,6 +1186,12 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
         "gmail_priority" if priority_lifecycle else "gmail", {}
     )
     enabled = bool(notification_config.get("enabled"))
+    user_action_required = source.get("user_action_required") == "yes"
+    decision_context_required = bool(
+        priority_lifecycle
+        and user_action_required
+        and notification_config.get("decision_context_enabled")
+    )
     send_now = enabled and not duplicate
     if duplicate:
         reason = "This lifecycle transition is already in the outbound ledger."
@@ -1174,6 +1214,12 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                     else "primary-status" if send_now else "none"
                 ),
                 "duplicate": duplicate,
+                "decision_context_required": decision_context_required,
+                "required_decision_fields": (
+                    notification_config.get("required_decision_fields", [])
+                    if decision_context_required
+                    else []
+                ),
                 "lifecycle_state": lifecycle_state,
                 "notification_category": category,
                 "notification_dedup_key": notification_key,
@@ -1523,6 +1569,7 @@ def parser() -> argparse.ArgumentParser:
     bind.add_argument("--gmail-priority-reply-message-id")
     bind.add_argument("--gmail-priority-project-key")
     bind.add_argument("--gmail-priority-subject")
+    bind.add_argument("--gmail-priority-decision-context", action="store_true")
     bind.add_argument("--gmail-roundup-reply-message-id")
     bind.add_argument("--gmail-roundup-project-key")
     bind.add_argument("--gmail-roundup-subject")

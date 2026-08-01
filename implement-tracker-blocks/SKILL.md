@@ -36,10 +36,17 @@ resource/widening posture, and stop boundary. Do not create a new artifact for
 the brief unless the tracker requires it.
 
 Preflight the current Block and its next eligible dependent Block for an
-explicit non-delegable decision. Do not stop for an ordinary choice Codex can
-resolve from the tracker, current authorities, and bounded judgment. When a
-human, counsel-reserved, credential, destructive-ambiguity, or external-
-authority gate is genuinely required, surface it as soon as its complete
+actually non-delegable decision. Tracker wording that assigns `responsible
+human adoption` or requests confirmation is not by itself controlling proof of
+necessity. Do not stop for an ordinary non-reserved choice Codex can resolve
+from the tracker, current authorities, the user's standing implementation
+imperative, and bounded judgment. In particular, apply a single eligible,
+independently reviewed recommendation when its material trade-offs are resolved
+by current objectives; record delegated Codex application accurately rather
+than fabricating inventor authorship. When new user facts, unresolved personal
+preference, counsel-reserved treatment, credentials/budget, destructive
+ambiguity, external communication/release, or another authority boundary is
+genuinely required, surface it as soon as its complete
 decision packet is available—normally during the predecessor or at Block start.
 State why it is non-delegable, the exact alternatives and recommended rationale,
 the deadline/first dependent Block, and the scope it alone blocks. Continue all
@@ -87,7 +94,8 @@ all safe in-scope work has been exhausted. Report the earliest point at which
 the blocker was foreseeable and when it became decision-ready. Do not convert
 a preferred confirmation, generic confidence request, unresolved but bounded
 engineering choice, or work that can proceed independently into a full-run
-stop.
+stop. If the requested response would only repeat the system's recommended
+candidate and rationale, proceed under standing authorization instead.
 
 ## Apply a live supervision correction
 

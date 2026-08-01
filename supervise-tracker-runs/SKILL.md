@@ -129,7 +129,11 @@ Repeat independently for additional targets.
   a genuine ambiguity or material trade-off to the user instead.
 - Do not repeat an unchanged incident or steer. Respect the configured cooldown.
 - At a Block transition or acceptance checkpoint, inspect the current and next
-  eligible Block for an explicit non-delegable decision gate. If its decision
+  eligible Block for an allegedly non-delegable decision gate. Independently
+  test necessity; tracker labels such as `responsible human adoption` or
+  `operator decision` do not suffice. A single eligible, independently reviewed
+  recommendation whose trade-offs are resolved by current objectives proceeds
+  under the user's standing imperative. If a genuinely non-delegable decision
   packet is or will imminently be complete, require the target to surface it
   early while safe work continues. Use the ordinary primary user-action lane
   for this advance notice; reserve the dedicated priority lifecycle thread for
@@ -246,7 +250,14 @@ Repeat independently for additional targets.
   obey its channel, seed, category, and `send_now` result. State the stopped
   Block/work boundary, why progress cannot continue, whether immediate user
   action is required, the precise response route, and content-minimized source
-  record IDs. Send before applying any stop-condition pause; the four-hour
+  record IDs. When the operator has enabled substantive decision context and
+  action is required, the same priority message must also contain a concise
+  decision brief: the exact question, recommendation and why, material
+  alternatives, trade-offs/uncertainties, consequence of no action, response
+  options, and authoritative detail link. An alert that merely says `adopt or
+  reject` is insufficient. Keep the supervision ledger content-minimized even
+  when the email carries this explicitly authorized brief. Send before applying
+  any stop-condition pause; the four-hour
   reviewer repairs a missing priority or ordinary lifecycle notification.
 - Start every notification with the monitored project, target, writer role, and
   job being performed. A role that does not own email delivery escalates to the
@@ -303,6 +314,10 @@ Repeat independently for additional targets.
   decision-ready packet has been exposed, and all safe scoped work is exhausted.
   Otherwise steer the target to continue or narrow the stop. Record when the
   blocker was first foreseeable and when it became decision-ready.
+- The necessity review asks what new fact, preference, reserved judgment, or
+  authority the user response contributes. If it adds none and only repeats the
+  system's sole eligible reviewed recommendation, classify the stop as
+  procedural, issue a current-run correction, and require narrow continuation.
 - Resume only after revalidating target, thread, policy, and automation IDs.
   Re-run `bind` with the existing exact IDs so a legacy group receives current
   non-privileged defaults, then refresh its role and heartbeat prompts before
@@ -326,6 +341,10 @@ Repeat independently for additional targets.
   status, or proof of patent quality.
 - Gmail notification is self-delivery only. The dedicated priority lifecycle
   thread and separate roundup thread are the only additional project threads;
-  neither is a second incident, status, or monitoring authority. Gmail is an operational alert surface,
-  never a substitute for the append-only ledger or a place for patent content,
-  local paths, prompts, credentials, or copied tool output.
+  neither is a second incident, status, or monitoring authority. Gmail is an
+  operational alert surface, never a substitute for the append-only ledger.
+  Ordinary alerts remain free of patent content, local paths, prompts,
+  credentials, or copied tool output. An explicitly enabled user-decision
+  priority brief may include only the minimum substantive context required to
+  decide; it must not copy full patent prose or place that context in the
+  supervision ledger.

@@ -294,7 +294,13 @@ returns `send_now`, reply to the dedicated priority seed with its returned
 banner, channel, category, seed ID, and deduplication key. State the monitored
 project and target, stopped Block/work boundary, why progress cannot continue,
 whether immediate user action is required, the exact response route, and
-content-minimized source record IDs. Never substitute the primary or roundup
+content-minimized source record IDs. When the bound priority policy enables
+decision context and user action is required, also include every field returned
+by `required_decision_fields`: the exact decision, recommendation, why it is
+recommended, material alternatives, trade-offs/uncertainties, consequence of
+no action, response options, and authoritative detail link. An `adopt, reject,
+or defer` instruction without this brief is not an adequate decision notice.
+Never substitute the primary or roundup
 thread for an absent priority binding. Record the returned Gmail ID with
 category `gmail-priority-lifecycle`.
 
@@ -557,13 +563,17 @@ status, digests, and roundups. It reuses the lifecycle event, gate, and outbound
 ledger; it is not another monitor, incident owner, status authority, or polling
 automation. A priority message may direct the operator to the Codex target or
 primary supervision thread for the actual response when the priority seed is
-notification-only.
+notification-only. When the operator explicitly enables decision context, the
+message may include the minimum substantive decision brief required for an
+informed choice; never copy whole patent passages or tool output, and keep the
+supervision ledger itself content-minimized.
 
 Search the bound priority thread by source record before retrying an uncertain
 send. A confirmed receipt suppresses duplicates. Missing delivery is repaired
 by the watcher or meta reviewer even when project supervision is otherwise
-paused. Do not send patent content, local paths, copied output, prompts, or
-credentials merely to make the alert more descriptive.
+paused. Outside an explicitly enabled decision brief, do not send patent
+content, local paths, copied output, prompts, or credentials merely to make the
+alert more descriptive.
 
 ## Scheduled Pacific-time roundup channel
 
@@ -671,9 +681,14 @@ At each scheduled wake:
    current incident-head record, exact changed-state target references, and
    fingerprint. Do not adjudicate the incident or repeat a packet for the same
    incident/fingerprint.
-6. At a Block transition or acceptance checkpoint, pass any explicit upcoming
+6. At a Block transition or acceptance checkpoint, pass any allegedly
    non-delegable decision gate in the current or next eligible Block to XHigh.
-   If a complete decision packet is available or imminent, require early
+   XHigh must test actual necessity; `responsible human adoption`, `operator
+   decision`, or similar tracker wording does not suffice. A sole eligible,
+   independently reviewed recommendation whose trade-offs are resolved by
+   current objectives proceeds under the standing user imperative. If a
+   genuinely non-delegable complete decision packet is available or imminent,
+   require early
    primary-thread user-action notice while safe work continues. Do not treat an
    ordinary bounded implementation choice as a user gate and do not use the
    priority lifecycle thread before an actual stop.
@@ -722,6 +737,10 @@ stop boundary, the decision-ready packet has already been exposed, and all safe
 scoped work is exhausted. Otherwise require the target to continue, narrow the
 blocked scope, or surface the missing packet. Record when the blocker was first
 foreseeable and when it became decision-ready.
+Ask what new fact, preference, reserved judgment, or authority the requested
+response contributes. If it contributes none and only repeats the sole eligible
+reviewed recommendation, the stop is procedural: route an in-place correction
+and require narrow continuation instead of waiting for a rubber stamp.
 ```
 
 ## Semantic base-reviewer role prompt
@@ -751,6 +770,12 @@ For each changed-state packet:
    path with one concrete minimally sufficient reliable path; do not infer waste
    from elapsed time alone. Distinguish a one-off target correction from a
    recurring de-projectized skill candidate.
+   When the target stops for an allegedly non-delegable decision, test what new
+   fact, preference, reserved judgment, or authority the operator's response
+   would contribute. Tracker labels such as `responsible human adoption` are not
+   evidence of necessity. If the requested reply would only repeat the sole
+   eligible, independently reviewed recommendation and rationale, classify the
+   stop as a supported procedural blocker rather than a genuine user decision.
 3. Classify the state as no supported intervention, supported concern, material
    uncertainty/trade-off, or checkpoint/major-plan transition.
 4. For a concern or uncertainty, send a concise evidence-bound escalation to Sol
@@ -792,6 +817,11 @@ For an escalation:
    false positive, already corrected, or insufficient evidence.
 3. Check goal alignment, scope proportionality, reuse, stop boundaries, resource
    relevance, tests, and whether the proposed cure would itself feature-creep.
+   For a claimed user-decision gate, independently test actual necessity. Require
+   user input only when it supplies a missing material fact or preference, a
+   genuinely reserved judgment, or authority the standing imperative does not
+   provide. Do not accept tracker wording or a rubber-stamp repetition of the
+   recommendation as proof that the gate is non-delegable.
 4. For a high-confidence supported problem, send one narrow corrective steer to
    the target and record it. The steer must require active-cost containment,
    truthful preservation of reusable evidence, target-owned in-place correction,
@@ -801,6 +831,14 @@ For an escalation:
    steering. For a false positive, record it so the supervisor-effectiveness
    review can recalibrate.
 5. Do not repeat an unchanged incident or steer.
+
+If a stop is procedural, steer the target to apply the current sole eligible
+reviewed recommendation under standing delegated authority, preserve its stated
+trade-offs and downstream obligations, and record Codex application accurately
+without fabricating personal inventor authorship. If a stop is genuinely
+non-delegable, require a decision-ready packet before accepting the stop and,
+when priority decision context is enabled, ensure the alert contains every
+required decision field rather than a bare `adopt, reject, or defer` request.
 
 For an escalation from the Sol XHigh base reviewer, independently assess the
 cited concern or uncertainty and own the final intervention decision.
@@ -951,7 +989,11 @@ verification, or missing same-thread outcome. Route such gaps to
 Also reconcile the latest explicit target lifecycle posture against
 `last_lifecycle` and the outbound ledger. Immediately repair any missing
 completed/noncritical-paused primary status or blocked/failed/stopped priority
-notification through `lifecycle-gate`; do not bury it in the digest.
+notification through `lifecycle-gate`; do not bury it in the digest. Before
+preserving a blocked/stopped posture that requests user action, independently
+test actual necessity under the reviewer-role rule. Route a procedural stop to
+an in-place target correction. For a genuine decision, require the complete
+decision brief returned by the priority gate.
 For each finding, write the bounded fix plan required by your role; perform
 thread-only steering yourself and hand every other permitted
 supervisor-maintenance fix to <FIX_EXECUTOR_THREAD_ID> at Sol XHigh. Do not widen
@@ -1012,7 +1054,8 @@ When dedicated blocked/stopped priority delivery is enabled, bind its seed:
 python3 <LOG_HELPER> bind --target-thread <TARGET> \
   --gmail-priority-reply-message-id <PRIORITY_SEED_MESSAGE_ID> \
   --gmail-priority-project-key <PROJECT_KEY> \
-  --gmail-priority-subject "PRIORITY - Codex Implementation Blocked or Stopped - <PROJECT_KEY>"
+  --gmail-priority-subject "PRIORITY - Codex Implementation Blocked or Stopped - <PROJECT_KEY>" \
+  --gmail-priority-decision-context
 ```
 
 When Gmail reply processing is enabled, also bind:
@@ -1110,7 +1153,8 @@ python3 <LOG_HELPER> lifecycle-gate --target-thread <TARGET> \
 
 Send only when `send_now` is true. Obey the returned channel, seed, category,
 banner, and deduplication key. Never fall back from a missing priority binding
-to the primary or roundup seed.
+to the primary or roundup seed. When `decision_context_required` is true, the
+email must include every returned `required_decision_fields` entry.
 
 After a successful self-email reply, record its delivery:
 

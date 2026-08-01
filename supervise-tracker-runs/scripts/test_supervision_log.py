@@ -347,7 +347,11 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
         )
 
     def bind_priority(
-        self, policy: dict[str, object], *, message_id: str = "gmail-priority-1234"
+        self,
+        policy: dict[str, object],
+        *,
+        message_id: str = "gmail-priority-1234",
+        decision_context: bool = False,
     ) -> dict[str, object]:
         args = supervision_log.parser().parse_args(
             [
@@ -360,6 +364,7 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
                 "Main",
                 "--gmail-priority-subject",
                 "PRIORITY - Codex Implementation Blocked or Stopped - Main",
+                *(["--gmail-priority-decision-context"] if decision_context else []),
             ]
         )
         output = io.StringIO()
@@ -386,6 +391,7 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
             "record_id": "EVT-000001",
             "status": state,
             "state_fingerprint": "state-1234",
+            "user_action_required": "yes",
         }
         args = argparse.Namespace(
             target_thread="target-1234",
@@ -497,6 +503,40 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
 
         self.assertTrue(result["duplicate"])
         self.assertFalse(result["send_now"])
+
+    def test_priority_user_decision_requires_complete_context_when_enabled(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        self.bind_priority(policy, decision_context=True)
+
+        result = self.run_lifecycle_gate(policy, "blocked")
+
+        self.assertTrue(result["decision_context_required"])
+        self.assertEqual(
+            result["required_decision_fields"],
+            supervision_log.gmail_priority_contract()["required_decision_fields"],
+        )
+
+    def test_decision_context_requires_bound_priority_seed(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        args = supervision_log.parser().parse_args(
+            [
+                "bind",
+                "--target-thread",
+                "target-1234",
+                "--gmail-priority-decision-context",
+            ]
+        )
+
+        with mock.patch.object(
+            supervision_log,
+            "load_policy",
+            return_value=(Path("/tmp/supervision-test"), policy),
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "priority seed before enabling decision context",
+            ):
+                supervision_log.cmd_bind(args)
 
     def test_policy_validation_rejects_priority_contract_drift(self) -> None:
         policy = supervision_log.default_policy(self.init_args())

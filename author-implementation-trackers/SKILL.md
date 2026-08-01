@@ -71,9 +71,17 @@ rather than recreating the document shape from memory.
    mapped validation where the workflow permits it. Freeze the exact candidate
    revision before acceptance validation and exact-commit audit; any later code
    change makes prior affected proof diagnostic rather than current.
-16. Keep non-delegable operator gates rare and explicit. For every required
-   human, counsel-reserved, credential, destructive-ambiguity, or external-
-   authority decision, name the exact decision, why Codex cannot resolve it,
+16. Keep non-delegable operator gates rare and explicit. A label such as
+   `responsible human adoption`, `operator decision`, or `approval required`
+   does not establish necessity. Codex should resolve and apply an ordinary
+   non-reserved strategic or implementation choice under the user's standing
+   imperative when current evidence, objectives, decision rights, and bounded
+   judgment select a supported path. A hard gate requires new user-specific
+   factual input, a material preference/trade-off not resolved by current
+   objectives, a counsel-reserved choice, credential/budget authority,
+   destructive ambiguity, external communication/release, or another boundary
+   Codex genuinely cannot cross. For every such gate, name the exact decision,
+   why Codex cannot resolve it,
    the earliest predecessor that can make a complete decision packet available,
    the dependent scope it alone blocks, and all safe work that may continue.
    Place decision readiness before the hard stop whenever dependencies permit;
@@ -96,6 +104,9 @@ Before finalizing each Block, apply this feature-creep test:
   blindly retrying or widening?
 - Is every user-blocking gate genuinely non-delegable, forecast at its earliest
   decision-ready point, and scoped so unrelated work does not stop with it?
+- Would the requested user response contribute new information or authority, or
+  merely rubber-stamp the system's single eligible reviewed recommendation? A
+  rubber stamp is not a valid gate.
 
 If any answer is no, narrow the Block, reuse the owner, defer the adjacent work,
 or create a later single-focused Block when that work is genuinely required.
