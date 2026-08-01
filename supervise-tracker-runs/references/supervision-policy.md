@@ -916,6 +916,14 @@ only `author-implementation-trackers`, `implement-tracker-blocks`, and
 `supervise-tracker-runs`, using the exact plan-bound files. Require de-projectized
 evidence and focused validation, then return the exact result to Sol Max for
 independent acceptance before refreshing active roles or automations.
+If those skills are Git-tracked, inspect the exact worktree first, preserve
+unrelated state, stage only the plan-bound files, and commit the coherent
+validated candidate before review. Never amend a rejected candidate; append a
+remediation commit. After Sol Max accepts the exact commit, non-force push the
+existing branch to its unambiguous configured upstream, then refresh roles. If
+the repository, upstream, authentication, or policy is unavailable, preserve
+the local commit and report that blocker. Do not create or change a remote,
+guess among remotes, rewrite history, or force-push.
 Never modify or run commands/tests in the implementation target, tracker,
 repository, patent workspace, or patent content. Do not execute a thread-only
 steer; Sol Max owns that action. Stop and return the plan when it would expand

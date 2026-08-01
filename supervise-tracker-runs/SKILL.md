@@ -213,6 +213,15 @@ Repeat independently for additional targets.
   de-projectized evidence, exact files, focused validation, safe activation,
   and a stop condition. Sol Max must independently accept the exact change
   before active role prompts or automations are refreshed.
+- When those allowlisted skills live in a Git repository, the fix executor must
+  preserve unrelated state, stage only the plan-bound files, and commit each
+  coherent validated candidate before exact-change review. A rejected candidate
+  remains immutable; remediation is a successor commit. After Sol Max accepts
+  the exact commit, push it non-force to the existing unambiguous upstream before
+  refreshing active roles. If the repository, upstream, authentication, or
+  policy is unavailable, preserve the local commit and report the concrete
+  durability blocker. A supervisor may never create, select among ambiguous,
+  rewrite, or force-push a remote.
 - Changes to models, target permissions, defect semantics, auto-steer
   authority, repository access, patent authority, or the skill allowlist still
   require the user. Skill maintenance never authorizes target-repository or
