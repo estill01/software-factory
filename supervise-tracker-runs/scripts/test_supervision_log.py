@@ -714,7 +714,11 @@ class DecisionResolutionTests(unittest.TestCase):
             directory = Path(temporary)
             policy = supervision_log.default_policy(self.init_args())
             policy["notifications"]["gmail_priority"].update(
-                {"enabled": True, "reply_message_id": "gmail-priority-1234"}
+                {
+                    "enabled": True,
+                    "reply_message_id": "gmail-priority-1234",
+                    "decision_context_enabled": True,
+                }
             )
             self.record(
                 directory,
@@ -729,6 +733,10 @@ class DecisionResolutionTests(unittest.TestCase):
             self.assertEqual(waiting["action"], "await-user-and-continue-safe-frontier")
             self.assertTrue(waiting["must_continue_safe_frontier"])
             self.assertTrue(waiting["notification_send_now"])
+            self.assertEqual(
+                waiting["required_decision_fields"],
+                supervision_log.gmail_priority_contract()["required_decision_fields"],
+            )
             self.assertEqual(timed_out["action"], "start-sol-max-attempt")
             self.assertEqual(timed_out["next_attempt"], 1)
 
@@ -741,6 +749,7 @@ class DecisionResolutionTests(unittest.TestCase):
                 policy,
                 classification="human-preference",
                 phase="decision-ready",
+                now="2026-08-01T11:40:00+00:00",
             )
             for attempt in (1, 2, 3):
                 self.record(
@@ -776,6 +785,7 @@ class DecisionResolutionTests(unittest.TestCase):
                 classification="missing-fact",
                 phase="decision-ready",
                 safe_frontier="empty",
+                now="2026-08-01T11:40:00+00:00",
             )
             for attempt in (1, 2, 3):
                 self.record(
@@ -819,6 +829,107 @@ class DecisionResolutionTests(unittest.TestCase):
                     phase="attempt-started",
                     attempt=1,
                 )
+
+    def test_first_attempt_cannot_start_before_human_deadline(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = supervision_log.default_policy(self.init_args())
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="decision-ready",
+            )
+
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "cannot start before the human-response deadline",
+            ):
+                self.record(
+                    directory,
+                    policy,
+                    classification="human-preference",
+                    phase="attempt-started",
+                    attempt=1,
+                    now="2026-08-01T12:19:59+00:00",
+                )
+
+    def test_classification_controls_final_disposition(self) -> None:
+        cases = (
+            ("delegable", "safe-deferred", "safe-deferred"),
+            ("human-preference", "safe-deferred", "safe-deferred"),
+            ("missing-fact", "resolved", "selected"),
+            ("reserved-authority", "resolved", "selected"),
+        )
+        for classification, phase, outcome in cases:
+            with self.subTest(classification=classification, phase=phase):
+                with tempfile.TemporaryDirectory() as temporary:
+                    directory = Path(temporary)
+                    policy = supervision_log.default_policy(self.init_args())
+                    self.record(
+                        directory,
+                        policy,
+                        classification=classification,
+                        phase="decision-ready",
+                    )
+                    with self.assertRaises(supervision_log.SupervisionLogError):
+                        self.record(
+                            directory,
+                            policy,
+                            classification=classification,
+                            phase=phase,
+                            outcome=outcome,
+                        )
+
+    def test_legacy_priority_binding_cannot_send_decision_mail(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = supervision_log.default_policy(self.init_args())
+            policy["notifications"]["gmail_priority"].update(
+                {"enabled": True, "reply_message_id": "gmail-priority-1234"}
+            )
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="decision-ready",
+            )
+
+            result = self.gate(directory, policy, "2026-08-01T12:10:00+00:00")
+
+            self.assertFalse(result["notification_send_now"])
+            self.assertEqual(result["required_decision_fields"], [])
+
+    def test_missing_fact_user_response_can_resolve_and_handoff(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = supervision_log.default_policy(self.init_args())
+            self.record(
+                directory,
+                policy,
+                classification="missing-fact",
+                phase="decision-ready",
+            )
+            self.record(
+                directory,
+                policy,
+                classification="missing-fact",
+                phase="user-responded",
+                now="2026-08-01T12:05:00+00:00",
+            )
+            self.record(
+                directory,
+                policy,
+                classification="missing-fact",
+                phase="resolved",
+                outcome="user-supplied",
+                now="2026-08-01T12:06:00+00:00",
+            )
+
+            result = self.gate(directory, policy, "2026-08-01T12:06:00+00:00")
+
+            self.assertEqual(result["action"], "send-exact-handoff")
+            self.assertTrue(result["must_continue_safe_frontier"])
 
 
 if __name__ == "__main__":

@@ -135,9 +135,9 @@ Repeat independently for additional targets.
   recommendation whose trade-offs are resolved by current objectives proceeds
   under the user's standing imperative. If a genuinely non-delegable decision
   packet is or will imminently be complete, require the target to surface it
-  early while safe work continues. Use the ordinary primary user-action lane
-  for this advance notice; reserve the dedicated priority lifecycle thread for
-  an actual `blocked`, `failed`, or explicit `stopped` transition.
+  early while safe work continues. Use the dedicated priority decision lane
+  only when substantive decision context is explicitly enabled; routine
+  advance forecasts remain on the primary lane.
 - Treat continuation as the default while a genuine decision remains open.
   Require the target to freeze the decision packet, exact blocked subjects and
   descendant closure, and maximal safe-work frontier. If that frontier is

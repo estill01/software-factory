@@ -744,11 +744,10 @@ At each scheduled wake:
    decision`, or similar tracker wording does not suffice. A sole eligible,
    independently reviewed recommendation whose trade-offs are resolved by
    current objectives proceeds under the standing user imperative. If a
-   genuinely non-delegable complete decision packet is available or imminent,
-   require early
-   primary-thread user-action notice while safe work continues. Do not treat an
-   ordinary bounded implementation choice as a user gate and do not use the
-   priority lifecycle thread before an actual stop.
+   genuinely non-delegable complete decision packet is available, require the
+   helper-gated priority decision notice while safe work continues. Use the
+   primary lane only for an earlier nonurgent forecast before decision readiness.
+   Do not treat an ordinary bounded implementation choice as a user gate.
 7. Read `status` for open decision heads. For each one, call `decision-gate`.
    If it returns `must_continue_safe_frontier=true`, verify the target is
    advancing that exact independent frontier; idle waiting is a high-severity

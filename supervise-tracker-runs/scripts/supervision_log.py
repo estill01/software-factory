@@ -1389,6 +1389,23 @@ def validate_decision_transition(
         raise SupervisionLogError("Resolved decisions require a selected outcome")
     if phase == "safe-deferred" and outcome != "safe-deferred":
         raise SupervisionLogError("Safe deferral requires the safe-deferred outcome")
+    if phase == "safe-deferred":
+        if classification == "delegable":
+            raise SupervisionLogError("A delegable decision cannot be safely deferred")
+        if classification == "human-preference" and prior_phase != "user-responded":
+            raise SupervisionLogError(
+                "An unresolved human preference must be selected after bounded attempts"
+            )
+    if phase == "resolved":
+        if classification in {"missing-fact", "reserved-authority"}:
+            if prior_phase != "user-responded" or outcome != "user-supplied":
+                raise SupervisionLogError(
+                    "A missing fact or reserved authority can resolve only from user input"
+                )
+        elif prior_phase == "user-responded" and outcome != "user-supplied":
+            raise SupervisionLogError("A user response requires the user-supplied outcome")
+        elif prior_phase != "user-responded" and outcome != "selected":
+            raise SupervisionLogError("Automatic resolution requires the selected outcome")
     if phase in {"handoff-sent", "target-acknowledged"}:
         if outcome != prior.get("outcome"):
             raise SupervisionLogError("Handoff must preserve the exact decision outcome")
@@ -1457,6 +1474,15 @@ def cmd_decision_record(args: argparse.Namespace) -> None:
             attempt=attempt,
             outcome=outcome,
         )
+        if (
+            phase == "attempt-started"
+            and prior is not None
+            and prior.get("phase") == "decision-ready"
+            and now < parse_time(str(prior.get("deadline_at", "")))
+        ):
+            raise SupervisionLogError(
+                "The first Sol Max attempt cannot start before the human-response deadline"
+            )
         if phase == "decision-ready":
             decision_ready_at = iso_time(now)
             wait_minutes = 0 if classification == "delegable" else int(
@@ -1540,7 +1566,13 @@ def decision_notification(
         for item in all_events
     )
     priority = policy.get("notifications", {}).get("gmail_priority", {})
-    send_now = bool(phase and priority.get("enabled") and not duplicate)
+    decision_context_enabled = priority.get("decision_context_enabled") is True
+    send_now = bool(
+        phase
+        and priority.get("enabled")
+        and decision_context_enabled
+        and not duplicate
+    )
     banners = {
         "decision-ready": "🚨 HUMAN INPUT REQUESTED — WORK CONTINUES 🚨",
         "automatic-resolution-started": "⚠️ AUTOMATIC DECISION RESOLUTION STARTED",
@@ -1558,6 +1590,11 @@ def decision_notification(
             priority.get("reply_message_id") if send_now else None
         ),
         "notification_action": action,
+        "required_decision_fields": (
+            priority.get("required_decision_fields", [])
+            if send_now and phase == "decision-ready"
+            else []
+        ),
     }
 
 
