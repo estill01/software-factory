@@ -104,14 +104,23 @@ DECISION_PHASES = {
 SAFE_FRONTIER_POSTURES = {"empty", "nonempty"}
 DECISION_OUTCOMES = {"", "selected", "safe-deferred", "user-supplied"}
 THREAD_ROUTE_PURPOSE_ROLES = {
-    "changed-state-review": "base_reviewer",
-    "fix-execution": "fix_executor",
-    "gmail-reply-processing": "gmail_processor",
-    "incident-review": "notice_reviewer",
-    "roundup-action": "roundup_writer",
-    "semantic-escalation": "reviewer",
-    "target-action": "target",
-    "watcher-action": "watcher",
+    "changed-state-review": ("base_reviewer",),
+    "fix-execution": ("fix_executor",),
+    "gmail-reply-processing": ("gmail_processor",),
+    "incident-review": ("notice_reviewer",),
+    "role-refresh": (
+        "base_reviewer",
+        "fix_executor",
+        "gmail_processor",
+        "notice_reviewer",
+        "reviewer",
+        "roundup_writer",
+        "watcher",
+    ),
+    "roundup-action": ("roundup_writer",),
+    "semantic-escalation": ("reviewer",),
+    "target-action": ("target",),
+    "watcher-action": ("watcher",),
 }
 THREAD_ROUTE_ROLE_FIELDS = {
     "watcher": "watcher_thread_id",
@@ -185,11 +194,25 @@ def cross_thread_routing_contract() -> dict[str, Any]:
         "ordinary_progress_owner": "target-thread",
         "gate_command": "thread-route-gate",
         "required_action_packet": True,
-        "purpose_roles": dict(THREAD_ROUTE_PURPOSE_ROLES),
+        "purpose_roles": {
+            purpose: list(roles)
+            for purpose, roles in THREAD_ROUTE_PURPOSE_ROLES.items()
+        },
         "unrelated_thread_behavior": "fail-closed",
         "routine_status_behavior": "remain-in-target-thread",
         "email_behavior": "existing-notification-gates-only",
     }
+
+
+def legacy_single_role_cross_thread_routing_contract() -> dict[str, Any]:
+    """Exact predecessor accepted only so `bind` can add role refresh."""
+    contract = cross_thread_routing_contract()
+    contract["purpose_roles"] = {
+        purpose: roles[0]
+        for purpose, roles in THREAD_ROUTE_PURPOSE_ROLES.items()
+        if purpose != "role-refresh"
+    }
+    return contract
 
 
 def legacy_wait_first_decision_resolution_contract() -> dict[str, Any]:
@@ -502,10 +525,10 @@ def validate_policy(policy: dict[str, Any]) -> None:
     }:
         raise SupervisionLogError("Decision-resolution contract differs")
     thread_routing = policy.get("cross_thread_routing")
-    if (
-        thread_routing is not None
-        and thread_routing != cross_thread_routing_contract()
-    ):
+    if thread_routing is not None and canonical(thread_routing) not in {
+        canonical(cross_thread_routing_contract()),
+        canonical(legacy_single_role_cross_thread_routing_contract()),
+    }:
         raise SupervisionLogError("Cross-thread routing contract differs")
     priority = policy.get("notifications", {}).get("gmail_priority")
     if priority is not None:
@@ -1052,10 +1075,10 @@ def cmd_thread_route_gate(args: argparse.Namespace) -> None:
             "Cross-thread recipient has ambiguous configured roles"
         )
     recipient_role = matched_roles[0]
-    expected_role = THREAD_ROUTE_PURPOSE_ROLES.get(args.purpose)
-    if expected_role is None:
+    allowed_roles = THREAD_ROUTE_PURPOSE_ROLES.get(args.purpose)
+    if allowed_roles is None:
         raise SupervisionLogError("Unsupported cross-thread routing purpose")
-    if recipient_role != expected_role:
+    if recipient_role not in allowed_roles:
         raise SupervisionLogError(
             "Cross-thread purpose does not match the configured recipient role"
         )

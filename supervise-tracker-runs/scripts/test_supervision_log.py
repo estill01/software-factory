@@ -442,6 +442,38 @@ class CrossThreadRoutingGateTests(unittest.TestCase):
         self.assertEqual(result["action_sha256"], supervision_log.digest(action))
         self.assertNotIn(action, json.dumps(result))
 
+    def test_role_refresh_is_limited_to_configured_runtime_roles(self) -> None:
+        policy = self.policy()
+        recipients = {
+            "base-1234": "base_reviewer",
+            "fixer-1234": "fix_executor",
+            "gmail-processor-1234": "gmail_processor",
+            "notice-1234": "notice_reviewer",
+            "reviewer-1234": "reviewer",
+            "roundup-1234": "roundup_writer",
+            "watcher-1234": "watcher",
+        }
+        for recipient, role in recipients.items():
+            with self.subTest(role=role):
+                result = self.route(
+                    policy,
+                    recipient=recipient,
+                    purpose="role-refresh",
+                    action="Reread the accepted routing policy.",
+                )
+                self.assertEqual(result["recipient_role"], role)
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "purpose does not match",
+        ):
+            self.route(
+                policy,
+                recipient="target-1234",
+                purpose="role-refresh",
+                action="Reread the accepted routing policy.",
+            )
+
     def test_unrelated_side_thread_fails_closed(self) -> None:
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError,

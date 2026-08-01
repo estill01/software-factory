@@ -239,7 +239,7 @@ when `send_allowed` is true:
 ```bash
 python3 <LOG_HELPER> thread-route-gate --target-thread <TARGET> \
   --recipient-thread <RECIPIENT> \
-  --purpose <changed-state-review|semantic-escalation|incident-review|fix-execution|target-action|watcher-action|gmail-reply-processing|roundup-action> \
+  --purpose <changed-state-review|semantic-escalation|incident-review|fix-execution|target-action|watcher-action|gmail-reply-processing|roundup-action|role-refresh> \
   --source-record <SOURCE_RECORD_ID> \
   --action "<EXACT_REQUIRED_ACTION>"
 ```
@@ -259,6 +259,9 @@ executor; correction or handoff to the target; a required correction back to
 the watcher; an inbound Gmail message to the Gmail processor; or an exact
 roundup action to the roundup writer. If no configured role owns a required
 next action, keep the evidence in the target thread and do not cross-post it.
+After an accepted policy or skill change, `role-refresh` may carry only the exact
+new instruction to an already configured runtime role; it cannot target the
+implementation thread or an unrelated conversation.
 
 ## Gmail notification channel
 
