@@ -115,6 +115,12 @@ suite.
    status and completion-evidence format.
 9. Stop at the block's explicit stopping point.
 
+Keep routine implementation, validation, audit, checkpoint, and completion
+evidence in the active implementation thread. Send a cross-thread packet only
+when another configured role owns an exact required action; do not broadcast
+progress to unrelated chats or side conversations. In a supervised run,
+user-facing email remains owned by the supervisor's maintained gates.
+
 Treat a blocked implementation as exceptional. Claim `blocked` only when the
 exact non-delegable input is still absent, proceeding would cross a declared
 authority or safety boundary, the first attempt remained unresolved, the

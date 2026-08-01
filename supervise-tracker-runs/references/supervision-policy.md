@@ -238,6 +238,13 @@ Every notification must use the gate-selected seed as `reply_message_id` and
 the bound subject. Never guess an address, share a seed across projects, cross
 these lanes, or start a replacement thread during ordinary recovery.
 
+Keep ordinary implementation, checkpoint, audit, and incident progress in the
+monitored target thread. Send a bounded cross-thread packet only to a configured
+watcher, reviewer, notice reviewer, fix executor, Gmail processor, or roundup
+writer that owns a required next action. Never use an unrelated chat or side
+conversation as a status sink. Cross-thread action routing does not replace the
+helper-gated email rules below.
+
 Email is an alert projection, not another authority or complete event mirror:
 
 - Send one immediate priority lifecycle email when the target enters `blocked`,

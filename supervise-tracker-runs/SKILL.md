@@ -128,6 +128,11 @@ Repeat independently for additional targets.
 - Allow a narrow automatic steer only for a concrete supported violation. Report
   a genuine ambiguity or material trade-off to the user instead.
 - Do not repeat an unchanged incident or steer. Respect the configured cooldown.
+- Keep ordinary implementation, checkpoint, audit, and incident progress in the
+  monitored target thread. Send a cross-thread role packet only to a configured
+  supervision role that owns a required action or decision; never use an
+  unrelated chat or side conversation as a status sink. User-facing email goes
+  only through the maintained notification gates.
 - At a Block transition or acceptance checkpoint, inspect the current and next
   eligible Block for an allegedly non-delegable decision gate. Independently
   test necessity; tracker labels such as `responsible human adoption` or
@@ -374,6 +379,9 @@ Repeat independently for additional targets.
   or patent content from a supervisor thread.
 - Do not run the target's commands or tests, create subagents, broaden scope, or
   replace the tracker's required independent audit.
+- Cross-thread communication is action routing, not progress broadcasting. A
+  bounded packet identifies the recipient's required action; routine evidence
+  and outcomes remain in the target thread or their helper-approved email lane.
 - Scheduled inactivity consumes no model tokens; each wake must remain bounded.
 - Supervision evidence is operational evidence, not patent authority, legal
   status, or proof of patent quality.
