@@ -103,6 +103,25 @@ DECISION_PHASES = {
 }
 SAFE_FRONTIER_POSTURES = {"empty", "nonempty"}
 DECISION_OUTCOMES = {"", "selected", "safe-deferred", "user-supplied"}
+THREAD_ROUTE_PURPOSE_ROLES = {
+    "changed-state-review": "base_reviewer",
+    "fix-execution": "fix_executor",
+    "gmail-reply-processing": "gmail_processor",
+    "incident-review": "notice_reviewer",
+    "roundup-action": "roundup_writer",
+    "semantic-escalation": "reviewer",
+    "target-action": "target",
+    "watcher-action": "watcher",
+}
+THREAD_ROUTE_ROLE_FIELDS = {
+    "watcher": "watcher_thread_id",
+    "reviewer": "reviewer_thread_id",
+    "base_reviewer": "base_reviewer_thread_id",
+    "notice_reviewer": "notice_reviewer_thread_id",
+    "fix_executor": "fix_executor_thread_id",
+    "gmail_processor": "gmail_processor_thread_id",
+    "roundup_writer": "roundup_thread_id",
+}
 
 
 class SupervisionLogError(RuntimeError):
@@ -160,6 +179,19 @@ def decision_resolution_contract() -> dict[str, Any]:
     }
 
 
+def cross_thread_routing_contract() -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "ordinary_progress_owner": "target-thread",
+        "gate_command": "thread-route-gate",
+        "required_action_packet": True,
+        "purpose_roles": dict(THREAD_ROUTE_PURPOSE_ROLES),
+        "unrelated_thread_behavior": "fail-closed",
+        "routine_status_behavior": "remain-in-target-thread",
+        "email_behavior": "existing-notification-gates-only",
+    }
+
+
 def legacy_wait_first_decision_resolution_contract() -> dict[str, Any]:
     """Exact predecessor accepted only so `bind` can upgrade a live policy."""
     contract = decision_resolution_contract()
@@ -209,6 +241,10 @@ def ensure_execution_economy_policy(policy: dict[str, Any]) -> bool:
     expected_decisions = decision_resolution_contract()
     if policy.get("decision_resolution") != expected_decisions:
         policy["decision_resolution"] = expected_decisions
+        changed = True
+    expected_thread_routing = cross_thread_routing_contract()
+    if policy.get("cross_thread_routing") != expected_thread_routing:
+        policy["cross_thread_routing"] = expected_thread_routing
         changed = True
     current_maintenance = policy.get("skill_maintenance")
     mode = (
@@ -383,6 +419,7 @@ def default_policy(args: argparse.Namespace) -> dict[str, Any]:
         },
         "execution_economy": execution_economy_contract(),
         "decision_resolution": decision_resolution_contract(),
+        "cross_thread_routing": cross_thread_routing_contract(),
         "skill_maintenance": skill_maintenance_contract(),
         "notifications": {
             "gmail": {
@@ -464,6 +501,12 @@ def validate_policy(policy: dict[str, Any]) -> None:
         canonical(legacy_wait_first_decision_resolution_contract()),
     }:
         raise SupervisionLogError("Decision-resolution contract differs")
+    thread_routing = policy.get("cross_thread_routing")
+    if (
+        thread_routing is not None
+        and thread_routing != cross_thread_routing_contract()
+    ):
+        raise SupervisionLogError("Cross-thread routing contract differs")
     priority = policy.get("notifications", {}).get("gmail_priority")
     if priority is not None:
         expected_priority = gmail_priority_contract()
@@ -974,6 +1017,64 @@ def cmd_bind(args: argparse.Namespace) -> None:
             evidence_values=[],
         )
     print(json.dumps({"changed": changed, "policy": policy}, sort_keys=True))
+
+
+def cmd_thread_route_gate(args: argparse.Namespace) -> None:
+    _, policy = load_policy(args)
+    routing = policy.get("cross_thread_routing")
+    if routing != cross_thread_routing_contract():
+        raise SupervisionLogError(
+            "Current cross-thread routing contract is not bound; run bind first"
+        )
+
+    recipient = safe_id(args.recipient_thread, label="recipient thread ID")
+    source_record = safe_id(args.source_record, label="source record ID")
+    action = clean(args.action, label="required action", maximum=240)
+    if not action:
+        raise SupervisionLogError("Cross-thread routing requires an exact action")
+
+    role_threads: dict[str, str] = {"target": policy["target_thread_id"]}
+    runtime = policy.get("runtime", {})
+    for role, field in THREAD_ROUTE_ROLE_FIELDS.items():
+        value = runtime.get(field)
+        if value:
+            role_threads[role] = value
+
+    matched_roles = sorted(
+        role for role, thread_id in role_threads.items() if thread_id == recipient
+    )
+    if not matched_roles:
+        raise SupervisionLogError(
+            "Cross-thread recipient is not a configured action owner"
+        )
+    if len(matched_roles) != 1:
+        raise SupervisionLogError(
+            "Cross-thread recipient has ambiguous configured roles"
+        )
+    recipient_role = matched_roles[0]
+    expected_role = THREAD_ROUTE_PURPOSE_ROLES.get(args.purpose)
+    if expected_role is None:
+        raise SupervisionLogError("Unsupported cross-thread routing purpose")
+    if recipient_role != expected_role:
+        raise SupervisionLogError(
+            "Cross-thread purpose does not match the configured recipient role"
+        )
+
+    print(
+        json.dumps(
+            {
+                "send_allowed": True,
+                "target_thread_id": policy["target_thread_id"],
+                "recipient_thread_id": recipient,
+                "recipient_role": recipient_role,
+                "purpose": args.purpose,
+                "source_record": source_record,
+                "action_sha256": digest(action),
+                "policy_sha256": policy["policy_sha256"],
+            },
+            sort_keys=True,
+        )
+    )
 
 
 def is_completion_check(item: dict[str, Any]) -> bool:
@@ -2118,6 +2219,16 @@ def parser() -> argparse.ArgumentParser:
     gate.add_argument("--latest-item", default="")
     gate.add_argument("--checkpoint", default="")
     gate.set_defaults(func=cmd_gate)
+
+    thread_route_gate = subparsers.add_parser("thread-route-gate")
+    thread_route_gate.add_argument("--target-thread", required=True)
+    thread_route_gate.add_argument("--recipient-thread", required=True)
+    thread_route_gate.add_argument(
+        "--purpose", choices=sorted(THREAD_ROUTE_PURPOSE_ROLES), required=True
+    )
+    thread_route_gate.add_argument("--source-record", required=True)
+    thread_route_gate.add_argument("--action", required=True)
+    thread_route_gate.set_defaults(func=cmd_thread_route_gate)
 
     record = subparsers.add_parser("record")
     record.add_argument("--target-thread", required=True)

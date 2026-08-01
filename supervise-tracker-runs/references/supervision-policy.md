@@ -6,6 +6,7 @@
 - [Execution economy and reusable maintenance](#execution-economy-and-reusable-maintenance)
 - [Continuation-first decision resolution](#continuation-first-decision-resolution)
 - [Target-state fingerprint](#target-state-fingerprint)
+- [Cross-thread action routing](#cross-thread-action-routing)
 - [Gmail notification and closed-loop review](#gmail-notification-channel)
 - [Role prompts](#watcher-role-prompt)
 - [Logging and automation](#logging-examples)
@@ -227,6 +228,38 @@ gate-completion watermarks. A later Sol Max or meta sample may review an older
 fingerprint; record it as non-completion evidence so it cannot move the gate
 backward and cause redundant rereview.
 
+## Cross-thread action routing
+
+Routine implementation, validation, checkpoint, audit, incident, and completion
+progress belongs in the monitored target thread. Before sending any packet to
+another Codex thread, call `thread-route-gate` with the exact configured
+recipient, maintained purpose, source record, and required action. Send only
+when `send_allowed` is true:
+
+```bash
+python3 <LOG_HELPER> thread-route-gate --target-thread <TARGET> \
+  --recipient-thread <RECIPIENT> \
+  --purpose <changed-state-review|semantic-escalation|incident-review|fix-execution|target-action|watcher-action|gmail-reply-processing|roundup-action> \
+  --source-record <SOURCE_RECORD_ID> \
+  --action "<EXACT_REQUIRED_ACTION>"
+```
+
+The gate is read-only. It resolves the recipient against the target and bound
+runtime role IDs, requires the purpose to match that one exact role, hashes the
+action without echoing it, and fails closed for an unrelated or ambiguously
+bound thread. It does not create a message ledger, authorize the action, or
+replace semantic review. A caller may not label routine status as an action to
+evade the rule. Email remains governed exclusively by `notice-gate`,
+`lifecycle-gate`, `decision-gate`, and the maintained roundup/reply contracts.
+
+Use the narrow purpose owned by the recipient: Terra changed-state handoff to
+the base reviewer; semantic or checkpoint escalation to Sol Max; incident
+outcome review to the notice reviewer; exact maintenance execution to the fix
+executor; correction or handoff to the target; a required correction back to
+the watcher; an inbound Gmail message to the Gmail processor; or an exact
+roundup action to the roundup writer. If no configured role owns a required
+next action, keep the evidence in the target thread and do not cross-post it.
+
 ## Gmail notification channel
 
 When explicitly enabled, use the authenticated Gmail account's self-delivery
@@ -390,10 +423,10 @@ statuses are `corrected`, `false-positive`, `accepted-risk`, `superseded`, and
 `closed`. A later substantive successor record is the current incident head;
 notification delivery receipts never replace it or change lifecycle status.
 
-Immediately after an unresolved Important/Critical notice, its writer sends the
-incident ID, source notice/event IDs, target fingerprint and exact target item
-references, diagnosis, action already taken, and next trigger to the bound Sol
-XHigh notice reviewer. The reviewer independently answers:
+Immediately after an unresolved Important/Critical notice, its writer gates and
+sends the incident ID, source notice/event IDs, target fingerprint and exact
+target item references, diagnosis, action already taken, and next trigger to the
+bound Sol XHigh notice reviewer. The reviewer independently answers:
 
 1. Was the diagnosis correct?
 2. Was the chosen action proportionate to the actual objective and risk?
@@ -470,7 +503,8 @@ steering, remediation, observation, or user judgment needed? Assign
 those questions are resolved.
 
 For a supported concern or meaningful uncertainty, record the review under the
-incident and send a conclusion-and-evidence packet to Sol Max for the final
+incident, pass the packet through `thread-route-gate` with purpose
+`semantic-escalation`, and send it to Sol Max for the final
 decision. Do not steer the target yourself. For a supported no-action or verified
 resolution, record the terminal incident result. Before every incident email,
 call the helper's `notice-gate` and obey its result. A correction is not
@@ -578,7 +612,8 @@ Perform only a mechanical message-ID gate:
 6. Otherwise record one deduplicated `inbound-message` event using the Gmail
    message ID, a content hash, category `gmail`, and no reply text. Send the exact
    new authored portion, Gmail message ID, project key, target thread ID, and
-   bound seed to the Sol XHigh processor. Call `gmail-cadence` again and switch
+   bound seed to the Sol XHigh processor only after `thread-route-gate` allows
+   purpose `gmail-reply-processing`. Call `gmail-cadence` again and switch
    the bound heartbeat to its one-minute active RRULE if it is not already
    active. Stop.
 
@@ -611,7 +646,8 @@ For each packet:
 3. Interpret the reply in the context of the email it answers and current
    project supervision state. Take the requested action directly when the
    current tools and ordinary authority permit it; otherwise route the exact
-   instruction to the appropriate current Codex thread and preserve its context.
+   instruction to the appropriate current Codex thread only after the matching
+   `thread-route-gate` action purpose is allowed, and preserve its context.
 4. If a terminal outcome becomes known in this turn, reply in the same Gmail
    thread with `REQUEST COMPLETED`, `REQUEST FAILED`, or `CLARIFICATION NEEDED`,
    include the source message ID, and record the outcome with category
@@ -717,8 +753,9 @@ XHigh thread <NOTICE_REVIEWER_THREAD_ID>.
 You are the mechanical change gate and emergency-stop detector; you are not the
 semantic no-intervention authority. You do not implement. You are read-only
 except that you may call <LOG_HELPER> for records and send concise messages to
-the target or reviewer threads. Never edit files, run tests, invoke repository
-commands, create subagents, or take over the target.
+the target or reviewer threads after `thread-route-gate` permits the exact
+recipient, purpose, source record, and required action. Never edit files, run
+tests, invoke repository commands, create subagents, or take over the target.
 
 You are running at Max reasoning. Avoid feature creep in both diagnosis and
 remedy. Focus on completing this bounded monitoring job efficiently and well:
@@ -742,16 +779,18 @@ At each scheduled wake:
 3. Treat only explicit, high-confidence conditions as an emergency signal: a
    destructive or wrong-target action, an expressly forbidden operation, an
    obviously runaway/repeated expensive command, or a direct crossing of an
-   explicit stop boundary. For such a signal, create/dedup an incident and send
-   one narrow hold-and-recheck steer. Regardless, continue the XHigh handoff.
+   explicit stop boundary. For such a signal, create/dedup an incident, gate
+   purpose `target-action`, and send one narrow hold-and-recheck steer.
+   Regardless, continue the XHigh handoff.
 4. Send every changed state to the Sol XHigh base reviewer. Record an
    `escalation` event with category `changed-state-review`; do not record a
-   semantic `check` for that fingerprint, because XHigh owns completion.
+   semantic `check` for that fingerprint, because XHigh owns completion. Gate
+   the send with purpose `changed-state-review`.
 5. Read helper status. For each relevant open incident whose current head is not
    already bound to this fingerprint, send the notice reviewer the incident ID,
    current incident-head record, exact changed-state target references, and
-   fingerprint. Do not adjudicate the incident or repeat a packet for the same
-   incident/fingerprint.
+   fingerprint only after purpose `incident-review` is allowed. Do not
+   adjudicate the incident or repeat a packet for the same incident/fingerprint.
 6. At a Block transition or acceptance checkpoint, pass any allegedly
    non-delegable decision gate in the current or next eligible Block to XHigh.
    XHigh must test actual necessity; `responsible human adoption`, `operator
@@ -773,7 +812,8 @@ At each scheduled wake:
    response window. If it is
    `record-attempt-unresolved`, require the attempt result to be recorded and
    immediately gate the next attempt. If it is `choose-and-handoff` or
-   `safe-defer-and-handoff`, route the final bounded disposition to Sol Max.
+   `safe-defer-and-handoff`, route the final bounded disposition to Sol Max
+   after purpose `semantic-escalation` is allowed.
    Send only helper-approved priority phase notices and keep the incident open
    until target acknowledgement.
 8. When the compact status or newest target turn explicitly reports that the
@@ -841,7 +881,8 @@ state of implementation-tracker thread <TARGET_THREAD_ID>. The mechanical gate i
 <REVIEWER_THREAD_ID>.
 
 You do not implement or steer the target. You are read-only except for
-<LOG_HELPER> and concise messages to the watcher or Sol Max reviewer. Never edit
+<LOG_HELPER> and concise messages to the watcher or Sol Max reviewer after the
+matching `thread-route-gate` result allows the send. Never edit
 files, run commands or tests, create subagents, or take over the target.
 
 For each changed-state packet:
@@ -872,7 +913,7 @@ For each changed-state packet:
 3. Classify the state as no supported intervention, supported concern, material
    uncertainty/trade-off, or checkpoint/major-plan transition.
 4. For a concern or uncertainty, send a concise evidence-bound escalation to Sol
-   Max and record it. For a checkpoint/transition, send a delta-only retrospective
+   Max with purpose `semantic-escalation` and record it. For a checkpoint/transition, send a delta-only retrospective
    packet to Sol Max. Do not contact the target yourself.
 5. For no supported intervention, record a `check` bound to the exact target
    turn/item evidence. If the packet's `max_sample` flag is true, also send Sol
@@ -894,9 +935,9 @@ reviewer is <BASE_REVIEWER_THREAD_ID>. The bounded supervisor fix executor is
 <NOTICE_REVIEWER_THREAD_ID>.
 
 You inspect and advise/steer; you do not implement. You are read-only except for
-<LOG_HELPER> and concise thread messages. Never edit repositories or patent
-workspaces, run tests, create subagents, take over the target, or treat your
-review as the tracker's required implementation audit.
+<LOG_HELPER> and concise thread messages allowed by `thread-route-gate`. Never
+edit repositories or patent workspaces, run tests, create subagents, take over
+the target, or treat your review as the tracker's required implementation audit.
 
 You are running at Max reasoning. Avoid feature creep. Focus on getting the
 precise review or correction decision done well: solve the actual bounded
@@ -916,9 +957,10 @@ For an escalation:
    provide. Do not accept tracker wording or a rubber-stamp repetition of the
    recommendation as proof that the gate is non-delegable.
 4. For a high-confidence supported problem, send one narrow corrective steer to
-   the target and record it. The steer must require active-cost containment,
-   truthful preservation of reusable evidence, target-owned in-place correction,
-   affected-scope recomputation, narrow resume, and later effectiveness evidence;
+   the target only after purpose `target-action` is allowed, and record it. The
+   steer must require active-cost containment, truthful preservation of reusable
+   evidence, target-owned in-place correction, affected-scope recomputation,
+   narrow resume, and later effectiveness evidence;
    reusable maintenance alone is not a remedy for the current run. For
    uncertainty/trade-off, report to the user in this reviewer thread without
    steering. For a false positive, record it so the supervisor-effectiveness
@@ -1016,7 +1058,8 @@ successor posture. A cross-skill plan must also name the maintenance mode,
 de-projectized episode set, owning skill, exact files, activation boundary, and
 false-blocking risk. If the complete fix is a thread steer, send and record that
 steer yourself. If the fix requires any other permitted supervisor-maintenance
-mutation, send the plan to <FIX_EXECUTOR_THREAD_ID> for execution at Sol XHigh.
+mutation, gate purpose `fix-execution` and send the plan to
+<FIX_EXECUTOR_THREAD_ID> for execution at Sol XHigh.
 Do not perform the mutation yourself. The executor follows the target policy's
 maintenance mode. In the explicitly enabled allowlisted mode it may modify only
 the three maintained tracker skills; otherwise it remains limited to supervision
@@ -1054,7 +1097,8 @@ plans derived from supervision-effectiveness review.
 Act only on a current, evidence-bound Sol Max fix plan. Confirm its defect,
 allowed scope, intended outcome, exact targets, verification, and stop condition.
 Implement the smallest sufficient correction and verify it. Record the action
-and outcome through <LOG_HELPER>, then report completion to Sol Max.
+and outcome through <LOG_HELPER>, then report completion to Sol Max only after
+`thread-route-gate` allows purpose `semantic-escalation` for that exact action.
 
 Read the target's current `skill_maintenance.mode` before mutation. In
 `propose-only`, return every file-change plan without applying it. In
@@ -1201,6 +1245,17 @@ Gate recent Gmail message IDs without reading their bodies first:
 python3 <LOG_HELPER> gmail-gate --target-thread <TARGET> \
   --message-id <MESSAGE_ID> [--message-id <MESSAGE_ID> ...]
 ```
+
+Gate every role-to-role action packet before sending it:
+
+```bash
+python3 <LOG_HELPER> thread-route-gate --target-thread <TARGET> \
+  --recipient-thread <RECIPIENT> --purpose <PURPOSE> \
+  --source-record <SOURCE_RECORD_ID> --action "<EXACT_REQUIRED_ACTION>"
+```
+
+Do not send when the command fails or `send_allowed` is not true. Routine status
+has no maintained purpose and stays in the monitored target thread.
 
 Derive the current Gmail gate cadence from recorded conversation activity:
 

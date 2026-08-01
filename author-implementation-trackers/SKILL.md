@@ -101,6 +101,12 @@ rather than recreating the document shape from memory.
     continue during that window. The final posture is a supported selection
     within delegated authority or a bounded safe deferral for an unavailable
     fact or reserved action—never a fabricated fact or unauthorized act.
+18. Keep implementation progress in the active implementation thread. A tracker
+    may require a bounded action handoff to a configured reviewer, supervisor,
+    or executor, but it must not require routine status broadcasting to side
+    conversations. In supervised runs, cross-thread sends use the supervision
+    policy's exact action-routing gate; user-facing email uses only its
+    maintained notification gates.
 
 Use concise boilerplate. Do not duplicate a global rule inside every block;
 reference the governing section and add only the block-specific consequence.

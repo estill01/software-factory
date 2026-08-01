@@ -185,6 +185,10 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
         policy = supervision_log.default_policy(self.init_args())
 
         self.assertTrue(policy["execution_economy"]["enabled"])
+        self.assertEqual(
+            policy["cross_thread_routing"],
+            supervision_log.cross_thread_routing_contract(),
+        )
         self.assertEqual(policy["skill_maintenance"]["mode"], "propose-only")
         self.assertFalse(policy["permissions"]["allowlisted_skill_maintenance"])
         self.assertEqual(
@@ -250,6 +254,7 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
         policy = supervision_log.default_policy(self.init_args())
         policy.pop("execution_economy")
         policy.pop("decision_resolution")
+        policy.pop("cross_thread_routing")
         policy.pop("skill_maintenance")
         policy["permissions"].pop("allowlisted_skill_maintenance")
         policy["permissions"].pop("gmail_priority_notification")
@@ -273,6 +278,10 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
         self.assertEqual(policy["skill_maintenance"]["mode"], "propose-only")
         self.assertTrue(policy["execution_economy"]["enabled"])
         self.assertTrue(policy["decision_resolution"]["continuation_first"])
+        self.assertEqual(
+            policy["cross_thread_routing"],
+            supervision_log.cross_thread_routing_contract(),
+        )
         self.assertFalse(policy["permissions"]["allowlisted_skill_maintenance"])
         self.assertFalse(policy["permissions"]["gmail_priority_notification"])
         self.assertFalse(policy["notifications"]["gmail_priority"]["enabled"])
@@ -334,6 +343,175 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
             "Execution-economy contract differs",
         ):
             supervision_log.validate_policy(policy)
+
+    def test_policy_validation_rejects_thread_routing_contract_drift(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        policy["cross_thread_routing"]["routine_status_behavior"] = "broadcast"
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "Cross-thread routing contract differs",
+        ):
+            supervision_log.validate_policy(policy)
+
+    def test_policy_validation_accepts_missing_legacy_routing_for_bind_upgrade(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        policy.pop("cross_thread_routing")
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+
+        supervision_log.validate_policy(policy)
+
+
+class CrossThreadRoutingGateTests(unittest.TestCase):
+    def policy(self) -> dict[str, object]:
+        args = argparse.Namespace(
+            target_thread="target-1234",
+            target_label="target",
+            watcher_thread="watcher-1234",
+            reviewer_thread="reviewer-1234",
+            base_reviewer_thread="base-1234",
+            notice_reviewer_thread="notice-1234",
+            fix_executor_thread="fixer-1234",
+        )
+        policy = supervision_log.default_policy(args)
+        policy["runtime"].update(
+            {
+                "gmail_processor_thread_id": "gmail-processor-1234",
+                "roundup_thread_id": "roundup-1234",
+            }
+        )
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+        return policy
+
+    def route(
+        self,
+        policy: dict[str, object],
+        *,
+        recipient: str,
+        purpose: str,
+        action: str = "Review the exact changed-state packet.",
+    ) -> dict[str, object]:
+        args = argparse.Namespace(
+            target_thread="target-1234",
+            recipient_thread=recipient,
+            purpose=purpose,
+            source_record="EVT-000001",
+            action=action,
+        )
+        output = io.StringIO()
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(Path("/tmp/supervision-test"), policy),
+            ),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_thread_route_gate(args)
+        return json.loads(output.getvalue())
+
+    def test_exact_configured_action_owner_is_allowed(self) -> None:
+        result = self.route(
+            self.policy(),
+            recipient="base-1234",
+            purpose="changed-state-review",
+        )
+
+        self.assertTrue(result["send_allowed"])
+        self.assertEqual(result["recipient_role"], "base_reviewer")
+        self.assertEqual(result["source_record"], "EVT-000001")
+
+    def test_target_action_is_allowed_without_echoing_action_text(self) -> None:
+        action = "Apply the exact bounded correction and report acknowledgement."
+        result = self.route(
+            self.policy(),
+            recipient="target-1234",
+            purpose="target-action",
+            action=action,
+        )
+
+        self.assertTrue(result["send_allowed"])
+        self.assertEqual(result["recipient_role"], "target")
+        self.assertEqual(result["action_sha256"], supervision_log.digest(action))
+        self.assertNotIn(action, json.dumps(result))
+
+    def test_unrelated_side_thread_fails_closed(self) -> None:
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "not a configured action owner",
+        ):
+            self.route(
+                self.policy(),
+                recipient="side-conversation-1234",
+                purpose="target-action",
+            )
+
+    def test_purpose_must_match_exact_recipient_role(self) -> None:
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "purpose does not match",
+        ):
+            self.route(
+                self.policy(),
+                recipient="reviewer-1234",
+                purpose="changed-state-review",
+            )
+
+    def test_missing_action_fails_closed(self) -> None:
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "requires an exact action",
+        ):
+            self.route(
+                self.policy(),
+                recipient="reviewer-1234",
+                purpose="semantic-escalation",
+                action="   ",
+            )
+
+    def test_ambiguous_role_binding_fails_closed(self) -> None:
+        policy = self.policy()
+        policy["runtime"]["watcher_thread_id"] = "target-1234"
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "ambiguous configured roles",
+        ):
+            self.route(
+                policy,
+                recipient="target-1234",
+                purpose="target-action",
+            )
+
+    def test_legacy_unbound_policy_must_be_rebound_before_routing(self) -> None:
+        policy = self.policy()
+        policy.pop("cross_thread_routing")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "run bind first",
+        ):
+            self.route(
+                policy,
+                recipient="target-1234",
+                purpose="target-action",
+            )
+
+    def test_unmaintained_status_purpose_fails_closed(self) -> None:
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "Unsupported cross-thread routing purpose",
+        ):
+            self.route(
+                self.policy(),
+                recipient="target-1234",
+                purpose="routine-status",
+            )
 
 
 class PriorityLifecycleNotificationTests(unittest.TestCase):

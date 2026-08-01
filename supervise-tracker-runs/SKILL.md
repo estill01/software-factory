@@ -130,9 +130,11 @@ Repeat independently for additional targets.
 - Do not repeat an unchanged incident or steer. Respect the configured cooldown.
 - Keep ordinary implementation, checkpoint, audit, and incident progress in the
   monitored target thread. Send a cross-thread role packet only to a configured
-  supervision role that owns a required action or decision; never use an
-  unrelated chat or side conversation as a status sink. User-facing email goes
-  only through the maintained notification gates.
+  supervision role that owns a required action or decision. Before every such
+  send, call the helper's `thread-route-gate` with the exact recipient, purpose,
+  source record, and required action, and require `send_allowed=true`. Never use
+  an unrelated chat or side conversation as a status sink. User-facing email
+  goes only through the maintained notification gates.
 - At a Block transition or acceptance checkpoint, inspect the current and next
   eligible Block for an allegedly non-delegable decision gate. Independently
   test necessity; tracker labels such as `responsible human adoption` or
@@ -380,8 +382,10 @@ Repeat independently for additional targets.
 - Do not run the target's commands or tests, create subagents, broaden scope, or
   replace the tracker's required independent audit.
 - Cross-thread communication is action routing, not progress broadcasting. A
-  bounded packet identifies the recipient's required action; routine evidence
-  and outcomes remain in the target thread or their helper-approved email lane.
+  bounded packet identifies the recipient's required action and must pass
+  `thread-route-gate`; routine evidence and outcomes remain in the target thread
+  or their helper-approved email lane. The gate is read-only and must not become
+  another message ledger or authorization system.
 - Scheduled inactivity consumes no model tokens; each wake must remain bounded.
 - Supervision evidence is operational evidence, not patent authority, legal
   status, or proof of patent quality.
