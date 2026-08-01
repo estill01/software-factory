@@ -551,6 +551,25 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
         ):
             supervision_log.validate_policy(policy)
 
+    def test_legacy_priority_policy_can_be_explicitly_upgraded(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        priority = policy["notifications"]["gmail_priority"]
+        priority.pop("decision_context_enabled")
+        priority.pop("decision_context_policy")
+        priority.pop("required_decision_fields")
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+
+        supervision_log.validate_policy(policy)
+        self.bind_priority(policy, decision_context=True)
+
+        self.assertTrue(priority["decision_context_enabled"])
+        self.assertEqual(
+            priority["required_decision_fields"],
+            supervision_log.gmail_priority_contract()["required_decision_fields"],
+        )
+
     def test_policy_validation_rejects_incomplete_enabled_priority_binding(self) -> None:
         policy = supervision_log.default_policy(self.init_args())
         policy["notifications"]["gmail_priority"]["enabled"] = True

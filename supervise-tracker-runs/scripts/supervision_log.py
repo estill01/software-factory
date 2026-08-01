@@ -388,6 +388,10 @@ def validate_policy(policy: dict[str, Any]) -> None:
             "decision_context_policy",
             "required_decision_fields",
         ):
+            if key in {"decision_context_policy", "required_decision_fields"} and key not in priority:
+                # Additive decision-context fields are backfilled by `bind` so
+                # already-running supervisors can adopt the new contract in place.
+                continue
             if priority.get(key) != expected_priority[key]:
                 raise SupervisionLogError("Gmail priority lifecycle contract differs")
         if priority.get("enabled"):
