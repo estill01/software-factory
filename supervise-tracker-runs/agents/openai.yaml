@@ -1,0 +1,4 @@
+interface:
+  display_name: "Supervise Tracker Runs"
+  short_description: "Monitor tracker runs with bounded escalation"
+  default_prompt: "Use $supervise-tracker-runs to attach bounded monitoring to my active implementation tracker thread."

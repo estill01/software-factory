@@ -1,0 +1,262 @@
+#!/usr/bin/env python3
+"""Read-only structural verifier for Markdown implementation trackers."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+
+BLOCK_HEADING = re.compile(
+    r"^(?P<marks>#{2,4})\s+Block\s+(?P<number>\d+)\s*(?:[—:-]\s*(?P<title>.*))?$"
+)
+SECTION_HEADING = re.compile(r"^#{2,6}\s+(?P<title>.+?)\s*$")
+STATUS_LINE = re.compile(r"^\s*(?:\*\*)?Status(?:\*\*)?\s*:\s*`?(?P<status>[a-z][a-z0-9-]*)`?\s*$", re.I)
+
+CORE_SECTIONS = (
+    ("objective",),
+    ("required work",),
+    ("acceptance",),
+    ("stop",),
+)
+FULL_SECTIONS = CORE_SECTIONS + (
+    ("inputs and dependencies", "inputs/dependencies"),
+    ("scope and non-goals", "scope/non-goals", "boundary and non-goals"),
+    ("deliverables and recorded state", "deliverables and persistent capability state", "deliverables"),
+    ("resource and economy contract", "resource/economy contract", "resource contract"),
+    ("qa and independent review", "qa/independent review", "qa"),
+    ("negative tests",),
+    ("completion evidence",),
+)
+
+
+@dataclass(frozen=True)
+class Block:
+    number: int
+    title: str
+    line: int
+    body: tuple[str, ...]
+
+
+def normalize_heading(value: str) -> str:
+    value = value.strip().lower().rstrip(":")
+    return re.sub(r"\s+", " ", value)
+
+
+def parse_blocks(lines: list[str]) -> list[Block]:
+    starts: list[tuple[int, re.Match[str]]] = []
+    in_fence = False
+    for index, line in enumerate(lines):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        match = BLOCK_HEADING.match(line.rstrip())
+        if match:
+            starts.append((index, match))
+
+    blocks: list[Block] = []
+    for position, (start, match) in enumerate(starts):
+        end = starts[position + 1][0] if position + 1 < len(starts) else len(lines)
+        blocks.append(
+            Block(
+                number=int(match.group("number")),
+                title=(match.group("title") or "").strip(),
+                line=start + 1,
+                body=tuple(lines[start + 1 : end]),
+            )
+        )
+    return blocks
+
+
+def parse_status(block: Block) -> tuple[str | None, int | None]:
+    in_fence = False
+    for offset, line in enumerate(block.body, start=1):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        match = STATUS_LINE.match(line)
+        if match:
+            return match.group("status").lower(), block.line + offset
+    return None, None
+
+
+def parse_sections(block: Block) -> set[str]:
+    sections: set[str] = set()
+    in_fence = False
+    for line in block.body:
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        match = SECTION_HEADING.match(line.rstrip())
+        if match:
+            sections.add(normalize_heading(match.group("title")))
+    return sections
+
+
+def parse_status_table(lines: list[str]) -> tuple[dict[int, tuple[str, str, int]], list[str]]:
+    rows: dict[int, tuple[str, str, int]] = {}
+    errors: list[str] = []
+    header_index: int | None = None
+    for index, line in enumerate(lines):
+        if re.match(r"^\|\s*Block\s*\|", line, re.I):
+            header_index = index
+            break
+    if header_index is None:
+        return rows, errors
+
+    for index in range(header_index + 2, len(lines)):
+        line = lines[index]
+        if not line.startswith("|"):
+            break
+        cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
+        if not cells or not re.fullmatch(r"\d+", cells[0]):
+            continue
+        if len(cells) < 4:
+            errors.append(f"line {index + 1}: malformed status-table row")
+            continue
+        number = int(cells[0])
+        if number in rows:
+            errors.append(f"line {index + 1}: duplicate status-table row for Block {number}")
+            continue
+        status = cells[-1].strip("`").lower()
+        dependencies = cells[-2]
+        rows[number] = (status, dependencies, index + 1)
+    return rows, errors
+
+
+def sequence_metadata(lines: list[str]) -> tuple[int | None, int | None]:
+    pattern = re.compile(r"^\s*-?\s*Tracker sequence\s*:\s*Blocks\s+0[–-](\d+)\s*$", re.I)
+    for index, line in enumerate(lines):
+        match = pattern.match(line)
+        if match:
+            return int(match.group(1)), index + 1
+    return None, None
+
+
+def verify(path: Path, profile: str) -> dict[str, object]:
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines()
+    blocks = parse_blocks(lines)
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    if not blocks:
+        errors.append("no Block headings found")
+        return {"path": str(path), "profile": profile, "blocks": [], "errors": errors, "warnings": warnings}
+
+    numbers = [block.number for block in blocks]
+    duplicates = sorted({number for number in numbers if numbers.count(number) > 1})
+    if duplicates:
+        errors.append(f"duplicate Block headings: {', '.join(map(str, duplicates))}")
+    expected = list(range(0, max(numbers) + 1))
+    if numbers != expected:
+        errors.append(f"Block headings are not continuous and ordered: found {numbers}, expected {expected}")
+
+    required_sections = FULL_SECTIONS if profile == "full" else CORE_SECTIONS
+    block_statuses: dict[int, str] = {}
+    for block in blocks:
+        status, _ = parse_status(block)
+        if status is None:
+            errors.append(f"line {block.line}: Block {block.number} has no Status line")
+        else:
+            block_statuses[block.number] = status
+        sections = parse_sections(block)
+        for aliases in required_sections:
+            if not any(alias in sections for alias in aliases):
+                errors.append(
+                    f"line {block.line}: Block {block.number} is missing section "
+                    f"'{aliases[0]}'"
+                )
+
+    table, table_errors = parse_status_table(lines)
+    errors.extend(table_errors)
+    if not table:
+        message = "no status/order table with a '| Block |' header found"
+        (errors if profile == "full" else warnings).append(message)
+    else:
+        table_numbers = sorted(table)
+        if table_numbers != expected:
+            errors.append(f"status-table Blocks do not match headings: found {table_numbers}, expected {expected}")
+        for number, (table_status, dependencies, line) in table.items():
+            if number in block_statuses and table_status != block_statuses[number]:
+                errors.append(
+                    f"line {line}: Block {number} table status '{table_status}' "
+                    f"does not match block status '{block_statuses[number]}'"
+                )
+            dependency_numbers = [int(value) for value in re.findall(r"\d+", dependencies)]
+            for dependency in dependency_numbers:
+                if dependency not in expected:
+                    errors.append(f"line {line}: Block {number} depends on unknown Block {dependency}")
+                elif dependency >= number:
+                    errors.append(
+                        f"line {line}: Block {number} has non-preceding dependency Block {dependency}"
+                    )
+
+    declared_terminal, metadata_line = sequence_metadata(lines)
+    if declared_terminal is not None and declared_terminal != max(numbers):
+        errors.append(
+            f"line {metadata_line}: tracker sequence ends at Block {declared_terminal}, "
+            f"but headings end at Block {max(numbers)}"
+        )
+    elif declared_terminal is None:
+        warnings.append("no explicit 'Tracker sequence: Blocks 0–N' metadata found")
+
+    return {
+        "path": str(path),
+        "profile": profile,
+        "blocks": numbers,
+        "errors": errors,
+        "warnings": warnings,
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("tracker", type=Path, help="Markdown tracker to verify")
+    parser.add_argument(
+        "--profile",
+        choices=("core", "full"),
+        default="full",
+        help="full requires implementation-ready block sections; core checks the minimal inherited contract",
+    )
+    parser.add_argument("--json", action="store_true", help="emit machine-readable diagnostics")
+    args = parser.parse_args(argv)
+
+    if not args.tracker.is_file():
+        print(f"error: tracker does not exist: {args.tracker}", file=sys.stderr)
+        return 2
+
+    try:
+        result = verify(args.tracker, args.profile)
+    except (OSError, UnicodeError) as exc:
+        print(f"error: cannot read tracker: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        print(json.dumps(result, indent=2, sort_keys=True))
+    else:
+        print(
+            f"tracker: {result['path']}\n"
+            f"profile: {result['profile']}\n"
+            f"blocks: {len(result['blocks'])}"
+        )
+        for warning in result["warnings"]:
+            print(f"warning: {warning}")
+        for error in result["errors"]:
+            print(f"error: {error}")
+        print("result: PASS" if not result["errors"] else "result: FAIL")
+    return 1 if result["errors"] else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

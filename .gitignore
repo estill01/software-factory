@@ -1,0 +1,4 @@
+.DS_Store
+.system/
+**/__pycache__/
+*.py[cod]

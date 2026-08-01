@@ -1,0 +1,4 @@
+interface:
+  display_name: "Author Implementation Trackers"
+  short_description: "Create and safely amend implementation trackers"
+  default_prompt: "Use $author-implementation-trackers to create or amend an implementation tracker for this repository."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implement Tracker Blocks"
+  short_description: "Execute and audit tracker blocks in order"
+  default_prompt: "Use $implement-tracker-blocks to implement and audit the requested block from this tracker."
