@@ -553,6 +553,30 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
         ):
             supervision_log.validate_policy(policy)
 
+    def test_policy_validation_rejects_incomplete_enabled_decision_context(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        priority = policy["notifications"]["gmail_priority"]
+        priority.update(
+            {
+                "enabled": True,
+                "reply_message_id": "gmail-priority-1234",
+                "project_key": "Main",
+                "subject": "PRIORITY - Main",
+                "decision_context_enabled": True,
+            }
+        )
+        priority.pop("required_decision_fields")
+        policy["permissions"]["gmail_priority_notification"] = True
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "requires every maintained decision field",
+        ):
+            supervision_log.validate_policy(policy)
+
     def test_legacy_priority_policy_can_be_explicitly_upgraded(self) -> None:
         policy = supervision_log.default_policy(self.init_args())
         priority = policy["notifications"]["gmail_priority"]
@@ -683,6 +707,46 @@ class DecisionResolutionTests(unittest.TestCase):
             redirect_stdout(output),
         ):
             supervision_log.cmd_decision_gate(args)
+        return json.loads(output.getvalue())
+
+    def notification(
+        self,
+        directory: Path,
+        policy: dict[str, object],
+        *,
+        status: str,
+        dedup_key: str,
+        source_record: str,
+    ) -> dict[str, object]:
+        args = supervision_log.parser().parse_args(
+            [
+                "record",
+                "--target-thread",
+                self.target,
+                "--kind",
+                "notification",
+                "--status",
+                status,
+                "--category",
+                "gmail-priority-decision",
+                "--dedup-key",
+                dedup_key,
+                "--state-fingerprint",
+                "state-1234",
+                "--evidence",
+                source_record,
+                "--summary",
+                f"Decision notification {status}.",
+            ]
+        )
+        output = io.StringIO()
+        with (
+            mock.patch.object(
+                supervision_log, "load_policy", return_value=(directory, policy)
+            ),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_record(args)
         return json.loads(output.getvalue())
 
     def test_default_policy_has_fixed_continuation_first_contract(self) -> None:
@@ -902,6 +966,109 @@ class DecisionResolutionTests(unittest.TestCase):
                 waiting["action"], "await-user-and-continue-safe-frontier"
             )
             self.assertEqual(expired["action"], "choose-and-handoff")
+
+    def test_premature_selection_and_safe_deferral_fail_closed(self) -> None:
+        for classification, phase, outcome in (
+            ("human-preference", "resolved", "selected"),
+            ("missing-fact", "safe-deferred", "safe-deferred"),
+        ):
+            with self.subTest(classification=classification):
+                with tempfile.TemporaryDirectory() as temporary:
+                    directory = Path(temporary)
+                    policy = supervision_log.default_policy(self.init_args())
+                    self.record(
+                        directory,
+                        policy,
+                        classification=classification,
+                        phase="decision-ready",
+                    )
+                    self.record(
+                        directory,
+                        policy,
+                        classification=classification,
+                        phase="attempt-started",
+                        attempt=1,
+                    )
+                    self.record(
+                        directory,
+                        policy,
+                        classification=classification,
+                        phase="attempt-unresolved",
+                        attempt=1,
+                        now="2026-08-01T12:01:00+00:00",
+                    )
+
+                    with self.assertRaisesRegex(
+                        supervision_log.SupervisionLogError,
+                        "requires all attempts and the user window",
+                    ):
+                        self.record(
+                            directory,
+                            policy,
+                            classification=classification,
+                            phase=phase,
+                            attempt=1,
+                            outcome=outcome,
+                            now="2026-08-01T12:02:00+00:00",
+                        )
+
+    def test_failed_decision_notification_remains_retryable(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = supervision_log.default_policy(self.init_args())
+            policy["notifications"]["gmail_priority"].update(
+                {
+                    "enabled": True,
+                    "reply_message_id": "gmail-priority-1234",
+                    "decision_context_enabled": True,
+                }
+            )
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="decision-ready",
+            )
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="attempt-started",
+                attempt=1,
+            )
+            unresolved = self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="attempt-unresolved",
+                attempt=1,
+                now="2026-08-01T12:20:00+00:00",
+            )["record"]
+            eligible = self.gate(directory, policy, "2026-08-01T12:20:00+00:00")
+            failed = self.notification(
+                directory,
+                policy,
+                status="failed",
+                dedup_key=eligible["notification_dedup_key"],
+                source_record=unresolved["record_id"],
+            )
+
+            retry = self.gate(directory, policy, "2026-08-01T12:20:01+00:00")
+            sent = self.notification(
+                directory,
+                policy,
+                status="sent",
+                dedup_key=retry["notification_dedup_key"],
+                source_record=unresolved["record_id"],
+            )
+            complete = self.gate(directory, policy, "2026-08-01T12:20:02+00:00")
+
+            self.assertFalse(failed["duplicate"])
+            self.assertTrue(retry["notification_send_now"])
+            self.assertFalse(retry["notification_duplicate"])
+            self.assertFalse(sent["duplicate"])
+            self.assertFalse(complete["notification_send_now"])
+            self.assertTrue(complete["notification_duplicate"])
 
     def test_three_unresolved_attempts_force_selection_for_preference(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

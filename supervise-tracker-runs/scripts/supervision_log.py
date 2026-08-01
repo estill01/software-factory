@@ -488,6 +488,18 @@ def validate_policy(policy: dict[str, Any]) -> None:
                 continue
             if priority.get(key) != expected_priority[key]:
                 raise SupervisionLogError("Gmail priority lifecycle contract differs")
+        if priority.get("decision_context_enabled") is True:
+            if priority.get("enabled") is not True:
+                raise SupervisionLogError(
+                    "Decision context requires an enabled Gmail priority binding"
+                )
+            if (
+                priority.get("required_decision_fields")
+                != expected_priority["required_decision_fields"]
+            ):
+                raise SupervisionLogError(
+                    "Enabled decision context requires every maintained decision field"
+                )
         if priority.get("enabled"):
             if not all(
                 priority.get(key)
@@ -1085,6 +1097,13 @@ def cmd_record(args: argparse.Namespace) -> None:
                     if item.get("kind") == args.kind
                     and item.get("dedup_key") == record["dedup_key"]
                     and item.get("state_fingerprint") == record["state_fingerprint"]
+                    and (
+                        args.kind != "notification"
+                        or (
+                            item.get("status") == "sent"
+                            and record["status"] == "sent"
+                        )
+                    )
                 ),
                 None,
             )
@@ -1492,6 +1511,44 @@ def cmd_decision_record(args: argparse.Namespace) -> None:
             attempt=attempt,
             outcome=outcome,
         )
+        if prior is not None:
+            prior_phase = str(prior.get("phase", ""))
+            prior_attempt = int(prior.get("attempt", 0))
+            automatic_resolution = phase == "resolved" and outcome == "selected"
+            if (
+                automatic_resolution
+                and classification != "delegable"
+                and prior_phase == "decision-ready"
+            ):
+                raise SupervisionLogError(
+                    "A non-delegable decision must record its first resolution attempt"
+                )
+            if automatic_resolution and prior_phase == "attempt-started":
+                if now > parse_time(str(prior.get("deadline_at", ""))):
+                    raise SupervisionLogError(
+                        "An expired resolution attempt must be recorded unresolved"
+                    )
+            if automatic_resolution and prior_phase == "attempt-unresolved":
+                user_deadline_at = str(prior.get("user_deadline_at", ""))
+                if (
+                    prior_attempt < int(contract["max_attempts"])
+                    or not user_deadline_at
+                    or now < parse_time(user_deadline_at)
+                ):
+                    raise SupervisionLogError(
+                        "Automatic final selection requires all attempts and the user window"
+                    )
+            if phase == "safe-deferred" and prior_phase != "user-responded":
+                user_deadline_at = str(prior.get("user_deadline_at", ""))
+                if (
+                    prior_phase != "attempt-unresolved"
+                    or prior_attempt < int(contract["max_attempts"])
+                    or not user_deadline_at
+                    or now < parse_time(user_deadline_at)
+                ):
+                    raise SupervisionLogError(
+                        "Automatic safe deferral requires all attempts and the user window"
+                    )
         if phase == "decision-ready":
             decision_ready_at = iso_time(now)
             deadline_at = ""
@@ -1588,6 +1645,7 @@ def decision_notification(
     duplicate = any(
         item.get("kind") == "notification"
         and item.get("category") == category
+        and item.get("status") == "sent"
         and (
             item.get("dedup_key") == dedup_key
             or source_record in item.get("evidence", [])
