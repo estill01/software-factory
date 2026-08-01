@@ -70,9 +70,11 @@ than a full-run stop:
    Late input selectively reopens only mapped descendants and must not duplicate
    already valid work.
 
-For a supervised run, keep working during the maintained 20-minute response
-window. If no response arrives, consume up to three bounded Sol Max resolution
-attempts of at most 20 minutes each without idle waits between attempts. A
+For a supervised run, start one bounded Sol Max resolution attempt before
+requesting user input. Only if that attempt remains unresolved should the
+supervisor send the complete decision brief and open the maintained 20-minute
+response window. Keep working during that window and consume the remaining
+bounded Sol Max attempts, each at most 20 minutes, without idle waits. A
 delegable choice or unresolved preference ends in a supported selection and
 exact handoff. A missing fact or reserved action ends in a safe bounded deferral,
 not an invented fact or unauthorized operation. Apply the handoff at the next
@@ -115,9 +117,10 @@ suite.
 
 Treat a blocked implementation as exceptional. Claim `blocked` only when the
 exact non-delegable input is still absent, proceeding would cross a declared
-authority or safety boundary, the decision-ready packet has been exposed, and
-all safe in-scope work has been exhausted. Report the earliest point at which
-the blocker was foreseeable and when it became decision-ready. Do not convert
+authority or safety boundary, the first attempt remained unresolved, the
+complete human-input packet has been exposed, and all safe in-scope work has
+been exhausted. Report the earliest point at which the blocker was foreseeable
+and when it became decision-ready. Do not convert
 a preferred confirmation, generic confidence request, unresolved but bounded
 engineering choice, or work that can proceed independently into a full-run
 stop. If the requested response would only repeat the system's recommended

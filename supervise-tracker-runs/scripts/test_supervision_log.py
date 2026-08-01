@@ -690,11 +690,35 @@ class DecisionResolutionTests(unittest.TestCase):
         contract = policy["decision_resolution"]
 
         self.assertTrue(contract["continuation_first"])
+        self.assertTrue(contract["attempt_before_user_notification"])
+        self.assertTrue(contract["continue_attempts_during_user_window"])
         self.assertEqual(contract["human_response_minutes"], 20)
         self.assertEqual(contract["attempt_minutes"], 20)
         self.assertEqual(contract["max_attempts"], 3)
         self.assertEqual(contract["attempt_model"], "gpt-5.6-sol")
         self.assertEqual(contract["attempt_reasoning"], "max")
+        self.assertEqual(
+            contract["priority_phase_notifications"],
+            ["human-input-requested", "final-disposition", "target-resumed"],
+        )
+
+    def test_bind_can_upgrade_exact_wait_first_predecessor_policy(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        policy["decision_resolution"] = (
+            supervision_log.legacy_wait_first_decision_resolution_contract()
+        )
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+
+        supervision_log.validate_policy(policy)
+        changed = supervision_log.ensure_execution_economy_policy(policy)
+
+        self.assertTrue(changed)
+        self.assertEqual(
+            policy["decision_resolution"],
+            supervision_log.decision_resolution_contract(),
+        )
 
     def test_delegable_decision_resolves_immediately_without_human_wait(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -720,7 +744,7 @@ class DecisionResolutionTests(unittest.TestCase):
             self.assertFalse(resolved["notification_send_now"])
             self.assertEqual(resolved["notification_phase"], "")
 
-    def test_human_window_keeps_safe_work_running_then_starts_max(self) -> None:
+    def test_first_resolution_attempt_precedes_human_notification(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             policy = supervision_log.default_policy(self.init_args())
@@ -738,18 +762,146 @@ class DecisionResolutionTests(unittest.TestCase):
                 phase="decision-ready",
             )
 
-            waiting = self.gate(directory, policy, "2026-08-01T12:19:59+00:00")
-            timed_out = self.gate(directory, policy, "2026-08-01T12:20:00+00:00")
+            ready = self.gate(directory, policy, "2026-08-01T12:00:00+00:00")
 
-            self.assertEqual(waiting["action"], "await-user-and-continue-safe-frontier")
-            self.assertTrue(waiting["must_continue_safe_frontier"])
-            self.assertTrue(waiting["notification_send_now"])
+            self.assertEqual(ready["action"], "start-sol-max-attempt")
+            self.assertEqual(ready["next_attempt"], 1)
+            self.assertTrue(ready["must_continue_safe_frontier"])
+            self.assertFalse(ready["notification_send_now"])
+
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="attempt-started",
+                attempt=1,
+            )
+            active = self.gate(directory, policy, "2026-08-01T12:19:59+00:00")
             self.assertEqual(
-                waiting["required_decision_fields"],
+                active["action"], "continue-sol-max-attempt-and-safe-frontier"
+            )
+            self.assertFalse(active["notification_send_now"])
+
+    def test_first_unresolved_attempt_requests_input_and_starts_next_attempt(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = supervision_log.default_policy(self.init_args())
+            policy["notifications"]["gmail_priority"].update(
+                {
+                    "enabled": True,
+                    "reply_message_id": "gmail-priority-1234",
+                    "decision_context_enabled": True,
+                }
+            )
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="decision-ready",
+            )
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="attempt-started",
+                attempt=1,
+            )
+            unresolved = self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="attempt-unresolved",
+                attempt=1,
+                now="2026-08-01T12:20:00+00:00",
+            )["record"]
+
+            result = self.gate(directory, policy, "2026-08-01T12:20:00+00:00")
+
+            self.assertEqual(result["action"], "start-sol-max-attempt")
+            self.assertEqual(result["next_attempt"], 2)
+            self.assertTrue(result["must_continue_safe_frontier"])
+            self.assertTrue(result["notification_send_now"])
+            self.assertEqual(result["notification_phase"], "human-input-requested")
+            self.assertEqual(
+                result["required_decision_fields"],
                 supervision_log.gmail_priority_contract()["required_decision_fields"],
             )
-            self.assertEqual(timed_out["action"], "start-sol-max-attempt")
-            self.assertEqual(timed_out["next_attempt"], 1)
+            self.assertEqual(
+                unresolved["human_input_requested_at"],
+                "2026-08-01T12:20:00+00:00",
+            )
+            self.assertEqual(
+                unresolved["user_deadline_at"], "2026-08-01T12:40:00+00:00"
+            )
+
+    def test_later_attempts_continue_during_human_response_window(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = supervision_log.default_policy(self.init_args())
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="decision-ready",
+            )
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="attempt-started",
+                attempt=1,
+            )
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="attempt-unresolved",
+                attempt=1,
+                now="2026-08-01T12:01:00+00:00",
+            )
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="attempt-started",
+                attempt=2,
+                now="2026-08-01T12:01:00+00:00",
+            )
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="attempt-unresolved",
+                attempt=2,
+                now="2026-08-01T12:02:00+00:00",
+            )
+            second = self.gate(directory, policy, "2026-08-01T12:02:00+00:00")
+            self.assertEqual(second["action"], "start-sol-max-attempt")
+            self.assertEqual(second["next_attempt"], 3)
+
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="attempt-started",
+                attempt=3,
+                now="2026-08-01T12:02:00+00:00",
+            )
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="attempt-unresolved",
+                attempt=3,
+                now="2026-08-01T12:03:00+00:00",
+            )
+            waiting = self.gate(directory, policy, "2026-08-01T12:03:00+00:00")
+            expired = self.gate(directory, policy, "2026-08-01T12:21:00+00:00")
+
+            self.assertEqual(
+                waiting["action"], "await-user-and-continue-safe-frontier"
+            )
+            self.assertEqual(expired["action"], "choose-and-handoff")
 
     def test_three_unresolved_attempts_force_selection_for_preference(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -841,7 +993,7 @@ class DecisionResolutionTests(unittest.TestCase):
                     attempt=1,
                 )
 
-    def test_first_attempt_cannot_start_before_human_deadline(self) -> None:
+    def test_first_attempt_can_start_immediately_without_human_deadline(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             policy = supervision_log.default_policy(self.init_args())
@@ -852,18 +1004,113 @@ class DecisionResolutionTests(unittest.TestCase):
                 phase="decision-ready",
             )
 
-            with self.assertRaisesRegex(
-                supervision_log.SupervisionLogError,
-                "cannot start before the human-response deadline",
-            ):
-                self.record(
-                    directory,
-                    policy,
-                    classification="human-preference",
-                    phase="attempt-started",
-                    attempt=1,
-                    now="2026-08-01T12:19:59+00:00",
-                )
+            started = self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="attempt-started",
+                attempt=1,
+                now="2026-08-01T12:00:00+00:00",
+            )["record"]
+
+            self.assertEqual(started["deadline_at"], "2026-08-01T12:20:00+00:00")
+            self.assertEqual(started["user_deadline_at"], "")
+
+    def test_first_attempt_resolution_never_requests_human_input(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = supervision_log.default_policy(self.init_args())
+            policy["notifications"]["gmail_priority"].update(
+                {
+                    "enabled": True,
+                    "reply_message_id": "gmail-priority-1234",
+                    "decision_context_enabled": True,
+                }
+            )
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="decision-ready",
+            )
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="attempt-started",
+                attempt=1,
+            )
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="resolved",
+                attempt=1,
+                outcome="selected",
+                now="2026-08-01T12:05:00+00:00",
+            )
+
+            result = self.gate(directory, policy, "2026-08-01T12:05:00+00:00")
+
+            self.assertEqual(result["action"], "send-exact-handoff")
+            self.assertEqual(result["notification_phase"], "")
+            self.assertFalse(result["notification_send_now"])
+
+    def test_user_response_during_second_attempt_resolves_without_waiting(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = supervision_log.default_policy(self.init_args())
+            self.record(
+                directory,
+                policy,
+                classification="missing-fact",
+                phase="decision-ready",
+            )
+            self.record(
+                directory,
+                policy,
+                classification="missing-fact",
+                phase="attempt-started",
+                attempt=1,
+            )
+            self.record(
+                directory,
+                policy,
+                classification="missing-fact",
+                phase="attempt-unresolved",
+                attempt=1,
+                now="2026-08-01T12:05:00+00:00",
+            )
+            self.record(
+                directory,
+                policy,
+                classification="missing-fact",
+                phase="attempt-started",
+                attempt=2,
+                now="2026-08-01T12:05:00+00:00",
+            )
+            self.record(
+                directory,
+                policy,
+                classification="missing-fact",
+                phase="user-responded",
+                attempt=2,
+                now="2026-08-01T12:06:00+00:00",
+            )
+            self.record(
+                directory,
+                policy,
+                classification="missing-fact",
+                phase="resolved",
+                attempt=2,
+                outcome="user-supplied",
+                now="2026-08-01T12:06:01+00:00",
+            )
+
+            result = self.gate(directory, policy, "2026-08-01T12:06:01+00:00")
+
+            self.assertEqual(result["action"], "send-exact-handoff")
+            self.assertEqual(result["attempt"], 2)
 
     def test_classification_controls_final_disposition(self) -> None:
         cases = (
@@ -905,8 +1152,23 @@ class DecisionResolutionTests(unittest.TestCase):
                 classification="human-preference",
                 phase="decision-ready",
             )
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="attempt-started",
+                attempt=1,
+            )
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="attempt-unresolved",
+                attempt=1,
+                now="2026-08-01T12:20:00+00:00",
+            )
 
-            result = self.gate(directory, policy, "2026-08-01T12:10:00+00:00")
+            result = self.gate(directory, policy, "2026-08-01T12:20:00+00:00")
 
             self.assertFalse(result["notification_send_now"])
             self.assertEqual(result["required_decision_fields"], [])

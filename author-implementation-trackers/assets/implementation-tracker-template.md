@@ -77,10 +77,12 @@ failure tied to this tracker's objective.
     permitted provisional/common work, prohibited authority effects, and revisit
     trigger; continue every dependency-independent slice. Do not mark a Block or
     run blocked while the safe frontier is nonempty.
-13. For supervised input gates, wait at most 20 minutes for user guidance while
-    safe work continues, then run up to three bounded 20-minute Sol Max attempts.
-    Select and proceed only within delegated authority; otherwise use a bounded
-    safe deferral with the missing fact or reserved action explicit.
+13. For supervised input gates, run one bounded 20-minute Sol Max resolution
+    attempt before requesting user guidance. If it remains unresolved, send the
+    complete decision brief, open a 20-minute response window, and continue safe
+    work plus the remaining bounded attempts during that window. Select and
+    proceed only within delegated authority; otherwise use a bounded safe
+    deferral with the missing fact or reserved action explicit.
 
 ### Completion-evidence template
 

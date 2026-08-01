@@ -146,12 +146,15 @@ Repeat independently for additional targets.
   incident open until resumed evidence exists. Provisional/common work may not
   be promoted or called accepted.
 - Record and drive genuine decisions through `decision-record` and
-  `decision-gate`. Allow 20 minutes for a user response while safe work
-  continues, then route up to three consecutive Sol Max attempts, each capped at
-  20 minutes. Stop early on resolution. After the third attempt, select and
-  proceed for delegated judgment or human preference; for a missing fact or
-  reserved authority, hand off an exact safe deferral. Never fabricate a fact or
-  self-authorize a reserved action.
+  `decision-gate`. Start one bounded Sol Max resolution attempt before asking
+  the user. If that attempt remains unresolved, send the complete priority
+  decision brief, open the 20-minute response window, and continue safe work
+  plus the remaining bounded Sol Max attempts during that window. Each attempt
+  is capped at 20 minutes and resolution stops the protocol early. After the
+  third attempt and response window, select and proceed for delegated judgment
+  or human preference; for a missing fact or reserved authority, hand off an
+  exact safe deferral. Never fabricate a fact or self-authorize a reserved
+  action.
 - Treat every unresolved Important/Critical notice as an incident, not a
   terminal notification. Route it immediately to the event-driven Sol XHigh
   notice reviewer. A corrective steer changes the incident to
@@ -278,13 +281,14 @@ Repeat independently for additional targets.
   when the email carries this explicitly authorized brief. Send before applying
   any stop-condition pause; the four-hour
   reviewer repairs a missing priority or ordinary lifecycle notification.
-- Use the same dedicated priority thread for a genuinely non-delegable
-  decision-ready notice and its automatic-resolution phase changes. The initial
-  notice states that safe work continues, gives the 20-minute response deadline,
-  and includes the complete decision brief. Send phase updates only when the
-  helper makes them eligible: automatic resolution started, final disposition,
-  and target resumed. A procedural or immediately delegable choice does not
-  generate a human-input notice.
+- Use the same dedicated priority thread after the first bounded automatic
+  resolution attempt proves the decision remains genuinely non-delegable. The
+  initial notice states that resolution and safe work continue, gives the
+  20-minute response deadline, and includes the complete decision brief. Send
+  later phase updates only when the helper makes them eligible: final
+  disposition and target resumed. A decision resolved by the first attempt, a
+  procedural choice, or an immediately delegable choice generates no
+  human-input notice.
 - Start every notification with the monitored project, target, writer role, and
   job being performed. A role that does not own email delivery escalates to the
   owning writer instead of sending a competing message.
@@ -340,9 +344,10 @@ Repeat independently for additional targets.
   ordinary lifecycle-status email was sent to the primary project thread.
 - A blocked posture is valid only when the exact non-delegable input remains
   absent, proceeding would cross a declared authority/safety/stop boundary, the
-  decision-ready packet has been exposed, and all safe scoped work is exhausted.
-  Otherwise steer the target to continue or narrow the stop. Record when the
-  blocker was first foreseeable and when it became decision-ready.
+  first attempt remained unresolved, the complete human-input packet has been
+  exposed, and all safe scoped work is exhausted. Otherwise steer the target to
+  continue or narrow the stop. Record when the blocker was first foreseeable
+  and when it became decision-ready.
 - A nonempty safe-work frontier makes a blocked posture invalid. After the timed
   protocol, missing facts and reserved actions use safe deferral; a full stop is
   permitted only when that deferral still leaves the declared terminal outcome

@@ -39,9 +39,11 @@
 - Roundup writer when enabled: `gpt-5.6-sol`, reasoning `xhigh`, at 7:00 AM,
   1:00 PM, 5:00 PM, and 11:00 PM in `America/Los_Angeles` (Pacific time,
   DST-aware), using a separate persistent project roundup email thread.
-- Genuine input window: 20 minutes while all safe work continues.
-- Automatic decision resolution: `gpt-5.6-sol`, reasoning `max`, at most three
-  consecutive attempts of at most 20 minutes each.
+- Automatic decision resolution starts before user notification:
+  `gpt-5.6-sol`, reasoning `max`, at most three consecutive attempts of at most
+  20 minutes each.
+- Genuine input window: after attempt 1 remains unresolved, 20 minutes while
+  all safe work and remaining useful attempts continue.
 
 The scheduled wake is not a polling loop. Between runs, no model is active. A
 single scheduled run uses one configured model. Terra routes every changed state
@@ -164,13 +166,16 @@ frontier through `decision-record`.
 
 - Resolve `delegable` choices immediately under standing authority. Do not ask
   for a rubber stamp or start a timer.
-- For the other classes, send the complete priority-thread decision brief and
-  allow 20 minutes for user input while the target continues every independent
-  safe slice.
-- At timeout, run Sol Max attempt 1 for no more than 20 minutes. If unresolved,
-  start attempts 2 and 3 without another idle human-wait interval. Each attempt
-  must test the governing objectives and evidence anew; stop early when one
-  resolves the decision.
+- For every other class, run Sol Max attempt 1 for no more than 20 minutes
+  before notifying the user. If it resolves the decision, hand off the result
+  without generating a human-input alert.
+- If attempt 1 remains unresolved, send the complete priority-thread decision
+  brief and open a 20-minute user-response window. Continue every independent
+  safe slice and start attempts 2 and 3 without waiting for that window to end.
+  Each attempt must test the governing objectives and evidence anew; stop early
+  when one resolves the decision. If all attempts finish first, keep safe work
+  moving until the response deadline before applying the final classification-
+  bound disposition.
 - After attempt 3, select and hand off the best supported path for a delegated
   judgment or human preference. For a missing fact or reserved action, hand off
   a bounded safe deferral that preserves the unknown/authority boundary and
@@ -240,11 +245,12 @@ Email is an alert projection, not another authority or complete event mirror:
   `completed` or noncritical `paused` on the primary thread. This is a status
   transition, not an incident-importance judgment. Deduplicate it by exact
   lifecycle source record and target-state fingerprint.
-- Send a priority decision email when `decision-gate` makes a genuine
-  decision-ready phase eligible. State the response deadline and that safe work
-  continues. Use the same thread for eligible automatic-resolution-started,
-  final-disposition, and target-resumed phases; do not send a user-input alert
-  for a delegable or procedural choice.
+- Send a priority decision email only after attempt 1 remains unresolved and
+  `decision-gate` makes the `human-input-requested` phase eligible. State the
+  response deadline and that automatic resolution and safe work continue. Use
+  the same thread for eligible final-disposition and target-resumed phases; do
+  not send a user-input alert for a first-attempt resolution, delegable choice,
+  or procedural choice.
 - Send immediately only for a critical condition, genuine user action or
   decision, blocked or failed remediation, or a supported corrective steer that
   was issued. A material incident is not automatically an urgent email.
@@ -351,14 +357,15 @@ thread for an absent priority binding. Record the returned Gmail ID with
 category `gmail-priority-lifecycle`.
 
 For an eligible decision phase, obey `decision-gate`'s exact source record,
-banner, category, deduplication key, and priority seed. The decision-ready body
-contains the exact question, recommendation and why, material alternatives,
-trade-offs/uncertainties, consequences, response options, authoritative detail
-link, 20-minute deadline, blocked scope, and a concise statement of the safe
-work continuing in parallel. The automatic-resolution notice names the Sol Max
-attempt contract; the final notice states selected or safely deferred posture;
-the resume notice cites target acknowledgement. Record each receipt as
-`gmail-priority-decision` without copying substantive content into the ledger.
+banner, category, deduplication key, and priority seed. The
+`human-input-requested` body contains the exact question, recommendation and
+why, material alternatives, trade-offs/uncertainties, consequences, response
+options, authoritative detail link, 20-minute deadline, blocked scope, the
+failed first-attempt posture, and a concise statement of the safe work and
+remaining attempts continuing in parallel. The final notice states selected or
+safely deferred posture; the resume notice cites target acknowledgement. Record
+each receipt as `gmail-priority-decision` without copying substantive content
+into the ledger.
 
 For `completed` or noncritical `paused`, use the same lifecycle event and gate,
 but send `IMPLEMENTATION STATUS` to the primary seed and record category
@@ -744,16 +751,19 @@ At each scheduled wake:
    decision`, or similar tracker wording does not suffice. A sole eligible,
    independently reviewed recommendation whose trade-offs are resolved by
    current objectives proceeds under the standing user imperative. If a
-   genuinely non-delegable complete decision packet is available, require the
-   helper-gated priority decision notice while safe work continues. Use the
-   primary lane only for an earlier nonurgent forecast before decision readiness.
-   Do not treat an ordinary bounded implementation choice as a user gate.
+   genuinely non-delegable complete decision packet is available, start attempt
+   1. Only if it remains unresolved should the helper-gated priority decision
+   notice issue while safe work and later attempts continue. Use the primary
+   lane only for an earlier nonurgent forecast before decision readiness. Do not
+   treat an ordinary bounded implementation choice as a user gate.
 7. Read `status` for open decision heads. For each one, call `decision-gate`.
    If it returns `must_continue_safe_frontier=true`, verify the target is
    advancing that exact independent frontier; idle waiting is a high-severity
    defect and requires a narrow continuation steer. If the action is
    `start-sol-max-attempt`, send the exact decision packet references, attempt
-   number, deadline, and classification to Sol Max. If it is
+   number, deadline, and classification to Sol Max immediately; attempt 1 must
+   precede any human-input notice, and later attempts continue during the user
+   response window. If it is
    `record-attempt-unresolved`, require the attempt result to be recorded and
    immediately gate the next attempt. If it is `choose-and-handoff` or
    `safe-defer-and-handoff`, route the final bounded disposition to Sol Max.
@@ -800,17 +810,19 @@ does not use `notice-gate` unless a distinct incident also exists.
 
 Treat `blocked` as exceptional. It is valid only when the exact non-delegable
 input remains absent, continuing would cross a declared authority, safety, or
-stop boundary, the decision-ready packet has already been exposed, and all safe
-scoped work is exhausted. Otherwise require the target to continue, narrow the
-blocked scope, or surface the missing packet. Record when the blocker was first
-foreseeable and when it became decision-ready.
+stop boundary, attempt 1 remained unresolved, the complete human-input packet
+has already been exposed, and all safe scoped work is exhausted. Otherwise
+require the target to continue, narrow the blocked scope, or surface the missing
+packet. Record when the blocker was first foreseeable and when it became
+decision-ready.
 Ask what new fact, preference, reserved judgment, or authority the requested
 response contributes. If it contributes none and only repeats the sole eligible
 reviewed recommendation, the stop is procedural: route an in-place correction
 and require narrow continuation instead of waiting for a rubber stamp.
 A nonempty safe frontier categorically invalidates a full-run block. A genuine
-decision does not pause this watcher: maintain the 20-minute user window, three
-bounded Sol Max attempts, priority phase notices, and target-resume verification.
+decision does not pause this watcher: run attempt 1 before user notification,
+then maintain the 20-minute user window, remaining bounded Sol Max attempts,
+eligible priority phase notices, and target-resume verification.
 ```
 
 ## Semantic base-reviewer role prompt
@@ -910,9 +922,10 @@ If a stop is procedural, steer the target to apply the current sole eligible
 reviewed recommendation under standing delegated authority, preserve its stated
 trade-offs and downstream obligations, and record Codex application accurately
 without fabricating personal inventor authorship. If a stop is genuinely
-non-delegable, require a decision-ready packet before accepting the stop and,
-when priority decision context is enabled, ensure the alert contains every
-required decision field rather than a bare `adopt, reject, or defer` request.
+non-delegable, require a decision-ready packet before accepting the stop, run
+attempt 1 before user notification, and, only if it remains unresolved, ensure
+the priority alert contains every required decision field rather than a bare
+`adopt, reject, or defer` request.
 
 For a `decision-gate` resolution attempt, use Sol Max for at most the maintained
 20-minute ceiling. Attempt 1 reconstructs the best answer from governing
@@ -1077,10 +1090,11 @@ conclusions. Avoid feature creep and solve only supported supervision defects.
 Inspect every open incident head for a missing notice review, missing next-state
 verification, or missing same-thread outcome. Route such gaps to
 <NOTICE_REVIEWER_THREAD_ID> rather than duplicating its adjudication.
-Inspect every open decision head through `decision-gate`. Correct a missed
-20-minute deadline, missing Sol Max attempt, idle target with a nonempty safe
-frontier, unrecorded disposition/handoff, missing phase notification, or absent
-target acknowledgement. Do not pause supervision while this protocol is active.
+Inspect every open decision head through `decision-gate`. Correct a delayed
+first Sol Max attempt, a missed post-attempt human-response deadline, missing
+later attempt, idle target with a nonempty safe frontier, unrecorded
+disposition/handoff, missing eligible phase notification, or absent target
+acknowledgement. Do not pause supervision while this protocol is active.
 Also reconcile the latest explicit target lifecycle posture against
 `last_lifecycle` and the outbound ledger. Immediately repair any missing
 completed/noncritical-paused primary status or blocked/failed/stopped priority
@@ -1267,7 +1281,9 @@ python3 <LOG_HELPER> decision-gate --target-thread <TARGET> \
 Record `attempt-started`, `attempt-unresolved`, `resolved`, `safe-deferred`,
 `handoff-sent`, and `target-acknowledged` as append-only successor phases. Use
 the gate's exact action, attempt, deadline, priority-notification fields, and
-`must_continue_safe_frontier` result.
+`must_continue_safe_frontier` result. Attempt 1 starts before any human-input
+notice. Its unresolved record opens the user deadline and may simultaneously
+make attempt 2 and the complete priority decision brief eligible.
 
 After a successful self-email reply, record its delivery:
 

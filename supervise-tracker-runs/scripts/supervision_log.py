@@ -138,6 +138,8 @@ def decision_resolution_contract() -> dict[str, Any]:
         "enabled": True,
         "continuation_first": True,
         "blocking_requires_empty_safe_frontier": True,
+        "attempt_before_user_notification": True,
+        "continue_attempts_during_user_window": True,
         "human_response_minutes": 20,
         "attempt_model": "gpt-5.6-sol",
         "attempt_reasoning": "max",
@@ -151,12 +153,25 @@ def decision_resolution_contract() -> dict[str, Any]:
             "reserved-authority": "safe-defer-with-open-authority",
         },
         "priority_phase_notifications": [
-            "decision-ready",
-            "automatic-resolution-started",
+            "human-input-requested",
             "final-disposition",
             "target-resumed",
         ],
     }
+
+
+def legacy_wait_first_decision_resolution_contract() -> dict[str, Any]:
+    """Exact predecessor accepted only so `bind` can upgrade a live policy."""
+    contract = decision_resolution_contract()
+    contract.pop("attempt_before_user_notification")
+    contract.pop("continue_attempts_during_user_window")
+    contract["priority_phase_notifications"] = [
+        "decision-ready",
+        "automatic-resolution-started",
+        "final-disposition",
+        "target-resumed",
+    ]
+    return contract
 
 
 def gmail_priority_contract() -> dict[str, Any]:
@@ -444,7 +459,10 @@ def validate_policy(policy: dict[str, Any]) -> None:
     if economy is not None and economy != execution_economy_contract():
         raise SupervisionLogError("Execution-economy contract differs")
     decisions = policy.get("decision_resolution")
-    if decisions is not None and decisions != decision_resolution_contract():
+    if decisions is not None and canonical(decisions) not in {
+        canonical(decision_resolution_contract()),
+        canonical(legacy_wait_first_decision_resolution_contract()),
+    }:
         raise SupervisionLogError("Decision-resolution contract differs")
     priority = policy.get("notifications", {}).get("gmail_priority")
     if priority is not None:
@@ -1474,29 +1492,33 @@ def cmd_decision_record(args: argparse.Namespace) -> None:
             attempt=attempt,
             outcome=outcome,
         )
-        if (
-            phase == "attempt-started"
-            and prior is not None
-            and prior.get("phase") == "decision-ready"
-            and now < parse_time(str(prior.get("deadline_at", "")))
-        ):
-            raise SupervisionLogError(
-                "The first Sol Max attempt cannot start before the human-response deadline"
-            )
         if phase == "decision-ready":
             decision_ready_at = iso_time(now)
-            wait_minutes = 0 if classification == "delegable" else int(
-                contract["human_response_minutes"]
-            )
-            deadline_at = iso_time(now + dt.timedelta(minutes=wait_minutes))
+            deadline_at = ""
+            human_input_requested_at = ""
+            user_deadline_at = ""
         elif phase == "attempt-started":
             decision_ready_at = str(prior["decision_ready_at"])
             deadline_at = iso_time(
                 now + dt.timedelta(minutes=int(contract["attempt_minutes"]))
             )
+            human_input_requested_at = str(
+                prior.get("human_input_requested_at", "")
+            )
+            user_deadline_at = str(prior.get("user_deadline_at", ""))
         else:
             decision_ready_at = str(prior["decision_ready_at"])
             deadline_at = ""
+            human_input_requested_at = str(
+                prior.get("human_input_requested_at", "")
+            )
+            user_deadline_at = str(prior.get("user_deadline_at", ""))
+            if phase == "attempt-unresolved" and not user_deadline_at:
+                human_input_requested_at = iso_time(now)
+                user_deadline_at = iso_time(
+                    now
+                    + dt.timedelta(minutes=int(contract["human_response_minutes"]))
+                )
         record: dict[str, Any] = {
             "schema_version": 1,
             "record_id": f"EVT-{len(all_events) + 1:06d}",
@@ -1511,6 +1533,8 @@ def cmd_decision_record(args: argparse.Namespace) -> None:
             "outcome": outcome,
             "decision_ready_at": decision_ready_at,
             "deadline_at": deadline_at,
+            "human_input_requested_at": human_input_requested_at,
+            "user_deadline_at": user_deadline_at,
             "decision_packet_hash": clean(
                 args.decision_packet_hash,
                 label="decision packet hash",
@@ -1547,13 +1571,16 @@ def decision_notification(
     phase = ""
     if head["classification"] == "delegable":
         phase = ""
-    elif head["phase"] == "decision-ready":
-        phase = "decision-ready"
-    elif head["phase"] == "attempt-started" and int(head["attempt"]) == 1:
-        phase = "automatic-resolution-started"
-    elif head["phase"] in {"resolved", "safe-deferred"}:
+    elif head["phase"] == "attempt-unresolved" and int(head["attempt"]) == 1:
+        phase = "human-input-requested"
+    elif (
+        head["phase"] in {"resolved", "safe-deferred"}
+        and head.get("human_input_requested_at")
+    ):
         phase = "final-disposition"
-    elif head["phase"] == "target-acknowledged":
+    elif head["phase"] == "target-acknowledged" and head.get(
+        "human_input_requested_at"
+    ):
         phase = "target-resumed"
     source_record = str(head["record_id"])
     category = "gmail-priority-decision"
@@ -1576,8 +1603,7 @@ def decision_notification(
         and not duplicate
     )
     banners = {
-        "decision-ready": "🚨 HUMAN INPUT REQUESTED — WORK CONTINUES 🚨",
-        "automatic-resolution-started": "⚠️ AUTOMATIC DECISION RESOLUTION STARTED",
+        "human-input-requested": "🚨 HUMAN INPUT REQUESTED — RESOLUTION CONTINUES 🚨",
         "final-disposition": "SUPERVISION DECISION OUTCOME",
         "target-resumed": "IMPLEMENTATION RESUMED",
     }
@@ -1594,7 +1620,7 @@ def decision_notification(
         "notification_action": action,
         "required_decision_fields": (
             priority.get("required_decision_fields", [])
-            if send_now and phase == "decision-ready"
+            if send_now and phase == "human-input-requested"
             else []
         ),
     }
@@ -1615,11 +1641,8 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
     safe_work = head.get("safe_frontier") == "nonempty"
     contract = policy["decision_resolution"]
     if phase == "decision-ready":
-        deadline = parse_time(str(head["deadline_at"]))
         if classification == "delegable":
             action = "resolve-immediately-and-continue"
-        elif now < deadline:
-            action = "await-user-and-continue-safe-frontier"
         else:
             action = "start-sol-max-attempt"
     elif phase == "attempt-started":
@@ -1632,6 +1655,10 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
     elif phase == "attempt-unresolved":
         if attempt < int(contract["max_attempts"]):
             action = "start-sol-max-attempt"
+        elif head.get("user_deadline_at") and now < parse_time(
+            str(head["user_deadline_at"])
+        ):
+            action = "await-user-and-continue-safe-frontier"
         elif classification in {"delegable", "human-preference"}:
             action = "choose-and-handoff"
         else:
@@ -1667,6 +1694,8 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
         "attempt_minutes": contract["attempt_minutes"],
         "max_attempts": contract["max_attempts"],
         "deadline_at": head.get("deadline_at", ""),
+        "human_input_requested_at": head.get("human_input_requested_at", ""),
+        "user_deadline_at": head.get("user_deadline_at", ""),
         "policy_sha256": policy["policy_sha256"],
     }
     result.update(decision_notification(policy, all_events, head, action))

@@ -94,11 +94,13 @@ rather than recreating the document shape from memory.
     pending fact, preference, or reserved action blocks only its mapped closure.
     Keep the Block `in-progress` or `completed-with-open-items` while independent
     work continues; do not claim `blocked` while a nonempty safe frontier exists.
-    For supervised runs, use the maintained 20-minute human-response window and
-    up to three 20-minute Sol Max resolution attempts. The final posture is a
-    supported selection within delegated authority or a bounded safe deferral
-    for an unavailable fact or reserved action—never a fabricated fact or
-    unauthorized act.
+    For supervised runs, require one bounded Sol Max resolution attempt before
+    requesting user input. Only if it remains unresolved should the supervisor
+    send the complete decision brief and open the maintained 20-minute response
+    window; safe work and the remaining bounded 20-minute Sol Max attempts
+    continue during that window. The final posture is a supported selection
+    within delegated authority or a bounded safe deferral for an unavailable
+    fact or reserved action—never a fabricated fact or unauthorized act.
 
 Use concise boilerplate. Do not duplicate a global rule inside every block;
 reference the governing section and add only the block-specific consequence.
