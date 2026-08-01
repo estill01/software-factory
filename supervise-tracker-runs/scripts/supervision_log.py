@@ -1545,7 +1545,9 @@ def decision_notification(
     action: str,
 ) -> dict[str, Any]:
     phase = ""
-    if head["phase"] == "decision-ready" and head["classification"] != "delegable":
+    if head["classification"] == "delegable":
+        phase = ""
+    elif head["phase"] == "decision-ready":
         phase = "decision-ready"
     elif head["phase"] == "attempt-started" and int(head["attempt"]) == 1:
         phase = "automatic-resolution-started"

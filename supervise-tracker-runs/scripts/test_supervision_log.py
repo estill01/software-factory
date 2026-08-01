@@ -709,6 +709,17 @@ class DecisionResolutionTests(unittest.TestCase):
             self.assertFalse(result["notification_send_now"])
             self.assertFalse(result["blocking_permitted"])
 
+            self.record(
+                directory,
+                policy,
+                classification="delegable",
+                phase="resolved",
+                outcome="selected",
+            )
+            resolved = self.gate(directory, policy, "2026-08-01T12:01:00+00:00")
+            self.assertFalse(resolved["notification_send_now"])
+            self.assertEqual(resolved["notification_phase"], "")
+
     def test_human_window_keeps_safe_work_running_then_starts_max(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
