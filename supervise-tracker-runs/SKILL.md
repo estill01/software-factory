@@ -307,6 +307,16 @@ Repeat independently for additional targets.
 - Start every notification with the monitored project, target, writer role, and
   job being performed. A role that does not own email delivery escalates to the
   owning writer instead of sending a competing message.
+- Make every user-facing supervisor communication that names a tracker Block
+  self-contained. Immediately after the identifying fields, add the exact field
+  `Block purpose — Block <N>:`. Follow it with one plain-language sentence
+  describing what that Block is intended to accomplish and, when material to the
+  message, where it stops.
+  If more than one Block is materially discussed, give each Block its own short
+  purpose line. Derive the summary from the current authoritative tracker; do
+  not substitute implementation activity, status, a Block title alone, or a
+  tracker link, and do not expect the operator to open the tracker. Keep patent
+  substance and copied tracker text out of operational mail.
 - Put a severity banner before those fields. Use `🚨 CRITICAL SUPERVISION ALERT
   🚨` for a critical incident or major error, `⚠️ IMPORTANT SUPERVISION NOTICE`
   for other material items requiring attention, and `SUPERVISION DIGEST` only
@@ -344,7 +354,9 @@ Repeat independently for additional targets.
   roundup thread at 7:00 AM, 1:00 PM, 5:00 PM, and 11:00 PM Pacific time.
   Identify the coverage period, writer, material implementation
   movement, decisions/actions, incidents and outcomes, reply-driven work, open
-  posture, and source record IDs. Keep patent content and copied output out.
+  posture, and source record IDs. For each materially discussed Block, include
+  its short plain-language purpose so the roundup is understandable without the
+  tracker. Keep patent content and copied output out.
 
 ## Pause, resume, or stop
 

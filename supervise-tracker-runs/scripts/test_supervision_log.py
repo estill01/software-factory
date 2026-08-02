@@ -19,6 +19,36 @@ supervision_log = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(supervision_log)
 
 
+class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
+    def test_skill_requires_self_contained_block_purpose(self) -> None:
+        skill = HELPER_PATH.parent.parent.joinpath("SKILL.md").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("Block purpose — Block <N>:", skill)
+        self.assertIn("do not expect the operator to open the tracker", skill)
+        self.assertIn("each materially discussed Block", skill)
+
+    def test_notification_roles_require_bounded_plain_language_context(self) -> None:
+        policy = HELPER_PATH.parent.parent.joinpath(
+            "references", "supervision-policy.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("normally no more than 40 words", policy)
+        self.assertIn("operator must be able to understand", policy)
+        self.assertIn("heading, Objective, and Stop", policy)
+        self.assertGreaterEqual(policy.count("Block purpose — Block <N>"), 6)
+        for heading in (
+            "## Notice-reviewer role prompt",
+            "## Gmail reply-processor role prompt",
+            "## Roundup-writer role prompt",
+            "## Watcher role prompt",
+            "## Reviewer role prompt",
+            "## Meta-review heartbeat prompt",
+        ):
+            self.assertIn(heading, policy)
+
+
 class NoticeGateCorrelationTests(unittest.TestCase):
     incident_id = "INC-20260801-123456-ABCDEF"
     alert_source = "EVT-000001"

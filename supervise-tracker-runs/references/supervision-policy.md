@@ -328,6 +328,22 @@ explicit fields: `Monitored project`, `Target`, `Writer`, and `Job`:
   user action is required. A reported completion is not independent acceptance,
   tracker audit, release approval, or patent-quality proof.
 
+Any user-facing supervisor communication that names a tracker Block must be
+self-contained for an operator who is not reading the implementation tracker.
+Immediately after the identifying fields, include `Block purpose — Block <N>:`
+and one plain-language sentence, normally no more than 40 words, explaining the
+outcome that Block is meant to produce and, when material, its stop boundary. A
+title, implementation-status recap, or tracker link is not a purpose summary.
+If more than one Block is materially discussed, provide one short purpose line
+per Block. Read the current authoritative tracker to derive the summary, but
+paraphrase it: do not copy patent substance, detailed acceptance criteria, or
+tracker prose into operational mail. A link may supply deeper evidence, but the
+operator must be able to understand why the Block matters without opening it.
+The email-owning role may make one bounded read-only read of each named Block's
+heading, Objective, and Stop from the already identified authoritative tracker
+when that context is not already available. That exception does not authorize a
+repository review, implementation inspection, or broader patent-content read.
+
 Do not use an importance banner for routine routing or a non-finding; those
 remain silent. A distinct critical alert is sent immediately and bypasses the
 digest schedule and any cooldown belonging to a different incident. Preserve
@@ -387,7 +403,8 @@ record a deduplicated `lifecycle` event bound to the exact target-state
 fingerprint and target turn/item references. Call `lifecycle-gate`; when it
 returns `send_now`, reply to the dedicated priority seed with its returned
 banner, channel, category, seed ID, and deduplication key. State the monitored
-project and target, stopped Block/work boundary, why progress cannot continue,
+project and target, stopped Block/work boundary, the Block's plain-language
+purpose, why progress cannot continue,
 whether immediate user action is required, the exact response route, and
 content-minimized source record IDs. When the bound priority policy enables
 decision context and user action is required, also include every field returned
@@ -404,7 +421,8 @@ banner, category, deduplication key, and priority seed. The
 `human-input-requested` body contains the exact question, recommendation and
 why, material alternatives, trade-offs/uncertainties, consequences, response
 options, authoritative detail link, 20-minute deadline, blocked scope, the
-failed first-attempt posture, and a concise statement of the safe work and
+failed first-attempt posture, the governing Block's plain-language purpose, and
+a concise statement of the safe work and
 remaining attempts continuing in parallel. The final notice states selected or
 safely deferred posture; the resume notice cites target acknowledgement. Record
 each receipt as `gmail-priority-decision` without copying substantive content
@@ -521,7 +539,9 @@ materially narrowed risk.
 Use only `RESOLVED`, `NO ACTION NEEDED`, `CORRECTION ISSUED`, `NEEDS USER
 DECISION`, or `STILL UNDER REVIEW` as the outcome heading. Include the incident
 ID, source notice and current record IDs, resolution owner, user-action posture,
-and `Follow-up: required|not required`. Reply to the bound Gmail seed only when
+and `Follow-up: required|not required`. When the message names a Block, include
+its short `Block purpose — Block <N>` summary rather than assuming the operator
+knows the tracker. Reply to the bound Gmail seed only when
 `notice-gate.send_now` is true and use its exact banner. Record the returned
 message ID. Never start another email thread or include patent content, prompts,
 copied output, credentials, local paths, or personal actor names.
@@ -644,7 +664,9 @@ For each packet:
 2. Immediately acknowledge in the same Gmail thread using `USER REPLY RECEIVED`
    followed by Monitored project, Target, Writer: Gmail reply processor (Sol
    XHigh), Job, and Source message. State the concise interpretation and current
-   status. Record the sent Gmail ID as a deduplicated notification with category
+   status. If the acknowledgement or result names a Block, add its short
+   plain-language `Block purpose — Block <N>` summary. Record the sent Gmail ID
+   as a deduplicated notification with category
    `gmail-user-ack`.
 3. Interpret the reply in the context of the email it answers and current
    project supervision state. Take the requested action directly when the
@@ -700,15 +722,21 @@ The Sol XHigh writer runs at 7:00 AM, 1:00 PM, 5:00 PM, and 11:00 PM in
 the last `roundup` record, or since the automation was enabled for the first
 run. It reads
 the content-minimized supervision ledger plus bounded target-thread summaries
-needed to identify implementation movement. It does not read repository files,
-tool outputs, or patent content merely to make the summary richer. It sends a
-roundup even when the bounded conclusion is that no material change occurred.
+needed to identify implementation movement. For a materially discussed Block
+whose purpose is not already present, it may read only that Block's heading,
+Objective, and Stop from the already identified authoritative tracker. It does
+not otherwise read repository files, tool outputs, or patent content merely to
+make the summary richer. It sends a roundup even when the bounded conclusion is
+that no material change occurred.
 
 Each message begins with `PROJECT ROUNDUP`, then Monitored project, Target,
 Writer: Scheduled roundup writer (Sol XHigh), Job: operational change log,
 coverage start/end, and source record IDs. Summarize material Block/checkpoint
 movement, decisions or actions, incidents and outcomes, inbound-email-driven
-work and its posture, and current open/next posture. Critical conditions are
+work and its posture, and current open/next posture. For each materially
+discussed Block, include a short `Block purpose — Block <N>` line derived from
+the current tracker so the roundup is understandable without opening it.
+Critical conditions are
 still alerted immediately in the primary thread and are only referenced here;
 the roundup never delays or replaces an alert.
 
@@ -726,16 +754,23 @@ At each wake:
    `America/Los_Angeles` wake, read the supervision status and only the ledger
    delta since the last `roundup` record, or since enablement on the first run.
 2. Read bounded target-thread summaries only as needed to identify what actually
-   changed. Do not read repository files, patent content, or raw tool output.
+   changed. When a materially discussed Block's purpose is absent from those
+   summaries, make one bounded read-only read of only its heading, Objective,
+   and Stop from the already identified tracker. Do not otherwise read
+   repository files, patent content, or raw tool output.
 3. Create one concise operational change log covering material Block/checkpoint
    movement, decisions/actions, incidents and outcomes, inbound-email-driven
-   work, and current open/next posture. If nothing material changed, say so.
+   work, and current open/next posture. For each materially discussed Block,
+   add one plain-language `Block purpose — Block <N>` line; do not use a title,
+   status recap, or tracker link as a substitute. If nothing material changed,
+   say so.
 4. Record one content-minimized `roundup` event with the coverage interval and
    exact source record/turn IDs.
 5. Reply to the roundup seed, never the primary seed and never a new thread.
    Begin with PROJECT ROUNDUP, Monitored project, Target, Writer: Scheduled
    roundup writer (Sol XHigh), Job: operational change log, coverage start/end,
-   and Source records. Record the returned Gmail ID as a notification.
+   Source records, and the required Block-purpose lines. Record the returned
+   Gmail ID as a notification.
 
 Do not delay immediate alerts, repeat full earlier summaries, include patent
 content, copied output, prompts, credentials, paths, or personal actor names, or
@@ -759,6 +794,10 @@ except that you may call <LOG_HELPER> for records and send concise messages to
 the target or reviewer threads after `thread-route-gate` permits the exact
 recipient, purpose, source record, and required action. Never edit files, run
 tests, invoke repository commands, create subagents, or take over the target.
+The sole read exception is a bounded read of the active Block's heading,
+Objective, and Stop from the already identified tracker when required to write a
+user-facing Block-purpose summary; do not inspect implementation or patent
+content through that exception.
 
 You are running at Max reasoning. Avoid feature creep in both diagnosis and
 remedy. Focus on completing this bounded monitoring job efficiently and well:
@@ -830,9 +869,10 @@ At each scheduled wake:
    `lifecycle-gate`, and, when permitted, use its exact channel and seed. Send
    blocked/failed/stopped to the dedicated priority seed with `🚨 IMPLEMENTATION
    BLOCKED / STOPPED 🚨`; send completed/noncritical-paused as `IMPLEMENTATION
-   STATUS` to the primary seed. Record the receipt. Report the observed target
-   posture without claiming independent acceptance. Perform this before any
-   applicable stop-condition pause. Stop.
+   STATUS` to the primary seed. Include the active Block's plain-language
+   `Block purpose — Block <N>` summary. Record the receipt. Report the observed
+   target posture without claiming independent acceptance. Perform this before
+   any applicable stop-condition pause. Stop.
 
 Changed-state packet fields:
 - target thread ID, state fingerprint, updated-at marker, and status;
@@ -1097,7 +1137,10 @@ digest. Send that digest only when new evidence exists. Put the gate-selected
 banner on the first line: `🚨 CRITICAL SUPERVISION ALERT 🚨`, `⚠️ IMPORTANT
 SUPERVISION NOTICE`, or `SUPERVISION OUTCOME`; use `SUPERVISION DIGEST` for the
 periodic summary. Record successful delivery as a deduplicated `notification`
-event; do not email ordinary non-findings.
+event; do not email ordinary non-findings. Any user-facing message that names a
+Block includes the policy's short plain-language `Block purpose — Block <N>`
+summary. When it is not already in the bounded target context, read only that
+Block's heading, Objective, and Stop from the identified tracker.
 ```
 
 ## Supervisor fix-executor role prompt
@@ -1188,7 +1231,9 @@ on its first line. A separate immediate incident message is allowed only after
 `notice-gate` approves a critical condition, user action, blocked/failed
 remediation, or issued correction; do not turn automatically owned uncertainty
 or progress into an Important message. Do not email `NO NEW REVIEW EVIDENCE`
-outcomes.
+outcomes. For each Block materially discussed in a digest, include the policy's
+short plain-language `Block purpose — Block <N>` summary, using only a bounded
+heading/Objective/Stop tracker read when the target context lacks it.
 ```
 
 ## Immediate-check prompt
