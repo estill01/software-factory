@@ -58,6 +58,9 @@ class NoticeGateCorrelationTests(unittest.TestCase):
         self,
         event_records: list[dict[str, object]],
         source_record: str | None = None,
+        notice_disposition: str = "terminal",
+        user_action_required: str = "no",
+        severity: str = "info",
     ) -> dict[str, object]:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -69,10 +72,10 @@ class NoticeGateCorrelationTests(unittest.TestCase):
             args = argparse.Namespace(
                 incident_id=self.incident_id,
                 source_record=source_record or self.terminal_source,
-                notice_disposition="terminal",
+                notice_disposition=notice_disposition,
                 resolution_owner="none",
-                user_action_required="no",
-                severity="info",
+                user_action_required=user_action_required,
+                severity=severity,
             )
             output = io.StringIO()
             with (
@@ -293,6 +296,215 @@ class NoticeGateCorrelationTests(unittest.TestCase):
 
         self.assertEqual(result["open_incident_ids"], [])
         self.assertEqual(result["open_incidents"], [])
+
+    def test_resolved_terminal_head_is_not_open(self) -> None:
+        records = [
+            {
+                "kind": "incident",
+                "record_id": self.alert_source,
+                "incident_id": self.incident_id,
+                "status": "detected",
+            },
+            {
+                "kind": "check",
+                "record_id": self.terminal_source,
+                "incident_id": self.incident_id,
+                "status": "resolved",
+                "notice_disposition": "terminal",
+            },
+            {
+                "kind": "notification",
+                "record_id": "EVT-000003",
+                "incident_id": self.incident_id,
+                "category": "gmail",
+                "status": "sent",
+                "evidence": [self.terminal_source, "gmail-outcome-id"],
+            },
+        ]
+
+        result = self.run_status(records)
+
+        self.assertEqual(result["open_incident_ids"], [])
+        self.assertEqual(result["open_incidents"], [])
+
+    def test_resolved_status_is_terminal_without_notice_disposition(self) -> None:
+        records = [
+            {
+                "kind": "incident",
+                "record_id": self.alert_source,
+                "incident_id": self.incident_id,
+                "status": "detected",
+            },
+            {
+                "kind": "resolution",
+                "record_id": self.terminal_source,
+                "incident_id": self.incident_id,
+                "status": "resolved",
+            },
+        ]
+
+        result = self.run_status(records)
+
+        self.assertEqual(result["open_incident_ids"], [])
+        self.assertEqual(result["open_incidents"], [])
+
+    def test_substantive_nonterminal_head_reopens_status(self) -> None:
+        records = [
+            {
+                "kind": "incident",
+                "record_id": self.alert_source,
+                "incident_id": self.incident_id,
+                "status": "detected",
+            },
+            {
+                "kind": "resolution",
+                "record_id": self.terminal_source,
+                "incident_id": self.incident_id,
+                "status": "resolved",
+                "notice_disposition": "terminal",
+            },
+            {
+                "kind": "check",
+                "record_id": "EVT-000003",
+                "incident_id": self.incident_id,
+                "status": "awaiting-target-evidence",
+                "notice_disposition": "intermediate",
+            },
+        ]
+
+        result = self.run_status(records)
+
+        self.assertEqual(result["open_incident_ids"], [self.incident_id])
+        self.assertEqual(result["open_incidents"], [records[-1]])
+
+    def correction_records(
+        self,
+        *,
+        current_fingerprint: str = "state-1234",
+        receipt_status: str = "sent",
+        receipt_has_incident_id: bool = True,
+    ) -> list[dict[str, object]]:
+        receipt: dict[str, object] = {
+            "kind": "notification",
+            "record_id": "EVT-000003",
+            "category": "gmail",
+            "status": receipt_status,
+            "dedup_key": "gmail:EVT-000002",
+            "evidence": ["EVT-000002", "gmail-correction-id"],
+        }
+        if receipt_has_incident_id:
+            receipt["incident_id"] = self.incident_id
+        return [
+            {
+                "kind": "incident",
+                "record_id": self.alert_source,
+                "incident_id": self.incident_id,
+                "status": "detected",
+            },
+            {
+                "kind": "steer",
+                "record_id": "EVT-000002",
+                "incident_id": self.incident_id,
+                "status": "awaiting-target-evidence",
+                "notice_disposition": "correction-issued",
+                "state_fingerprint": "state-1234",
+            },
+            receipt,
+            {
+                "kind": "resolution",
+                "record_id": "EVT-000004",
+                "incident_id": self.incident_id,
+                "status": "awaiting-target-evidence",
+                "notice_disposition": "correction-issued",
+                "state_fingerprint": current_fingerprint,
+            },
+        ]
+
+    def test_same_fingerprint_correction_receipt_suppresses_second_email(self) -> None:
+        for receipt_has_incident_id in (False, True):
+            with self.subTest(receipt_has_incident_id=receipt_has_incident_id):
+                records = self.correction_records(
+                    receipt_has_incident_id=receipt_has_incident_id
+                )
+
+                result = self.run_terminal_gate(
+                    records,
+                    source_record="EVT-000004",
+                    notice_disposition="correction-issued",
+                )
+
+                self.assertTrue(result["previously_alerted"])
+                self.assertTrue(result["duplicate"])
+                self.assertFalse(result["send_now"])
+                self.assertEqual(result["channel"], "none")
+                self.assertIsNone(result["banner"])
+
+    def test_changed_fingerprint_correction_remains_eligible(self) -> None:
+        records = self.correction_records(current_fingerprint="state-5678")
+
+        result = self.run_terminal_gate(
+            records,
+            source_record="EVT-000004",
+            notice_disposition="correction-issued",
+        )
+
+        self.assertFalse(result["duplicate"])
+        self.assertTrue(result["send_now"])
+        self.assertEqual(result["channel"], "primary-immediate")
+
+    def test_intervening_new_steer_keeps_correction_outcome_eligible(self) -> None:
+        records = self.correction_records()
+        records.insert(
+            -1,
+            {
+                "kind": "steer",
+                "record_id": "EVT-000003B",
+                "incident_id": self.incident_id,
+                "status": "awaiting-target-evidence",
+                "notice_disposition": "correction-issued",
+                "state_fingerprint": "state-1234",
+            },
+        )
+
+        result = self.run_terminal_gate(
+            records,
+            source_record="EVT-000004",
+            notice_disposition="correction-issued",
+        )
+
+        self.assertFalse(result["duplicate"])
+        self.assertTrue(result["send_now"])
+        self.assertEqual(result["channel"], "primary-immediate")
+
+    def test_critical_or_user_action_correction_remains_eligible(self) -> None:
+        for severity, user_action_required in (("critical", "no"), ("info", "yes")):
+            with self.subTest(
+                severity=severity, user_action_required=user_action_required
+            ):
+                result = self.run_terminal_gate(
+                    self.correction_records(),
+                    source_record="EVT-000004",
+                    notice_disposition="correction-issued",
+                    severity=severity,
+                    user_action_required=user_action_required,
+                )
+
+                self.assertFalse(result["duplicate"])
+                self.assertTrue(result["send_now"])
+                self.assertEqual(result["channel"], "primary-immediate")
+
+    def test_failed_exact_source_receipt_allows_retry(self) -> None:
+        records = self.correction_records(receipt_status="failed")[:-1]
+
+        result = self.run_terminal_gate(
+            records,
+            source_record="EVT-000002",
+            notice_disposition="correction-issued",
+        )
+
+        self.assertFalse(result["duplicate"])
+        self.assertTrue(result["send_now"])
+        self.assertEqual(result["channel"], "primary-immediate")
 
     def test_unalerted_terminal_stays_digest_only(self) -> None:
         records = self.incident_records()

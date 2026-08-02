@@ -41,6 +41,7 @@ TERMINAL_INCIDENT_STATUSES = {
     "accepted-risk",
     "superseded",
     "closed",
+    "resolved",
 }
 NON_COMPLETION_CHECK_CATEGORIES = {"max-sample", "meta-sample"}
 GMAIL_CONVERSATION_NOTIFICATION_CATEGORIES = {
@@ -1334,6 +1335,85 @@ def is_terminal_incident_record(
     )
 
 
+def sent_gmail_notification_links_source(
+    item: dict[str, Any], source_record: str
+) -> bool:
+    if (
+        item.get("kind") != "notification"
+        or item.get("status") != "sent"
+        or item.get("category") != "gmail"
+    ):
+        return False
+    evidence = item.get("evidence", [])
+    if isinstance(evidence, list) and source_record in evidence:
+        return True
+    return item.get("dedup_key") == f"gmail:{source_record}"
+
+
+def prior_correction_notice_remains_current(
+    all_events: list[dict[str, Any]],
+    current_incident_id: str,
+    source_record: str,
+    incident_source_record_ids: set[str],
+) -> bool:
+    source_position = next(
+        (
+            position
+            for position, item in enumerate(all_events)
+            if item.get("record_id") == source_record
+        ),
+        len(all_events),
+    )
+    if source_position == len(all_events):
+        return False
+    source = all_events[source_position]
+    source_fingerprint = source.get("state_fingerprint")
+    if (
+        not is_substantive_incident_record(source, current_incident_id)
+        or source.get("notice_disposition") != "correction-issued"
+        or not isinstance(source_fingerprint, str)
+        or not source_fingerprint
+        or source.get("kind") == "steer"
+    ):
+        return False
+
+    for prior_position in range(source_position - 1, -1, -1):
+        prior_source = all_events[prior_position]
+        if (
+            not is_substantive_incident_record(
+                prior_source, current_incident_id
+            )
+            or prior_source.get("notice_disposition") != "correction-issued"
+            or prior_source.get("state_fingerprint") != source_fingerprint
+            or not isinstance(prior_source.get("record_id"), str)
+        ):
+            continue
+        prior_source_record = prior_source["record_id"]
+        receipt_exists = any(
+            notification_matches_incident(
+                item, current_incident_id, incident_source_record_ids
+            )
+            and sent_gmail_notification_links_source(item, prior_source_record)
+            for item in all_events[prior_position + 1 : source_position]
+        )
+        if not receipt_exists:
+            continue
+        materially_different_correction = any(
+            is_substantive_incident_record(item, current_incident_id)
+            and item.get("notice_disposition") == "correction-issued"
+            and (
+                item.get("kind") == "steer"
+                or isinstance(item.get("state_fingerprint"), str)
+                and item.get("state_fingerprint")
+                and item.get("state_fingerprint") != source_fingerprint
+            )
+            for item in all_events[prior_position + 1 : source_position]
+        )
+        if not materially_different_correction:
+            return True
+    return False
+
+
 def prior_terminal_outcome_remains_current(
     all_events: list[dict[str, Any]],
     current_incident_id: str,
@@ -1422,10 +1502,10 @@ def cmd_notice_gate(args: argparse.Namespace) -> None:
         )
     ]
     exact_source_duplicate = any(
-        source_record in item.get("evidence", [])
-        or item.get("dedup_key") == f"gmail:{source_record}"
+        sent_gmail_notification_links_source(item, source_record)
         for item in incident_notifications
     )
+    user_action_required = args.user_action_required == "yes"
     repeated_terminal = (
         args.notice_disposition == "terminal"
         and not exact_source_duplicate
@@ -1436,9 +1516,20 @@ def cmd_notice_gate(args: argparse.Namespace) -> None:
             incident_source_record_ids,
         )
     )
-    duplicate = exact_source_duplicate or repeated_terminal
+    repeated_correction = (
+        args.notice_disposition == "correction-issued"
+        and not exact_source_duplicate
+        and args.severity != "critical"
+        and not user_action_required
+        and prior_correction_notice_remains_current(
+            all_events,
+            current_incident_id,
+            source_record,
+            incident_source_record_ids,
+        )
+    )
+    duplicate = exact_source_duplicate or repeated_terminal or repeated_correction
     previously_alerted = bool(incident_notifications)
-    user_action_required = args.user_action_required == "yes"
 
     if exact_source_duplicate:
         send_now = False
@@ -1451,6 +1542,14 @@ def cmd_notice_gate(args: argparse.Namespace) -> None:
         reason = (
             "A sent terminal outcome already covers this incident and no "
             "substantive nonterminal record reopened it."
+        )
+        banner = None
+    elif repeated_correction:
+        send_now = False
+        channel = "none"
+        reason = (
+            "A sent correction-issued outcome already covers this incident "
+            "and target fingerprint without an intervening new correction."
         )
         banner = None
     elif args.notice_disposition == "terminal":
@@ -2257,7 +2356,7 @@ def cmd_status(args: argparse.Namespace) -> None:
     open_incidents = [
         item
         for item in incident_heads.values()
-        if item.get("status") not in TERMINAL_INCIDENT_STATUSES
+        if not is_terminal_incident_record(item, str(item["incident_id"]))
     ]
     open_incident_ids = [item["incident_id"] for item in open_incidents]
     last = last_check(all_events)
