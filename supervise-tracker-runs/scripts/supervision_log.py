@@ -1304,6 +1304,102 @@ def notification_matches_incident(
     )
 
 
+def is_routing_only_incident_record(item: dict[str, Any]) -> bool:
+    if item.get("kind") != "escalation":
+        return False
+    category = item.get("category")
+    return (
+        item.get("status") == "routed"
+        or category == "incident-routing"
+        or isinstance(category, str) and category.endswith("-routing")
+    )
+
+
+def is_substantive_incident_record(
+    item: dict[str, Any], current_incident_id: str
+) -> bool:
+    return (
+        item.get("incident_id") == current_incident_id
+        and item.get("kind") != "notification"
+        and not is_routing_only_incident_record(item)
+    )
+
+
+def is_terminal_incident_record(
+    item: dict[str, Any], current_incident_id: str
+) -> bool:
+    return is_substantive_incident_record(item, current_incident_id) and (
+        item.get("status") in TERMINAL_INCIDENT_STATUSES
+        or item.get("notice_disposition") == "terminal"
+    )
+
+
+def prior_terminal_outcome_remains_current(
+    all_events: list[dict[str, Any]],
+    current_incident_id: str,
+    source_record: str,
+    incident_source_record_ids: set[str],
+) -> bool:
+    source_position = next(
+        (
+            position
+            for position, item in enumerate(all_events)
+            if item.get("record_id") == source_record
+        ),
+        len(all_events),
+    )
+    terminal_source_positions = {
+        item.get("record_id"): position
+        for position, item in enumerate(all_events[:source_position])
+        if is_terminal_incident_record(item, current_incident_id)
+    }
+    for receipt_position in range(source_position - 1, -1, -1):
+        item = all_events[receipt_position]
+        if (
+            item.get("status") != "sent"
+            or not notification_matches_incident(
+                item, current_incident_id, incident_source_record_ids
+            )
+        ):
+            continue
+        evidence = item.get("evidence", [])
+        source_references = {
+            reference for reference in evidence if isinstance(reference, str)
+        }
+        dedup_key = item.get("dedup_key")
+        if isinstance(dedup_key, str) and dedup_key.startswith("gmail:"):
+            source_references.add(dedup_key.removeprefix("gmail:"))
+        linked_terminal_positions = [
+            terminal_source_positions[reference]
+            for reference in source_references
+            if reference in terminal_source_positions
+            and terminal_source_positions[reference] < receipt_position
+        ]
+        if (
+            not linked_terminal_positions
+            and item.get("notice_disposition") != "terminal"
+        ):
+            continue
+        terminal_position = (
+            max(linked_terminal_positions)
+            if linked_terminal_positions
+            else max(
+                (
+                    position
+                    for position in terminal_source_positions.values()
+                    if position < receipt_position
+                ),
+                default=receipt_position,
+            )
+        )
+        return not any(
+            is_substantive_incident_record(candidate, current_incident_id)
+            and not is_terminal_incident_record(candidate, current_incident_id)
+            for candidate in all_events[terminal_position + 1 : source_position]
+        )
+    return False
+
+
 def cmd_notice_gate(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     current_incident_id = safe_id(args.incident_id, label="incident ID")
@@ -1325,18 +1421,37 @@ def cmd_notice_gate(args: argparse.Namespace) -> None:
             item, current_incident_id, incident_source_record_ids
         )
     ]
-    duplicate = any(
+    exact_source_duplicate = any(
         source_record in item.get("evidence", [])
         or item.get("dedup_key") == f"gmail:{source_record}"
         for item in incident_notifications
     )
+    repeated_terminal = (
+        args.notice_disposition == "terminal"
+        and not exact_source_duplicate
+        and prior_terminal_outcome_remains_current(
+            all_events,
+            current_incident_id,
+            source_record,
+            incident_source_record_ids,
+        )
+    )
+    duplicate = exact_source_duplicate or repeated_terminal
     previously_alerted = bool(incident_notifications)
     user_action_required = args.user_action_required == "yes"
 
-    if duplicate:
+    if exact_source_duplicate:
         send_now = False
         channel = "none"
         reason = "An outcome for this source record is already in the outbound ledger."
+        banner = None
+    elif repeated_terminal:
+        send_now = False
+        channel = "none"
+        reason = (
+            "A sent terminal outcome already covers this incident and no "
+            "substantive nonterminal record reopened it."
+        )
         banner = None
     elif args.notice_disposition == "terminal":
         send_now = previously_alerted
@@ -2135,7 +2250,9 @@ def cmd_status(args: argparse.Namespace) -> None:
         # lifecycle transition. Keep the latest substantive incident record as
         # the head so email status such as `sent` cannot hide `under-review`,
         # `awaiting-target-evidence`, or a terminal resolution.
-        if current_incident_id and item.get("kind") != "notification":
+        if current_incident_id and is_substantive_incident_record(
+            item, str(current_incident_id)
+        ):
             incident_heads[current_incident_id] = item
     open_incidents = [
         item

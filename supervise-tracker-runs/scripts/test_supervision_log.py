@@ -54,7 +54,11 @@ class NoticeGateCorrelationTests(unittest.TestCase):
     alert_source = "EVT-000001"
     terminal_source = "EVT-000002"
 
-    def run_terminal_gate(self, event_records: list[dict[str, object]]) -> dict[str, object]:
+    def run_terminal_gate(
+        self,
+        event_records: list[dict[str, object]],
+        source_record: str | None = None,
+    ) -> dict[str, object]:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             incidents = directory / "incidents"
@@ -64,7 +68,7 @@ class NoticeGateCorrelationTests(unittest.TestCase):
             )
             args = argparse.Namespace(
                 incident_id=self.incident_id,
-                source_record=self.terminal_source,
+                source_record=source_record or self.terminal_source,
                 notice_disposition="terminal",
                 resolution_owner="none",
                 user_action_required="no",
@@ -84,6 +88,24 @@ class NoticeGateCorrelationTests(unittest.TestCase):
             ):
                 supervision_log.cmd_notice_gate(args)
             return json.loads(output.getvalue())
+
+    def run_status(self, event_records: list[dict[str, object]]) -> dict[str, object]:
+        output = io.StringIO()
+        args = argparse.Namespace(target_thread="target-1234")
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(
+                    Path("/tmp/test-supervision"),
+                    {"policy_sha256": "test-policy"},
+                ),
+            ),
+            mock.patch.object(supervision_log, "events", return_value=event_records),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_status(args)
+        return json.loads(output.getvalue())
 
     def incident_records(self) -> list[dict[str, object]]:
         return [
@@ -148,6 +170,129 @@ class NoticeGateCorrelationTests(unittest.TestCase):
         self.assertFalse(result["send_now"])
         self.assertEqual(result["channel"], "none")
         self.assertIsNone(result["banner"])
+
+    def test_later_terminal_source_is_suppressed_without_substantive_reopen(self) -> None:
+        records = self.incident_records()
+        records.extend(
+            [
+                {
+                    "kind": "notification",
+                    "record_id": "EVT-000003",
+                    "category": "gmail",
+                    "status": "sent",
+                    "evidence": [self.alert_source, "gmail-alert-id"],
+                },
+                {
+                    "kind": "notification",
+                    "record_id": "EVT-000004",
+                    "incident_id": self.incident_id,
+                    "category": "gmail",
+                    "status": "sent",
+                    "notice_disposition": "terminal",
+                    "dedup_key": f"gmail:{self.terminal_source}",
+                    "evidence": [self.terminal_source, "gmail-outcome-id"],
+                },
+                {
+                    "kind": "resolution",
+                    "record_id": "EVT-000005",
+                    "incident_id": self.incident_id,
+                    "status": "closed",
+                    "notice_disposition": "terminal",
+                },
+            ]
+        )
+
+        result = self.run_terminal_gate(records, source_record="EVT-000005")
+
+        self.assertTrue(result["previously_alerted"])
+        self.assertTrue(result["duplicate"])
+        self.assertFalse(result["send_now"])
+        self.assertEqual(result["channel"], "none")
+        self.assertIsNone(result["banner"])
+
+    def test_substantive_nonterminal_reopen_allows_new_terminal_outcome(self) -> None:
+        records = self.incident_records()
+        records.extend(
+            [
+                {
+                    "kind": "notification",
+                    "record_id": "EVT-000003",
+                    "incident_id": self.incident_id,
+                    "category": "gmail",
+                    "status": "sent",
+                    "notice_disposition": "terminal",
+                    "dedup_key": f"gmail:{self.terminal_source}",
+                    "evidence": [self.terminal_source, "gmail-outcome-id"],
+                },
+                {
+                    "kind": "resolution",
+                    "record_id": "EVT-000004",
+                    "incident_id": self.incident_id,
+                    "status": "awaiting-target-evidence",
+                    "notice_disposition": "intermediate",
+                },
+                {
+                    "kind": "resolution",
+                    "record_id": "EVT-000005",
+                    "incident_id": self.incident_id,
+                    "status": "corrected",
+                    "notice_disposition": "terminal",
+                },
+            ]
+        )
+
+        result = self.run_terminal_gate(records, source_record="EVT-000005")
+
+        self.assertTrue(result["previously_alerted"])
+        self.assertFalse(result["duplicate"])
+        self.assertTrue(result["send_now"])
+        self.assertEqual(result["channel"], "primary-outcome")
+        self.assertEqual(result["banner"], "SUPERVISION OUTCOME")
+
+    def test_terminal_head_ignores_later_routing_only_escalations(self) -> None:
+        records = [
+            {
+                "kind": "incident",
+                "record_id": self.alert_source,
+                "incident_id": self.incident_id,
+                "status": "detected",
+            },
+            {
+                "kind": "resolution",
+                "record_id": self.terminal_source,
+                "incident_id": self.incident_id,
+                "status": "corrected",
+                "notice_disposition": "terminal",
+            },
+            {
+                "kind": "notification",
+                "record_id": "EVT-000003",
+                "incident_id": self.incident_id,
+                "category": "gmail",
+                "status": "sent",
+                "notice_disposition": "terminal",
+                "evidence": [self.terminal_source, "gmail-outcome-id"],
+            },
+            {
+                "kind": "escalation",
+                "record_id": "EVT-000004",
+                "incident_id": self.incident_id,
+                "category": "incident-routing",
+                "status": "routed",
+            },
+            {
+                "kind": "escalation",
+                "record_id": "EVT-000005",
+                "incident_id": self.incident_id,
+                "category": "notice-review",
+                "status": "routed",
+            },
+        ]
+
+        result = self.run_status(records)
+
+        self.assertEqual(result["open_incident_ids"], [])
+        self.assertEqual(result["open_incidents"], [])
 
     def test_unalerted_terminal_stays_digest_only(self) -> None:
         records = self.incident_records()
