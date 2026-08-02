@@ -33,7 +33,9 @@ Before editing, form one compact execution brief from the live Block: governing
 outcome, existing owner, exact missing delta, reusable accepted evidence,
 dependency/currentness check, expected focused and mapped proof, review order,
 resource/widening posture, and stop boundary. Do not create a new artifact for
-the brief unless the tracker requires it.
+the brief unless the tracker requires it. After a concrete path failure is
+corrected, retain the corrected command, owner, or writer path in this brief and
+first reuse it on the next applicable invocation.
 
 Preflight the current Block and its next eligible dependent Block for an
 actually non-delegable decision. Tracker wording that assigns `responsible
@@ -157,9 +159,12 @@ future tracker or wait for the next Block.
    brief first; amend the current tracker, changed-test mapping, runner/profile,
    or implementation only when that owner concretely caused or would repeat the
    defect in this run. Do not add a parallel policy or remediation subsystem.
-4. Recompute affected scope and validation after the correction. Rerun only the
-   proof invalidated by the successor; never restart the same broad action for
-   generic confidence or because a reusable skill update is pending.
+4. Recompute affected scope and validation after the correction. If the producer
+   already yielded a valid artifact or commit, freeze and reuse it; repair only
+   invalidated currentness, ordering, serialization, declared-no-op, or transfer
+   proof. Rerun that producer only when currentness or content actually
+   invalidates its output, never for generic confidence or because a reusable
+   skill update is pending.
 5. Commit the coherent correction under the ordinary checkpoint contract when
    files changed, obtain any required exact-revision review, and show the
    supervisor later evidence that the active cost stopped and the Block resumed
