@@ -33,9 +33,16 @@ Before editing, form one compact execution brief from the live Block: governing
 outcome, existing owner, exact missing delta, reusable accepted evidence,
 dependency/currentness check, expected focused and mapped proof, review order,
 resource/widening posture, and stop boundary. Do not create a new artifact for
-the brief unless the tracker requires it. After a concrete path failure is
-corrected, retain the corrected command, owner, or writer path in this brief and
-first reuse it on the next applicable invocation.
+the brief unless the tracker requires it. For every focused or audit test
+command, freeze and reuse one repository-owned invocation envelope: working
+directory or project binding, configured runtime, any repository-required
+import or module binding, and exact selection. Prefer the maintained repository-
+native command or runner, and bind an import path only when that repository
+requires it. After correcting a setup failure, retain the complete corrected
+envelope in the active brief and exact audit handoff, then reuse it on the next
+applicable first invocation. After any other concrete path failure is corrected,
+retain the corrected command, owner, or writer path in the brief and first reuse
+it on the next applicable invocation.
 
 Preflight the current Block and its next eligible dependent Block for an
 actually non-delegable decision. Tracker wording that assigns `responsible
