@@ -1855,7 +1855,7 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
         action = "closed"
     next_attempt = attempt + 1 if action == "start-sol-max-attempt" else attempt
     blocking_permitted = bool(
-        phase == "handoff-sent"
+        phase in {"handoff-sent", "target-acknowledged"}
         and head.get("outcome") == "safe-deferred"
         and not safe_work
         and classification in {"missing-fact", "reserved-authority"}
@@ -1871,6 +1871,10 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
         "must_continue_safe_frontier": safe_work,
         "safe_frontier": head["safe_frontier"],
         "blocking_permitted": blocking_permitted,
+        "required_target_posture": (
+            "blocked" if blocking_permitted else "in-progress"
+        ),
+        "manual_resume_required": False,
         "attempt_model": contract["attempt_model"],
         "attempt_reasoning": contract["attempt_reasoning"],
         "attempt_minutes": contract["attempt_minutes"],

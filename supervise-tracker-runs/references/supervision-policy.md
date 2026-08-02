@@ -806,6 +806,11 @@ At each scheduled wake:
    lane only for an earlier nonurgent forecast before decision readiness. Do not
    treat an ordinary bounded implementation choice as a user gate.
 7. Read `status` for open decision heads. For each one, call `decision-gate`.
+   Treat its `required_target_posture` as controlling. While
+   `blocking_permitted=false`, the target Goal must remain `in-progress`; a
+   target-emitted `blocked` result is invalid even when the safe frontier is
+   empty and requires a narrow resume steer. Never ask the operator to press a
+   Resume control.
    If it returns `must_continue_safe_frontier=true`, verify the target is
    advancing that exact independent frontier; idle waiting is a high-severity
    defect and requires a narrow continuation steer. If the action is
@@ -865,6 +870,11 @@ has already been exposed, and all safe scoped work is exhausted. Otherwise
 require the target to continue, narrow the blocked scope, or surface the missing
 packet. Record when the blocker was first foreseeable and when it became
 decision-ready.
+The helper must also return `blocking_permitted=true`; every other decision
+phase requires target posture `in-progress`. After the exact handoff, require
+automatic acknowledgement and continuation. A stale application `Goal blocked`
+card is historical UI state and does not override an active target turn or the
+current decision head; no manual Resume action is required.
 Ask what new fact, preference, reserved judgment, or authority the requested
 response contributes. If it contributes none and only repeats the sole eligible
 reviewed recommendation, the stop is procedural: route an in-place correction
@@ -1149,6 +1159,10 @@ first Sol Max attempt, a missed post-attempt human-response deadline, missing
 later attempt, idle target with a nonempty safe frontier, unrecorded
 disposition/handoff, missing eligible phase notification, or absent target
 acknowledgement. Do not pause supervision while this protocol is active.
+If `blocking_permitted=false`, require target posture `in-progress` and repair
+any target-emitted terminal block immediately. After acknowledgement, treat an
+old application `Goal blocked` card as stale and never request a manual Resume
+action.
 Also reconcile the latest explicit target lifecycle posture against
 `last_lifecycle` and the outbound ledger. Immediately repair any missing
 completed/noncritical-paused primary status or blocked/failed/stopped priority

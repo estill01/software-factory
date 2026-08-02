@@ -83,6 +83,25 @@ not an invented fact or unauthorized operation. Apply the handoff at the next
 safe boundary and preserve its trade-offs, exclusions, and downstream
 obligations.
 
+Before ending any supervised turn around an open decision, call the maintained
+`decision-gate` for that exact decision. If it returns
+`blocking_permitted=false`, a terminal `blocked` response is forbidden even
+when the current safe frontier is empty: report the bounded subject as
+`waiting-for-input`, keep the Block and Goal `in-progress`, and yield only as an
+automated-resolution continuation point. Do not ask the user to press a Resume
+control. The supervisor owns the timed attempts and exact handoff; consume that
+handoff automatically at the next turn boundary. Only
+`blocking_permitted=true` may support a terminal blocked result, and that state
+is limited to an exact safely deferred missing fact or reserved authority with
+no safe frontier. If a prior UI card still says `Goal blocked` after a handoff,
+state that the card is stale and continue; do not require or wait for a manual
+resume.
+
+For a tracker run that spans skill maintenance, reread this skill at each Block
+transition when its live file hash has changed or a maintained skill-refresh
+notice was received. Do not continue from a cached turn-start copy across that
+boundary.
+
 Choose the smallest reliable causal path. Reuse current manifests, indexes,
 snapshots, exact source copies, prior accepted reviews, and configured runtimes.
 Use a cheap exact revision/root/currentness check before a deep scan or
@@ -142,6 +161,12 @@ If it is nonempty, continuing it is mandatory. For a one-Block request, remain
 inside that Block; for a requested range, a later dependency-independent slice
 may proceed only with the unresolved subjects expressly excluded and without
 marking the earlier Block accepted.
+
+In a supervised run, the conditions above are necessary but not sufficient:
+the exact `decision-gate` must also return `blocking_permitted=true`. An active
+attempt, response window, supported selection, pending handoff, or ordinary
+human-preference resolution keeps the Goal `in-progress` and may never be
+reported as terminally blocked.
 
 ## Apply a live supervision correction
 

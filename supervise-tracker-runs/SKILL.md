@@ -162,6 +162,14 @@ Repeat independently for additional targets.
   or human preference; for a missing fact or reserved authority, hand off an
   exact safe deferral. Never fabricate a fact or self-authorize a reserved
   action.
+- Treat `decision-gate` as the mechanical target-lifecycle boundary. When it
+  returns `blocking_permitted=false`, require the target Goal to remain
+  `in-progress` even if the safe frontier is empty; a target-emitted `blocked`
+  result is an invalid lifecycle transition that requires an immediate narrow
+  resume steer. Do not ask the operator to press a Resume control. After an
+  exact selected or safely deferred handoff, require automatic target
+  acknowledgement and continuation at the next turn boundary. Only
+  `blocking_permitted=true` may support a terminal blocked posture.
 - Treat every unresolved Important/Critical notice as an incident, not a
   terminal notification. Route it immediately to the event-driven Sol XHigh
   notice reviewer. A corrective steer changes the incident to
@@ -355,6 +363,13 @@ Repeat independently for additional targets.
   exposed, and all safe scoped work is exhausted. Otherwise steer the target to
   continue or narrow the stop. Record when the blocker was first foreseeable
   and when it became decision-ready.
+- Before accepting any target `blocked` lifecycle, call `decision-gate` for
+  every open decision head. If any result has `blocking_permitted=false`, record
+  the target block as invalid, keep supervision active, steer the target to
+  report `in-progress`, and continue the state machine. A stale application
+  `Goal blocked` card after target acknowledgement is not current target state;
+  the exact active turn and supervision decision head control. The resumed
+  notification must say that no manual Resume action is required.
 - A nonempty safe-work frontier makes a blocked posture invalid. After the timed
   protocol, missing facts and reserved actions use safe deferral; a full stop is
   permitted only when that deferral still leaves the declared terminal outcome

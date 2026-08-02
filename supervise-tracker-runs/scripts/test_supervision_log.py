@@ -1006,6 +1006,8 @@ class DecisionResolutionTests(unittest.TestCase):
             self.assertTrue(result["must_continue_safe_frontier"])
             self.assertFalse(result["notification_send_now"])
             self.assertFalse(result["blocking_permitted"])
+            self.assertEqual(result["required_target_posture"], "in-progress")
+            self.assertFalse(result["manual_resume_required"])
 
             self.record(
                 directory,
@@ -1042,6 +1044,9 @@ class DecisionResolutionTests(unittest.TestCase):
             self.assertEqual(ready["next_attempt"], 1)
             self.assertTrue(ready["must_continue_safe_frontier"])
             self.assertFalse(ready["notification_send_now"])
+            self.assertFalse(ready["blocking_permitted"])
+            self.assertEqual(ready["required_target_posture"], "in-progress")
+            self.assertFalse(ready["manual_resume_required"])
 
             self.record(
                 directory,
@@ -1351,6 +1356,55 @@ class DecisionResolutionTests(unittest.TestCase):
 
             self.assertEqual(result["action"], "safe-defer-and-handoff")
             self.assertFalse(result["blocking_permitted"])
+            self.assertEqual(result["required_target_posture"], "in-progress")
+
+            self.record(
+                directory,
+                policy,
+                classification="missing-fact",
+                phase="safe-deferred",
+                safe_frontier="empty",
+                attempt=3,
+                outcome="safe-deferred",
+                now="2026-08-01T14:20:00+00:00",
+            )
+            deferred = self.gate(directory, policy, "2026-08-01T14:20:01+00:00")
+            self.assertFalse(deferred["blocking_permitted"])
+            self.assertEqual(deferred["required_target_posture"], "in-progress")
+
+            self.record(
+                directory,
+                policy,
+                classification="missing-fact",
+                phase="handoff-sent",
+                safe_frontier="empty",
+                attempt=3,
+                outcome="safe-deferred",
+                now="2026-08-01T14:20:02+00:00",
+            )
+            handed_off = self.gate(
+                directory, policy, "2026-08-01T14:20:03+00:00"
+            )
+            self.assertTrue(handed_off["blocking_permitted"])
+            self.assertEqual(handed_off["required_target_posture"], "blocked")
+            self.assertFalse(handed_off["manual_resume_required"])
+
+            self.record(
+                directory,
+                policy,
+                classification="missing-fact",
+                phase="target-acknowledged",
+                safe_frontier="empty",
+                attempt=3,
+                outcome="safe-deferred",
+                now="2026-08-01T14:20:04+00:00",
+            )
+            acknowledged = self.gate(
+                directory, policy, "2026-08-01T14:20:05+00:00"
+            )
+            self.assertTrue(acknowledged["blocking_permitted"])
+            self.assertEqual(acknowledged["required_target_posture"], "blocked")
+            self.assertFalse(acknowledged["manual_resume_required"])
 
     def test_delegable_decision_cannot_start_resolution_attempt(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
