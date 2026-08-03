@@ -233,9 +233,25 @@ def cross_thread_routing_contract() -> dict[str, Any]:
     }
 
 
-def mission_binding_contract(
+def alignment_operating_contract() -> dict[str, Any]:
+    """Keep supervision aligned without requiring target-native alignment."""
+
+    return {
+        "mode": "independent-mission-charter",
+        "governing_source": "bound-direct-mission-sources",
+        "target_native_alignment_required": False,
+        "target_native_alignment_role": "optional-read-only-corroboration",
+        "missing_target_alignment_posture": "unavailable-open",
+        "target_native_alignment_may_authorize_or_block": False,
+        "target_native_alignment_writes_allowed": False,
+    }
+
+
+def legacy_mission_binding_contract(
     mission_root: str, mission_source_record: str
 ) -> dict[str, Any]:
+    """Exact accepted predecessor retained for readable live policies."""
+
     return {
         "mission_root": mission_root,
         "mission_source_record": mission_source_record,
@@ -249,6 +265,38 @@ def mission_binding_contract(
         "primary_mission_governs_subordinate_process": True,
         "aggregate_score": False,
     }
+
+
+def mission_binding_contract(
+    mission_root: str, mission_source_record: str
+) -> dict[str, Any]:
+    return {
+        "contract_version": 2,
+        "mission_root": mission_root,
+        "mission_source_record": mission_source_record,
+        "alignment_operating_contract": alignment_operating_contract(),
+        "frame_fields": [
+            "primary-outcome",
+            "ordinary-effect-classes",
+            "hard-direct-authority-and-safety-boundaries",
+            "acceptance-and-stop-boundary",
+        ],
+        "primary_mission_governs_subordinate_process": True,
+        "aggregate_score": False,
+    }
+
+
+def mission_binding_identity(binding: Mapping[str, Any]) -> tuple[str, str] | None:
+    root = binding.get("mission_root")
+    source = binding.get("mission_source_record")
+    if (
+        not isinstance(root, str)
+        or not root
+        or not isinstance(source, str)
+        or not source
+    ):
+        return None
+    return root, source
 
 
 def mission_binding_from_args(
@@ -281,14 +329,7 @@ def bound_mission(policy: dict[str, Any]) -> dict[str, Any] | None:
     binding = policy.get("mission_binding")
     if not isinstance(binding, dict):
         return None
-    root = binding.get("mission_root")
-    source = binding.get("mission_source_record")
-    if (
-        not isinstance(root, str)
-        or not root
-        or not isinstance(source, str)
-        or not source
-    ):
+    if mission_binding_identity(binding) is None:
         return None
     return binding
 
@@ -613,9 +654,15 @@ def validate_policy(policy: dict[str, Any]) -> None:
             raise SupervisionLogError("Mission binding lacks an exact source record")
         safe_id(mission_root, label="mission root")
         safe_id(mission_source_record, label="mission source record")
-        if mission_binding != mission_binding_contract(
-            mission_root, mission_source_record
-        ):
+        supported_bindings = {
+            canonical(mission_binding_contract(mission_root, mission_source_record)),
+            canonical(
+                legacy_mission_binding_contract(
+                    mission_root, mission_source_record
+                )
+            ),
+        }
+        if canonical(mission_binding) not in supported_bindings:
             raise SupervisionLogError("Mission binding contract differs")
     maintenance = policy.get("skill_maintenance")
     if maintenance is not None:
@@ -813,7 +860,14 @@ def cmd_init(args: argparse.Namespace) -> None:
         for key in ("watcher_thread_id", "reviewer_thread_id"):
             if policy.get("runtime", {}).get(key) != expected["runtime"][key]:
                 raise SupervisionLogError(f"Existing policy conflicts on runtime {key}")
-        if policy.get("mission_binding") != expected.get("mission_binding"):
+        current_mission = policy.get("mission_binding")
+        expected_mission = expected.get("mission_binding")
+        if (
+            not isinstance(current_mission, Mapping)
+            or not isinstance(expected_mission, Mapping)
+            or mission_binding_identity(current_mission)
+            != mission_binding_identity(expected_mission)
+        ):
             raise SupervisionLogError("Existing policy conflicts on mission binding")
         print(json.dumps({"created": False, "policy": policy}, sort_keys=True))
         return
@@ -886,9 +940,13 @@ def cmd_bind(args: argparse.Namespace) -> None:
     requested_mission = mission_binding_from_args(args, required=False)
     current_mission = bound_mission(policy)
     if requested_mission is not None:
-        if current_mission is not None and current_mission != requested_mission:
+        if (
+            current_mission is not None
+            and mission_binding_identity(current_mission)
+            != mission_binding_identity(requested_mission)
+        ):
             raise SupervisionLogError("Mission binding already differs")
-        if current_mission is None:
+        if current_mission != requested_mission:
             policy["mission_binding"] = requested_mission
             changed = True
     for key, raw in updates.items():
@@ -2350,6 +2408,7 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
     attempt = int(head.get("attempt", 0))
     safe_work = head.get("safe_frontier") == "nonempty"
     contract = policy["decision_resolution"]
+    alignment_contract = alignment_operating_contract()
     binding = bound_mission(policy)
     mission_binding_valid = bool(
         binding is not None and head.get("mission_root") == binding["mission_root"]
@@ -2453,6 +2512,14 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
         "authority_provenance_valid": authority_provenance_valid,
         "mission_challenge_valid": mission_challenge_valid,
         "consequential": consequential,
+        "alignment_operating_mode": alignment_contract["mode"],
+        "target_native_alignment_required": False,
+        "target_native_alignment_role": alignment_contract[
+            "target_native_alignment_role"
+        ],
+        "missing_target_alignment_posture": alignment_contract[
+            "missing_target_alignment_posture"
+        ],
     }
     for field in MISSION_IMPACT_FIELDS:
         result[field] = head.get(field)

@@ -66,6 +66,10 @@ schedules, bounds, escalation rules, logging commands, and stop conditions.
 
    Resolve `scripts/supervision_log.py` to its absolute path when using it from
    another thread.
+   The mission root and source form the supervisor's independent charter. They
+   may identify an ordinary goal document, implementation tracker, repository
+   authority, or direct user/system source. The target does not need a native
+   alignment schema, service, or record type.
    New groups start in `propose-only` skill-maintenance mode. Change that mode
    only on an explicit operator instruction, using the bounded `adjust`
    command from the policy.
@@ -139,11 +143,20 @@ Repeat independently for additional targets.
   goes only through the maintained notification gates.
 - Bind every new supervision group to an exact content-minimized mission root
   and controlling source record before its first watcher check. The semantic
-  mission remains in the target or tracker: its primary outcome governs
-  subordinate process optimization, while ordinary required effects, hard
-  direct authority/safety boundaries, and acceptance/stop boundaries remain
-  distinguishable. A legacy unbound policy may still be observed; only an
-  explicit `bind` with the exact root and source may upgrade it.
+  mission remains in its direct goal, repository, or tracker sources: its
+  primary outcome governs subordinate process optimization, while ordinary
+  required effects, hard direct authority/safety boundaries, and acceptance/
+  stop boundaries remain distinguishable. A legacy unbound policy may still be
+  observed; only an explicit `bind` with the exact root and source may upgrade
+  it.
+- Run every target from that independent mission charter whether or not the
+  target implements native alignment. Target-native alignment records, when
+  present, are optional read-only corroboration. They never authorize or block
+  supervisor action, never replace direct mission sources or observed effects,
+  and are never written by supervision. When absent, report native alignment
+  `unavailable/open` while continuing ordinary observation and charter-based
+  semantic review. Only absence of an authoritative mission charter prevents a
+  consequential containment or decision.
 - Preserve non-scalar mission impact for every material containment or decision:
   mission root, exact authority class/source, local/material/goal-blocking/goal-
   reversing impact, affected width, duration, reversibility, whether an ordinary
@@ -444,6 +457,11 @@ Repeat independently for additional targets.
 - Scheduled inactivity consumes no model tokens; each wake must remain bounded.
 - Supervision evidence is operational evidence, not patent authority, legal
   status, or proof of patent quality.
+- A monitored target needs no integrated alignment implementation. The
+  supervisor's independent mission charter is governing; any target-native
+  alignment is an advisory read-only attestation. Do not import a target
+  alignment module, require its schema, or write through its owner merely to
+  supervise that target.
 - Gmail notification is self-delivery only. The dedicated priority lifecycle
   thread and separate roundup thread are the only additional project threads;
   neither is a second incident, status, or monitoring authority. Gmail is an

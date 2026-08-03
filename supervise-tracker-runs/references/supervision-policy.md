@@ -161,13 +161,36 @@ after that policy update and before the next target check.
 ## Mission binding and authority provenance
 
 Bind every new supervision group before its first watcher check to one exact
-content-minimized mission root and exact controlling source record. Keep the
-semantic mission in the target or tracker. The binding records only that source
-and root plus generic frame metadata distinguishing the primary outcome,
-ordinary effect classes needed to achieve it, hard direct authority or safety
-boundaries, and the acceptance/stop boundary. The primary outcome governs
-subordinate process optimization; supervision cannot add durable restrictions
-or change the target goal set.
+content-minimized mission root and exact controlling source record. This is the
+independent supervision charter. Its source may be a direct goal, repository
+authority, or implementation tracker; the monitored target does not need a
+native alignment feature. Keep the semantic mission in those direct sources.
+The binding records only that source and root plus generic frame metadata
+distinguishing the primary outcome, ordinary effect classes needed to achieve
+it, hard direct authority or safety boundaries, and the acceptance/stop
+boundary. The primary outcome governs subordinate process optimization;
+supervision cannot add durable restrictions or change the target goal set.
+
+Target-native alignment is optional read-only corroboration. When present, a
+reviewer may compare its exact current attestation with the independent charter
+and observable target effects, but the attestation never governs supervisor
+authority, never creates a restriction, and is never written by supervision.
+When absent, report target-native alignment `unavailable/open` and continue
+ordinary observation plus charter-based semantic review. Do not infer clean
+alignment from absence. Only a missing or stale independent mission charter
+fails closed for consequential containment or decision posture. This provides
+three explicit operating postures:
+
+- charter plus optional native attestation — compare both against observable
+  effects, with the charter governing;
+- charter only — supervise normally without any target alignment schema or
+  service; and
+- no authoritative charter — continue mechanical observation, but prohibit
+  consequential containment or decision posture until the charter is bound.
+
+Never import a target alignment module into the supervisor, require a target
+schema, write target alignment state, or use the target's own alignment claim as
+proof while reviewing that alignment implementation itself.
 
 Legacy policy remains readable. `bind` upgrades it only when supplied both the
 exact mission root and source record; it never synthesizes either or grants
@@ -997,6 +1020,10 @@ Review consequential containment and decisions against the bound mission root.
 Challenge expired or carried-forward operation holds and any authority source
 lost or relabeled across compaction. A supervisor steer or `codex_delegation`
 packet cannot become direct user or reserved authority.
+Target-native alignment is optional corroboration only. If it is absent, review
+against the independent mission charter and observable effects; if it conflicts,
+route the discrepancy for challenge. Do not require target alignment machinery
+or treat its own attestation as governing proof.
 
 For each changed-state packet:
 1. Ignore any Terra inference. Using the target thread ID and exact turn/item
@@ -1063,6 +1090,9 @@ mission root, authority source class/record, impact, scope, expiry, and successo
 posture. Preserve those fields through compacted handoffs; never infer
 carry-forward or relabel supervisor or `codex_delegation` language as user
 authority.
+Treat target-native alignment as optional read-only corroboration. The
+independent charter and direct authority remain governing, especially while the
+target's own alignment implementation is absent, stale, broken, or under review.
 
 For an escalation:
 1. Start from the governing Block and higher-order outcome, not the watcher's

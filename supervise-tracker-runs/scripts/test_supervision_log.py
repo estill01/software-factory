@@ -1043,6 +1043,16 @@ class MissionContainmentContractTests(unittest.TestCase):
             policy["mission_binding"]["mission_source_record"],
             "TRACKER-MISSION-1234",
         )
+        alignment = policy["mission_binding"]["alignment_operating_contract"]
+        self.assertEqual(alignment["mode"], "independent-mission-charter")
+        self.assertFalse(alignment["target_native_alignment_required"])
+        self.assertEqual(
+            alignment["target_native_alignment_role"],
+            "optional-read-only-corroboration",
+        )
+        self.assertFalse(alignment["target_native_alignment_may_authorize_or_block"])
+        self.assertFalse(alignment["target_native_alignment_writes_allowed"])
+        self.assertNotIn("semantic_owner", policy["mission_binding"])
         self.assertFalse(policy["mission_binding"]["aggregate_score"])
 
     def test_legacy_policy_upgrades_only_with_exact_bind_pair(self) -> None:
@@ -1083,6 +1093,42 @@ class MissionContainmentContractTests(unittest.TestCase):
         ):
             supervision_log.cmd_bind(complete)
         self.assertEqual(policy["mission_binding"]["mission_root"], self.mission_root)
+        write.assert_called_once()
+
+    def test_accepted_legacy_binding_remains_readable_and_bind_upgrades_it(self) -> None:
+        policy = self.policy()
+        policy["mission_binding"] = supervision_log.legacy_mission_binding_contract(
+            self.mission_root, "TRACKER-MISSION-1234"
+        )
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+        supervision_log.validate_policy(policy)
+
+        args = supervision_log.parser().parse_args(
+            [
+                "bind",
+                "--target-thread",
+                self.target,
+                "--mission-root",
+                self.mission_root,
+                "--mission-source-record",
+                "TRACKER-MISSION-1234",
+            ]
+        )
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(Path("/tmp/supervision-test"), policy),
+            ),
+            mock.patch.object(supervision_log, "write_policy_version") as write,
+            redirect_stdout(io.StringIO()),
+        ):
+            supervision_log.cmd_bind(args)
+
+        self.assertEqual(policy["mission_binding"]["contract_version"], 2)
+        self.assertNotIn("semantic_owner", policy["mission_binding"])
         write.assert_called_once()
 
     def test_policy_validation_rejects_mission_contract_drift(self) -> None:
@@ -2412,6 +2458,43 @@ class DecisionResolutionTests(unittest.TestCase):
                             phase="decision-ready",
                             authority_source_class=source_class,
                         )
+
+    def test_generic_project_needs_no_native_alignment_implementation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            args = self.init_args()
+            args.target_label = "unrelated-tracker-project"
+            args.mission_source_record = "GOAL-DOCUMENT-1234"
+            policy = supervision_log.default_policy(args)
+
+            self.record(
+                directory,
+                policy,
+                classification="delegable",
+                phase="decision-ready",
+                authority_source_class="repository",
+                authority_source_record="GOAL-DOCUMENT-1234",
+            )
+            result = self.gate(directory, policy, "2026-08-01T12:00:01+00:00")
+
+            self.assertEqual(result["action"], "resolve-immediately-and-continue")
+            self.assertTrue(result["mission_binding_valid"])
+            self.assertEqual(
+                result["alignment_operating_mode"], "independent-mission-charter"
+            )
+            self.assertFalse(result["target_native_alignment_required"])
+            self.assertEqual(
+                result["target_native_alignment_role"],
+                "optional-read-only-corroboration",
+            )
+            self.assertEqual(
+                result["missing_target_alignment_posture"], "unavailable-open"
+            )
+
+    def test_supervision_helper_has_no_patent_studio_alignment_dependency(self) -> None:
+        helper = HELPER_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("patent_studio", helper)
+        self.assertNotIn("objective_alignment", helper)
 
     def test_synthetic_supervisor_containment_cannot_circularly_become_authority(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
