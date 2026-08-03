@@ -44,6 +44,12 @@ applicable first invocation. After any other concrete path failure is corrected,
 retain the corrected command, owner, or writer path in the brief and first reuse
 it on the next applicable invocation.
 
+For a materially expensive read-only proof or audit with a separate reporter or
+helper, cheaply preflight the maintained reporting interface and its invocation
+binding before starting the expensive computation. If valid proof output
+already exists and only reporting fails, freeze and reuse that output and rerun
+only reporting; never rerun the producer solely for a reporting failure.
+
 Preflight the current Block and its next eligible dependent Block for an
 actually non-delegable decision. Tracker wording that assigns `responsible
 human adoption` or requests confirmation is not by itself controlling proof of
