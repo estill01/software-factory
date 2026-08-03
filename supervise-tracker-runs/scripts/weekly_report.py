@@ -1035,7 +1035,7 @@ def build_metrics(
             "causality_boundary": "Distinguish observed association from causation and do not treat process activity as patent quality.",
             "reporting_scope": "Evaluate only the supervision and monitoring machinery. Monitored implementation facts may appear only as bounded evidence of detection or effectiveness.",
             "recommendation_scope": "Recommend changes only to supervisor watchers, reviewers, routing, incident handling, report generation, or operating policy. Never prescribe changes to the monitored target.",
-            "presentation": "Lead with top-line metrics and graphs, summarize findings as bullets, and start every major review domain on a new page.",
+            "presentation": "Lead with the executive dashboard, use at most three concise evidence-backed findings per review section, define every chart, and start every major review domain on a new page.",
         },
         "metrics": metrics,
         "event_records": window_events,
@@ -1080,8 +1080,8 @@ def validate_review(
     clean_sections: dict[str, list[dict[str, Any]]] = {}
     for section in REVIEW_SECTIONS:
         entries = sections.get(section)
-        if not isinstance(entries, list) or not entries or len(entries) > 12:
-            raise WeeklyReportError(f"Review section {section} requires 1-12 entries")
+        if not isinstance(entries, list) or not entries or len(entries) > 3:
+            raise WeeklyReportError(f"Review section {section} requires 1-3 entries")
         clean_entries: list[dict[str, Any]] = []
         for index, entry in enumerate(entries, start=1):
             if not isinstance(entry, dict) or set(entry) != {"title", "assessment", "evidence"}:
@@ -1464,13 +1464,13 @@ def render_pdf(
 
     story.append(paragraph("Inside this report", "H2Custom"))
     contents = [
-        "2  Monitoring time, read reliability, and projected cost",
-        "3  Activity, incidents, and response time",
-        "4  Supervisor effectiveness",
-        "5  Detection quality",
-        "6  Coverage and operating efficiency",
-        "7  Monitoring machinery evolution",
-        "8  Methodology and evidence boundary",
+        "Monitoring time, read reliability, and projected cost",
+        "Activity, incidents, and response time",
+        "Supervisor effectiveness",
+        "Detection quality",
+        "Coverage and operating efficiency",
+        "Monitoring machinery evolution",
+        "Methodology and evidence boundary",
     ]
     contents_table = Table(
         [

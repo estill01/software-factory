@@ -338,6 +338,20 @@ class WeeklyMetricsTests(unittest.TestCase):
             self.assertIn("Monitoring machinery evolution", extracted)
             self.assertNotIn("Material line items", extracted)
 
+    def test_review_rejects_unbounded_section_density(self) -> None:
+        metrics, _packet = self.build()
+        review = fixture_review(metrics["report_id"], metrics["source"]["source_root"])
+        review["sections"]["caught_and_prevented"] = [
+            dict(review["sections"]["caught_and_prevented"][0]) for _ in range(4)
+        ]
+        with self.assertRaisesRegex(weekly_report.WeeklyReportError, "1-3 entries"):
+            weekly_report.validate_review(
+                review,
+                report_id=metrics["report_id"],
+                source_root=metrics["source"]["source_root"],
+                record_ids={item["record_id"] for item in fixture_events()},
+            )
+
 
 class WeeklyCommandTests(unittest.TestCase):
     def init_args(self) -> argparse.Namespace:

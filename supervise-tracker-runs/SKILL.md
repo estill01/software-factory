@@ -330,7 +330,9 @@ Repeat independently for additional targets.
   below the plot, and explain each category in operator language. Internal
   counters such as events, changed states, tracker stages, or tool changes may
   appear only in defined supporting detail, not as unexplained headline cards.
-  Start every major review domain on a new page. Use only maintained
+  Limit each cognitive-review section to three concise evidence-backed findings
+  so review domains remain skimmable. Start every major review domain on a new
+  page. Use only maintained
   foreground/background pairs that pass the report's 4.5:1 contrast check. Do
   not lead with a long narrative or reproduce target line items as report
   content.

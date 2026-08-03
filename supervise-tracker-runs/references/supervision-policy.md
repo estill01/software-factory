@@ -921,7 +921,9 @@ each category in operator language. Internal counters such as recorded events,
 changed states, tracker stages, or tool changes are supporting diagnostics only;
 they may not appear as unexplained executive metrics. Availability/runtime and
 model/token/cost projections precede the detailed cognitive review. Every major
-review domain starts on a new page. Use explicit maintained paragraph styles
+review domain starts on a new page, and each cognitive-review section contains
+at most three concise evidence-backed findings so domains remain skimmable. Use
+explicit maintained paragraph styles
 and foreground/background pairs that pass the generator's 4.5:1 contrast floor;
 table-level color declarations may not substitute for paragraph text color.
 Do not reproduce implementation line items or lead with a long executive
