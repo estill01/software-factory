@@ -120,7 +120,7 @@ def fixture_review(report_id: str, source_root: str) -> dict[str, object]:
         sections[section] = [
             {
                 "title": section.replace("_", " ").title(),
-                "assessment": "The bounded records support one evidence-linked operational observation without claiming patent quality.",
+                "assessment": "Supervisor monitoring records support one evidence-linked operational observation without claiming target quality.",
                 "evidence": ["EVT-000001"],
             }
         ]
@@ -227,11 +227,34 @@ class WeeklyMetricsTests(unittest.TestCase):
             first["totals"]["estimated_tokens_high"],
         )
 
+    def test_report_palette_meets_contrast_floor(self) -> None:
+        weekly_report.validate_report_contrast()
+        self.assertGreaterEqual(
+            weekly_report.contrast_ratio("#FFFFFF", "#8A4B00"), 4.5
+        )
+        self.assertLess(weekly_report.contrast_ratio("#FFFFFF", "#F2F5F8"), 4.5)
+
     def test_review_rejects_unknown_evidence_and_local_paths(self) -> None:
         metrics, _packet = self.build()
         review = fixture_review(metrics["report_id"], metrics["source"]["source_root"])
         review["sections"]["caught_and_prevented"][0]["evidence"] = ["EVT-999999"]
         with self.assertRaisesRegex(weekly_report.WeeklyReportError, "unknown records"):
+            weekly_report.validate_review(
+                review,
+                report_id=metrics["report_id"],
+                source_root=metrics["source"]["source_root"],
+                record_ids={item["record_id"] for item in fixture_events()},
+            )
+
+    def test_review_recommendations_must_target_supervision(self) -> None:
+        metrics, _packet = self.build()
+        review = fixture_review(metrics["report_id"], metrics["source"]["source_root"])
+        review["sections"]["recommended_bounded_improvements"][0]["assessment"] = (
+            "Revise Block 57 panel routing in the monitored target."
+        )
+        with self.assertRaisesRegex(
+            weekly_report.WeeklyReportError, "must improve supervision machinery"
+        ):
             weekly_report.validate_review(
                 review,
                 report_id=metrics["report_id"],
@@ -249,7 +272,7 @@ class WeeklyMetricsTests(unittest.TestCase):
                 record_ids={item["record_id"] for item in fixture_events()},
             )
 
-    def test_pdf_renders_with_charts_and_line_items(self) -> None:
+    def test_pdf_renders_with_high_level_supervisor_sections(self) -> None:
         metrics, _packet = self.build()
         review = weekly_report.validate_review(
             fixture_review(metrics["report_id"], metrics["source"]["source_root"]),
@@ -267,6 +290,12 @@ class WeeklyMetricsTests(unittest.TestCase):
             self.assertIn(
                 "SUPERVISION WEEKLY REVIEW", reader.pages[0].extract_text()
             )
+            first_page = " ".join(reader.pages[0].extract_text().split())
+            extracted = "".join(page.extract_text() or "" for page in reader.pages)
+            self.assertIn("Tracker stages monitored", first_page)
+            self.assertIn("Executive supervisor assessment", extracted)
+            self.assertIn("Monitoring machinery evolution", extracted)
+            self.assertNotIn("Material line items", extracted)
 
 
 class WeeklyCommandTests(unittest.TestCase):
@@ -345,7 +374,9 @@ class WeeklyCommandTests(unittest.TestCase):
             self.assertEqual(metrics["source"]["source_root"], prepared["source_root"])
             report_directory = Path(prepared["report_directory"])
             machine = json.loads((report_directory / "report.json").read_text())
-            self.assertEqual(machine["metrics"], metrics)
+            self.assertEqual(machine["metrics"], weekly_report.report_metrics(metrics))
+            self.assertNotIn("line_items", machine["metrics"])
+            self.assertNotIn("blocks", machine["metrics"])
             self.assertEqual(machine["cognitive_review"]["report_id"], prepared["report_id"])
             manifest = json.loads((report_directory / "manifest.json").read_text())
             self.assertIn("report.json", manifest["files"])

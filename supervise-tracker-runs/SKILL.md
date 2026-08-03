@@ -305,8 +305,13 @@ Repeat independently for additional targets.
   `weekly-report` command. `prepare` deterministically scans the entire bounded
   window and writes canonical metrics plus a full content-minimized cognitive
   review packet. The Sol XHigh roundup writer must read every packet record and
-  synthesize patterns, effectiveness, misses, development pace, machinery
-  changes, resource posture, and limitations; it may not merely restate counts.
+  synthesize patterns, effectiveness, misses, monitored development pace,
+  machinery changes, resource posture, and limitations; it may not merely
+  restate counts. The review evaluates the supervisor and monitoring machinery,
+  not the implementation it observes. Target details may appear only as bounded
+  evidence of what supervision detected or prevented. Recommendations may
+  change only supervisor watchers, reviewers, routing, incident handling,
+  reporting, or operating policy; they must never prescribe target work.
   `finalize` accepts only the exact hash-bound cognitive-review contract and
   creates one canonical machine-readable `report.json`, its deterministic
   Markdown and charted PDF projections, and a file manifest. The report includes
@@ -316,6 +321,11 @@ Repeat independently for additional targets.
   from quiet event gaps or label projected tokens/cost actual, billed, invoiced,
   or provider-reconciled. `verify` fails on a divergent JSON/Markdown
   projection, manifest, evidence reference, or unreadable PDF.
+- Lay out the PDF for fast inspection: top-line metrics and charts first, then a
+  short bullet assessment, with every major review domain starting on a new
+  page. Use only maintained foreground/background pairs that pass the report's
+  4.5:1 contrast check. Do not lead with a long narrative or reproduce target
+  line items as report content.
 - Treat recorded task counts as a lower bound when scheduled no-op wakes are not
   logged. Always show the intended trigger/cadence beside actual recorded
   activity, define rate denominators, and distinguish detection-rate changes

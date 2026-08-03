@@ -56,10 +56,82 @@ TERMINAL_INCIDENT_STATUSES = {
     "resolved",
 }
 LOCAL_PATH = re.compile(r"(?:/Users/|file://|\\\\Users\\\\)")
+SUPERVISOR_SCOPE_TERMS = re.compile(
+    r"\b(supervision|supervisor|monitor|monitoring|watcher|reviewer|review|"
+    r"detection|routing|incident|correction|automation|report|reporting|alert|"
+    r"intervention|escalation|validation|evidence|command|skill|policy|email|"
+    r"gmail|runtime|availability|cost|token)\b",
+    re.IGNORECASE,
+)
+TARGET_RECOMMENDATION_TERMS = re.compile(
+    r"\b(block\s+\d+|panel|claim|filing|figure|renderer|route[- ]disposition|"
+    r"route conflict|patent authority|maintained filing)\b",
+    re.IGNORECASE,
+)
+
+REPORT_PALETTE = {
+    "navy": "#14213D",
+    "blue": "#145DA0",
+    "cyan": "#167D9A",
+    "teal": "#117864",
+    "amber": "#8A4B00",
+    "red": "#B3261E",
+    "mist": "#F2F5F8",
+    "ink": "#17212F",
+    "muted": "#3F4A59",
+    "white": "#FFFFFF",
+}
 
 
 class WeeklyReportError(RuntimeError):
     pass
+
+
+def contrast_ratio(foreground: str, background: str) -> float:
+    """Return the WCAG relative-luminance contrast ratio for two hex colors."""
+
+    def luminance(value: str) -> float:
+        raw = value.removeprefix("#")
+        if len(raw) != 6 or not re.fullmatch(r"[0-9a-fA-F]{6}", raw):
+            raise WeeklyReportError(f"Invalid report color: {value}")
+        channels = [int(raw[index : index + 2], 16) / 255 for index in (0, 2, 4)]
+        linear = [
+            channel / 12.92
+            if channel <= 0.04045
+            else ((channel + 0.055) / 1.055) ** 2.4
+            for channel in channels
+        ]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+    first, second = sorted((luminance(foreground), luminance(background)), reverse=True)
+    return (first + 0.05) / (second + 0.05)
+
+
+def validate_report_contrast() -> None:
+    """Fail before rendering if maintained text/background pairs are illegible."""
+
+    pairs = (
+        ("white", "navy"),
+        ("white", "blue"),
+        ("white", "teal"),
+        ("white", "amber"),
+        ("white", "red"),
+        ("white", "muted"),
+        ("ink", "white"),
+        ("muted", "white"),
+        ("ink", "mist"),
+        ("blue", "mist"),
+    )
+    failures = [
+        f"{foreground} on {background}={contrast_ratio(REPORT_PALETTE[foreground], REPORT_PALETTE[background]):.2f}"
+        for foreground, background in pairs
+        if contrast_ratio(REPORT_PALETTE[foreground], REPORT_PALETTE[background]) < 4.5
+    ]
+    if failures:
+        raise WeeklyReportError(
+            "Weekly report palette fails the maintained 4.5:1 contrast floor: "
+            + ", ".join(failures)
+        )
 
 
 def canonical(value: Any) -> bytes:
@@ -854,6 +926,9 @@ def build_metrics(
             "required_sections": list(REVIEW_SECTIONS),
             "content_boundary": "Use only content-minimized supervision records. Do not introduce patent content, raw tool output, prompts, local paths, credentials, or personal names.",
             "causality_boundary": "Distinguish observed association from causation and do not treat process activity as patent quality.",
+            "reporting_scope": "Evaluate only the supervision and monitoring machinery. Monitored implementation facts may appear only as bounded evidence of detection or effectiveness.",
+            "recommendation_scope": "Recommend changes only to supervisor watchers, reviewers, routing, incident handling, report generation, or operating policy. Never prescribe changes to the monitored target.",
+            "presentation": "Lead with top-line metrics and graphs, summarize findings as bullets, and start every major review domain on a new page.",
         },
         "metrics": metrics,
         "event_records": window_events,
@@ -919,9 +994,45 @@ def validate_review(
                     "evidence": evidence,
                 }
             )
+            combined = f"{clean_entries[-1]['title']} {clean_entries[-1]['assessment']}"
+            if not SUPERVISOR_SCOPE_TERMS.search(combined):
+                raise WeeklyReportError(
+                    f"Review section {section} entry {index} lacks supervisor focus"
+                )
+            if (
+                section == "recommended_bounded_improvements"
+                and TARGET_RECOMMENDATION_TERMS.search(combined)
+            ):
+                raise WeeklyReportError(
+                    "Weekly recommendations must improve supervision machinery, not the monitored target"
+                )
         clean_sections[section] = clean_entries
     result["sections"] = clean_sections
     return result
+
+
+def report_metrics(metrics: Mapping[str, Any]) -> dict[str, Any]:
+    """Return the supervisor-only metrics projection used by durable reports."""
+
+    included = (
+        "schema_version",
+        "kind",
+        "report_id",
+        "target_label",
+        "coverage",
+        "source",
+        "headline",
+        "rates",
+        "availability",
+        "resource_estimate",
+        "counts",
+        "daily_activity",
+        "daily_incidents",
+        "task_activity",
+        "incidents",
+        "limitations",
+    )
+    return {key: metrics[key] for key in included}
 
 
 def machine_report(
@@ -933,9 +1044,23 @@ def machine_report(
         "report_id": metrics["report_id"],
         "source_root": metrics["source"]["source_root"],
         "coverage": metrics["coverage"],
-        "metrics": metrics,
+        "metrics": report_metrics(metrics),
         "cognitive_review": review,
     }
+
+
+def executive_takeaways(review: Mapping[str, Any]) -> list[str]:
+    section_labels = (
+        ("Detection", "caught_and_prevented"),
+        ("Effectiveness", "fixes_and_effectiveness"),
+        ("Residual risk", "blind_spots_and_misses"),
+        ("Efficiency", "resource_efficiency"),
+        ("Next improvement", "recommended_bounded_improvements"),
+    )
+    return [
+        f"{label}: {review['sections'][section][0]['title']}"
+        for label, section in section_labels
+    ]
 
 
 def markdown_report(metrics: Mapping[str, Any], review: Mapping[str, Any]) -> str:
@@ -949,8 +1074,6 @@ def markdown_report(metrics: Mapping[str, Any], review: Mapping[str, Any]) -> st
         f"**Coverage:** {coverage['start']} through {coverage['end']} ({coverage['timezone']})  \n",
         f"**Posture:** {review['overall_posture']}  \n",
         f"**Evidence root:** `{metrics['source']['source_root']}`\n\n",
-        f"## {review['headline']}\n\n",
-        review["executive_assessment"] + "\n\n",
         "## Headline metrics\n\n",
         f"- Recorded events: {headline['recorded_events']}\n",
         f"- Changed-state routes: {headline['changed_state_routes']}\n",
@@ -978,6 +1101,14 @@ def markdown_report(metrics: Mapping[str, Any], review: Mapping[str, Any]) -> st
             f"${item['projected_cost_usd_base']:.2f} projected ({item['api_price_assumption']}).\n"
         )
     rows.extend(["\n", resources["disclaimer"] + "\n\n"])
+    rows.extend(
+        [
+            "## Supervisor assessment\n\n",
+            f"**{review['headline']}**\n\n",
+            *[f"- {item}\n" for item in executive_takeaways(review)],
+            "\nThis report evaluates the supervisor and monitoring machinery. Target implementation details appear only as content-minimized evidence identifiers; they are not report recommendations.\n\n",
+        ]
+    )
     titles = {
         "caught_and_prevented": "What supervision caught and prevented",
         "fixes_and_effectiveness": "Fixes and effectiveness",
@@ -994,11 +1125,23 @@ def markdown_report(metrics: Mapping[str, Any], review: Mapping[str, Any]) -> st
         for entry in review["sections"][section]:
             rows.append(f"### {entry['title']}\n\n{entry['assessment']}  \n")
             rows.append("Evidence: " + ", ".join(f"`{item}`" for item in entry["evidence"]) + "\n\n")
-    rows.append("## Material line items\n\n")
-    for item in metrics["line_items"]:
-        block = f" Block {item['active_block']}." if str(item.get("active_block", "")).isdigit() else ""
+    rows.append("## Supervisor incident posture\n\n")
+    rows.append(
+        f"- Opened: {headline['incidents_opened']}; terminal: {headline['incidents_terminal']}; open at cutoff: {headline['incidents_open_at_end']}.\n"
+    )
+    rows.append(
+        "- Terminal status distribution: "
+        + ", ".join(
+            f"{key}={value}"
+            for key, value in metrics["incidents"]["terminal_statuses"].items()
+        )
+        + "\n"
+    )
+    if metrics["incidents"]["open_at_end_ids"]:
         rows.append(
-            f"- **{item['timestamp']} - {item['record_id']}** ({item['kind']}/{item['status']}).{block} {item['summary']}\n"
+            "- Open incident evidence IDs: "
+            + ", ".join(f"`{item}`" for item in metrics["incidents"]["open_at_end_ids"])
+            + "\n"
         )
     rows.append("\n## Mechanical limitations\n\n")
     rows.extend(f"- {item}\n" for item in metrics["limitations"])
@@ -1008,6 +1151,7 @@ def markdown_report(metrics: Mapping[str, Any], review: Mapping[str, Any]) -> st
 def render_pdf(
     output: Path, metrics: Mapping[str, Any], review: Mapping[str, Any]
 ) -> None:
+    validate_report_contrast()
     try:
         from reportlab.graphics.shapes import Drawing, Rect, String
         from reportlab.lib import colors
@@ -1027,16 +1171,16 @@ def render_pdf(
     except ImportError as exc:
         raise WeeklyReportError("ReportLab is unavailable") from exc
 
-    navy = colors.HexColor("#14213D")
-    blue = colors.HexColor("#276FBF")
-    cyan = colors.HexColor("#3FA7D6")
-    teal = colors.HexColor("#2A9D8F")
-    amber = colors.HexColor("#F4A261")
-    red = colors.HexColor("#D1495B")
-    mist = colors.HexColor("#EEF3F8")
-    ink = colors.HexColor("#1F2937")
-    muted = colors.HexColor("#5B6675")
-    palette = [blue, cyan, teal, amber, red, colors.HexColor("#7D5BA6"), colors.HexColor("#9CA3AF")]
+    navy = colors.HexColor(REPORT_PALETTE["navy"])
+    blue = colors.HexColor(REPORT_PALETTE["blue"])
+    cyan = colors.HexColor(REPORT_PALETTE["cyan"])
+    teal = colors.HexColor(REPORT_PALETTE["teal"])
+    amber = colors.HexColor(REPORT_PALETTE["amber"])
+    red = colors.HexColor(REPORT_PALETTE["red"])
+    mist = colors.HexColor(REPORT_PALETTE["mist"])
+    ink = colors.HexColor(REPORT_PALETTE["ink"])
+    muted = colors.HexColor(REPORT_PALETTE["muted"])
+    palette = [blue, cyan, teal, amber, red, colors.HexColor("#6B4FA1"), colors.HexColor("#5E6875")]
 
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(name="TitleCustom", parent=styles["Title"], fontName="Helvetica-Bold", fontSize=25, leading=29, textColor=navy, alignment=TA_LEFT, spaceAfter=10))
@@ -1044,9 +1188,13 @@ def render_pdf(
     styles.add(ParagraphStyle(name="H1Custom", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=16, leading=20, textColor=navy, spaceBefore=10, spaceAfter=8))
     styles.add(ParagraphStyle(name="H2Custom", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=11, leading=14, textColor=blue, spaceBefore=7, spaceAfter=4))
     styles.add(ParagraphStyle(name="BodyCustom", parent=styles["BodyText"], fontSize=9.2, leading=13, textColor=ink, spaceAfter=7))
-    styles.add(ParagraphStyle(name="Small", parent=styles["BodyText"], fontSize=7.4, leading=10, textColor=muted))
+    styles.add(ParagraphStyle(name="Small", parent=styles["BodyText"], fontSize=7.8, leading=10.5, textColor=muted))
     styles.add(ParagraphStyle(name="CardNumber", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=18, leading=20, textColor=navy, alignment=TA_CENTER))
-    styles.add(ParagraphStyle(name="CardLabel", parent=styles["Normal"], fontSize=7, leading=8, textColor=muted, alignment=TA_CENTER))
+    styles.add(ParagraphStyle(name="CardLabel", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=7.2, leading=8.5, textColor=muted, alignment=TA_CENTER))
+    styles.add(ParagraphStyle(name="TableHeader", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=7.4, leading=9, textColor=colors.white))
+    styles.add(ParagraphStyle(name="PostureLabel", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=7.4, leading=9, textColor=colors.white, alignment=TA_CENTER))
+    styles.add(ParagraphStyle(name="SectionKicker", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8, leading=10, textColor=blue, spaceAfter=5))
+    styles.add(ParagraphStyle(name="BulletCustom", parent=styles["BodyText"], fontSize=9.5, leading=13.5, textColor=ink, leftIndent=13, firstLineIndent=-8, bulletIndent=3, spaceAfter=7))
 
     output.parent.mkdir(parents=True, exist_ok=True)
     doc = SimpleDocTemplate(
@@ -1096,12 +1244,11 @@ def render_pdf(
         "insufficient-evidence": muted,
     }
     posture_box = Table(
-        [[paragraph(review["overall_posture"].upper(), "CardLabel"), paragraph(review["headline"], "H2Custom")]],
-        colWidths=[1.55 * inch, 5.15 * inch],
+        [[paragraph(review["overall_posture"].upper(), "PostureLabel"), paragraph(review["headline"], "H2Custom")]],
+        colWidths=[1.85 * inch, 4.85 * inch],
     )
     posture_box.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (0, 0), posture_colors[review["overall_posture"]]),
-        ("TEXTCOLOR", (0, 0), (0, 0), colors.white),
         ("BACKGROUND", (1, 0), (1, 0), mist),
         ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#D9E2EC")),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
@@ -1110,15 +1257,13 @@ def render_pdf(
         ("TOPPADDING", (0, 0), (-1, -1), 9),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
     ]))
-    story.extend([posture_box, Spacer(1, 0.14 * inch), paragraph(review["executive_assessment"]), Spacer(1, 0.10 * inch)])
-
     headline = metrics["headline"]
     cards = [
         (headline["recorded_events"], "Recorded events"),
         (headline["changed_state_routes"], "Changed states"),
         (headline["incidents_opened"], "Incidents opened"),
         (headline["incidents_terminal"], "Terminal outcomes"),
-        (headline["blocks_observed"], "Blocks observed"),
+        (headline["blocks_observed"], "Tracker stages monitored"),
         (headline["tooling_change_records"], "Tool changes"),
     ]
     card_cells = [[Paragraph(str(value), styles["CardNumber"]), Paragraph(label, styles["CardLabel"])] for value, label in cards]
@@ -1223,6 +1368,62 @@ def render_pdf(
         )
         return drawing
 
+    def incident_chart(rows: Sequence[Mapping[str, Any]]) -> Any:
+        width, height = 480, 104
+        drawing = Drawing(width, height)
+        maximum = max(
+            (max(int(row.get("opened", 0)), int(row.get("terminal", 0))) for row in rows),
+            default=1,
+        )
+        maximum = max(maximum, 1)
+        plot_left, plot_bottom, plot_width, plot_height = 35, 24, 430, 55
+        gap = plot_width / max(1, len(rows))
+        bar_width = min(19, gap * 0.24)
+        drawing.add(
+            Rect(
+                plot_left,
+                plot_bottom,
+                plot_width,
+                plot_height,
+                fillColor=colors.white,
+                strokeColor=colors.HexColor("#C6CFD9"),
+            )
+        )
+        for index, row in enumerate(rows):
+            center = plot_left + gap * index + gap / 2
+            for offset, key, color in (
+                (-bar_width, "opened", red),
+                (0, "terminal", teal),
+            ):
+                value = int(row.get(key, 0))
+                bar_height = plot_height * value / maximum
+                drawing.add(
+                    Rect(
+                        center + offset,
+                        plot_bottom,
+                        bar_width,
+                        bar_height,
+                        fillColor=color,
+                        strokeColor=None,
+                    )
+                )
+            drawing.add(
+                String(
+                    center,
+                    10,
+                    str(row["date"])[5:],
+                    fontName="Helvetica",
+                    fontSize=7,
+                    fillColor=muted,
+                    textAnchor="middle",
+                )
+            )
+        drawing.add(Rect(36, 90, 7, 7, fillColor=red, strokeColor=None))
+        drawing.add(String(47, 90, "opened", fontName="Helvetica-Bold", fontSize=7, fillColor=ink))
+        drawing.add(Rect(98, 90, 7, 7, fillColor=teal, strokeColor=None))
+        drawing.add(String(109, 90, "terminal", fontName="Helvetica-Bold", fontSize=7, fillColor=ink))
+        return drawing
+
     def model_cost_chart(rows: Sequence[Mapping[str, Any]]) -> Any:
         width, height = 480, 142
         drawing = Drawing(width, height)
@@ -1300,7 +1501,14 @@ def render_pdf(
         )
         return drawing
 
-    story.extend([paragraph("Recorded monitoring activity by day", "H1Custom"), stacked_chart(metrics["daily_activity"]), paragraph("Each bar shows content-minimized records, not all scheduled wakes. Routing and communication are separated from substantive reviews and interventions.", "Small")])
+    story.extend([
+        paragraph("Recorded monitoring activity by day", "H1Custom"),
+        stacked_chart(metrics["daily_activity"]),
+        paragraph("Incident openings and terminal outcomes", "H2Custom"),
+        incident_chart(metrics["daily_incidents"]),
+        posture_box,
+        paragraph("Counts describe supervision activity and outcomes, not the quality or completion of the monitored work.", "Small"),
+    ])
     story.append(PageBreak())
 
     availability = metrics["availability"]
@@ -1337,11 +1545,11 @@ def render_pdf(
     story.append(paragraph("Estimated token use and projected API-equivalent cost", "H1Custom"))
     story.append(model_cost_chart(resources["models"]))
     resource_rows = [[
-        paragraph("Model", "Small"),
-        paragraph("Records", "Small"),
-        paragraph("Estimated tokens", "Small"),
-        paragraph("Projected cost", "Small"),
-        paragraph("API pricing assumption", "Small"),
+        paragraph("Model", "TableHeader"),
+        paragraph("Records", "TableHeader"),
+        paragraph("Estimated tokens", "TableHeader"),
+        paragraph("Projected cost", "TableHeader"),
+        paragraph("API pricing assumption", "TableHeader"),
     ]]
     for item in resources["models"]:
         resource_rows.append([
@@ -1391,31 +1599,20 @@ def render_pdf(
         )
     story.append(PageBreak())
 
-    section_titles = {
-        "caught_and_prevented": "What supervision caught and prevented",
-        "fixes_and_effectiveness": "What was fixed - and whether it worked",
-        "recurring_patterns": "Recurring patterns and emerging risks",
-        "blind_spots_and_misses": "False positives, misses, and blind spots",
-        "development_pace": "Development pace and implementation flow",
-        "monitoring_machinery_changes": "Monitoring machinery change log",
-        "resource_efficiency": "Operational efficiency",
-        "recommended_bounded_improvements": "Recommended bounded improvements",
-        "methodology_and_limits": "Methodology and limits",
-    }
-    for section in REVIEW_SECTIONS:
-        story.append(paragraph(section_titles[section], "H1Custom"))
-        for entry in review["sections"][section]:
-            evidence = ", ".join(entry["evidence"])
-            story.append(KeepTogether([
-                paragraph(entry["title"], "H2Custom"),
-                paragraph(entry["assessment"]),
-                paragraph(f"Evidence: {evidence}", "Small"),
-                Spacer(1, 0.05 * inch),
-            ]))
+    story.append(paragraph("Executive supervisor assessment", "H1Custom"))
+    story.append(paragraph(review["headline"], "H2Custom"))
+    for takeaway in executive_takeaways(review):
+        story.append(Paragraph(f"• {takeaway}", styles["BulletCustom"]))
+    story.append(
+        paragraph(
+            "Scope: this report evaluates the supervisor, its detection and review layers, its interventions, and its operating efficiency. Monitored implementation details are cited only as bounded evidence; they are not recommendations in this report.",
+            "Small",
+        )
+    )
+    story.append(Spacer(1, 0.12 * inch))
 
-    story.append(PageBreak())
     story.append(paragraph("Monitoring tasks and recorded activity", "H1Custom"))
-    task_rows = [[paragraph("Task", "Small"), paragraph("Recorded", "Small"), paragraph("Expected cadence / trigger", "Small")]]
+    task_rows = [[paragraph("Task", "TableHeader"), paragraph("Recorded", "TableHeader"), paragraph("Expected cadence / trigger", "TableHeader")]]
     for item in metrics["task_activity"]:
         task_rows.append([paragraph(item["task"], "BodyCustom"), paragraph(item["recorded_count"], "BodyCustom"), paragraph(item["cadence"], "Small")])
     task_table = Table(task_rows, colWidths=[1.7 * inch, 0.75 * inch, 4.25 * inch], repeatRows=1)
@@ -1453,63 +1650,74 @@ def render_pdf(
     ]))
     story.extend([rate_table, paragraph(rates["denominator_note"], "Small")])
 
-    story.append(PageBreak())
-    story.append(paragraph("Observed implementation flow", "H1Custom"))
-    block_rows = [[paragraph("Block", "Small"), paragraph("First observed", "Small"), paragraph("Last observed", "Small"), paragraph("Records", "Small"), paragraph("Checkpoints", "Small")]]
-    for item in metrics["blocks"]:
-        block_rows.append([
-            paragraph(item["block"], "BodyCustom"),
-            paragraph(item["first_seen"], "Small"),
-            paragraph(item["last_seen"], "Small"),
-            paragraph(item["event_count"], "BodyCustom"),
-            paragraph(item["checkpoint_count"], "BodyCustom"),
-        ])
-    block_table = Table(block_rows, colWidths=[0.55 * inch, 2.2 * inch, 2.2 * inch, 0.8 * inch, 0.85 * inch], repeatRows=1)
-    block_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), navy),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D9E2EC")),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, mist]),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    story.extend([block_table, paragraph("Observed activity is not equivalent to accepted Block completion. Acceptance remains owned by the tracker and exact audit evidence.", "Small")])
+    section_titles = {
+        "caught_and_prevented": "What supervision caught or prevented",
+        "fixes_and_effectiveness": "Whether supervisor corrections worked",
+        "recurring_patterns": "Recurring supervision failure classes",
+        "blind_spots_and_misses": "False positives, misses, and blind spots",
+        "development_pace": "Coverage and monitored development pace",
+        "monitoring_machinery_changes": "Monitoring machinery change log",
+        "resource_efficiency": "Supervisor operating efficiency",
+        "recommended_bounded_improvements": "Improvements to supervision machinery",
+        "methodology_and_limits": "Methodology and limits",
+    }
 
-    story.append(PageBreak())
-    story.append(paragraph("Material line items", "H1Custom"))
-    line_rows = [[paragraph("Time / record", "Small"), paragraph("Posture", "Small"), paragraph("Summary", "Small")]]
-    for item in metrics["line_items"]:
-        block = f"B{item['active_block']} " if str(item.get("active_block", "")).isdigit() else ""
-        line_rows.append([
-            paragraph(f"{item['timestamp']} / {item['record_id']}", "Small"),
-            paragraph(f"{block}{item['kind']} / {item['status']}", "Small"),
-            paragraph(item["summary"], "Small"),
-        ])
-    line_table = Table(line_rows, colWidths=[1.42 * inch, 1.24 * inch, 4.04 * inch], repeatRows=1)
-    line_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), navy),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#D9E2EC")),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    story.append(line_table)
+    def add_review_section(section: str) -> None:
+        story.append(paragraph(section_titles[section], "H2Custom"))
+        for entry in review["sections"][section]:
+            evidence = ", ".join(entry["evidence"])
+            story.append(
+                KeepTogether(
+                    [
+                        paragraph(entry["title"], "SectionKicker"),
+                        paragraph(entry["assessment"]),
+                        paragraph(f"Evidence: {evidence}", "Small"),
+                        Spacer(1, 0.06 * inch),
+                    ]
+                )
+            )
 
-    story.append(PageBreak())
-    story.append(paragraph("Evidence and interpretation boundary", "H1Custom"))
-    story.append(paragraph(f"Report ID: {metrics['report_id']}"))
-    story.append(paragraph(f"Source root: {metrics['source']['source_root']}"))
-    story.append(paragraph(f"Source records: {metrics['source']['first_record_id']} through {metrics['source']['last_record_id']} ({metrics['source']['event_count']} records)"))
-    story.append(paragraph("The PDF is a deterministic rendering of canonical metrics plus a validated full-window cognitive review. It is operational evidence only. It is not patent authority, a legal conclusion, a quality score, or proof that the monitored implementation is complete."))
-    for item in metrics["limitations"]:
-        story.append(paragraph(f"- {item}"))
+    review_groups = (
+        (
+            "Supervisor effectiveness",
+            "Detection value and correction effectiveness",
+            ("caught_and_prevented", "fixes_and_effectiveness"),
+        ),
+        (
+            "Detection quality",
+            "Recurrence, false positives, misses, and blind spots",
+            ("recurring_patterns", "blind_spots_and_misses"),
+        ),
+        (
+            "Coverage and operating efficiency",
+            "Pace, resource posture, and avoidable supervision cost",
+            ("development_pace", "resource_efficiency"),
+        ),
+        (
+            "Monitoring machinery evolution",
+            "What changed in the supervisor and what should improve next",
+            ("monitoring_machinery_changes", "recommended_bounded_improvements"),
+        ),
+        (
+            "Methodology and evidence boundary",
+            "How to interpret this supervisor-performance report",
+            ("methodology_and_limits",),
+        ),
+    )
+    for title, subtitle, sections in review_groups:
+        story.append(PageBreak())
+        story.append(paragraph(title, "H1Custom"))
+        story.append(paragraph(subtitle, "SubTitle"))
+        for section in sections:
+            add_review_section(section)
+        if sections == ("methodology_and_limits",):
+            story.append(paragraph("Exact evidence binding", "H2Custom"))
+            story.append(paragraph(f"Report ID: {metrics['report_id']}", "Small"))
+            story.append(paragraph(f"Source root: {metrics['source']['source_root']}", "Small"))
+            story.append(paragraph(f"Source records: {metrics['source']['first_record_id']} through {metrics['source']['last_record_id']} ({metrics['source']['event_count']} records)", "Small"))
+            story.append(paragraph("The PDF is a deterministic supervisor-performance projection. It does not direct the monitored implementation, confer tracker completion, or establish patent or legal quality.", "Small"))
+            for item in metrics["limitations"]:
+                story.append(Paragraph(f"• {item}", styles["BulletCustom"]))
 
     doc.build(story, onFirstPage=header_footer, onLaterPages=header_footer)
     os.chmod(output, 0o600)

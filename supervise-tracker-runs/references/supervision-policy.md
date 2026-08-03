@@ -890,11 +890,16 @@ The helper owns four actions:
 2. The Sol XHigh writer reads every event and policy record in the packet and
    performs one bounded cognitive synthesis. It must reconcile the deterministic
    counts with the actual incident, correction, review, Block-transition, and
-   maintenance line items. It explains what was caught, what was corrected,
-   whether corrections worked, recurring failure modes, false positives or
-   sampled misses, blind spots, development pace, tooling changes, resource
-   posture, and bounded improvements. A list of numbers without interpretation
-   is invalid.
+   maintenance evidence. It explains what the supervisor caught, what
+   supervisor corrections worked, recurring monitoring failure modes, false
+   positives or sampled misses, blind spots, monitored development pace,
+   supervision-tool changes, resource posture, and bounded improvements to the
+   supervisor. A list of numbers without interpretation is invalid. The report
+   evaluates the supervision and monitoring machinery only. Facts about the
+   monitored implementation may appear solely as bounded evidence of detection
+   or effectiveness; they are not findings or recommendations about the target.
+   Recommendations may improve only watchers, reviewers, routing, incident
+   handling, reporting, or supervision policy.
 3. `finalize` accepts only a schema-valid cognitive review bound to the exact
    report ID, source root, and known evidence record IDs. It deterministically
    emits canonical `report.json` for later automated improvement analysis, plus
@@ -905,12 +910,16 @@ The helper owns four actions:
    files, unknown review evidence, a broken manifest, or an unreadable/empty
    PDF.
 
-The PDF includes headline statistics, daily activity charts, incident and
-correction posture, monitoring-task cadence versus recorded activity, observed
-Block flow, cognitive findings, a machinery change log, material line items,
-availability/runtime charts, and model/token/cost projections. Report total
-elapsed hours, explicitly scheduled-active and explicitly paused core-heartbeat
-hours, pause intervals, and recorded target-read success/failure availability.
+The PDF opens with headline statistics and daily activity/incident graphs,
+followed by a short bullet assessment. Availability/runtime and model/token/cost
+projections follow before the detailed cognitive review. Every major review
+domain starts on a new page. Use explicit maintained paragraph styles and
+foreground/background pairs that pass the generator's 4.5:1 contrast floor;
+table-level color declarations may not substitute for paragraph text color.
+Do not reproduce implementation line items or lead with a long executive
+narrative. Report total elapsed hours, explicitly scheduled-active and
+explicitly paused core-heartbeat hours, pause intervals, and recorded
+target-read success/failure availability.
 Do not infer continuous process uptime or downtime from quiet event gaps because
 an unchanged no-op wake may intentionally emit no ledger event. State explicitly
 when continuous uptime is not measured.
