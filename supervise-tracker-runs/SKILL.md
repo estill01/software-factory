@@ -49,9 +49,17 @@ schedules, bounds, escalation rules, logging commands, and stop conditions.
    role prompt, target ID, Max reviewer ID, and bound Gmail seed. It remains idle
    until a notice opens an incident or a changed target state can verify an open
    incident. Do not schedule it.
-6. Initialize the target's local supervision state with:
+6. Derive the preferred mission binding from the versioned generic completion
+   meta-charter and the exact current controlling-source hash, then initialize
+   the target's local supervision state:
 
    ```bash
+   python3 scripts/supervision_log.py mission-plan \
+     --target-thread <target-thread-id> \
+     --mission-source-class <direct-user|system|repository|tracker> \
+     --mission-source-record <exact-controlling-source-record> \
+     --mission-source-sha256 <exact-controlling-source-sha256>
+
    python3 scripts/supervision_log.py init \
      --target-thread <target-thread-id> \
      --target-label <short-label> \
@@ -60,8 +68,9 @@ schedules, bounds, escalation rules, logging commands, and stop conditions.
      --base-reviewer-thread <base-reviewer-thread-id> \
      --notice-reviewer-thread <notice-reviewer-thread-id> \
      --fix-executor-thread <fix-executor-thread-id> \
-     --mission-root <exact-current-mission-root> \
-     --mission-source-record <exact-controlling-source-record>
+     --mission-source-class <direct-user|system|repository|tracker> \
+     --mission-source-record <exact-controlling-source-record> \
+     --mission-source-sha256 <exact-controlling-source-sha256>
    ```
 
    Resolve `scripts/supervision_log.py` to its absolute path when using it from
@@ -70,6 +79,10 @@ schedules, bounds, escalation rules, logging commands, and stop conditions.
    may identify an ordinary goal document, implementation tracker, repository
    authority, or direct user/system source. The target does not need a native
    alignment schema, service, or record type.
+   `mission-plan` deterministically composes that project binding from the
+   maintained meta-charter plus the exact direct source; it does not infer
+   missing project semantics. A manually supplied `--mission-root` remains only
+   for exact legacy or externally derived bindings.
    New groups start in `propose-only` skill-maintenance mode. Change that mode
    only on an explicit operator instruction, using the bounded `adjust`
    command from the policy.
@@ -157,6 +170,19 @@ Repeat independently for additional targets.
   `unavailable/open` while continuing ordinary observation and charter-based
   semantic review. Only absence of an authoritative mission charter prevents a
   consequential containment or decision.
+- Apply the maintained generic completion meta-charter before project-specific
+  review: observable outcome outranks process proxies; authorized ordinary
+  effects needed for completion are expected; safe in-scope continuation is the
+  default; and valid work, history, and user-owned state are preserved. Derive
+  the exact project charter from current direct goal/repository/tracker sources,
+  never from supervisor state or a target's self-attestation.
+- Treat an unsupported goal-preventing stop as a critical operational event,
+  not every pause or bounded wait. Completion, a current direct stop/goal
+  change, a hard authority/safety boundary, independently established current
+  infeasibility, or an unavailable required nondelegable input with an empty
+  safe frontier may support stopping. A test result, checkpoint freeze,
+  historical hold, monitoring uncertainty, or nonempty safe frontier alone may
+  not.
 - Preserve non-scalar mission impact for every material containment or decision:
   mission root, exact authority class/source, local/material/goal-blocking/goal-
   reversing impact, affected width, duration, reversibility, whether an ordinary
@@ -423,6 +449,11 @@ Repeat independently for additional targets.
   `Goal blocked` card after target acknowledgement is not current target state;
   the exact active turn and supervision decision head control. The resumed
   notification must say that no manual Resume action is required.
+- Before accepting an explicit stopped posture, apply the bound meta-charter's
+  valid-stop conditions. If none applies, classify the goal-preventing stop as
+  critical, keep supervision active, and route the narrow resume-or-establish-
+  valid-stop challenge. Do not call an authorized pause or completed stop
+  catastrophic merely because execution is no longer active.
 - A nonempty safe-work frontier makes a blocked posture invalid. After the timed
   protocol, missing facts and reserved actions use safe deferral; a full stop is
   permitted only when that deferral still leaves the declared terminal outcome

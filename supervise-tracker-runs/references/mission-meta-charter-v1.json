@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "kind": "supervision-mission-meta-charter",
+  "profile_id": "tracker-outcome-completion",
+  "version": 1,
+  "primary_directive": "complete-the-explicit-governing-outcome",
+  "root_invariants": [
+    "direct-authority-over-derived-process-state",
+    "observable-outcome-over-process-proxy",
+    "ordinary-required-effects-expected-when-authorized",
+    "preserve-valid-work-history-and-user-owned-state",
+    "safe-in-scope-continuation-by-default",
+    "stop-expansion-after-observable-completion"
+  ],
+  "valid_stop_conditions": [
+    "current-direct-goal-change-or-stop",
+    "hard-authority-or-safety-boundary",
+    "independently-established-current-infeasibility",
+    "observable-completion",
+    "required-nondelegable-input-unavailable-and-empty-safe-frontier"
+  ],
+  "invalid_stop_bases": [
+    "checkpoint-freeze-alone",
+    "historical-or-operation-specific-hold",
+    "monitoring-or-supervision-uncertainty-alone",
+    "process-check-or-test-result-alone",
+    "safe-frontier-still-nonempty"
+  ],
+  "unsupported_goal_preventing_stop": {
+    "severity": "critical",
+    "posture": "challenge-and-resume-or-establish-valid-stop",
+    "user_action_required_by_default": false
+  },
+  "target_native_alignment": {
+    "required": false,
+    "role": "optional-read-only-corroboration",
+    "missing_posture": "unavailable-open",
+    "may_authorize_or_block": false,
+    "writes_allowed": false
+  },
+  "non_goals": [
+    "general-objective-management-platform",
+    "target-alignment-schema-or-service",
+    "universal-quality-score"
+  ],
+  "profile_sha256": "8f031a2aff33779f08d112ad7fa908af77dea2426ec7840cf50ae36056fbd17f"
+}

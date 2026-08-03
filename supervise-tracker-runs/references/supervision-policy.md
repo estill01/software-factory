@@ -171,6 +171,17 @@ it, hard direct authority or safety boundaries, and the acceptance/stop
 boundary. The primary outcome governs subordinate process optimization;
 supervision cannot add durable restrictions or change the target goal set.
 
+The versioned `tracker-outcome-completion` meta-charter supplies generic
+invariants before project-specific interpretation: complete the explicit
+governing outcome; prefer observable outcome over process proxies; expect
+ordinary authorized effects required for completion; continue safe in-scope
+work by default; preserve valid work, history, and user-owned state; and stop
+expansion after observable completion. The helper's read-only `mission-plan`
+command deterministically combines that profile hash with one exact current
+direct source class, record, hash, and target thread. It never invents missing
+project semantics. Use its derived binding by default for new groups; retain an
+explicit root only for exact legacy or externally derived bindings.
+
 Target-native alignment is optional read-only corroboration. When present, a
 reviewer may compare its exact current attestation with the independent charter
 and observable target effects, but the attestation never governs supervisor
@@ -191,6 +202,15 @@ three explicit operating postures:
 Never import a target alignment module into the supervisor, require a target
 schema, write target alignment state, or use the target's own alignment claim as
 proof while reviewing that alignment implementation itself.
+
+An unsupported goal-preventing stop is `critical`, but inactivity is not
+automatically catastrophic. Stopping is supportable only for observable
+completion, a current direct goal change/stop, a hard authority or safety
+boundary, independently established current infeasibility, or an unavailable
+required nondelegable input with an empty safe frontier. Process checks,
+checkpoint freezes, historical operation holds, monitoring uncertainty, and a
+nonempty safe frontier are not stop authority. Challenge an unsupported stop
+and resume the safe mission path or establish one exact valid stop condition.
 
 Legacy policy remains readable. `bind` upgrades it only when supplied both the
 exact mission root and source record; it never synthesizes either or grants
@@ -952,6 +972,12 @@ At each scheduled wake:
    target posture without claiming independent acceptance. Perform this before
    any applicable stop-condition pause. Stop.
 
+An explicit `stopped` posture without one exact meta-charter valid-stop
+condition is a critical goal-preventing-stop signal. Keep supervision active,
+route it to XHigh and Sol Max, and require resume or establishment of a valid
+stop. Do not apply this critical posture to observable completion or an exact
+authorized pause/stop.
+
 Changed-state packet fields:
 - target thread ID, state fingerprint, updated-at marker, and status;
 - exact newest target turn/item identifiers with outputs omitted;
@@ -1024,6 +1050,10 @@ Target-native alignment is optional corroboration only. If it is absent, review
 against the independent mission charter and observable effects; if it conflicts,
 route the discrepancy for challenge. Do not require target alignment machinery
 or treat its own attestation as governing proof.
+Apply the bound generic completion meta-charter before reconstructing the
+project-specific outcome. Process success is not outcome success, and an
+unsupported goal-preventing stop is critical. Verify an exact valid-stop basis
+before accepting inactivity as terminal.
 
 For each changed-state packet:
 1. Ignore any Terra inference. Using the target thread ID and exact turn/item
@@ -1093,6 +1123,10 @@ authority.
 Treat target-native alignment as optional read-only corroboration. The
 independent charter and direct authority remain governing, especially while the
 target's own alignment implementation is absent, stale, broken, or under review.
+Use the generic completion meta-charter plus exact direct sources to reconstruct
+the project mission. If a proposed stop prevents that outcome and lacks an exact
+valid-stop condition, treat it as a critical alignment failure and require the
+narrowest resume-or-valid-stop correction.
 
 For an escalation:
 1. Start from the governing Block and higher-order outcome, not the watcher's
@@ -1346,13 +1380,18 @@ the target or repository.
 Initialize and bind runtime IDs:
 
 ```bash
+python3 <LOG_HELPER> mission-plan --target-thread <TARGET> \
+  --mission-source-class <direct-user|system|repository|tracker> \
+  --mission-source-record <EXACT_CONTROLLING_SOURCE> \
+  --mission-source-sha256 <EXACT_CONTROLLING_SOURCE_SHA256>
 python3 <LOG_HELPER> init --target-thread <TARGET> --target-label <LABEL> \
   --watcher-thread <WATCHER> --reviewer-thread <REVIEWER> \
   --base-reviewer-thread <BASE_REVIEWER> \
   --notice-reviewer-thread <NOTICE_REVIEWER> \
   --fix-executor-thread <FIX_EXECUTOR> \
-  --mission-root <EXACT_MISSION_ROOT> \
-  --mission-source-record <EXACT_CONTROLLING_SOURCE>
+  --mission-source-class <direct-user|system|repository|tracker> \
+  --mission-source-record <EXACT_CONTROLLING_SOURCE> \
+  --mission-source-sha256 <EXACT_CONTROLLING_SOURCE_SHA256>
 python3 <LOG_HELPER> bind --target-thread <TARGET> \
   --base-reviewer-thread <BASE_REVIEWER> \
   --notice-reviewer-thread <NOTICE_REVIEWER> \

@@ -7,7 +7,7 @@ import io
 import json
 import tempfile
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -47,6 +47,26 @@ class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
             "## Meta-review heartbeat prompt",
         ):
             self.assertIn(heading, policy)
+
+    def test_generic_mission_charter_contract_is_documented_without_overclaim(self) -> None:
+        skill = HELPER_PATH.parent.parent.joinpath("SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        policy = HELPER_PATH.parent.parent.joinpath(
+            "references", "supervision-policy.md"
+        ).read_text(encoding="utf-8")
+
+        for text in (skill, policy):
+            self.assertIn("mission-plan", text)
+            self.assertIn("generic completion meta-charter", text)
+            self.assertIn("unsupported goal-preventing stop", text)
+        self.assertIn("observable outcome", skill.lower())
+        self.assertIn("observable completion", policy.lower())
+        self.assertIn("not every pause", skill)
+        self.assertIn(
+            "not automatically catastrophic",
+            " ".join(policy.split()),
+        )
 
 
 class NoticeGateCorrelationTests(unittest.TestCase):
@@ -1021,21 +1041,24 @@ class MissionContainmentContractTests(unittest.TestCase):
         return json.loads(output.getvalue())
 
     def test_future_init_requires_and_records_exact_mission_binding(self) -> None:
-        with self.assertRaises(SystemExit):
-            with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
-                supervision_log.parser().parse_args(
-                    [
-                        "init",
-                        "--target-thread",
-                        self.target,
-                        "--target-label",
-                        "target",
-                        "--watcher-thread",
-                        "watcher-1234",
-                        "--reviewer-thread",
-                        "reviewer-1234",
-                    ]
-                )
+        missing = supervision_log.parser().parse_args(
+            [
+                "init",
+                "--target-thread",
+                self.target,
+                "--target-label",
+                "target",
+                "--watcher-thread",
+                "watcher-1234",
+                "--reviewer-thread",
+                "reviewer-1234",
+            ]
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "New supervision requires",
+        ):
+            supervision_log.mission_binding_from_args(missing, required=True)
 
         policy = self.policy()
         self.assertEqual(policy["mission_binding"]["mission_root"], self.mission_root)
@@ -1054,6 +1077,149 @@ class MissionContainmentContractTests(unittest.TestCase):
         self.assertFalse(alignment["target_native_alignment_writes_allowed"])
         self.assertNotIn("semantic_owner", policy["mission_binding"])
         self.assertFalse(policy["mission_binding"]["aggregate_score"])
+
+    def test_mission_plan_is_deterministic_and_source_bound(self) -> None:
+        def plan(source_hash: str) -> dict[str, object]:
+            args = supervision_log.parser().parse_args(
+                [
+                    "mission-plan",
+                    "--target-thread",
+                    self.target,
+                    "--mission-source-class",
+                    "tracker",
+                    "--mission-source-record",
+                    "TRACKER-MISSION-1234",
+                    "--mission-source-sha256",
+                    source_hash,
+                ]
+            )
+            output = io.StringIO()
+            with redirect_stdout(output):
+                supervision_log.cmd_mission_plan(args)
+            return json.loads(output.getvalue())
+
+        first = plan("a" * 64)
+        repeat = plan("a" * 64)
+        changed = plan("b" * 64)
+
+        self.assertEqual(first, repeat)
+        self.assertNotEqual(first["mission_root"], changed["mission_root"])
+        binding = first["mission_binding"]
+        self.assertEqual(binding["contract_version"], 3)
+        self.assertEqual(
+            binding["mission_derivation"]["mode"],
+            "derived-from-versioned-meta-charter",
+        )
+        self.assertFalse(
+            binding["alignment_operating_contract"][
+                "target_native_alignment_required"
+            ]
+        )
+
+    def test_init_derives_binding_without_manual_mission_root(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            args = supervision_log.parser().parse_args(
+                [
+                    "--root",
+                    temporary,
+                    "init",
+                    "--target-thread",
+                    self.target,
+                    "--target-label",
+                    "target",
+                    "--watcher-thread",
+                    "watcher-1234",
+                    "--reviewer-thread",
+                    "reviewer-1234",
+                    "--mission-source-class",
+                    "tracker",
+                    "--mission-source-record",
+                    "TRACKER-MISSION-1234",
+                    "--mission-source-sha256",
+                    "a" * 64,
+                ]
+            )
+            with redirect_stdout(io.StringIO()):
+                supervision_log.cmd_init(args)
+            policy = json.loads(
+                Path(temporary, self.target, "policy.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            supervision_log.validate_policy(policy)
+            self.assertEqual(policy["mission_binding"]["contract_version"], 3)
+            self.assertEqual(
+                policy["mission_binding"]["mission_derivation"]["mode"],
+                "derived-from-versioned-meta-charter",
+            )
+
+    def test_derived_binding_rejects_mismatched_supplied_root(self) -> None:
+        args = supervision_log.parser().parse_args(
+            [
+                "init",
+                "--target-thread",
+                self.target,
+                "--target-label",
+                "target",
+                "--watcher-thread",
+                "watcher-1234",
+                "--reviewer-thread",
+                "reviewer-1234",
+                "--mission-root",
+                "f" * 64,
+                "--mission-source-class",
+                "tracker",
+                "--mission-source-record",
+                "TRACKER-MISSION-1234",
+                "--mission-source-sha256",
+                "a" * 64,
+            ]
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "differs from deterministic derivation",
+        ):
+            supervision_log.mission_binding_from_args(args, required=True)
+
+    def test_mission_derivation_rejects_supervisor_created_authority(self) -> None:
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "requires a direct-user, system, repository, or tracker source",
+        ):
+            supervision_log.derive_mission_binding(
+                target_thread=self.target,
+                source_class="supervisor-steer",
+                source_record="EVT-SUPERVISOR-1234",
+                source_sha256="a" * 64,
+            )
+
+    def test_mission_meta_charter_is_hash_bound_and_fail_closed(self) -> None:
+        profile = supervision_log.mission_meta_charter_profile()
+        self.assertEqual(
+            profile["primary_directive"],
+            "complete-the-explicit-governing-outcome",
+        )
+        self.assertEqual(
+            profile["unsupported_goal_preventing_stop"]["severity"], "critical"
+        )
+        self.assertIn("observable-completion", profile["valid_stop_conditions"])
+        self.assertIn("checkpoint-freeze-alone", profile["invalid_stop_bases"])
+        self.assertFalse(profile["target_native_alignment"]["required"])
+
+        with tempfile.TemporaryDirectory() as temporary:
+            changed = dict(profile)
+            changed["primary_directive"] = "pass-the-tests"
+            path = Path(temporary, "mission-meta-charter.json")
+            path.write_text(json.dumps(changed), encoding="utf-8")
+            with (
+                mock.patch.object(
+                    supervision_log, "MISSION_META_CHARTER_PATH", path
+                ),
+                self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, "hash is stale"
+                ),
+            ):
+                supervision_log.mission_meta_charter_profile()
 
     def test_legacy_policy_upgrades_only_with_exact_bind_pair(self) -> None:
         policy = self.policy(bound=False)
@@ -1127,8 +1293,43 @@ class MissionContainmentContractTests(unittest.TestCase):
         ):
             supervision_log.cmd_bind(args)
 
-        self.assertEqual(policy["mission_binding"]["contract_version"], 2)
+        self.assertEqual(policy["mission_binding"]["contract_version"], 3)
         self.assertNotIn("semantic_owner", policy["mission_binding"])
+        write.assert_called_once()
+
+    def test_candidate_v2_binding_remains_readable_and_upgrades(self) -> None:
+        policy = self.policy()
+        policy["mission_binding"] = supervision_log.legacy_mission_binding_contract_v2(
+            self.mission_root, "TRACKER-MISSION-1234"
+        )
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+        supervision_log.validate_policy(policy)
+
+        args = supervision_log.parser().parse_args(
+            [
+                "bind",
+                "--target-thread",
+                self.target,
+                "--mission-root",
+                self.mission_root,
+                "--mission-source-record",
+                "TRACKER-MISSION-1234",
+            ]
+        )
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(Path("/tmp/supervision-test"), policy),
+            ),
+            mock.patch.object(supervision_log, "write_policy_version") as write,
+            redirect_stdout(io.StringIO()),
+        ):
+            supervision_log.cmd_bind(args)
+
+        self.assertEqual(policy["mission_binding"]["contract_version"], 3)
         write.assert_called_once()
 
     def test_policy_validation_rejects_mission_contract_drift(self) -> None:

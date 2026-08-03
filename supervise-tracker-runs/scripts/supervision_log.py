@@ -11,11 +11,17 @@ import re
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterator, Mapping
 
 
 DEFAULT_ROOT = Path.home() / ".codex" / "supervision" / "tracker-runs"
+MISSION_META_CHARTER_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "references"
+    / "mission-meta-charter-v1.json"
+)
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{3,127}$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
 KINDS = {
     "check",
     "lifecycle",
@@ -239,6 +245,21 @@ def alignment_operating_contract() -> dict[str, Any]:
     return {
         "mode": "independent-mission-charter",
         "governing_source": "bound-direct-mission-sources",
+        "meta_charter": mission_meta_charter_binding(),
+        "target_native_alignment_required": False,
+        "target_native_alignment_role": "optional-read-only-corroboration",
+        "missing_target_alignment_posture": "unavailable-open",
+        "target_native_alignment_may_authorize_or_block": False,
+        "target_native_alignment_writes_allowed": False,
+    }
+
+
+def legacy_alignment_operating_contract_v1() -> dict[str, Any]:
+    """Exact predecessor from candidate d66ac96."""
+
+    return {
+        "mode": "independent-mission-charter",
+        "governing_source": "bound-direct-mission-sources",
         "target_native_alignment_required": False,
         "target_native_alignment_role": "optional-read-only-corroboration",
         "missing_target_alignment_posture": "unavailable-open",
@@ -267,13 +288,46 @@ def legacy_mission_binding_contract(
     }
 
 
-def mission_binding_contract(
+def legacy_mission_binding_contract_v2(
     mission_root: str, mission_source_record: str
 ) -> dict[str, Any]:
     return {
         "contract_version": 2,
         "mission_root": mission_root,
         "mission_source_record": mission_source_record,
+        "alignment_operating_contract": legacy_alignment_operating_contract_v1(),
+        "frame_fields": [
+            "primary-outcome",
+            "ordinary-effect-classes",
+            "hard-direct-authority-and-safety-boundaries",
+            "acceptance-and-stop-boundary",
+        ],
+        "primary_mission_governs_subordinate_process": True,
+        "aggregate_score": False,
+    }
+
+
+def mission_binding_contract(
+    mission_root: str,
+    mission_source_record: str,
+    *,
+    derivation: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    meta_charter = mission_meta_charter_binding()
+    mission_derivation = (
+        dict(derivation)
+        if derivation is not None
+        else {
+            "kind": "supervision-mission-derivation",
+            "mode": "explicit-exact-root",
+            "meta_charter": meta_charter,
+        }
+    )
+    return {
+        "contract_version": 3,
+        "mission_root": mission_root,
+        "mission_source_record": mission_source_record,
+        "mission_derivation": mission_derivation,
         "alignment_operating_contract": alignment_operating_contract(),
         "frame_fields": [
             "primary-outcome",
@@ -284,6 +338,36 @@ def mission_binding_contract(
         "primary_mission_governs_subordinate_process": True,
         "aggregate_score": False,
     }
+
+
+def derive_mission_binding(
+    *,
+    target_thread: str,
+    source_class: str,
+    source_record: str,
+    source_sha256: str,
+) -> dict[str, Any]:
+    if source_class not in DIRECT_AUTHORITY_SOURCE_CLASSES:
+        raise SupervisionLogError(
+            "Mission derivation requires a direct-user, system, repository, or tracker source"
+        )
+    target = safe_id(target_thread, label="target thread ID")
+    record = safe_id(source_record, label="mission source record")
+    source_hash = exact_sha256(source_sha256, label="mission source SHA-256")
+    derivation = {
+        "kind": "supervision-mission-derivation",
+        "mode": "derived-from-versioned-meta-charter",
+        "target_thread_id": target,
+        "controlling_source": {
+            "class": source_class,
+            "record": record,
+            "sha256": source_hash,
+        },
+        "meta_charter": mission_meta_charter_binding(),
+    }
+    return mission_binding_contract(
+        digest(derivation), record, derivation=derivation
+    )
 
 
 def mission_binding_identity(binding: Mapping[str, Any]) -> tuple[str, str] | None:
@@ -299,6 +383,40 @@ def mission_binding_identity(binding: Mapping[str, Any]) -> tuple[str, str] | No
     return root, source
 
 
+def mission_binding_is_supported(
+    binding: Mapping[str, Any], *, target_thread: str
+) -> bool:
+    identity = mission_binding_identity(binding)
+    if identity is None:
+        return False
+    mission_root, source_record = identity
+    exact_predecessors = {
+        canonical(legacy_mission_binding_contract(mission_root, source_record)),
+        canonical(legacy_mission_binding_contract_v2(mission_root, source_record)),
+        canonical(mission_binding_contract(mission_root, source_record)),
+    }
+    if canonical(binding) in exact_predecessors:
+        return True
+    derivation = binding.get("mission_derivation")
+    if not isinstance(derivation, Mapping):
+        return False
+    if derivation.get("mode") != "derived-from-versioned-meta-charter":
+        return False
+    source = derivation.get("controlling_source")
+    if not isinstance(source, Mapping):
+        return False
+    try:
+        expected = derive_mission_binding(
+            target_thread=target_thread,
+            source_class=str(source.get("class", "")),
+            source_record=str(source.get("record", "")),
+            source_sha256=str(source.get("sha256", "")),
+        )
+    except SupervisionLogError:
+        return False
+    return binding == expected
+
+
 def mission_binding_from_args(
     args: argparse.Namespace, *, required: bool
 ) -> dict[str, Any] | None:
@@ -310,6 +428,32 @@ def mission_binding_from_args(
         label="mission source record",
         maximum=128,
     )
+    source_class = getattr(args, "mission_source_class", None)
+    source_sha256 = clean(
+        getattr(args, "mission_source_sha256", None),
+        label="mission source SHA-256",
+        maximum=64,
+    )
+    if bool(source_class) != bool(source_sha256):
+        raise SupervisionLogError(
+            "Mission derivation requires both source class and source SHA-256"
+        )
+    if source_class:
+        if not mission_source_record:
+            raise SupervisionLogError(
+                "Mission derivation requires an exact source record"
+            )
+        derived = derive_mission_binding(
+            target_thread=str(getattr(args, "target_thread", "")),
+            source_class=str(source_class),
+            source_record=mission_source_record,
+            source_sha256=source_sha256,
+        )
+        if mission_root and mission_root != derived["mission_root"]:
+            raise SupervisionLogError(
+                "Supplied mission root differs from deterministic derivation"
+            )
+        return derived
     if bool(mission_root) != bool(mission_source_record):
         raise SupervisionLogError(
             "Mission binding requires both an exact mission root and source record"
@@ -455,6 +599,129 @@ def canonical(value: Any) -> bytes:
 
 def digest(value: Any) -> str:
     return hashlib.sha256(canonical(value)).hexdigest()
+
+
+def exact_sha256(value: str, *, label: str) -> str:
+    text = str(value).strip()
+    if not SHA256.fullmatch(text):
+        raise SupervisionLogError(f"{label} must be an exact lowercase SHA-256")
+    return text
+
+
+def mission_meta_charter_profile() -> dict[str, Any]:
+    try:
+        value = json.loads(MISSION_META_CHARTER_PATH.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SupervisionLogError("Cannot read mission meta-charter profile") from exc
+    if not isinstance(value, dict):
+        raise SupervisionLogError("Mission meta-charter profile must be an object")
+    expected_keys = {
+        "schema_version",
+        "kind",
+        "profile_id",
+        "version",
+        "primary_directive",
+        "root_invariants",
+        "valid_stop_conditions",
+        "invalid_stop_bases",
+        "unsupported_goal_preventing_stop",
+        "target_native_alignment",
+        "non_goals",
+        "profile_sha256",
+    }
+    if set(value) != expected_keys:
+        raise SupervisionLogError("Mission meta-charter profile shape differs")
+    recorded_hash = exact_sha256(
+        str(value["profile_sha256"]), label="mission meta-charter profile SHA-256"
+    )
+    material = {
+        key: item for key, item in value.items() if key != "profile_sha256"
+    }
+    if digest(material) != recorded_hash:
+        raise SupervisionLogError("Mission meta-charter profile hash is stale")
+    if (
+        value["schema_version"] != 1
+        or value["kind"] != "supervision-mission-meta-charter"
+        or value["profile_id"] != "tracker-outcome-completion"
+        or value["version"] != 1
+    ):
+        raise SupervisionLogError("Unsupported mission meta-charter profile")
+    if not isinstance(value["root_invariants"], list) or not all(
+        isinstance(item, str) for item in value["root_invariants"]
+    ):
+        raise SupervisionLogError("Mission meta-charter invariants must be strings")
+    if not isinstance(value["valid_stop_conditions"], list) or not all(
+        isinstance(item, str) for item in value["valid_stop_conditions"]
+    ):
+        raise SupervisionLogError("Mission meta-charter stop conditions must be strings")
+    if not isinstance(value["invalid_stop_bases"], list) or not all(
+        isinstance(item, str) for item in value["invalid_stop_bases"]
+    ):
+        raise SupervisionLogError("Mission meta-charter invalid stop bases must be strings")
+    required_invariants = {
+        "direct-authority-over-derived-process-state",
+        "observable-outcome-over-process-proxy",
+        "ordinary-required-effects-expected-when-authorized",
+        "preserve-valid-work-history-and-user-owned-state",
+        "safe-in-scope-continuation-by-default",
+        "stop-expansion-after-observable-completion",
+    }
+    if set(value["root_invariants"]) != required_invariants:
+        raise SupervisionLogError("Mission meta-charter root invariants differ")
+    if value["primary_directive"] != "complete-the-explicit-governing-outcome":
+        raise SupervisionLogError("Mission meta-charter primary directive differs")
+    if set(value["valid_stop_conditions"]) != {
+        "current-direct-goal-change-or-stop",
+        "hard-authority-or-safety-boundary",
+        "independently-established-current-infeasibility",
+        "observable-completion",
+        "required-nondelegable-input-unavailable-and-empty-safe-frontier",
+    }:
+        raise SupervisionLogError("Mission meta-charter valid stop conditions differ")
+    if set(value["invalid_stop_bases"]) != {
+        "checkpoint-freeze-alone",
+        "historical-or-operation-specific-hold",
+        "monitoring-or-supervision-uncertainty-alone",
+        "process-check-or-test-result-alone",
+        "safe-frontier-still-nonempty",
+    }:
+        raise SupervisionLogError("Mission meta-charter invalid stop bases differ")
+    stop = value["unsupported_goal_preventing_stop"]
+    if stop != {
+        "severity": "critical",
+        "posture": "challenge-and-resume-or-establish-valid-stop",
+        "user_action_required_by_default": False,
+    }:
+        raise SupervisionLogError(
+            "Mission meta-charter weakens unsupported stop handling"
+        )
+    target_alignment = value["target_native_alignment"]
+    if target_alignment != {
+        "required": False,
+        "role": "optional-read-only-corroboration",
+        "missing_posture": "unavailable-open",
+        "may_authorize_or_block": False,
+        "writes_allowed": False,
+    }:
+        raise SupervisionLogError(
+            "Mission meta-charter target-alignment boundary differs"
+        )
+    if set(value["non_goals"]) != {
+        "general-objective-management-platform",
+        "target-alignment-schema-or-service",
+        "universal-quality-score",
+    }:
+        raise SupervisionLogError("Mission meta-charter non-goals differ")
+    return value
+
+
+def mission_meta_charter_binding() -> dict[str, Any]:
+    profile = mission_meta_charter_profile()
+    return {
+        "profile_id": profile["profile_id"],
+        "version": profile["version"],
+        "sha256": profile["profile_sha256"],
+    }
 
 
 def clean(value: str | None, *, label: str, maximum: int = 600) -> str:
@@ -654,15 +921,10 @@ def validate_policy(policy: dict[str, Any]) -> None:
             raise SupervisionLogError("Mission binding lacks an exact source record")
         safe_id(mission_root, label="mission root")
         safe_id(mission_source_record, label="mission source record")
-        supported_bindings = {
-            canonical(mission_binding_contract(mission_root, mission_source_record)),
-            canonical(
-                legacy_mission_binding_contract(
-                    mission_root, mission_source_record
-                )
-            ),
-        }
-        if canonical(mission_binding) not in supported_bindings:
+        if not mission_binding_is_supported(
+            mission_binding,
+            target_thread=str(policy.get("target_thread_id", "")),
+        ):
             raise SupervisionLogError("Mission binding contract differs")
     maintenance = policy.get("skill_maintenance")
     if maintenance is not None:
@@ -840,6 +1102,36 @@ def append_markdown(path: Path, record: dict[str, Any], *, create: bool) -> None
     with path.open(mode, encoding="utf-8") as handle:
         handle.writelines(rows)
     os.chmod(path, 0o600)
+
+
+def cmd_mission_plan(args: argparse.Namespace) -> None:
+    binding = derive_mission_binding(
+        target_thread=args.target_thread,
+        source_class=args.mission_source_class,
+        source_record=args.mission_source_record,
+        source_sha256=args.mission_source_sha256,
+    )
+    print(
+        json.dumps(
+            {
+                "kind": "supervision-mission-plan",
+                "mission_root": binding["mission_root"],
+                "mission_source_record": binding["mission_source_record"],
+                "mission_source_class": args.mission_source_class,
+                "mission_source_sha256": args.mission_source_sha256,
+                "mission_binding": binding,
+                "init_arguments": [
+                    "--mission-source-class",
+                    args.mission_source_class,
+                    "--mission-source-record",
+                    args.mission_source_record,
+                    "--mission-source-sha256",
+                    args.mission_source_sha256,
+                ],
+            },
+            sort_keys=True,
+        )
+    )
 
 
 def cmd_init(args: argparse.Namespace) -> None:
@@ -2409,6 +2701,7 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
     safe_work = head.get("safe_frontier") == "nonempty"
     contract = policy["decision_resolution"]
     alignment_contract = alignment_operating_contract()
+    meta_charter = mission_meta_charter_profile()
     binding = bound_mission(policy)
     mission_binding_valid = bool(
         binding is not None and head.get("mission_root") == binding["mission_root"]
@@ -2513,12 +2806,24 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
         "mission_challenge_valid": mission_challenge_valid,
         "consequential": consequential,
         "alignment_operating_mode": alignment_contract["mode"],
+        "mission_binding_mode": (
+            binding.get("mission_derivation", {}).get(
+                "mode", "legacy-explicit-exact-root"
+            )
+            if binding is not None
+            else "unbound"
+        ),
+        "mission_meta_charter": alignment_contract["meta_charter"],
         "target_native_alignment_required": False,
         "target_native_alignment_role": alignment_contract[
             "target_native_alignment_role"
         ],
         "missing_target_alignment_posture": alignment_contract[
             "missing_target_alignment_posture"
+        ],
+        "valid_stop_conditions": meta_charter["valid_stop_conditions"],
+        "unsupported_goal_preventing_stop": meta_charter[
+            "unsupported_goal_preventing_stop"
         ],
     }
     for field in MISSION_IMPACT_FIELDS:
@@ -2844,6 +3149,17 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--root", help="Override the supervision root for testing")
     subparsers = result.add_subparsers(dest="command", required=True)
 
+    mission_plan = subparsers.add_parser("mission-plan")
+    mission_plan.add_argument("--target-thread", required=True)
+    mission_plan.add_argument(
+        "--mission-source-class",
+        choices=sorted(DIRECT_AUTHORITY_SOURCE_CLASSES),
+        required=True,
+    )
+    mission_plan.add_argument("--mission-source-record", required=True)
+    mission_plan.add_argument("--mission-source-sha256", required=True)
+    mission_plan.set_defaults(func=cmd_mission_plan)
+
     init = subparsers.add_parser("init")
     init.add_argument("--target-thread", required=True)
     init.add_argument("--target-label", required=True)
@@ -2852,8 +3168,12 @@ def parser() -> argparse.ArgumentParser:
     init.add_argument("--base-reviewer-thread")
     init.add_argument("--notice-reviewer-thread")
     init.add_argument("--fix-executor-thread")
-    init.add_argument("--mission-root", required=True)
-    init.add_argument("--mission-source-record", required=True)
+    init.add_argument("--mission-root")
+    init.add_argument("--mission-source-record")
+    init.add_argument(
+        "--mission-source-class", choices=sorted(DIRECT_AUTHORITY_SOURCE_CLASSES)
+    )
+    init.add_argument("--mission-source-sha256")
     init.set_defaults(func=cmd_init)
 
     bind = subparsers.add_parser("bind")
@@ -2880,6 +3200,10 @@ def parser() -> argparse.ArgumentParser:
     bind.add_argument("--gmail-roundup-subject")
     bind.add_argument("--mission-root")
     bind.add_argument("--mission-source-record")
+    bind.add_argument(
+        "--mission-source-class", choices=sorted(DIRECT_AUTHORITY_SOURCE_CLASSES)
+    )
+    bind.add_argument("--mission-source-sha256")
     bind.set_defaults(func=cmd_bind)
 
     gate = subparsers.add_parser("gate")
