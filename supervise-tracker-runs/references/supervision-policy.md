@@ -9,6 +9,7 @@
 - [Target-state fingerprint](#target-state-fingerprint)
 - [Cross-thread action routing](#cross-thread-action-routing)
 - [Gmail notification and closed-loop review](#gmail-notification-channel)
+- [Weekly supervision performance review](#weekly-supervision-performance-review)
 - [Role prompts](#watcher-role-prompt)
 - [Logging and automation](#logging-examples)
 - [Stop conditions](#stop-conditions)
@@ -869,6 +870,76 @@ content, copied output, prompts, credentials, paths, or personal actor names, or
 create subagents.
 ```
 
+## Weekly supervision performance review
+
+When explicitly enabled, create one derived weekly review from the existing
+hash-chained supervision ledger, policy history, and incident/review projections.
+It is not another metric database, status owner, incident ledger, or patent
+authority. The default schedule is Monday at 8:00 AM
+`America/Los_Angeles`, attached to the already configured Sol XHigh roundup
+writer thread. Reuse the project's roundup Gmail seed and subject; never create
+another weekly email conversation.
+
+The helper owns four actions:
+
+1. `prepare` validates the ledgers, scans every content-minimized record in the
+   exact bounded window, and writes canonical `metrics.json` plus a complete
+   `review-packet.json`. The inaugural report may use the entire available
+   history when it is newer than seven days; later reports use rolling seven-day
+   windows.
+2. The Sol XHigh writer reads every event and policy record in the packet and
+   performs one bounded cognitive synthesis. It must reconcile the deterministic
+   counts with the actual incident, correction, review, Block-transition, and
+   maintenance line items. It explains what was caught, what was corrected,
+   whether corrections worked, recurring failure modes, false positives or
+   sampled misses, blind spots, development pace, tooling changes, resource
+   posture, and bounded improvements. A list of numbers without interpretation
+   is invalid.
+3. `finalize` accepts only a schema-valid cognitive review bound to the exact
+   report ID, source root, and known evidence record IDs. It deterministically
+   emits canonical `report.json` for later automated improvement analysis, plus
+   human-readable Markdown and charted PDF projections and a file manifest.
+   `report.json` combines the exact metrics and cognitive review; it is not a
+   second ledger, status authority, or patent record.
+4. `verify` fails closed on divergent machine JSON/Markdown, missing or changed
+   files, unknown review evidence, a broken manifest, or an unreadable/empty
+   PDF.
+
+The PDF includes headline statistics, daily activity charts, incident and
+correction posture, monitoring-task cadence versus recorded activity, observed
+Block flow, cognitive findings, a machinery change log, material line items,
+availability/runtime charts, and model/token/cost projections. Report total
+elapsed hours, explicitly scheduled-active and explicitly paused core-heartbeat
+hours, pause intervals, and recorded target-read success/failure availability.
+Do not infer continuous process uptime or downtime from quiet event gaps because
+an unchanged no-op wake may intentionally emit no ledger event. State explicitly
+when continuous uptime is not measured.
+
+Token and cost figures are estimates from the maintained
+`weekly-report-pricing-v1.json` profile. The deterministic method uses canonical
+visible record size, a model-specific input-context allowance, an output floor,
+the recorded reasoning-effort factor, and low/base/high multipliers. Show every
+model's attributed record count, token range, cost range, pricing analogue,
+rates, profile hash, and source URL. Internal supervision aliases do not have a
+public price in this contract, so the projection applies the stated GPT-5.4,
+GPT-5.4 mini, or GPT-5.4 nano API-equivalent assumption; it never claims that
+analogue is the internal model's actual price. Keep provider-reported tokens and
+cost distinct if they become available later. Never label a projection actual,
+billed, invoiced, or reconciled.
+
+Recorded automation activity is a lower bound. Every rate names its denominator.
+Interpret detection-rate changes cautiously: a higher rate may mean stronger
+detection or a riskier implementation phase, and a lower rate may mean better
+execution or a miss. Neither statistics nor cognitive synthesis confer patent
+quality, legal sufficiency, or tracker completion.
+
+After successful PDF verification, reply to the existing roundup seed with a
+short `SUPERVISION WEEKLY REVIEW` summary and attach the PDF. Record one
+content-minimized `roundup` or report event with the report ID, coverage, source
+root, and manifest root, then one ordinary notification receipt containing the
+Gmail message ID. Email failure does not invalidate the report or block
+supervision; retain a retryable delivery posture.
+
 ## Watcher role prompt
 
 Replace every angle-bracket placeholder before use.
@@ -1447,6 +1518,26 @@ python3 <LOG_HELPER> bind --target-thread <TARGET> \
   --roundup-automation <ROUNDUP_AUTOMATION>
 ```
 
+Prepare, finalize, and verify an on-demand weekly review:
+
+```bash
+python3 <LOG_HELPER> weekly-report --target-thread <TARGET> \
+  --action prepare --days 7
+python3 <LOG_HELPER> weekly-report --target-thread <TARGET> \
+  --action finalize --report-id <REPORT_ID> \
+  --review-base64 <BASE64_CANONICAL_REVIEW_JSON>
+python3 <LOG_HELPER> weekly-report --target-thread <TARGET> \
+  --action verify --report-id <REPORT_ID>
+```
+
+After creating the thread-attached automation, bind its exact schedule:
+
+```bash
+python3 <LOG_HELPER> weekly-report --target-thread <TARGET> \
+  --action configure --automation-id <WEEKLY_AUTOMATION> \
+  --weekday MO --local-time 08:00 --days 7
+```
+
 Gate recent Gmail message IDs without reading their bodies first:
 
 ```bash
@@ -1627,6 +1718,9 @@ tool:
 - Roundup name: `Tracker roundup - <project key>`
 - Roundup recurrence: four daily Pacific-time wakes at 7:00 AM, 1:00 PM,
   5:00 PM, and 11:00 PM in `America/Los_Angeles` (DST-aware)
+- Weekly review name: `Supervision weekly review - <project key>`
+- Weekly review recurrence: Monday at 8:00 AM in `America/Los_Angeles`
+- Weekly review target thread: the existing roundup writer thread
 - Kind: heartbeat
 - Status: active
 - Target thread: the applicable watcher or reviewer thread

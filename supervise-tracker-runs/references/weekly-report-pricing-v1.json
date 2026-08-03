@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "profile_id": "supervision-weekly-cost-projection-v1",
+  "currency": "USD",
+  "estimation": {
+    "characters_per_token": 4,
+    "low_multiplier": 0.6,
+    "high_multiplier": 1.6,
+    "reasoning_output_multipliers": {
+      "low": 1.0,
+      "medium": 1.35,
+      "high": 1.8,
+      "xhigh": 2.5,
+      "max": 3.5,
+      "unspecified": 1.0
+    }
+  },
+  "models": {
+    "gpt-5.6-terra": {
+      "api_price_assumption": "GPT-5.4 mini standard API equivalent",
+      "input_usd_per_million_tokens": 0.75,
+      "output_usd_per_million_tokens": 4.5,
+      "per_record_input_overhead_tokens": 1600,
+      "per_record_output_floor_tokens": 240,
+      "source_url": "https://openai.com/index/introducing-gpt-5-4-mini-and-nano/"
+    },
+    "gpt-5.6-sol": {
+      "api_price_assumption": "GPT-5.4 standard API equivalent",
+      "input_usd_per_million_tokens": 2.5,
+      "output_usd_per_million_tokens": 15.0,
+      "per_record_input_overhead_tokens": 6000,
+      "per_record_output_floor_tokens": 700,
+      "source_url": "https://openai.com/index/introducing-gpt-5-4/"
+    },
+    "gpt-5.6-luna": {
+      "api_price_assumption": "GPT-5.4 nano standard API equivalent",
+      "input_usd_per_million_tokens": 0.2,
+      "output_usd_per_million_tokens": 1.25,
+      "per_record_input_overhead_tokens": 1000,
+      "per_record_output_floor_tokens": 140,
+      "source_url": "https://openai.com/index/introducing-gpt-5-4-mini-and-nano/"
+    }
+  },
+  "disclaimer": "This profile projects API-equivalent cost from content-minimized supervision records. It is not provider token telemetry, actual usage, billed cost, an invoice, or the price of the internal supervision model aliases."
+}

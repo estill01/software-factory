@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import datetime as dt
 import fcntl
 import hashlib
 import json
 import os
 import re
+import sys
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -236,6 +238,21 @@ def cross_thread_routing_contract() -> dict[str, Any]:
         "unrelated_thread_behavior": "fail-closed",
         "routine_status_behavior": "remain-in-target-thread",
         "email_behavior": "existing-notification-gates-only",
+    }
+
+
+def weekly_report_contract() -> dict[str, Any]:
+    return {
+        "enabled": False,
+        "timezone": "America/Los_Angeles",
+        "weekday": "MO",
+        "local_time": "08:00",
+        "coverage_days": 7,
+        "automation_id": None,
+        "writer_role": "roundup_writer",
+        "email_lane": "gmail_roundup",
+        "cognitive_review_required": True,
+        "pdf_required": True,
     }
 
 
@@ -841,6 +858,7 @@ def default_policy(args: argparse.Namespace) -> dict[str, Any]:
         "decision_resolution": decision_resolution_contract(),
         "cross_thread_routing": cross_thread_routing_contract(),
         "skill_maintenance": skill_maintenance_contract(),
+        "reports": {"weekly": weekly_report_contract()},
         "notifications": {
             "gmail": {
                 "enabled": False,
@@ -947,6 +965,33 @@ def validate_policy(policy: dict[str, Any]) -> None:
         canonical(legacy_single_role_cross_thread_routing_contract()),
     }:
         raise SupervisionLogError("Cross-thread routing contract differs")
+    weekly = policy.get("reports", {}).get("weekly")
+    if weekly is not None:
+        expected_weekly = weekly_report_contract()
+        for key in (
+            "timezone",
+            "writer_role",
+            "email_lane",
+            "cognitive_review_required",
+            "pdf_required",
+        ):
+            if weekly.get(key) != expected_weekly[key]:
+                raise SupervisionLogError("Weekly supervision report contract differs")
+        if weekly.get("weekday") not in {"MO", "TU", "WE", "TH", "FR", "SA", "SU"}:
+            raise SupervisionLogError("Weekly report weekday is invalid")
+        if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", str(weekly.get("local_time", ""))):
+            raise SupervisionLogError("Weekly report local time is invalid")
+        coverage_days = weekly.get("coverage_days")
+        if not isinstance(coverage_days, int) or not 2 <= coverage_days <= 31:
+            raise SupervisionLogError("Weekly report coverage days are invalid")
+        if weekly.get("enabled"):
+            if not weekly.get("automation_id"):
+                raise SupervisionLogError("Enabled weekly report lacks an automation binding")
+            roundup = policy.get("notifications", {}).get("gmail_roundup", {})
+            if not roundup.get("enabled") or not all(
+                roundup.get(key) for key in ("project_key", "reply_message_id", "subject")
+            ):
+                raise SupervisionLogError("Weekly report requires the bound roundup email lane")
     priority = policy.get("notifications", {}).get("gmail_priority")
     if priority is not None:
         expected_priority = gmail_priority_contract()
@@ -2943,6 +2988,368 @@ def cmd_adjust(args: argparse.Namespace) -> None:
     print(json.dumps({"changed": True, "policy": policy}, sort_keys=True))
 
 
+def weekly_report_module() -> Any:
+    try:
+        import weekly_report
+    except ImportError as exc:
+        raise SupervisionLogError("Weekly report implementation is unavailable") from exc
+    return weekly_report
+
+
+def weekly_projection_inventory(directory: Path) -> dict[str, Any]:
+    def inventory(folder: str) -> dict[str, Any]:
+        path = directory / folder
+        names = sorted(item.name for item in path.glob("*.md")) if path.exists() else []
+        return {"count": len(names), "names_sha256": digest(names)}
+
+    return {
+        "incident_reports": inventory("incidents"),
+        "review_reports": inventory("reviews"),
+        "note": "Markdown files are derived projections; the hash-chained JSONL records remain the report source.",
+    }
+
+
+def weekly_report_directory(directory: Path, report_id: str) -> Path:
+    safe_id(report_id, label="weekly report ID")
+    base = (directory / "reports" / "weekly").resolve()
+    result = (base / report_id).resolve()
+    if result.parent != base:
+        raise SupervisionLogError("Weekly report directory escaped its owner")
+    return result
+
+
+def write_exact_or_reuse(path: Path, value: Mapping[str, Any]) -> bool:
+    module = weekly_report_module()
+    expected = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, indent=2
+    ).encode("utf-8") + b"\n"
+    if path.exists():
+        if path.read_bytes() != expected:
+            raise SupervisionLogError(
+                f"Existing weekly report artifact differs: {path.name}"
+            )
+        return True
+    module.atomic_write(path, expected)
+    return False
+
+
+def cmd_weekly_report_prepare(args: argparse.Namespace) -> None:
+    directory, policy = load_policy(args)
+    module = weekly_report_module()
+    all_events = events(directory / "events.jsonl")
+    if not all_events:
+        raise SupervisionLogError("Cannot report an empty supervision ledger")
+    policy_history = events(directory / "policy-history.jsonl")
+    end = parse_time(args.end) if args.end else parse_time(None)
+    coverage_days = args.days or int(
+        policy.get("reports", {}).get("weekly", {}).get("coverage_days", 7)
+    )
+    if not 2 <= coverage_days <= 31:
+        raise SupervisionLogError("Weekly report coverage must be 2-31 days")
+    if args.start:
+        start = parse_time(args.start)
+    elif args.since_inception:
+        start = parse_time(str(all_events[0]["timestamp"]))
+    else:
+        start = end - dt.timedelta(days=coverage_days)
+        first = parse_time(str(all_events[0]["timestamp"]))
+        if first > start:
+            start = first
+    timezone_name = str(
+        policy.get("reports", {}).get("weekly", {}).get(
+            "timezone",
+            policy.get("schedule", {}).get(
+                "roundup_timezone", "America/Los_Angeles"
+            ),
+        )
+    )
+    try:
+        metrics, packet = module.build_metrics(
+            target_label=str(policy.get("target_label", args.target_thread[:12])),
+            target_thread_id=args.target_thread,
+            start=start,
+            end=end,
+            timezone_name=timezone_name,
+            all_events=all_events,
+            policy_history=policy_history,
+            current_policy=policy,
+            projection_inventory=weekly_projection_inventory(directory),
+        )
+    except module.WeeklyReportError as exc:
+        raise SupervisionLogError(str(exc)) from exc
+    report_directory = weekly_report_directory(directory, str(metrics["report_id"]))
+    report_directory.mkdir(parents=True, exist_ok=True)
+    os.chmod(report_directory, 0o700)
+    metrics_path = report_directory / "metrics.json"
+    packet_path = report_directory / "review-packet.json"
+    reused_metrics = write_exact_or_reuse(metrics_path, metrics)
+    reused_packet = write_exact_or_reuse(packet_path, packet)
+    print(
+        json.dumps(
+            {
+                "report_id": metrics["report_id"],
+                "coverage": metrics["coverage"],
+                "source_root": metrics["source"]["source_root"],
+                "report_directory": str(report_directory),
+                "metrics_path": str(metrics_path),
+                "review_packet_path": str(packet_path),
+                "reused": reused_metrics and reused_packet,
+                "next": "Read every review-packet event, produce the exact cognitive-review contract, then finalize with --review-base64.",
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def load_weekly_artifacts(
+    directory: Path, report_id: str
+) -> tuple[Path, dict[str, Any], dict[str, Any]]:
+    report_directory = weekly_report_directory(directory, report_id)
+    metrics = read_json(report_directory / "metrics.json")
+    packet = read_json(report_directory / "review-packet.json")
+    if metrics.get("report_id") != report_id or packet.get("report_id") != report_id:
+        raise SupervisionLogError("Weekly report identity differs")
+    if packet.get("metrics") != metrics:
+        raise SupervisionLogError(
+            "Weekly review packet diverges from canonical metrics"
+        )
+    if packet.get("source_root") != metrics.get("source", {}).get("source_root"):
+        raise SupervisionLogError("Weekly report source roots diverge")
+    return report_directory, metrics, packet
+
+
+def cmd_weekly_report_finalize(args: argparse.Namespace) -> None:
+    directory, _policy = load_policy(args)
+    module = weekly_report_module()
+    report_directory, metrics, packet = load_weekly_artifacts(
+        directory, args.report_id
+    )
+    try:
+        review_bytes = base64.b64decode(args.review_base64, validate=True)
+        raw_review = json.loads(review_bytes.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SupervisionLogError("Weekly cognitive review encoding is invalid") from exc
+    if not isinstance(raw_review, dict):
+        raise SupervisionLogError("Weekly cognitive review must be an object")
+    record_ids = {
+        str(item.get("record_id"))
+        for item in packet.get("event_records", [])
+        if item.get("record_id")
+    }
+    try:
+        review = module.validate_review(
+            raw_review,
+            report_id=args.report_id,
+            source_root=str(metrics["source"]["source_root"]),
+            record_ids=record_ids,
+        )
+    except module.WeeklyReportError as exc:
+        raise SupervisionLogError(str(exc)) from exc
+    review_path = report_directory / "review.json"
+    report_json_path = report_directory / "report.json"
+    markdown_path = report_directory / "report.md"
+    pdf_path = report_directory / "report.pdf"
+    manifest_path = report_directory / "manifest.json"
+    review_reused = write_exact_or_reuse(review_path, review)
+    machine_report = module.machine_report(metrics, review)
+    report_json_reused = write_exact_or_reuse(report_json_path, machine_report)
+    markdown_bytes = module.markdown_report(metrics, review).encode("utf-8")
+    if markdown_path.exists():
+        if markdown_path.read_bytes() != markdown_bytes:
+            raise SupervisionLogError("Existing weekly Markdown report differs")
+    else:
+        module.atomic_write(markdown_path, markdown_bytes)
+    if pdf_path.exists():
+        pdf_reused = True
+    else:
+        temporary_pdf = report_directory / ".report.pdf.prepared"
+        try:
+            module.render_pdf(temporary_pdf, metrics, review)
+            os.replace(temporary_pdf, pdf_path)
+        finally:
+            if temporary_pdf.exists():
+                temporary_pdf.unlink()
+        pdf_reused = False
+    manifest = module.manifest_for(
+        metrics_path=report_directory / "metrics.json",
+        packet_path=report_directory / "review-packet.json",
+        review_path=review_path,
+        report_json_path=report_json_path,
+        markdown_path=markdown_path,
+        pdf_path=pdf_path,
+    )
+    manifest["report_id"] = args.report_id
+    manifest["source_root"] = metrics["source"]["source_root"]
+    write_exact_or_reuse(manifest_path, manifest)
+    print(
+        json.dumps(
+            {
+                "report_id": args.report_id,
+                "source_root": metrics["source"]["source_root"],
+                "review_reused": review_reused,
+                "report_json_reused": report_json_reused,
+                "pdf_reused": pdf_reused,
+                "pdf_path": str(pdf_path),
+                "report_json_path": str(report_json_path),
+                "markdown_path": str(markdown_path),
+                "manifest_path": str(manifest_path),
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def cmd_weekly_report_verify(args: argparse.Namespace) -> None:
+    directory, _policy = load_policy(args)
+    module = weekly_report_module()
+    report_directory, metrics, packet = load_weekly_artifacts(
+        directory, args.report_id
+    )
+    review = read_json(report_directory / "review.json")
+    manifest = read_json(report_directory / "manifest.json")
+    record_ids = {
+        str(item.get("record_id"))
+        for item in packet.get("event_records", [])
+        if item.get("record_id")
+    }
+    try:
+        review = module.validate_review(
+            review,
+            report_id=args.report_id,
+            source_root=str(metrics["source"]["source_root"]),
+            record_ids=record_ids,
+        )
+    except module.WeeklyReportError as exc:
+        raise SupervisionLogError(str(exc)) from exc
+    paths = {
+        "metrics.json": report_directory / "metrics.json",
+        "review-packet.json": report_directory / "review-packet.json",
+        "review.json": report_directory / "review.json",
+        "report.json": report_directory / "report.json",
+        "report.md": report_directory / "report.md",
+        "report.pdf": report_directory / "report.pdf",
+    }
+    if set(manifest.get("files", {})) != set(paths):
+        raise SupervisionLogError("Weekly report manifest file set differs")
+    for name, path in paths.items():
+        if not path.is_file():
+            raise SupervisionLogError(f"Weekly report is missing {name}")
+        expected = manifest["files"][name]
+        actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        if (
+            expected.get("sha256") != actual_hash
+            or expected.get("bytes") != path.stat().st_size
+        ):
+            raise SupervisionLogError(f"Weekly report artifact differs: {name}")
+    if digest(manifest["files"]) != manifest.get("manifest_root"):
+        raise SupervisionLogError("Weekly report manifest root differs")
+    expected_markdown = module.markdown_report(metrics, review).encode("utf-8")
+    if paths["report.md"].read_bytes() != expected_markdown:
+        raise SupervisionLogError("Weekly Markdown projection differs")
+    expected_machine_report = module.machine_report(metrics, review)
+    if read_json(paths["report.json"]) != expected_machine_report:
+        raise SupervisionLogError("Weekly machine-readable report differs")
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(str(paths["report.pdf"]))
+        page_count = len(reader.pages)
+        text_sample = "".join(
+            (page.extract_text() or "") for page in reader.pages[:2]
+        )
+    except Exception as exc:
+        raise SupervisionLogError("Weekly PDF cannot be parsed") from exc
+    if page_count < 4 or "SUPERVISION WEEKLY REVIEW" not in text_sample:
+        raise SupervisionLogError(
+            "Weekly PDF lacks the required rendered report"
+        )
+    print(
+        json.dumps(
+            {
+                "valid": True,
+                "report_id": args.report_id,
+                "source_root": metrics["source"]["source_root"],
+                "manifest_root": manifest["manifest_root"],
+                "page_count": page_count,
+                "pdf_path": str(paths["report.pdf"]),
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def cmd_weekly_report_configure(args: argparse.Namespace) -> None:
+    directory, policy = load_policy(args)
+    roundup = policy.get("notifications", {}).get("gmail_roundup", {})
+    if not roundup.get("enabled") or not all(
+        roundup.get(key) for key in ("project_key", "reply_message_id", "subject")
+    ):
+        raise SupervisionLogError(
+            "Weekly report requires the enabled roundup email lane"
+        )
+    automation_id = safe_id(
+        args.automation_id, label="weekly report automation ID"
+    )
+    time_value = clean(
+        args.local_time, label="weekly report local time", maximum=5
+    )
+    if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", time_value):
+        raise SupervisionLogError("Weekly report local time is invalid")
+    if not 2 <= args.days <= 31:
+        raise SupervisionLogError("Weekly report coverage must be 2-31 days")
+    policy.setdefault("reports", {})["weekly"] = {
+        **weekly_report_contract(),
+        "enabled": True,
+        "weekday": args.weekday,
+        "local_time": time_value,
+        "coverage_days": args.days,
+        "automation_id": automation_id,
+    }
+    write_policy_version(
+        directory,
+        policy,
+        kind="policy-weekly-report",
+        reason="Enabled one derived weekly PDF review through the existing roundup writer and email lane.",
+        evidence_values=[automation_id],
+    )
+    print(
+        json.dumps(
+            {
+                "changed": True,
+                "weekly": policy["reports"]["weekly"],
+                "policy": policy,
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def cmd_weekly_report(args: argparse.Namespace) -> None:
+    if args.action == "prepare":
+        cmd_weekly_report_prepare(args)
+        return
+    if args.action == "finalize":
+        if not args.report_id or not args.review_base64:
+            raise SupervisionLogError(
+                "Weekly report finalize requires --report-id and --review-base64"
+            )
+        cmd_weekly_report_finalize(args)
+        return
+    if args.action == "verify":
+        if not args.report_id:
+            raise SupervisionLogError("Weekly report verify requires --report-id")
+        cmd_weekly_report_verify(args)
+        return
+    if args.action == "configure":
+        if not args.automation_id:
+            raise SupervisionLogError(
+                "Weekly report configure requires --automation-id"
+            )
+        cmd_weekly_report_configure(args)
+        return
+    raise SupervisionLogError("Unsupported weekly report action")
+
+
 def gmail_message_id(value: str) -> str:
     result = safe_id(value, label="Gmail message ID")
     if not re.fullmatch(r"[0-9A-Fa-f]{12,64}", result):
@@ -3400,6 +3807,28 @@ def parser() -> argparse.ArgumentParser:
     adjust.add_argument("--reason", required=True)
     adjust.add_argument("--evidence", action="append", default=[])
     adjust.set_defaults(func=cmd_adjust)
+
+    weekly_report = subparsers.add_parser("weekly-report")
+    weekly_report.add_argument("--target-thread", required=True)
+    weekly_report.add_argument(
+        "--action",
+        choices=("prepare", "finalize", "verify", "configure"),
+        required=True,
+    )
+    weekly_report.add_argument("--start")
+    weekly_report.add_argument("--end")
+    weekly_report.add_argument("--days", type=int, default=7)
+    weekly_report.add_argument("--since-inception", action="store_true")
+    weekly_report.add_argument("--report-id")
+    weekly_report.add_argument("--review-base64")
+    weekly_report.add_argument("--automation-id")
+    weekly_report.add_argument(
+        "--weekday",
+        choices=("MO", "TU", "WE", "TH", "FR", "SA", "SU"),
+        default="MO",
+    )
+    weekly_report.add_argument("--local-time", default="08:00")
+    weekly_report.set_defaults(func=cmd_weekly_report)
 
     status = subparsers.add_parser("status")
     status.add_argument("--target-thread", required=True)

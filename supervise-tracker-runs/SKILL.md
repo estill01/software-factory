@@ -1,6 +1,6 @@
 ---
 name: supervise-tracker-runs
-description: Boot, attach, operate, inspect, pause, resume, or stop bounded supervision for one or more active Codex implementation-tracker threads. Use when the user asks to monitor, babysit, audit, periodically check, prevent feature creep or waste in, or add Terra/Sol escalation and incident review to tracker-driven implementation runs.
+description: Boot, attach, operate, inspect, pause, resume, stop, or report on bounded supervision for active Codex implementation-tracker threads. Use when the user asks to monitor, babysit, audit, periodically check, prevent feature creep or waste in, add Terra/Sol escalation and incident review, or generate a cognitive weekly supervision performance PDF.
 ---
 
 # Supervise Tracker Runs
@@ -122,6 +122,10 @@ schedules, bounds, escalation rules, logging commands, and stop conditions.
    roundup seed for every later summary; never
    create a new email conversation per run. The primary thread remains the
    alert, reply, and action channel.
+   When the user also requests a weekly supervision review, reuse this roundup
+   writer and Gmail thread. Add one Monday 8:00 AM America/Los_Angeles heartbeat
+   by default. Do not create another writer thread, email conversation, metric
+   store, or report authority.
 12. Send the watcher one immediate check after logging and schedules are ready.
 13. Read all applicable role threads, view every automation, and run
    `supervision_log.py status` to verify the boot. Report all thread IDs,
@@ -281,7 +285,8 @@ Repeat independently for additional targets.
 ## Record and improve
 
 - Record every bounded check as one compact JSONL event. Create Markdown only for
-  material incidents and effectiveness reviews.
+  material incidents, effectiveness reviews, and the deterministic human-readable
+  projection paired with an explicitly requested weekly PDF review.
 - Keep decision timing and continuation evidence in the same JSONL ledger:
   classification, decision-ready/deadline times, attempt number, packet hash,
   blocked-scope hash, safe-frontier hash/posture, disposition, handoff, and
@@ -296,6 +301,25 @@ Repeat independently for additional targets.
 - Use only `scripts/supervision_log.py` for supervisor filesystem writes. Never
   place patent prose, project paths, credentials, prompts, or copied tool output
   in supervision records.
+- Generate an on-demand or scheduled weekly review with the helper's
+  `weekly-report` command. `prepare` deterministically scans the entire bounded
+  window and writes canonical metrics plus a full content-minimized cognitive
+  review packet. The Sol XHigh roundup writer must read every packet record and
+  synthesize patterns, effectiveness, misses, development pace, machinery
+  changes, resource posture, and limitations; it may not merely restate counts.
+  `finalize` accepts only the exact hash-bound cognitive-review contract and
+  creates one canonical machine-readable `report.json`, its deterministic
+  Markdown and charted PDF projections, and a file manifest. The report includes
+  explicit scheduled-active/paused hours, total period hours, recorded
+  target-read availability, and model-attributed token/cost projections under a
+  versioned public API-equivalent pricing profile. Never infer continuous uptime
+  from quiet event gaps or label projected tokens/cost actual, billed, invoiced,
+  or provider-reconciled. `verify` fails on a divergent JSON/Markdown
+  projection, manifest, evidence reference, or unreadable PDF.
+- Treat recorded task counts as a lower bound when scheduled no-op wakes are not
+  logged. Always show the intended trigger/cadence beside actual recorded
+  activity, define rate denominators, and distinguish detection-rate changes
+  from causal claims about implementation quality.
 - Run the Sol effectiveness heartbeat only when new checks, incidents,
   interventions, checkpoints, or outcomes exist. It samples the original target
   deltas behind no-intervention records—not merely the records—to look for false
@@ -424,6 +448,10 @@ Repeat independently for additional targets.
   posture, and source record IDs. For each materially discussed Block, include
   its short plain-language purpose so the roundup is understandable without the
   tracker. Keep patent content and copied output out.
+- Send the weekly PDF as an attachment in that same roundup Gmail thread. Record
+  the report event and delivery receipt in the existing event ledger. The report
+  is a derived operational review, not a second status database, patent
+  authority, legal conclusion, or quality score.
 
 ## Pause, resume, or stop
 
