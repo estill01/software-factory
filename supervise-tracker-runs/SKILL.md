@@ -321,11 +321,19 @@ Repeat independently for additional targets.
   from quiet event gaps or label projected tokens/cost actual, billed, invoiced,
   or provider-reconciled. `verify` fails on a divergent JSON/Markdown
   projection, manifest, evidence reference, or unreadable PDF.
-- Lay out the PDF for fast inspection: top-line metrics and charts first, then a
-  short bullet assessment, with every major review domain starting on a new
-  page. Use only maintained foreground/background pairs that pass the report's
-  4.5:1 contrast check. Do not lead with a long narrative or reproduce target
-  line items as report content.
+- Lay out the PDF for fast inspection: the first page is an executive dashboard
+  naming the monitored target, exact coverage and duration, configured
+  supervision roles, scheduled monitoring time, projected cost, incidents
+  detected/resolved/open, and a short cognitive assessment. Put a concise table
+  of contents at the bottom and move daily activity to a supporting page. Every
+  chart must name its units, show readable axis ticks, place the color legend
+  below the plot, and explain each category in operator language. Internal
+  counters such as events, changed states, tracker stages, or tool changes may
+  appear only in defined supporting detail, not as unexplained headline cards.
+  Start every major review domain on a new page. Use only maintained
+  foreground/background pairs that pass the report's 4.5:1 contrast check. Do
+  not lead with a long narrative or reproduce target line items as report
+  content.
 - Treat recorded task counts as a lower bound when scheduled no-op wakes are not
   logged. Always show the intended trigger/cadence beside actual recorded
   activity, define rate denominators, and distinguish detection-rate changes

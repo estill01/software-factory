@@ -324,6 +324,106 @@ def task_activity(window_events: Sequence[Mapping[str, Any]]) -> list[dict[str, 
     ]
 
 
+def monitoring_roles(
+    current_policy: Mapping[str, Any], window_events: Sequence[Mapping[str, Any]]
+) -> dict[str, Any]:
+    """Project configured supervision threads into operator-readable roles."""
+
+    runtime = current_policy.get("runtime")
+    if not isinstance(runtime, Mapping):
+        runtime = {}
+
+    role_definitions = (
+        (
+            "Routine watcher",
+            "Mechanical change gate and scheduled target checks.",
+            "watcher_thread_id",
+            lambda item: item.get("kind") == "check"
+            and item.get("model") == "gpt-5.6-terra",
+            "watcher checks",
+        ),
+        (
+            "Semantic reviewer",
+            "Substantive review of each routed changed target state.",
+            "base_reviewer_thread_id",
+            lambda item: item.get("kind") == "check"
+            and item.get("reasoning") == "xhigh",
+            "semantic reviews",
+        ),
+        (
+            "Max reviewer",
+            "Sampled changed-state review plus scheduled effectiveness review.",
+            "reviewer_thread_id",
+            lambda item: (
+                item.get("kind") == "check" and item.get("category") == "max-sample"
+            )
+            or item.get("kind") == "meta-review",
+            "sample/effectiveness reviews",
+        ),
+        (
+            "Incident outcome reviewer",
+            "Material incident adjudication and correction-outcome review.",
+            "notice_reviewer_thread_id",
+            lambda item: "incident-review" in str(item.get("category", ""))
+            or item.get("category") in {"notice-review", "notice-outcome-review"},
+            "incident review actions",
+        ),
+        (
+            "Fix executor",
+            "Independently approved, bounded fixes to supervision machinery.",
+            "fix_executor_thread_id",
+            lambda item: item.get("category") == "fix-execution",
+            "fix actions",
+        ),
+        (
+            "Roundup/report writer",
+            "Scheduled summaries and cognitive weekly supervision review.",
+            "roundup_thread_id",
+            lambda item: item.get("kind") == "roundup",
+            "roundups",
+        ),
+        (
+            "Gmail reply gate",
+            "Validates whether an inbound roundup-thread reply may be processed.",
+            "gmail_gate_thread_id",
+            lambda item: item.get("kind") == "inbound-message"
+            and item.get("category") == "gmail-reply-gate",
+            "reply-gate records",
+        ),
+        (
+            "Gmail reply processor",
+            "Processes only replies admitted by the maintained Gmail gate.",
+            "gmail_processor_thread_id",
+            lambda item: item.get("kind") == "inbound-message"
+            and item.get("category") == "gmail-reply-processor",
+            "reply-processing records",
+        ),
+    )
+    roles = []
+    for role, purpose, thread_key, test, activity_label in role_definitions:
+        roles.append(
+            {
+                "role": role,
+                "purpose": purpose,
+                "configured": isinstance(runtime.get(thread_key), str)
+                and bool(runtime.get(thread_key)),
+                "recorded_action_count": sum(1 for item in window_events if test(item)),
+                "activity_label": activity_label,
+            }
+        )
+    return {
+        "configured_thread_count": sum(1 for item in roles if item["configured"]),
+        "core_role_count": sum(
+            1 for item in roles[:6] if item["configured"]
+        ),
+        "support_role_count": sum(
+            1 for item in roles[6:] if item["configured"]
+        ),
+        "roles": roles,
+        "interpretation": "Configured threads describe the maintained supervision roles. Recorded actions are ledger-visible lower bounds because unchanged scheduled wakes may intentionally emit no record.",
+    }
+
+
 def load_pricing_profile(path: Path = DEFAULT_PRICING_PROFILE) -> dict[str, Any]:
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
@@ -706,6 +806,7 @@ def build_metrics(
         for incident, head in incident_heads.items()
         if not is_terminal_incident_record(head)
     ]
+    open_heads = [incident_heads[incident] for incident in open_at_end]
     durations_hours: list[float] = []
     for incident, terminal in incident_first_terminal.items():
         opening = incident_first.get(incident)
@@ -820,6 +921,11 @@ def build_metrics(
             "incidents_opened": len(incident_openings),
             "incidents_terminal": len(terminal_in_window),
             "incidents_open_at_end": len(open_at_end),
+            "incidents_open_high_or_critical": sum(
+                1
+                for item in open_heads
+                if str(item.get("severity", "")).lower() in {"high", "critical"}
+            ),
             "corrections_issued": sum(
                 1
                 for item in window_events
@@ -873,6 +979,7 @@ def build_metrics(
         "daily_incidents": [
             {"date": day, **daily_incidents[day]} for day in days
         ],
+        "monitoring_roles": monitoring_roles(current_policy, window_events),
         "task_activity": task_activity(window_events),
         "incidents": {
             "opened_ids": opened_ids,
@@ -1028,6 +1135,7 @@ def report_metrics(metrics: Mapping[str, Any]) -> dict[str, Any]:
         "counts",
         "daily_activity",
         "daily_incidents",
+        "monitoring_roles",
         "task_activity",
         "incidents",
         "limitations",
@@ -1069,24 +1177,30 @@ def markdown_report(metrics: Mapping[str, Any], review: Mapping[str, Any]) -> st
     availability = metrics["availability"]
     resources = metrics["resource_estimate"]
     resource_totals = resources["totals"]
+    roles = metrics["monitoring_roles"]
     rows = [
         f"# Supervision weekly review - {metrics['target_label']}\n",
         f"**Coverage:** {coverage['start']} through {coverage['end']} ({coverage['timezone']})  \n",
         f"**Posture:** {review['overall_posture']}  \n",
         f"**Evidence root:** `{metrics['source']['source_root']}`\n\n",
-        "## Headline metrics\n\n",
-        f"- Recorded events: {headline['recorded_events']}\n",
-        f"- Changed-state routes: {headline['changed_state_routes']}\n",
-        f"- Incidents opened / terminal / open: {headline['incidents_opened']} / {headline['incidents_terminal']} / {headline['incidents_open_at_end']}\n",
-        f"- Corrections issued: {headline['corrections_issued']}\n",
-        f"- Max samples: {headline['max_samples']}\n",
-        f"- Blocks observed: {headline['blocks_observed']}\n",
-        f"- Tooling change records: {headline['tooling_change_records']}\n\n",
-        "## Availability and runtime\n\n",
+        "## Executive metrics\n\n",
+        f"- Scheduled monitoring time: {availability['core_heartbeats_scheduled_active_hours']} hours\n",
+        f"- Projected API-equivalent cost: ${resource_totals['projected_cost_usd_base']:.2f}\n",
+        f"- Incidents detected / resolved or closed / unresolved: {headline['incidents_opened']} / {headline['incidents_terminal']} / {headline['incidents_open_at_end']}\n",
+        f"- High or critical unresolved incidents: {headline['incidents_open_high_or_critical']}\n",
+        f"- Configured supervision role threads: {roles['configured_thread_count']}\n\n",
+        "## What was running\n\n",
+        *[
+            f"- **{item['role']}**: {item['purpose']} "
+            f"{item['recorded_action_count']} {item['activity_label']} "
+            f"({'configured' if item['configured'] else 'not configured'}).\n"
+            for item in roles["roles"]
+        ],
+        "\n## Monitoring time and recorded read reliability\n\n",
         f"- Total report period: {availability['report_period_hours']} hours\n",
-        f"- Core heartbeat scheduled-active time: {availability['core_heartbeats_scheduled_active_hours']} hours ({availability['core_heartbeats_scheduled_active_percent']}%)\n",
-        f"- Core heartbeat explicitly paused time: {availability['core_heartbeats_explicitly_paused_hours']} hours\n",
-        f"- Recorded target-read availability: {availability['recorded_target_read_availability_percent']}% ({availability['recorded_target_read_successes']} successful / {availability['recorded_target_read_failures']} failed)\n",
+        f"- Scheduled monitoring time: {availability['core_heartbeats_scheduled_active_hours']} hours ({availability['core_heartbeats_scheduled_active_percent']}%)\n",
+        f"- Explicitly paused monitoring time: {availability['core_heartbeats_explicitly_paused_hours']} hours\n",
+        f"- Recorded target-read reliability: {availability['recorded_target_read_availability_percent']}% ({availability['recorded_target_read_successes']} successful / {availability['recorded_target_read_failures']} failed)\n",
         f"- Continuous process uptime directly measured: {availability['continuous_process_uptime_measured']}\n\n",
         availability["interpretation"] + "\n\n",
         "## Estimated model tokens and API-equivalent cost\n\n",
@@ -1195,6 +1309,10 @@ def render_pdf(
     styles.add(ParagraphStyle(name="PostureLabel", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=7.4, leading=9, textColor=colors.white, alignment=TA_CENTER))
     styles.add(ParagraphStyle(name="SectionKicker", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=8, leading=10, textColor=blue, spaceAfter=5))
     styles.add(ParagraphStyle(name="BulletCustom", parent=styles["BodyText"], fontSize=9.5, leading=13.5, textColor=ink, leftIndent=13, firstLineIndent=-8, bulletIndent=3, spaceAfter=7))
+    styles.add(ParagraphStyle(name="LegendLabel", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=7.4, leading=9, textColor=ink))
+    styles.add(ParagraphStyle(name="LegendBody", parent=styles["Normal"], fontSize=7.2, leading=9, textColor=muted))
+    styles.add(ParagraphStyle(name="RoleTitle", parent=styles["Normal"], fontName="Helvetica-Bold", fontSize=7.7, leading=9.2, textColor=navy, spaceAfter=2))
+    styles.add(ParagraphStyle(name="RoleBody", parent=styles["Normal"], fontSize=7, leading=8.5, textColor=ink))
 
     output.parent.mkdir(parents=True, exist_ok=True)
     doc = SimpleDocTemplate(
@@ -1229,12 +1347,39 @@ def render_pdf(
         canvas.drawRightString(letter[0] - current_doc.rightMargin, 0.25 * inch, f"Page {current_doc.page}")
         canvas.restoreState()
 
-    story.append(paragraph("SUPERVISION WEEKLY REVIEW", "Small"))
-    story.append(paragraph(metrics["target_label"], "TitleCustom"))
     coverage = metrics["coverage"]
+    availability = metrics["availability"]
+    resources = metrics["resource_estimate"]
+    totals = resources["totals"]
+    headline = metrics["headline"]
+    role_projection = metrics["monitoring_roles"]
+
+    def display_target(value: Any) -> str:
+        return " ".join(
+            token.upper() if token.lower() in {"rgda"} else token.capitalize()
+            for token in str(value).replace("-", " ").split()
+        )
+
+    def local_timestamp(value: str) -> str:
+        stamp = parse_time(value).astimezone(ZoneInfo(str(coverage["timezone"])))
+        return (
+            f"{stamp.strftime('%b')} {stamp.day}, {stamp.year} at "
+            f"{stamp.strftime('%I:%M %p %Z').lstrip('0')}"
+        )
+
+    story.append(paragraph("SUPERVISION WEEKLY REVIEW", "Small"))
+    story.append(paragraph("Executive summary", "TitleCustom"))
     duration_label = f"{coverage['elapsed_hours'] / 24:.1f} days"
-    partial = " - inaugural partial week" if coverage["partial_week"] else ""
-    story.append(paragraph(f"{coverage['start']} through {coverage['end']} | {duration_label}{partial} | {coverage['timezone']}", "SubTitle"))
+    partial = " (inaugural partial week)" if coverage["partial_week"] else ""
+    story.extend(
+        [
+            paragraph(f"Monitored target: {display_target(metrics['target_label'])}", "SubTitle"),
+            paragraph(f"Coverage start: {local_timestamp(coverage['start'])}", "Small"),
+            paragraph(f"Coverage end: {local_timestamp(coverage['end'])}", "Small"),
+            paragraph(f"Report window: {duration_label}{partial}", "Small"),
+            Spacer(1, 0.09 * inch),
+        ]
+    )
 
     posture_colors = {
         "effective": teal,
@@ -1257,14 +1402,13 @@ def render_pdf(
         ("TOPPADDING", (0, 0), (-1, -1), 9),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
     ]))
-    headline = metrics["headline"]
     cards = [
-        (headline["recorded_events"], "Recorded events"),
-        (headline["changed_state_routes"], "Changed states"),
-        (headline["incidents_opened"], "Incidents opened"),
-        (headline["incidents_terminal"], "Terminal outcomes"),
-        (headline["blocks_observed"], "Tracker stages monitored"),
-        (headline["tooling_change_records"], "Tool changes"),
+        (f"{availability['core_heartbeats_scheduled_active_hours']:.1f} h", "Scheduled monitoring time"),
+        (f"${totals['projected_cost_usd_base']:.2f}", "Projected API-equivalent cost"),
+        (headline["incidents_opened"], "Incidents detected"),
+        (headline["incidents_terminal"], "Incidents resolved / closed"),
+        (headline["incidents_open_high_or_critical"], "High / critical unresolved"),
+        (role_projection["configured_thread_count"], "Configured role threads"),
     ]
     card_cells = [[Paragraph(str(value), styles["CardNumber"]), Paragraph(label, styles["CardLabel"])] for value, label in cards]
     card_table = Table([card_cells], colWidths=[1.12 * inch] * 6)
@@ -1276,18 +1420,171 @@ def render_pdf(
         ("TOPPADDING", (0, 0), (-1, -1), 8),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
     ]))
-    story.extend([card_table, Spacer(1, 0.15 * inch)])
+    story.extend([card_table, Spacer(1, 0.11 * inch), posture_box])
+    story.append(paragraph("Executive supervisor assessment", "H2Custom"))
+    for takeaway in executive_takeaways(review)[:4]:
+        story.append(Paragraph(f"• {takeaway}", styles["BulletCustom"]))
+
+    story.append(paragraph("What was running", "H2Custom"))
+    role_cells = []
+    for item in role_projection["roles"]:
+        state = "configured" if item["configured"] else "not configured"
+        role_cells.append(
+            [
+                Paragraph(
+                    f"{item['role']} — {item['recorded_action_count']} {item['activity_label']}",
+                    styles["RoleTitle"],
+                ),
+                Paragraph(f"{item['purpose']} ({state})", styles["RoleBody"]),
+            ]
+        )
+    role_rows = []
+    for index in range(0, len(role_cells), 2):
+        role_rows.append(
+            [
+                Table([[item] for item in role_cells[index]], colWidths=[3.18 * inch]),
+                Table([[item] for item in role_cells[index + 1]], colWidths=[3.18 * inch]),
+            ]
+        )
+    role_table = Table(role_rows, colWidths=[3.35 * inch, 3.35 * inch])
+    role_table.setStyle(
+        TableStyle(
+            [
+                ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D9E2EC")),
+                ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.white, mist]),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]
+        )
+    )
+    story.extend([role_table, paragraph(role_projection["interpretation"], "Small")])
+
+    story.append(paragraph("Inside this report", "H2Custom"))
+    contents = [
+        "2  Monitoring time, read reliability, and projected cost",
+        "3  Activity, incidents, and response time",
+        "4  Supervisor effectiveness",
+        "5  Detection quality",
+        "6  Coverage and operating efficiency",
+        "7  Monitoring machinery evolution",
+        "8  Methodology and evidence boundary",
+    ]
+    contents_table = Table(
+        [
+            [paragraph(contents[index], "Small"), paragraph(contents[index + 1], "Small")]
+            for index in range(0, 6, 2)
+        ]
+        + [[paragraph(contents[6], "Small"), ""]],
+        colWidths=[3.35 * inch, 3.35 * inch],
+    )
+    contents_table.setStyle(
+        TableStyle(
+            [
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 1),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+            ]
+        )
+    )
+    story.append(contents_table)
+
+    def axis_scale(maximum: float, target_ticks: int = 4) -> tuple[float, list[float]]:
+        maximum = max(float(maximum), 0.0)
+        if maximum == 0:
+            return 1.0, [0.0, 0.25, 0.5, 0.75, 1.0]
+        rough_step = maximum / target_ticks
+        magnitude = 10 ** math.floor(math.log10(rough_step))
+        normalized = rough_step / magnitude
+        factor = next(item for item in (1, 2, 5, 10) if item >= normalized)
+        step = factor * magnitude
+        axis_maximum = math.ceil(maximum / step) * step
+        ticks = [index * step for index in range(int(round(axis_maximum / step)) + 1)]
+        return axis_maximum, ticks
+
+    def format_tick(value: float) -> str:
+        return f"{int(value):,}" if float(value).is_integer() else f"{value:,.1f}"
+
+    def definition_legend(
+        entries: Sequence[tuple[Any, str, str]], *, columns: int = 1
+    ) -> Any:
+        rows = []
+        for index in range(0, len(entries), columns):
+            row: list[Any] = []
+            for _color, label, explanation in entries[index : index + columns]:
+                row.extend(
+                    [
+                        "",
+                        Paragraph(
+                            f"<b>{label}</b> — {explanation}", styles["LegendBody"]
+                        ),
+                    ]
+                )
+            while len(row) < columns * 2:
+                row.extend(["", ""])
+            rows.append(row)
+        text_width = (6.7 - 0.13 * columns) / columns
+        table = Table(
+            rows, colWidths=[value for _ in range(columns) for value in (0.13 * inch, text_width * inch)]
+        )
+        commands = [
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 3),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 2),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ]
+        for index, (color, _label, _explanation) in enumerate(entries):
+            row_index = index // columns
+            column_index = (index % columns) * 2
+            commands.append(
+                (
+                    "BACKGROUND",
+                    (column_index, row_index),
+                    (column_index, row_index),
+                    color,
+                )
+            )
+        table.setStyle(TableStyle(commands))
+        return table
 
     def stacked_chart(rows: Sequence[Mapping[str, Any]]) -> Any:
-        width, height = 480, 155
+        width, height = 480, 150
         drawing = Drawing(width, height)
         categories = ("mechanical", "review", "routing", "intervention", "communication", "maintenance")
         totals = [sum(int(row.get(name, 0)) for name in categories) for row in rows]
-        maximum = max(totals or [1])
-        plot_left, plot_bottom, plot_width, plot_height = 35, 28, 430, 105
+        maximum, ticks = axis_scale(max(totals or [0]))
+        plot_left, plot_bottom, plot_width, plot_height = 57, 35, 405, 93
         bar_width = max(12, min(46, plot_width / max(1, len(rows)) * 0.62))
         gap = plot_width / max(1, len(rows))
-        drawing.add(Rect(plot_left, plot_bottom, plot_width, plot_height, fillColor=colors.white, strokeColor=colors.HexColor("#D9E2EC")))
+        drawing.add(Rect(plot_left, plot_bottom, plot_width, plot_height, fillColor=colors.white, strokeColor=colors.HexColor("#AEBAC7")))
+        for tick in ticks:
+            y = plot_bottom + plot_height * tick / maximum
+            drawing.add(
+                Rect(
+                    plot_left,
+                    y,
+                    plot_width,
+                    0.35,
+                    fillColor=colors.HexColor("#D9E2EC"),
+                    strokeColor=None,
+                )
+            )
+            drawing.add(
+                String(
+                    plot_left - 7,
+                    y - 2.5,
+                    format_tick(tick),
+                    fontName="Helvetica",
+                    fontSize=6.7,
+                    fillColor=muted,
+                    textAnchor="end",
+                )
+            )
         for index, row in enumerate(rows):
             x = plot_left + gap * index + (gap - bar_width) / 2
             y = plot_bottom
@@ -1298,22 +1595,18 @@ def render_pdf(
                     drawing.add(Rect(x, y, bar_width, segment, fillColor=color, strokeColor=None))
                 y += segment
             label = str(row["date"])[5:]
-            drawing.add(String(x + bar_width / 2, 12, label, fontName="Helvetica", fontSize=7, fillColor=muted, textAnchor="middle"))
-        drawing.add(String(4, 137, f"max {maximum}", fontName="Helvetica", fontSize=6.5, fillColor=muted))
-        legend_x = 38
-        for color, category in zip(palette, categories):
-            drawing.add(Rect(legend_x, 142, 7, 7, fillColor=color, strokeColor=None))
-            drawing.add(String(legend_x + 10, 142, category, fontName="Helvetica", fontSize=6.5, fillColor=muted))
-            legend_x += 69
+            drawing.add(String(x + bar_width / 2, 21, label, fontName="Helvetica", fontSize=7, fillColor=muted, textAnchor="middle"))
+        drawing.add(String(plot_left, 137, "Y axis: recorded supervision records", fontName="Helvetica-Bold", fontSize=7.2, fillColor=ink))
+        drawing.add(String(plot_left + plot_width / 2, 7, f"Local calendar day ({coverage['timezone']})", fontName="Helvetica-Bold", fontSize=7.2, fillColor=ink, textAnchor="middle"))
         return drawing
 
     def availability_chart(value: Mapping[str, Any]) -> Any:
-        width, height = 480, 78
+        width, height = 480, 93
         drawing = Drawing(width, height)
         active = float(value["core_heartbeats_scheduled_active_hours"])
         paused = float(value["core_heartbeats_explicitly_paused_hours"])
         total = max(active + paused, 0.001)
-        plot_left, plot_bottom, plot_width, plot_height = 20, 30, 440, 20
+        plot_left, plot_bottom, plot_width, plot_height = 25, 39, 430, 20
         active_width = plot_width * active / total
         drawing.add(
             Rect(
@@ -1338,7 +1631,7 @@ def render_pdf(
         drawing.add(
             String(
                 plot_left,
-                57,
+                72,
                 f"Scheduled active {active:.2f} h",
                 fontName="Helvetica-Bold",
                 fontSize=8,
@@ -1348,7 +1641,7 @@ def render_pdf(
         drawing.add(
             String(
                 plot_left + plot_width,
-                57,
+                72,
                 f"Explicitly paused {paused:.2f} h",
                 fontName="Helvetica-Bold",
                 fontSize=8,
@@ -1356,27 +1649,21 @@ def render_pdf(
                 textAnchor="end",
             )
         )
-        drawing.add(
-            String(
-                plot_left,
-                14,
-                "Explicit schedule posture only; quiet event gaps are not inferred downtime.",
-                fontName="Helvetica",
-                fontSize=7,
-                fillColor=muted,
-            )
-        )
+        for percent in (0, 25, 50, 75, 100):
+            x = plot_left + plot_width * percent / 100
+            drawing.add(String(x, 25, f"{percent}%", fontName="Helvetica", fontSize=6.7, fillColor=muted, textAnchor="middle"))
+        drawing.add(String(plot_left + plot_width / 2, 8, "Share of the report window", fontName="Helvetica-Bold", fontSize=7.2, fillColor=ink, textAnchor="middle"))
         return drawing
 
     def incident_chart(rows: Sequence[Mapping[str, Any]]) -> Any:
-        width, height = 480, 104
+        width, height = 480, 112
         drawing = Drawing(width, height)
         maximum = max(
             (max(int(row.get("opened", 0)), int(row.get("terminal", 0))) for row in rows),
             default=1,
         )
-        maximum = max(maximum, 1)
-        plot_left, plot_bottom, plot_width, plot_height = 35, 24, 430, 55
+        maximum, ticks = axis_scale(maximum)
+        plot_left, plot_bottom, plot_width, plot_height = 57, 35, 405, 52
         gap = plot_width / max(1, len(rows))
         bar_width = min(19, gap * 0.24)
         drawing.add(
@@ -1389,6 +1676,10 @@ def render_pdf(
                 strokeColor=colors.HexColor("#C6CFD9"),
             )
         )
+        for tick in ticks:
+            y = plot_bottom + plot_height * tick / maximum
+            drawing.add(Rect(plot_left, y, plot_width, 0.35, fillColor=colors.HexColor("#D9E2EC"), strokeColor=None))
+            drawing.add(String(plot_left - 7, y - 2.5, format_tick(tick), fontName="Helvetica", fontSize=6.7, fillColor=muted, textAnchor="end"))
         for index, row in enumerate(rows):
             center = plot_left + gap * index + gap / 2
             for offset, key, color in (
@@ -1410,7 +1701,7 @@ def render_pdf(
             drawing.add(
                 String(
                     center,
-                    10,
+                    20,
                     str(row["date"])[5:],
                     fontName="Helvetica",
                     fontSize=7,
@@ -1418,21 +1709,23 @@ def render_pdf(
                     textAnchor="middle",
                 )
             )
-        drawing.add(Rect(36, 90, 7, 7, fillColor=red, strokeColor=None))
-        drawing.add(String(47, 90, "opened", fontName="Helvetica-Bold", fontSize=7, fillColor=ink))
-        drawing.add(Rect(98, 90, 7, 7, fillColor=teal, strokeColor=None))
-        drawing.add(String(109, 90, "terminal", fontName="Helvetica-Bold", fontSize=7, fillColor=ink))
+        drawing.add(String(plot_left, 99, "Y axis: incident count", fontName="Helvetica-Bold", fontSize=7.2, fillColor=ink))
+        drawing.add(String(plot_left + plot_width / 2, 7, f"Local calendar day ({coverage['timezone']})", fontName="Helvetica-Bold", fontSize=7.2, fillColor=ink, textAnchor="middle"))
         return drawing
 
     def model_cost_chart(rows: Sequence[Mapping[str, Any]]) -> Any:
-        width, height = 480, 142
+        width, height = 480, 158
         drawing = Drawing(width, height)
         maximum = max(
             (float(item["projected_cost_usd_high"]) for item in rows), default=1.0
         )
-        maximum = max(maximum, 0.01)
-        plot_left, plot_bottom, plot_width, plot_height = 70, 23, 385, 98
+        maximum, ticks = axis_scale(max(maximum, 0.01))
+        plot_left, plot_bottom, plot_width, plot_height = 78, 38, 360, 94
         row_height = plot_height / max(1, len(rows))
+        for tick in ticks:
+            x = plot_left + plot_width * tick / maximum
+            drawing.add(Rect(x, plot_bottom, 0.35, plot_height, fillColor=colors.HexColor("#D9E2EC"), strokeColor=None))
+            drawing.add(String(x, 24, f"${format_tick(tick)}", fontName="Helvetica", fontSize=6.5, fillColor=muted, textAnchor="middle"))
         for index, item in enumerate(rows):
             y = plot_bottom + plot_height - (index + 1) * row_height + 5
             low = plot_width * float(item["projected_cost_usd_low"]) / maximum
@@ -1492,32 +1785,30 @@ def render_pdf(
         drawing.add(
             String(
                 plot_left,
-                127,
-                "Projected API-equivalent cost by model (low / base / high)",
+                143,
+                "Projected API-equivalent cost by model",
                 fontName="Helvetica-Bold",
                 fontSize=8,
                 fillColor=navy,
             )
         )
+        drawing.add(String(plot_left + plot_width / 2, 7, "Projected API-equivalent cost (USD)", fontName="Helvetica-Bold", fontSize=7.2, fillColor=ink, textAnchor="middle"))
         return drawing
 
-    story.extend([
-        paragraph("Recorded monitoring activity by day", "H1Custom"),
-        stacked_chart(metrics["daily_activity"]),
-        paragraph("Incident openings and terminal outcomes", "H2Custom"),
-        incident_chart(metrics["daily_incidents"]),
-        posture_box,
-        paragraph("Counts describe supervision activity and outcomes, not the quality or completion of the monitored work.", "Small"),
-    ])
     story.append(PageBreak())
 
-    availability = metrics["availability"]
-    story.append(paragraph("Availability and total monitored time", "H1Custom"))
+    story.append(paragraph("Monitoring time, read reliability, and projected cost", "H1Custom"))
+    story.append(
+        paragraph(
+            "This page separates explicit schedule posture, recorded target-read reliability, and projected resource use. It does not infer continuous process uptime from quiet ledger gaps.",
+            "SubTitle",
+        )
+    )
     availability_rows = [
         ["Total report period", f"{availability['report_period_hours']:.2f} h"],
-        ["Scheduled-active core heartbeat", f"{availability['core_heartbeats_scheduled_active_hours']:.2f} h ({availability['core_heartbeats_scheduled_active_percent']}%)"],
-        ["Explicit core-heartbeat pause", f"{availability['core_heartbeats_explicitly_paused_hours']:.2f} h"],
-        ["Recorded target-read availability", f"{availability['recorded_target_read_availability_percent']}% ({availability['recorded_target_read_successes']} success / {availability['recorded_target_read_failures']} failure)"],
+        ["Scheduled monitoring time", f"{availability['core_heartbeats_scheduled_active_hours']:.2f} h ({availability['core_heartbeats_scheduled_active_percent']}%)"],
+        ["Explicitly paused monitoring time", f"{availability['core_heartbeats_explicitly_paused_hours']:.2f} h"],
+        ["Recorded target-read reliability", f"{availability['recorded_target_read_availability_percent']}% ({availability['recorded_target_read_successes']} successful / {availability['recorded_target_read_failures']} failed reads)"],
         ["Continuous process uptime measured", "No"],
     ]
     availability_table = Table(
@@ -1540,10 +1831,18 @@ def render_pdf(
         Spacer(1, 0.12 * inch),
     ])
 
-    resources = metrics["resource_estimate"]
-    totals = resources["totals"]
     story.append(paragraph("Estimated token use and projected API-equivalent cost", "H1Custom"))
     story.append(model_cost_chart(resources["models"]))
+    story.append(
+        definition_legend(
+            (
+                (navy, "Low estimate", "Lower token multiplier from the versioned estimation profile."),
+                (blue, "Base estimate", "Central API-equivalent projection used in the executive summary."),
+                (colors.HexColor("#DCE8F5"), "High estimate", "Upper token multiplier; still a projection, not billed usage."),
+            ),
+            columns=3,
+        )
+    )
     resource_rows = [[
         paragraph("Model", "TableHeader"),
         paragraph("Records", "TableHeader"),
@@ -1584,60 +1883,52 @@ def render_pdf(
     ]))
     story.extend([
         resource_table,
-        paragraph(resources["method"], "Small"),
-        paragraph(resources["disclaimer"], "Small"),
     ])
-    for item in resources["models"]:
-        story.append(
-            paragraph(
-                f"{item['model']}: {item['api_price_assumption']}; "
-                f"${float(item['input_usd_per_million_tokens']):.2f}/M input, "
-                f"${float(item['output_usd_per_million_tokens']):.2f}/M output; "
-                f"source {item['source_url']}",
-                "Small",
-            )
-        )
     story.append(PageBreak())
 
-    story.append(paragraph("Executive supervisor assessment", "H1Custom"))
-    story.append(paragraph(review["headline"], "H2Custom"))
-    for takeaway in executive_takeaways(review):
-        story.append(Paragraph(f"• {takeaway}", styles["BulletCustom"]))
+    story.append(paragraph("Activity, incidents, and response time", "H1Custom"))
     story.append(
         paragraph(
-            "Scope: this report evaluates the supervisor, its detection and review layers, its interventions, and its operating efficiency. Monitored implementation details are cited only as bounded evidence; they are not recommendations in this report.",
-            "Small",
+            "These charts show ledger-visible supervision activity by local day. Their units and categories describe the monitoring system, not implementation quality.",
+            "SubTitle",
         )
     )
-    story.append(Spacer(1, 0.12 * inch))
-
-    story.append(paragraph("Monitoring tasks and recorded activity", "H1Custom"))
-    task_rows = [[paragraph("Task", "TableHeader"), paragraph("Recorded", "TableHeader"), paragraph("Expected cadence / trigger", "TableHeader")]]
-    for item in metrics["task_activity"]:
-        task_rows.append([paragraph(item["task"], "BodyCustom"), paragraph(item["recorded_count"], "BodyCustom"), paragraph(item["cadence"], "Small")])
-    task_table = Table(task_rows, colWidths=[1.7 * inch, 0.75 * inch, 4.25 * inch], repeatRows=1)
-    task_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), navy),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D9E2EC")),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, mist]),
-        ("LEFTPADDING", (0, 0), (-1, -1), 5),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-    ]))
-    story.extend([task_table, Spacer(1, 0.16 * inch)])
+    story.extend(
+        [
+            paragraph("Recorded monitoring activity by day", "H2Custom"),
+            stacked_chart(metrics["daily_activity"]),
+            definition_legend(
+                (
+                    (blue, "Mechanical", "Scheduled watcher, check, and control records."),
+                    (cyan, "Review", "Semantic, sampled, checkpoint, and effectiveness review records."),
+                    (teal, "Routing", "Handoffs for changed target states and incident evidence."),
+                    (amber, "Intervention", "Incident openings, corrective steers, and terminal resolutions."),
+                    (red, "Communication", "Roundups, approved notifications, and lifecycle communication."),
+                    (colors.HexColor("#6B4FA1"), "Maintenance", "Supervisor policy, skill, and reporting-maintenance records."),
+                ),
+                columns=2,
+            ),
+            paragraph("Incident detection and resolution by day", "H2Custom"),
+            incident_chart(metrics["daily_incidents"]),
+            definition_legend(
+                (
+                    (red, "Detected", "A new material supervision incident opened during the report window."),
+                    (teal, "Resolved / closed", "The incident's first terminal outcome was recorded during the window; this does not mean an implementation Block completed."),
+                ),
+                columns=2,
+            ),
+        ]
+    )
 
     rates = metrics["rates"]
     rate_rows = [
-        ["Incidents / 100 changed-state routes", rates["incidents_per_100_changed_state_routes"]],
-        ["Terminal share of opened incidents", f"{rates['terminal_share_of_opened_percent']}%" if rates["terminal_share_of_opened_percent"] is not None else "n/a"],
-        ["Median detection-to-terminal", f"{rates['incident_detection_to_terminal_median_hours']} h" if rates["incident_detection_to_terminal_median_hours"] is not None else "n/a"],
-        ["P90 detection-to-terminal", f"{rates['incident_detection_to_terminal_p90_hours']} h" if rates["incident_detection_to_terminal_p90_hours"] is not None else "n/a"],
-        ["Open incidents at end", headline["incidents_open_at_end"]],
+        ["Detection yield", f"{rates['incidents_per_100_changed_state_routes']} incidents per 100 routed changed states"],
+        ["Resolved / closed share", f"{rates['terminal_share_of_opened_percent']}% of incidents detected in the period" if rates["terminal_share_of_opened_percent"] is not None else "n/a"],
+        ["Median detection-to-resolution time", f"{rates['incident_detection_to_terminal_median_hours']} h" if rates["incident_detection_to_terminal_median_hours"] is not None else "n/a"],
+        ["P90 detection-to-resolution time", f"{rates['incident_detection_to_terminal_p90_hours']} h" if rates["incident_detection_to_terminal_p90_hours"] is not None else "n/a"],
+        ["Unresolved incidents at cutoff", f"{headline['incidents_open_at_end']} total; {headline['incidents_open_high_or_critical']} high/critical"],
     ]
-    story.append(paragraph("Incident and correction posture", "H1Custom"))
+    story.append(paragraph("Incident response posture", "H2Custom"))
     rate_table = Table([[paragraph(a, "BodyCustom"), paragraph(b, "BodyCustom")] for a, b in rate_rows], colWidths=[4.9 * inch, 1.8 * inch])
     rate_table.setStyle(TableStyle([
         ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D9E2EC")),
@@ -1716,6 +2007,9 @@ def render_pdf(
             story.append(paragraph(f"Source root: {metrics['source']['source_root']}", "Small"))
             story.append(paragraph(f"Source records: {metrics['source']['first_record_id']} through {metrics['source']['last_record_id']} ({metrics['source']['event_count']} records)", "Small"))
             story.append(paragraph("The PDF is a deterministic supervisor-performance projection. It does not direct the monitored implementation, confer tracker completion, or establish patent or legal quality.", "Small"))
+            story.append(paragraph("Resource projection boundary", "H2Custom"))
+            story.append(paragraph(resources["method"], "Small"))
+            story.append(paragraph(resources["disclaimer"], "Small"))
             for item in metrics["limitations"]:
                 story.append(Paragraph(f"• {item}", styles["BulletCustom"]))
 

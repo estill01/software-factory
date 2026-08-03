@@ -15,6 +15,16 @@ import weekly_report
 
 
 TARGET = "target-1234"
+RUNTIME = {
+    "watcher_thread_id": "watcher-1234",
+    "base_reviewer_thread_id": "base-1234",
+    "reviewer_thread_id": "reviewer-1234",
+    "notice_reviewer_thread_id": "notice-1234",
+    "fix_executor_thread_id": "fixer-1234",
+    "roundup_thread_id": "roundup-1234",
+    "gmail_gate_thread_id": "gmail-gate-1234",
+    "gmail_processor_thread_id": "gmail-processor-1234",
+}
 
 
 def event(
@@ -147,7 +157,7 @@ class WeeklyMetricsTests(unittest.TestCase):
             timezone_name="America/Los_Angeles",
             all_events=fixture_events(),
             policy_history=[],
-            current_policy={"policy_sha256": "a" * 64},
+            current_policy={"policy_sha256": "a" * 64, "runtime": RUNTIME},
             projection_inventory={"incident_reports": {"count": 1}},
         )
 
@@ -178,6 +188,11 @@ class WeeklyMetricsTests(unittest.TestCase):
         self.assertGreater(resources["totals"]["projected_cost_usd_base"], 0)
         self.assertFalse(resources["actual_provider_tokens_available"])
         self.assertIn("not provider token telemetry", resources["disclaimer"])
+        roles = metrics["monitoring_roles"]
+        self.assertEqual(roles["configured_thread_count"], 8)
+        self.assertEqual(roles["core_role_count"], 6)
+        self.assertEqual(roles["support_role_count"], 2)
+        self.assertEqual(roles["roles"][0]["recorded_action_count"], 1)
 
     def test_availability_uses_explicit_pause_resume_only(self) -> None:
         events = fixture_events()
@@ -291,8 +306,34 @@ class WeeklyMetricsTests(unittest.TestCase):
                 "SUPERVISION WEEKLY REVIEW", reader.pages[0].extract_text()
             )
             first_page = " ".join(reader.pages[0].extract_text().split())
+            resource_page = " ".join(reader.pages[1].extract_text().split())
+            activity_page = " ".join(reader.pages[2].extract_text().split())
             extracted = "".join(page.extract_text() or "" for page in reader.pages)
-            self.assertIn("Tracker stages monitored", first_page)
+            self.assertIn("Monitored target: Main", first_page)
+            self.assertIn("Scheduled monitoring time", first_page)
+            self.assertIn("Projected API-equivalent cost", first_page)
+            self.assertIn("Incidents resolved / closed", first_page)
+            self.assertIn("What was running", first_page)
+            self.assertIn("Routine watcher", first_page)
+            self.assertIn("Inside this report", first_page)
+            self.assertNotIn("Recorded events", first_page)
+            self.assertNotIn("Changed states", first_page)
+            self.assertNotIn("Recorded monitoring activity by day", first_page)
+            self.assertIn("Y axis: recorded supervision records", extracted)
+            self.assertIn("Local calendar day", extracted)
+            self.assertIn("Mechanical", extracted)
+            self.assertIn("Scheduled watcher, check, and control records", extracted)
+            self.assertIn("Y axis: incident count", extracted)
+            self.assertIn("Resolved / closed", extracted)
+            self.assertIn("Projected API-equivalent cost (USD)", extracted)
+            self.assertLess(
+                activity_page.index("Local calendar day"),
+                activity_page.index("Mechanical"),
+            )
+            self.assertLess(
+                resource_page.index("Projected API-equivalent cost (USD)"),
+                resource_page.index("Low estimate"),
+            )
             self.assertIn("Executive supervisor assessment", extracted)
             self.assertIn("Monitoring machinery evolution", extracted)
             self.assertNotIn("Material line items", extracted)

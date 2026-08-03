@@ -910,16 +910,24 @@ The helper owns four actions:
    files, unknown review evidence, a broken manifest, or an unreadable/empty
    PDF.
 
-The PDF opens with headline statistics and daily activity/incident graphs,
-followed by a short bullet assessment. Availability/runtime and model/token/cost
-projections follow before the detailed cognitive review. Every major review
-domain starts on a new page. Use explicit maintained paragraph styles and
-foreground/background pairs that pass the generator's 4.5:1 contrast floor;
+The PDF opens with an executive dashboard: monitored target, coverage start and
+end, elapsed duration, configured supervision roles and purposes, scheduled
+monitoring time, projected cost, incidents detected/resolved/open, unresolved
+high/critical posture, and a short cognitive assessment. Put a concise table of
+contents at the bottom of that page. Daily monitoring activity and incident
+charts belong on a supporting page, not the cover. Every chart names its units,
+shows readable axis ticks, places its color legend below the plot, and explains
+each category in operator language. Internal counters such as recorded events,
+changed states, tracker stages, or tool changes are supporting diagnostics only;
+they may not appear as unexplained executive metrics. Availability/runtime and
+model/token/cost projections precede the detailed cognitive review. Every major
+review domain starts on a new page. Use explicit maintained paragraph styles
+and foreground/background pairs that pass the generator's 4.5:1 contrast floor;
 table-level color declarations may not substitute for paragraph text color.
 Do not reproduce implementation line items or lead with a long executive
 narrative. Report total elapsed hours, explicitly scheduled-active and
 explicitly paused core-heartbeat hours, pause intervals, and recorded
-target-read success/failure availability.
+target-read success/failure reliability.
 Do not infer continuous process uptime or downtime from quiet event gaps because
 an unchanged no-op wake may intentionally emit no ledger event. State explicitly
 when continuous uptime is not measured.
