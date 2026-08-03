@@ -33,6 +33,11 @@ rather than recreating the document shape from memory.
 
 1. State the intended outcome and concrete completion definition before listing
    implementation activity.
+   Define one tracker-level mission frame containing the primary outcome,
+   observable completion, ordinary effect classes needed to achieve it, hard
+   direct authority or safety boundaries, and changes that would materially
+   alter or reverse the goal. Keep the semantic frame in the tracker rather
+   than duplicating it in every Block.
 2. Describe the target architecture and existing owners narrowly enough to
    prevent duplicate authority.
 3. Map predecessor work and source adaptations when they affect implementation;
@@ -107,6 +112,10 @@ rather than recreating the document shape from memory.
     conversations. In supervised runs, cross-thread sends use the supervision
     policy's exact action-routing gate; user-facing email uses only its
     maintained notification gates.
+19. Make every operation-specific hold state its exact operation or Block scope,
+    expiry event, successor posture, and default non-carry-forward. A satisfied
+    hold remains historical evidence; it does not silently constrain a later
+    operation or successor Block.
 
 Use concise boilerplate. Do not duplicate a global rule inside every block;
 reference the governing section and add only the block-specific consequence.
@@ -130,6 +139,9 @@ Before finalizing each Block, apply this feature-creep test:
 - If input genuinely remains necessary, does the tracker isolate its exact
   dependency cone and let every independent safe slice continue without false
   acceptance or provisional authority effects?
+- Does the tracker-level mission frame keep subordinate process controls from
+  changing the primary outcome, and does every temporary hold expire without
+  inferred carry-forward?
 
 If any answer is no, narrow the Block, reuse the owner, defer the adjacent work,
 or create a later single-focused Block when that work is genuinely required.

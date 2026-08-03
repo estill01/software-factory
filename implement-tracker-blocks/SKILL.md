@@ -50,6 +50,21 @@ binding before starting the expensive computation. If valid proof output
 already exists and only reporting fails, freeze and reuse that output and rerun
 only reporting; never rerun the producer solely for a reporting failure.
 
+Preserve authority provenance exactly. A `codex_delegation` packet routes a
+source instruction; it is not direct user speech and must never be relabeled as
+such. Before classifying `reserved-authority`, cite the exact current controlling
+user, system, repository, or tracker source and prove that it still applies.
+Retire a satisfied operation- or Block-scoped containment at its stated expiry;
+keep it only as history, with no inferred carry-forward across a Block,
+compaction, or later operation. A frozen checkpoint normally fixes its
+predecessor for proof, not every successor revision, and `do not rerun X`
+constrains exact X rather than a later operation absent an exact current source.
+If carried process language disables an ordinary means needed for the requested
+outcome or makes the mission self-defeating, challenge the scope and provenance
+before recording a decision. Tests, audits, hashes, monitoring, and process
+preservation support proof; they never substitute for the requested substantive
+outcome.
+
 Preflight the current Block and its next eligible dependent Block for an
 actually non-delegable decision. Tracker wording that assigns `responsible
 human adoption` or requests confirmation is not by itself controlling proof of

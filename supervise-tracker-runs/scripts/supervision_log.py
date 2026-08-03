@@ -104,6 +104,34 @@ DECISION_PHASES = {
 }
 SAFE_FRONTIER_POSTURES = {"empty", "nonempty"}
 DECISION_OUTCOMES = {"", "selected", "safe-deferred", "user-supplied"}
+AUTHORITY_SOURCE_CLASSES = {
+    "direct-user",
+    "system",
+    "repository",
+    "tracker",
+    "supervisor-steer",
+    "codex_delegation",
+    "derived-inference",
+}
+DIRECT_AUTHORITY_SOURCE_CLASSES = {
+    "direct-user",
+    "system",
+    "repository",
+    "tracker",
+}
+MISSION_IMPACT_CLASSES = {"local", "material", "goal-blocking", "goal-reversing"}
+REVERSIBILITY_POSTURES = {"reversible", "conditional", "irreversible"}
+MISSION_IMPACT_FIELDS = (
+    "mission_root",
+    "authority_source_class",
+    "authority_source_record",
+    "impact_class",
+    "affected_width",
+    "duration",
+    "reversibility",
+    "ordinary_means_disabled",
+    "independent_mission_review",
+)
 THREAD_ROUTE_PURPOSE_ROLES = {
     "changed-state-review": ("base_reviewer",),
     "fix-execution": ("fix_executor",),
@@ -203,6 +231,66 @@ def cross_thread_routing_contract() -> dict[str, Any]:
         "routine_status_behavior": "remain-in-target-thread",
         "email_behavior": "existing-notification-gates-only",
     }
+
+
+def mission_binding_contract(
+    mission_root: str, mission_source_record: str
+) -> dict[str, Any]:
+    return {
+        "mission_root": mission_root,
+        "mission_source_record": mission_source_record,
+        "semantic_owner": "target-or-tracker",
+        "frame_fields": [
+            "primary-outcome",
+            "ordinary-effect-classes",
+            "hard-direct-authority-and-safety-boundaries",
+            "acceptance-and-stop-boundary",
+        ],
+        "primary_mission_governs_subordinate_process": True,
+        "aggregate_score": False,
+    }
+
+
+def mission_binding_from_args(
+    args: argparse.Namespace, *, required: bool
+) -> dict[str, Any] | None:
+    mission_root = clean(
+        getattr(args, "mission_root", None), label="mission root", maximum=128
+    )
+    mission_source_record = clean(
+        getattr(args, "mission_source_record", None),
+        label="mission source record",
+        maximum=128,
+    )
+    if bool(mission_root) != bool(mission_source_record):
+        raise SupervisionLogError(
+            "Mission binding requires both an exact mission root and source record"
+        )
+    if required and not mission_root:
+        raise SupervisionLogError(
+            "New supervision requires an exact mission root and source record"
+        )
+    if not mission_root:
+        return None
+    safe_id(mission_root, label="mission root")
+    safe_id(mission_source_record, label="mission source record")
+    return mission_binding_contract(mission_root, mission_source_record)
+
+
+def bound_mission(policy: dict[str, Any]) -> dict[str, Any] | None:
+    binding = policy.get("mission_binding")
+    if not isinstance(binding, dict):
+        return None
+    root = binding.get("mission_root")
+    source = binding.get("mission_source_record")
+    if (
+        not isinstance(root, str)
+        or not root
+        or not isinstance(source, str)
+        or not source
+    ):
+        return None
+    return binding
 
 
 def legacy_single_role_cross_thread_routing_contract() -> dict[str, Any]:
@@ -496,6 +584,9 @@ def default_policy(args: argparse.Namespace) -> dict[str, Any]:
         },
         "created_at": utc_now(),
     }
+    mission_binding = mission_binding_from_args(args, required=False)
+    if mission_binding is not None:
+        policy["mission_binding"] = mission_binding
     policy["policy_sha256"] = digest(policy)
     return policy
 
@@ -510,6 +601,22 @@ def validate_policy(policy: dict[str, Any]) -> None:
         raise SupervisionLogError("Supervision policy hash is stale")
     if policy.get("schema_version") != 1:
         raise SupervisionLogError("Unsupported supervision policy schema")
+    mission_binding = policy.get("mission_binding")
+    if mission_binding is not None:
+        if not isinstance(mission_binding, dict):
+            raise SupervisionLogError("Mission binding is not an object")
+        mission_root = mission_binding.get("mission_root")
+        mission_source_record = mission_binding.get("mission_source_record")
+        if not isinstance(mission_root, str) or not mission_root:
+            raise SupervisionLogError("Mission binding lacks an exact root")
+        if not isinstance(mission_source_record, str) or not mission_source_record:
+            raise SupervisionLogError("Mission binding lacks an exact source record")
+        safe_id(mission_root, label="mission root")
+        safe_id(mission_source_record, label="mission source record")
+        if mission_binding != mission_binding_contract(
+            mission_root, mission_source_record
+        ):
+            raise SupervisionLogError("Mission binding contract differs")
     maintenance = policy.get("skill_maintenance")
     if maintenance is not None:
         if maintenance.get("mode") not in SKILL_MAINTENANCE_MODES:
@@ -689,6 +796,7 @@ def append_markdown(path: Path, record: dict[str, Any], *, create: bool) -> None
 
 
 def cmd_init(args: argparse.Namespace) -> None:
+    mission_binding_from_args(args, required=True)
     directory = target_dir(args)
     directory.mkdir(parents=True, exist_ok=True)
     os.chmod(directory, 0o700)
@@ -705,6 +813,8 @@ def cmd_init(args: argparse.Namespace) -> None:
         for key in ("watcher_thread_id", "reviewer_thread_id"):
             if policy.get("runtime", {}).get(key) != expected["runtime"][key]:
                 raise SupervisionLogError(f"Existing policy conflicts on runtime {key}")
+        if policy.get("mission_binding") != expected.get("mission_binding"):
+            raise SupervisionLogError("Existing policy conflicts on mission binding")
         print(json.dumps({"created": False, "policy": policy}, sort_keys=True))
         return
     policy = default_policy(args)
@@ -773,6 +883,14 @@ def cmd_bind(args: argparse.Namespace) -> None:
         "roundup_automation_id": args.roundup_automation,
     }
     changed = ensure_execution_economy_policy(policy)
+    requested_mission = mission_binding_from_args(args, required=False)
+    current_mission = bound_mission(policy)
+    if requested_mission is not None:
+        if current_mission is not None and current_mission != requested_mission:
+            raise SupervisionLogError("Mission binding already differs")
+        if current_mission is None:
+            policy["mission_binding"] = requested_mission
+            changed = True
     for key, raw in updates.items():
         if not raw:
             continue
@@ -1043,6 +1161,147 @@ def cmd_bind(args: argparse.Namespace) -> None:
     print(json.dumps({"changed": changed, "policy": policy}, sort_keys=True))
 
 
+def yes_no_value(raw: str | None, *, label: str) -> bool:
+    if raw not in {"yes", "no"}:
+        raise SupervisionLogError(f"{label} requires yes or no")
+    return raw == "yes"
+
+
+def mission_impact_from_args(
+    args: argparse.Namespace, policy: dict[str, Any]
+) -> dict[str, Any]:
+    binding = bound_mission(policy)
+    if binding is None:
+        raise SupervisionLogError(
+            "Consequential action requires an exact bound mission; run bind with its source and root"
+        )
+    mission_root = clean(
+        getattr(args, "mission_root", None), label="mission root", maximum=128
+    )
+    if not mission_root:
+        raise SupervisionLogError("Mission impact requires an exact mission root")
+    if mission_root != binding["mission_root"]:
+        raise SupervisionLogError("Mission impact cites a stale mission root")
+    authority_source_class = getattr(args, "authority_source_class", None)
+    if authority_source_class not in AUTHORITY_SOURCE_CLASSES:
+        raise SupervisionLogError("Mission impact requires an authority source class")
+    authority_source_record = clean(
+        getattr(args, "authority_source_record", None),
+        label="authority source record",
+        maximum=128,
+    )
+    if not authority_source_record:
+        raise SupervisionLogError("Mission impact requires an exact authority source record")
+    safe_id(authority_source_record, label="authority source record")
+    impact_class = getattr(args, "impact_class", None)
+    if impact_class not in MISSION_IMPACT_CLASSES:
+        raise SupervisionLogError("Mission impact requires an impact class")
+    affected_width = clean(
+        getattr(args, "affected_width", None),
+        label="affected width",
+        maximum=160,
+    )
+    duration = clean(
+        getattr(args, "duration", None), label="duration", maximum=160
+    )
+    reversibility = getattr(args, "reversibility", None)
+    if not affected_width or not duration:
+        raise SupervisionLogError("Mission impact requires affected width and duration")
+    if reversibility not in REVERSIBILITY_POSTURES:
+        raise SupervisionLogError("Mission impact requires a reversibility posture")
+    return {
+        "mission_root": mission_root,
+        "authority_source_class": authority_source_class,
+        "authority_source_record": authority_source_record,
+        "impact_class": impact_class,
+        "affected_width": affected_width,
+        "duration": duration,
+        "reversibility": reversibility,
+        "ordinary_means_disabled": yes_no_value(
+            getattr(args, "ordinary_means_disabled", None),
+            label="ordinary means disabled",
+        ),
+        "independent_mission_review": yes_no_value(
+            getattr(args, "independent_mission_review", None),
+            label="independent mission review",
+        ),
+    }
+
+
+def containment_envelope_from_args(
+    args: argparse.Namespace, policy: dict[str, Any]
+) -> dict[str, Any]:
+    impact = mission_impact_from_args(args, policy)
+    operation_scope = clean(
+        getattr(args, "operation_scope", None),
+        label="operation scope",
+        maximum=160,
+    )
+    block_scope = clean(
+        getattr(args, "block_scope", None), label="Block scope", maximum=80
+    )
+    scope_identity = clean(
+        getattr(args, "scope_identity", None),
+        label="scope identity",
+        maximum=128,
+    )
+    expiry_event = clean(
+        getattr(args, "expiry_event", None), label="expiry event", maximum=128
+    )
+    if not operation_scope and not block_scope:
+        raise SupervisionLogError(
+            "Containment requires an exact operation or Block scope"
+        )
+    if not scope_identity or not expiry_event:
+        raise SupervisionLogError(
+            "Containment requires a content-minimized scope identity and expiry event"
+        )
+    safe_id(scope_identity, label="containment scope identity")
+    safe_id(expiry_event, label="containment expiry event")
+    carry_forward = getattr(args, "carry_forward", None)
+    successor_effects = getattr(args, "successor_effects", None)
+    if carry_forward != "false":
+        raise SupervisionLogError("Containment must set carry-forward=false")
+    if successor_effects != "allowed":
+        raise SupervisionLogError("Containment must allow successor effects")
+    severity = getattr(args, "severity", "info")
+    incident = getattr(args, "incident_id", None)
+    if impact["impact_class"] == "goal-reversing":
+        raise SupervisionLogError("A supervisor containment cannot reverse the mission goal")
+    if (
+        impact["ordinary_means_disabled"] is True
+        and impact["independent_mission_review"] is not True
+    ):
+        raise SupervisionLogError(
+            "Containment that disables an ordinary mission means requires independent review"
+        )
+    if impact["impact_class"] == "goal-blocking":
+        if severity != "critical" or not incident:
+            raise SupervisionLogError(
+                "A goal-blocking hold requires one exact critical incident"
+            )
+        safe_id(incident, label="incident ID")
+        if not operation_scope or block_scope:
+            raise SupervisionLogError(
+                "A goal-blocking hold is limited to one exact operation"
+            )
+        if impact["independent_mission_review"] is not True:
+            raise SupervisionLogError(
+                "A goal-blocking hold requires independent mission-level review"
+            )
+    return {
+        **impact,
+        "operation_scope": operation_scope,
+        "block_scope": block_scope,
+        "scope_identity": scope_identity,
+        "expiry_event": expiry_event,
+        "carry_forward": False,
+        "successor_effects": "allowed",
+        "incident_id": incident or "",
+        "severity": severity,
+    }
+
+
 def cmd_thread_route_gate(args: argparse.Namespace) -> None:
     _, policy = load_policy(args)
     routing = policy.get("cross_thread_routing")
@@ -1084,21 +1343,28 @@ def cmd_thread_route_gate(args: argparse.Namespace) -> None:
             "Cross-thread purpose does not match the configured recipient role"
         )
 
-    print(
-        json.dumps(
-            {
-                "send_allowed": True,
-                "target_thread_id": policy["target_thread_id"],
-                "recipient_thread_id": recipient,
-                "recipient_role": recipient_role,
-                "purpose": args.purpose,
-                "source_record": source_record,
-                "action_sha256": digest(action),
-                "policy_sha256": policy["policy_sha256"],
-            },
-            sort_keys=True,
-        )
-    )
+    containment = None
+    if getattr(args, "containment", False):
+        if args.purpose != "target-action" or recipient_role != "target":
+            raise SupervisionLogError(
+                "Containment is permitted only for an exact target action"
+            )
+        containment = containment_envelope_from_args(args, policy)
+
+    result = {
+        "send_allowed": True,
+        "target_thread_id": policy["target_thread_id"],
+        "recipient_thread_id": recipient,
+        "recipient_role": recipient_role,
+        "purpose": args.purpose,
+        "source_record": source_record,
+        "action_sha256": digest(action),
+        "policy_sha256": policy["policy_sha256"],
+    }
+    if containment is not None:
+        result["containment"] = containment
+        result["containment_sha256"] = digest(containment)
+    print(json.dumps(result, sort_keys=True))
 
 
 def is_completion_check(item: dict[str, Any]) -> bool:
@@ -1212,6 +1478,12 @@ def cmd_record(args: argparse.Namespace) -> None:
     }
     if args.severity not in SEVERITIES:
         raise SupervisionLogError("Unsupported severity")
+    if getattr(args, "containment", False):
+        if args.kind not in {"incident", "steer"}:
+            raise SupervisionLogError(
+                "Structured containment evidence requires an incident or steer record"
+            )
+        record["containment"] = containment_envelope_from_args(args, policy)
     with append_lock(directory):
         current_events = events(directory / "events.jsonl")
         if args.kind in {"lifecycle", "incident", "notification", "inbound-message"} and record["dedup_key"]:
@@ -1795,6 +2067,27 @@ def cmd_decision_record(args: argparse.Namespace) -> None:
     outcome = args.outcome
     attempt = int(args.attempt)
     contract = policy["decision_resolution"]
+    mission_impact = mission_impact_from_args(args, policy)
+    if (
+        classification == "reserved-authority"
+        and mission_impact["authority_source_class"]
+        not in DIRECT_AUTHORITY_SOURCE_CLASSES
+    ):
+        raise SupervisionLogError(
+            "Reserved authority requires an exact direct-user, system, repository, or tracker source"
+        )
+    if (
+        mission_impact["impact_class"] in {"goal-blocking", "goal-reversing"}
+        or mission_impact["ordinary_means_disabled"] is True
+    ):
+        if (
+            mission_impact["authority_source_class"]
+            not in DIRECT_AUTHORITY_SOURCE_CLASSES
+            or mission_impact["independent_mission_review"] is not True
+        ):
+            raise SupervisionLogError(
+                "Consequential decisions require direct authority and independent mission-level review"
+            )
     if attempt < 0 or attempt > int(contract["max_attempts"]):
         raise SupervisionLogError("Decision attempt is outside the maintained bound")
     evidence_values = [
@@ -1817,6 +2110,20 @@ def cmd_decision_record(args: argparse.Namespace) -> None:
         all_events = events(directory / "events.jsonl")
         prior_records = decision_events(all_events, decision_id)
         prior = prior_records[-1] if prior_records else None
+        if prior is not None:
+            prior_mission_fields = [
+                field in prior for field in MISSION_IMPACT_FIELDS
+            ]
+            if any(prior_mission_fields) and not all(prior_mission_fields):
+                raise SupervisionLogError(
+                    "Legacy decision mission provenance is incomplete"
+                )
+            if all(prior_mission_fields):
+                for field in MISSION_IMPACT_FIELDS:
+                    if prior.get(field) != mission_impact[field]:
+                        raise SupervisionLogError(
+                            "Decision transitions must preserve mission impact and authority provenance"
+                        )
         if (
             prior is not None
             and prior.get("classification") == classification
@@ -1834,6 +2141,10 @@ def cmd_decision_record(args: argparse.Namespace) -> None:
             and prior.get("blocked_scope_hash") == args.blocked_scope_hash
             and prior.get("safe_frontier_hash") == args.safe_frontier_hash
             and prior.get("evidence") == evidence_values
+            and all(
+                prior.get(field) == mission_impact[field]
+                for field in MISSION_IMPACT_FIELDS
+            )
         ):
             print(
                 json.dumps(
@@ -1952,6 +2263,7 @@ def cmd_decision_record(args: argparse.Namespace) -> None:
             ),
             "evidence": evidence_values,
             "policy_sha256": policy["policy_sha256"],
+            **mission_impact,
         }
         append_raw_locked(directory / "events.jsonl", record)
     print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
@@ -1964,7 +2276,9 @@ def decision_notification(
     action: str,
 ) -> dict[str, Any]:
     phase = ""
-    if head["classification"] == "delegable":
+    if action == "challenge-mission-provenance":
+        phase = ""
+    elif head["classification"] == "delegable":
         phase = ""
     elif head["phase"] == "attempt-unresolved" and int(head["attempt"]) == 1:
         phase = "human-input-requested"
@@ -2036,6 +2350,35 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
     attempt = int(head.get("attempt", 0))
     safe_work = head.get("safe_frontier") == "nonempty"
     contract = policy["decision_resolution"]
+    binding = bound_mission(policy)
+    mission_binding_valid = bool(
+        binding is not None and head.get("mission_root") == binding["mission_root"]
+    )
+    authority_source_class = str(head.get("authority_source_class", ""))
+    authority_provenance_valid = bool(
+        authority_source_class in AUTHORITY_SOURCE_CLASSES
+        and head.get("authority_source_record")
+        and (
+            classification != "reserved-authority"
+            or authority_source_class in DIRECT_AUTHORITY_SOURCE_CLASSES
+        )
+    )
+    impact_class = str(head.get("impact_class", ""))
+    mission_challenge_valid = bool(
+        (
+            impact_class not in {"goal-blocking", "goal-reversing"}
+            and head.get("ordinary_means_disabled") is not True
+        )
+        or (
+            authority_source_class in DIRECT_AUTHORITY_SOURCE_CLASSES
+            and head.get("independent_mission_review") is True
+        )
+    )
+    consequential = bool(
+        classification in {"missing-fact", "reserved-authority"}
+        or impact_class in {"goal-blocking", "goal-reversing"}
+        or head.get("ordinary_means_disabled") is True
+    )
     if phase == "decision-ready":
         if classification == "delegable":
             action = "resolve-immediately-and-continue"
@@ -2067,12 +2410,21 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
         action = "await-target-evidence-and-continue-safe-frontier"
     else:
         action = "closed"
+    if consequential and not (
+        mission_binding_valid
+        and authority_provenance_valid
+        and mission_challenge_valid
+    ):
+        action = "challenge-mission-provenance"
     next_attempt = attempt + 1 if action == "start-sol-max-attempt" else attempt
     blocking_permitted = bool(
         phase in {"handoff-sent", "target-acknowledged"}
         and head.get("outcome") == "safe-deferred"
         and not safe_work
         and classification in {"missing-fact", "reserved-authority"}
+        and mission_binding_valid
+        and authority_provenance_valid
+        and mission_challenge_valid
     )
     result = {
         "decision_id": decision_id,
@@ -2097,7 +2449,13 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
         "human_input_requested_at": head.get("human_input_requested_at", ""),
         "user_deadline_at": head.get("user_deadline_at", ""),
         "policy_sha256": policy["policy_sha256"],
+        "mission_binding_valid": mission_binding_valid,
+        "authority_provenance_valid": authority_provenance_valid,
+        "mission_challenge_valid": mission_challenge_valid,
+        "consequential": consequential,
     }
+    for field in MISSION_IMPACT_FIELDS:
+        result[field] = head.get(field)
     result.update(decision_notification(policy, all_events, head, action))
     print(json.dumps(result, sort_keys=True))
 
@@ -2427,6 +2785,8 @@ def parser() -> argparse.ArgumentParser:
     init.add_argument("--base-reviewer-thread")
     init.add_argument("--notice-reviewer-thread")
     init.add_argument("--fix-executor-thread")
+    init.add_argument("--mission-root", required=True)
+    init.add_argument("--mission-source-record", required=True)
     init.set_defaults(func=cmd_init)
 
     bind = subparsers.add_parser("bind")
@@ -2451,6 +2811,8 @@ def parser() -> argparse.ArgumentParser:
     bind.add_argument("--gmail-roundup-reply-message-id")
     bind.add_argument("--gmail-roundup-project-key")
     bind.add_argument("--gmail-roundup-subject")
+    bind.add_argument("--mission-root")
+    bind.add_argument("--mission-source-record")
     bind.set_defaults(func=cmd_bind)
 
     gate = subparsers.add_parser("gate")
@@ -2471,6 +2833,38 @@ def parser() -> argparse.ArgumentParser:
     )
     thread_route_gate.add_argument("--source-record", required=True)
     thread_route_gate.add_argument("--action", required=True)
+    thread_route_gate.add_argument("--containment", action="store_true")
+    thread_route_gate.add_argument("--mission-root")
+    thread_route_gate.add_argument(
+        "--authority-source-class", choices=sorted(AUTHORITY_SOURCE_CLASSES)
+    )
+    thread_route_gate.add_argument("--authority-source-record")
+    thread_route_gate.add_argument(
+        "--impact-class", choices=sorted(MISSION_IMPACT_CLASSES)
+    )
+    thread_route_gate.add_argument("--affected-width")
+    thread_route_gate.add_argument("--duration")
+    thread_route_gate.add_argument(
+        "--reversibility", choices=sorted(REVERSIBILITY_POSTURES)
+    )
+    thread_route_gate.add_argument(
+        "--ordinary-means-disabled", choices=["yes", "no"]
+    )
+    thread_route_gate.add_argument(
+        "--independent-mission-review", choices=["yes", "no"]
+    )
+    thread_route_gate.add_argument("--operation-scope")
+    thread_route_gate.add_argument("--block-scope")
+    thread_route_gate.add_argument("--scope-identity")
+    thread_route_gate.add_argument("--expiry-event")
+    thread_route_gate.add_argument("--carry-forward", choices=["true", "false"])
+    thread_route_gate.add_argument(
+        "--successor-effects", choices=["allowed", "blocked"]
+    )
+    thread_route_gate.add_argument(
+        "--severity", choices=sorted(SEVERITIES), default="info"
+    )
+    thread_route_gate.add_argument("--incident-id")
     thread_route_gate.set_defaults(func=cmd_thread_route_gate)
 
     record = subparsers.add_parser("record")
@@ -2495,6 +2889,24 @@ def parser() -> argparse.ArgumentParser:
     record.add_argument("--notice-disposition", choices=["", *sorted(NOTICE_DISPOSITIONS)], default="")
     record.add_argument("--resolution-owner", choices=["", *sorted(RESOLUTION_OWNERS)], default="")
     record.add_argument("--user-action-required", choices=["", "yes", "no"], default="")
+    record.add_argument("--containment", action="store_true")
+    record.add_argument("--mission-root")
+    record.add_argument(
+        "--authority-source-class", choices=sorted(AUTHORITY_SOURCE_CLASSES)
+    )
+    record.add_argument("--authority-source-record")
+    record.add_argument("--impact-class", choices=sorted(MISSION_IMPACT_CLASSES))
+    record.add_argument("--affected-width")
+    record.add_argument("--duration")
+    record.add_argument("--reversibility", choices=sorted(REVERSIBILITY_POSTURES))
+    record.add_argument("--ordinary-means-disabled", choices=["yes", "no"])
+    record.add_argument("--independent-mission-review", choices=["yes", "no"])
+    record.add_argument("--operation-scope")
+    record.add_argument("--block-scope")
+    record.add_argument("--scope-identity")
+    record.add_argument("--expiry-event")
+    record.add_argument("--carry-forward", choices=["true", "false"])
+    record.add_argument("--successor-effects", choices=["allowed", "blocked"])
     record.set_defaults(func=cmd_record)
 
     notice_gate = subparsers.add_parser("notice-gate")
@@ -2533,6 +2945,27 @@ def parser() -> argparse.ArgumentParser:
     decision_record.add_argument("--safe-frontier-hash", required=True)
     decision_record.add_argument("--state-fingerprint", default="")
     decision_record.add_argument("--evidence", action="append", required=True)
+    decision_record.add_argument("--mission-root", required=True)
+    decision_record.add_argument(
+        "--authority-source-class",
+        choices=sorted(AUTHORITY_SOURCE_CLASSES),
+        required=True,
+    )
+    decision_record.add_argument("--authority-source-record", required=True)
+    decision_record.add_argument(
+        "--impact-class", choices=sorted(MISSION_IMPACT_CLASSES), required=True
+    )
+    decision_record.add_argument("--affected-width", required=True)
+    decision_record.add_argument("--duration", required=True)
+    decision_record.add_argument(
+        "--reversibility", choices=sorted(REVERSIBILITY_POSTURES), required=True
+    )
+    decision_record.add_argument(
+        "--ordinary-means-disabled", choices=["yes", "no"], required=True
+    )
+    decision_record.add_argument(
+        "--independent-mission-review", choices=["yes", "no"], required=True
+    )
     decision_record.add_argument("--now")
     decision_record.set_defaults(func=cmd_decision_record)
 

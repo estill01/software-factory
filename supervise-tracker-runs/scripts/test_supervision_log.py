@@ -7,7 +7,7 @@ import io
 import json
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -672,6 +672,7 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
         self.assertFalse(policy["permissions"]["allowlisted_skill_maintenance"])
         self.assertFalse(policy["permissions"]["gmail_priority_notification"])
         self.assertFalse(policy["notifications"]["gmail_priority"]["enabled"])
+        self.assertNotIn("mission_binding", policy)
         write.assert_called_once()
 
     def test_skill_maintenance_mode_change_requires_evidence(self) -> None:
@@ -931,6 +932,331 @@ class CrossThreadRoutingGateTests(unittest.TestCase):
                 recipient="target-1234",
                 purpose="routine-status",
             )
+
+
+class MissionContainmentContractTests(unittest.TestCase):
+    target = "target-1234"
+    mission_root = "m" * 64
+
+    def init_args(self, *, bound: bool = True) -> argparse.Namespace:
+        values: dict[str, object] = {
+            "target_thread": self.target,
+            "target_label": "target",
+            "watcher_thread": "watcher-1234",
+            "reviewer_thread": "reviewer-1234",
+            "base_reviewer_thread": "base-1234",
+            "notice_reviewer_thread": None,
+            "fix_executor_thread": "fixer-1234",
+        }
+        if bound:
+            values.update(
+                mission_root=self.mission_root,
+                mission_source_record="TRACKER-MISSION-1234",
+            )
+        return argparse.Namespace(**values)
+
+    def policy(self, *, bound: bool = True) -> dict[str, object]:
+        return supervision_log.default_policy(self.init_args(bound=bound))
+
+    def containment_args(self, *extra: str) -> argparse.Namespace:
+        return supervision_log.parser().parse_args(
+            [
+                "thread-route-gate",
+                "--target-thread",
+                self.target,
+                "--recipient-thread",
+                self.target,
+                "--purpose",
+                "target-action",
+                "--source-record",
+                "EVT-ROUTE-1234",
+                "--action",
+                "Hold one exact operation until its stop event.",
+                "--containment",
+                "--mission-root",
+                self.mission_root,
+                "--authority-source-class",
+                "supervisor-steer",
+                "--authority-source-record",
+                "EVT-STEER-1234",
+                "--impact-class",
+                "material",
+                "--affected-width",
+                "one-operation",
+                "--duration",
+                "until-stop-event",
+                "--reversibility",
+                "reversible",
+                "--ordinary-means-disabled",
+                "no",
+                "--independent-mission-review",
+                "no",
+                "--operation-scope",
+                "operation-a",
+                "--scope-identity",
+                "scope-a-1234",
+                "--expiry-event",
+                "EVENT-STOP-1234",
+                "--carry-forward",
+                "false",
+                "--successor-effects",
+                "allowed",
+                *extra,
+            ]
+        )
+
+    def route(
+        self, args: argparse.Namespace, policy: dict[str, object]
+    ) -> dict[str, object]:
+        output = io.StringIO()
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(Path("/tmp/supervision-test"), policy),
+            ),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_thread_route_gate(args)
+        return json.loads(output.getvalue())
+
+    def test_future_init_requires_and_records_exact_mission_binding(self) -> None:
+        with self.assertRaises(SystemExit):
+            with redirect_stderr(io.StringIO()), redirect_stdout(io.StringIO()):
+                supervision_log.parser().parse_args(
+                    [
+                        "init",
+                        "--target-thread",
+                        self.target,
+                        "--target-label",
+                        "target",
+                        "--watcher-thread",
+                        "watcher-1234",
+                        "--reviewer-thread",
+                        "reviewer-1234",
+                    ]
+                )
+
+        policy = self.policy()
+        self.assertEqual(policy["mission_binding"]["mission_root"], self.mission_root)
+        self.assertEqual(
+            policy["mission_binding"]["mission_source_record"],
+            "TRACKER-MISSION-1234",
+        )
+        self.assertFalse(policy["mission_binding"]["aggregate_score"])
+
+    def test_legacy_policy_upgrades_only_with_exact_bind_pair(self) -> None:
+        policy = self.policy(bound=False)
+        self.assertNotIn("mission_binding", policy)
+        incomplete = supervision_log.parser().parse_args(
+            ["bind", "--target-thread", self.target, "--mission-root", self.mission_root]
+        )
+        with mock.patch.object(
+            supervision_log,
+            "load_policy",
+            return_value=(Path("/tmp/supervision-test"), policy),
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "requires both"
+            ):
+                supervision_log.cmd_bind(incomplete)
+
+        complete = supervision_log.parser().parse_args(
+            [
+                "bind",
+                "--target-thread",
+                self.target,
+                "--mission-root",
+                self.mission_root,
+                "--mission-source-record",
+                "TRACKER-MISSION-1234",
+            ]
+        )
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(Path("/tmp/supervision-test"), policy),
+            ),
+            mock.patch.object(supervision_log, "write_policy_version") as write,
+            redirect_stdout(io.StringIO()),
+        ):
+            supervision_log.cmd_bind(complete)
+        self.assertEqual(policy["mission_binding"]["mission_root"], self.mission_root)
+        write.assert_called_once()
+
+    def test_policy_validation_rejects_mission_contract_drift(self) -> None:
+        policy = self.policy()
+        policy["mission_binding"]["aggregate_score"] = True
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "Mission binding contract differs"
+        ):
+            supervision_log.validate_policy(policy)
+
+    def test_unbound_policy_allows_observation_and_simple_target_action(self) -> None:
+        policy = self.policy(bound=False)
+        route = supervision_log.parser().parse_args(
+            [
+                "thread-route-gate",
+                "--target-thread",
+                self.target,
+                "--recipient-thread",
+                self.target,
+                "--purpose",
+                "target-action",
+                "--source-record",
+                "EVT-ROUTE-1234",
+                "--action",
+                "Apply one simple bounded correction.",
+            ]
+        )
+        self.assertTrue(self.route(route, policy)["send_allowed"])
+
+        gate = argparse.Namespace(
+            target_thread=self.target,
+            state_fingerprint="state-1234",
+            thread_updated_at="",
+            thread_status="",
+            active_block="",
+            latest_item="",
+            checkpoint="",
+        )
+        output = io.StringIO()
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(Path("/tmp/supervision-test"), policy),
+            ),
+            mock.patch.object(supervision_log, "events", return_value=[]),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_gate(gate)
+        self.assertTrue(json.loads(output.getvalue())["changed"])
+
+    def test_consequential_containment_requires_current_complete_envelope(self) -> None:
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "exact bound mission"
+        ):
+            self.route(self.containment_args(), self.policy(bound=False))
+
+        stale = self.containment_args()
+        stale.mission_root = "n" * 64
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "stale mission root"
+        ):
+            self.route(stale, self.policy())
+
+        cases = {
+            "operation_scope": None,
+            "scope_identity": None,
+            "expiry_event": None,
+            "carry_forward": "true",
+            "successor_effects": "blocked",
+        }
+        for field, value in cases.items():
+            with self.subTest(field=field):
+                args = self.containment_args()
+                setattr(args, field, value)
+                with self.assertRaises(supervision_log.SupervisionLogError):
+                    self.route(args, self.policy())
+
+    def test_bounded_operation_hold_expires_without_blocking_successor(self) -> None:
+        first = self.route(self.containment_args(), self.policy())
+        successor_args = self.containment_args()
+        successor_args.operation_scope = "operation-b"
+        successor_args.scope_identity = "scope-b-1234"
+        successor_args.expiry_event = "EVENT-STOP-5678"
+        successor = self.route(successor_args, self.policy())
+
+        self.assertTrue(first["send_allowed"])
+        self.assertTrue(successor["send_allowed"])
+        self.assertFalse(first["containment"]["carry_forward"])
+        self.assertEqual(first["containment"]["successor_effects"], "allowed")
+        self.assertNotEqual(
+            first["containment_sha256"], successor["containment_sha256"]
+        )
+
+    def test_goal_reversing_supervisor_action_fails_closed(self) -> None:
+        args = self.containment_args()
+        args.impact_class = "goal-reversing"
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "cannot reverse"
+        ):
+            self.route(args, self.policy())
+
+    def test_critical_goal_blocking_hold_is_one_operation_and_reviewed(self) -> None:
+        args = self.containment_args()
+        args.impact_class = "goal-blocking"
+        args.severity = "critical"
+        args.incident_id = "INC-CRITICAL-1234"
+        args.independent_mission_review = "yes"
+        result = self.route(args, self.policy())
+
+        self.assertTrue(result["send_allowed"])
+        self.assertEqual(result["containment"]["operation_scope"], "operation-a")
+        self.assertTrue(result["containment"]["independent_mission_review"])
+        self.assertFalse(result["containment"]["carry_forward"])
+
+    def test_existing_event_ledger_preserves_structured_containment(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            args = supervision_log.parser().parse_args(
+                [
+                    "record",
+                    "--target-thread",
+                    self.target,
+                    "--kind",
+                    "steer",
+                    "--summary",
+                    "Recorded one bounded containment.",
+                    "--containment",
+                    "--mission-root",
+                    self.mission_root,
+                    "--authority-source-class",
+                    "supervisor-steer",
+                    "--authority-source-record",
+                    "EVT-STEER-1234",
+                    "--impact-class",
+                    "material",
+                    "--affected-width",
+                    "one-operation",
+                    "--duration",
+                    "until-stop-event",
+                    "--reversibility",
+                    "reversible",
+                    "--ordinary-means-disabled",
+                    "no",
+                    "--independent-mission-review",
+                    "no",
+                    "--operation-scope",
+                    "operation-a",
+                    "--scope-identity",
+                    "scope-a-1234",
+                    "--expiry-event",
+                    "EVENT-STOP-1234",
+                    "--carry-forward",
+                    "false",
+                    "--successor-effects",
+                    "allowed",
+                ]
+            )
+            output = io.StringIO()
+            with (
+                mock.patch.object(
+                    supervision_log,
+                    "load_policy",
+                    return_value=(directory, self.policy()),
+                ),
+                redirect_stdout(output),
+            ):
+                supervision_log.cmd_record(args)
+            record = json.loads(output.getvalue())["record"]
+            self.assertEqual(record["containment"]["expiry_event"], "EVENT-STOP-1234")
+            self.assertFalse(record["containment"]["carry_forward"])
 
 
 class PriorityLifecycleNotificationTests(unittest.TestCase):
@@ -1214,6 +1540,7 @@ class DecisionResolutionTests(unittest.TestCase):
     hash_a = "a" * 64
     hash_b = "b" * 64
     hash_c = "c" * 64
+    mission_root = "m" * 64
 
     def init_args(self) -> argparse.Namespace:
         return argparse.Namespace(
@@ -1224,6 +1551,8 @@ class DecisionResolutionTests(unittest.TestCase):
             base_reviewer_thread="base-1234",
             notice_reviewer_thread=None,
             fix_executor_thread="fixer-1234",
+            mission_root=self.mission_root,
+            mission_source_record="TRACKER-MISSION-1234",
         )
 
     def record(
@@ -1237,6 +1566,15 @@ class DecisionResolutionTests(unittest.TestCase):
         attempt: int = 0,
         outcome: str = "",
         now: str = "2026-08-01T12:00:00+00:00",
+        mission_root: str | None = None,
+        authority_source_class: str = "tracker",
+        authority_source_record: str = "TRACKER-BOUNDARY-1234",
+        impact_class: str = "material",
+        affected_width: str = "decision-subject",
+        duration: str = "decision-lifecycle",
+        reversibility: str = "conditional",
+        ordinary_means_disabled: str = "no",
+        independent_mission_review: str = "no",
     ) -> dict[str, object]:
         args = supervision_log.parser().parse_args(
             [
@@ -1265,6 +1603,24 @@ class DecisionResolutionTests(unittest.TestCase):
                 "state-1234",
                 "--evidence",
                 "EVT-SOURCE-1234",
+                "--mission-root",
+                mission_root or self.mission_root,
+                "--authority-source-class",
+                authority_source_class,
+                "--authority-source-record",
+                authority_source_record,
+                "--impact-class",
+                impact_class,
+                "--affected-width",
+                affected_width,
+                "--duration",
+                duration,
+                "--reversibility",
+                reversibility,
+                "--ordinary-means-disabled",
+                ordinary_means_disabled,
+                "--independent-mission-review",
+                independent_mission_review,
                 "--now",
                 now,
             ]
@@ -2021,6 +2377,206 @@ class DecisionResolutionTests(unittest.TestCase):
 
             self.assertEqual(result["action"], "send-exact-handoff")
             self.assertTrue(result["must_continue_safe_frontier"])
+
+    def test_only_direct_sources_can_create_reserved_authority(self) -> None:
+        for source_class in supervision_log.DIRECT_AUTHORITY_SOURCE_CLASSES:
+            with self.subTest(source_class=source_class):
+                with tempfile.TemporaryDirectory() as temporary:
+                    result = self.record(
+                        Path(temporary),
+                        supervision_log.default_policy(self.init_args()),
+                        classification="reserved-authority",
+                        phase="decision-ready",
+                        authority_source_class=source_class,
+                    )
+                    self.assertFalse(result["duplicate"])
+                    self.assertEqual(
+                        result["record"]["authority_source_class"], source_class
+                    )
+
+        for source_class in (
+            "supervisor-steer",
+            "codex_delegation",
+            "derived-inference",
+        ):
+            with self.subTest(source_class=source_class):
+                with tempfile.TemporaryDirectory() as temporary:
+                    with self.assertRaisesRegex(
+                        supervision_log.SupervisionLogError,
+                        "Reserved authority requires",
+                    ):
+                        self.record(
+                            Path(temporary),
+                            supervision_log.default_policy(self.init_args()),
+                            classification="reserved-authority",
+                            phase="decision-ready",
+                            authority_source_class=source_class,
+                        )
+
+    def test_synthetic_supervisor_containment_cannot_circularly_become_authority(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "Reserved authority requires",
+            ):
+                self.record(
+                    Path(temporary),
+                    supervision_log.default_policy(self.init_args()),
+                    classification="reserved-authority",
+                    phase="decision-ready",
+                    authority_source_class="supervisor-steer",
+                    authority_source_record="EVT-CONTAINMENT-1234",
+                    ordinary_means_disabled="yes",
+                )
+
+    def test_goal_level_decision_requires_direct_authority_and_review(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = supervision_log.default_policy(self.init_args())
+            accepted = self.record(
+                directory,
+                policy,
+                classification="reserved-authority",
+                phase="decision-ready",
+                impact_class="goal-blocking",
+                independent_mission_review="yes",
+            )
+            self.assertEqual(accepted["record"]["impact_class"], "goal-blocking")
+
+        for source_class, independent in (
+            ("supervisor-steer", "yes"),
+            ("tracker", "no"),
+        ):
+            with tempfile.TemporaryDirectory() as temporary:
+                with self.assertRaises(supervision_log.SupervisionLogError):
+                    self.record(
+                        Path(temporary),
+                        supervision_log.default_policy(self.init_args()),
+                        classification="human-preference",
+                        phase="decision-ready",
+                        authority_source_class=source_class,
+                        impact_class="goal-reversing",
+                        independent_mission_review=independent,
+                    )
+
+    def test_mission_provenance_persists_across_every_transition_and_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = supervision_log.default_policy(self.init_args())
+            transitions = (
+                ("decision-ready", 0, "", "2026-08-01T12:00:00+00:00"),
+                ("attempt-started", 1, "", "2026-08-01T12:00:01+00:00"),
+                ("attempt-unresolved", 1, "", "2026-08-01T12:01:00+00:00"),
+                ("attempt-started", 2, "", "2026-08-01T12:01:01+00:00"),
+                ("attempt-unresolved", 2, "", "2026-08-01T12:02:00+00:00"),
+                ("attempt-started", 3, "", "2026-08-01T12:02:01+00:00"),
+                ("attempt-unresolved", 3, "", "2026-08-01T12:03:00+00:00"),
+                ("safe-deferred", 3, "safe-deferred", "2026-08-01T12:22:00+00:00"),
+                ("handoff-sent", 3, "safe-deferred", "2026-08-01T12:22:01+00:00"),
+                ("target-acknowledged", 3, "safe-deferred", "2026-08-01T12:22:02+00:00"),
+            )
+            for phase, attempt, outcome, now in transitions:
+                self.record(
+                    directory,
+                    policy,
+                    classification="missing-fact",
+                    phase=phase,
+                    safe_frontier="empty",
+                    attempt=attempt,
+                    outcome=outcome,
+                    now=now,
+                )
+
+            decision_records = supervision_log.decision_events(
+                supervision_log.events(directory / "events.jsonl"), self.decision
+            )
+            self.assertEqual(len(decision_records), len(transitions))
+            for record in decision_records:
+                for field in supervision_log.MISSION_IMPACT_FIELDS:
+                    self.assertIn(field, record)
+
+            result = self.gate(directory, policy, "2026-08-01T12:22:03+00:00")
+            self.assertTrue(result["mission_binding_valid"])
+            self.assertTrue(result["authority_provenance_valid"])
+            self.assertTrue(result["blocking_permitted"])
+            for field in supervision_log.MISSION_IMPACT_FIELDS:
+                self.assertEqual(result[field], decision_records[-1][field])
+
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "must preserve"
+            ):
+                self.record(
+                    directory,
+                    policy,
+                    classification="missing-fact",
+                    phase="target-acknowledged",
+                    safe_frontier="empty",
+                    attempt=3,
+                    outcome="safe-deferred",
+                    authority_source_record="TRACKER-OTHER-1234",
+                    now="2026-08-01T12:22:04+00:00",
+                )
+
+    def test_stale_mission_root_cannot_validate_consequential_decision(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = supervision_log.default_policy(self.init_args())
+            self.record(
+                directory,
+                policy,
+                classification="reserved-authority",
+                phase="decision-ready",
+            )
+            policy["mission_binding"] = supervision_log.mission_binding_contract(
+                "n" * 64, "TRACKER-MISSION-5678"
+            )
+
+            result = self.gate(directory, policy, "2026-08-01T12:00:01+00:00")
+
+            self.assertFalse(result["mission_binding_valid"])
+            self.assertFalse(result["blocking_permitted"])
+            self.assertEqual(result["action"], "challenge-mission-provenance")
+
+    def test_unbound_policy_rejects_new_decision_record(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            policy = supervision_log.default_policy(self.init_args())
+            policy.pop("mission_binding")
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "exact bound mission"
+            ):
+                self.record(
+                    Path(temporary),
+                    policy,
+                    classification="human-preference",
+                    phase="decision-ready",
+                )
+
+    def test_role_and_execution_contracts_preserve_provenance_and_successors(self) -> None:
+        skill_root = HELPER_PATH.parent.parent.parent
+        supervision_policy = skill_root.joinpath(
+            "supervise-tracker-runs", "references", "supervision-policy.md"
+        ).read_text(encoding="utf-8")
+        implementation_skill = skill_root.joinpath(
+            "implement-tracker-blocks", "SKILL.md"
+        ).read_text(encoding="utf-8")
+        author_skill = skill_root.joinpath(
+            "author-implementation-trackers", "SKILL.md"
+        ).read_text(encoding="utf-8")
+        tracker_template = skill_root.joinpath(
+            "author-implementation-trackers",
+            "assets",
+            "implementation-tracker-template.md",
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("Preserve any containment's exact authority source", supervision_policy)
+        self.assertIn("never relabel either as direct", supervision_policy)
+        self.assertIn("no inferred carry-forward across a Block", implementation_skill)
+        self.assertIn("predecessor for proof, not every successor revision", implementation_skill)
+        self.assertIn("constrains exact X rather than a later operation", implementation_skill)
+        self.assertIn("never substitute for the requested substantive", implementation_skill)
+        self.assertIn("tracker-level mission frame", author_skill)
+        self.assertIn("### Mission frame", tracker_template)
+        self.assertIn("`carry-forward: false`", tracker_template)
 
 
 if __name__ == "__main__":

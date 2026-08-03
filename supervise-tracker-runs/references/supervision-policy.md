@@ -4,6 +4,7 @@
 
 - [Defaults](#defaults)
 - [Execution economy and reusable maintenance](#execution-economy-and-reusable-maintenance)
+- [Mission binding and authority provenance](#mission-binding-and-authority-provenance)
 - [Continuation-first decision resolution](#continuation-first-decision-resolution)
 - [Target-state fingerprint](#target-state-fingerprint)
 - [Cross-thread action routing](#cross-thread-action-routing)
@@ -157,6 +158,48 @@ reference. `bind` or resume backfills a missing economy contract and
 allowlisted skill maintenance. Refresh the existing role and heartbeat prompts
 after that policy update and before the next target check.
 
+## Mission binding and authority provenance
+
+Bind every new supervision group before its first watcher check to one exact
+content-minimized mission root and exact controlling source record. Keep the
+semantic mission in the target or tracker. The binding records only that source
+and root plus generic frame metadata distinguishing the primary outcome,
+ordinary effect classes needed to achieve it, hard direct authority or safety
+boundaries, and the acceptance/stop boundary. The primary outcome governs
+subordinate process optimization; supervision cannot add durable restrictions
+or change the target goal set.
+
+Legacy policy remains readable. `bind` upgrades it only when supplied both the
+exact mission root and source record; it never synthesizes either or grants
+authority. A missing or stale binding does not block compact observation,
+change detection, incident review, or a simple target action. It fails closed
+for consequential containment and decision posture.
+
+For every material containment or decision, preserve these non-scalar fields in
+the existing event or decision record: mission root; authority source class and
+exact source record; impact class (`local`, `material`, `goal-blocking`, or
+`goal-reversing`); affected width; duration; reversibility; whether an ordinary
+mission-required means is disabled; and whether independent mission-level
+review occurred. Do not reduce them to a score.
+
+A containment is an operation envelope, not authority. It requires exact
+operation or Block scope, a content-minimized scope identity, explicit expiry
+event, `carry-forward=false`, and successor effects allowed. Record that same
+structure in the append-only event ledger after routing. Once satisfied or
+expired it remains history only; it cannot silently cross a Block, compaction,
+or later-operation boundary. An emergency goal-blocking hold is limited to one
+operation, one exact critical incident, no carry-forward, successor effects
+allowed, and independent mission review. A supervisor goal-reversing action is
+always rejected.
+
+Treat `codex_delegation` as routed provenance, never direct user speech.
+`reserved-authority` may originate only from an exact still-applicable
+direct-user, system, repository, or tracker source. A supervisor steer,
+`codex_delegation`, or derived inference cannot create it. Goal-blocking or
+goal-reversing decisions require commensurate direct authority and an
+independent mission-level challenge. Preserve the exact mission/provenance
+fields through every decision transition and expose them from `decision-gate`.
+
 ## Continuation-first decision resolution
 
 An unresolved decision is a bounded dependency cut, not a default reason to
@@ -251,6 +294,12 @@ bound thread. It does not create a message ledger, authorize the action, or
 replace semantic review. A caller may not label routine status as an action to
 evade the rule. Email remains governed exclusively by `notice-gate`,
 `lifecycle-gate`, `decision-gate`, and the maintained roundup/reply contracts.
+
+For a containment `target-action`, pass the mission binding, authority
+provenance, non-scalar impact, exact scope identity, expiry, non-carry-forward,
+and successor posture to `thread-route-gate`. The gate validates and hashes the
+envelope without recording or expanding authority. Simple target actions keep
+their existing compact interface.
 
 Use the narrow purpose owned by the recipient: Terra changed-state handoff to
 the base reviewer; semantic or checkpoint escalation to Sol Max; incident
@@ -799,6 +848,12 @@ Objective, and Stop from the already identified tracker when required to write a
 user-facing Block-purpose summary; do not inspect implementation or patent
 content through that exception.
 
+Preserve any containment's exact authority source, operation/Block scope,
+content-minimized identity, expiry, non-carry-forward, and successor posture in
+every routed packet or compacted role handoff. `codex_delegation` and supervisor
+language remain routed supervisor provenance; never relabel either as direct
+user authority.
+
 You are running at Max reasoning. Avoid feature creep in both diagnosis and
 remedy. Focus on completing this bounded monitoring job efficiently and well:
 identify only material problems, use the smallest adequate evidence set, and
@@ -938,6 +993,11 @@ You do not implement or steer the target. You are read-only except for
 matching `thread-route-gate` result allows the send. Never edit
 files, run commands or tests, create subagents, or take over the target.
 
+Review consequential containment and decisions against the bound mission root.
+Challenge expired or carried-forward operation holds and any authority source
+lost or relabeled across compaction. A supervisor steer or `codex_delegation`
+packet cannot become direct user or reserved authority.
+
 For each changed-state packet:
 1. Ignore any Terra inference. Using the target thread ID and exact turn/item
    identifiers, read the newest target turn directly with outputs omitted. Read
@@ -996,6 +1056,13 @@ You are running at Max reasoning. Avoid feature creep. Focus on getting the
 precise review or correction decision done well: solve the actual bounded
 problem, prefer existing machinery and the smallest effective remedy, and do
 not turn a finding into a broader framework, audit program, or feature agenda.
+
+The primary mission governs subordinate process optimization. Before accepting
+consequential containment or reserved authority, verify the exact current
+mission root, authority source class/record, impact, scope, expiry, and successor
+posture. Preserve those fields through compacted handoffs; never infer
+carry-forward or relabel supervisor or `codex_delegation` language as user
+authority.
 
 For an escalation:
 1. Start from the governing Block and higher-order outcome, not the watcher's
@@ -1253,12 +1320,22 @@ python3 <LOG_HELPER> init --target-thread <TARGET> --target-label <LABEL> \
   --watcher-thread <WATCHER> --reviewer-thread <REVIEWER> \
   --base-reviewer-thread <BASE_REVIEWER> \
   --notice-reviewer-thread <NOTICE_REVIEWER> \
-  --fix-executor-thread <FIX_EXECUTOR>
+  --fix-executor-thread <FIX_EXECUTOR> \
+  --mission-root <EXACT_MISSION_ROOT> \
+  --mission-source-record <EXACT_CONTROLLING_SOURCE>
 python3 <LOG_HELPER> bind --target-thread <TARGET> \
   --base-reviewer-thread <BASE_REVIEWER> \
   --notice-reviewer-thread <NOTICE_REVIEWER> \
   --fix-executor-thread <FIX_EXECUTOR> \
   --routine-automation <AUTOMATION> --meta-automation <AUTOMATION>
+```
+
+Upgrade a readable legacy policy only with an exact mission binding:
+
+```bash
+python3 <LOG_HELPER> bind --target-thread <TARGET> \
+  --mission-root <EXACT_MISSION_ROOT> \
+  --mission-source-record <EXACT_CONTROLLING_SOURCE>
 ```
 
 When Gmail self-notification is enabled, add:
@@ -1318,6 +1395,23 @@ python3 <LOG_HELPER> thread-route-gate --target-thread <TARGET> \
 
 Do not send when the command fails or `send_allowed` is not true. Routine status
 has no maintained purpose and stays in the monitored target thread.
+
+A containment target action adds the exact bounded envelope:
+
+```bash
+python3 <LOG_HELPER> thread-route-gate --target-thread <TARGET> \
+  --recipient-thread <TARGET> --purpose target-action \
+  --source-record <SOURCE_RECORD_ID> --action "<EXACT_REQUIRED_ACTION>" \
+  --containment --mission-root <EXACT_MISSION_ROOT> \
+  --authority-source-class <CLASS> \
+  --authority-source-record <EXACT_SOURCE> --impact-class <IMPACT> \
+  --affected-width <WIDTH> --duration <DURATION> \
+  --reversibility <POSTURE> --ordinary-means-disabled <yes|no> \
+  --independent-mission-review <yes|no> \
+  --operation-scope <OPERATION> --scope-identity <HASH> \
+  --expiry-event <EVENT> --carry-forward false \
+  --successor-effects allowed
+```
 
 Derive the current Gmail gate cadence from recorded conversation activity:
 
@@ -1397,7 +1491,13 @@ python3 <LOG_HELPER> decision-record --target-thread <TARGET> \
   --classification <delegable|human-preference|missing-fact|reserved-authority> \
   --phase decision-ready --safe-frontier <empty|nonempty> --attempt 0 \
   --decision-packet-hash <HASH> --blocked-scope-hash <HASH> \
-  --safe-frontier-hash <HASH> --evidence <SOURCE_RECORD>
+  --safe-frontier-hash <HASH> --evidence <SOURCE_RECORD> \
+  --mission-root <EXACT_MISSION_ROOT> \
+  --authority-source-class <CLASS> \
+  --authority-source-record <EXACT_SOURCE> --impact-class <IMPACT> \
+  --affected-width <WIDTH> --duration <DURATION> \
+  --reversibility <POSTURE> --ordinary-means-disabled <yes|no> \
+  --independent-mission-review <yes|no>
 python3 <LOG_HELPER> decision-gate --target-thread <TARGET> \
   --decision-id <DECISION_ID>
 ```

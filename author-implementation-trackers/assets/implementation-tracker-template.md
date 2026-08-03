@@ -15,6 +15,16 @@ Completion means:
 - {{observable completion condition}}
 - {{observable completion condition}}
 
+### Mission frame
+
+- Primary outcome: {{the substantive result that governs subordinate process}}.
+- Observable completion: {{the exact outcome evidence}}.
+- Ordinary effect classes needed: {{implementation, revision, validation,
+  transfer, reporting, or other classes actually needed}}.
+- Hard direct authority or safety boundaries: {{exact controlling sources}}.
+- Material goal alteration or reversal: {{changes that require renewed direct
+  authority rather than a process inference}}.
+
 ## 2. Target architecture and authority boundaries
 
 {{Describe the target flow, authoritative owners, derived views, and the
@@ -83,6 +93,10 @@ failure tied to this tracker's objective.
     work plus the remaining bounded attempts during that window. Select and
     proceed only within delegated authority; otherwise use a bounded safe
     deferral with the missing fact or reserved action explicit.
+14. An operation-specific hold states its exact operation or Block scope,
+    content-minimized identity, expiry event, successor posture, and
+    `carry-forward: false`. On expiry it remains history only and does not bind
+    a later operation or successor Block without a new exact controlling source.
 
 ### Completion-evidence template
 

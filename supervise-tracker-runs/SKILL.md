@@ -59,7 +59,9 @@ schedules, bounds, escalation rules, logging commands, and stop conditions.
      --reviewer-thread <reviewer-thread-id> \
      --base-reviewer-thread <base-reviewer-thread-id> \
      --notice-reviewer-thread <notice-reviewer-thread-id> \
-     --fix-executor-thread <fix-executor-thread-id>
+     --fix-executor-thread <fix-executor-thread-id> \
+     --mission-root <exact-current-mission-root> \
+     --mission-source-record <exact-controlling-source-record>
    ```
 
    Resolve `scripts/supervision_log.py` to its absolute path when using it from
@@ -135,6 +137,26 @@ Repeat independently for additional targets.
   source record, and required action, and require `send_allowed=true`. Never use
   an unrelated chat or side conversation as a status sink. User-facing email
   goes only through the maintained notification gates.
+- Bind every new supervision group to an exact content-minimized mission root
+  and controlling source record before its first watcher check. The semantic
+  mission remains in the target or tracker: its primary outcome governs
+  subordinate process optimization, while ordinary required effects, hard
+  direct authority/safety boundaries, and acceptance/stop boundaries remain
+  distinguishable. A legacy unbound policy may still be observed; only an
+  explicit `bind` with the exact root and source may upgrade it.
+- Preserve non-scalar mission impact for every material containment or decision:
+  mission root, exact authority class/source, local/material/goal-blocking/goal-
+  reversing impact, affected width, duration, reversibility, whether an ordinary
+  required means is disabled, and independent mission review. Missing or stale
+  mission binding fails closed for consequential action, never for ordinary
+  observation, change detection, or a simple target action.
+- Treat containment as a temporary operation envelope, not durable authority.
+  Route it only with exact operation/Block scope, content-minimized identity,
+  expiry event, `carry-forward=false`, and successor effects allowed; record the
+  same structure in the existing append-only event ledger. Expiry retires it to
+  history, and neither compaction nor a later Block silently revives it. A
+  critical goal-blocking emergency hold is limited to one operation and requires
+  independent mission review. A supervisor may never reverse the mission goal.
 - At a Block transition or acceptance checkpoint, inspect the current and next
   eligible Block for an allegedly non-delegable decision gate. Independently
   test necessity; tracker labels such as `responsible human adoption` or
@@ -226,6 +248,12 @@ Repeat independently for additional targets.
   blocked-scope hash, safe-frontier hash/posture, disposition, handoff, and
   target acknowledgement. Do not add a decision ledger or copy substantive
   packet content into supervision records.
+- Preserve mission root, authority provenance, and non-scalar mission impact
+  unchanged through every decision transition. `reserved-authority` may cite
+  only an exact applicable direct-user, system, repository, or tracker source;
+  a supervisor steer, `codex_delegation`, or derived inference cannot create
+  it. Goal-blocking or goal-reversing posture requires commensurate direct
+  authority plus an independent mission-level challenge.
 - Use only `scripts/supervision_log.py` for supervisor filesystem writes. Never
   place patent prose, project paths, credentials, prompts, or copied tool output
   in supervision records.
