@@ -195,6 +195,20 @@ Repeat independently for additional targets.
   target active, and route the narrow tracker/outcome correction. Do not send a
   completion notice or pause automations until `lifecycle-gate` returns
   `completion_permitted=true`.
+- After a current completion record passes, generate two verified derived
+  terminal reports through `terminal-report`: one covering work since the
+  latest prior report or roundup and one inception-to-completion full
+  implementation "report of reports." Send one completion email to the bound
+  primary Gmail thread with both PDFs attached, then record the Gmail message ID
+  and exact attachment hashes only after reading the sent message and hashing
+  both returned Gmail attachments. A plain completion email, report files without
+  delivery, or a delivery without both verified attachments is insufficient.
+- Treat `supervision_pause_permitted=true` as the shutdown boundary. It requires
+  the accepted completion record, exact completed lifecycle, both current report
+  PDFs, and their recorded Gmail delivery. Pause every exact bound project
+  supervision automation, view each resulting state, and record the complete
+  paused set with `terminal-shutdown`. Do not claim that supervision stopped when
+  an expected automation is missing, active, or unverified.
 - Treat an unsupported goal-preventing stop as a critical operational event,
   not every pause or bounded wait. Completion, a current direct stop/goal
   change, a hard authority/safety boundary, independently established current
@@ -336,6 +350,14 @@ Repeat independently for additional targets.
   from quiet event gaps or label projected tokens/cost actual, billed, invoiced,
   or provider-reconciled. `verify` fails on a divergent JSON/Markdown
   projection, manifest, evidence reference, or unreadable PDF.
+- At accepted terminal completion, use the helper's separate `terminal-report`
+  owner. `prepare` freezes the delta-since-last-report and full-run evidence
+  packets; the Sol XHigh reviewer writes both required evidence-bound syntheses;
+  `finalize` produces canonical JSON, Markdown, and PDF projections; and `verify`
+  fails on divergent content, hashes, manifests, or unreadable PDFs. The full
+  report must synthesize earlier roundups and reports rather than merely repeat
+  the last interval. Both reports describe implementation outcome and evidence,
+  not patent prose or a new completion authority.
 - Lay out the PDF for fast inspection: the first page is an executive dashboard
   naming the monitored target, exact coverage and duration, configured
   supervision roles, scheduled monitoring time, projected cost, incidents
@@ -498,12 +520,17 @@ Repeat independently for additional targets.
 - Before pausing supervision for a blocked, failed, or explicitly stopped
   target, ensure its deduplicated priority-thread lifecycle email was sent.
   Before pausing for a completed or noncritical paused target, ensure its
-  ordinary lifecycle-status email was sent to the primary project thread.
+  ordinary lifecycle-status email was sent to the primary project thread. For
+  `completed`, the required lifecycle email is the terminal report email with
+  both verified PDFs attached; do not send a report-less substitute.
 - Before accepting or pausing for `completed`, require the exact current
   `completion-record`, a lifecycle event bound to that record, and
-  `lifecycle-gate` with `completion_permitted=true`. A failed completion gate
+  `lifecycle-gate` with both `completion_permitted=true` and
+  `supervision_pause_permitted=true`. A failed completion gate
   keeps the target active and requires a critical false-completion review; it
-  is not a notification-only defect.
+  is not a notification-only defect. A passed outcome gate with missing report
+  delivery keeps supervision active only long enough to produce, verify, attach,
+  send, and record the terminal reports.
 - A blocked posture is valid only when the exact non-delegable input remains
   absent, proceeding would cross a declared authority/safety/stop boundary, the
   first attempt remained unresolved, the complete human-input packet has been

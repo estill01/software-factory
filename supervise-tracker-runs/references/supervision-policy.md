@@ -204,6 +204,34 @@ record, hash chain, or tracker status is supporting process evidence only. If
 the direct outcome is missing or stale, record a critical false-completion
 review, keep target and supervision active, and route the narrow correction.
 
+After that outcome proof passes, terminal reporting and delivery are mandatory
+before supervision may pause. The base reviewer uses `terminal-report prepare`
+to freeze two exact evidence windows: work since the latest prior roundup or
+report, and the complete supervision inception-through-completion history plus
+all verified prior report manifests. It writes one evidence-bound cognitive
+review containing both the delta report and the full implementation "report of
+reports." `finalize` emits canonical JSON, Markdown, and PDF projections;
+`verify` rejects changed bytes, broken manifests, stale identities, unknown
+evidence, or unreadable/mislabeled PDFs.
+
+Reply once to the bound primary Gmail seed with both verified PDFs attached.
+The email is the completed lifecycle notice. Record the returned Gmail message
+ID, then read that exact sent message and both Gmail attachments. Hash the
+read-back bytes and require exact equality with the verified local PDF hashes.
+Record the report-set identity, manifest root, and read-back attachment hashes through
+`terminal-report record-delivery`. A plain email, a link without attachments,
+or report files without a delivery receipt does not satisfy completion
+delivery. `lifecycle-gate` returns `supervision_pause_permitted=true` only when
+the completion proof, completed lifecycle, verified reports, and recorded Gmail
+attachments all agree.
+
+After that gate passes, pause every exact automation returned in
+`pause_automation_ids`, view each current state, and record the exact complete
+`ID=PAUSED` set with `terminal-shutdown`. Missing, active, extra, or unverified
+automations fail closed. The reports and email remain derived evidence; they do
+not become another completion authority, patent record, legal conclusion, or
+filing/release approval.
+
 Target-native alignment is optional read-only corroboration. When present, a
 reviewer may compare its exact current attestation with the independent charter
 and observable target effects, but the attestation never governs supervisor
@@ -1083,11 +1111,15 @@ At each scheduled wake:
    deduplicated `lifecycle` event for that state and fingerprint, then call
    `lifecycle-gate`, and, when permitted, use its exact channel and seed. Send
    blocked/failed/stopped to the dedicated priority seed with `🚨 IMPLEMENTATION
-   BLOCKED / STOPPED 🚨`; send completed/noncritical-paused as `IMPLEMENTATION
-   STATUS` to the primary seed. Include the active Block's plain-language
-   `Block purpose — Block <N>` summary. Record the receipt. Report the observed
-   target posture without claiming independent acceptance. Perform this before
-   any applicable stop-condition pause. Stop.
+   BLOCKED / STOPPED 🚨`; send noncritical-paused as `IMPLEMENTATION STATUS` to
+   the primary seed. For completed, do not send a report-less lifecycle email.
+   Require the base reviewer to prepare, synthesize, finalize, and verify both
+   terminal reports; reply to the primary seed with both PDFs attached; record
+   delivery; call `lifecycle-gate` again; pause every returned automation; view
+   each paused state; and record `terminal-shutdown`. Include the active Block's
+   plain-language `Block purpose — Block <N>` summary. Report the observed target
+   posture without claiming independent acceptance. Stop only after the exact
+   shutdown receipt is recorded.
 
 An explicit `stopped` posture without one exact meta-charter valid-stop
 condition is a critical goal-preventing-stop signal. Keep supervision active,
@@ -1182,6 +1214,18 @@ or deferred work needed for the direct goal. Passing process evidence cannot
 substitute. Record the five exact roots with `completion-record`; use `verified`
 only when the outcome is actually current. Otherwise record `failed`, escalate
 the false-completion defect, and keep the target active.
+
+When the completion record is verified, remain responsible for the terminal
+report synthesis. Read the complete helper-prepared packet, produce both exact
+required report sections, and bind every section to known event or prior-report
+evidence. The delta report covers only work since the last report anchor. The
+full report reconstructs the governing objective, implementation arc,
+capabilities and artifacts, validation and independent review, earlier report
+findings, incidents and corrections, current outcome, and honest open items and
+limitations. It must be a synthesis of the full record, not a concatenation or
+restatement of the latest delta. Return the finalized and verified attachment
+paths and hashes to the watcher; do not send the email or pause automations from
+the reviewer role.
 
 For each changed-state packet:
 1. Ignore any Terra inference. Using the target thread ID and exact turn/item
@@ -1368,6 +1412,11 @@ record and independently sample its actual operator-visible artifacts and open-
 item compatibility. Missing, stale, failed, or self-certified outcome evidence
 is a critical false negative: keep supervision active and route correction
 rather than repairing only the email.
+When the outcome proof passes, inspect `last_terminal_report_delivery` and
+`last_terminal_shutdown`. Missing, stale, or divergent terminal reports,
+attachment delivery, or shutdown evidence must be repaired through the same
+terminal-report and automation-pause path; do not declare the run fully stopped
+from a lifecycle record alone.
 Write a content-minimized review record. For every supported problem, write a
 bounded fix plan containing the defect, evidence, intended outcome, exact scope,
 smallest sufficient actions, verification, stop condition, and rollback or
@@ -1478,6 +1527,10 @@ preserving a blocked/stopped posture that requests user action, independently
 test actual necessity under the reviewer-role rule. Route a procedural stop to
 an in-place target correction. For a genuine decision, require the complete
 decision brief returned by the priority gate.
+For completed, the primary status is the two-attachment terminal report email.
+If outcome proof is valid but terminal report delivery or shutdown evidence is
+missing, keep supervision active, complete that exact path, and pause only after
+`supervision_pause_permitted=true`; never substitute a plain status email.
 For each finding, write the bounded fix plan required by your role; perform
 thread-only steering yourself and hand every other permitted
 supervisor-maintenance fix to <FIX_EXECUTOR_THREAD_ID> at Sol XHigh. Do not widen
@@ -1671,6 +1724,41 @@ Only a current `verified` record allows the subsequent generic `record --kind
 lifecycle --status completed` command. A missing or failed record must produce
 a critical false-completion review instead.
 
+Prepare, finalize, and verify the two required terminal implementation reports:
+
+```bash
+python3 <LOG_HELPER> terminal-report --target-thread <TARGET> \
+  --action prepare --lifecycle-record <COMPLETED_LIFECYCLE_RECORD>
+python3 <LOG_HELPER> terminal-report --target-thread <TARGET> \
+  --action finalize --report-set-id <REPORT_SET_ID> \
+  --review-base64 <BASE64_CANONICAL_TERMINAL_REVIEW_JSON>
+python3 <LOG_HELPER> terminal-report --target-thread <TARGET> \
+  --action verify --report-set-id <REPORT_SET_ID>
+```
+
+Reply to the bound primary Gmail seed with both returned PDF paths in
+`attachment_files`. Read the exact returned message and its two attachments,
+hash those read-back bytes, then bind the exact message and attachment hashes:
+
+```bash
+python3 <LOG_HELPER> terminal-report --target-thread <TARGET> \
+  --action record-delivery --report-set-id <REPORT_SET_ID> \
+  --gmail-message-id <GMAIL_MESSAGE_ID> \
+  --delta-pdf-sha256 <DELTA_PDF_SHA256> \
+  --full-pdf-sha256 <FULL_PDF_SHA256>
+```
+
+After `lifecycle-gate` returns `supervision_pause_permitted=true`, pause and view
+every returned automation, then record the exact complete paused set:
+
+```bash
+python3 <LOG_HELPER> terminal-shutdown --target-thread <TARGET> \
+  --lifecycle-record <COMPLETED_LIFECYCLE_RECORD> \
+  --report-set-id <REPORT_SET_ID> \
+  --automation-state <AUTOMATION_ID>=PAUSED \
+  --automation-state <AUTOMATION_ID>=PAUSED
+```
+
 Record an independent Max sample without changing the live gate watermark:
 
 ```bash
@@ -1724,8 +1812,10 @@ Send only when `send_now` is true. Obey the returned channel, seed, category,
 banner, and deduplication key. Never fall back from a missing priority binding
 to the primary or roundup seed. When `decision_context_required` is true, the
 email must include every returned `required_decision_fields` entry.
-For `completed`, also require `completion_permitted=true`; otherwise keep
-supervision active and execute the returned completion action.
+For `completed`, require `completion_permitted=true`, execute the terminal report
+action, and do not pause until a second gate returns
+`supervision_pause_permitted=true`. The terminal report email with both PDFs is
+the completion notice; do not send a report-less substitute.
 
 Record and gate one continuation-first decision:
 
@@ -1822,6 +1912,9 @@ report the terminal condition, but it must not delete logs or archive threads
 unless the user requested it.
 Before an applicable pause, ensure blocked/failed/stopped has its deduplicated
 priority-thread lifecycle email and completed/noncritical-paused has its
-deduplicated primary-thread status email.
+deduplicated primary-thread status email. For completed, require both verified
+terminal PDFs attached to that email, its exact delivery receipt, and
+`supervision_pause_permitted=true`; after pausing, view and record every exact
+bound automation with `terminal-shutdown`.
 Do not pause for an open decision. Continue the timed resolution state machine,
 priority phase delivery, safe-frontier verification, and target acknowledgement.

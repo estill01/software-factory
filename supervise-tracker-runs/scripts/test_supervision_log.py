@@ -84,8 +84,14 @@ class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
         self.assertIn("ready to merge only", implementation_skill)
         self.assertIn("completion-record", supervision_skill)
         self.assertIn("completion_permitted=true", supervision_skill)
+        self.assertIn("terminal-report", supervision_skill)
+        self.assertIn("supervision_pause_permitted=true", supervision_skill)
+        self.assertIn("terminal-shutdown", supervision_skill)
         self.assertIn("operator-visible result", policy)
         self.assertIn("rejects a completed lifecycle", policy)
+        self.assertIn("terminal-report prepare", policy)
+        self.assertIn("report of\nreports", policy)
+        self.assertIn("both verified PDFs attached", policy)
 
 
 class NoticeGateCorrelationTests(unittest.TestCase):
@@ -1976,22 +1982,40 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
                 )
                 self.assertEqual(result["reply_message_id"], "gmail-priority-1234")
 
-    def test_completed_and_paused_remain_on_primary_thread(self) -> None:
-        for state in ("completed", "paused"):
-            with self.subTest(state=state):
-                policy = supervision_log.default_policy(self.init_args())
-                policy["notifications"]["gmail"].update(
-                    {
-                        "enabled": True,
-                        "reply_message_id": "gmail-primary-1234",
-                    }
-                )
+    def test_paused_remains_on_primary_thread(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        policy["notifications"]["gmail"].update(
+            {
+                "enabled": True,
+                "reply_message_id": "gmail-primary-1234",
+            }
+        )
 
-                result = self.run_lifecycle_gate(policy, state)
+        result = self.run_lifecycle_gate(policy, "paused")
 
-                self.assertTrue(result["send_now"])
-                self.assertEqual(result["channel"], "primary-status")
-                self.assertEqual(result["notification_category"], "gmail-lifecycle")
+        self.assertTrue(result["send_now"])
+        self.assertEqual(result["channel"], "primary-status")
+        self.assertEqual(result["notification_category"], "gmail-lifecycle")
+
+    def test_completed_waits_for_terminal_report_attachments(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        policy["notifications"]["gmail"].update(
+            {
+                "enabled": True,
+                "reply_message_id": "gmail-primary-1234",
+            }
+        )
+
+        result = self.run_lifecycle_gate(policy, "completed")
+
+        self.assertTrue(result["completion_permitted"])
+        self.assertFalse(result["send_now"])
+        self.assertFalse(result["supervision_pause_permitted"])
+        self.assertEqual(
+            result["completion_action"],
+            "prepare-finalize-verify-email-and-record-terminal-reports",
+        )
+        self.assertEqual(result["reply_message_id"], "gmail-primary-1234")
 
     def test_completed_refuses_missing_outcome_completion(self) -> None:
         policy = supervision_log.default_policy(self.init_args())
