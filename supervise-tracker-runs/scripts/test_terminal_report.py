@@ -3,13 +3,17 @@ from __future__ import annotations
 
 import argparse
 import base64
+import datetime as dt
+import hashlib
 import io
 import json
 import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from email.message import EmailMessage
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -38,6 +42,9 @@ def init_args() -> argparse.Namespace:
 
 def fixture_review(packet: dict[str, object]) -> dict[str, object]:
     evidence = [packet["lifecycle_record_id"]]
+    prior_report_ids = [
+        item["report_id"] for item in packet.get("prior_report_records", [])
+    ]
 
     def report(title: str, start: str, headings: list[str]) -> dict[str, object]:
         return {
@@ -49,7 +56,12 @@ def fixture_review(packet: dict[str, object]) -> dict[str, object]:
                 {
                     "heading": heading,
                     "narrative": f"{heading} was reconstructed from the exact completion, lifecycle, review, and prior-report evidence.",
-                    "evidence": evidence,
+                    "evidence": (
+                        evidence + prior_report_ids
+                        if title == terminal_report.FULL_TITLE
+                        and heading == "Report synthesis"
+                        else evidence
+                    ),
                 }
                 for heading in headings
             ],
@@ -78,6 +90,78 @@ def fixture_review(packet: dict[str, object]) -> dict[str, object]:
             list(terminal_report.FULL_HEADINGS),
         ),
     }
+
+
+def gmail_readback(
+    *, verified: dict[str, object], policy: dict[str, object]
+) -> str:
+    message = EmailMessage()
+    message["Subject"] = policy["notifications"]["gmail"]["subject"]
+    message["From"] = "codex@example.test"
+    message["To"] = "operator@example.test"
+    message["Date"] = dt.datetime.now(dt.timezone.utc)
+    message["Message-ID"] = "<terminal-report@example.test>"
+    message.set_content("Terminal implementation reports are attached.")
+    attachments = []
+    for filename, path_key in (
+        ("delta-report.pdf", "delta_pdf_path"),
+        ("full-report.pdf", "full_pdf_path"),
+    ):
+        payload = Path(str(verified[path_key])).read_bytes()
+        message.add_attachment(
+            payload,
+            maintype="application",
+            subtype="pdf",
+            filename=filename,
+        )
+        attachments.append(
+            {
+                "filename": filename,
+                "attachment_id": f"gmail-attachment-{filename.split('-')[0]}",
+                "read_tool_call_id": f"exec-read-{filename.split('-')[0]}-attachment",
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "bytes": len(payload),
+            }
+        )
+    receipt = {
+        "schema_version": 1,
+        "kind": "gmail-terminal-delivery-readback",
+        "message_id": "gmail-terminal-result",
+        "thread_id": "gmail-terminal-thread",
+        "reply_message_id": policy["notifications"]["gmail"]["reply_message_id"],
+        "read_tool_call_id": "exec-read-terminal-email",
+        "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "raw_mime_base64": base64.urlsafe_b64encode(message.as_bytes()).decode(),
+        "attachments": attachments,
+    }
+    return base64.b64encode(
+        json.dumps(receipt, separators=(",", ":")).encode()
+    ).decode()
+
+
+def write_automation_owners(root: Path, automation_ids: list[str]) -> None:
+    updated_at = int((dt.datetime.now(dt.timezone.utc).timestamp() + 60) * 1000)
+    for automation_id in automation_ids:
+        directory = root / automation_id
+        directory.mkdir(parents=True)
+        (directory / "automation.toml").write_text(
+            "\n".join(
+                (
+                    "version = 1",
+                    f'id = "{automation_id}"',
+                    'kind = "heartbeat"',
+                    f'name = "{automation_id}"',
+                    'prompt = "terminal test"',
+                    'status = "PAUSED"',
+                    'rrule = "RRULE:FREQ=MINUTELY;INTERVAL=20"',
+                    f'target_thread_id = "{TARGET}"',
+                    "created_at = 1",
+                    f"updated_at = {updated_at}",
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
 
 
 class TerminalReportUnitTests(unittest.TestCase):
@@ -136,6 +220,35 @@ class TerminalReportUnitTests(unittest.TestCase):
             terminal_report.TerminalReportError, "unknown evidence"
         ):
             terminal_report.validate_review(review, packet)
+
+    def test_delta_and_report_of_reports_scope_are_enforced(self) -> None:
+        packet = self.packet()
+        review = fixture_review(packet)
+        review["delta_report"]["sections"][0]["evidence"] = ["EVT-000001"]
+        with self.assertRaisesRegex(
+            terminal_report.TerminalReportError, "unknown evidence"
+        ):
+            terminal_report.validate_review(review, packet)
+
+        review = fixture_review(packet)
+        synthesis = next(
+            section
+            for section in review["full_report"]["sections"]
+            if section["heading"] == "Report synthesis"
+        )
+        synthesis["evidence"] = [packet["lifecycle_record_id"]]
+        with self.assertRaisesRegex(
+            terminal_report.TerminalReportError, "synthesize every verified"
+        ):
+            terminal_report.validate_review(review, packet)
+
+    def test_packet_rejects_forged_source_identity(self) -> None:
+        packet = self.packet()
+        packet["source_root"] = "f" * 64
+        with self.assertRaisesRegex(
+            terminal_report.TerminalReportError, "source root differs"
+        ):
+            terminal_report.validate_packet(packet)
 
     def test_pdf_outputs_are_parseable_and_titled(self) -> None:
         from pypdf import PdfReader
@@ -228,6 +341,36 @@ class TerminalReportIntegrationTests(unittest.TestCase):
         supervision_log.append_raw(directory / "events.jsonl", lifecycle)
         return directory
 
+    def finalized_reports(
+        self, root: Path
+    ) -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+        self.prepare_root(root)
+        prepare_args = argparse.Namespace(
+            root=str(root),
+            target_thread=TARGET,
+            lifecycle_record="EVT-000002",
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            supervision_log.cmd_terminal_report_prepare(prepare_args)
+        prepared = json.loads(output.getvalue())
+        packet = json.loads(Path(prepared["review_packet_path"]).read_text())
+        review = fixture_review(packet)
+        finalize_args = argparse.Namespace(
+            root=str(root),
+            target_thread=TARGET,
+            report_set_id=prepared["report_set_id"],
+            review_base64=base64.b64encode(
+                json.dumps(review, separators=(",", ":")).encode()
+            ).decode(),
+        )
+        with redirect_stdout(io.StringIO()):
+            supervision_log.cmd_terminal_report_finalize(finalize_args)
+        verified = supervision_log.verify_terminal_report_set(
+            root / TARGET, prepared["report_set_id"]
+        )
+        return prepared, review, verified
+
     def test_reports_delivery_gate_and_shutdown_are_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -282,9 +425,10 @@ class TerminalReportIntegrationTests(unittest.TestCase):
                 root=str(root),
                 target_thread=TARGET,
                 report_set_id=prepared["report_set_id"],
-                gmail_message_id="gmail-terminal-result",
-                delta_pdf_sha256=verified["delta_pdf_sha256"],
-                full_pdf_sha256=verified["full_pdf_sha256"],
+                gmail_readback_base64=gmail_readback(
+                    verified=verified,
+                    policy=supervision_log.read_json(root / TARGET / "policy.json"),
+                ),
             )
             with redirect_stdout(io.StringIO()):
                 supervision_log.cmd_terminal_report_delivery(delivery_args)
@@ -296,32 +440,31 @@ class TerminalReportIntegrationTests(unittest.TestCase):
             self.assertTrue(after["supervision_pause_permitted"])
             self.assertEqual(len(after["pause_automation_ids"]), 4)
 
-            bad_shutdown = argparse.Namespace(
-                root=str(root),
-                target_thread=TARGET,
-                lifecycle_record="EVT-000002",
-                report_set_id=prepared["report_set_id"],
-                automation_state=["watcher-automation-terminal=ACTIVE"],
-            )
-            with self.assertRaisesRegex(
-                supervision_log.SupervisionLogError,
-                "automation set differs|must be paused",
-            ):
-                supervision_log.cmd_terminal_shutdown(bad_shutdown)
-
             shutdown = argparse.Namespace(
                 root=str(root),
                 target_thread=TARGET,
                 lifecycle_record="EVT-000002",
                 report_set_id=prepared["report_set_id"],
-                automation_state=[f"{item}=PAUSED" for item in after["pause_automation_ids"]],
+            )
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "automation owner is missing",
+            ):
+                supervision_log.cmd_terminal_shutdown(shutdown)
+
+            automation_root = root / "automations"
+            write_automation_owners(
+                automation_root, after["pause_automation_ids"]
             )
             shutdown_output = io.StringIO()
-            with redirect_stdout(shutdown_output):
-                supervision_log.cmd_terminal_shutdown(shutdown)
+            with mock.patch.object(
+                supervision_log, "CODEX_AUTOMATIONS_ROOT", automation_root
+            ):
+                with redirect_stdout(shutdown_output):
+                    supervision_log.cmd_terminal_shutdown(shutdown)
             self.assertFalse(json.loads(shutdown_output.getvalue())["duplicate"])
 
-    def test_delivery_rejects_wrong_attachment_hash(self) -> None:
+    def test_delivery_rejects_claim_without_gmail_readback(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             self.prepare_root(root)
@@ -329,12 +472,130 @@ class TerminalReportIntegrationTests(unittest.TestCase):
                 root=str(root),
                 target_thread=TARGET,
                 report_set_id="terminal-missing-report",
-                gmail_message_id="gmail-terminal-result",
-                delta_pdf_sha256="0" * 64,
-                full_pdf_sha256="0" * 64,
+                gmail_readback_base64=base64.b64encode(b"{}").decode(),
             )
             with self.assertRaises(supervision_log.SupervisionLogError):
                 supervision_log.cmd_terminal_report_delivery(args)
+
+    def test_delivery_rejects_divergent_attachment_readback(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prepared, _review, verified = self.finalized_reports(root)
+            policy = supervision_log.read_json(root / TARGET / "policy.json")
+            encoded = gmail_readback(verified=verified, policy=policy)
+            receipt = json.loads(base64.b64decode(encoded))
+            receipt["attachments"][0]["sha256"] = "0" * 64
+            args = argparse.Namespace(
+                root=str(root),
+                target_thread=TARGET,
+                report_set_id=prepared["report_set_id"],
+                gmail_readback_base64=base64.b64encode(
+                    json.dumps(receipt, separators=(",", ":")).encode()
+                ).decode(),
+            )
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "attachment read-back differs",
+            ):
+                supervision_log.cmd_terminal_report_delivery(args)
+
+    def test_forged_pdf_and_manifest_identity_are_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prepared, review, verified = self.finalized_reports(root)
+            report_directory = Path(str(verified["delta_pdf_path"])).parent
+            paths = {
+                name: report_directory / name
+                for name in (
+                    "review-packet.json",
+                    "review.json",
+                    "delta-report.json",
+                    "delta-report.md",
+                    "delta-report.pdf",
+                    "full-report.json",
+                    "full-report.md",
+                    "full-report.pdf",
+                )
+            }
+            forged = json.loads(json.dumps(review["delta_report"]))
+            forged["sections"][0]["narrative"] = (
+                "Forged narrative that is absent from the canonical review."
+            )
+            terminal_report.render_pdf(
+                paths["delta-report.pdf"],
+                forged,
+                report_set_id=prepared["report_set_id"],
+            )
+            manifest = terminal_report.manifest_for(
+                paths,
+                report_set_id=prepared["report_set_id"],
+                source_root=prepared["source_root"],
+            )
+            supervision_log.atomic_json(report_directory / "manifest.json", manifest)
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "PDF projection differs"
+            ):
+                supervision_log.verify_terminal_report_set(
+                    root / TARGET, prepared["report_set_id"]
+                )
+
+            terminal_report.render_pdf(
+                paths["delta-report.pdf"],
+                review["delta_report"],
+                report_set_id=prepared["report_set_id"],
+            )
+            manifest = terminal_report.manifest_for(
+                paths,
+                report_set_id=prepared["report_set_id"],
+                source_root=prepared["source_root"],
+            )
+            manifest["report_set_id"] = "forged-terminal-report-set"
+            supervision_log.atomic_json(report_directory / "manifest.json", manifest)
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "manifest identity differs"
+            ):
+                supervision_log.verify_terminal_report_set(
+                    root / TARGET, prepared["report_set_id"]
+                )
+
+    def test_prior_weekly_reports_are_verified_before_inventory(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / TARGET
+            report_directory = (
+                directory / "reports" / "weekly" / "weekly-report-verified"
+            )
+            report_directory.mkdir(parents=True)
+            supervision_log.atomic_json(
+                report_directory / "manifest.json",
+                {
+                    "report_id": "weekly-report-verified",
+                    "source_root": "1" * 64,
+                    "manifest_root": "2" * 64,
+                },
+            )
+            supervision_log.atomic_json(
+                report_directory / "report.json",
+                {
+                    "kind": "supervision-weekly-review-record",
+                    "metrics": {"coverage": {"start": "a", "end": "b"}},
+                    "cognitive_review": {"summary": "verified"},
+                },
+            )
+            verified = {
+                "source_root": "1" * 64,
+                "manifest_root": "2" * 64,
+                "report_sha256": "3" * 64,
+                "review_sha256": "4" * 64,
+                "pdf_sha256": "5" * 64,
+            }
+            with mock.patch.object(
+                supervision_log,
+                "verify_weekly_report_set",
+                return_value=verified,
+            ) as verifier:
+                rows = supervision_log.terminal_prior_report_inventory(directory)
+            verifier.assert_called_once_with(directory, "weekly-report-verified")
+            self.assertEqual(rows[0]["report_sha256"], "3" * 64)
 
 
 if __name__ == "__main__":

@@ -119,23 +119,39 @@ def build_packet(
     bounded = [item for item in ordered if event_time(item) <= end]
     if not bounded:
         raise TerminalReportError("Terminal report completion precedes all evidence")
-    report_markers = [
+    roundup_markers = [
         item
         for item in bounded
         if item.get("kind") == "roundup"
         and item.get("record_id") != lifecycle_record.get("record_id")
     ]
-    delta_anchor = report_markers[-1] if report_markers else bounded[0]
-    delta_start = event_time(delta_anchor)
+    prior_report_rows = [dict(item) for item in prior_reports]
+    prior_report_markers: list[tuple[dt.datetime, Mapping[str, Any]]] = []
+    for item in prior_report_rows:
+        coverage = item.get("coverage")
+        if not isinstance(coverage, Mapping) or not coverage.get("end"):
+            continue
+        report_end = parse_time(str(coverage["end"]))
+        if report_end <= end:
+            prior_report_markers.append((report_end, item))
+    roundup_anchor = roundup_markers[-1] if roundup_markers else bounded[0]
+    delta_start = event_time(roundup_anchor)
+    delta_anchor_id = str(roundup_anchor.get("record_id", ""))
+    delta_anchor_kind = "roundup" if roundup_markers else "supervision-inception"
+    if prior_report_markers:
+        report_end, report_anchor = max(prior_report_markers, key=lambda item: item[0])
+        if report_end >= delta_start:
+            delta_start = report_end
+            delta_anchor_id = str(report_anchor.get("report_id", ""))
+            delta_anchor_kind = "verified-prior-report"
     delta_events = (
         [item for item in bounded if event_time(item) > delta_start]
-        if report_markers
+        if roundup_markers or prior_report_markers
         else list(bounded)
     )
     event_roots = [str(item.get("record_sha256", "")) for item in bounded]
     if any(not re.fullmatch(r"[0-9a-f]{64}", value) for value in event_roots):
         raise TerminalReportError("Terminal report source event lacks an exact hash")
-    prior_report_rows = [dict(item) for item in prior_reports]
     source = {
         "event_record_ids": [str(item.get("record_id", "")) for item in bounded],
         "event_record_roots": event_roots,
@@ -149,7 +165,7 @@ def build_packet(
     }
     source_root = digest(source)
     report_set_id = f"terminal-{target_thread_id[:12]}-{source_root[:16]}"
-    return {
+    packet = {
         "schema_version": SCHEMA_VERSION,
         "kind": f"{REPORT_KIND}-review-packet",
         "report_set_id": report_set_id,
@@ -164,7 +180,8 @@ def build_packet(
             "delta_start": iso_time(delta_start),
             "full_start": iso_time(event_time(bounded[0])),
             "end": iso_time(end),
-            "delta_anchor_record_id": str(delta_anchor.get("record_id", "")),
+            "delta_anchor_record_id": delta_anchor_id,
+            "delta_anchor_kind": delta_anchor_kind,
         },
         "required_reports": {
             "delta": {"title": DELTA_TITLE, "required_headings": list(DELTA_HEADINGS)},
@@ -179,10 +196,15 @@ def build_packet(
             "paths, legal conclusions, or new completion authority."
         ),
     }
+    return validate_packet(packet)
 
 
 def _validate_section(
-    raw: Any, *, expected_heading: str, known_evidence: set[str]
+    raw: Any,
+    *,
+    expected_heading: str,
+    known_evidence: set[str],
+    maximum_evidence: int = 16,
 ) -> dict[str, Any]:
     if not isinstance(raw, Mapping) or set(raw) != {"heading", "narrative", "evidence"}:
         raise TerminalReportError("Terminal report section shape differs")
@@ -191,8 +213,10 @@ def _validate_section(
         raise TerminalReportError("Terminal report section ordering or heading differs")
     narrative = safe_text(raw["narrative"], label=f"{heading} narrative")
     evidence = raw["evidence"]
-    if not isinstance(evidence, list) or not 1 <= len(evidence) <= 16:
-        raise TerminalReportError(f"{heading} must cite 1-16 evidence records")
+    if not isinstance(evidence, list) or not 1 <= len(evidence) <= maximum_evidence:
+        raise TerminalReportError(
+            f"{heading} must cite 1-{maximum_evidence} evidence records"
+        )
     normalized: list[str] = []
     for item in evidence:
         value = safe_text(item, label=f"{heading} evidence", maximum=160)
@@ -233,7 +257,12 @@ def _validate_report(
     if not isinstance(sections, list) or len(sections) != len(headings):
         raise TerminalReportError("Terminal implementation report section count differs")
     normalized_sections = [
-        _validate_section(item, expected_heading=heading, known_evidence=known_evidence)
+        _validate_section(
+            item,
+            expected_heading=heading,
+            known_evidence=known_evidence,
+            maximum_evidence=128 if heading == "Report synthesis" else 16,
+        )
         for item, heading in zip(sections, headings, strict=True)
     ]
     limitations = raw["limitations"]
@@ -280,31 +309,48 @@ def validate_review(review: Mapping[str, Any], packet: Mapping[str, Any]) -> dic
     ):
         if review.get(field) != packet.get(field):
             raise TerminalReportError(f"Terminal cognitive review {field} differs")
-    known_evidence = {
+    full_event_evidence = {
         str(item.get("record_id"))
         for item in packet.get("full_event_records", [])
         if item.get("record_id")
     }
-    known_evidence.update(
+    delta_evidence = {
+        str(item.get("record_id"))
+        for item in packet.get("delta_event_records", [])
+        if item.get("record_id")
+    }
+    prior_report_evidence = {
         str(item.get("report_id"))
         for item in packet.get("prior_report_records", [])
         if item.get("report_id")
-    )
+    }
+    full_evidence = full_event_evidence | prior_report_evidence
     coverage = packet["coverage"]
     delta = _validate_report(
         review["delta_report"],
         title=DELTA_TITLE,
         headings=DELTA_HEADINGS,
-        known_evidence=known_evidence,
+        known_evidence=delta_evidence,
         coverage={"start": coverage["delta_start"], "end": coverage["end"]},
     )
     full = _validate_report(
         review["full_report"],
         title=FULL_TITLE,
         headings=FULL_HEADINGS,
-        known_evidence=known_evidence,
+        known_evidence=full_evidence,
         coverage={"start": coverage["full_start"], "end": coverage["end"]},
     )
+    if prior_report_evidence:
+        synthesis = next(
+            section
+            for section in full["sections"]
+            if section["heading"] == "Report synthesis"
+        )
+        cited = set(synthesis["evidence"])
+        if not prior_report_evidence.issubset(cited):
+            raise TerminalReportError(
+                "Terminal full report must synthesize every verified prior report"
+            )
     return {
         "schema_version": SCHEMA_VERSION,
         "kind": f"{REPORT_KIND}-cognitive-review",
@@ -317,6 +363,63 @@ def validate_review(review: Mapping[str, Any], packet: Mapping[str, Any]) -> dic
         "delta_report": delta,
         "full_report": full,
     }
+
+
+def validate_packet(packet: Mapping[str, Any]) -> dict[str, Any]:
+    required = {
+        "schema_version",
+        "kind",
+        "report_set_id",
+        "target_label",
+        "target_thread_id",
+        "mission_root",
+        "state_fingerprint",
+        "completion_record_id",
+        "lifecycle_record_id",
+        "source_root",
+        "coverage",
+        "required_reports",
+        "source",
+        "delta_event_records",
+        "full_event_records",
+        "prior_report_records",
+        "content_boundary",
+    }
+    if not isinstance(packet, Mapping) or set(packet) != required:
+        raise TerminalReportError("Terminal report packet shape differs")
+    if (
+        packet.get("schema_version") != SCHEMA_VERSION
+        or packet.get("kind") != f"{REPORT_KIND}-review-packet"
+    ):
+        raise TerminalReportError("Terminal report packet version differs")
+    source = packet.get("source")
+    if not isinstance(source, Mapping) or digest(source) != packet.get("source_root"):
+        raise TerminalReportError("Terminal report packet source root differs")
+    thread_id = safe_text(
+        packet.get("target_thread_id"), label="terminal target thread", maximum=160
+    )
+    expected_id = f"terminal-{thread_id[:12]}-{packet['source_root'][:16]}"
+    if packet.get("report_set_id") != expected_id:
+        raise TerminalReportError("Terminal report packet identity differs")
+    full = packet.get("full_event_records")
+    delta = packet.get("delta_event_records")
+    prior = packet.get("prior_report_records")
+    if not isinstance(full, list) or not isinstance(delta, list) or not isinstance(prior, list):
+        raise TerminalReportError("Terminal report packet evidence rows differ")
+    if source.get("event_record_ids") != [str(item.get("record_id", "")) for item in full]:
+        raise TerminalReportError("Terminal report packet event identities differ")
+    if source.get("event_record_roots") != [str(item.get("record_sha256", "")) for item in full]:
+        raise TerminalReportError("Terminal report packet event roots differ")
+    if source.get("prior_reports") != prior:
+        raise TerminalReportError("Terminal report packet prior reports differ")
+    full_ids = {str(item.get("record_id", "")) for item in full}
+    if not delta or any(str(item.get("record_id", "")) not in full_ids for item in delta):
+        raise TerminalReportError("Terminal report packet delta scope differs")
+    if source.get("completion_record_id") != packet.get("completion_record_id"):
+        raise TerminalReportError("Terminal report packet completion binding differs")
+    if source.get("lifecycle_record_id") != packet.get("lifecycle_record_id"):
+        raise TerminalReportError("Terminal report packet lifecycle binding differs")
+    return dict(packet)
 
 
 def report_record(

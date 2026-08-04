@@ -199,16 +199,19 @@ Repeat independently for additional targets.
   terminal reports through `terminal-report`: one covering work since the
   latest prior report or roundup and one inception-to-completion full
   implementation "report of reports." Send one completion email to the bound
-  primary Gmail thread with both PDFs attached, then record the Gmail message ID
-  and exact attachment hashes only after reading the sent message and hashing
-  both returned Gmail attachments. A plain completion email, report files without
-  delivery, or a delivery without both verified attachments is insufficient.
+  primary Gmail thread with both PDFs attached. Read the exact sent message with
+  raw MIME and read both attachments through Gmail. `record-delivery` must parse
+  that raw MIME, bind the Gmail message/thread and attachment-owner IDs, and
+  prove the returned attachment bytes equal the verified PDFs. Caller-supplied
+  message IDs or hashes alone are insufficient.
 - Treat `supervision_pause_permitted=true` as the shutdown boundary. It requires
   the accepted completion record, exact completed lifecycle, both current report
   PDFs, and their recorded Gmail delivery. Pause every exact bound project
-  supervision automation, view each resulting state, and record the complete
-  paused set with `terminal-shutdown`. Do not claim that supervision stopped when
-  an expected automation is missing, active, or unverified.
+  supervision automation, then run `terminal-shutdown`. The helper reads the
+  maintained Codex automation owner files directly and requires every exact
+  bound automation to be paused by an update no earlier than report delivery.
+  Do not claim that supervision stopped when an expected owner is missing,
+  active, stale, or divergent.
 - Treat an unsupported goal-preventing stop as a critical operational event,
   not every pause or bounded wait. Completion, a current direct stop/goal
   change, a hard authority/safety boundary, independently established current

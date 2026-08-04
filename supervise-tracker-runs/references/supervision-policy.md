@@ -211,26 +211,32 @@ report, and the complete supervision inception-through-completion history plus
 all verified prior report manifests. It writes one evidence-bound cognitive
 review containing both the delta report and the full implementation "report of
 reports." `finalize` emits canonical JSON, Markdown, and PDF projections;
-`verify` rejects changed bytes, broken manifests, stale identities, unknown
-evidence, or unreadable/mislabeled PDFs.
+`verify` rejects changed bytes, broken or forged manifest identities, stale
+source packets, unknown or out-of-window evidence, a full report that omits any
+verified prior report, or a PDF whose complete extracted projection differs
+from the canonical review. Every prior weekly report must pass its maintained
+verifier before it can enter the report-of-reports packet.
 
 Reply once to the bound primary Gmail seed with both verified PDFs attached.
-The email is the completed lifecycle notice. Record the returned Gmail message
-ID, then read that exact sent message and both Gmail attachments. Hash the
-read-back bytes and require exact equality with the verified local PDF hashes.
-Record the report-set identity, manifest root, and read-back attachment hashes through
-`terminal-report record-delivery`. A plain email, a link without attachments,
-or report files without a delivery receipt does not satisfy completion
-delivery. `lifecycle-gate` returns `supervision_pause_permitted=true` only when
-the completion proof, completed lifecycle, verified reports, and recorded Gmail
-attachments all agree.
+The email is the completed lifecycle notice. Read that exact sent message with
+raw MIME, then read both Gmail attachments through their Gmail-owned attachment
+IDs. `terminal-report record-delivery` parses the MIME, checks the bound subject,
+records the Gmail message and thread IDs plus read tool-call evidence, and proves
+both returned payloads have the exact verified local PDF names, bytes, and
+hashes. It does not accept caller-supplied IDs or hashes without that complete
+read-back. A plain email, a link without attachments, or report files without a
+current read-back receipt does not satisfy delivery. `lifecycle-gate` returns
+`supervision_pause_permitted=true` only when the completion proof, completed
+lifecycle, verified reports, and recorded Gmail read-back all agree.
 
 After that gate passes, pause every exact automation returned in
-`pause_automation_ids`, view each current state, and record the exact complete
-`ID=PAUSED` set with `terminal-shutdown`. Missing, active, extra, or unverified
-automations fail closed. The reports and email remain derived evidence; they do
-not become another completion authority, patent record, legal conclusion, or
-filing/release approval.
+`pause_automation_ids` and view each current state. `terminal-shutdown` then
+reads each exact maintained Codex `automation.toml` owner directly; it accepts
+only the complete bound set in `PAUSED` state with owner update times no earlier
+than report delivery. Caller-asserted `ID=PAUSED` strings, missing owners, active
+states, path escapes, or stale pauses fail closed. The reports and email remain
+derived evidence; they do not become another completion authority, patent
+record, legal conclusion, or filing/release approval.
 
 Target-native alignment is optional read-only corroboration. When present, a
 reviewer may compare its exact current attestation with the independent charter
@@ -1115,8 +1121,9 @@ At each scheduled wake:
    the primary seed. For completed, do not send a report-less lifecycle email.
    Require the base reviewer to prepare, synthesize, finalize, and verify both
    terminal reports; reply to the primary seed with both PDFs attached; record
-   delivery; call `lifecycle-gate` again; pause every returned automation; view
-   each paused state; and record `terminal-shutdown`. Include the active Block's
+   delivery from the exact raw-MIME and attachment-owner read-back; call
+   `lifecycle-gate` again; pause every returned automation; view each paused
+   state; and run owner-backed `terminal-shutdown`. Include the active Block's
    plain-language `Block purpose — Block <N>` summary. Report the observed target
    posture without claiming independent acceptance. Stop only after the exact
    shutdown receipt is recorded.
@@ -1738,25 +1745,31 @@ python3 <LOG_HELPER> terminal-report --target-thread <TARGET> \
 
 Reply to the bound primary Gmail seed with both returned PDF paths in
 `attachment_files`. Read the exact returned message and its two attachments,
-hash those read-back bytes, then bind the exact message and attachment hashes:
+retain the Gmail message/thread IDs, raw MIME, attachment IDs, attachment read
+tool-call IDs, and returned bytes in the bounded read-back object, then bind it:
 
 ```bash
 python3 <LOG_HELPER> terminal-report --target-thread <TARGET> \
   --action record-delivery --report-set-id <REPORT_SET_ID> \
-  --gmail-message-id <GMAIL_MESSAGE_ID> \
-  --delta-pdf-sha256 <DELTA_PDF_SHA256> \
-  --full-pdf-sha256 <FULL_PDF_SHA256>
+  --gmail-readback-base64 <BASE64_CANONICAL_GMAIL_READBACK_JSON>
 ```
 
+The read-back JSON uses schema version 1 and kind
+`gmail-terminal-delivery-readback`; it contains the exact Gmail message ID,
+thread ID, bound reply seed ID, message-read tool-call ID, fetch time, raw MIME,
+and exactly two attachment rows. Each attachment row binds filename,
+Gmail-owned attachment ID, attachment-read tool-call ID, returned byte count,
+and SHA-256. The helper parses the MIME and rederives the payload hashes; do not
+construct a receipt from the local files or the send response alone.
+
 After `lifecycle-gate` returns `supervision_pause_permitted=true`, pause and view
-every returned automation, then record the exact complete paused set:
+every returned automation. Then let the helper inspect the maintained Codex
+automation owner files directly:
 
 ```bash
 python3 <LOG_HELPER> terminal-shutdown --target-thread <TARGET> \
   --lifecycle-record <COMPLETED_LIFECYCLE_RECORD> \
-  --report-set-id <REPORT_SET_ID> \
-  --automation-state <AUTOMATION_ID>=PAUSED \
-  --automation-state <AUTOMATION_ID>=PAUSED
+  --report-set-id <REPORT_SET_ID>
 ```
 
 Record an independent Max sample without changing the live gate watermark:

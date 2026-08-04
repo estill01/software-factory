@@ -11,12 +11,17 @@ import os
 import re
 import sys
 import tempfile
+import tomllib
 from contextlib import contextmanager
+from email import policy as email_policy
+from email.parser import BytesParser
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Iterator, Mapping
 
 
 DEFAULT_ROOT = Path.home() / ".codex" / "supervision" / "tracker-runs"
+CODEX_AUTOMATIONS_ROOT = Path(__file__).resolve().parents[3] / "automations"
 MISSION_META_CHARTER_PATH = (
     Path(__file__).resolve().parents[1]
     / "references"
@@ -292,8 +297,13 @@ def terminal_report_contract() -> dict[str, Any]:
         "cognitive_review_required": True,
         "pdf_required": True,
         "attachment_delivery_required": True,
+        "gmail_raw_mime_readback_required": True,
+        "gmail_attachment_owner_ids_required": True,
         "delivery_required_before_pause": True,
         "shutdown_receipt_required": True,
+        "automation_owner_state_required": True,
+        "verified_prior_reports_required": True,
+        "pdf_semantic_projection_required": True,
         "delta_anchor": "latest-roundup-or-report",
         "full_scope": "supervision-inception-through-completed-fingerprint",
     }
@@ -2551,12 +2561,9 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                     directory, terminal_report_set_id
                 )
                 terminal_reports_delivered = bool(
-                    terminal_delivery.get("manifest_root")
-                    == verified_terminal["manifest_root"]
-                    and terminal_delivery.get("delta_pdf_sha256")
-                    == verified_terminal["delta_pdf_sha256"]
-                    and terminal_delivery.get("full_pdf_sha256")
-                    == verified_terminal["full_pdf_sha256"]
+                    terminal_delivery_is_current(
+                        terminal_delivery, verified_terminal
+                    )
                     and terminal_delivery.get("state_fingerprint")
                     == source.get("state_fingerprint")
                 )
@@ -3527,11 +3534,10 @@ def cmd_weekly_report_finalize(args: argparse.Namespace) -> None:
     )
 
 
-def cmd_weekly_report_verify(args: argparse.Namespace) -> None:
-    directory, _policy = load_policy(args)
+def verify_weekly_report_set(directory: Path, report_id: str) -> dict[str, Any]:
     module = weekly_report_module()
     report_directory, metrics, packet = load_weekly_artifacts(
-        directory, args.report_id
+        directory, report_id
     )
     review = read_json(report_directory / "review.json")
     manifest = read_json(report_directory / "manifest.json")
@@ -3543,7 +3549,7 @@ def cmd_weekly_report_verify(args: argparse.Namespace) -> None:
     try:
         review = module.validate_review(
             review,
-            report_id=args.report_id,
+            report_id=report_id,
             source_root=str(metrics["source"]["source_root"]),
             record_ids=record_ids,
         )
@@ -3591,17 +3597,24 @@ def cmd_weekly_report_verify(args: argparse.Namespace) -> None:
         raise SupervisionLogError(
             "Weekly PDF lacks the required rendered report"
         )
+    return {
+        "valid": True,
+        "report_id": report_id,
+        "source_root": metrics["source"]["source_root"],
+        "manifest_root": manifest["manifest_root"],
+        "page_count": page_count,
+        "pdf_path": str(paths["report.pdf"]),
+        "report_sha256": hashlib.sha256(paths["report.json"].read_bytes()).hexdigest(),
+        "review_sha256": hashlib.sha256(paths["review.json"].read_bytes()).hexdigest(),
+        "pdf_sha256": hashlib.sha256(paths["report.pdf"].read_bytes()).hexdigest(),
+    }
+
+
+def cmd_weekly_report_verify(args: argparse.Namespace) -> None:
+    directory, _policy = load_policy(args)
     print(
         json.dumps(
-            {
-                "valid": True,
-                "report_id": args.report_id,
-                "source_root": metrics["source"]["source_root"],
-                "manifest_root": manifest["manifest_root"],
-                "page_count": page_count,
-                "pdf_path": str(paths["report.pdf"]),
-            },
-            sort_keys=True,
+            verify_weekly_report_set(directory, args.report_id), sort_keys=True
         )
     )
 
@@ -3704,20 +3717,22 @@ def terminal_prior_report_inventory(directory: Path) -> list[dict[str, Any]]:
         manifest_path = report_directory / "manifest.json"
         report_path = report_directory / "report.json"
         if not manifest_path.is_file() or not report_path.is_file():
-            continue
+            raise SupervisionLogError(
+                f"Prior weekly report is incomplete: {report_directory.name}"
+            )
         manifest = read_json(manifest_path)
         report = read_json(report_path)
         report_id = str(manifest.get("report_id", report_directory.name))
+        verified = verify_weekly_report_set(directory, report_id)
         rows.append(
             {
                 "report_id": safe_id(report_id, label="prior report ID"),
                 "kind": str(report.get("kind", "supervision-weekly-review-record")),
-                "source_root": exact_sha256(
-                    str(manifest.get("source_root", "")), label="prior report source root"
-                ),
-                "manifest_root": exact_sha256(
-                    str(manifest.get("manifest_root", "")), label="prior report manifest root"
-                ),
+                "source_root": verified["source_root"],
+                "manifest_root": verified["manifest_root"],
+                "report_sha256": verified["report_sha256"],
+                "review_sha256": verified["review_sha256"],
+                "pdf_sha256": verified["pdf_sha256"],
                 "coverage": report.get("metrics", {}).get("coverage", {}),
                 "cognitive_review": report.get("cognitive_review", {}),
             }
@@ -3735,10 +3750,55 @@ def write_terminal_exact_or_reuse(path: Path, data: bytes) -> bool:
     return False
 
 
+def terminal_pdf_projection(path: Path) -> dict[str, Any]:
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(str(path))
+        metadata = reader.metadata or {}
+        pages = [
+            re.sub(r"\s+", " ", page.extract_text() or "").strip()
+            for page in reader.pages
+        ]
+    except Exception as exc:
+        raise SupervisionLogError("Terminal report PDF cannot be parsed") from exc
+    return {
+        "pages": pages,
+        "title": str(metadata.get("/Title", "")),
+        "author": str(metadata.get("/Author", "")),
+    }
+
+
+def render_and_verify_terminal_pdf(
+    *, path: Path, report: Mapping[str, Any], report_set_id: str
+) -> bool:
+    module = terminal_report_module()
+    prepared = path.parent / f".{path.name}.prepared"
+    try:
+        module.render_pdf(prepared, report, report_set_id=report_set_id)
+        expected = terminal_pdf_projection(prepared)
+        if path.exists():
+            if terminal_pdf_projection(path) != expected:
+                raise SupervisionLogError(
+                    f"Existing terminal report artifact differs: {path.name}"
+                )
+            return True
+        os.replace(prepared, path)
+        return False
+    finally:
+        if prepared.exists():
+            prepared.unlink()
+
+
 def terminal_packet(directory: Path, report_set_id: str) -> tuple[Path, dict[str, Any]]:
+    module = terminal_report_module()
     report_directory = terminal_report_directory(directory, report_set_id)
     packet = read_json(report_directory / "review-packet.json")
-    if packet.get("report_set_id") != report_set_id:
+    try:
+        packet = module.validate_packet(packet)
+    except module.TerminalReportError as exc:
+        raise SupervisionLogError(str(exc)) from exc
+    if packet["report_set_id"] != report_set_id:
         raise SupervisionLogError("Terminal report packet identity differs")
     return report_directory, packet
 
@@ -3847,15 +3907,11 @@ def cmd_terminal_report_finalize(args: argparse.Namespace) -> None:
             report, report_set_id=args.report_set_id
         ).encode("utf-8")
         write_terminal_exact_or_reuse(files[f"{prefix}.md"], markdown)
-        pdf_path = files[f"{prefix}.pdf"]
-        if not pdf_path.exists():
-            prepared = report_directory / f".{prefix}.pdf.prepared"
-            try:
-                module.render_pdf(prepared, report, report_set_id=args.report_set_id)
-                os.replace(prepared, pdf_path)
-            finally:
-                if prepared.exists():
-                    prepared.unlink()
+        render_and_verify_terminal_pdf(
+            path=files[f"{prefix}.pdf"],
+            report=report,
+            report_set_id=args.report_set_id,
+        )
     manifest = module.manifest_for(
         files,
         report_set_id=args.report_set_id,
@@ -3884,6 +3940,40 @@ def verify_terminal_report_set(
 ) -> dict[str, Any]:
     module = terminal_report_module()
     report_directory, packet = terminal_packet(directory, report_set_id)
+    all_events = events(directory / "events.jsonl")
+    lifecycle_record = next(
+        (
+            item
+            for item in all_events
+            if item.get("record_id") == packet["lifecycle_record_id"]
+        ),
+        None,
+    )
+    completion_record = next(
+        (
+            item
+            for item in all_events
+            if item.get("record_id") == packet["completion_record_id"]
+        ),
+        None,
+    )
+    if lifecycle_record is None or completion_record is None:
+        raise SupervisionLogError("Terminal report source records are missing")
+    try:
+        current_packet = module.build_packet(
+            target_label=str(packet["target_label"]),
+            target_thread_id=str(packet["target_thread_id"]),
+            mission_root=str(packet["mission_root"]),
+            state_fingerprint=str(packet["state_fingerprint"]),
+            completion_record=completion_record,
+            lifecycle_record=lifecycle_record,
+            all_events=all_events,
+            prior_reports=terminal_prior_report_inventory(directory),
+        )
+    except module.TerminalReportError as exc:
+        raise SupervisionLogError(str(exc)) from exc
+    if current_packet != packet:
+        raise SupervisionLogError("Terminal report source packet is stale")
     review = read_json(report_directory / "review.json")
     manifest = read_json(report_directory / "manifest.json")
     try:
@@ -3911,6 +4001,13 @@ def verify_terminal_report_set(
             raise SupervisionLogError(f"Terminal report artifact differs: {name}")
     if digest(manifest["files"]) != manifest.get("manifest_root"):
         raise SupervisionLogError("Terminal report manifest root differs")
+    expected_manifest = module.manifest_for(
+        paths,
+        report_set_id=report_set_id,
+        source_root=str(packet["source_root"]),
+    )
+    if manifest != expected_manifest:
+        raise SupervisionLogError("Terminal report manifest identity differs")
     for report_type, key, prefix in (
         ("delta", "delta_report", "delta-report"),
         ("full", "full_report", "full-report"),
@@ -3928,19 +4025,19 @@ def verify_terminal_report_set(
         ).encode("utf-8")
         if paths[f"{prefix}.md"].read_bytes() != expected_markdown:
             raise SupervisionLogError(f"Terminal {report_type} Markdown projection differs")
-    try:
-        from pypdf import PdfReader
-
-        delta_reader = PdfReader(str(paths["delta-report.pdf"]))
-        full_reader = PdfReader(str(paths["full-report.pdf"]))
-        delta_text = "".join((page.extract_text() or "") for page in delta_reader.pages[:2])
-        full_text = "".join((page.extract_text() or "") for page in full_reader.pages[:2])
-    except Exception as exc:
-        raise SupervisionLogError("Terminal report PDF cannot be parsed") from exc
-    if not delta_reader.pages or "Terminal Work Since Last Report" not in delta_text:
-        raise SupervisionLogError("Terminal delta PDF is empty or mislabeled")
-    if not full_reader.pages or "Terminal Full Implementation Report" not in full_text:
-        raise SupervisionLogError("Terminal full PDF is empty or mislabeled")
+        with tempfile.TemporaryDirectory(dir=report_directory) as temporary:
+            expected_pdf = Path(temporary) / f"{prefix}.pdf"
+            module.render_pdf(
+                expected_pdf, review[key], report_set_id=report_set_id
+            )
+            if terminal_pdf_projection(paths[f"{prefix}.pdf"]) != terminal_pdf_projection(
+                expected_pdf
+            ):
+                raise SupervisionLogError(
+                    f"Terminal {report_type} PDF projection differs"
+                )
+    delta_projection = terminal_pdf_projection(paths["delta-report.pdf"])
+    full_projection = terminal_pdf_projection(paths["full-report.pdf"])
     return {
         "valid": True,
         "report_set_id": report_set_id,
@@ -3953,8 +4050,8 @@ def verify_terminal_report_set(
         "full_pdf_path": str(paths["full-report.pdf"]),
         "delta_pdf_sha256": manifest["files"]["delta-report.pdf"]["sha256"],
         "full_pdf_sha256": manifest["files"]["full-report.pdf"]["sha256"],
-        "delta_page_count": len(delta_reader.pages),
-        "full_page_count": len(full_reader.pages),
+        "delta_page_count": len(delta_projection["pages"]),
+        "full_page_count": len(full_projection["pages"]),
     }
 
 
@@ -3963,17 +4060,176 @@ def cmd_terminal_report_verify(args: argparse.Namespace) -> None:
     print(json.dumps(verify_terminal_report_set(directory, args.report_set_id), sort_keys=True))
 
 
+def decode_terminal_gmail_readback(value: str) -> dict[str, Any]:
+    try:
+        decoded = base64.b64decode(value, validate=True)
+        readback = json.loads(decoded.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SupervisionLogError("Terminal Gmail read-back encoding is invalid") from exc
+    if not isinstance(readback, dict):
+        raise SupervisionLogError("Terminal Gmail read-back must be an object")
+    return readback
+
+
+def decode_urlsafe_payload(value: Any, *, label: str) -> bytes:
+    if not isinstance(value, str) or not value:
+        raise SupervisionLogError(f"{label} is missing")
+    try:
+        padding = "=" * (-len(value) % 4)
+        return base64.urlsafe_b64decode((value + padding).encode("ascii"))
+    except (ValueError, UnicodeEncodeError) as exc:
+        raise SupervisionLogError(f"{label} is invalid") from exc
+
+
+def validate_terminal_gmail_readback(
+    readback: Mapping[str, Any],
+    *,
+    policy: Mapping[str, Any],
+    verified: Mapping[str, Any],
+) -> dict[str, Any]:
+    required = {
+        "schema_version",
+        "kind",
+        "message_id",
+        "thread_id",
+        "reply_message_id",
+        "read_tool_call_id",
+        "fetched_at",
+        "raw_mime_base64",
+        "attachments",
+    }
+    if set(readback) != required:
+        raise SupervisionLogError("Terminal Gmail read-back shape differs")
+    if (
+        readback.get("schema_version") != 1
+        or readback.get("kind") != "gmail-terminal-delivery-readback"
+    ):
+        raise SupervisionLogError("Terminal Gmail read-back version differs")
+    gmail = policy.get("notifications", {}).get("gmail", {})
+    reply_message_id = safe_id(
+        str(readback.get("reply_message_id", "")), label="Gmail reply message ID"
+    )
+    if reply_message_id != gmail.get("reply_message_id"):
+        raise SupervisionLogError("Terminal Gmail read-back used another thread seed")
+    message_id = safe_id(str(readback.get("message_id", "")), label="Gmail message ID")
+    thread_id = safe_id(str(readback.get("thread_id", "")), label="Gmail thread ID")
+    read_tool_call_id = safe_id(
+        str(readback.get("read_tool_call_id", "")), label="Gmail read tool call ID"
+    )
+    fetched_at = parse_time(str(readback.get("fetched_at", "")))
+    raw_mime = decode_urlsafe_payload(
+        readback.get("raw_mime_base64"), label="Terminal Gmail raw MIME"
+    )
+    try:
+        message = BytesParser(policy=email_policy.default).parsebytes(raw_mime)
+    except Exception as exc:
+        raise SupervisionLogError("Terminal Gmail raw MIME cannot be parsed") from exc
+    sent_header = message.get("Date")
+    rfc_message_id = str(message.get("Message-ID", "")).strip()
+    if not sent_header or not rfc_message_id:
+        raise SupervisionLogError("Terminal Gmail raw MIME lacks delivery headers")
+    try:
+        sent_at = parsedate_to_datetime(str(sent_header)).astimezone(dt.timezone.utc)
+    except (TypeError, ValueError) as exc:
+        raise SupervisionLogError("Terminal Gmail sent time is invalid") from exc
+    if fetched_at < sent_at - dt.timedelta(minutes=5):
+        raise SupervisionLogError("Terminal Gmail read-back predates the sent message")
+    expected_subject = str(gmail.get("subject", "")).strip()
+    actual_subject = str(message.get("Subject", "")).strip()
+    normalized_subject = re.sub(r"^(?:re:\s*)+", "", actual_subject, flags=re.I)
+    if not expected_subject or normalized_subject != expected_subject:
+        raise SupervisionLogError("Terminal Gmail subject differs from the bound lane")
+    mime_attachments: dict[str, bytes] = {}
+    for part in message.iter_attachments():
+        filename = str(part.get_filename() or "")
+        if not filename or filename in mime_attachments:
+            raise SupervisionLogError("Terminal Gmail MIME attachment identity differs")
+        mime_attachments[filename] = part.get_payload(decode=True) or b""
+    expected_attachments = {
+        "delta-report.pdf": {
+            "sha256": verified["delta_pdf_sha256"],
+            "bytes": Path(str(verified["delta_pdf_path"])).stat().st_size,
+        },
+        "full-report.pdf": {
+            "sha256": verified["full_pdf_sha256"],
+            "bytes": Path(str(verified["full_pdf_path"])).stat().st_size,
+        },
+    }
+    if set(mime_attachments) != set(expected_attachments):
+        raise SupervisionLogError("Terminal Gmail attachment set differs")
+    declared = readback.get("attachments")
+    if not isinstance(declared, list) or len(declared) != 2:
+        raise SupervisionLogError("Terminal Gmail read-back requires both attachments")
+    normalized_attachments: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+    seen_ids: set[str] = set()
+    for item in declared:
+        if not isinstance(item, Mapping) or set(item) != {
+            "filename",
+            "attachment_id",
+            "read_tool_call_id",
+            "sha256",
+            "bytes",
+        }:
+            raise SupervisionLogError("Terminal Gmail attachment receipt shape differs")
+        filename = str(item.get("filename", ""))
+        if filename not in expected_attachments or filename in seen_names:
+            raise SupervisionLogError("Terminal Gmail attachment filename differs")
+        attachment_id = safe_id(
+            str(item.get("attachment_id", "")), label="Gmail attachment ID"
+        )
+        if attachment_id in seen_ids:
+            raise SupervisionLogError("Terminal Gmail repeats an attachment ID")
+        attachment_call = safe_id(
+            str(item.get("read_tool_call_id", "")),
+            label="Gmail attachment read tool call ID",
+        )
+        payload = mime_attachments[filename]
+        actual = {
+            "sha256": hashlib.sha256(payload).hexdigest(),
+            "bytes": len(payload),
+        }
+        if actual != expected_attachments[filename]:
+            raise SupervisionLogError("Terminal Gmail MIME attachment bytes differ")
+        if item.get("sha256") != actual["sha256"] or item.get("bytes") != actual["bytes"]:
+            raise SupervisionLogError("Terminal Gmail attachment read-back differs")
+        seen_names.add(filename)
+        seen_ids.add(attachment_id)
+        normalized_attachments.append(
+            {
+                "filename": filename,
+                "attachment_id": attachment_id,
+                "read_tool_call_id": attachment_call,
+                **actual,
+            }
+        )
+    normalized_attachments.sort(key=lambda item: item["filename"])
+    normalized = {
+        "message_id": message_id,
+        "thread_id": thread_id,
+        "reply_message_id": reply_message_id,
+        "rfc_message_id": rfc_message_id,
+        "read_tool_call_id": read_tool_call_id,
+        "fetched_at": fetched_at.isoformat(),
+        "sent_at": sent_at.isoformat(),
+        "subject": actual_subject,
+        "raw_mime_sha256": hashlib.sha256(raw_mime).hexdigest(),
+        "attachments": normalized_attachments,
+    }
+    return {**normalized, "readback_root": digest(normalized)}
+
+
 def append_terminal_delivery(
     *,
     directory: Path,
     policy: Mapping[str, Any],
     verified: Mapping[str, Any],
-    gmail_message_id: str,
+    readback: Mapping[str, Any],
 ) -> dict[str, Any]:
     gmail = policy.get("notifications", {}).get("gmail", {})
     if not gmail.get("enabled") or not gmail.get("reply_message_id"):
         raise SupervisionLogError("Terminal report delivery requires the bound primary Gmail lane")
-    message_id = safe_id(gmail_message_id, label="Gmail message ID")
+    message_id = str(readback["message_id"])
     with append_lock(directory):
         current_events = events(directory / "events.jsonl")
         prior = next(
@@ -3988,7 +4244,10 @@ def append_terminal_delivery(
             None,
         )
         if prior is not None:
-            if prior.get("gmail_message_id") != message_id:
+            if (
+                prior.get("gmail_message_id") != message_id
+                or prior.get("gmail_readback_root") != readback["readback_root"]
+            ):
                 raise SupervisionLogError("Terminal report delivery already differs")
             return prior
         record = {
@@ -4016,6 +4275,12 @@ def append_terminal_delivery(
             "delta_pdf_sha256": verified["delta_pdf_sha256"],
             "full_pdf_sha256": verified["full_pdf_sha256"],
             "gmail_message_id": message_id,
+            "gmail_thread_id": readback["thread_id"],
+            "gmail_rfc_message_id": readback["rfc_message_id"],
+            "gmail_read_tool_call_id": readback["read_tool_call_id"],
+            "gmail_readback_root": readback["readback_root"],
+            "gmail_attachments": readback["attachments"],
+            "gmail_readback": dict(readback),
             "policy_sha256": policy["policy_sha256"],
         }
         append_raw_locked(directory / "events.jsonl", record)
@@ -4025,13 +4290,16 @@ def append_terminal_delivery(
 def cmd_terminal_report_delivery(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     verified = verify_terminal_report_set(directory, args.report_set_id)
-    if args.delta_pdf_sha256 != verified["delta_pdf_sha256"] or args.full_pdf_sha256 != verified["full_pdf_sha256"]:
-        raise SupervisionLogError("Terminal email attachment hashes differ from verified PDFs")
+    readback = validate_terminal_gmail_readback(
+        decode_terminal_gmail_readback(args.gmail_readback_base64),
+        policy=policy,
+        verified=verified,
+    )
     record = append_terminal_delivery(
         directory=directory,
         policy=policy,
         verified=verified,
-        gmail_message_id=args.gmail_message_id,
+        readback=readback,
     )
     print(json.dumps({"record": record, "verified": verified}, sort_keys=True))
 
@@ -4052,6 +4320,35 @@ def latest_terminal_delivery(
     )
 
 
+def terminal_delivery_is_current(
+    delivery: Mapping[str, Any], verified: Mapping[str, Any]
+) -> bool:
+    readback = delivery.get("gmail_readback")
+    if not isinstance(readback, Mapping):
+        return False
+    material = {key: value for key, value in readback.items() if key != "readback_root"}
+    if readback.get("readback_root") != digest(material):
+        return False
+    attachments = {
+        str(item.get("filename")): item
+        for item in readback.get("attachments", [])
+        if isinstance(item, Mapping)
+    }
+    return bool(
+        delivery.get("manifest_root") == verified["manifest_root"]
+        and delivery.get("delta_pdf_sha256") == verified["delta_pdf_sha256"]
+        and delivery.get("full_pdf_sha256") == verified["full_pdf_sha256"]
+        and delivery.get("gmail_readback_root") == readback.get("readback_root")
+        and delivery.get("gmail_message_id") == readback.get("message_id")
+        and delivery.get("gmail_thread_id") == readback.get("thread_id")
+        and attachments.get("delta-report.pdf", {}).get("sha256")
+        == verified["delta_pdf_sha256"]
+        and attachments.get("full-report.pdf", {}).get("sha256")
+        == verified["full_pdf_sha256"]
+        and set(attachments) == {"delta-report.pdf", "full-report.pdf"}
+    )
+
+
 def expected_terminal_automation_ids(policy: Mapping[str, Any]) -> list[str]:
     runtime = policy.get("runtime", {})
     values = [
@@ -4062,6 +4359,56 @@ def expected_terminal_automation_ids(policy: Mapping[str, Any]) -> list[str]:
         policy.get("reports", {}).get("weekly", {}).get("automation_id"),
     ]
     return sorted({str(item) for item in values if item})
+
+
+def terminal_automation_owner_states(
+    automation_ids: list[str], *, not_before: dt.datetime
+) -> dict[str, dict[str, Any]]:
+    owner_root = CODEX_AUTOMATIONS_ROOT.resolve()
+    states: dict[str, dict[str, Any]] = {}
+    for automation_id in automation_ids:
+        safe_id(automation_id, label="automation ID")
+        automation_directory = owner_root / automation_id
+        config_path = automation_directory / "automation.toml"
+        if automation_directory.is_symlink() or config_path.is_symlink():
+            raise SupervisionLogError("Terminal automation owner path is symlinked")
+        try:
+            resolved = config_path.resolve(strict=True)
+        except FileNotFoundError as exc:
+            raise SupervisionLogError(
+                f"Terminal automation owner is missing: {automation_id}"
+            ) from exc
+        if resolved.parent.parent != owner_root:
+            raise SupervisionLogError("Terminal automation owner path escaped")
+        raw = resolved.read_bytes()
+        try:
+            config = tomllib.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+            raise SupervisionLogError("Terminal automation owner is invalid") from exc
+        if config.get("id") != automation_id:
+            raise SupervisionLogError("Terminal automation owner identity differs")
+        if str(config.get("status", "")).upper() != "PAUSED":
+            raise SupervisionLogError(
+                "Every terminal supervision automation must be paused"
+            )
+        updated_at = config.get("updated_at")
+        if not isinstance(updated_at, int):
+            raise SupervisionLogError("Terminal automation owner lacks update time")
+        updated = dt.datetime.fromtimestamp(
+            updated_at / 1000, tz=dt.timezone.utc
+        )
+        if updated < not_before:
+            raise SupervisionLogError(
+                "Terminal automation pause predates report delivery"
+            )
+        states[automation_id] = {
+            "status": "PAUSED",
+            "updated_at": updated_at,
+            "kind": str(config.get("kind", "")),
+            "target_thread_id": str(config.get("target_thread_id", "")),
+            "config_sha256": hashlib.sha256(raw).hexdigest(),
+        }
+    return states
 
 
 def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
@@ -4079,24 +4426,14 @@ def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
     if delivery is None or delivery.get("report_set_id") != args.report_set_id:
         raise SupervisionLogError("Terminal shutdown requires delivered report attachments")
     verified = verify_terminal_report_set(directory, args.report_set_id)
-    if delivery.get("manifest_root") != verified["manifest_root"]:
+    if not terminal_delivery_is_current(delivery, verified):
         raise SupervisionLogError("Terminal shutdown report delivery is stale")
     expected = expected_terminal_automation_ids(policy)
     if not expected:
         raise SupervisionLogError("Terminal shutdown has no bound automations")
-    states: dict[str, str] = {}
-    for raw in args.automation_state:
-        if "=" not in raw:
-            raise SupervisionLogError("Automation state must be ID=PAUSED")
-        automation_id, state = raw.split("=", 1)
-        automation_id = safe_id(automation_id, label="automation ID")
-        if automation_id in states:
-            raise SupervisionLogError("Terminal shutdown repeats an automation")
-        states[automation_id] = state.strip().upper()
-    if sorted(states) != expected:
-        raise SupervisionLogError("Terminal shutdown automation set differs")
-    if any(state != "PAUSED" for state in states.values()):
-        raise SupervisionLogError("Every terminal supervision automation must be paused")
+    states = terminal_automation_owner_states(
+        expected, not_before=parse_time(str(delivery.get("timestamp", "")))
+    )
     with append_lock(directory):
         current_events = events(directory / "events.jsonl")
         prior = next(
@@ -4156,15 +4493,10 @@ def cmd_terminal_report(args: argparse.Namespace) -> None:
         cmd_terminal_report_verify(args)
         return
     if args.action == "record-delivery":
-        if not all(
-            (
-                args.report_set_id,
-                args.gmail_message_id,
-                args.delta_pdf_sha256,
-                args.full_pdf_sha256,
+        if not args.report_set_id or not args.gmail_readback_base64:
+            raise SupervisionLogError(
+                "Terminal report delivery requires the report and exact Gmail read-back"
             )
-        ):
-            raise SupervisionLogError("Terminal report delivery requires report, Gmail, and attachment hashes")
         cmd_terminal_report_delivery(args)
         return
     raise SupervisionLogError("Unsupported terminal report action")
@@ -4717,18 +5049,13 @@ def parser() -> argparse.ArgumentParser:
     terminal_report.add_argument("--lifecycle-record")
     terminal_report.add_argument("--report-set-id")
     terminal_report.add_argument("--review-base64")
-    terminal_report.add_argument("--gmail-message-id")
-    terminal_report.add_argument("--delta-pdf-sha256")
-    terminal_report.add_argument("--full-pdf-sha256")
+    terminal_report.add_argument("--gmail-readback-base64")
     terminal_report.set_defaults(func=cmd_terminal_report)
 
     terminal_shutdown = subparsers.add_parser("terminal-shutdown")
     terminal_shutdown.add_argument("--target-thread", required=True)
     terminal_shutdown.add_argument("--lifecycle-record", required=True)
     terminal_shutdown.add_argument("--report-set-id", required=True)
-    terminal_shutdown.add_argument(
-        "--automation-state", action="append", required=True
-    )
     terminal_shutdown.set_defaults(func=cmd_terminal_shutdown)
 
     status = subparsers.add_parser("status")
