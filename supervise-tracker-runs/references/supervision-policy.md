@@ -1755,12 +1755,15 @@ python3 <LOG_HELPER> terminal-report --target-thread <TARGET> \
 ```
 
 The read-back JSON uses schema version 1 and kind
-`gmail-terminal-delivery-readback`; it contains the exact Gmail message ID,
-thread ID, bound reply seed ID, message-read tool-call ID, fetch time, raw MIME,
-and exactly two attachment rows. Each attachment row binds filename,
-Gmail-owned attachment ID, attachment-read tool-call ID, returned byte count,
-and SHA-256. The helper parses the MIME and rederives the payload hashes; do not
-construct a receipt from the local files or the send response alone.
+`gmail-terminal-delivery-readback`; it contains provider-read owner envelopes
+for both the bound seed message and the exact sent reply. Each envelope binds
+Gmail message ID, common thread ID, message-read tool-call ID, fetch time, and
+raw MIME. The sent MIME must reference the seed MIME's RFC message ID. Exactly
+two attachment rows bind filename, Gmail-owned attachment ID, owner message and
+thread IDs, attachment-read tool-call ID, returned byte count, and SHA-256. The
+helper parses both MIME messages, proves the reply/thread relationship, and
+rederives the payload hashes; do not construct a receipt from the local files
+or the send response alone.
 
 After `lifecycle-gate` returns `supervision_pause_permitted=true`, pause and view
 every returned automation. Then let the helper inspect the maintained Codex

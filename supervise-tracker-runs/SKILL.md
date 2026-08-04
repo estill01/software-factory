@@ -200,10 +200,12 @@ Repeat independently for additional targets.
   latest prior report or roundup and one inception-to-completion full
   implementation "report of reports." Send one completion email to the bound
   primary Gmail thread with both PDFs attached. Read the exact sent message with
-  raw MIME and read both attachments through Gmail. `record-delivery` must parse
-  that raw MIME, bind the Gmail message/thread and attachment-owner IDs, and
-  prove the returned attachment bytes equal the verified PDFs. Caller-supplied
-  message IDs or hashes alone are insufficient.
+  raw MIME, also read the bound seed message, and read both attachments through
+  Gmail. `record-delivery` must parse both MIME messages, prove the sent message
+  is a reply in the seed's provider-owned thread, bind each attachment to that
+  exact owner message/thread plus its attachment/read-call IDs, and prove the
+  returned bytes equal the verified PDFs. Caller-supplied message IDs or hashes
+  alone are insufficient.
 - Treat `supervision_pause_permitted=true` as the shutdown boundary. It requires
   the accepted completion record, exact completed lifecycle, both current report
   PDFs, and their recorded Gmail delivery. Pause every exact bound project

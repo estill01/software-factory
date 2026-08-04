@@ -4081,6 +4081,58 @@ def decode_urlsafe_payload(value: Any, *, label: str) -> bytes:
         raise SupervisionLogError(f"{label} is invalid") from exc
 
 
+def validate_gmail_message_owner(
+    raw: Any, *, label: str
+) -> tuple[dict[str, Any], Any, bytes]:
+    required = {
+        "provider",
+        "message_id",
+        "thread_id",
+        "read_tool_call_id",
+        "fetched_at",
+        "raw_mime_base64",
+    }
+    if not isinstance(raw, Mapping) or set(raw) != required:
+        raise SupervisionLogError(f"{label} owner shape differs")
+    if raw.get("provider") != "gmail.read_email":
+        raise SupervisionLogError(f"{label} owner provider differs")
+    message_id = safe_id(str(raw.get("message_id", "")), label=f"{label} message ID")
+    thread_id = safe_id(str(raw.get("thread_id", "")), label=f"{label} thread ID")
+    read_tool_call_id = safe_id(
+        str(raw.get("read_tool_call_id", "")), label=f"{label} read tool call ID"
+    )
+    fetched_at = parse_time(str(raw.get("fetched_at", "")))
+    raw_mime = decode_urlsafe_payload(
+        raw.get("raw_mime_base64"), label=f"{label} raw MIME"
+    )
+    try:
+        message = BytesParser(policy=email_policy.default).parsebytes(raw_mime)
+    except Exception as exc:
+        raise SupervisionLogError(f"{label} raw MIME cannot be parsed") from exc
+    sent_header = message.get("Date")
+    rfc_message_id = str(message.get("Message-ID", "")).strip()
+    if not sent_header or not rfc_message_id:
+        raise SupervisionLogError(f"{label} raw MIME lacks delivery headers")
+    try:
+        sent_at = parsedate_to_datetime(str(sent_header)).astimezone(dt.timezone.utc)
+    except (TypeError, ValueError) as exc:
+        raise SupervisionLogError(f"{label} sent time is invalid") from exc
+    if fetched_at < sent_at - dt.timedelta(minutes=5):
+        raise SupervisionLogError(f"{label} read-back predates the message")
+    normalized = {
+        "provider": "gmail.read_email",
+        "message_id": message_id,
+        "thread_id": thread_id,
+        "rfc_message_id": rfc_message_id,
+        "read_tool_call_id": read_tool_call_id,
+        "fetched_at": fetched_at.isoformat(),
+        "sent_at": sent_at.isoformat(),
+        "subject": str(message.get("Subject", "")).strip(),
+        "raw_mime_sha256": hashlib.sha256(raw_mime).hexdigest(),
+    }
+    return normalized, message, raw_mime
+
+
 def validate_terminal_gmail_readback(
     readback: Mapping[str, Any],
     *,
@@ -4090,12 +4142,8 @@ def validate_terminal_gmail_readback(
     required = {
         "schema_version",
         "kind",
-        "message_id",
-        "thread_id",
-        "reply_message_id",
-        "read_tool_call_id",
-        "fetched_at",
-        "raw_mime_base64",
+        "seed_message",
+        "sent_message",
         "attachments",
     }
     if set(readback) != required:
@@ -4106,38 +4154,24 @@ def validate_terminal_gmail_readback(
     ):
         raise SupervisionLogError("Terminal Gmail read-back version differs")
     gmail = policy.get("notifications", {}).get("gmail", {})
-    reply_message_id = safe_id(
-        str(readback.get("reply_message_id", "")), label="Gmail reply message ID"
+    seed, _seed_message, _seed_mime = validate_gmail_message_owner(
+        readback.get("seed_message"), label="Terminal Gmail seed"
     )
-    if reply_message_id != gmail.get("reply_message_id"):
+    sent, message, _raw_mime = validate_gmail_message_owner(
+        readback.get("sent_message"), label="Terminal Gmail sent message"
+    )
+    if seed["message_id"] != gmail.get("reply_message_id"):
         raise SupervisionLogError("Terminal Gmail read-back used another thread seed")
-    message_id = safe_id(str(readback.get("message_id", "")), label="Gmail message ID")
-    thread_id = safe_id(str(readback.get("thread_id", "")), label="Gmail thread ID")
-    read_tool_call_id = safe_id(
-        str(readback.get("read_tool_call_id", "")), label="Gmail read tool call ID"
-    )
-    fetched_at = parse_time(str(readback.get("fetched_at", "")))
-    raw_mime = decode_urlsafe_payload(
-        readback.get("raw_mime_base64"), label="Terminal Gmail raw MIME"
-    )
-    try:
-        message = BytesParser(policy=email_policy.default).parsebytes(raw_mime)
-    except Exception as exc:
-        raise SupervisionLogError("Terminal Gmail raw MIME cannot be parsed") from exc
-    sent_header = message.get("Date")
-    rfc_message_id = str(message.get("Message-ID", "")).strip()
-    if not sent_header or not rfc_message_id:
-        raise SupervisionLogError("Terminal Gmail raw MIME lacks delivery headers")
-    try:
-        sent_at = parsedate_to_datetime(str(sent_header)).astimezone(dt.timezone.utc)
-    except (TypeError, ValueError) as exc:
-        raise SupervisionLogError("Terminal Gmail sent time is invalid") from exc
-    if fetched_at < sent_at - dt.timedelta(minutes=5):
-        raise SupervisionLogError("Terminal Gmail read-back predates the sent message")
+    if sent["message_id"] == seed["message_id"] or sent["thread_id"] != seed["thread_id"]:
+        raise SupervisionLogError("Terminal Gmail sent message is not owned by the seed thread")
+    in_reply_to = str(message.get("In-Reply-To", ""))
+    references = str(message.get("References", ""))
+    if seed["rfc_message_id"] not in {in_reply_to, *references.split()}:
+        raise SupervisionLogError("Terminal Gmail sent message is not a reply to the seed")
     expected_subject = str(gmail.get("subject", "")).strip()
-    actual_subject = str(message.get("Subject", "")).strip()
-    normalized_subject = re.sub(r"^(?:re:\s*)+", "", actual_subject, flags=re.I)
-    if not expected_subject or normalized_subject != expected_subject:
+    seed_subject = re.sub(r"^(?:re:\s*)+", "", seed["subject"], flags=re.I)
+    sent_subject = re.sub(r"^(?:re:\s*)+", "", sent["subject"], flags=re.I)
+    if not expected_subject or seed_subject != expected_subject or sent_subject != expected_subject:
         raise SupervisionLogError("Terminal Gmail subject differs from the bound lane")
     mime_attachments: dict[str, bytes] = {}
     for part in message.iter_attachments():
@@ -4167,6 +4201,8 @@ def validate_terminal_gmail_readback(
         if not isinstance(item, Mapping) or set(item) != {
             "filename",
             "attachment_id",
+            "owner_message_id",
+            "owner_thread_id",
             "read_tool_call_id",
             "sha256",
             "bytes",
@@ -4184,6 +4220,16 @@ def validate_terminal_gmail_readback(
             str(item.get("read_tool_call_id", "")),
             label="Gmail attachment read tool call ID",
         )
+        owner_message_id = safe_id(
+            str(item.get("owner_message_id", "")),
+            label="Gmail attachment owner message ID",
+        )
+        owner_thread_id = safe_id(
+            str(item.get("owner_thread_id", "")),
+            label="Gmail attachment owner thread ID",
+        )
+        if owner_message_id != sent["message_id"] or owner_thread_id != sent["thread_id"]:
+            raise SupervisionLogError("Terminal Gmail attachment owner differs")
         payload = mime_attachments[filename]
         actual = {
             "sha256": hashlib.sha256(payload).hexdigest(),
@@ -4199,21 +4245,16 @@ def validate_terminal_gmail_readback(
             {
                 "filename": filename,
                 "attachment_id": attachment_id,
+                "owner_message_id": owner_message_id,
+                "owner_thread_id": owner_thread_id,
                 "read_tool_call_id": attachment_call,
                 **actual,
             }
         )
     normalized_attachments.sort(key=lambda item: item["filename"])
     normalized = {
-        "message_id": message_id,
-        "thread_id": thread_id,
-        "reply_message_id": reply_message_id,
-        "rfc_message_id": rfc_message_id,
-        "read_tool_call_id": read_tool_call_id,
-        "fetched_at": fetched_at.isoformat(),
-        "sent_at": sent_at.isoformat(),
-        "subject": actual_subject,
-        "raw_mime_sha256": hashlib.sha256(raw_mime).hexdigest(),
+        "seed_message": seed,
+        "sent_message": sent,
         "attachments": normalized_attachments,
     }
     return {**normalized, "readback_root": digest(normalized)}
@@ -4229,7 +4270,8 @@ def append_terminal_delivery(
     gmail = policy.get("notifications", {}).get("gmail", {})
     if not gmail.get("enabled") or not gmail.get("reply_message_id"):
         raise SupervisionLogError("Terminal report delivery requires the bound primary Gmail lane")
-    message_id = str(readback["message_id"])
+    sent_message = readback["sent_message"]
+    message_id = str(sent_message["message_id"])
     with append_lock(directory):
         current_events = events(directory / "events.jsonl")
         prior = next(
@@ -4275,9 +4317,9 @@ def append_terminal_delivery(
             "delta_pdf_sha256": verified["delta_pdf_sha256"],
             "full_pdf_sha256": verified["full_pdf_sha256"],
             "gmail_message_id": message_id,
-            "gmail_thread_id": readback["thread_id"],
-            "gmail_rfc_message_id": readback["rfc_message_id"],
-            "gmail_read_tool_call_id": readback["read_tool_call_id"],
+            "gmail_thread_id": sent_message["thread_id"],
+            "gmail_rfc_message_id": sent_message["rfc_message_id"],
+            "gmail_read_tool_call_id": sent_message["read_tool_call_id"],
             "gmail_readback_root": readback["readback_root"],
             "gmail_attachments": readback["attachments"],
             "gmail_readback": dict(readback),
@@ -4334,13 +4376,16 @@ def terminal_delivery_is_current(
         for item in readback.get("attachments", [])
         if isinstance(item, Mapping)
     }
+    sent_message = readback.get("sent_message")
+    if not isinstance(sent_message, Mapping):
+        return False
     return bool(
         delivery.get("manifest_root") == verified["manifest_root"]
         and delivery.get("delta_pdf_sha256") == verified["delta_pdf_sha256"]
         and delivery.get("full_pdf_sha256") == verified["full_pdf_sha256"]
         and delivery.get("gmail_readback_root") == readback.get("readback_root")
-        and delivery.get("gmail_message_id") == readback.get("message_id")
-        and delivery.get("gmail_thread_id") == readback.get("thread_id")
+        and delivery.get("gmail_message_id") == sent_message.get("message_id")
+        and delivery.get("gmail_thread_id") == sent_message.get("thread_id")
         and attachments.get("delta-report.pdf", {}).get("sha256")
         == verified["delta_pdf_sha256"]
         and attachments.get("full-report.pdf", {}).get("sha256")

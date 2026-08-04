@@ -11,7 +11,9 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from email import policy as email_policy
 from email.message import EmailMessage
+from email.parser import BytesParser
 from pathlib import Path
 from unittest import mock
 
@@ -95,12 +97,22 @@ def fixture_review(packet: dict[str, object]) -> dict[str, object]:
 def gmail_readback(
     *, verified: dict[str, object], policy: dict[str, object]
 ) -> str:
+    now = dt.datetime.now(dt.timezone.utc)
+    seed = EmailMessage()
+    seed["Subject"] = policy["notifications"]["gmail"]["subject"]
+    seed["From"] = "codex@example.test"
+    seed["To"] = "operator@example.test"
+    seed["Date"] = now - dt.timedelta(minutes=1)
+    seed["Message-ID"] = "<supervision-seed@example.test>"
+    seed.set_content("Supervision seed.")
     message = EmailMessage()
     message["Subject"] = policy["notifications"]["gmail"]["subject"]
     message["From"] = "codex@example.test"
     message["To"] = "operator@example.test"
-    message["Date"] = dt.datetime.now(dt.timezone.utc)
+    message["Date"] = now
     message["Message-ID"] = "<terminal-report@example.test>"
+    message["In-Reply-To"] = "<supervision-seed@example.test>"
+    message["References"] = "<supervision-seed@example.test>"
     message.set_content("Terminal implementation reports are attached.")
     attachments = []
     for filename, path_key in (
@@ -118,6 +130,8 @@ def gmail_readback(
             {
                 "filename": filename,
                 "attachment_id": f"gmail-attachment-{filename.split('-')[0]}",
+                "owner_message_id": "gmail-terminal-result",
+                "owner_thread_id": "gmail-terminal-thread",
                 "read_tool_call_id": f"exec-read-{filename.split('-')[0]}-attachment",
                 "sha256": hashlib.sha256(payload).hexdigest(),
                 "bytes": len(payload),
@@ -126,12 +140,22 @@ def gmail_readback(
     receipt = {
         "schema_version": 1,
         "kind": "gmail-terminal-delivery-readback",
-        "message_id": "gmail-terminal-result",
-        "thread_id": "gmail-terminal-thread",
-        "reply_message_id": policy["notifications"]["gmail"]["reply_message_id"],
-        "read_tool_call_id": "exec-read-terminal-email",
-        "fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-        "raw_mime_base64": base64.urlsafe_b64encode(message.as_bytes()).decode(),
+        "seed_message": {
+            "provider": "gmail.read_email",
+            "message_id": policy["notifications"]["gmail"]["reply_message_id"],
+            "thread_id": "gmail-terminal-thread",
+            "read_tool_call_id": "exec-read-terminal-seed",
+            "fetched_at": now.isoformat(),
+            "raw_mime_base64": base64.urlsafe_b64encode(seed.as_bytes()).decode(),
+        },
+        "sent_message": {
+            "provider": "gmail.read_email",
+            "message_id": "gmail-terminal-result",
+            "thread_id": "gmail-terminal-thread",
+            "read_tool_call_id": "exec-read-terminal-email",
+            "fetched_at": now.isoformat(),
+            "raw_mime_base64": base64.urlsafe_b64encode(message.as_bytes()).decode(),
+        },
         "attachments": attachments,
     }
     return base64.b64encode(
@@ -496,6 +520,44 @@ class TerminalReportIntegrationTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 supervision_log.SupervisionLogError,
                 "attachment read-back differs",
+            ):
+                supervision_log.cmd_terminal_report_delivery(args)
+
+    def test_delivery_rejects_unowned_message_or_attachment(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prepared, _review, verified = self.finalized_reports(root)
+            policy = supervision_log.read_json(root / TARGET / "policy.json")
+            encoded = gmail_readback(verified=verified, policy=policy)
+            receipt = json.loads(base64.b64decode(encoded))
+            sent = receipt["sent_message"]
+            raw = base64.urlsafe_b64decode(sent["raw_mime_base64"])
+            message = BytesParser(policy=email_policy.default).parsebytes(raw)
+            del message["In-Reply-To"]
+            del message["References"]
+            sent["raw_mime_base64"] = base64.urlsafe_b64encode(
+                message.as_bytes()
+            ).decode()
+            args = argparse.Namespace(
+                root=str(root),
+                target_thread=TARGET,
+                report_set_id=prepared["report_set_id"],
+                gmail_readback_base64=base64.b64encode(
+                    json.dumps(receipt, separators=(",", ":")).encode()
+                ).decode(),
+            )
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "not a reply to the seed"
+            ):
+                supervision_log.cmd_terminal_report_delivery(args)
+
+            receipt = json.loads(base64.b64decode(encoded))
+            receipt["attachments"][0]["owner_message_id"] = "another-gmail-message"
+            args.gmail_readback_base64 = base64.b64encode(
+                json.dumps(receipt, separators=(",", ":")).encode()
+            ).decode()
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "attachment owner differs"
             ):
                 supervision_log.cmd_terminal_report_delivery(args)
 
