@@ -1990,6 +1990,10 @@ def is_substantive_incident_record(
         item.get("incident_id") == current_incident_id
         and item.get("kind") != "notification"
         and not is_routing_only_incident_record(item)
+        and not (
+            item.get("kind") == "check"
+            and item.get("category") == "target-read-availability"
+        )
     )
 
 

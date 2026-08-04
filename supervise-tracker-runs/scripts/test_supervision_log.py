@@ -397,6 +397,103 @@ class NoticeGateCorrelationTests(unittest.TestCase):
         self.assertEqual(result["open_incident_ids"], [self.incident_id])
         self.assertEqual(result["open_incidents"], [records[-1]])
 
+    def test_target_read_availability_preserves_awaiting_evidence_head(self) -> None:
+        records = [
+            {
+                "kind": "incident",
+                "record_id": self.alert_source,
+                "incident_id": self.incident_id,
+                "status": "detected",
+            },
+            {
+                "kind": "resolution",
+                "record_id": self.terminal_source,
+                "incident_id": self.incident_id,
+                "status": "awaiting-target-evidence",
+                "notice_disposition": "correction-issued",
+            },
+            {
+                "kind": "check",
+                "record_id": "EVT-000003",
+                "incident_id": self.incident_id,
+                "category": "target-read-availability",
+                "status": "unavailable",
+            },
+        ]
+
+        result = self.run_status(records)
+
+        self.assertEqual(result["event_count"], len(records))
+        self.assertEqual(result["open_incident_ids"], [self.incident_id])
+        self.assertEqual(result["open_incidents"], [records[1]])
+
+    def test_target_read_availability_does_not_reopen_terminal_head(self) -> None:
+        records = [
+            {
+                "kind": "incident",
+                "record_id": self.alert_source,
+                "incident_id": self.incident_id,
+                "status": "detected",
+            },
+            {
+                "kind": "resolution",
+                "record_id": self.terminal_source,
+                "incident_id": self.incident_id,
+                "status": "corrected",
+                "notice_disposition": "terminal",
+            },
+            {
+                "kind": "check",
+                "record_id": "EVT-000003",
+                "incident_id": self.incident_id,
+                "category": "target-read-availability",
+                "status": "unavailable",
+            },
+        ]
+
+        result = self.run_status(records)
+
+        self.assertEqual(result["event_count"], len(records))
+        self.assertEqual(result["open_incident_ids"], [])
+        self.assertEqual(result["open_incidents"], [])
+
+    def test_substantive_reopen_after_target_read_availability_is_head(self) -> None:
+        records = [
+            {
+                "kind": "incident",
+                "record_id": self.alert_source,
+                "incident_id": self.incident_id,
+                "status": "detected",
+            },
+            {
+                "kind": "resolution",
+                "record_id": self.terminal_source,
+                "incident_id": self.incident_id,
+                "status": "corrected",
+                "notice_disposition": "terminal",
+            },
+            {
+                "kind": "check",
+                "record_id": "EVT-000003",
+                "incident_id": self.incident_id,
+                "category": "target-read-availability",
+                "status": "unavailable",
+            },
+            {
+                "kind": "resolution",
+                "record_id": "EVT-000004",
+                "incident_id": self.incident_id,
+                "status": "awaiting-target-evidence",
+                "notice_disposition": "intermediate",
+            },
+        ]
+
+        result = self.run_status(records)
+
+        self.assertEqual(result["event_count"], len(records))
+        self.assertEqual(result["open_incident_ids"], [self.incident_id])
+        self.assertEqual(result["open_incidents"], [records[-1]])
+
     def correction_records(
         self,
         *,
