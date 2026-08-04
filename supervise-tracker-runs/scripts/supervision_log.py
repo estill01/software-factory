@@ -52,6 +52,15 @@ TERMINAL_INCIDENT_STATUSES = {
     "resolved",
 }
 NON_COMPLETION_CHECK_CATEGORIES = {"max-sample", "meta-sample"}
+OUTCOME_COMPLETION_CATEGORY = "observable-outcome-completion"
+OUTCOME_COMPLETION_STATUSES = {"verified", "failed"}
+OUTCOME_COMPLETION_HASH_FIELDS = (
+    "outcome_manifest_sha256",
+    "artifact_currentness_sha256",
+    "effect_reconciliation_sha256",
+    "open_item_compatibility_sha256",
+    "independent_challenge_sha256",
+)
 GMAIL_CONVERSATION_NOTIFICATION_CATEGORIES = {
     "gmail-user-ack",
     "gmail-user-outcome",
@@ -183,6 +192,19 @@ def execution_economy_contract() -> dict[str, Any]:
             "minimum_distinct_episodes": 2,
             "single_material_episode_allowed": True,
         },
+    }
+
+
+def outcome_completion_contract() -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "terminal_state": "completed",
+        "record_category": OUTCOME_COMPLETION_CATEGORY,
+        "required_bindings": list(OUTCOME_COMPLETION_HASH_FIELDS),
+        "reviewer_model": "gpt-5.6-sol",
+        "reviewer_reasoning": ["xhigh", "max"],
+        "missing_or_failed_posture": "reject-completed-and-open-critical-review",
+        "process_proxies_sufficient": False,
     }
 
 
@@ -552,6 +574,10 @@ def ensure_execution_economy_policy(policy: dict[str, Any]) -> bool:
     if policy.get("execution_economy") != expected_economy:
         policy["execution_economy"] = expected_economy
         changed = True
+    expected_completion = outcome_completion_contract()
+    if policy.get("outcome_completion") != expected_completion:
+        policy["outcome_completion"] = expected_completion
+        changed = True
     expected_decisions = decision_resolution_contract()
     if policy.get("decision_resolution") != expected_decisions:
         policy["decision_resolution"] = expected_decisions
@@ -855,6 +881,7 @@ def default_policy(args: argparse.Namespace) -> dict[str, Any]:
             "gmail_roundup_notification": False,
         },
         "execution_economy": execution_economy_contract(),
+        "outcome_completion": outcome_completion_contract(),
         "decision_resolution": decision_resolution_contract(),
         "cross_thread_routing": cross_thread_routing_contract(),
         "skill_maintenance": skill_maintenance_contract(),
@@ -953,6 +980,9 @@ def validate_policy(policy: dict[str, Any]) -> None:
     economy = policy.get("execution_economy")
     if economy is not None and economy != execution_economy_contract():
         raise SupervisionLogError("Execution-economy contract differs")
+    completion = policy.get("outcome_completion")
+    if completion is not None and completion != outcome_completion_contract():
+        raise SupervisionLogError("Outcome-completion contract differs")
     decisions = policy.get("decision_resolution")
     if decisions is not None and canonical(decisions) not in {
         canonical(decision_resolution_contract()),
@@ -1837,6 +1867,138 @@ def incident_id(args: argparse.Namespace, record: dict[str, Any]) -> str:
     return f"INC-{stamp}-{suffix}"
 
 
+def assess_outcome_completion_record(
+    item: Mapping[str, Any] | None,
+    *,
+    policy: dict[str, Any],
+    state_fingerprint: str,
+) -> tuple[bool, str]:
+    if policy.get("outcome_completion") != outcome_completion_contract():
+        return False, "The current outcome-completion contract is not bound."
+    mission = bound_mission(policy)
+    if mission is None:
+        return False, "The current supervision mission is not bound."
+    if item is None:
+        return False, "No current observable-outcome completion record exists."
+    if (
+        item.get("kind") != "check"
+        or item.get("category") != OUTCOME_COMPLETION_CATEGORY
+    ):
+        return False, "The cited completion record has the wrong kind or category."
+    if item.get("state_fingerprint") != state_fingerprint:
+        return False, "The observable-outcome completion record is stale."
+    if item.get("mission_root") != mission["mission_root"]:
+        return False, "The observable-outcome completion record cites a stale mission."
+    if item.get("model") != outcome_completion_contract()["reviewer_model"]:
+        return False, "The completion record lacks the required independent reviewer model."
+    if item.get("reasoning") not in outcome_completion_contract()["reviewer_reasoning"]:
+        return False, "The completion record lacks the required reviewer reasoning level."
+    for field in OUTCOME_COMPLETION_HASH_FIELDS:
+        value = item.get(field)
+        if not isinstance(value, str) or not SHA256.fullmatch(value):
+            return False, f"The completion record lacks an exact {field} binding."
+    evidence = item.get("evidence")
+    if not isinstance(evidence, list) or not evidence or not all(
+        isinstance(value, str) and value for value in evidence
+    ):
+        return False, "The completion record lacks exact source evidence."
+    if item.get("status") != "verified":
+        return False, "The current observable-outcome review did not verify completion."
+    return True, "The current observable outcome is independently verified."
+
+
+def latest_outcome_completion_record(
+    all_events: list[dict[str, Any]], *, state_fingerprint: str
+) -> dict[str, Any] | None:
+    return next(
+        (
+            item
+            for item in reversed(all_events)
+            if item.get("kind") == "check"
+            and item.get("category") == OUTCOME_COMPLETION_CATEGORY
+            and item.get("state_fingerprint") == state_fingerprint
+        ),
+        None,
+    )
+
+
+def cmd_completion_record(args: argparse.Namespace) -> None:
+    directory, policy = load_policy(args)
+    if policy.get("outcome_completion") != outcome_completion_contract():
+        raise SupervisionLogError(
+            "Current outcome-completion contract is not bound; run bind first"
+        )
+    mission = bound_mission(policy)
+    if mission is None:
+        raise SupervisionLogError("Outcome completion requires an exact bound mission")
+    mission_root = exact_sha256(args.mission_root, label="mission root")
+    if mission_root != mission["mission_root"]:
+        raise SupervisionLogError("Outcome completion cites a stale mission root")
+    state_fingerprint = safe_id(
+        args.state_fingerprint, label="state fingerprint"
+    )
+    if args.model != outcome_completion_contract()["reviewer_model"]:
+        raise SupervisionLogError("Outcome completion requires the configured Sol reviewer")
+    if args.reasoning not in outcome_completion_contract()["reviewer_reasoning"]:
+        raise SupervisionLogError(
+            "Outcome completion requires xhigh or max reviewer reasoning"
+        )
+    evidence_values = [
+        clean(item, label="evidence", maximum=160) for item in args.evidence
+    ]
+    if not evidence_values or not all(evidence_values):
+        raise SupervisionLogError("Outcome completion requires exact source evidence")
+    if len(evidence_values) > 16:
+        raise SupervisionLogError("Too many outcome-completion evidence references")
+    record: dict[str, Any] = {
+        "schema_version": 1,
+        "record_id": "",
+        "timestamp": utc_now(),
+        "target_thread_id": args.target_thread,
+        "kind": "check",
+        "model": args.model,
+        "reasoning": args.reasoning,
+        "state_fingerprint": state_fingerprint,
+        "status": args.status,
+        "severity": "info" if args.status == "verified" else "critical",
+        "category": OUTCOME_COMPLETION_CATEGORY,
+        "active_block": clean(args.active_block, label="active block", maximum=40),
+        "checkpoint": clean(args.checkpoint, label="checkpoint", maximum=160),
+        "summary": clean(args.summary, label="summary"),
+        "evidence": evidence_values,
+        "mission_root": mission_root,
+        "policy_sha256": policy["policy_sha256"],
+    }
+    for field in OUTCOME_COMPLETION_HASH_FIELDS:
+        record[field] = exact_sha256(getattr(args, field), label=field)
+    with append_lock(directory):
+        current_events = events(directory / "events.jsonl")
+        prior = latest_outcome_completion_record(
+            current_events, state_fingerprint=state_fingerprint
+        )
+        if prior is not None and all(
+            prior.get(key) == record.get(key)
+            for key in (
+                "status",
+                "model",
+                "reasoning",
+                "mission_root",
+                "evidence",
+                *OUTCOME_COMPLETION_HASH_FIELDS,
+            )
+        ):
+            print(
+                json.dumps(
+                    {"duplicate": True, "record_id": prior["record_id"]},
+                    sort_keys=True,
+                )
+            )
+            return
+        record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
+        append_raw_locked(directory / "events.jsonl", record)
+    print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
+
+
 def cmd_record(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     if args.kind not in KINDS:
@@ -1881,6 +2043,20 @@ def cmd_record(args: argparse.Namespace) -> None:
         record["containment"] = containment_envelope_from_args(args, policy)
     with append_lock(directory):
         current_events = events(directory / "events.jsonl")
+        if args.kind == "lifecycle" and record["status"] == "completed":
+            completion_record = latest_outcome_completion_record(
+                current_events, state_fingerprint=record["state_fingerprint"]
+            )
+            completion_permitted, completion_reason = assess_outcome_completion_record(
+                completion_record,
+                policy=policy,
+                state_fingerprint=record["state_fingerprint"],
+            )
+            if not completion_permitted:
+                raise SupervisionLogError(
+                    f"Completed lifecycle rejected: {completion_reason}"
+                )
+            record["outcome_completion_record_id"] = completion_record["record_id"]
         if args.kind in {"lifecycle", "incident", "notification", "inbound-message"} and record["dedup_key"]:
             duplicate = next(
                 (
@@ -2296,6 +2472,30 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
     if state_fingerprint and source.get("state_fingerprint") != state_fingerprint:
         raise SupervisionLogError("Lifecycle source record fingerprint differs")
 
+    completion_permitted = True
+    completion_record_id: str | None = None
+    completion_reason = "The lifecycle state does not require outcome completion proof."
+    if lifecycle_state == "completed":
+        completion_record = latest_outcome_completion_record(
+            all_events, state_fingerprint=source.get("state_fingerprint", "")
+        )
+        completion_permitted, completion_reason = assess_outcome_completion_record(
+            completion_record,
+            policy=policy,
+            state_fingerprint=source.get("state_fingerprint", ""),
+        )
+        completion_record_id = (
+            str(completion_record.get("record_id"))
+            if completion_record is not None
+            else None
+        )
+        if source.get("outcome_completion_record_id") != completion_record_id:
+            completion_permitted = False
+            completion_reason = (
+                "The completed lifecycle is not bound to the current "
+                "observable-outcome record."
+            )
+
     priority_lifecycle = lifecycle_state in PRIORITY_LIFECYCLE_STATES
     category = "gmail-priority-lifecycle" if priority_lifecycle else "gmail-lifecycle"
     notification_key = f"{category}:{source_record}"
@@ -2318,8 +2518,10 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
         and user_action_required
         and notification_config.get("decision_context_enabled")
     )
-    send_now = enabled and not duplicate
-    if duplicate:
+    send_now = enabled and not duplicate and completion_permitted
+    if not completion_permitted:
+        reason = completion_reason
+    elif duplicate:
         reason = "This lifecycle transition is already in the outbound ledger."
     elif not enabled and priority_lifecycle:
         reason = (
@@ -2339,6 +2541,13 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                     if send_now and priority_lifecycle
                     else "primary-status" if send_now else "none"
                 ),
+                "completion_action": (
+                    "none"
+                    if completion_permitted
+                    else "open-critical-false-completion-review"
+                ),
+                "completion_permitted": completion_permitted,
+                "completion_record_id": completion_record_id,
                 "duplicate": duplicate,
                 "decision_context_required": decision_context_required,
                 "required_decision_fields": (
@@ -3512,6 +3721,12 @@ def cmd_status(args: argparse.Namespace) -> None:
     lifecycle_events = [
         item for item in all_events if item.get("kind") == "lifecycle"
     ]
+    outcome_completion_events = [
+        item
+        for item in all_events
+        if item.get("kind") == "check"
+        and item.get("category") == OUTCOME_COMPLETION_CATEGORY
+    ]
     decision_heads: dict[str, dict[str, Any]] = {}
     for item in all_events:
         if item.get("kind") == "decision" and item.get("decision_id"):
@@ -3546,6 +3761,11 @@ def cmd_status(args: argparse.Namespace) -> None:
                 "lifecycle_count": len(lifecycle_events),
                 "last_lifecycle": (
                     lifecycle_events[-1] if lifecycle_events else None
+                ),
+                "last_outcome_completion": (
+                    outcome_completion_events[-1]
+                    if outcome_completion_events
+                    else None
                 ),
                 "decision_count": len(decision_heads),
                 "open_decisions": open_decisions,
@@ -3710,6 +3930,30 @@ def parser() -> argparse.ArgumentParser:
     record.add_argument("--carry-forward", choices=["true", "false"])
     record.add_argument("--successor-effects", choices=["allowed", "blocked"])
     record.set_defaults(func=cmd_record)
+
+    completion_record = subparsers.add_parser("completion-record")
+    completion_record.add_argument("--target-thread", required=True)
+    completion_record.add_argument("--state-fingerprint", required=True)
+    completion_record.add_argument("--mission-root", required=True)
+    completion_record.add_argument(
+        "--status", choices=sorted(OUTCOME_COMPLETION_STATUSES), required=True
+    )
+    completion_record.add_argument("--model", required=True)
+    completion_record.add_argument(
+        "--reasoning", choices=["xhigh", "max"], required=True
+    )
+    completion_record.add_argument("--outcome-manifest-sha256", required=True)
+    completion_record.add_argument("--artifact-currentness-sha256", required=True)
+    completion_record.add_argument("--effect-reconciliation-sha256", required=True)
+    completion_record.add_argument(
+        "--open-item-compatibility-sha256", required=True
+    )
+    completion_record.add_argument("--independent-challenge-sha256", required=True)
+    completion_record.add_argument("--active-block", default="")
+    completion_record.add_argument("--checkpoint", default="")
+    completion_record.add_argument("--summary", required=True)
+    completion_record.add_argument("--evidence", action="append", required=True)
+    completion_record.set_defaults(func=cmd_completion_record)
 
     notice_gate = subparsers.add_parser("notice-gate")
     notice_gate.add_argument("--target-thread", required=True)

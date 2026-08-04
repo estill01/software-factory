@@ -27,6 +27,45 @@ or prevent drift in the implementation run, use `$supervise-tracker-runs` as a
 separate optional companion. Do not start supervision merely because a tracker
 is present, and do not merge supervisor duties into this implementation loop.
 
+## Bind observable outcome closure
+
+Before the first Block, derive one compact outcome-closure contract from the
+current direct goal, tracker, and repository instructions. Keep it in the active
+execution brief unless the tracker requires a durable record. It must identify:
+
+- the primary operator-visible outcome and exact completion condition;
+- every ordinary effect class needed to produce it, such as authoritative
+  writes, generated builds, publication artifacts, installation, or downstream
+  reconciliation;
+- the current identity and currentness basis for each required deliverable;
+- the genuinely reserved, external, or expressly excluded work that may remain
+  open; and
+- the hard authority, safety, release, and destructive-action boundaries.
+
+Reconcile each Block against this contract. A Block may stop before producing a
+required final deliverable only when a later named Block owns that effect. If a
+tracker's terminal boundary omits, excludes, or indefinitely defers an ordinary
+effect necessary for the user's outcome, the tracker is defective: preserve
+history, amend or reopen only the narrow owning slice, and continue. Do not use
+tracker completion as evidence that the goal completed when the two diverge.
+
+For every required deliverable, classify the live result as `created-current`,
+`reused-current`, `stale`, `missing`, or `open`, and bind that classification to
+its exact commit, authority revision/root, source hashes, and build or receipt
+identity as applicable. Before terminal completion, independently rehydrate or
+inspect the actual operator-visible deliverables and reconcile the complete
+expected effect set against actual effects. Passing tests, audits, schemas,
+hashes, populated records, reviewer counts, commits, pushes, or a terminal
+ledger are process evidence; none substitutes for a current deliverable.
+
+`completed-with-open-items` is terminal only when every retained item is
+compatible with the primary outcome and is genuinely reserved, external,
+optional, or expressly excluded. It may not hide ordinary authorized work that
+the tracker was meant to perform. Report implementation completion and outcome
+completion separately. Describe a branch or pull request as ready to merge only
+when both are current, every required operator-visible artifact is current, and
+the remaining open items are compatible with the stated outcome.
+
 ## Activate one block economically
 
 Before editing, form one compact execution brief from the live Block: governing

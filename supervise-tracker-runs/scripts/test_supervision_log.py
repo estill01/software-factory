@@ -68,6 +68,25 @@ class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
             " ".join(policy.split()),
         )
 
+    def test_terminal_outcome_gate_is_durable_in_both_skills(self) -> None:
+        supervision_skill = HELPER_PATH.parent.parent.joinpath("SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        implementation_skill = HELPER_PATH.parent.parent.parent.joinpath(
+            "implement-tracker-blocks", "SKILL.md"
+        ).read_text(encoding="utf-8")
+        policy = HELPER_PATH.parent.parent.joinpath(
+            "references", "supervision-policy.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("Bind observable outcome closure", implementation_skill)
+        self.assertIn("created-current", implementation_skill)
+        self.assertIn("ready to merge only", implementation_skill)
+        self.assertIn("completion-record", supervision_skill)
+        self.assertIn("completion_permitted=true", supervision_skill)
+        self.assertIn("operator-visible result", policy)
+        self.assertIn("rejects a completed lifecycle", policy)
+
 
 class NoticeGateCorrelationTests(unittest.TestCase):
     incident_id = "INC-20260801-123456-ABCDEF"
@@ -690,6 +709,10 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
 
         self.assertTrue(policy["execution_economy"]["enabled"])
         self.assertEqual(
+            policy["outcome_completion"],
+            supervision_log.outcome_completion_contract(),
+        )
+        self.assertEqual(
             policy["cross_thread_routing"],
             supervision_log.cross_thread_routing_contract(),
         )
@@ -757,6 +780,7 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
     def test_bind_backfills_legacy_group_in_propose_only_mode(self) -> None:
         policy = supervision_log.default_policy(self.init_args())
         policy.pop("execution_economy")
+        policy.pop("outcome_completion")
         policy.pop("decision_resolution")
         policy.pop("cross_thread_routing")
         policy.pop("skill_maintenance")
@@ -781,6 +805,10 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
         self.assertTrue(json.loads(output.getvalue())["changed"])
         self.assertEqual(policy["skill_maintenance"]["mode"], "propose-only")
         self.assertTrue(policy["execution_economy"]["enabled"])
+        self.assertEqual(
+            policy["outcome_completion"],
+            supervision_log.outcome_completion_contract(),
+        )
         self.assertTrue(policy["decision_resolution"]["continuation_first"])
         self.assertEqual(
             policy["cross_thread_routing"],
@@ -846,6 +874,19 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError,
             "Execution-economy contract differs",
+        ):
+            supervision_log.validate_policy(policy)
+
+    def test_policy_validation_rejects_outcome_completion_drift(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        policy["outcome_completion"]["process_proxies_sufficient"] = True
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "Outcome-completion contract differs",
         ):
             supervision_log.validate_policy(policy)
 
@@ -1603,6 +1644,172 @@ class MissionContainmentContractTests(unittest.TestCase):
             self.assertFalse(record["containment"]["carry_forward"])
 
 
+class OutcomeCompletionRecordTests(unittest.TestCase):
+    mission_root = "a" * 64
+
+    def policy(self) -> dict[str, object]:
+        policy = supervision_log.default_policy(
+            argparse.Namespace(
+                target_thread="target-1234",
+                target_label="target",
+                watcher_thread="watcher-1234",
+                reviewer_thread="reviewer-1234",
+                base_reviewer_thread="base-1234",
+                notice_reviewer_thread=None,
+                fix_executor_thread="fixer-1234",
+            )
+        )
+        policy["mission_binding"] = supervision_log.mission_binding_contract(
+            self.mission_root, "mission-source-1234"
+        )
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+        return policy
+
+    def completion_args(self, **overrides: str) -> argparse.Namespace:
+        values = {
+            "target_thread": "target-1234",
+            "state_fingerprint": "state-1234",
+            "mission_root": self.mission_root,
+            "status": "verified",
+            "model": "gpt-5.6-sol",
+            "reasoning": "xhigh",
+            "outcome_manifest_sha256": "b" * 64,
+            "artifact_currentness_sha256": "c" * 64,
+            "effect_reconciliation_sha256": "d" * 64,
+            "open_item_compatibility_sha256": "e" * 64,
+            "independent_challenge_sha256": "f" * 64,
+            "active_block": "Block-64",
+            "checkpoint": "checkpoint-1234",
+            "summary": "Current operator-visible outcome verified.",
+            "evidence": ["source-1234"],
+        }
+        values.update(overrides)
+        return argparse.Namespace(**values)
+
+    def test_completion_record_is_append_only_and_idempotent(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = self.policy()
+            output = io.StringIO()
+            with (
+                mock.patch.object(
+                    supervision_log, "load_policy", return_value=(directory, policy)
+                ),
+                redirect_stdout(output),
+            ):
+                supervision_log.cmd_completion_record(self.completion_args())
+            record = json.loads(output.getvalue())["record"]
+            self.assertEqual(
+                record["category"], supervision_log.OUTCOME_COMPLETION_CATEGORY
+            )
+
+            output = io.StringIO()
+            with (
+                mock.patch.object(
+                    supervision_log, "load_policy", return_value=(directory, policy)
+                ),
+                redirect_stdout(output),
+            ):
+                supervision_log.cmd_completion_record(self.completion_args())
+            self.assertTrue(json.loads(output.getvalue())["duplicate"])
+
+            lifecycle_args = argparse.Namespace(
+                target_thread="target-1234",
+                kind="lifecycle",
+                model="gpt-5.6-terra",
+                reasoning="max",
+                state_fingerprint="state-1234",
+                status="completed",
+                severity="info",
+                category="lifecycle",
+                active_block="Block-64",
+                checkpoint="checkpoint-1234",
+                summary="Target reported completion.",
+                evidence=[],
+                estimated_risk="",
+                action="",
+                resolution="",
+                dedup_key="lifecycle:completed",
+                incident_id=None,
+                review_id=None,
+                notice_disposition="",
+                resolution_owner="",
+                user_action_required="no",
+                containment=False,
+            )
+            output = io.StringIO()
+            with (
+                mock.patch.object(
+                    supervision_log, "load_policy", return_value=(directory, policy)
+                ),
+                redirect_stdout(output),
+            ):
+                supervision_log.cmd_record(lifecycle_args)
+            lifecycle = json.loads(output.getvalue())["record"]
+            self.assertEqual(
+                lifecycle["outcome_completion_record_id"], record["record_id"]
+            )
+
+    def test_completion_record_rejects_wrong_mission_or_missing_hash(self) -> None:
+        policy = self.policy()
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            with mock.patch.object(
+                supervision_log, "load_policy", return_value=(directory, policy)
+            ):
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, "stale mission root"
+                ):
+                    supervision_log.cmd_completion_record(
+                        self.completion_args(mission_root="0" * 64)
+                    )
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, "must be an exact"
+                ):
+                    supervision_log.cmd_completion_record(
+                        self.completion_args(artifact_currentness_sha256="missing")
+                    )
+
+    def test_completed_lifecycle_cannot_enter_ledger_without_proof(self) -> None:
+        policy = self.policy()
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            args = argparse.Namespace(
+                target_thread="target-1234",
+                kind="lifecycle",
+                model="gpt-5.6-terra",
+                reasoning="max",
+                state_fingerprint="state-1234",
+                status="completed",
+                severity="info",
+                category="lifecycle",
+                active_block="Block-64",
+                checkpoint="checkpoint-1234",
+                summary="Target reported completion.",
+                evidence=[],
+                estimated_risk="",
+                action="",
+                resolution="",
+                dedup_key="lifecycle:completed",
+                incident_id=None,
+                review_id=None,
+                notice_disposition="",
+                resolution_owner="",
+                user_action_required="no",
+                containment=False,
+            )
+            with mock.patch.object(
+                supervision_log, "load_policy", return_value=(directory, policy)
+            ):
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "Completed lifecycle rejected",
+                ):
+                    supervision_log.cmd_record(args)
+
+
 class PriorityLifecycleNotificationTests(unittest.TestCase):
     def init_args(self) -> argparse.Namespace:
         return argparse.Namespace(
@@ -1654,7 +1861,47 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
         policy: dict[str, object],
         state: str,
         records: list[dict[str, object]] | None = None,
+        *,
+        include_completion: bool = True,
     ) -> dict[str, object]:
+        event_records = list(records or [])
+        completion_record_id = None
+        if state == "completed" and include_completion:
+            mission_root = "a" * 64
+            policy["mission_binding"] = supervision_log.mission_binding_contract(
+                mission_root, "mission-source-1234"
+            )
+            completion_record_id = "EVT-000000"
+            event_records.insert(
+                0,
+                {
+                    "kind": "check",
+                    "record_id": completion_record_id,
+                    "category": supervision_log.OUTCOME_COMPLETION_CATEGORY,
+                    "status": "verified",
+                    "state_fingerprint": "state-1234",
+                    "mission_root": mission_root,
+                    "model": "gpt-5.6-sol",
+                    "reasoning": "xhigh",
+                    "evidence": ["evidence-1234"],
+                    **{
+                        field: "b" * 64
+                        for field in supervision_log.OUTCOME_COMPLETION_HASH_FIELDS
+                    },
+                },
+            )
+        elif state == "completed":
+            supplied_completion = next(
+                (
+                    item
+                    for item in reversed(event_records)
+                    if item.get("category")
+                    == supervision_log.OUTCOME_COMPLETION_CATEGORY
+                ),
+                None,
+            )
+            if supplied_completion is not None:
+                completion_record_id = str(supplied_completion["record_id"])
         source = {
             "kind": "lifecycle",
             "record_id": "EVT-000001",
@@ -1662,6 +1909,8 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
             "state_fingerprint": "state-1234",
             "user_action_required": "yes",
         }
+        if completion_record_id is not None:
+            source["outcome_completion_record_id"] = completion_record_id
         args = argparse.Namespace(
             target_thread="target-1234",
             lifecycle_state=state,
@@ -1678,7 +1927,7 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
             mock.patch.object(
                 supervision_log,
                 "events",
-                return_value=[source, *(records or [])],
+                return_value=[*event_records, source],
             ),
             redirect_stdout(output),
         ):
@@ -1743,6 +1992,89 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
                 self.assertTrue(result["send_now"])
                 self.assertEqual(result["channel"], "primary-status")
                 self.assertEqual(result["notification_category"], "gmail-lifecycle")
+
+    def test_completed_refuses_missing_outcome_completion(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        policy["notifications"]["gmail"].update(
+            {"enabled": True, "reply_message_id": "gmail-primary-1234"}
+        )
+
+        result = self.run_lifecycle_gate(
+            policy, "completed", include_completion=False
+        )
+
+        self.assertFalse(result["completion_permitted"])
+        self.assertFalse(result["send_now"])
+        self.assertEqual(
+            result["completion_action"], "open-critical-false-completion-review"
+        )
+
+    def test_completed_refuses_failed_or_stale_outcome_completion(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        mission_root = "a" * 64
+        policy["mission_binding"] = supervision_log.mission_binding_contract(
+            mission_root, "mission-source-1234"
+        )
+        base = {
+            "kind": "check",
+            "record_id": "EVT-000002",
+            "category": supervision_log.OUTCOME_COMPLETION_CATEGORY,
+            "status": "failed",
+            "state_fingerprint": "state-1234",
+            "mission_root": mission_root,
+            "model": "gpt-5.6-sol",
+            "reasoning": "xhigh",
+            "evidence": ["evidence-1234"],
+            **{
+                field: "b" * 64
+                for field in supervision_log.OUTCOME_COMPLETION_HASH_FIELDS
+            },
+        }
+
+        failed = self.run_lifecycle_gate(
+            policy, "completed", [base], include_completion=False
+        )
+        self.assertFalse(failed["completion_permitted"])
+
+        stale = dict(base, status="verified", state_fingerprint="state-old")
+        stale_result = self.run_lifecycle_gate(
+            policy, "completed", [stale], include_completion=False
+        )
+        self.assertFalse(stale_result["completion_permitted"])
+
+    def test_completed_refuses_missing_binding_or_wrong_mission(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        mission_root = "a" * 64
+        policy["mission_binding"] = supervision_log.mission_binding_contract(
+            mission_root, "mission-source-1234"
+        )
+        completion = {
+            "kind": "check",
+            "record_id": "EVT-000002",
+            "category": supervision_log.OUTCOME_COMPLETION_CATEGORY,
+            "status": "verified",
+            "state_fingerprint": "state-1234",
+            "mission_root": "c" * 64,
+            "model": "gpt-5.6-sol",
+            "reasoning": "xhigh",
+            "evidence": ["evidence-1234"],
+            **{
+                field: "b" * 64
+                for field in supervision_log.OUTCOME_COMPLETION_HASH_FIELDS
+            },
+        }
+
+        wrong_mission = self.run_lifecycle_gate(
+            policy, "completed", [completion], include_completion=False
+        )
+        self.assertFalse(wrong_mission["completion_permitted"])
+
+        completion["mission_root"] = mission_root
+        del completion["artifact_currentness_sha256"]
+        missing_binding = self.run_lifecycle_gate(
+            policy, "completed", [completion], include_completion=False
+        )
+        self.assertFalse(missing_binding["completion_permitted"])
 
     def test_priority_transition_refuses_primary_thread_fallback(self) -> None:
         policy = supervision_log.default_policy(self.init_args())

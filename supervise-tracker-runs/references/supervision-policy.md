@@ -183,6 +183,27 @@ direct source class, record, hash, and target thread. It never invents missing
 project semantics. Use its derived binding by default for new groups; retain an
 explicit root only for exact legacy or externally derived bindings.
 
+Terminal `completed` is an independently gated outcome claim. Before a
+completed lifecycle event may enter the ledger, a Sol XHigh or Max reviewer
+must reconstruct the current primary outcome from direct sources and inspect
+the actual operator-visible result. It records one content-minimized
+`observable-outcome-completion` check through `completion-record`, bound to the
+exact state fingerprint and mission root, with exact SHA-256 roots for:
+
+- the complete expected operator-visible outcome manifest;
+- currentness of every required artifact or explicit no-artifact disposition;
+- exact expected-versus-actual effect reconciliation;
+- compatibility of every retained open item with the primary outcome; and
+- the independent outcome challenge and verdict.
+
+The helper rejects a completed lifecycle record when this evidence is absent,
+failed, stale, bound to another mission or fingerprint, produced by an
+ineligible reviewer, or missing any root. `lifecycle-gate` revalidates the same
+binding before notification or pause. A test, audit, commit, push, schema-valid
+record, hash chain, or tracker status is supporting process evidence only. If
+the direct outcome is missing or stale, record a critical false-completion
+review, keep target and supervision active, and route the narrow correction.
+
 Target-native alignment is optional read-only corroboration. When present, a
 reviewer may compare its exact current attestation with the independent charter
 and observable target effects, but the attestation never governs supervisor
@@ -1051,9 +1072,15 @@ At each scheduled wake:
    after purpose `semantic-escalation` is allowed.
    Send only helper-approved priority phase notices and keep the incident open
    until target acknowledgement.
-8. When the compact status or newest target turn explicitly reports that the
-   implementation entered `completed`, `paused`, `blocked`, `failed`, or explicit `stopped`, record one
-   deduplicated `lifecycle` event for that state and fingerprint, call
+8. When the compact status or newest target turn explicitly reports `completed`,
+   route that exact fingerprint to XHigh for observable-outcome completion
+   review before recording a lifecycle event. XHigh must inspect the current
+   operator-visible deliverables and either write `completion-record --status
+   verified` or record a failed outcome review and route a critical narrow
+   correction. Only a verified record permits the watcher to record
+   `lifecycle --status completed`. For `paused`, `blocked`, `failed`, or explicit
+   `stopped`, record one
+   deduplicated `lifecycle` event for that state and fingerprint, then call
    `lifecycle-gate`, and, when permitted, use its exact channel and seed. Send
    blocked/failed/stopped to the dedicated priority seed with `🚨 IMPLEMENTATION
    BLOCKED / STOPPED 🚨`; send completed/noncritical-paused as `IMPLEMENTATION
@@ -1144,6 +1171,17 @@ Apply the bound generic completion meta-charter before reconstructing the
 project-specific outcome. Process success is not outcome success, and an
 unsupported goal-preventing stop is critical. Verify an exact valid-stop basis
 before accepting inactivity as terminal.
+
+For an explicit `completed` target posture, perform a dedicated completion
+review before returning a no-intervention check. Reconstruct the current direct
+mission, enumerate its operator-visible deliverables and ordinary required
+effects, inspect those deliverables at their exact current commit/revision/root,
+reconcile expected versus actual effects, and classify every open item for
+compatibility with the primary outcome. Challenge whether the tracker omitted
+or deferred work needed for the direct goal. Passing process evidence cannot
+substitute. Record the five exact roots with `completion-record`; use `verified`
+only when the outcome is actually current. Otherwise record `failed`, escalate
+the false-completion defect, and keep the target active.
 
 For each changed-state packet:
 1. Ignore any Terra inference. Using the target thread ID and exact turn/item
@@ -1325,6 +1363,11 @@ failed, or explicit stopped transition lacks its required email, record or reuse
 its exact `lifecycle` event, call `lifecycle-gate`, and use its exact channel:
 priority seed for blocked/failed/stopped; primary seed for completed/noncritical-
 paused. Record the receipt. Do not wait for or replace the ordinary digest.
+For `completed`, first inspect the current `observable-outcome-completion`
+record and independently sample its actual operator-visible artifacts and open-
+item compatibility. Missing, stale, failed, or self-certified outcome evidence
+is a critical false negative: keep supervision active and route correction
+rather than repairing only the email.
 Write a content-minimized review record. For every supported problem, write a
 bounded fix plan containing the defect, evidence, intended outcome, exact scope,
 smallest sufficient actions, verification, stop condition, and rollback or
@@ -1608,6 +1651,26 @@ python3 <LOG_HELPER> record --target-thread <TARGET> --kind check \
   --summary "Bounded review found no supported intervention."
 ```
 
+Record the independent terminal outcome proof before any completed lifecycle:
+
+```bash
+python3 <LOG_HELPER> completion-record --target-thread <TARGET> \
+  --state-fingerprint <HASH> --mission-root <MISSION_SHA256> \
+  --status <verified|failed> --model gpt-5.6-sol --reasoning xhigh \
+  --outcome-manifest-sha256 <SHA256> \
+  --artifact-currentness-sha256 <SHA256> \
+  --effect-reconciliation-sha256 <SHA256> \
+  --open-item-compatibility-sha256 <SHA256> \
+  --independent-challenge-sha256 <SHA256> \
+  --active-block <BLOCK> --checkpoint <CHECKPOINT> \
+  --evidence <TARGET_TURN_OR_ITEM_ID> \
+  --summary "Current operator-visible outcome was independently checked."
+```
+
+Only a current `verified` record allows the subsequent generic `record --kind
+lifecycle --status completed` command. A missing or failed record must produce
+a critical false-completion review instead.
+
 Record an independent Max sample without changing the live gate watermark:
 
 ```bash
@@ -1661,6 +1724,8 @@ Send only when `send_now` is true. Obey the returned channel, seed, category,
 banner, and deduplication key. Never fall back from a missing priority binding
 to the primary or roundup seed. When `decision_context_required` is true, the
 email must include every returned `required_decision_fields` entry.
+For `completed`, also require `completion_permitted=true`; otherwise keep
+supervision active and execute the returned completion action.
 
 Record and gate one continuation-first decision:
 

@@ -180,6 +180,21 @@ Repeat independently for additional targets.
   default; and valid work, history, and user-owned state are preserved. Derive
   the exact project charter from current direct goal/repository/tracker sources,
   never from supervisor state or a target's self-attestation.
+- Treat `completed` as a gated semantic claim, not an observed status to relay.
+  Before recording it, require a Sol XHigh or Max reviewer to reconstruct the
+  primary outcome from current direct sources, inspect the operator-visible
+  deliverables, reconcile expected versus actual effects, verify exact
+  artifact/currentness bindings, and determine whether every retained open item
+  is compatible with that outcome. Record those five content-minimized roots
+  with `completion-record`. The helper must reject `completed` when that record
+  is missing, failed, stale, tied to another mission or fingerprint, or lacks
+  any required binding.
+- A tracker, test, audit, commit, push, record population, or terminal ledger may
+  support but never replace outcome proof. When the tracker and direct mission
+  disagree, open a critical false-completion review, keep supervision and the
+  target active, and route the narrow tracker/outcome correction. Do not send a
+  completion notice or pause automations until `lifecycle-gate` returns
+  `completion_permitted=true`.
 - Treat an unsupported goal-preventing stop as a critical operational event,
   not every pause or bounded wait. Completion, a current direct stop/goal
   change, a hard authority/safety boundary, independently established current
@@ -484,6 +499,11 @@ Repeat independently for additional targets.
   target, ensure its deduplicated priority-thread lifecycle email was sent.
   Before pausing for a completed or noncritical paused target, ensure its
   ordinary lifecycle-status email was sent to the primary project thread.
+- Before accepting or pausing for `completed`, require the exact current
+  `completion-record`, a lifecycle event bound to that record, and
+  `lifecycle-gate` with `completion_permitted=true`. A failed completion gate
+  keeps the target active and requires a critical false-completion review; it
+  is not a notification-only defect.
 - A blocked posture is valid only when the exact non-delegable input remains
   absent, proceeding would cross a declared authority/safety/stop boundary, the
   first attempt remained unresolved, the complete human-input packet has been
