@@ -167,7 +167,7 @@ record, not a substitute for native product or domain authority.
 Run the read-only verifier:
 
 ```bash
-python3 /Users/ethanstillman/.codex/skills/author-implementation-trackers/scripts/verify_tracker.py \
+python3 "${CODEX_HOME:-$HOME/.codex}/skills/author-implementation-trackers/scripts/verify_tracker.py" \
   path/to/tracker.md --profile full
 ```
 
