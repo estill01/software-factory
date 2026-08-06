@@ -1,6 +1,6 @@
-# Codex tracker skills
+# Software Factory
 
-Private source repository for the custom Codex skills that author, implement,
+Custom Codex skills that author, implement,
 and supervise bounded implementation trackers:
 
 - `author-implementation-trackers`
