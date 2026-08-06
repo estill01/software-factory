@@ -1,27 +1,38 @@
 # Software Factory
 
-**A high-reliability agent harness for Codex: specify, implement, independently supervise, correct, and verify software work as an evidence-bound production process.**
+**A fully-autonomous, high-reliability software factory for Codex. Software Factory takes a technical objective and a repository, turns them into a dependency-ordered implementation item tracker list, executes the entire tracker across hours or days, validates and checkpoints every implementation `Block`, independently supervises and corrects the run, and verifies the finished operator-visible outcome.**
 
-Coding models can produce code quickly. The harder problem is keeping a multi-hour or multi-day implementation run aligned with the actual goal, bounded to the right architecture, economical in its use of validation and model work, independently reviewed, and legible to a human.
-
-Software Factory acts as the implementation operating system and control plane around the coding agent. It turns a technical objective and a live repository into a dependency-ordered implementation program, executes that program one bounded Block at a time, observes changed state from a separate supervision plane, routes narrow corrections when necessary, and verifies the operator-visible outcome rather than accepting process activity as proof of completion.
-
-It is designed to let coding agents run longer and do more of the mechanical production work without turning the human into the scheduler, watchdog, retry loop, or sole source of assurance.
-
-It is not a single agent asked to plan, build, test, review, and certify its own work.
+Software Factory is built for **unattended, end-to-end implementation runs**, not turn-by-turn pair programming. After an implementation tracker is authored, [`implement-tracker-blocks`](implement-tracker-blocks/) can take the whole program—not just one Block—and repeatedly:
 
 ```text
-goal + repository
+select the next eligible Block
         ↓
-structurally verified implementation contract
+implement → validate → required review → checkpoint → audit
         ↓
-bounded execution + exact evidence
+advance automatically to the next Block
+```
+
+That loop can continue for days without a human re-prompting the agent after each Block. It stops only when the requested scope is exhausted and the original outcome has been verified, or when the system reaches a genuinely non-delegable authority, safety, credential, release, or external-dependency boundary. Ordinary engineering choices and Block transitions do not require the operator to keep pressing “continue.”
+
+> **Demonstrated in practice:** one recorded run executed **65 Blocks over approximately four days, essentially unattended by a human**, finishing with **279 passing tests** and **no open Critical or High findings**.
+
+The rest of the factory surrounds that autonomous execution loop with stronger controls. [`author-implementation-trackers`](author-implementation-trackers/) derives the implementation contract from the live repository. [`supervise-tracker-runs`](supervise-tracker-runs/) runs alongside the implementer as an independent control plane, monitoring changed state, detecting drift and avoidable work, routing bounded corrections, and generating evidence-bound reports for human governance.
+
+**Block-by-Block is the factory’s control granularity, not its autonomy limit.** A user can ask the executor to run one Block, a dependency-safe range, or every remaining Block in the tracker.
+
+```text
+technical goal + live repository
         ↓
-independent changed-state supervision
+repository-derived implementation contract
+        ↓
+unattended multi-Block execution
+implement → validate → review → checkpoint → advance
+        ↕
+independent supervision → incident → bounded correction
         ↓
 verified operator-visible outcome
         ↓
-evidence-bound human reporting
+evidence-bound reporting for human governance
 ```
 
 [**Watch the video walkthrough**](https://www.youtube.com/watch?v=gRJ-hgbBcTo) · [**Open the generated supervision report**](examples/reports/software_factory_report.pdf)
@@ -30,24 +41,26 @@ evidence-bound human reporting
 
 ## What the factory provides
 
-Software Factory is implemented as three composable Codex skills plus a human-facing reporting layer:
+Software Factory combines three composable Codex skills with deterministic verification, event, incident, and reporting machinery. Together they support long-running, end-to-end tracker execution; separately, each can be used for a narrower job.
 
 | Layer | Skill / output | Responsibility |
 |---|---|---|
-| **Specification** | [`author-implementation-trackers`](author-implementation-trackers/) | Convert a goal and the live repository into dependency-ordered Blocks with explicit ownership, scope, non-goals, acceptance, evidence, resource posture, and stop boundaries. |
-| **Execution** | [`implement-tracker-blocks`](implement-tracker-blocks/) | Implement and audit one bounded Block at a time, preserve unrelated work and current proof, checkpoint exact revisions, and stop at the declared boundary. |
+| **Specification** | [`author-implementation-trackers`](author-implementation-trackers/) | Convert a technical goal and the live repository into a dependency-ordered implementation program with explicit ownership, scope, non-goals, acceptance, evidence, resource posture, decision boundaries, and terminal outcome criteria. |
+| **Autonomous execution** | [`implement-tracker-blocks`](implement-tracker-blocks/) | Execute one Block, a range, or the entire remaining tracker. For a full run, repeat implementation, validation, required review, checkpointing, pushing when permitted, audit, and automatic advancement in dependency order until outcome closure or a real authority boundary. |
 | **Independent supervision** | [`supervise-tracker-runs`](supervise-tracker-runs/) | Observe changed states from separate role threads, perform semantic review, detect incidents and waste, route bounded corrections, challenge completion, and evaluate the supervisor itself. |
-| **Human control and observability** | Reports, incident notices, lifecycle state, and optional Gmail delivery | Project machine-readable evidence into status, risks, cost, response times, recurring failure classes, known blind spots, and current outcome evidence a human can govern. |
+| **Human control and observability** | Reports, incident notices, lifecycle state, and optional Gmail delivery | Project machine-readable evidence into status, risks, cost, response times, recurring failure classes, known blind spots, and current outcome evidence a human can govern without reading the full agent transcript. |
 
-The skills can be used independently. You can author a tracker without implementing it, execute a compatible tracker without supervision, or attach supervision as a separate control plane to an active implementation run.
+The name `implement-tracker-blocks` describes the **unit of control**, not the maximum run length. “One bounded Block at a time” means each Block is independently reconstructed, implemented, proven, audited, and closed before the executor activates the next eligible Block. It does **not** mean the user must issue a new prompt for every Block.
+
+The skills remain composable. You can author a tracker without implementing it, execute a single Block for a constrained change, run an entire compatible tracker without supervision, or attach independent supervision to a multi-day implementation run.
 
 The repository is more than three instruction files: it includes deterministic tracker verification, supervision event and incident machinery, weekly and terminal reporting, PDF rendering, and focused tests for the control invariants.
 
 ---
 
-## Why this is different
+## What the factory controls during an autonomous run
 
-| Common failure in long-running agentic development | Software Factory response |
+| Production risk | Control applied by Software Factory |
 |---|---|
 | **The agent treats a task list as the architecture.** | Tracker authoring inspects the live repository, identifies authoritative owners, and splits work at real dependency, mutation, review, recovery, and stopping boundaries. |
 | **Scope expands into attractive but unnecessary infrastructure.** | Every Block has one primary outcome, explicit non-goals, a feature-creep test, and a stop clause that excludes downstream work. |
@@ -69,12 +82,14 @@ flowchart TB
     H["Human mission, judgment,<br/>and reserved authority"]
     G["Technical goal + live repository"]
     A["Tracker author"]
-    T["Structurally verified<br/>implementation tracker"]
+    T["Dependency-ordered<br/>implementation tracker"]
 
-    subgraph DELIVERY["Delivery plane"]
-        I["Implementation thread<br/>one bounded Block at a time"]
+    subgraph DELIVERY["Autonomous delivery plane"]
+        E["Full-tracker executor"]
+        B["Current eligible Block"]
         R[(Target repository)]
-        C["Candidate state<br/>validation + review + checkpoint"]
+        C["Validated, reviewed,<br/>evidence-bound checkpoint"]
+        N{"More eligible Blocks<br/>in requested scope?"}
         O["Independent outcome verification"]
         D["Completed operator-visible outcome"]
     end
@@ -93,11 +108,14 @@ flowchart TB
     H --> G
     G --> A
     A --> T
-    T --> I
-    I <--> R
-    I --> C
-    C --> O
-    O -->|gap| I
+    T --> E
+    E --> B
+    B <--> R
+    B --> C
+    C --> N
+    N -->|yes — advance automatically| B
+    N -->|no — requested scope exhausted| O
+    O -->|outcome gap — reopen narrow owner| B
     O -->|outcome established| D
 
     C -.->|changed state| W
@@ -106,10 +124,11 @@ flowchart TB
     X --> Q
     M --> Q
     M --> F
-    Q -.->|bounded corrective steer| I
+    Q -.->|bounded corrective steer| E
 
     A --> L
-    I --> L
+    E --> L
+    C --> L
     W --> L
     X --> L
     M --> L
@@ -122,16 +141,18 @@ flowchart TB
 The key separation is between:
 
 1. **defining what must become true;**
-2. **doing the implementation work;**
+2. **autonomously executing the full dependency-ordered program;**
 3. **judging changed state and corrective outcomes;**
 4. **establishing that the requested outcome actually exists;** and
 5. **explaining the production system to a human.**
 
 Those functions share evidence, but they do not silently collapse into one self-certifying authority.
 
-### Delivery plane
+### Autonomous delivery plane
 
-The implementation tracker is the scope and completion contract; the live repository and its controlling instructions remain authoritative. The implementer activates only the requested Block or range, identifies the smallest missing delta, preserves unrelated user work, reuses still-current evidence, validates a frozen candidate, obtains distinct review where required, creates bounded Git checkpoints, and stops at the Block boundary.
+The user can request a single Block, a dependency-safe range, or the entire tracker. In a full-tracker run, the executor maintains the governing outcome-closure contract and repeats the same controlled cycle across every eligible Block: reconstruct the live Block, identify the smallest missing delta, implement it, validate the frozen candidate, obtain distinct review where required, record exact evidence, create a bounded Git checkpoint, push when an existing configured remote and repository policy permit it, audit the Block, and activate the next eligible Block automatically.
+
+The explicit Block stop boundary prevents scope bleed: Block N cannot quietly absorb Block N+1. It is **not** necessarily a human pause. When the requested scope includes later Blocks, the executor closes the current Block at its boundary, rereads the next Block and live dependencies, and continues. This is what allows a controlled implementation program to run unattended for hours or days while retaining narrow acceptance and recovery points.
 
 ### Independent supervision plane
 
@@ -147,13 +168,26 @@ Implementation, review, incident, lifecycle, policy, and reporting events are ma
 
 ## Demonstrated operation
 
-The repository includes an example report generated by the supervision system from one inaugural partial-week run.
+### Full-tracker implementation run
 
-[![Excerpt from the generated Software Factory supervision report](examples/reports/software_factory_report_preview.png)](examples/reports/software_factory_report.pdf)
+A recorded implementation program used `implement-tracker-blocks` to execute the entire tracker—not a single isolated Block—through 65 bounded implementation and acceptance cycles.
 
-[**View the complete eight-page PDF report →**](examples/reports/software_factory_report.pdf)
+| Measure | Observed result |
+|---|---:|
+| Requested tracker scope | **Blocks 0–64** |
+| Blocks executed | **65** |
+| Execution time | **Approximately 4 days** |
+| Operator posture | **Essentially unattended; no turn-by-turn Block scheduling** |
+| Final test suite | **279 passing tests** |
+| Final audit | **0 open Critical or High findings** |
 
-### Observed supervision window
+The executor implemented, validated, reviewed where required, checkpointed, audited, and advanced across the program without requiring a human to manually restart the loop after each Block. These are observations from one recorded run, not a general benchmark for Codex or software engineering.
+
+### Generated independent-supervision report
+
+The repository includes the human-readable report generated by the supervision system for one inaugural partial-week monitoring window:
+
+[**Open `examples/reports/software_factory_report.pdf` →**](examples/reports/software_factory_report.pdf)
 
 | Measure | Observed result |
 |---|---:|
@@ -176,9 +210,9 @@ More important than the counts is what the independent control plane caught:
 - **Stale role activation:** a policy-hash mismatch prevented an incorrect review, exposed stale automation prompts, and enabled a narrow repair that preserved schedules and role identities.
 - **False workflow stop:** mission-provenance review determined that a narrow historical no-rerun instruction had been incorrectly promoted into a durable prohibition, restored ordinary successor work, and preserved the mistaken history rather than rewriting it.
 
-The report is also deliberately self-critical. It distinguishes incident closure from recurrence, notes that some catches occurred after a live effect, and treats zero formally classified false positives as insufficient proof that the supervisor never oversteered.
+The report is deliberately self-critical. It distinguishes incident closure from recurrence, notes that some catches occurred after a live effect, and treats zero formally classified false positives as insufficient proof that the supervisor never oversteered.
 
-These numbers describe one recorded run and the behavior of its monitoring system. They are not general benchmarks for Codex or software engineering. The cost figure is a versioned API-equivalent projection, not provider telemetry or billed usage, and the report does not by itself establish the substantive quality of the monitored implementation.
+The supervision numbers describe one recorded monitoring window. The cost figure is a versioned API-equivalent projection, not provider telemetry or billed usage, and the report does not by itself establish the substantive quality of the monitored implementation.
 
 ---
 
@@ -201,12 +235,14 @@ The tracker defines:
 
 A maintained verifier checks structural invariants before the tracker is handed to implementation.
 
-### 2. Execute bounded Blocks
+### 2. Execute the full tracker, Block by Block
 
-[`implement-tracker-blocks`](implement-tracker-blocks/) turns a selected Block into an evidence-bound execution loop:
+[`implement-tracker-blocks`](implement-tracker-blocks/) accepts a single Block, a dependency-safe range, or the entire remaining tracker. In full-tracker mode it turns the tracker into a long-running, evidence-bound execution loop:
 
 ```text
-reconstruct Block contract
+bind the original outcome-closure contract
+        ↓
+reconstruct the current eligible Block
         ↓
 inspect live repository and Git state
         ↓
@@ -214,20 +250,26 @@ identify the smallest missing delta
         ↓
 reuse current accepted evidence
         ↓
-implement only the owned scope
+implement only the Block's owned scope
         ↓
-focused validation and mutating review
+focused validation and allowed mutating review
         ↓
 freeze exact candidate
         ↓
-mapped proof + independent review
+mapped proof + required independent review
         ↓
-record current evidence and checkpoint
+record current evidence + checkpoint/push when permitted
         ↓
-STOP at the Block boundary
+audit and close the current Block at its boundary
+        ↓
+requested scope complete?
+   ├── no: activate the next eligible Block automatically
+   └── yes: independently verify the actual operator-visible outcome
 ```
 
-The implementer reports **implementation completion** and **outcome completion** separately. A green tracker cannot manufacture success when a required artifact, installation, publication, or operator-visible effect is still missing.
+The stop boundary is an **internal acceptance boundary**, not a requirement for a human handoff. For a one-Block request, the executor stops there. For a range or full tracker, it closes the Block cleanly, rereads the next contract and dependencies, and continues without asking the operator to schedule the next unit.
+
+When a narrow input is genuinely unresolved, the executor computes the blocked dependency closure and continues the maximal safe-work frontier instead of converting one missing answer into a global stop. It reports **implementation completion** and **outcome completion** separately, so a green tracker cannot manufacture success when a required artifact, installation, publication, or operator-visible effect is still missing.
 
 ### 3. Attach independent supervision
 
@@ -276,10 +318,11 @@ This answers two different questions: **Did the resulting software satisfy the m
 
 | Goal | Use |
 |---|---|
-| Turn an ambiguous technical goal into an executable plan | `$author-implementation-trackers` |
-| Implement one Block or a dependency-safe Block range | `$implement-tracker-blocks` |
-| Add independent monitoring, incident handling, and reporting | `$supervise-tracker-runs` from a separate thread |
-| Run the full workflow | author → implement + independent supervision → outcome verification |
+| Turn an ambiguous technical goal into an executable implementation program | `$author-implementation-trackers` |
+| Run an entire tracker end to end, essentially unattended | `$implement-tracker-blocks` over all remaining eligible Blocks |
+| Restrict execution to one Block or a dependency-safe range | `$implement-tracker-blocks` with the exact requested scope |
+| Add independent monitoring, incident handling, correction follow-through, and reporting | `$supervise-tracker-runs` from a separate thread |
+| Run the complete system | author → full-tracker execution + independent supervision → outcome verification |
 
 <details>
 <summary><strong>Copyable prompt templates</strong></summary>
@@ -292,23 +335,53 @@ Use $author-implementation-trackers.
 Inspect this repository and turn the following goal into an implementation-ready
 tracker. Reuse the existing architecture and owners. Define observable completion,
 dependency-ordered Blocks, scope and non-goals, acceptance criteria, evidence,
-economical validation, independent-review boundaries, and explicit stop conditions.
-Do not implement the tracker.
+economical validation, independent-review boundaries, decision boundaries, and
+explicit stop conditions. Do not implement the tracker.
 
 Goal: <technical objective>
 Tracker path: <path/to/tracker.md>
 ```
 
-### Implement a Block
+### Run the entire tracker autonomously
 
 ```text
-Use $implement-tracker-blocks to implement and audit Block <N> from
-<path/to/tracker.md>.
+Use $implement-tracker-blocks to implement and audit the entire tracker at:
+
+<path/to/tracker.md>
+
+Start with the first incomplete eligible Block and continue through every remaining
+Block in dependency order.
+
+For each Block, reconstruct the live contract, implement the complete owned delta,
+run focused and mapped validation, obtain distinct review where required, bind all
+evidence to the exact candidate, create a bounded checkpoint commit, push when an
+existing configured remote and repository policy permit it, audit the Block, and
+then automatically advance to the next eligible Block.
+
+Do not pause for confirmation between Blocks. Treat each Block boundary as an
+internal scope and acceptance boundary, not a user scheduling gate. Do not stop for
+ordinary engineering choices or generic reassurance. If a genuinely non-delegable
+input affects only part of the tracker, preserve that bounded subject as waiting and
+continue the maximal safe-work frontier.
+
+Continue until the requested tracker scope is exhausted and the original
+operator-visible outcome has been independently verified, or until a real authority,
+safety, credential, release, destructive-action, or external-dependency boundary
+prevents further safe work. Do not merge, release, open a pull request, or perform
+destructive cleanup unless separately authorized.
+```
+
+### Run only one Block or a bounded range
+
+```text
+Use $implement-tracker-blocks to implement and audit <Block N / Blocks N-M> from:
+
+<path/to/tracker.md>
 
 Follow the tracker exactly, preserve unrelated work, reuse current accepted evidence,
 bind validation and review to the exact candidate revision, checkpoint the bounded
-slice when appropriate, update only current completion evidence, and stop at the
-Block's explicit boundary. Do not advance to Block <N+1>.
+slice when appropriate, and stop when the requested Block or range is complete. Do
+not advance beyond the requested scope.
 ```
 
 ### Attach supervision from a separate Codex thread
@@ -382,6 +455,7 @@ Gmail is optional. Tracker authoring, Block implementation, local incident state
 
 | Principle | Operational consequence |
 |---|---|
+| **Block boundaries are internal control points** | Full-tracker execution advances automatically after each accepted Block; the human is not the scheduler for routine transitions. |
 | **Separate authorities** | Planning, implementation, supervision, correction review, and outcome verification do not silently collapse into one agent's declaration. |
 | **Evidence outranks narration** | Claims resolve to current repository state, exact artifacts, tests, reviews, events, or operator-visible deliverables. |
 | **Process proxies do not prove outcomes** | Tests, hashes, commits, audits, and complete ledgers support a conclusion but do not replace the requested result. |
@@ -418,8 +492,7 @@ software-factory/
 │       └── test_*.py
 ├── examples/
 │   └── reports/
-│       ├── software_factory_report.pdf
-│       └── software_factory_report_preview.png
+│       └── software_factory_report.pdf
 └── README.md
 ```
 
@@ -427,55 +500,3 @@ Local supervision runtime state, generated Python bytecode, and Codex-managed sy
 
 ---
 
-## Development validation
-
-Validate each maintained skill with the Codex skill validator, then run the focused helper tests:
-
-```bash
-SKILL_VALIDATOR="${CODEX_HOME:-$HOME/.codex}/skills/.system/skill-creator/scripts/quick_validate.py"
-
-python3 "$SKILL_VALIDATOR" ./author-implementation-trackers
-python3 "$SKILL_VALIDATOR" ./implement-tracker-blocks
-python3 "$SKILL_VALIDATOR" ./supervise-tracker-runs
-
-python3 ./author-implementation-trackers/scripts/test_verify_tracker.py -v
-python3 ./supervise-tracker-runs/scripts/test_supervision_log.py -v
-python3 ./supervise-tracker-runs/scripts/test_weekly_report.py -v
-python3 ./supervise-tracker-runs/scripts/test_terminal_report.py -v
-```
-
-The verifier and tests establish the specific structural and control-system invariants they inspect. They do not independently prove the substantive correctness of every implementation produced through the factory.
-
----
-
-## Scope and assurance boundaries
-
-Software Factory is a Codex-native skill suite and reference control architecture. It is not a hosted CI/CD service, a universal software-quality score, or a guarantee that an autonomous agent cannot make mistakes.
-
-Its evidence is deliberately bounded:
-
-- scheduled monitoring time is not continuous process uptime;
-- recorded target reads are not complete provider-availability telemetry;
-- projected token and API-equivalent costs are not billed usage;
-- incident rate measures supervision yield, not implementation quality;
-- zero formally classified false positives does not prove zero supervisor oversteer;
-- incident closure does not prove non-recurrence;
-- cognitive review can synthesize evidence but does not establish causality merely by explaining a pattern; and
-- operational completeness does not automatically establish technical, legal, release, or product adequacy.
-
-Those limits are part of the architecture, not disclaimers around it. The project is designed to make agentic implementation more capable and more autonomous **without making either the work or the confidence claims opaque**.
-
----
-
-## Recommended reading
-
-1. [`author-implementation-trackers/SKILL.md`](author-implementation-trackers/SKILL.md) — goal decomposition, Block contracts, scope control, decision boundaries, and tracker verification.
-2. [`implement-tracker-blocks/SKILL.md`](implement-tracker-blocks/SKILL.md) — bounded execution, evidence currentness, Git checkpoints, correction handling, and outcome closure.
-3. [`supervise-tracker-runs/SKILL.md`](supervise-tracker-runs/SKILL.md) — supervision boot, role separation, incident lifecycle, reporting, lifecycle gates, and shutdown.
-4. [`supervise-tracker-runs/references/supervision-policy.md`](supervise-tracker-runs/references/supervision-policy.md) — exact roles, cadence, mission binding, escalation, notification, and reporting contracts.
-5. [`examples/reports/software_factory_report.pdf`](examples/reports/software_factory_report.pdf) — the human-facing supervision report generated from one recorded run.
-6. [Video walkthrough](https://www.youtube.com/watch?v=gRJ-hgbBcTo) — an end-to-end explanation of the system.
-
----
-
-**Machine-readable state for autonomous control. Human-readable state for governance.**
