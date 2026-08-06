@@ -1,6 +1,6 @@
 # Software Factory
 
-**A fully-autonomous, high-reliability software factory for Codex. **
+**A fully-autonomous, high-reliability software factory for Codex.**
 
 Software Factory takes a technical objective and a repository, turns them into a dependency-ordered implementation item tracker list, executes the entire tracker across hours or days, validates and checkpoints every implementation `Block`, independently supervises and corrects the run, and verifies the finished operator-visible outcome.
 
