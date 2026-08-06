@@ -4,7 +4,7 @@
 
 Software Factory takes a technical objective and a repository, turns them into a dependency-ordered implementation item tracker list, executes the entire tracker across hours or days, validates and checkpoints every implementation `Block`, independently supervises and corrects the run, and verifies the finished operator-visible outcome.
 
-Software Factory is built for **unattended, end-to-end implementation runs**, not turn-by-turn pair programming. After an implementation tracker is authored, [`implement-tracker-blocks`](implement-tracker-blocks/) can take the whole program—not just one Block—and repeatedly:
+Software Factory is built for **unattended, end-to-end implementation runs**, not turn-by-turn pair programming. After an implementation tracker is authored using [`author-implementation-trackers`](author-implementation-trackers/), [`implement-tracker-blocks`](implement-tracker-blocks/) can take implementation tracker and repeatedly:
 
 ```text
 select the next eligible Block
