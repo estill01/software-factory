@@ -1,74 +1,15 @@
 # Software Factory
 
-**Autonomous, high-reliability software implementation for Codex**
+**Fully autonomous, high-reliability, observable, software implementation harness for Codex**
 
-Software Factory takes a technical objective and a live repository, derives a dependency-ordered implementation program, executes the requested tracker scope across hours or days with minimal routine human intervention, independently supervises changed state and corrective outcomes, and verifies the final operator-visible result.
+> Software Factory takes a technical objective and a live repository, derives a dependency-ordered implementation tracker, executes the requested tracker scope across hours or days with minimal routine human intervention, independently identifies feature creep and a variety of other Codex failure modes, supervises changed state and corrective outcomes, verifies the final operator-visible result, and produces human-readable observability reports.
 
-[Video walkthrough](https://www.youtube.com/watch?v=gRJ-hgbBcTo) · [Generated supervision report](examples/reports/software_factory_report.pdf) · [Quick start](#quick-start) · [Architecture](#architecture)
 
-> [!IMPORTANT]
-> **One execution request can cover the entire remaining tracker.** [`implement-tracker-blocks`](implement-tracker-blocks/) can execute one Block, a dependency-safe range, or all remaining eligible Blocks. A Block is the system's unit of scope, acceptance, evidence, and recovery—not a required human pause.
-
-| Requested scope | Internal control | Human role |
-|---|---|---|
-| One Block, a bounded range, or the full remaining tracker | Reconstruct, implement, validate, review where required, checkpoint, audit, close, and automatically advance through each eligible Block | Set the mission, retain genuinely reserved authority, and review consequential decisions and final outcome evidence |
-
-**Block-by-Block is the factory's control granularity, not its autonomy limit.**
-
-## Demonstrated operation
-
-The recorded implementation program and included supervision window show two complementary parts of the system. These are observations from specific runs, not general benchmarks for Codex or software engineering.
-
-### Multi-day implementation run
-
-A single requested scope covered the complete tracker from Block 0 through Block 64.
-
-| Measure | Observed result |
-|---|---:|
-| Requested tracker scope | Blocks 0–64 |
-| Blocks executed | **65** |
-| Execution time | Approximately **4 days** |
-| Operator posture | Minimal routine human intervention; no turn-by-turn Block scheduling or re-prompting |
-| Final test suite | **279 passing tests** |
-| Final audit | **0 open Critical or High findings** |
-
-The executor implemented, validated, reviewed where required, checkpointed, audited, and advanced through the program without requiring a human to restart the loop after each Block.
-
-### Independent supervision window
-
-| Measure | Observed result |
-|---|---:|
-| Report window | **71.42 h** |
-| Scheduled monitoring time | **31.49 h** |
-| Recorded target-read reliability | **92.39%** |
-| Configured role threads | **8** |
-| Semantic reviews | **156** |
-| Incidents detected | **26** |
-| Incidents reaching terminal outcomes | **26 / 26** |
-| Median detection-to-resolution | **0.71 h** |
-| P90 detection-to-resolution | **4.97 h** |
-| High or Critical unresolved at cutoff | **0** |
-| Projected API-equivalent supervision cost | **$32.80** |
-
-### Generated supervision report
-
-[![Page-one executive summary preview of a generated Software Factory supervision report](examples/reports/software_factory_report_preview.png)](examples/reports/software_factory_report.pdf)
-
-*Generated operational report, not a design mockup. Click the preview to open [`examples/reports/software_factory_report.pdf`](examples/reports/software_factory_report.pdf).*
-
-The report is the human control surface for the run: it summarizes monitoring coverage, cost posture, active roles, incidents, response time, effectiveness, recurring failure classes, known blind spots, and evidence boundaries without requiring transcript-level supervision.
-
-The independent control plane found issues that ordinary completion signals would not have exposed:
-
-| Finding | What the control plane established |
-|---|---|
-| **Unnecessary evidence replay** | Routine monitoring rebuilt a **2,134-file** evidence envelope despite a current frozen baseline. The normal path was moved to cheap revision and root checks, with deep verification retained for actual currentness changes. |
-| **Circular validation** | Producer and mechanical validator agreed because they shared classification logic. Independent semantic reconstruction kept promotion closed and later verified the corrected successor. |
-| **Stale role activation** | A policy-hash mismatch exposed stale automation and role prompts. The repair changed only stale references and preserved schedules and role identities. |
-| **False workflow stop** | A narrow historical no-rerun instruction had drifted into a durable prohibition. Mission-provenance review restored ordinary successor work without rewriting the mistaken history. |
-
-> [!NOTE]
-> The cost figure is a versioned API-equivalent projection, not provider telemetry or billed usage. Incident closure does not prove non-recurrence, and the report does not by itself establish the substantive quality of the monitored implementation.
+## Learn More
+* [Video walkthrough](https://www.youtube.com/watch?v=gRJ-hgbBcTo)
+* [Example system-generated supervision report](examples/reports/software_factory_report.pdf)
+* [Quick start](#quick-start)
+* [Architecture](#architecture)
 
 ## System at a glance
 
@@ -135,69 +76,31 @@ Review the environment-specific model aliases, schedules, and runtime bindings i
 #### Author an implementation tracker
 
 ```text
-Use $author-implementation-trackers.
+$author-implementation-trackers
 
-Inspect this repository and turn the following goal into an implementation-ready
-tracker. Reuse the existing architecture and owners. Define observable completion,
-dependency-ordered Blocks, scope and non-goals, acceptance criteria, evidence,
-economical validation, independent-review boundaries, decision boundaries, and
-explicit stop conditions. Do not implement the tracker.
-
-Goal: {technical objective}
-Tracker path: {path/to/tracker.md}
+{technical objective}
 ```
 
 #### Execute the entire remaining tracker
 
 ```text
-Use $implement-tracker-blocks to implement and audit the entire tracker at:
-
-{path/to/tracker.md}
-
-Start with the first incomplete eligible Block and continue through every remaining
-Block in dependency order.
-
-For each Block, reconstruct the live contract, implement the complete owned delta,
-run focused and mapped validation, obtain distinct review where required, bind all
-evidence to the exact candidate, create a bounded checkpoint commit, push when an
-existing configured remote and repository policy permit it, audit the Block, and
-automatically advance to the next eligible Block.
-
-Do not pause for confirmation between Blocks. Treat each Block boundary as an
-internal scope and acceptance boundary, not a user scheduling gate. If a genuinely
-non-delegable input affects only part of the tracker, preserve that subject as
-waiting and continue the maximal safe-work frontier.
-
-Continue until the requested scope is exhausted and the original operator-visible
-outcome has been independently verified, or until a real authority, safety,
-credential, release, destructive-action, or external-dependency boundary prevents
-further safe work. Do not merge, release, open a pull request, or perform destructive
-cleanup unless separately authorized.
+$implement-tracker-blocks {path/to/tracker}
 ```
 
 #### Execute one Block or a bounded range
 
 ```text
-Use $implement-tracker-blocks to implement and audit {Block N / Blocks N-M} from:
-
-{path/to/tracker.md}
-
-Follow the tracker exactly, preserve unrelated work, reuse current accepted evidence,
-bind validation and review to the exact candidate revision, checkpoint the bounded
-slice when appropriate, and stop when the requested Block or range is complete.
-Do not advance beyond the requested scope.
+$implement-tracker-blocks implement {Block N / Blocks N-M} {path/to/tracker.md}
 ```
 
 #### Attach independent supervision
-
+Run in a side chat:
 ```text
-Use $supervise-tracker-runs.
-
-Attach bounded supervision to the active implementation-tracker thread for this
-project. Resolve the exact target thread, bind the current mission, monitor materially
-changed states, route independent semantic review, detect drift and avoidable cost,
-manage incidents through later outcome evidence, and keep the target thread as the
-implementation authority. Keep Gmail integrations off unless explicitly enabled.
+$supervise-tracker-runs
+```
+Run in a dedicated Task:
+```text
+$supervise-tracker-runs {session ID}
 ```
 
 ## Architecture
@@ -351,3 +254,59 @@ SKILL_VALIDATOR="${CODEX_HOME:-$HOME/.codex}/skills/.system/skill-creator/script
 python3 "$SKILL_VALIDATOR" ./author-implementation-trackers
 python3 "$SKILL_VALIDATOR" ./implement-tracker-blocks
 python3 "$SKILL_VALIDATOR" .
+```
+
+## Demonstrated operation
+
+The recorded implementation program and included supervision window show two complementary parts of the system. These are observations from specific runs, not general benchmarks for Codex or software engineering.
+
+### Multi-day implementation run
+
+A single requested scope covered the complete tracker from Block 0 through Block 64.
+
+| Measure | Observed result |
+|---|---:|
+| Requested tracker scope | Blocks 0–64 |
+| Blocks executed | **65** |
+| Execution time | Approximately **4 days** |
+| Operator posture | Minimal routine human intervention; no turn-by-turn Block scheduling or re-prompting |
+| Final test suite | **279 passing tests** |
+| Final audit | **0 open Critical or High findings** |
+
+The executor implemented, validated, reviewed where required, checkpointed, audited, and advanced through the program without requiring a human to restart the loop after each Block.
+
+### Independent supervision window
+
+| Measure | Observed result |
+|---|---:|
+| Report window | **71.42 h** |
+| Scheduled monitoring time | **31.49 h** |
+| Recorded target-read reliability | **92.39%** |
+| Configured role threads | **8** |
+| Semantic reviews | **156** |
+| Incidents detected | **26** |
+| Incidents reaching terminal outcomes | **26 / 26** |
+| Median detection-to-resolution | **0.71 h** |
+| P90 detection-to-resolution | **4.97 h** |
+| High or Critical unresolved at cutoff | **0** |
+| Projected API-equivalent supervision cost | **$32.80** |
+
+### Generated supervision report
+
+[![Page-one executive summary preview of a generated Software Factory supervision report](examples/reports/software_factory_report_preview.png)](examples/reports/software_factory_report.pdf)
+
+*Generated operational report, not a design mockup. Click the preview to open [`examples/reports/software_factory_report.pdf`](examples/reports/software_factory_report.pdf).*
+
+The report is the human control surface for the run: it summarizes monitoring coverage, cost posture, active roles, incidents, response time, effectiveness, recurring failure classes, known blind spots, and evidence boundaries without requiring transcript-level supervision.
+
+The independent control plane found issues that ordinary completion signals would not have exposed:
+
+| Finding | What the control plane established |
+|---|---|
+| **Unnecessary evidence replay** | Routine monitoring rebuilt a **2,134-file** evidence envelope despite a current frozen baseline. The normal path was moved to cheap revision and root checks, with deep verification retained for actual currentness changes. |
+| **Circular validation** | Producer and mechanical validator agreed because they shared classification logic. Independent semantic reconstruction kept promotion closed and later verified the corrected successor. |
+| **Stale role activation** | A policy-hash mismatch exposed stale automation and role prompts. The repair changed only stale references and preserved schedules and role identities. |
+| **False workflow stop** | A narrow historical no-rerun instruction had drifted into a durable prohibition. Mission-provenance review restored ordinary successor work without rewriting the mistaken history. |
+
+> [!NOTE]
+> The cost figure is a versioned API-equivalent projection, not provider telemetry or billed usage. Incident closure does not prove non-recurrence, and the report does not by itself establish the substantive quality of the monitored implementation.
