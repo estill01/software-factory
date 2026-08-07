@@ -1,3 +1,4 @@
+![Software Factory - Highly-reliable, efficient, observable autonomous software implementation](assets/banner.png)
 # Software Factory
 
 **Fully autonomous, high-reliability, observable, software implementation harness for Codex**
