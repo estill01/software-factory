@@ -1,12 +1,20 @@
-![Software Factory - Highly-reliable, efficient, observable autonomous software implementation](assets/banner.png)
-> Software Factory takes a technical objective and a live repository, derives a dependency-ordered implementation tracker, executes the requested tracker scope across hours or days with minimal routine human intervention, independently identifies feature creep and a variety of other Codex failure modes, supervises changed state and corrective outcomes, verifies the final operator-visible result, and produces human-readable observability reports.
+![Software Factory — High-reliability, efficient, observable autonomous software implementation](assets/banner.png)
 
+> **Software Factory is a high-reliability agent harness for autonomous software implementation with Codex.** It turns a technical objective and live repository into a verified, dependency-ordered implementation program and executes the requested scope across hours or days with minimal routine human intervention.
+>
+> An independent control plane detects, contains, and drives recovery from feature creep, inefficient implementation, circular validation, stale state, false workflow stops, incomplete outcome closure, and other agent failure modes. It verifies corrective outcomes and the final operator-visible result, then produces evidence-backed operational reports.
 
-## Learn More
-* [Video walkthrough](https://www.youtube.com/watch?v=gRJ-hgbBcTo)
-* [Example system-generated supervision report](examples/reports/software_factory_report.pdf)
-* [Quick start](#quick-start)
-* [Architecture](#architecture)
+_"Everything I've been doing to get Codex to do production-worthy work, but now automated"_ -- Ethan Stillman (@estill01), Software Factory Floor Manager
+
+## Demonstrated operation
+
+| Autonomous scope | Runtime | Final validation | Independent supervision |
+|---|---:|---|---|
+| **65 Blocks (0–64)** | **~4 days** | **279 passing tests; 0 open Critical or High findings** | **156 semantic reviews; 26 / 26 incidents reached terminal outcomes** |
+
+A single requested scope covered the complete tracker without turn-by-turn Block scheduling or re-prompting. Projected API-equivalent cost for the included **71.42-hour** supervision window was **$32.80**.
+
+[**Watch the walkthrough**](https://www.youtube.com/watch?v=gRJ-hgbBcTo) · [**Open the generated supervision report**](examples/reports/software_factory_report.pdf) · [**Quick start**](#quick-start) · [**Architecture**](#architecture) · [**Full evidence and limitations**](#full-demonstrated-operation)
 
 ## System at a glance
 
@@ -91,11 +99,15 @@ $implement-tracker-blocks implement {Block N / Blocks N-M} {path/to/tracker.md}
 ```
 
 #### Attach independent supervision
+
 Run in a side chat:
+
 ```text
 $supervise-tracker-runs
 ```
+
 Run in a dedicated Task:
+
 ```text
 $supervise-tracker-runs {session ID}
 ```
@@ -250,10 +262,10 @@ SKILL_VALIDATOR="${CODEX_HOME:-$HOME/.codex}/skills/.system/skill-creator/script
 
 python3 "$SKILL_VALIDATOR" ./author-implementation-trackers
 python3 "$SKILL_VALIDATOR" ./implement-tracker-blocks
-python3 "$SKILL_VALIDATOR" .
+python3 "$SKILL_VALIDATOR" ./supervise-tracker-runs
 ```
 
-## Demonstrated operation
+## Full demonstrated operation
 
 The recorded implementation program and included supervision window show two complementary parts of the system. These are observations from specific runs, not general benchmarks for Codex or software engineering.
 
