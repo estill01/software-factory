@@ -1,8 +1,4 @@
 ![Software Factory - Highly-reliable, efficient, observable autonomous software implementation](assets/banner.png)
-# Software Factory
-
-**Fully autonomous, high-reliability, observable, software implementation harness for Codex**
-
 > Software Factory takes a technical objective and a live repository, derives a dependency-ordered implementation tracker, executes the requested tracker scope across hours or days with minimal routine human intervention, independently identifies feature creep and a variety of other Codex failure modes, supervises changed state and corrective outcomes, verifies the final operator-visible result, and produces human-readable observability reports.
 
 
