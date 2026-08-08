@@ -216,7 +216,7 @@ through an existing owner.
 | 2 | Validate lessons, capability candidates, and experiments | 1 | `accepted` |
 | 3 | Integrate the evolution workflow through the supervision owner | 2 | `accepted` |
 | 4 | Add target-product capability framing to tracker authoring | 3 | `accepted` |
-| 5 | Apply target-product capability review during Block execution | 4 | `not-started` |
+| 5 | Apply target-product capability review during Block execution | 4 | `accepted` |
 | 6 | Reconcile terminal capability, dogfood the cycle, and accept | 5 | `not-started` |
 
 Required order:
@@ -804,7 +804,7 @@ Stop before changing the implementation skill.
 
 ## Block 5 — Apply target-product capability review during Block execution
 
-Status: `not-started`
+Status: `accepted`
 
 ### Objective
 
@@ -868,7 +868,68 @@ lower-power underreach and unsupported generalization.
 
 ### Completion evidence
 
-Pending.
+- Repository commits: initial reviewed candidate `70d6e4b`; accepted remediation
+  `17a7571`.
+- Inputs: accepted Block 4 authoring contract; current implementation skill;
+  tracker-level frame bytes with SHA-256
+  `f45c827fbc9e5bc12f7ba8ee7140233e8bcad444403660596404a17cae475936`.
+- Outputs: `implement-tracker-blocks/SKILL.md`
+  (`887b3eca6f8ca1219878990c0031c84675a7f6258e321e19dd036b6899366bab`),
+  `references/product-capability-review.md`
+  (`68d255c1cd7c03b61b9278e0d1a20290c7452abb661ba00ae47d15e60bfc3017`),
+  and `scripts/test_product_capability_contract.py`
+  (`8df2eab497ad85ae66f682b2c5a47af605751e228ef9ea6f1c1566c9a8529c8f`).
+- Focused validation: seven cross-skill capability-contract tests passed; the
+  implementation skill validator and Python compilation passed.
+- Mapped validation: all 30 authoring tests and 162 supervision tests passed
+  under Python 3.14; `git diff --check` passed.
+- Candidate freeze: `17a7571873cff82b4190db1ffe75216cac75937f`;
+  no Block 5 implementation files changed after final review.
+- Product-capability review:
+  - Trigger: consequential executor behavior and completion-evidence change.
+  - Frame identity: this tracker, Block 5, exact frame SHA-256
+    `f45c827fbc9e5bc12f7ba8ee7140233e8bcad444403660596404a17cae475936`.
+  - Capability added or preserved: the executor selects the least-complex
+    source-supported implementation level without sacrificing a protected
+    capability or penalizing a justified local solution.
+  - Paths compared: inline local guidance; one bounded reusable review
+    reference; the existing implementation skill as architectural owner.
+  - Selected level and owner: one conditionally loaded reference routed by the
+    existing implementation skill; this keeps the method inspectable without a
+    new skill, runtime, service, or always-on gate.
+  - Protected-capability result: routine Blocks retain the fast path; direct
+    mission, Block scope, canonical owners, evidence-bound completion, and
+    bounded input handling remain explicit.
+  - Rejected alternatives: an inline-only reminder under-specified comparison
+    and evidence binding; an always-general or runtime-enforced system was
+    unsupported and outside scope.
+  - Tradeoffs and uncertainty: consequential execution reads one 118-line
+    reference once and reuses an exact byte hash; an absent or conflicting
+    product fact remains a bounded dependency rather than invented intent.
+  - Frozen-candidate proof: `17a7571`; static contracts, paired live execution,
+    mapped tests, and exact-candidate review are current.
+- Forward tests: the justified-local case used the existing session-preferences
+  owner, passed four behavioral tests, demonstrated same-session retention and
+  fresh-session reset, and added no settings platform. The lower-power case
+  found the canonical report read already sufficient, preserved a rejected
+  redundant-alias checkpoint, removed that alias, passed eight mapped tests,
+  rehydrated the current canonical payload with provenance, and stopped before
+  later web/CLI wiring.
+- Remediation closure: static tests now guard positive concrete-drift routing,
+  inherited formats, local-not-default, bounded unknown intent, tests-alone
+  non-completion, and deterministic CRLF-preserving frame identity; the
+  supporting reference has linked navigation.
+- Resource posture: one frame read/hash and one bounded affected-owner pass;
+  no runtime interception, monitoring, or broad rearchitecture was added.
+- Independent review: two distinct exact-successor reviews at `17a7571` found
+  no actionable issues; fresh probes covered routine fast path, inherited drift,
+  canonical-owner comparison, missing intent, tests-only evidence, and CRLF
+  byte hashing.
+- Retained open work: terminal reconciliation and experiment disposition remain
+  Block 6.
+- Post-block audit: `accepted`.
+- Git durability: branch `codex/evolution-mvp`; accepted evidence commit and
+  push recorded immediately after this update.
 
 ### Stop
 
