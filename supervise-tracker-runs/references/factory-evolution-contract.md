@@ -1,0 +1,133 @@
+# Software Factory evolution contract
+
+This reference defines the minimum semantic contract for learning from bounded
+tracker runs and evaluating proposed changes to Software Factory capabilities.
+It does not create a new source of canonical run state and does not authorize
+automatic edits, promotion, deployment, or writes into a target product.
+
+## Authority and supported evidence
+
+Canonical event records and directly observed outcomes are the adjudicating
+evidence. Reports nominate hypotheses; they do not become authority merely
+because their prose is confident or repeated. A derived learning artifact must
+identify the exact, hash-bound sources from which it can be rebuilt.
+
+Supported source classes are:
+
+- canonical, content-minimized supervision events;
+- verified run reports that point back to those events;
+- tracker status and completion evidence bound to exact commits or artifacts;
+- focused test, validator, audit, and user-visible outcome results; and
+- explicit operator or independent-reviewer decisions recorded with provenance.
+
+Free-form report prose, an unverified summary, model reasoning, popularity, or
+the proposal's own assertions are not sufficient promotion evidence. Target
+repository content must not be copied into a committed learning artifact.
+
+## Evolution ladder
+
+The following records remain distinct even when they are stored together:
+
+1. **Evidence** identifies an exact source and an observable fact.
+2. **Observation** describes what happened without generalizing beyond that
+   evidence.
+3. **Lesson** is a bounded, falsifiable interpretation supported by evidence
+   and at least one stated counterexample search or uncertainty. A lesson is
+   not a control and is not itself a capability.
+4. **Meta-pattern** relates multiple lessons while retaining their support,
+   counterexamples, scope, and uncertainty. It may represent productive
+   patterns as well as harmful patterns.
+5. **Capability gap** states an outcome the factory cannot reliably produce or
+   protect with its present skills, references, tools, or operating contract.
+6. **Capability candidate** proposes a bounded way to close a capability gap.
+7. **Experiment** compares an explicit baseline with the candidate under a
+   fixed evaluation contract.
+8. **Disposition** records independent evaluation as `promote`, `advisory`,
+   `revise`, or `reject`.
+
+No step silently confers the authority of a later step. In particular, a
+lesson does not automatically become a rule, and a candidate does not become a
+capability merely by being implemented.
+
+## Lessons and counterexamples
+
+A lesson records its applicability boundary, supporting evidence, confidence,
+known counterexamples, and the counterexample search that was attempted. One
+strong instance may nominate a lesson but cannot establish broad applicability
+without explaining why the instance generalizes. Repeated failures are not the
+only learnable signal: productive patterns, avoided regressions, efficient
+choices, and preserved composability are first-class evidence.
+
+Conflicting observations remain visible. They narrow or defeat a lesson rather
+than being discarded to produce a cleaner narrative.
+
+## Capability candidates
+
+The factory may propose more than detectors or controls. A candidate declares
+one primary type while allowing secondary effects. Supported types include:
+
+- authoring guidance or tracker-contract change;
+- implementation or review procedure;
+- supervision policy or evidence rule;
+- validator, test, or verifier;
+- deterministic tool or derived-artifact builder;
+- reusable template, reference, or example;
+- architecture, interface, or ownership-boundary change;
+- integration or routing change;
+- removal, simplification, or lower-power substitution;
+- documentation or operator-experience improvement;
+- experiment or evaluation capability; and
+- detector, control, or enforcement mechanism.
+
+Every candidate states the capability gap, proposed effect, protected
+capabilities, tradeoffs, uncertainty, applicability, implementation owner, and
+evaluation owner. It also states why a smaller change is insufficient and why
+the proposal is not disproportionate architecture for the evidence available.
+
+## Experiments and disposition
+
+An experiment defines a baseline, candidate condition, representative tasks,
+success and regression measures, evidence-capture method, and stop condition
+before results are known. Evaluation must inspect both intended gains and lost
+capabilities, including canonical-path bypass, lower-power substitution, lost
+composability, and unnecessary complexity.
+
+The proposer or candidate implementation cannot promote itself. The evaluator
+must be independent of the implementation judgment being assessed and must
+record evidence for one disposition:
+
+- `promote`: the candidate demonstrated its bounded capability without an
+  unacceptable regression and may enter its separately governed adoption path;
+- `advisory`: evidence is useful but does not justify normative adoption;
+- `revise`: the gap remains credible but the candidate or experiment must
+  change before another evaluation; or
+- `reject`: the candidate failed, was disproportional, or was defeated by
+  counterevidence.
+
+A disposition is review evidence, not permission for autonomous edits,
+deployment, installation, or target-repository writes.
+
+## Seed experiment: target-product alignment
+
+Target-product alignment is the first seeded capability candidate because a
+tracker can be mechanically complete while still underreaching the intended
+product, bypassing a canonical architecture, replacing a more capable design
+with a lower-power shortcut, or overbuilding beyond the product need. Seeding
+the candidate does not pre-approve promotion. It must pass the same baseline,
+counterexample, regression, proportionality, and independent-evaluation gates
+as any later candidate.
+
+## Rebuildability and state ownership
+
+Learning packets, review records, experiments, and dispositions are derived
+artifacts. Each artifact set binds its schema version, source roots, source
+hashes, transformation version, and deterministic ordering. Given identical
+inputs and transformation version, preparation must produce identical content
+and identifiers.
+
+The existing supervision event log remains the only public owner of canonical
+supervision filesystem writes. Derived evolution artifacts may be written only
+through that owner, under its bounded learning directory, using safe
+identifiers and atomic immutable-or-identical writes. Deleting a derived set
+does not delete or mutate canonical evidence; the set can be rebuilt from its
+declared sources.

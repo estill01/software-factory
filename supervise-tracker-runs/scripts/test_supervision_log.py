@@ -19,6 +19,59 @@ supervision_log = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(supervision_log)
 
 
+class FactoryEvolutionContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.contract = HELPER_PATH.parent.parent.joinpath(
+            "references", "factory-evolution-contract.md"
+        ).read_text(encoding="utf-8")
+
+    def test_reports_nominate_hypotheses_but_canonical_evidence_adjudicates(self) -> None:
+        normalized = " ".join(self.contract.split()).lower()
+
+        self.assertIn("canonical event records", normalized)
+        self.assertIn("directly observed outcomes", normalized)
+        self.assertIn("reports nominate hypotheses", normalized)
+        self.assertIn("do not become authority", normalized)
+        self.assertIn("not sufficient promotion evidence", normalized)
+
+    def test_contract_preserves_positive_and_negative_pattern_learning(self) -> None:
+        normalized = " ".join(self.contract.split()).lower()
+
+        self.assertIn("productive patterns", normalized)
+        self.assertIn("harmful patterns", normalized)
+        self.assertIn("avoided regressions", normalized)
+        self.assertIn("conflicting observations remain visible", normalized)
+        self.assertIn("a lesson is not a control", normalized)
+        self.assertIn("not itself a capability", normalized)
+
+    def test_candidate_space_is_broader_than_detectors_and_controls(self) -> None:
+        for candidate_type in (
+            "authoring guidance",
+            "architecture, interface, or ownership-boundary change",
+            "removal, simplification, or lower-power substitution",
+            "experiment or evaluation capability",
+            "detector, control, or enforcement mechanism",
+        ):
+            self.assertIn(candidate_type, self.contract)
+
+    def test_candidate_cannot_self_promote(self) -> None:
+        normalized = " ".join(self.contract.split()).lower()
+
+        self.assertIn("cannot promote itself", normalized)
+        self.assertIn("evaluator must be independent", normalized)
+        for disposition in ("`promote`", "`advisory`", "`revise`", "`reject`"):
+            self.assertIn(disposition, self.contract)
+        self.assertIn("not permission for autonomous edits", normalized)
+
+    def test_target_product_alignment_is_seeded_not_preapproved(self) -> None:
+        normalized = " ".join(self.contract.split()).lower()
+
+        self.assertIn("first seeded capability candidate", normalized)
+        self.assertIn("does not pre-approve promotion", normalized)
+        self.assertIn("independent-evaluation gates", normalized)
+
+
 class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
     def test_skill_requires_self_contained_block_purpose(self) -> None:
         skill = HELPER_PATH.parent.parent.joinpath("SKILL.md").read_text(
