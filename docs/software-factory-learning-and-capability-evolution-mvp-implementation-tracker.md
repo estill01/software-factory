@@ -212,7 +212,7 @@ through an existing owner.
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
 | 0 | Freeze the MVP evidence and capability-evolution contract | — | `accepted` |
-| 1 | Build the deterministic derived learning packet | 0 | `not-started` |
+| 1 | Build the deterministic derived learning packet | 0 | `accepted` |
 | 2 | Validate lessons, capability candidates, and experiments | 1 | `not-started` |
 | 3 | Integrate the evolution workflow through the supervision owner | 2 | `not-started` |
 | 4 | Add target-product capability framing to tracker authoring | 3 | `not-started` |
@@ -323,7 +323,7 @@ Stop before implementing packet preparation or file writes.
 
 ## Block 1 — Build the deterministic derived learning packet
 
-Status: `not-started`
+Status: `accepted`
 
 ### Objective
 
@@ -383,7 +383,50 @@ bounded text, and rebuild equality. Review checks minimization and authority.
 
 ### Completion evidence
 
-Pending.
+- Repository commits: `ff97eaf` (initial pure builder), `f21bd40`
+  (weekly-report contract correction), `0d7278e` (integrity hardening), and
+  accepted successor `63b59d33bb2ef44d47ccc854c5514302c97c1eac`.
+- Inputs: explicit synthetic fixtures plus one live weekly `report.json` and its
+  matching canonical `events.jsonl`; no implicit state discovery.
+- Outputs: pure `factory_evolution.py` at SHA-256
+  `55b3453b38e8006a7169ba5288822edb9b9287367e45e6cc0ff87750dd52f336`
+  and focused tests at SHA-256
+  `7ccf532f235797e11d9b0606110907e1ee316994cc8513bc9676410a6e8a0acd`.
+  No derived artifact was written.
+- Focused validation:
+  `uv run --python 3.14 python -m unittest discover -s
+  supervise-tracker-runs/scripts -p 'test_factory_evolution.py'` — 19 tests,
+  all passed.
+- Mapped validation:
+  `uv run --python 3.14 --with reportlab python -m unittest discover -s
+  supervise-tracker-runs/scripts -p 'test_*.py'` — 145 tests, all passed;
+  `py_compile` and `git diff --check` also passed.
+- Live-schema acceptance: packet `learning-60905419088742cc16e7` rebuilt from
+  one weekly report and a 1,149-record ledger, retaining 1,148 supported events,
+  30 source-bound report hypotheses, and one counted unsupported event kind.
+- Candidate freeze: exact successor commit
+  `63b59d33bb2ef44d47ccc854c5514302c97c1eac`.
+- Resource posture: explicit-path-only, one filesystem read per source, 16 MiB
+  per-source cap, bounded input/source/record/hypothesis/evidence arrays, no
+  model calls, transcript retention, target-file content, or public writes.
+- Independent review and incident history: `INC-20260808-070407-2D3765`
+  caught advertised terminal-report support backed only by a weekly loader;
+  `f21bd40` narrowed the contract and added explicit rejection. A distinct
+  `block1_review` reviewer then adversarially found shallow re-root validation,
+  rewritten identities, conflicting-root collapse, dangling report evidence,
+  aggregate-bound gaps, cross-ledger provenance, and ordering/nonempty gaps.
+  Successors `0d7278e` and `63b59d3` preserved the rejected history and closed
+  each finding. Final re-review returned no findings and independently rejected
+  a two-ledger 12,000-index-row probe.
+- Retained open work: semantic lesson/candidate/experiment validation and all
+  public writes remain in Blocks 2–6.
+- Post-block audit: accepted. Equivalent explicit inputs have one root;
+  mutations change or invalidate it; exact claims resolve to a weekly report or
+  canonical event identity; terminal reports, malformed or unsafe sources,
+  stale hashes, conflicting roots, implicit discovery, and re-rooted malformed
+  packets are rejected.
+- Git durability: `codex/evolution-mvp`; all coherent implementation and
+  evidence commits pushed to configured `origin` after this checkpoint.
 
 ### Stop
 
