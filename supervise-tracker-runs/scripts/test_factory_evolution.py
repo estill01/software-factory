@@ -588,7 +588,7 @@ class EvolutionReviewTests(unittest.TestCase):
         def result(
             case_id: str, outcome: str, evidence_id: str, revision: str
         ) -> dict[str, object]:
-            return {
+            value = {
                 "case_id": case_id,
                 "evidence_class": "observed",
                 "evidence_ids": [evidence_id],
@@ -597,15 +597,11 @@ class EvolutionReviewTests(unittest.TestCase):
                 "resource_cost": "One bounded review pass.",
                 "regressions": [],
                 "condition_revision": revision,
-                "evidence_root": factory_evolution.digest(
-                    {
-                        "case_id": case_id,
-                        "outcome": outcome,
-                        "evidence_id": evidence_id,
-                        "revision": revision,
-                    }
-                ),
             }
+            value["evidence_root"] = factory_evolution.experiment_result_evidence_root(
+                value
+            )
+            return value
 
         return {
             "schema_version": 1,
@@ -636,6 +632,14 @@ class EvolutionReviewTests(unittest.TestCase):
     def build_review(self) -> dict[str, object]:
         return factory_evolution.build_evolution_review(
             self.packet, self.review_submission()
+        )
+
+    def refresh_result_root(self, result: dict[str, object]) -> None:
+        material = {
+            key: value for key, value in result.items() if key != "evidence_root"
+        }
+        result["evidence_root"] = factory_evolution.experiment_result_evidence_root(
+            material
         )
 
     def test_review_can_identify_a_broad_capability_gap(self) -> None:
@@ -750,17 +754,20 @@ class EvolutionReviewTests(unittest.TestCase):
 
         regression = self.evaluation_submission(review)
         regression["candidate_results"][0]["regressions"] = ["Lost composability."]
+        self.refresh_result_root(regression["candidate_results"][0])
         with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "regression"):
             factory_evolution.build_candidate_evaluation(self.packet, review, regression)
 
         synthetic = self.evaluation_submission(review)
         for item in synthetic["baseline_results"] + synthetic["candidate_results"]:
             item["evidence_class"] = "synthetic"
+            self.refresh_result_root(item)
         with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "alone"):
             factory_evolution.build_candidate_evaluation(self.packet, review, synthetic)
 
         synthetic_exception = self.evaluation_submission(review)
         synthetic_exception["candidate_results"][1]["evidence_class"] = "synthetic"
+        self.refresh_result_root(synthetic_exception["candidate_results"][1])
         with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "alone"):
             factory_evolution.build_candidate_evaluation(
                 self.packet, review, synthetic_exception
@@ -769,19 +776,17 @@ class EvolutionReviewTests(unittest.TestCase):
         no_delta = self.evaluation_submission(review)
         for item in no_delta["baseline_results"]:
             item["outcome"] = "pass"
+            self.refresh_result_root(item)
         with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "baseline delta"):
             factory_evolution.build_candidate_evaluation(self.packet, review, no_delta)
 
-        same_condition_evidence = self.evaluation_submission(review)
-        candidate_by_case = {
-            item["case_id"]: item
-            for item in same_condition_evidence["candidate_results"]
-        }
-        for item in same_condition_evidence["baseline_results"]:
-            item["evidence_root"] = candidate_by_case[item["case_id"]]["evidence_root"]
-        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "each condition"):
+        stale_evidence = self.evaluation_submission(review)
+        stale_evidence["candidate_results"][0]["observed_effect"] = (
+            "Changed after the result root was recorded."
+        )
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "root is stale"):
             factory_evolution.build_candidate_evaluation(
-                self.packet, review, same_condition_evidence
+                self.packet, review, stale_evidence
             )
 
         wrong_revision = self.evaluation_submission(review)

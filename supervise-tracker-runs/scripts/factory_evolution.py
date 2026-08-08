@@ -975,6 +975,7 @@ CONFIDENCE_LEVELS = frozenset({"low", "medium", "high"})
 RESULT_EVIDENCE_CLASSES = frozenset({"observed", "shadow", "synthetic"})
 RESULT_OUTCOMES = frozenset({"pass", "fail", "mixed"})
 DISPOSITIONS = frozenset({"promote", "advisory", "revise", "reject"})
+RESULT_EVIDENCE_KIND = "software-factory-experiment-result-evidence"
 
 
 def _semantic_text(value: Any, *, label: str, allow_empty: bool = False) -> str:
@@ -1682,34 +1683,47 @@ def _normalize_results(
         )
         if condition_revision != expected_revision:
             raise FactoryEvolutionError(f"{label} is not bound to its condition revision")
-        result.append(
-            {
-                "case_id": case_id,
-                "evidence_class": evidence_class,
-                "evidence_ids": _semantic_ids(
-                    item.get("evidence_ids"),
-                    label=f"{label} evidence IDs",
-                    allowed=event_ids,
-                ),
-                "outcome": outcome,
-                "observed_effect": _semantic_text(
-                    item.get("observed_effect"), label=f"{label} observed effect"
-                ),
-                "resource_cost": _semantic_text(
-                    item.get("resource_cost"), label=f"{label} resource cost"
-                ),
-                "regressions": _semantic_strings(
-                    item.get("regressions"),
-                    label=f"{label} regressions",
-                    allow_empty=True,
-                ),
-                "condition_revision": condition_revision,
-                "evidence_root": _exact_sha256(
-                    item.get("evidence_root"), label=f"{label} evidence root"
-                ),
-            }
+        normalized = {
+            "case_id": case_id,
+            "evidence_class": evidence_class,
+            "evidence_ids": _semantic_ids(
+                item.get("evidence_ids"),
+                label=f"{label} evidence IDs",
+                allowed=event_ids,
+            ),
+            "outcome": outcome,
+            "observed_effect": _semantic_text(
+                item.get("observed_effect"), label=f"{label} observed effect"
+            ),
+            "resource_cost": _semantic_text(
+                item.get("resource_cost"), label=f"{label} resource cost"
+            ),
+            "regressions": _semantic_strings(
+                item.get("regressions"),
+                label=f"{label} regressions",
+                allow_empty=True,
+            ),
+            "condition_revision": condition_revision,
+        }
+        recorded_evidence_root = _exact_sha256(
+            item.get("evidence_root"), label=f"{label} evidence root"
         )
+        if recorded_evidence_root != experiment_result_evidence_root(normalized):
+            raise FactoryEvolutionError(f"{label} evidence root is stale")
+        result.append({**normalized, "evidence_root": recorded_evidence_root})
     return sorted(result, key=lambda item: item["case_id"])
+
+
+def experiment_result_evidence_root(result: Mapping[str, Any]) -> str:
+    """Return the canonical root for one normalized condition-bound result."""
+
+    return digest(
+        {
+            "schema_version": SCHEMA_VERSION,
+            "kind": RESULT_EVIDENCE_KIND,
+            "result": dict(result),
+        }
+    )
 
 
 def _normalize_evaluation_material(
