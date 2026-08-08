@@ -373,8 +373,8 @@ Authority rules:
 
 | Source or predecessor | Exact revision/hash | Disposition | Owning Block | Remaining work |
 |---|---|---|---:|---|
-| Current Software Factory repository | `4a33cd9344f0fbb1d1feaa6caac13521eb3237f3` | adapt | 0–12 | Add adaptive decision control and autonomous evidence-gated evolution without weakening accepted behavior |
-| Accepted learning and capability-evolution MVP | tracker SHA-256 `ecc7b31ebd7bd7bc825746dded4059be2ddcc56377f4a702e1ab7781d09e07c6` | reuse | 0, 6–12 | Reuse exact evidence, identity, evaluation, and self-change boundaries; add orchestration around them rather than another evidence engine |
+| Current Software Factory repository | `4a33cd9344f0fbb1d1feaa6caac13521eb3237f3` | adapt | 0–13 | Add adaptive decision control and autonomous evidence-gated evolution without weakening accepted behavior |
+| Accepted learning and capability-evolution MVP | tracker SHA-256 `ecc7b31ebd7bd7bc825746dded4059be2ddcc56377f4a702e1ab7781d09e07c6` | reuse | 0, 6–13 | Reuse exact evidence, identity, evaluation, and self-change boundaries; add orchestration around them rather than another evidence engine |
 | Planned tracker-authoring supervision program | tracker SHA-256 `dc87fde4b7fe4017a82426ad0199dd2ef226eb8d9a658d348ec0aea6ea2dd424` | external prerequisite for structural path | 0, 4, 7, 9, 13 | Implement and accept its Blocks before structural amendment or consequential evolution-authored tracker change is enabled; inline correction remains independent |
 | Current authoring amendment method | `author-implementation-trackers/references/amendment-and-renumbering.md`, SHA-256 `28edc9682cbfe87acbd61917a67a780e8bd7b282e16588befb7799f6bbe6067a` | adapt | 0, 4 | Make exceptional live revision exact, machine-checkable, and resumable |
 | Current execution capability-review method | `implement-tracker-blocks/references/product-capability-review.md`, SHA-256 `68d255c1cd7c03b61b9278e0d1a20290c7452abb661ba00ae47d15e60bfc3017` | adapt | 0–3, 6 | Correct inside the Block first; open candidate or structural paths only on exact triggers |
@@ -382,7 +382,7 @@ Authority rules:
 | Current supervision decision and continuation contracts | `supervise-tracker-runs/references/supervision-policy.md`, SHA-256 `4d3404b4d1426fae61104dc67b33eef5e940b9bf3dfddc0572dc0e8e8b4b9b66` | adapt | 0, 3–6, 8–13 | Add bounded correction/candidate evidence, structural disposition, evolution orchestration, and configurable no-human posture |
 | Inline-first and parallel-alternative advisory | routed `codex_delegation` items 288 and 289 from source thread `019fe21e-486e-7c11-90b9-6bfbf19457c1` | advisory-only; not authority | 0–7 | Evaluate the suggested design against eligible direct sources and current owners; no requirement or permission derives solely from these packets |
 | Adaptive alignment and control implementation tracker supplied as planning input | external 30-Block document | not adopted as this execution tracker | 0, 4, 7 | Reuse dual-target alignment and configurable authority; defer prospective hooks, event streaming, control libraries, and generalized runtime monitoring |
-| Direct 2026-08-08 request for autonomous Factory evolution integrated with adaptive decision control | current source thread `019fe023-f305-70d2-b69a-7f9565bebe86` | adopt | 8–12 | Add configurable automatic eligibility, existing-owner execution/evaluation/adoption, feedback, and human-readable change history |
+| Direct 2026-08-08 request for autonomous Factory evolution integrated with adaptive decision control | current source thread `019fe023-f305-70d2-b69a-7f9565bebe86` | adopt | 8–13 | Add configurable automatic eligibility, existing-owner execution/evaluation/adoption, feedback, and human-readable change history |
 
 ## 5. Scope, non-goals, and proportionality
 
