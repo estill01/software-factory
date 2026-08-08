@@ -343,6 +343,11 @@ class TerminalReportIntegrationTests(unittest.TestCase):
                 field: "b" * 64
                 for field in supervision_log.OUTCOME_COMPLETION_HASH_FIELDS
             },
+            "capability_reconciliation_reviewer_id": "base-terminal-1234",
+            "capability_reconciliation_implementation_owner_id": TARGET,
+            "capability_reconciliation_revision": "c" * 40,
+            "capability_reconciliation_posture": "verified",
+            "capability_reconciliation_gap_count": 0,
         }
         lifecycle = {
             "schema_version": 1,
