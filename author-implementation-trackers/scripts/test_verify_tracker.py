@@ -312,6 +312,14 @@ class VerifyTrackerTests(unittest.TestCase):
                 "- Tradeoff and source evidence: Prefer the direct owner identified in `docs/product.md` over a generalized platform.",
                 "- Tradeoff and source evidence: Evidence will be supplied after implementation.",
             ),
+            (
+                "- Direct product sources: `docs/product.md` at revision `abc123`.",
+                "- Direct product sources: Source evidence is deferred until implementation.",
+            ),
+            (
+                "- Tradeoff and source evidence: Prefer the direct owner identified in `docs/product.md` over a generalized platform.",
+                "- Tradeoff and source evidence: Source evidence has not yet been collected.",
+            ),
         )
         for original, replacement in cases:
             with self.subTest(replacement=replacement):

@@ -232,7 +232,10 @@ def is_concrete_evidence(value: str) -> bool:
     normalized = normalized_value(value)
     deferred = re.search(
         r"\b(?:will be|to be)\s+(?:added|collected|determined|provided|supplied)\b"
-        r"|\bevidence\s+(?:after|following)\s+implementation\b",
+        r"|\bevidence\s+(?:after|following)\s+implementation\b"
+        r"|^(?:deferred|forthcoming|not yet|to follow)\b"
+        r"|\b(?:evidence|sources?)\b.{0,80}\b(?:deferred|forthcoming|pending|not yet|will follow|to follow)\b"
+        r"|\b(?:deferred|forthcoming|pending|not yet|will follow|to follow)\b.{0,80}\b(?:evidence|sources?)\b",
         normalized,
     )
     return is_meaningful(value) and deferred is None
