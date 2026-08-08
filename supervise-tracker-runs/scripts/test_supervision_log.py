@@ -55,6 +55,14 @@ class FactoryEvolutionContractTests(unittest.TestCase):
         ):
             self.assertIn(candidate_type, self.contract)
 
+    def test_candidate_admission_has_evidence_and_counterexample_floor(self) -> None:
+        normalized = " ".join(self.contract.split()).lower()
+
+        self.assertIn("at least one exact, hash-bound supporting source", normalized)
+        self.assertIn("known counterexamples or a documented counterexample search", normalized)
+        self.assertIn("single instance may nominate a candidate", normalized)
+        self.assertIn("cannot by itself establish broad applicability", normalized)
+
     def test_candidate_cannot_self_promote(self) -> None:
         normalized = " ".join(self.contract.split()).lower()
 

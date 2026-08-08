@@ -83,6 +83,10 @@ Every candidate states the capability gap, proposed effect, protected
 capabilities, tradeoffs, uncertainty, applicability, implementation owner, and
 evaluation owner. It also states why a smaller change is insufficient and why
 the proposal is not disproportionate architecture for the evidence available.
+Candidate admission requires at least one exact, hash-bound supporting source
+plus known counterexamples or a documented counterexample search. A single
+instance may nominate a candidate, but it cannot by itself establish broad
+applicability or justify promotion.
 
 ## Experiments and disposition
 
