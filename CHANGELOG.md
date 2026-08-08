@@ -1,0 +1,161 @@
+# Software Factory changelog
+
+This is the human-consumable history of significant Software Factory
+capabilities, operating contracts, authority boundaries, compatibility changes,
+and implementation programs. It is intentionally more descriptive than a list
+of commit subjects, but it is not a second operational ledger.
+
+High-precision evidence remains in Git history, implementation-tracker
+completion evidence, canonical supervision events, verified `report.json`
+artifacts, tests, and exact candidate reviews. Changelog entries summarize those
+sources and link or cite exact revisions when that materially improves
+traceability.
+
+## Maintenance contract
+
+Update this file at the coherent checkpoint where any of the following becomes
+planned, implemented, adopted, materially corrected, deprecated, or removed:
+
+- a reusable Software Factory capability or workflow;
+- operator-visible behavior or a public skill contract;
+- an authority, autonomy, supervision, evidence, or outcome-closure boundary;
+- a compatibility, migration, installation, or runtime requirement; or
+- a significant implementation tracker that changes the intended product
+  direction.
+
+Every entry must distinguish `Proposed`, `Planned`, `Implemented`,
+`Demonstrated`, `Corrected`, and `Removed` truthfully. A planned tracker is not
+implemented behavior; a passing experiment or `promote` disposition is not
+automatic adoption; and process evidence is not an operator-visible outcome.
+
+Include the capability effect, important boundaries or compatibility posture,
+and the strongest useful evidence reference. Do not add every test fixture,
+review-only successor, evidence-only checkpoint, typo, or internal refactor
+unless it changes how a material result should be understood. Tracker authors
+should include a changelog update in the terminal documentation Block whenever
+the completed program materially changes Software Factory.
+
+## Unreleased
+
+### Proposed
+
+- **Autonomous Factory-evolution orchestration.** Integrate the implemented
+  on-demand learning/evaluation workflow with existing report, supervision,
+  tracker-authoring, candidate-implementation, and independent-evaluation
+  workflows. The intended direction is configurable autonomy through automatic
+  evidence eligibility, candidate experimentation, reviewed adoption, and
+  outcome feedback without making reports authoritative or permitting
+  self-promotion. Implementation of that successor is itself governed by
+  adaptive decision control as `software-factory` target work, including inline
+  correction, bounded alternatives, and structural replanning with the stricter
+  self-change identity/evaluation boundaries. No implementation tracker or
+  implementation has yet been accepted for this successor capability.
+
+### Planned
+
+- **Adaptive implementation decision control.** An eight-Block program plans a
+  near-zero-overhead unchanged path, inline correction of bad implementation
+  decisions, selective isolated candidate comparison, exceptional supervised
+  tracker amendment, configurable full autonomy, single-authority cutover, and
+  shared operation for target repositories and Software Factory self-work.
+  This is planning, not implemented functionality. Initial plan:
+  `765c32bd15a52f8eb0f0bb48f07217d0851ebac5`; provenance-corrected successor:
+  `851bc1aa5150eaa4de7fc5346c45abf892002a1f`; tracker:
+  [`docs/software-factory-adaptive-implementation-decision-control-implementation-tracker.md`](docs/software-factory-adaptive-implementation-decision-control-implementation-tracker.md).
+- **Pre-implementation tracker-authoring supervision.** A five-Block program
+  plans independent, repository-grounded challenge of capability selection,
+  architecture/owner reuse, Block decomposition, acceptance evidence, and
+  implementation readiness before implementation begins. This remains planned,
+  not implemented. Planning commit:
+  `a01417376b458325b6554ab6007d2a7d145a785d`; tracker:
+  [`docs/software-factory-tracker-authoring-supervision-implementation-tracker.md`](docs/software-factory-tracker-authoring-supervision-implementation-tracker.md).
+
+### Documentation
+
+- **Changelog established.** Added this project-level capability history and
+  the maintenance contract above. Run-specific reports and machine-readable
+  evidence remain the precise underlying sources; this file is their durable
+  human-oriented summary.
+
+## 2026-08-08
+
+### Implemented and demonstrated
+
+- **Evidence-grounded Factory evolution MVP.** Software Factory can build a
+  deterministic learning packet from explicit verified weekly `report.json`
+  and canonical `events.jsonl` sources; validate bounded observations, lessons,
+  counterexamples, meta-patterns, capability candidates, selection dimensions,
+  and experiments; independently compare baseline and candidate behavior; and
+  record `promote`, `advisory`, `revise`, or `reject`. The workflow is on-demand
+  and derived: reports nominate hypotheses, canonical evidence adjudicates,
+  the evolution command never edits skills or targets, and a disposition does
+  not automatically adopt or deploy a candidate. Accepted tracker evidence:
+  `4a33cd9344f0fbb1d1feaa6caac13521eb3237f3`; accepted implementation candidate:
+  `363596ce10c4c3a39ead387bc9db493c12128c8b`; tracker:
+  [`docs/software-factory-learning-and-capability-evolution-mvp-implementation-tracker.md`](docs/software-factory-learning-and-capability-evolution-mvp-implementation-tracker.md).
+- **Target-product capability framing during tracker authoring.** New
+  full-profile trackers reconstruct the direct product capability, protected
+  behavior, architecture strategy, proportionality, tradeoffs, and uncertainty
+  before consequential Block decomposition. The verifier rejects structural
+  contradictions and preserves an inherited core-profile compatibility path.
+  Accepted candidate: `c777c9c9b97787ad49d6dace328ca5b5041961b7`;
+  acceptance evidence: `9e0062b8f76d6f2a0aba7636e81e17ab7e6bdeb8`.
+- **Bounded product-capability review during Block execution.** Consequential
+  Blocks compare a local path, bounded-general path, and available architectural
+  owner; protect canonical behavior and composability; reject lower-power
+  underreach and speculative generalization; and retain the routine fast path.
+  Accepted candidate: `17a7571873cff82b4190db1ffe75216cac75937f`;
+  acceptance evidence: `3bed4013d48f2e36418f4a0b50c0d657d9fcd424`.
+- **Terminal capability reconciliation.** Outcome completion now validates a
+  bounded semantic reconciliation of requested capability, protected behavior,
+  architecture owner, tradeoffs, current behavior, operator-visible effects,
+  exact evidence, source revision, and independent reviewer identity. A
+  verified posture requires zero supported gaps; tests, commits, reports, and
+  process records cannot substitute for current behavior. Accepted candidate:
+  `363596ce10c4c3a39ead387bc9db493c12128c8b`; acceptance evidence:
+  `4a33cd9344f0fbb1d1feaa6caac13521eb3237f3`.
+
+### Corrected
+
+- **Adaptive tracker provenance.** Corrected the planned adaptive-decision
+  tracker so routed `codex_delegation` advice remains advisory rather than being
+  represented as direct product authority. Direct requirements are bound to the
+  eligible user thread and hash-bound repository/tracker sources. Successor:
+  `851bc1aa5150eaa4de7fc5346c45abf892002a1f`; corrected tracker blob:
+  `1e60d8312f77cd6880b3818fd8418e3087137fa3`.
+
+## 2026-08-03 to 2026-08-04
+
+### Implemented
+
+- **Evidence-backed supervision reports.** Added deterministic weekly
+  supervision metrics, bounded cognitive review, machine-readable report state,
+  executive-readable Markdown/PDF projections, and report-density controls.
+  Reports remain derived views rather than operational authority.
+- **Observable outcome closure and terminal supervision.** Added explicit
+  reconciliation of requested deliverables and current effects, terminal report
+  evidence, lifecycle/shutdown proof, and Gmail ownership boundaries. Green
+  tests or terminal process state alone no longer establish completion.
+
+## 2026-08-01 to 2026-08-02
+
+### Implemented
+
+- **Autonomous continuation around bounded decisions.** Added dependency cuts,
+  maximal safe-frontier continuation, bounded independent resolution attempts,
+  fail-closed blocking gates, and automatic consumption of resolved handoffs so
+  ordinary Block boundaries or preferences do not become human scheduling
+  gates.
+- **Independent supervision and corrective recovery hardening.** Added strict
+  cross-thread action routing, role-refresh gates, exact mission provenance,
+  producer-output preservation, stable test invocation envelopes, incident
+  lifecycle reconciliation, and current-run correction before reusable skill
+  maintenance.
+
+## Earlier foundation
+
+- **Three-skill Software Factory.** Established independently usable tracker
+  authoring, bounded Block implementation, and independent tracker-run
+  supervision skills with Git durability, canonical event/incident state,
+  verification, correction, and reporting owners. Exact granular history begins
+  with repository commit `c1ab52c` and remains available in Git.

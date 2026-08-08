@@ -14,7 +14,7 @@ _"Everything I've been doing to get Codex to do production-worthy work, but now 
 
 A single requested scope covered the complete tracker without turn-by-turn Block scheduling or re-prompting. Projected API-equivalent cost for the included **71.42-hour** supervision window was **$32.80**.
 
-[**Watch the walkthrough**](https://www.youtube.com/watch?v=gRJ-hgbBcTo) · [**Open the generated supervision report**](examples/reports/software_factory_report.pdf) · [**Quick start**](#quick-start) · [**Architecture**](#architecture) · [**Full evidence and limitations**](#full-demonstrated-operation)
+[**Watch the walkthrough**](https://www.youtube.com/watch?v=gRJ-hgbBcTo) · [**Open the generated supervision report**](examples/reports/software_factory_report.pdf) · [**Quick start**](#quick-start) · [**Architecture**](#architecture) · [**Changelog**](CHANGELOG.md) · [**Full evidence and limitations**](#full-demonstrated-operation)
 
 ## System at a glance
 
@@ -29,6 +29,21 @@ Software Factory combines three composable Codex skills with deterministic track
 | **Human governance** | Reports, lifecycle state, notices, decision packets, and optional Gmail | Present status, cost, response time, recurrence, blind spots, risks, and outcome evidence without requiring a human to read the full agent transcript. |
 
 The skills remain independently useful: author a tracker without implementing it, execute a constrained Block range, run an entire compatible tracker without independent supervision, or attach supervision to a multi-day implementation program.
+
+## Project history and changelog
+
+[`CHANGELOG.md`](CHANGELOG.md) is the maintained human-consumable history of
+significant planned, implemented, demonstrated, corrected, and removed Software
+Factory capabilities. Update it when a coherent change materially affects a
+reusable capability, public workflow, authority boundary, compatibility
+posture, or major implementation program. It need not repeat every test,
+fixture, review, or evidence-only checkpoint.
+
+Git history, tracker completion evidence, canonical supervision events, and
+verified machine-readable reports remain the high-precision underlying data.
+The changelog summarizes those sources and cites exact revisions where useful;
+it never upgrades a plan, experiment, or process record into implemented or
+operator-visible behavior.
 
 ## Quick start
 
