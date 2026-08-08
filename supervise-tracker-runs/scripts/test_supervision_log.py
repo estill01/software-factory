@@ -118,6 +118,10 @@ class FactoryEvolutionContractTests(unittest.TestCase):
         )
         self.assertIn("## Exact submission wire shapes", self.contract)
         self.assertIn("result_without_root", self.contract)
+        self.assertIn("`schema_version` is the JSON integer `1`", self.contract)
+        self.assertIn("`skill-method`", self.contract)
+        self.assertIn("`non-inferiority`", self.contract)
+        self.assertIn("`observed`, `shadow`, or `synthetic`", self.contract)
 
 
 class FactoryEvolutionCliTests(unittest.TestCase):
@@ -267,6 +271,33 @@ class FactoryEvolutionCliTests(unittest.TestCase):
             if isinstance(item, argparse._SubParsersAction)
         ).choices["factory-evolution"]._option_string_actions["--action"].choices
         self.assertEqual(tuple(action), ("prepare", "finalize", "evaluate", "verify"))
+
+    def test_nested_owner_symlink_escape_is_rejected(self) -> None:
+        target = self.root / self.target_thread
+        learning = target / "learning"
+        outside = self.root / "outside-owner"
+        learning.mkdir(parents=True)
+        outside.mkdir()
+        (learning / "factory-evolution").symlink_to(outside, target_is_directory=True)
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "escaped the target directory"
+        ):
+            self.prepare()
+        self.assertFalse((outside / self.evolution_id / "learning-packet.json").exists())
+
+    def test_verify_rejects_unexpected_artifacts_in_the_set(self) -> None:
+        self.prepare()
+        self.finalize()
+        self.evaluate()
+        (self.artifact_directory / "promotion.json").write_text(
+            "{}\n", encoding="utf-8"
+        )
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "unexpected artifacts"
+        ):
+            self.run_action("verify")
 
 
 class UserFacingBlockSummaryPolicyTests(unittest.TestCase):

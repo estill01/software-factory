@@ -194,3 +194,43 @@ Every baseline or candidate result has `case_id`, `evidence_class`,
 normalizing ID/string arrays; the validator recomputes it from every result
 field. Baseline and candidate result arrays each cover every positive and
 exception case exactly once.
+
+### Types and accepted values
+
+- `schema_version` is the JSON integer `1`. Every `*_id`, `*_root`, revision,
+  prose, enum, and `kind` value is a JSON string. Plural `*_ids`, goals,
+  tradeoffs, questions, effects, bounds, measures, findings, and regressions are
+  JSON arrays of strings. Record collections are JSON arrays of objects.
+- `selection_dimensions` is a JSON object whose exact keys are the twelve
+  maintained dimensions. Each value is an object with string `rating`, string
+  `rationale`, and an `evidence_ids` array of strings.
+- Observation `valence`: `productive`, `harmful`, `exception`, or `mixed`.
+- Counterexample `posture` for lessons and candidates: `observed`,
+  `searched-none-found`, or `unknown-limits-applicability`. `observed` requires
+  one or more exact counterexample case IDs; either non-observed posture
+  requires an empty case array and a nonempty documented search.
+- Lesson `confidence`: `low`, `medium`, or `high`.
+- Candidate `candidate_type`: `detector`, `correction`, `exculpator`,
+  `skill-method`, `tracker-method`, `supervision`, `execution`, `evaluation`,
+  `resource-policy`, `architecture`, `removal`, or `experiment`.
+- Selection-dimension `rating`: `low`, `medium`, `high`, or `unknown`.
+- Experiment `comparison_mode`: `improvement` or `non-inferiority`.
+  `improvement` requires an empty `non_inferiority_justification` string;
+  `non-inferiority` requires a nonempty justification.
+- Result `evidence_class`: `observed`, `shadow`, or `synthetic`. Result
+  `outcome`: `pass`, `fail`, or `mixed`.
+- Evaluation `disposition`: `promote`, `advisory`, `revise`, or `reject`.
+
+All prose must already be single-spaced, nonempty unless explicitly allowed
+empty, and no longer than 600 characters. ID arrays and string arrays are
+unique and sorted by the validator before identity is computed. To construct a
+result root reproducibly from a JSON result object that omits `evidence_root`,
+run this from the repository root after making `evidence_ids` and `regressions`
+sorted and unique:
+
+```bash
+PYTHONPATH=supervise-tracker-runs/scripts \
+  uv run --python 3.14 python -c \
+  'import json,sys; from factory_evolution import experiment_result_evidence_root; value=json.load(sys.stdin); value["evidence_ids"]=sorted(value["evidence_ids"]); value["regressions"]=sorted(value["regressions"]); print(experiment_result_evidence_root(value))' \
+  < result-without-root.json
+```

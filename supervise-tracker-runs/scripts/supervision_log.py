@@ -93,6 +93,15 @@ SKILL_MAINTENANCE_MODES = {
     "apply-supervision-maintenance",
     "apply-allowlisted-skill-maintenance-with-review",
 }
+FACTORY_EVOLUTION_ARTIFACT_NAMES = {
+    "learning-packet.json",
+    "prepare-manifest.json",
+    "review.json",
+    "finalize-manifest.json",
+    "evaluation.json",
+    "machine-report.json",
+    "manifest.json",
+}
 ALLOWLISTED_MAINTENANCE_SKILLS = [
     "author-implementation-trackers",
     "implement-tracker-blocks",
@@ -3343,6 +3352,8 @@ def factory_evolution_call(module: Any, name: str, *args: Any, **kwargs: Any) ->
 def factory_evolution_directory(directory: Path, evolution_id: str) -> Path:
     safe_id(evolution_id, label="factory evolution ID")
     base = (directory / "learning" / "factory-evolution").resolve()
+    if directory.resolve() not in base.parents:
+        raise SupervisionLogError("Factory evolution owner escaped the target directory")
     result = (base / evolution_id).resolve()
     if result.parent != base:
         raise SupervisionLogError("Factory evolution directory escaped its owner")
@@ -3358,16 +3369,7 @@ def factory_evolution_json_bytes(value: Mapping[str, Any]) -> bytes:
 def write_factory_evolution_set(
     directory: Path, artifacts: Mapping[str, Mapping[str, Any]]
 ) -> dict[str, list[str]]:
-    allowed_names = {
-        "learning-packet.json",
-        "prepare-manifest.json",
-        "review.json",
-        "finalize-manifest.json",
-        "evaluation.json",
-        "machine-report.json",
-        "manifest.json",
-    }
-    if not artifacts or not set(artifacts) <= allowed_names:
+    if not artifacts or not set(artifacts) <= FACTORY_EVOLUTION_ARTIFACT_NAMES:
         raise SupervisionLogError("Factory evolution artifact set is invalid")
     expected = {
         name: factory_evolution_json_bytes(value)
@@ -3375,7 +3377,8 @@ def write_factory_evolution_set(
     }
     reused: list[str] = []
     missing: list[str] = []
-    with append_lock(directory):
+    with factory_evolution_lock(directory):
+        verify_factory_evolution_inventory(directory)
         for name in sorted(expected):
             path = directory / name
             if path.parent != directory:
@@ -3391,6 +3394,38 @@ def write_factory_evolution_set(
         for name in missing:
             atomic_json(directory / name, dict(artifacts[name]))
     return {"written": missing, "reused": reused}
+
+
+@contextmanager
+def factory_evolution_lock(directory: Path) -> Iterator[None]:
+    directory.mkdir(parents=True, exist_ok=True)
+    lock_path = directory / ".append.lock"
+    flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(lock_path, flags, 0o600)
+    except OSError as exc:
+        raise SupervisionLogError("Cannot open Factory evolution lock safely") from exc
+    try:
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def verify_factory_evolution_inventory(directory: Path) -> None:
+    if not directory.exists():
+        return
+    allowed = FACTORY_EVOLUTION_ARTIFACT_NAMES | {".append.lock"}
+    unexpected = sorted(item.name for item in directory.iterdir() if item.name not in allowed)
+    if unexpected:
+        raise SupervisionLogError(
+            "Factory evolution set contains unexpected artifacts: "
+            + ", ".join(unexpected)
+        )
 
 
 def require_factory_evolution_artifacts(
@@ -3577,6 +3612,7 @@ def cmd_factory_evolution_verify(args: argparse.Namespace) -> None:
     directory = factory_evolution_directory(
         target_dir(args), safe_id(args.evolution_id, label="factory evolution ID")
     )
+    verify_factory_evolution_inventory(directory)
     packet = verify_factory_evolution_prepare(module, directory)
     stage = "prepared"
     result: dict[str, Any] = {
