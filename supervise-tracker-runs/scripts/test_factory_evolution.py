@@ -188,6 +188,26 @@ class LearningPacketTests(unittest.TestCase):
             self.assertIn(ledger_root, event["source_ledger_roots"])
             self.assertRegex(event["record_sha256"], r"^[0-9a-f]{64}$")
 
+    def test_event_must_belong_to_every_claimed_source_ledger(self) -> None:
+        fourth = event_record("EVT-04", previous=None)
+        other = self.write_events("events-other.jsonl", [fourth])
+        packet = self.build(events=[self.events, other])
+        other_root = next(
+            item["ledger_root"]
+            for item in packet["sources"]["event_ledgers"]
+            if item["record_count"] == 1
+        )
+        first_event = packet["evidence"]["events"][0]
+        first_event["source_ledger_roots"] = sorted(
+            first_event["source_ledger_roots"] + [other_root]
+        )
+        self.reroot(packet)
+
+        with self.assertRaisesRegex(
+            factory_evolution.FactoryEvolutionError, "every claimed source ledger"
+        ):
+            factory_evolution.verify_learning_packet(packet)
+
     def test_malformed_jsonl_and_stale_record_hash_are_rejected(self) -> None:
         malformed = self.root / "malformed.jsonl"
         malformed.write_text('{"not":\n', encoding="utf-8")
@@ -311,6 +331,62 @@ class LearningPacketTests(unittest.TestCase):
         self.reroot(packet)
         with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "bounded array"):
             factory_evolution.verify_learning_packet(packet)
+
+    def test_aggregate_canonical_record_index_is_bounded(self) -> None:
+        packet = self.build()
+        ledger = packet["sources"]["event_ledgers"][0]
+        index = list(ledger["record_index"])
+        for number in range(
+            len(index), factory_evolution.MAX_PACKET_CANONICAL_RECORDS + 1
+        ):
+            record_id = f"IDX-{number:05d}"
+            index.append(
+                {
+                    "record_id": record_id,
+                    "record_sha256": factory_evolution.digest(
+                        {"synthetic_record": record_id}
+                    ),
+                }
+            )
+        hashes = [item["record_sha256"] for item in index]
+        ledger["record_index"] = index
+        ledger["record_count"] = len(index)
+        ledger["first_record_sha256"] = hashes[0]
+        ledger["last_record_sha256"] = hashes[-1]
+        ledger["ledger_root"] = factory_evolution.digest({"record_hashes": hashes})
+        packet["coverage"]["canonical_event_records"] = len(index)
+        self.reroot(packet)
+
+        with self.assertRaisesRegex(
+            factory_evolution.FactoryEvolutionError, "aggregate bound"
+        ):
+            factory_evolution.verify_learning_packet(packet)
+
+    def test_verifier_rejects_empty_or_reordered_rerooted_packets(self) -> None:
+        empty = self.build()
+        empty["sources"]["reports"] = []
+        empty["sources"]["event_ledgers"] = []
+        empty["evidence"]["report_hypotheses"] = []
+        empty["evidence"]["events"] = []
+        empty["coverage"] = {
+            "report_roots": 0,
+            "event_ledger_roots": 0,
+            "canonical_event_records": 0,
+            "retained_event_records": 0,
+            "retained_report_hypotheses": 0,
+            "unsupported_event_kinds": 0,
+        }
+        self.reroot(empty)
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "bounded array"):
+            factory_evolution.verify_learning_packet(empty)
+
+        reordered = self.build()
+        reordered["evidence"]["report_hypotheses"].reverse()
+        self.reroot(reordered)
+        with self.assertRaisesRegex(
+            factory_evolution.FactoryEvolutionError, "deterministically ordered"
+        ):
+            factory_evolution.verify_learning_packet(reordered)
 
     def test_inputs_are_required_and_never_discovered_implicitly(self) -> None:
         with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "explicit report"):

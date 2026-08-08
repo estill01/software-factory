@@ -27,6 +27,7 @@ MAX_PACKET_REPORTS = 16
 MAX_PACKET_LEDGERS = 16
 MAX_PACKET_EVENTS = 5_000
 MAX_PACKET_HYPOTHESES = 512
+MAX_PACKET_CANONICAL_RECORDS = 10_000
 MAX_REPORT_HYPOTHESES = 64
 MAX_EVIDENCE_REFS = 8
 MAX_EVENT_TEXT = 280
@@ -429,6 +430,13 @@ def build_learning_packet(
         ledgers_by_root[ledger_root] = manifest
         if len(ledgers_by_root) > MAX_PACKET_LEDGERS:
             raise FactoryEvolutionError("Learning packet has too many event ledger roots")
+        if (
+            sum(item["record_count"] for item in ledgers_by_root.values())
+            > MAX_PACKET_CANONICAL_RECORDS
+        ):
+            raise FactoryEvolutionError(
+                "Learning packet has too many canonical record index entries"
+            )
         for event in source_events:
             record_hash = event["record_sha256"]
             current = events_by_hash.get(record_hash)
@@ -580,13 +588,17 @@ def verify_learning_packet(packet: Mapping[str, Any]) -> dict[str, Any]:
     ledgers = sources.get("event_ledgers")
     events = evidence.get("events")
     hypotheses = evidence.get("report_hypotheses")
-    if not isinstance(reports, list) or len(reports) > MAX_PACKET_REPORTS:
+    if not isinstance(reports, list) or not reports or len(reports) > MAX_PACKET_REPORTS:
         raise FactoryEvolutionError("Packet reports are not a bounded array")
-    if not isinstance(ledgers, list) or len(ledgers) > MAX_PACKET_LEDGERS:
+    if not isinstance(ledgers, list) or not ledgers or len(ledgers) > MAX_PACKET_LEDGERS:
         raise FactoryEvolutionError("Packet event ledgers are not a bounded array")
     if not isinstance(events, list) or len(events) > MAX_PACKET_EVENTS:
         raise FactoryEvolutionError("Packet events are not a bounded array")
-    if not isinstance(hypotheses, list) or len(hypotheses) > MAX_PACKET_HYPOTHESES:
+    if (
+        not isinstance(hypotheses, list)
+        or not hypotheses
+        or len(hypotheses) > MAX_PACKET_HYPOTHESES
+    ):
         raise FactoryEvolutionError("Packet hypotheses are not a bounded array")
 
     report_keys: set[tuple[str, str, str]] = set()
@@ -652,6 +664,7 @@ def verify_learning_packet(packet: Mapping[str, Any]) -> dict[str, Any]:
     ledger_roots: list[str] = []
     canonical_record_ids: set[str] = set()
     canonical_record_hashes: dict[str, str] = {}
+    ledger_record_keys: dict[str, set[tuple[str, str]]] = {}
     unsupported_total = 0
     canonical_total = 0
     for ledger in ledgers:
@@ -730,7 +743,15 @@ def verify_learning_packet(packet: Mapping[str, Any]) -> dict[str, Any]:
         if ledger_root in ledger_roots:
             raise FactoryEvolutionError("Packet repeats an event ledger root")
         ledger_roots.append(ledger_root)
+        ledger_record_keys[ledger_root] = {
+            (str(item["record_id"]), str(item["record_sha256"]))
+            for item in record_index
+        }
         canonical_total += record_count
+        if canonical_total > MAX_PACKET_CANONICAL_RECORDS:
+            raise FactoryEvolutionError(
+                "Packet canonical record indexes exceed their aggregate bound"
+            )
         unsupported_total += unsupported
     if ledger_roots != sorted(ledger_roots):
         raise FactoryEvolutionError("Packet ledgers are not deterministically ordered")
@@ -798,6 +819,10 @@ def verify_learning_packet(packet: Mapping[str, Any]) -> dict[str, Any]:
         if validated_roots != sorted(set(validated_roots)) or not set(validated_roots) <= ledger_root_set:
             raise FactoryEvolutionError("Packet event ledger roots are invalid")
         event_key = (record_id, record_hash)
+        if any(event_key not in ledger_record_keys[root] for root in validated_roots):
+            raise FactoryEvolutionError(
+                "Packet event does not belong to every claimed source ledger"
+            )
         if event_key in event_keys:
             raise FactoryEvolutionError("Packet repeats an event identity")
         event_keys.add(event_key)
@@ -806,6 +831,8 @@ def verify_learning_packet(packet: Mapping[str, Any]) -> dict[str, Any]:
         raise FactoryEvolutionError("Packet events are not deterministically ordered")
 
     hypothesis_ids: set[str] = set()
+    hypothesis_order: list[tuple[str, str, int, str]] = []
+    section_positions: dict[tuple[str, str], list[int]] = {}
     for hypothesis in hypotheses:
         if not isinstance(hypothesis, Mapping):
             raise FactoryEvolutionError("Packet hypothesis must be an object")
@@ -835,10 +862,10 @@ def verify_learning_packet(packet: Mapping[str, Any]) -> dict[str, Any]:
         )
         if key not in report_keys:
             raise FactoryEvolutionError("Packet hypothesis does not resolve to a report")
-        _bounded_packet_text(
+        section = _bounded_packet_text(
             hypothesis.get("section"), label="hypothesis section", limit=160
         )
-        _bounded_integer(
+        position = _bounded_integer(
             hypothesis.get("position"), label="hypothesis position", maximum=10_000
         )
         _bounded_packet_text(
@@ -870,6 +897,14 @@ def verify_learning_packet(packet: Mapping[str, Any]) -> dict[str, Any]:
         if hypothesis_id != expected_id or hypothesis_id in hypothesis_ids:
             raise FactoryEvolutionError("Hypothesis identity is stale or duplicated")
         hypothesis_ids.add(hypothesis_id)
+        hypothesis_order.append((key[1], section, position, hypothesis_id))
+        section_positions.setdefault((key[1], section), []).append(position)
+
+    if hypothesis_order != sorted(hypothesis_order):
+        raise FactoryEvolutionError("Packet hypotheses are not deterministically ordered")
+    for positions in section_positions.values():
+        if positions != list(range(len(positions))):
+            raise FactoryEvolutionError("Packet hypothesis section positions are incoherent")
 
     expected_coverage = {
         "report_roots": len(reports),
