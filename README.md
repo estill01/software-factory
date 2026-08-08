@@ -223,6 +223,7 @@ When a narrow input is genuinely unresolved, the executor computes the affected 
 | Production failure mode | Control applied by Software Factory |
 |---|---|
 | **A Block boundary becomes a human scheduling gate.** | Requested scope and Block control scope are represented separately, so full-tracker runs advance automatically after each accepted Block. |
+| **A source task hands off to a successor and treats the handoff as completion.** | The append-only successor-transition state machine preserves tracker, mission, authority, task, binding, acknowledgement, and first-Block start identity; source stop remains prohibited until current `work-started` evidence exists. |
 | **The agent treats a task list as the architecture.** | Tracker authoring inspects the live repository, identifies authoritative owners, and splits work at real dependency, mutation, review, recovery, and stopping boundaries. |
 | **Scope expands into attractive but unnecessary infrastructure.** | Every Block has one primary outcome, explicit non-goals, a feature-creep test, and a stop clause. |
 | **Tests pass, so the project is declared complete.** | Tests, commits, hashes, audits, and ledgers remain process evidence; terminal closure separately inspects operator-visible deliverables and expected effects. |
@@ -231,6 +232,7 @@ When a narrow input is genuinely unresolved, the executor computes the affected 
 | **The run repeatedly rescans or rebuilds unchanged work.** | Cheap currentness checks, accepted-evidence reuse, preflight, batching, and targeted invalidation precede expensive proof. |
 | **One unresolved decision stalls everything.** | A genuine decision becomes a bounded dependency cut and the safe-work frontier is computed around it. |
 | **A corrective action certifies itself.** | Incidents remain open until later target evidence shows whether the correction worked. |
+| **A failure is recorded but cannot be compared or prevented later.** | Incident-owned failure-mode envelopes preserve the causal layer, mechanism, trigger, effect, detection, correction, recurrence invariant, and human-scheduling leak without creating a second ledger. |
 | **The human must read thousands of agent turns to understand the run.** | Canonical event state is converted into deterministic metrics, evidence-bound synthesis, and verified human-readable reports. |
 
 The result is **human-in-the-loop without requiring a human in every loop**: people retain mission, judgment, reserved authority, and final oversight while the machinery handles routine decomposition, execution control, changed-state review, incident follow-through, and reporting.

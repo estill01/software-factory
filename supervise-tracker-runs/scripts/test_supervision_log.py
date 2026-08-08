@@ -417,6 +417,345 @@ class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
         self.assertIn("source JSON remains caller-owned", policy)
 
 
+class SuccessorTransitionContractTests(unittest.TestCase):
+    target = "target-1234"
+    transition_id = "TRANSITION-1234"
+    tracker_sha256 = "a" * 64
+    source_mission_root = "b" * 64
+    successor_mission_root = "c" * 64
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.directory = Path(self.temporary.name)
+        self.policy = {"policy_sha256": "d" * 64}
+
+    def transition_args(self, phase: str, *extra: str) -> argparse.Namespace:
+        return supervision_log.parser().parse_args(
+            [
+                "successor-transition-record",
+                "--target-thread",
+                self.target,
+                "--transition-id",
+                self.transition_id,
+                "--phase",
+                phase,
+                "--tracker-sha256",
+                self.tracker_sha256,
+                "--tracker-source-record",
+                "commit-94c8118-blob-9e6b6d1",
+                "--requested-block-range",
+                "Blocks 0-13",
+                "--first-eligible-block",
+                "Block 0",
+                "--source-mission-root",
+                self.source_mission_root,
+                "--governing-authority-source-class",
+                "direct-user",
+                "--governing-authority-source-record",
+                "item-340",
+                "--state-fingerprint",
+                f"state-{phase}",
+                "--evidence",
+                f"evidence-{phase}",
+                *extra,
+            ]
+        )
+
+    def record(self, phase: str, *extra: str) -> dict[str, object]:
+        output = io.StringIO()
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(self.directory, self.policy),
+            ),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_successor_transition_record(
+                self.transition_args(phase, *extra)
+            )
+        return json.loads(output.getvalue())
+
+    def gate(self, authority: str = "unavailable") -> dict[str, object]:
+        args = supervision_log.parser().parse_args(
+            [
+                "successor-transition-gate",
+                "--target-thread",
+                self.target,
+                "--transition-id",
+                self.transition_id,
+                "--task-creation-authority",
+                authority,
+            ]
+        )
+        output = io.StringIO()
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(self.directory, self.policy),
+            ),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_successor_transition_gate(args)
+        return json.loads(output.getvalue())
+
+    def test_transition_remains_open_until_successor_work_actually_starts(self) -> None:
+        self.record("required")
+
+        unavailable = self.gate()
+        available = self.gate("available")
+        self.assertFalse(unavailable["source_stop_permitted"])
+        self.assertTrue(unavailable["direct_task_creation_authority_required"])
+        self.assertEqual(
+            unavailable["next_action"],
+            "keep-open-await-direct-task-creation-authority",
+        )
+        self.assertEqual(available["next_action"], "create-successor-task")
+
+        successor = ["--successor-thread", "successor-1234"]
+        bound = [
+            *successor,
+            "--successor-mission-root",
+            self.successor_mission_root,
+            "--successor-group-id",
+            "group-1234",
+        ]
+        handed_off = [*bound, "--handoff-record", "HANDOFF-1234"]
+        acknowledged = [
+            *handed_off,
+            "--acknowledgement-record",
+            "ACK-1234",
+        ]
+        self.record("successor-created", *successor)
+        self.record("successor-bound", *bound)
+        self.record("handoff-sent", *handed_off)
+        self.record("target-acknowledged", *acknowledged)
+
+        before_start = self.gate()
+        self.assertFalse(before_start["source_stop_permitted"])
+        self.assertEqual(before_start["next_action"], "start-first-eligible-block")
+
+        self.record("work-started", *acknowledged, "--started-block", "Block 0")
+        started = self.gate()
+        self.assertTrue(started["source_stop_permitted"])
+        self.assertFalse(started["transition_open"])
+
+    def test_transition_rejects_skips_identity_drift_and_early_claims(self) -> None:
+        self.record("required")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "is not allowed"
+        ):
+            self.record(
+                "successor-bound",
+                "--successor-thread",
+                "successor-1234",
+                "--successor-mission-root",
+                self.successor_mission_root,
+                "--successor-group-id",
+                "group-1234",
+            )
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "cannot claim later"
+        ):
+            self.record(
+                "successor-created",
+                "--successor-thread",
+                "successor-1234",
+                "--handoff-record",
+                "HANDOFF-1234",
+            )
+
+        created = self.transition_args(
+            "successor-created", "--successor-thread", "successor-1234"
+        )
+        created.tracker_sha256 = "e" * 64
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "preserve tracker sha256"
+        ):
+            output = io.StringIO()
+            with (
+                mock.patch.object(
+                    supervision_log,
+                    "load_policy",
+                    return_value=(self.directory, self.policy),
+                ),
+                redirect_stdout(output),
+            ):
+                supervision_log.cmd_successor_transition_record(created)
+
+    def test_routed_provenance_cannot_create_governing_transition_authority(self) -> None:
+        args = self.transition_args("required")
+        args.governing_authority_source_class = "codex_delegation"
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "governing direct authority"
+        ):
+            output = io.StringIO()
+            with (
+                mock.patch.object(
+                    supervision_log,
+                    "load_policy",
+                    return_value=(self.directory, self.policy),
+                ),
+                redirect_stdout(output),
+            ):
+                supervision_log.cmd_successor_transition_record(args)
+
+    def test_completed_lifecycle_is_rejected_while_transition_is_open(self) -> None:
+        self.record("required")
+        args = supervision_log.parser().parse_args(
+            [
+                "record",
+                "--target-thread",
+                self.target,
+                "--kind",
+                "lifecycle",
+                "--status",
+                "completed",
+                "--state-fingerprint",
+                "state-required",
+                "--summary",
+                "Incorrectly claimed completion after handoff.",
+            ]
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "open successor transition"
+        ):
+            output = io.StringIO()
+            with (
+                mock.patch.object(
+                    supervision_log,
+                    "load_policy",
+                    return_value=(self.directory, self.policy),
+                ),
+                redirect_stdout(output),
+            ):
+                supervision_log.cmd_record(args)
+
+    def test_lifecycle_and_status_expose_the_open_transition(self) -> None:
+        self.record("required")
+        supervision_log.append_raw(
+            self.directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": "EVT-000002",
+                "timestamp": "2026-08-08T18:00:00+00:00",
+                "target_thread_id": self.target,
+                "kind": "lifecycle",
+                "status": "paused",
+                "state_fingerprint": "state-required",
+                "user_action_required": "no",
+            },
+        )
+        lifecycle_args = supervision_log.parser().parse_args(
+            [
+                "lifecycle-gate",
+                "--target-thread",
+                self.target,
+                "--lifecycle-state",
+                "paused",
+                "--source-record",
+                "EVT-000002",
+            ]
+        )
+        status_args = supervision_log.parser().parse_args(
+            ["status", "--target-thread", self.target]
+        )
+        with mock.patch.object(
+            supervision_log,
+            "load_policy",
+            return_value=(self.directory, self.policy),
+        ):
+            lifecycle_output = io.StringIO()
+            with redirect_stdout(lifecycle_output):
+                supervision_log.cmd_lifecycle_gate(lifecycle_args)
+            status_output = io.StringIO()
+            with redirect_stdout(status_output):
+                supervision_log.cmd_status(status_args)
+        lifecycle = json.loads(lifecycle_output.getvalue())
+        status = json.loads(status_output.getvalue())
+
+        self.assertFalse(lifecycle["source_stop_permitted"])
+        self.assertEqual(lifecycle["completion_action"], "resume-successor-transition")
+        self.assertEqual(status["successor_transition_count"], 1)
+        self.assertEqual(len(status["open_successor_transitions"]), 1)
+
+    def test_incident_can_store_a_structured_failure_mode_taxonomy(self) -> None:
+        args = supervision_log.parser().parse_args(
+            [
+                "record",
+                "--target-thread",
+                self.target,
+                "--kind",
+                "incident",
+                "--category",
+                "goal-preventing-procedural-stop",
+                "--summary",
+                "A task boundary was mistaken for outcome completion.",
+                "--failure-mode",
+                "--failure-mode-id",
+                "FM-HANDOFF-WITHOUT-CONTINUATION",
+                "--failure-layer",
+                "control-plane",
+                "--failure-mechanism",
+                "Boundary conflation",
+                "--failure-trigger",
+                "Execution required a successor task.",
+                "--failure-effect",
+                "The requested implementation did not start.",
+                "--failure-detection",
+                "Source stopped while successor transition gate was false.",
+                "--failure-correction",
+                "Keep source active through successor work-started evidence.",
+                "--failure-recurrence-invariant",
+                "Handoff is not completion.",
+                "--failure-human-scheduling-leak",
+                "yes",
+            ]
+        )
+        output = io.StringIO()
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(self.directory, self.policy),
+            ),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_record(args)
+        record = json.loads(output.getvalue())["record"]
+        self.assertEqual(record["failure_mode"]["layer"], "control-plane")
+        self.assertTrue(record["failure_mode"]["human_scheduling_leak"])
+        incident = next((self.directory / "incidents").glob("*.md"))
+        self.assertIn("Failure Mode", incident.read_text(encoding="utf-8"))
+
+    def test_transition_and_failure_mode_contracts_are_documented_end_to_end(self) -> None:
+        supervision_skill = HELPER_PATH.parent.parent.joinpath("SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        implementation_skill = HELPER_PATH.parent.parent.parent.joinpath(
+            "implement-tracker-blocks", "SKILL.md"
+        ).read_text(encoding="utf-8")
+        policy = HELPER_PATH.parent.parent.joinpath(
+            "references", "supervision-policy.md"
+        ).read_text(encoding="utf-8")
+        readme = HELPER_PATH.parent.parent.parent.joinpath("README.md").read_text(
+            encoding="utf-8"
+        )
+
+        for text in (supervision_skill, implementation_skill, policy):
+            self.assertIn("successor-transition-gate", text)
+            self.assertIn("source_stop_permitted", text)
+            self.assertIn("work-started", text)
+            self.assertIn("handoff", text.lower())
+        self.assertIn("--failure-mode", supervision_skill)
+        self.assertIn("FM-HANDOFF-WITHOUT-CONTINUATION", policy)
+        self.assertIn("handoff is not completion", policy.lower())
+        self.assertIn("human-scheduling leak", readme)
+
+
 class NoticeGateCorrelationTests(unittest.TestCase):
     incident_id = "INC-20260801-123456-ABCDEF"
     alert_source = "EVT-000001"

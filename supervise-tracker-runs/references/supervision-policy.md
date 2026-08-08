@@ -390,6 +390,97 @@ handoff, and target acknowledgement in the existing content-minimized JSONL
 ledger. Substantive alternatives and rationale remain in the tracker/project's
 existing decision owners. Do not add a second decision ledger or status service.
 
+## Successor transition and failure-mode control
+
+A source task may reach an internal task boundary while its governing requested
+scope still requires implementation in a distinct successor. This is an
+execution-topology transition, not an outcome or lifecycle boundary. Record one
+stable transition in the existing event ledger with these exact ordered phases:
+
+1. `required` — freeze the accepted tracker hash/source record, requested Block
+   range, first eligible Block, source mission root, and eligible governing
+   direct-authority source;
+2. `successor-created` — add the real successor task ID;
+3. `successor-bound` — add its tracker-derived mission root and isolated
+   supervision-group identity;
+4. `handoff-sent` — add the exact handoff record;
+5. `target-acknowledged` — add the successor acknowledgement record; and
+6. `work-started` — add evidence that the successor began the exact first
+   eligible Block.
+
+Every transition preserves prior identity and may advance only one phase. It
+cannot skip a phase, claim future evidence early, change the tracker or mission,
+or start at a different Block. The gate returns `source_stop_permitted=true`
+only at `work-started`. Before then, the required source posture is
+`in-progress`; a handoff, accepted tracker, created task, bound group, or target
+acknowledgement cannot close the user's requested scope.
+
+Create the initial record with the direct governing source, not the routed
+packet that happened to trigger the topology change:
+
+```bash
+python3 <LOG_HELPER> successor-transition-record \
+  --target-thread <SOURCE_TARGET> \
+  --transition-id <STABLE_TRANSITION_ID> \
+  --phase required \
+  --tracker-sha256 <EXACT_TRACKER_SHA256> \
+  --tracker-source-record <EXACT_COMMIT_BLOB_OR_TRACKER_RECORD> \
+  --requested-block-range <REQUESTED_RANGE> \
+  --first-eligible-block <FIRST_BLOCK> \
+  --source-mission-root <EXACT_SOURCE_MISSION_ROOT> \
+  --governing-authority-source-class <direct-user|system|repository|tracker> \
+  --governing-authority-source-record <EXACT_DIRECT_RECORD> \
+  --state-fingerprint <CURRENT_FINGERPRINT> \
+  --evidence <EXACT_EVIDENCE_REFERENCE>
+```
+
+On each real milestone, repeat the command with the next phase and all
+previously established successor fields. Add `--successor-thread` at creation;
+`--successor-mission-root` and `--successor-group-id` at binding;
+`--handoff-record` at handoff; `--acknowledgement-record` at acknowledgement;
+and `--started-block` at work start. Then call:
+
+```bash
+python3 <LOG_HELPER> successor-transition-gate \
+  --target-thread <SOURCE_TARGET> \
+  --transition-id <STABLE_TRANSITION_ID> \
+  --task-creation-authority <available|unavailable>
+```
+
+Task-creation authority is an environmental fact, not something supervision may
+invent. A supervisor steer or `codex_delegation` packet can constrain or route
+an already authorized transition, but cannot become the direct authority for a
+user-owned successor. When authority is unavailable, the gate keeps the
+transition open and exposes that exact boundary. It must not fabricate a task
+ID, report a successful handoff as completion, or obscure the remaining
+obligation. In a surface where the governing direct request already authorizes
+task creation, advance automatically without a new prompt.
+
+For every material incident, distinguish the observable event from its reusable
+failure-mode characterization. Attach `--failure-mode` to an incident-owned
+`record` with a stable ID and these required dimensions: layer, causal
+mechanism, trigger, effect, detection rule, bounded correction, recurrence
+invariant, and human-scheduling-leak posture. This structure lives in the same
+append-only ledger and incident report; it is not a new status or reporting
+authority. For the initiating class here, use:
+
+- ID: `FM-HANDOFF-WITHOUT-CONTINUATION`;
+- layer: `control-plane`;
+- mechanism: a task/operation boundary was conflated with the governing outcome
+  boundary;
+- trigger: requested work required a distinct successor task;
+- effect: the source stopped before successor implementation began and leaked
+  orchestration back to the human;
+- detection: the source is final, paused, stopped, or presents handoff as its
+  terminal result while `source_stop_permitted=false`;
+- correction: preserve the source as active, advance only the missing successor
+  transition phases, and selectively reuse all valid tracker/history evidence;
+- recurrence invariant: **handoff is not completion**.
+
+`status` exposes every open successor transition. `lifecycle-gate` rejects a
+completed source and returns `source_stop_permitted=false` for paused, stopped,
+or completed postures while any transition remains before `work-started`.
+
 ## Target-state fingerprint
 
 Construct a content-minimized fingerprint from the target thread ID and the

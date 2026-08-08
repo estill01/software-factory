@@ -187,6 +187,20 @@ no safe frontier. If a prior UI card still says `Goal blocked` after a handoff,
 state that the card is stale and continue; do not require or wait for a manual
 resume.
 
+When the requested implementation must move to a distinct successor task,
+treat that as an execution-topology transition, not as completion of the
+requested scope. Keep the source run `in-progress` and preserve one exact
+append-only `successor-transition-record` through `required`,
+`successor-created`, `successor-bound`, `handoff-sent`,
+`target-acknowledged`, and `work-started`. A handoff packet, accepted tracker,
+or bound successor is not enough: call `successor-transition-gate` and end the
+source run only when `source_stop_permitted=true`, which requires current
+evidence that the successor began the first eligible Block. If task creation
+requires direct authority unavailable to the current task, keep the transition
+open and expose that exact authority boundary; do not invent a task ID, treat a
+routed supervisor packet as direct user authority, claim completion, or turn
+the handoff into an ordinary user scheduling request.
+
 For a tracker run that spans skill maintenance, reread this skill at each Block
 transition when its live file hash has changed or a maintained skill-refresh
 notice was received. Do not continue from a cached turn-start copy across that

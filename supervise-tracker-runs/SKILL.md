@@ -633,6 +633,22 @@ hidden reasoning into the review.
   `Goal blocked` card after target acknowledgement is not current target state;
   the exact active turn and supervision decision head control. The resumed
   notification must say that no manual Resume action is required.
+- Before accepting a source-task `paused`, `stopped`, or `completed` posture
+  after a successor handoff, call `successor-transition-gate`. Record the
+  transition in the canonical event ledger through the exact phases
+  `required`, `successor-created`, `successor-bound`, `handoff-sent`,
+  `target-acknowledged`, and `work-started`. Keep the source target and its
+  incident active while `source_stop_permitted=false`; an accepted tracker,
+  handoff packet, created task, mission binding, or acknowledgement is not a
+  substitute for current first-Block start evidence. If direct task-creation
+  authority is unavailable, preserve that boundary as an open transition—do
+  not invent authority, manufacture a successor ID, falsely close the source,
+  or turn the internal orchestration obligation into routine human scheduling.
+- Characterize a material recurrence with the record command's
+  `--failure-mode` envelope: stable failure-mode ID, layer, mechanism, trigger,
+  observed effect, detection rule, bounded correction, recurrence invariant,
+  and whether it leaked scheduling to the human. Attach the envelope to the
+  existing incident-owned event; do not create a second failure ledger.
 - Before accepting an explicit stopped posture, apply the bound meta-charter's
   valid-stop conditions. If none applies, classify the goal-preventing stop as
   critical, keep supervision active, and route the narrow resume-or-establish-

@@ -43,6 +43,7 @@ KINDS = {
     "inbound-message",
     "roundup",
     "decision",
+    "successor-transition",
 }
 STANDARD_LIFECYCLE_STATES = {"completed", "paused"}
 PRIORITY_LIFECYCLE_STATES = {"blocked", "failed", "stopped"}
@@ -152,6 +153,33 @@ DECISION_PHASES = {
 }
 SAFE_FRONTIER_POSTURES = {"empty", "nonempty"}
 DECISION_OUTCOMES = {"", "selected", "safe-deferred", "user-supplied"}
+SUCCESSOR_TRANSITION_PHASES = (
+    "required",
+    "successor-created",
+    "successor-bound",
+    "handoff-sent",
+    "target-acknowledged",
+    "work-started",
+)
+SUCCESSOR_TRANSITION_IDENTITY_FIELDS = (
+    "tracker_sha256",
+    "tracker_source_record",
+    "requested_block_range",
+    "first_eligible_block",
+    "source_mission_root",
+    "governing_authority_source_class",
+    "governing_authority_source_record",
+)
+FAILURE_MODE_LAYERS = {
+    "authority",
+    "control-plane",
+    "evidence",
+    "execution",
+    "lifecycle",
+    "reporting",
+    "resource",
+    "validation",
+}
 AUTHORITY_SOURCE_CLASSES = {
     "direct-user",
     "system",
@@ -1273,6 +1301,12 @@ def append_markdown(path: Path, record: dict[str, Any], *, create: bool) -> None
             rows.append(f"- {key.replace('_', ' ').title()}: `{value}`\n")
     if record.get("evidence"):
         rows.append("- Evidence: " + ", ".join(f"`{item}`" for item in record["evidence"]) + "\n")
+    for envelope_name in ("failure_mode", "containment"):
+        if record.get(envelope_name):
+            rows.append(
+                f"- {envelope_name.replace('_', ' ').title()}: "
+                f"`{canonical(record[envelope_name]).decode('utf-8')}`\n"
+            )
     with path.open(mode, encoding="utf-8") as handle:
         handle.writelines(rows)
     os.chmod(path, 0o600)
@@ -1824,6 +1858,41 @@ def containment_envelope_from_args(
         "incident_id": incident or "",
         "severity": severity,
     }
+
+
+def failure_mode_envelope_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    failure_mode_id = safe_id(
+        str(getattr(args, "failure_mode_id", "")), label="failure mode ID"
+    )
+    layer = getattr(args, "failure_layer", None)
+    if layer not in FAILURE_MODE_LAYERS:
+        raise SupervisionLogError("Failure mode requires a maintained layer")
+    required_text = {
+        "mechanism": ("failure mechanism", 240),
+        "trigger": ("failure trigger", 300),
+        "effect": ("failure effect", 300),
+        "detection": ("failure detection", 300),
+        "correction": ("failure correction", 300),
+        "recurrence_invariant": ("failure recurrence invariant", 300),
+    }
+    result: dict[str, Any] = {
+        "failure_mode_id": failure_mode_id,
+        "layer": layer,
+    }
+    for field, (label, maximum) in required_text.items():
+        value = clean(
+            getattr(args, f"failure_{field}", None),
+            label=label,
+            maximum=maximum,
+        )
+        if not value:
+            raise SupervisionLogError(f"{label.title()} is required")
+        result[field] = value
+    result["human_scheduling_leak"] = yes_no_value(
+        getattr(args, "failure_human_scheduling_leak", None),
+        label="failure human scheduling leak",
+    )
+    return result
 
 
 def cmd_thread_route_gate(args: argparse.Namespace) -> None:
@@ -2504,9 +2573,24 @@ def cmd_record(args: argparse.Namespace) -> None:
                 "Structured containment evidence requires an incident or steer record"
             )
         record["containment"] = containment_envelope_from_args(args, policy)
+    if getattr(args, "failure_mode", False):
+        if args.kind not in {"incident", "steer", "resolution", "meta-review"}:
+            raise SupervisionLogError(
+                "Structured failure-mode evidence requires an incident-owned record"
+            )
+        if args.kind != "incident" and not args.incident_id:
+            raise SupervisionLogError(
+                "A successor failure-mode record must reference its incident"
+            )
+        record["failure_mode"] = failure_mode_envelope_from_args(args)
     with append_lock(directory):
         current_events = events(directory / "events.jsonl")
         if args.kind == "lifecycle" and record["status"] == "completed":
+            if successor_transition_heads(current_events, open_only=True):
+                raise SupervisionLogError(
+                    "Completed lifecycle rejected: an open successor transition "
+                    "has not reached work-started"
+                )
             completion_record = latest_outcome_completion_record(
                 current_events, state_fingerprint=record["state_fingerprint"]
             )
@@ -2935,6 +3019,12 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
     if state_fingerprint and source.get("state_fingerprint") != state_fingerprint:
         raise SupervisionLogError("Lifecycle source record fingerprint differs")
 
+    open_transitions = successor_transition_heads(all_events, open_only=True)
+    transition_stop_conflict = bool(
+        open_transitions
+        and lifecycle_state in {"completed", "paused", "stopped"}
+    )
+
     completion_permitted = True
     completion_record_id: str | None = None
     completion_reason = "The lifecycle state does not require outcome completion proof."
@@ -2957,6 +3047,12 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
             completion_reason = (
                 "The completed lifecycle is not bound to the current "
                 "observable-outcome record."
+            )
+        if transition_stop_conflict:
+            completion_permitted = False
+            completion_reason = (
+                "An open successor transition has not reached work-started; "
+                "handoff is not completion of the governing requested scope."
             )
 
     terminal_reporting = bool(
@@ -3067,7 +3163,9 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                     else "primary-status" if send_now else "none"
                 ),
                 "completion_action": (
-                    "open-critical-false-completion-review"
+                    "resume-successor-transition"
+                    if transition_stop_conflict
+                    else "open-critical-false-completion-review"
                     if not completion_permitted
                     else "prepare-finalize-verify-email-and-record-terminal-reports"
                     if terminal_reporting and not terminal_reports_delivered
@@ -3099,7 +3197,9 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                 ),
                 "send_now": send_now,
                 "source_record": source_record,
+                "source_stop_permitted": not transition_stop_conflict,
                 "state_fingerprint": source.get("state_fingerprint", ""),
+                "open_successor_transitions": list(open_transitions.values()),
                 "supervision_pause_permitted": supervision_pause_permitted,
                 "terminal_email_recipient": (
                     notification_config.get("recipient") if terminal_reporting else None
@@ -3123,6 +3223,319 @@ def decision_events(
         for item in all_events
         if item.get("kind") == "decision" and item.get("decision_id") == decision_id
     ]
+
+
+def successor_transition_events(
+    all_events: list[dict[str, Any]], transition_id: str
+) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in all_events
+        if item.get("kind") == "successor-transition"
+        and item.get("transition_id") == transition_id
+    ]
+
+
+def successor_transition_heads(
+    all_events: list[dict[str, Any]], *, open_only: bool = False
+) -> dict[str, dict[str, Any]]:
+    heads: dict[str, dict[str, Any]] = {}
+    for item in all_events:
+        transition_id = item.get("transition_id")
+        if item.get("kind") == "successor-transition" and isinstance(
+            transition_id, str
+        ):
+            heads[transition_id] = item
+    if not open_only:
+        return heads
+    return {
+        transition_id: item
+        for transition_id, item in heads.items()
+        if item.get("phase") != "work-started"
+    }
+
+
+def validate_successor_transition(
+    prior: dict[str, Any] | None,
+    record: dict[str, Any],
+) -> None:
+    phase = str(record["phase"])
+    phase_index = SUCCESSOR_TRANSITION_PHASES.index(phase)
+    if prior is None:
+        if phase != "required":
+            raise SupervisionLogError("A successor transition must begin required")
+    else:
+        prior_phase = str(prior.get("phase", ""))
+        if prior_phase not in SUCCESSOR_TRANSITION_PHASES:
+            raise SupervisionLogError("Prior successor transition phase is invalid")
+        prior_index = SUCCESSOR_TRANSITION_PHASES.index(prior_phase)
+        if phase_index != prior_index + 1:
+            raise SupervisionLogError(
+                f"Successor transition {prior_phase} -> {phase} is not allowed"
+            )
+        for field in SUCCESSOR_TRANSITION_IDENTITY_FIELDS:
+            if prior.get(field) != record.get(field):
+                raise SupervisionLogError(
+                    f"Successor transition must preserve {field.replace('_', ' ')}"
+                )
+
+    required_by_phase = {
+        "successor-created": ("successor_thread_id",),
+        "successor-bound": (
+            "successor_thread_id",
+            "successor_mission_root",
+            "successor_group_id",
+        ),
+        "handoff-sent": (
+            "successor_thread_id",
+            "successor_mission_root",
+            "successor_group_id",
+            "handoff_record",
+        ),
+        "target-acknowledged": (
+            "successor_thread_id",
+            "successor_mission_root",
+            "successor_group_id",
+            "handoff_record",
+            "acknowledgement_record",
+        ),
+        "work-started": (
+            "successor_thread_id",
+            "successor_mission_root",
+            "successor_group_id",
+            "handoff_record",
+            "acknowledgement_record",
+            "started_block",
+        ),
+    }
+    expected_fields = required_by_phase.get(phase, ())
+    for field in expected_fields:
+        if not record.get(field):
+            raise SupervisionLogError(
+                f"{phase} requires {field.replace('_', ' ')}"
+            )
+    all_successor_fields = {
+        field
+        for fields in required_by_phase.values()
+        for field in fields
+    }
+    allowed_successor_fields = set(expected_fields)
+    for field in all_successor_fields - allowed_successor_fields:
+        if record.get(field):
+            raise SupervisionLogError(
+                f"{phase} cannot claim later {field.replace('_', ' ')}"
+            )
+    if prior is not None:
+        for field in all_successor_fields:
+            prior_value = prior.get(field, "")
+            if prior_value and record.get(field) != prior_value:
+                raise SupervisionLogError(
+                    f"Successor transition cannot change {field.replace('_', ' ')}"
+                )
+    if phase == "work-started" and record.get("started_block") != record.get(
+        "first_eligible_block"
+    ):
+        raise SupervisionLogError(
+            "Work must start at the transition's first eligible Block"
+        )
+
+
+def cmd_successor_transition_record(args: argparse.Namespace) -> None:
+    directory, policy = load_policy(args)
+    transition_id = safe_id(args.transition_id, label="successor transition ID")
+    evidence_values = [
+        clean(item, label="successor transition evidence", maximum=160)
+        for item in args.evidence
+    ]
+    if not evidence_values or not all(evidence_values):
+        raise SupervisionLogError(
+            "Successor transition records require exact nonempty evidence"
+        )
+    if len(evidence_values) > 16:
+        raise SupervisionLogError("Too many successor transition evidence references")
+    authority_source_class = args.governing_authority_source_class
+    if authority_source_class not in DIRECT_AUTHORITY_SOURCE_CLASSES:
+        raise SupervisionLogError(
+            "A successor implementation transition requires governing direct authority"
+        )
+    authority_source_record = safe_id(
+        args.governing_authority_source_record,
+        label="governing authority source record",
+    )
+    tracker_source_record = clean(
+        args.tracker_source_record,
+        label="tracker source record",
+        maximum=160,
+    )
+    if not tracker_source_record:
+        raise SupervisionLogError("Tracker source record is required")
+    requested_block_range = clean(
+        args.requested_block_range,
+        label="requested Block range",
+        maximum=80,
+    )
+    first_eligible_block = clean(
+        args.first_eligible_block,
+        label="first eligible Block",
+        maximum=40,
+    )
+    if not requested_block_range or not first_eligible_block:
+        raise SupervisionLogError(
+            "Successor transition requires its Block range and first eligible Block"
+        )
+
+    successor_thread_id = clean(
+        args.successor_thread, label="successor thread ID", maximum=128
+    )
+    successor_group_id = clean(
+        args.successor_group_id, label="successor group ID", maximum=128
+    )
+    handoff_record = clean(
+        args.handoff_record, label="handoff record", maximum=128
+    )
+    acknowledgement_record = clean(
+        args.acknowledgement_record,
+        label="acknowledgement record",
+        maximum=128,
+    )
+    for label, value in (
+        ("successor thread ID", successor_thread_id),
+        ("successor group ID", successor_group_id),
+        ("handoff record", handoff_record),
+        ("acknowledgement record", acknowledgement_record),
+    ):
+        if value:
+            safe_id(value, label=label)
+    successor_mission_root = clean(
+        args.successor_mission_root,
+        label="successor mission root",
+        maximum=64,
+    )
+    if successor_mission_root:
+        successor_mission_root = exact_sha256(
+            successor_mission_root, label="successor mission root"
+        )
+    record: dict[str, Any] = {
+        "schema_version": 1,
+        "record_id": "",
+        "timestamp": parse_time(args.now).isoformat(),
+        "target_thread_id": args.target_thread,
+        "kind": "successor-transition",
+        "transition_id": transition_id,
+        "phase": args.phase,
+        "tracker_sha256": exact_sha256(
+            args.tracker_sha256, label="tracker SHA-256"
+        ),
+        "tracker_source_record": tracker_source_record,
+        "requested_block_range": requested_block_range,
+        "first_eligible_block": first_eligible_block,
+        "source_mission_root": exact_sha256(
+            args.source_mission_root, label="source mission root"
+        ),
+        "governing_authority_source_class": authority_source_class,
+        "governing_authority_source_record": authority_source_record,
+        "successor_thread_id": successor_thread_id,
+        "successor_mission_root": successor_mission_root,
+        "successor_group_id": successor_group_id,
+        "handoff_record": handoff_record,
+        "acknowledgement_record": acknowledgement_record,
+        "started_block": clean(
+            args.started_block, label="started Block", maximum=40
+        ),
+        "state_fingerprint": clean(
+            args.state_fingerprint,
+            label="state fingerprint",
+            maximum=128,
+        ),
+        "evidence": evidence_values,
+        "policy_sha256": policy["policy_sha256"],
+    }
+    with append_lock(directory):
+        all_events = events(directory / "events.jsonl")
+        records = successor_transition_events(all_events, transition_id)
+        prior = records[-1] if records else None
+        if prior is not None and all(
+            prior.get(field) == record.get(field)
+            for field in (
+                "phase",
+                *SUCCESSOR_TRANSITION_IDENTITY_FIELDS,
+                "successor_thread_id",
+                "successor_mission_root",
+                "successor_group_id",
+                "handoff_record",
+                "acknowledgement_record",
+                "started_block",
+                "state_fingerprint",
+                "evidence",
+            )
+        ):
+            print(
+                json.dumps(
+                    {"duplicate": True, "record_id": prior["record_id"]},
+                    sort_keys=True,
+                )
+            )
+            return
+        validate_successor_transition(prior, record)
+        record["record_id"] = f"EVT-{len(all_events) + 1:06d}"
+        append_raw_locked(directory / "events.jsonl", record)
+    print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
+
+
+def cmd_successor_transition_gate(args: argparse.Namespace) -> None:
+    directory, policy = load_policy(args)
+    transition_id = safe_id(args.transition_id, label="successor transition ID")
+    records = successor_transition_events(
+        events(directory / "events.jsonl"), transition_id
+    )
+    if not records:
+        raise SupervisionLogError("Successor transition does not exist")
+    head = records[-1]
+    phase = str(head["phase"])
+    if phase == "required":
+        if args.task_creation_authority == "available":
+            next_action = "create-successor-task"
+            authority_required = False
+        else:
+            next_action = "keep-open-await-direct-task-creation-authority"
+            authority_required = True
+    else:
+        authority_required = False
+        next_action = {
+            "successor-created": "bind-successor-mission-and-isolated-supervision",
+            "successor-bound": "send-exact-handoff",
+            "handoff-sent": "obtain-target-acknowledgement",
+            "target-acknowledged": "start-first-eligible-block",
+            "work-started": "continue-successor-and-close-transition-incident",
+        }[phase]
+    source_stop_permitted = phase == "work-started"
+    print(
+        json.dumps(
+            {
+                "transition_id": transition_id,
+                "phase": phase,
+                "transition_open": not source_stop_permitted,
+                "source_stop_permitted": source_stop_permitted,
+                "required_source_posture": (
+                    "transition-satisfied" if source_stop_permitted else "in-progress"
+                ),
+                "next_action": next_action,
+                "direct_task_creation_authority_required": authority_required,
+                "human_input_required": authority_required,
+                "task_creation_authority": args.task_creation_authority,
+                "failure_mode_if_stopped": "handoff-without-continuation",
+                "tracker_sha256": head["tracker_sha256"],
+                "tracker_source_record": head["tracker_source_record"],
+                "successor_thread_id": head.get("successor_thread_id") or None,
+                "successor_mission_root": head.get("successor_mission_root") or None,
+                "successor_group_id": head.get("successor_group_id") or None,
+                "first_eligible_block": head["first_eligible_block"],
+                "policy_sha256": policy["policy_sha256"],
+                "record_id": head["record_id"],
+            },
+            sort_keys=True,
+        )
+    )
 
 
 def validate_decision_transition(
@@ -5501,6 +5914,8 @@ def cmd_status(args: argparse.Namespace) -> None:
         for item in decision_heads.values()
         if item.get("phase") != "target-acknowledged"
     ]
+    transition_heads = successor_transition_heads(all_events)
+    open_transitions = successor_transition_heads(all_events, open_only=True)
     print(
         json.dumps(
             {
@@ -5544,6 +5959,8 @@ def cmd_status(args: argparse.Namespace) -> None:
                 ),
                 "decision_count": len(decision_heads),
                 "open_decisions": open_decisions,
+                "successor_transition_count": len(transition_heads),
+                "open_successor_transitions": list(open_transitions.values()),
             },
             sort_keys=True,
         )
@@ -5704,6 +6121,20 @@ def parser() -> argparse.ArgumentParser:
     record.add_argument("--expiry-event")
     record.add_argument("--carry-forward", choices=["true", "false"])
     record.add_argument("--successor-effects", choices=["allowed", "blocked"])
+    record.add_argument("--failure-mode", action="store_true")
+    record.add_argument("--failure-mode-id")
+    record.add_argument(
+        "--failure-layer", choices=sorted(FAILURE_MODE_LAYERS)
+    )
+    record.add_argument("--failure-mechanism")
+    record.add_argument("--failure-trigger")
+    record.add_argument("--failure-effect")
+    record.add_argument("--failure-detection")
+    record.add_argument("--failure-correction")
+    record.add_argument("--failure-recurrence-invariant")
+    record.add_argument(
+        "--failure-human-scheduling-leak", choices=["yes", "no"]
+    )
     record.set_defaults(func=cmd_record)
 
     completion_record = subparsers.add_parser("completion-record")
@@ -5799,6 +6230,46 @@ def parser() -> argparse.ArgumentParser:
     decision_gate.add_argument("--decision-id", required=True)
     decision_gate.add_argument("--now")
     decision_gate.set_defaults(func=cmd_decision_gate)
+
+    successor_record = subparsers.add_parser("successor-transition-record")
+    successor_record.add_argument("--target-thread", required=True)
+    successor_record.add_argument("--transition-id", required=True)
+    successor_record.add_argument(
+        "--phase", choices=SUCCESSOR_TRANSITION_PHASES, required=True
+    )
+    successor_record.add_argument("--tracker-sha256", required=True)
+    successor_record.add_argument("--tracker-source-record", required=True)
+    successor_record.add_argument("--requested-block-range", required=True)
+    successor_record.add_argument("--first-eligible-block", required=True)
+    successor_record.add_argument("--source-mission-root", required=True)
+    successor_record.add_argument(
+        "--governing-authority-source-class",
+        choices=sorted(AUTHORITY_SOURCE_CLASSES),
+        required=True,
+    )
+    successor_record.add_argument(
+        "--governing-authority-source-record", required=True
+    )
+    successor_record.add_argument("--successor-thread", default="")
+    successor_record.add_argument("--successor-mission-root", default="")
+    successor_record.add_argument("--successor-group-id", default="")
+    successor_record.add_argument("--handoff-record", default="")
+    successor_record.add_argument("--acknowledgement-record", default="")
+    successor_record.add_argument("--started-block", default="")
+    successor_record.add_argument("--state-fingerprint", default="")
+    successor_record.add_argument("--evidence", action="append", required=True)
+    successor_record.add_argument("--now")
+    successor_record.set_defaults(func=cmd_successor_transition_record)
+
+    successor_gate = subparsers.add_parser("successor-transition-gate")
+    successor_gate.add_argument("--target-thread", required=True)
+    successor_gate.add_argument("--transition-id", required=True)
+    successor_gate.add_argument(
+        "--task-creation-authority",
+        choices=("available", "unavailable"),
+        default="unavailable",
+    )
+    successor_gate.set_defaults(func=cmd_successor_transition_gate)
 
     gmail_gate = subparsers.add_parser("gmail-gate")
     gmail_gate.add_argument("--target-thread", required=True)

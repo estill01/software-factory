@@ -37,6 +37,23 @@ the completed program materially changes Software Factory.
 
 ## Unreleased
 
+### Implemented
+
+- **Successor-transition continuity and structured failure-mode records.** A
+  requested implementation that must cross into a distinct task now remains an
+  open append-only transition through `required`, task creation, isolated
+  mission/group binding, handoff, target acknowledgement, and first-Block work
+  start. `successor-transition-gate` prohibits treating the source as stopped
+  or complete before current `work-started` evidence, while preserving the
+  exact tracker, mission, Block range, authority, and successor identities.
+  Routed supervisor provenance cannot manufacture the direct authority needed
+  to create a user-owned task. Incident records can also carry a reusable
+  failure-mode envelope describing mechanism, trigger, effect, detection,
+  correction, recurrence invariant, and any human-scheduling leak in the same
+  canonical ledger. The initiating event is
+  `INC-20260808-180850-C22F9D` / `EVT-000067`; focused regression coverage is in
+  `SuccessorTransitionContractTests`.
+
 ### Planned
 
 - **Adaptive implementation decision control and autonomous Factory
@@ -52,7 +69,10 @@ the completed program materially changes Software Factory.
   nominators rather than authority; the evolution helper never edits or
   promotes a skill. This is planning, not implemented functionality. Initial plan:
   `765c32bd15a52f8eb0f0bb48f07217d0851ebac5`; provenance-corrected successor:
-  `851bc1aa5150eaa4de7fc5346c45abf892002a1f`; tracker:
+  `851bc1aa5150eaa4de7fc5346c45abf892002a1f`; independently accepted frozen
+  plan: `94c8118adca77b574b1e6ef5a1f2a5aad0aa9d91`, blob
+  `9e6b6d1d03369c84ff9ca48c2df35dcac79e2f64`, SHA-256
+  `426a7a60074c464640dfc3657b87bb082cdf7a2b4408c3245e2d5a29b02960fd`; tracker:
   [`docs/software-factory-adaptive-implementation-decision-control-implementation-tracker.md`](docs/software-factory-adaptive-implementation-decision-control-implementation-tracker.md).
 - **Pre-implementation tracker-authoring supervision.** A five-Block program
   plans independent, repository-grounded challenge of capability selection,
