@@ -11,6 +11,9 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).with_name("verify_tracker.py")
+SKILL = SCRIPT.parents[1] / "SKILL.md"
+TEMPLATE = SCRIPT.parents[1] / "assets" / "implementation-tracker-template.md"
+BLOCK_CONTRACT = SCRIPT.parents[1] / "references" / "block-contract.md"
 SPEC = importlib.util.spec_from_file_location("verify_tracker", SCRIPT)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -162,6 +165,14 @@ class VerifyTrackerTests(unittest.TestCase):
         result = self.verify_text(text[:start] + text[end:])
         self.assertTrue(any("missing section 'target-product capability frame'" in error for error in result["errors"]))
 
+    def test_duplicate_capability_frame_fails(self) -> None:
+        text = tracker()
+        start = text.index("### Target-product capability frame")
+        end = text.index("## Status and required order")
+        frame = text[start:end]
+        result = self.verify_text(text[:end] + frame + text[end:])
+        self.assertTrue(any("expected one" in error for error in result["errors"]))
+
     def test_consequential_frame_requires_direct_product_sources(self) -> None:
         text = tracker().replace(
             "- Direct product sources: `docs/product.md` at revision `abc123`.",
@@ -180,6 +191,11 @@ class VerifyTrackerTests(unittest.TestCase):
         ).replace(
             "- Direct product sources: `docs/product.md` at revision `abc123`.",
             "- Direct product sources: Not applicable: no product doctrine is asserted.",
+        ).replace(
+            "- Posture: `consequential`.",
+            "- Posture: `not-applicable`.\n"
+            "- Routine or not-applicable justification: This Block changes no product capability.",
+            1,
         )
         result = self.verify_text(text)
         self.assertEqual([], result["errors"])
@@ -205,6 +221,114 @@ class VerifyTrackerTests(unittest.TestCase):
         )
         result = self.verify_text(text)
         self.assertTrue(any("routine or not-applicable justification" in error for error in result["errors"]))
+
+    def test_duplicate_capability_delta_fails(self) -> None:
+        text = tracker()
+        block_one = text.index("## Block 1")
+        first_delta = text.index("### Target-product capability delta")
+        delta_end = text.index("### Inputs and dependencies", first_delta)
+        duplicate = text[first_delta:delta_end]
+        result = self.verify_text(text[:block_one] + duplicate + text[block_one:])
+        self.assertTrue(any("capability delta" in error and "expected one" in error for error in result["errors"]))
+
+    def test_capability_delta_must_be_nested_below_block_heading(self) -> None:
+        text = tracker().replace("### Target-product capability delta", "## Target-product capability delta", 1)
+        result = self.verify_text(text)
+        self.assertTrue(any("Block 0 is missing section 'target-product capability delta'" in error for error in result["errors"]))
+
+    def test_tilde_fenced_structural_decoys_are_ignored(self) -> None:
+        visible = list(
+            MODULE.iter_unfenced_lines(
+                [
+                    "~~~~markdown",
+                    "### Target-product capability frame",
+                    "Status: `accepted`",
+                    "| Block | Scope | Depends on | Status |",
+                    "- Tracker sequence: Blocks 0–9",
+                    "~~~~",
+                    "visible",
+                ]
+            )
+        )
+        self.assertEqual([(6, "visible")], visible)
+
+    def test_tilde_fenced_capability_frame_decoy_fails(self) -> None:
+        text = tracker()
+        start = text.index("### Target-product capability frame")
+        end = text.index("## Status and required order")
+        frame = text[start:end]
+        decoy = "~~~markdown\n" + frame + "~~~\n\n"
+        result = self.verify_text(text[:start] + decoy + text[end:])
+        self.assertTrue(any("missing section 'target-product capability frame'" in error for error in result["errors"]))
+
+    def test_tilde_fenced_capability_delta_decoy_fails(self) -> None:
+        text = tracker().replace(
+            "### Target-product capability delta",
+            "~~~markdown\n### Target-product capability delta\n~~~\n\n### Notes",
+            1,
+        )
+        result = self.verify_text(text)
+        self.assertTrue(any("Block 0 is missing section 'target-product capability delta'" in error for error in result["errors"]))
+
+    def test_placeholder_prefixes_are_rejected(self) -> None:
+        cases = (
+            (
+                "- Direct product sources: `docs/product.md` at revision `abc123`.",
+                "- Direct product sources: TODO: inspect product sources.",
+            ),
+            (
+                "- Intended capability gain: Users can complete the bounded workflow.",
+                "- Intended capability gain: TBD later.",
+            ),
+            (
+                "- Tradeoff and source evidence: Prefer the direct owner identified in `docs/product.md` over a generalized platform.",
+                "- Tradeoff and source evidence: Evidence pending after implementation.",
+            ),
+            (
+                "- Routine or not-applicable justification: Documentation-only cleanup changes no product behavior or owner.",
+                "- Routine or not-applicable justification: N/A",
+            ),
+        )
+        for original, replacement in cases:
+            with self.subTest(replacement=replacement):
+                result = self.verify_text(tracker().replace(original, replacement, 1))
+                self.assertTrue(result["errors"])
+
+    def test_routine_tracker_cannot_contain_consequential_block(self) -> None:
+        text = tracker().replace("- Applicability: `consequential`.", "- Applicability: `routine`.")
+        result = self.verify_text(text)
+        self.assertTrue(any("contradicts tracker applicability 'routine'" in error for error in result["errors"]))
+
+    def test_duplicate_detection_consumes_input_once(self) -> None:
+        class SinglePassNumbers:
+            def __init__(self) -> None:
+                self.iterations = 0
+
+            def __iter__(self):
+                self.iterations += 1
+                if self.iterations > 1:
+                    raise AssertionError("duplicate detection rescanned its input")
+                yield from (0, 1, 1, 2, 2, 2)
+
+        numbers = SinglePassNumbers()
+        self.assertEqual([1, 2], MODULE.duplicate_numbers(numbers))
+        self.assertEqual(1, numbers.iterations)
+
+    def test_underreach_rejection_is_part_of_the_authoring_contract(self) -> None:
+        skill = SKILL.read_text(encoding="utf-8")
+        template = TEMPLATE.read_text(encoding="utf-8")
+        contract = BLOCK_CONTRACT.read_text(encoding="utf-8")
+        self.assertIn("literal button, endpoint, command, or file is not the whole", skill)
+        self.assertIn("not merely literal feature wording", template)
+        self.assertIn("Underreach occurs when literal feature wording", contract)
+
+    def test_speculative_overarchitecture_rejection_is_part_of_the_authoring_contract(self) -> None:
+        skill = SKILL.read_text(encoding="utf-8")
+        template = TEMPLATE.read_text(encoding="utf-8")
+        contract = BLOCK_CONTRACT.read_text(encoding="utf-8")
+        self.assertIn("do not invent product ethos, platform doctrine", skill)
+        self.assertIn("do not infer\n  a generalized platform", template)
+        self.assertIn("Speculative over-architecture occurs", contract)
 
 
 if __name__ == "__main__":
