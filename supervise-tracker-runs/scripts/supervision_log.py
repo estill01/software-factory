@@ -3323,6 +3323,327 @@ def cmd_adjust(args: argparse.Namespace) -> None:
     print(json.dumps({"changed": True, "policy": policy}, sort_keys=True))
 
 
+def factory_evolution_module() -> Any:
+    try:
+        import factory_evolution
+    except ImportError as exc:
+        raise SupervisionLogError(
+            "Factory evolution implementation is unavailable"
+        ) from exc
+    return factory_evolution
+
+
+def factory_evolution_call(module: Any, name: str, *args: Any, **kwargs: Any) -> Any:
+    try:
+        return getattr(module, name)(*args, **kwargs)
+    except module.FactoryEvolutionError as exc:
+        raise SupervisionLogError(str(exc)) from exc
+
+
+def factory_evolution_directory(directory: Path, evolution_id: str) -> Path:
+    safe_id(evolution_id, label="factory evolution ID")
+    base = (directory / "learning" / "factory-evolution").resolve()
+    result = (base / evolution_id).resolve()
+    if result.parent != base:
+        raise SupervisionLogError("Factory evolution directory escaped its owner")
+    return result
+
+
+def factory_evolution_json_bytes(value: Mapping[str, Any]) -> bytes:
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, indent=2
+    ).encode("utf-8") + b"\n"
+
+
+def write_factory_evolution_set(
+    directory: Path, artifacts: Mapping[str, Mapping[str, Any]]
+) -> dict[str, list[str]]:
+    allowed_names = {
+        "learning-packet.json",
+        "prepare-manifest.json",
+        "review.json",
+        "finalize-manifest.json",
+        "evaluation.json",
+        "machine-report.json",
+        "manifest.json",
+    }
+    if not artifacts or not set(artifacts) <= allowed_names:
+        raise SupervisionLogError("Factory evolution artifact set is invalid")
+    expected = {
+        name: factory_evolution_json_bytes(value)
+        for name, value in artifacts.items()
+    }
+    reused: list[str] = []
+    missing: list[str] = []
+    with append_lock(directory):
+        for name in sorted(expected):
+            path = directory / name
+            if path.parent != directory:
+                raise SupervisionLogError("Factory evolution artifact escaped its set")
+            if path.exists():
+                if path.read_bytes() != expected[name]:
+                    raise SupervisionLogError(
+                        f"Existing factory evolution artifact differs: {name}"
+                    )
+                reused.append(name)
+            else:
+                missing.append(name)
+        for name in missing:
+            atomic_json(directory / name, dict(artifacts[name]))
+    return {"written": missing, "reused": reused}
+
+
+def require_factory_evolution_artifacts(
+    directory: Path, names: tuple[str, ...]
+) -> dict[str, dict[str, Any]]:
+    missing = [name for name in names if not (directory / name).is_file()]
+    if missing:
+        raise SupervisionLogError(
+            "Factory evolution action is out of order; missing " + ", ".join(missing)
+        )
+    return {name: read_json(directory / name) for name in names}
+
+
+def verify_factory_evolution_prepare(
+    module: Any, directory: Path
+) -> dict[str, Any]:
+    artifacts = require_factory_evolution_artifacts(
+        directory, ("learning-packet.json", "prepare-manifest.json")
+    )
+    packet = factory_evolution_call(
+        module, "verify_learning_packet", artifacts["learning-packet.json"]
+    )
+    factory_evolution_call(
+        module,
+        "verify_evolution_manifest",
+        artifacts["prepare-manifest.json"],
+        {"learning-packet.json": packet},
+    )
+    return packet
+
+
+def verify_factory_evolution_finalize(
+    module: Any, directory: Path
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    packet = verify_factory_evolution_prepare(module, directory)
+    artifacts = require_factory_evolution_artifacts(
+        directory, ("review.json", "finalize-manifest.json")
+    )
+    review = factory_evolution_call(
+        module, "verify_evolution_review", packet, artifacts["review.json"]
+    )
+    factory_evolution_call(
+        module,
+        "verify_evolution_manifest",
+        artifacts["finalize-manifest.json"],
+        {"learning-packet.json": packet, "review.json": review},
+    )
+    return packet, review
+
+
+def cmd_factory_evolution_prepare(args: argparse.Namespace) -> None:
+    if not args.report_paths or not args.event_paths:
+        raise SupervisionLogError(
+            "Factory evolution prepare requires explicit report and event paths"
+        )
+    if args.review_json or args.evaluation_json:
+        raise SupervisionLogError("Factory evolution prepare received a later-stage input")
+    module = factory_evolution_module()
+    directory = factory_evolution_directory(
+        target_dir(args), safe_id(args.evolution_id, label="factory evolution ID")
+    )
+    packet = factory_evolution_call(
+        module,
+        "build_learning_packet",
+        report_paths=args.report_paths,
+        event_paths=args.event_paths,
+    )
+    prepare_manifest = factory_evolution_call(
+        module,
+        "build_evolution_manifest",
+        {"learning-packet.json": packet},
+    )
+    write_result = write_factory_evolution_set(
+        directory,
+        {
+            "learning-packet.json": packet,
+            "prepare-manifest.json": prepare_manifest,
+        },
+    )
+    print(
+        json.dumps(
+            {
+                "action": "prepare",
+                "evolution_id": args.evolution_id,
+                "stage": "prepared",
+                "packet_id": packet["packet_id"],
+                "packet_root": packet["packet_root"],
+                **write_result,
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def cmd_factory_evolution_finalize(args: argparse.Namespace) -> None:
+    if not args.review_json or args.report_paths or args.event_paths or args.evaluation_json:
+        raise SupervisionLogError(
+            "Factory evolution finalize requires only an explicit review JSON"
+        )
+    module = factory_evolution_module()
+    directory = factory_evolution_directory(
+        target_dir(args), safe_id(args.evolution_id, label="factory evolution ID")
+    )
+    packet = verify_factory_evolution_prepare(module, directory)
+    review_submission = read_json(Path(args.review_json).expanduser())
+    review = factory_evolution_call(
+        module, "build_evolution_review", packet, review_submission
+    )
+    finalize_manifest = factory_evolution_call(
+        module,
+        "build_evolution_manifest",
+        {"learning-packet.json": packet, "review.json": review},
+    )
+    write_result = write_factory_evolution_set(
+        directory,
+        {
+            "learning-packet.json": packet,
+            "review.json": review,
+            "finalize-manifest.json": finalize_manifest,
+        },
+    )
+    print(
+        json.dumps(
+            {
+                "action": "finalize",
+                "evolution_id": args.evolution_id,
+                "stage": "finalized",
+                "review_id": review["review_id"],
+                "review_root": review["review_root"],
+                **write_result,
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def cmd_factory_evolution_evaluate(args: argparse.Namespace) -> None:
+    if (
+        not args.evaluation_json
+        or args.report_paths
+        or args.event_paths
+        or args.review_json
+    ):
+        raise SupervisionLogError(
+            "Factory evolution evaluate requires only an explicit evaluation JSON"
+        )
+    module = factory_evolution_module()
+    directory = factory_evolution_directory(
+        target_dir(args), safe_id(args.evolution_id, label="factory evolution ID")
+    )
+    packet, review = verify_factory_evolution_finalize(module, directory)
+    evaluation_submission = read_json(Path(args.evaluation_json).expanduser())
+    evaluation = factory_evolution_call(
+        module,
+        "build_candidate_evaluation",
+        packet,
+        review,
+        evaluation_submission,
+    )
+    bundle = factory_evolution_call(
+        module, "build_evolution_bundle", packet, review, evaluation
+    )
+    write_result = write_factory_evolution_set(directory, bundle)
+    print(
+        json.dumps(
+            {
+                "action": "evaluate",
+                "evolution_id": args.evolution_id,
+                "stage": "evaluated",
+                "evaluation_id": evaluation["evaluation_id"],
+                "evaluation_root": evaluation["evaluation_root"],
+                "disposition": evaluation["disposition"],
+                **write_result,
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def cmd_factory_evolution_verify(args: argparse.Namespace) -> None:
+    if args.report_paths or args.event_paths or args.review_json or args.evaluation_json:
+        raise SupervisionLogError("Factory evolution verify does not accept producer inputs")
+    module = factory_evolution_module()
+    directory = factory_evolution_directory(
+        target_dir(args), safe_id(args.evolution_id, label="factory evolution ID")
+    )
+    packet = verify_factory_evolution_prepare(module, directory)
+    stage = "prepared"
+    result: dict[str, Any] = {
+        "packet_id": packet["packet_id"],
+        "packet_root": packet["packet_root"],
+    }
+    if (directory / "review.json").exists() or (directory / "finalize-manifest.json").exists():
+        packet, review = verify_factory_evolution_finalize(module, directory)
+        stage = "finalized"
+        result.update(
+            {"review_id": review["review_id"], "review_root": review["review_root"]}
+        )
+    final_names = (
+        "evaluation.json",
+        "machine-report.json",
+        "manifest.json",
+    )
+    if any((directory / name).exists() for name in final_names):
+        require_factory_evolution_artifacts(directory, final_names)
+        bundle = {
+            name: read_json(directory / name)
+            for name in (
+                "learning-packet.json",
+                "review.json",
+                "evaluation.json",
+                "machine-report.json",
+                "manifest.json",
+            )
+        }
+        factory_evolution_call(module, "verify_evolution_bundle", bundle)
+        stage = "evaluated"
+        result.update(
+            {
+                "evaluation_id": bundle["evaluation.json"]["evaluation_id"],
+                "evaluation_root": bundle["evaluation.json"]["evaluation_root"],
+                "disposition": bundle["evaluation.json"]["disposition"],
+            }
+        )
+    print(
+        json.dumps(
+            {
+                "action": "verify",
+                "evolution_id": args.evolution_id,
+                "stage": stage,
+                **result,
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def cmd_factory_evolution(args: argparse.Namespace) -> None:
+    if args.action == "prepare":
+        cmd_factory_evolution_prepare(args)
+        return
+    if args.action == "finalize":
+        cmd_factory_evolution_finalize(args)
+        return
+    if args.action == "evaluate":
+        cmd_factory_evolution_evaluate(args)
+        return
+    if args.action == "verify":
+        cmd_factory_evolution_verify(args)
+        return
+    raise SupervisionLogError("Unsupported factory evolution action")
+
+
 def weekly_report_module() -> Any:
     try:
         import weekly_report
@@ -5083,6 +5404,24 @@ def parser() -> argparse.ArgumentParser:
     )
     weekly_report.add_argument("--local-time", default="08:00")
     weekly_report.set_defaults(func=cmd_weekly_report)
+
+    factory_evolution = subparsers.add_parser("factory-evolution")
+    factory_evolution.add_argument("--target-thread", required=True)
+    factory_evolution.add_argument("--evolution-id", required=True)
+    factory_evolution.add_argument(
+        "--action",
+        choices=("prepare", "finalize", "evaluate", "verify"),
+        required=True,
+    )
+    factory_evolution.add_argument(
+        "--report-json", dest="report_paths", action="append", default=[]
+    )
+    factory_evolution.add_argument(
+        "--events-jsonl", dest="event_paths", action="append", default=[]
+    )
+    factory_evolution.add_argument("--review-json")
+    factory_evolution.add_argument("--evaluation-json")
+    factory_evolution.set_defaults(func=cmd_factory_evolution)
 
     terminal_report = subparsers.add_parser("terminal-report")
     terminal_report.add_argument("--target-thread", required=True)

@@ -14,6 +14,8 @@ steer but do not implement tracker work.
 Before booting or changing supervision, read
 `references/supervision-policy.md` completely. Use its exact role prompts,
 schedules, bounds, escalation rules, logging commands, and stop conditions.
+Before preparing or reviewing Factory capability-evolution artifacts, also read
+`references/factory-evolution-contract.md` completely.
 
 ## Resolve targets
 
@@ -514,6 +516,48 @@ Repeat independently for additional targets.
   the report event and delivery receipt in the existing event ledger. The report
   is a derived operational review, not a second status database, patent
   authority, legal conclusion, or quality score.
+
+### Factory capability evolution
+
+Use the explicit `factory-evolution` workflow only when an operator request or
+maintained plan calls for evidence-grounded improvement of the Factory's
+reusable capability set. This is an on-demand derived-artifact workflow, not a
+watcher loop, schedule, detector, or new supervision ledger.
+
+Keep the roles and authority sequence exact:
+
+1. Verified weekly reports nominate hypotheses; canonical event records and
+   observed outcomes adjudicate them. Prepare a deterministic packet from
+   explicit paths only:
+   `supervision_log.py factory-evolution --target-thread <id>
+   --evolution-id <safe-id> --action prepare --report-json <report.json>
+   --events-jsonl <events.jsonl>`.
+2. A Sol-level cognitive reviewer reads the complete packet and submits bounded
+   observations, lessons, counterexamples, meta-patterns, broad capability
+   candidates, visible selection dimensions, and one experiment. The helper
+   validates but does not generate that judgment. Finalize with only the
+   explicit review JSON and the same target/evolution identity.
+3. Any selected change is implemented separately by the existing
+   `author-implementation-trackers`, `implement-tracker-blocks`, or
+   `supervise-tracker-runs` owner under its ordinary tracker, review, Git, and
+   authorization contract. The evolution command never edits a skill or target.
+4. A reviewer independent of the proposer and implementer submits separately
+   attributable, revision-bound baseline and candidate results for every
+   positive and exception case. `evaluate` validates the evaluation JSON and
+   records one evidence disposition: `promote`, `advisory`, `revise`, or
+   `reject`.
+5. Run `verify` against the stored set. Verification reopens the immutable
+   packet, review, evaluation, report, and manifests and recomputes their hashes
+   and schemas without rerunning a producer.
+
+All public writes go through `scripts/supervision_log.py` under
+`<target>/learning/factory-evolution/<evolution-id>/`. Writes are atomic and
+immutable-or-identical. Reuse an unchanged ID only for byte-identical artifacts;
+use a new safe ID for a changed candidate or evidence set. A recorded `promote`
+disposition is review evidence for a separately governed adoption path, not
+automatic adoption or permission to edit, install, route to a target, notify,
+schedule, deploy, or promote. Do not copy target files, transcripts, prompts, or
+hidden reasoning into the review.
 
 ## Pause, resume, or stop
 

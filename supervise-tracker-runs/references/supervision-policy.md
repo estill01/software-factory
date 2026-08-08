@@ -4,6 +4,7 @@
 
 - [Defaults](#defaults)
 - [Execution economy and reusable maintenance](#execution-economy-and-reusable-maintenance)
+- [Factory capability-evolution workflow](#factory-capability-evolution-workflow)
 - [Mission binding and authority provenance](#mission-binding-and-authority-provenance)
 - [Continuation-first decision resolution](#continuation-first-decision-resolution)
 - [Target-state fingerprint](#target-state-fingerprint)
@@ -158,6 +159,44 @@ reference. `bind` or resume backfills a missing economy contract and
 `propose-only` maintenance posture for legacy groups; it never silently grants
 allowlisted skill maintenance. Refresh the existing role and heartbeat prompts
 after that policy update and before the next target check.
+
+## Factory capability-evolution workflow
+
+Factory capability evolution is explicit, on demand, and derived. It does not
+run in watcher, heartbeat, Gmail, roundup, or scheduled automation roles. It
+does not add a canonical ledger. `supervision_log.py` remains the only public
+supervision filesystem writer and stores immutable-or-identical artifact sets
+under the target's `learning/factory-evolution/<evolution-id>/` directory.
+
+Use the sequence `prepare → finalize → evaluate → verify`:
+
+1. `prepare` accepts explicit verified weekly `report.json` and canonical
+   `events.jsonl` paths. Reports nominate hypotheses; exact source-bound events
+   and observed outcomes adjudicate them. The packet is content-minimized,
+   rebuildable, and non-authoritative.
+2. `finalize` accepts one explicit cognitive-review submission. A Sol-level
+   reviewer proposes lessons, contrary cases, meta-patterns, capability gaps,
+   broad candidates, visible uncollapsed selection dimensions, and an
+   experiment. Deterministic code validates references and bounds but does not
+   synthesize semantic prose or causal judgment.
+3. Existing authoring, implementation, and supervision skill owners implement a
+   selected candidate through their ordinary authority, tracker, validation,
+   review, commit, and push contracts. This command family has no implementation
+   or target-write action.
+4. `evaluate` accepts condition- and revision-bound baseline/candidate evidence
+   from an evaluator distinct from proposer and implementer. It records
+   `promote`, `advisory`, `revise`, or `reject`; it does not apply that
+   disposition. Synthetic or shadow evidence alone cannot support causal
+   promotion, and regressions remain visible.
+5. `verify` checks stored schemas, exact references, result roots, reports, and
+   manifests without reopening producers or scanning supervision state.
+
+Changed content under an existing evolution ID is an error. A `promote`
+disposition is evidence for the separately governed skill-maintenance path; it
+is not automatic adoption, editing, installation, notification, routing,
+scheduling, deployment, or authority expansion. No action in this workflow may
+write a target repository, canonical `events.jsonl`, `policy.json`, Gmail state,
+or automation configuration.
 
 ## Mission binding and authority provenance
 

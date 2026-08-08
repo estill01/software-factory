@@ -18,6 +18,17 @@ assert SPEC is not None and SPEC.loader is not None
 supervision_log = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(supervision_log)
 
+FACTORY_TEST_SUPPORT_PATH = Path(__file__).with_name("test_factory_evolution.py")
+FACTORY_TEST_SUPPORT_SPEC = importlib.util.spec_from_file_location(
+    "factory_evolution_test_support", FACTORY_TEST_SUPPORT_PATH
+)
+assert (
+    FACTORY_TEST_SUPPORT_SPEC is not None
+    and FACTORY_TEST_SUPPORT_SPEC.loader is not None
+)
+factory_test_support = importlib.util.module_from_spec(FACTORY_TEST_SUPPORT_SPEC)
+FACTORY_TEST_SUPPORT_SPEC.loader.exec_module(factory_test_support)
+
 
 class FactoryEvolutionContractTests(unittest.TestCase):
     @classmethod
@@ -78,6 +89,179 @@ class FactoryEvolutionContractTests(unittest.TestCase):
         self.assertIn("first seeded capability candidate", normalized)
         self.assertIn("does not pre-approve promotion", normalized)
         self.assertIn("independent-evaluation gates", normalized)
+
+    def test_skill_and_policy_separate_evolution_roles_and_authority(self) -> None:
+        skill = HELPER_PATH.parent.parent.joinpath("SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        policy = HELPER_PATH.parent.parent.joinpath(
+            "references", "supervision-policy.md"
+        ).read_text(encoding="utf-8")
+
+        for text in (skill, policy):
+            normalized = " ".join(text.split()).lower()
+            self.assertIn("reports nominate hypotheses", normalized)
+            self.assertIn("observed outcomes adjudicate", normalized)
+            self.assertIn("sol-level", normalized)
+            self.assertIn("existing", normalized)
+            self.assertIn("independent", normalized)
+            self.assertIn("not automatic", normalized)
+            self.assertIn("target", normalized)
+        self.assertIn("prepare → finalize → evaluate → verify", policy)
+        self.assertIn("scripts/supervision_log.py", skill)
+        self.assertIn("immutable-or-identical", skill)
+        self.assertIn(
+            "no implementation or target-write action", " ".join(policy.split())
+        )
+
+
+class FactoryEvolutionCliTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.fixture = factory_test_support.EvolutionReviewTests(
+            methodName="test_review_can_identify_a_broad_capability_gap"
+        )
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.tearDown)
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.target_thread = "target-test"
+        self.evolution_id = "evolution-test"
+
+    def args(self, action: str, **overrides: object) -> argparse.Namespace:
+        values: dict[str, object] = {
+            "root": str(self.root),
+            "target_thread": self.target_thread,
+            "evolution_id": self.evolution_id,
+            "action": action,
+            "report_paths": [],
+            "event_paths": [],
+            "review_json": None,
+            "evaluation_json": None,
+        }
+        values.update(overrides)
+        return argparse.Namespace(**values)
+
+    def run_action(self, action: str, **overrides: object) -> dict[str, object]:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            supervision_log.cmd_factory_evolution(self.args(action, **overrides))
+        return json.loads(output.getvalue())
+
+    @property
+    def artifact_directory(self) -> Path:
+        return (
+            self.root
+            / self.target_thread
+            / "learning"
+            / "factory-evolution"
+            / self.evolution_id
+        )
+
+    def prepare(self) -> dict[str, object]:
+        return self.run_action(
+            "prepare",
+            report_paths=[str(self.fixture.root / "report.json")],
+            event_paths=[str(self.fixture.root / "events.jsonl")],
+        )
+
+    def finalize(self) -> tuple[dict[str, object], Path]:
+        review_path = self.root / "review-submission.json"
+        review_path.write_text(
+            json.dumps(self.fixture.review_submission(), sort_keys=True),
+            encoding="utf-8",
+        )
+        return self.run_action("finalize", review_json=str(review_path)), review_path
+
+    def evaluate(self) -> tuple[dict[str, object], Path]:
+        review = json.loads(
+            (self.artifact_directory / "review.json").read_text(encoding="utf-8")
+        )
+        evaluation_path = self.root / "evaluation-submission.json"
+        evaluation_path.write_text(
+            json.dumps(self.fixture.evaluation_submission(review), sort_keys=True),
+            encoding="utf-8",
+        )
+        return (
+            self.run_action("evaluate", evaluation_json=str(evaluation_path)),
+            evaluation_path,
+        )
+
+    def test_full_workflow_is_ordered_verifiable_and_idempotent(self) -> None:
+        prepared = self.prepare()
+        finalized, review_path = self.finalize()
+        evaluated, evaluation_path = self.evaluate()
+        verified = self.run_action("verify")
+
+        self.assertEqual(prepared["stage"], "prepared")
+        self.assertEqual(finalized["stage"], "finalized")
+        self.assertEqual(evaluated["stage"], "evaluated")
+        self.assertEqual(evaluated["disposition"], "promote")
+        self.assertEqual(verified["stage"], "evaluated")
+        self.assertEqual(
+            set(item.name for item in self.artifact_directory.glob("*.json")),
+            {
+                "learning-packet.json",
+                "prepare-manifest.json",
+                "review.json",
+                "finalize-manifest.json",
+                "evaluation.json",
+                "machine-report.json",
+                "manifest.json",
+            },
+        )
+        self.assertFalse((self.root / self.target_thread / "events.jsonl").exists())
+        self.assertFalse((self.root / self.target_thread / "policy.json").exists())
+
+        reused_prepare = self.prepare()
+        reused_finalize = self.run_action(
+            "finalize", review_json=str(review_path)
+        )
+        reused_evaluate = self.run_action(
+            "evaluate", evaluation_json=str(evaluation_path)
+        )
+        self.assertEqual(reused_prepare["written"], [])
+        self.assertEqual(reused_finalize["written"], [])
+        self.assertEqual(reused_evaluate["written"], [])
+
+    def test_finalize_before_prepare_is_rejected(self) -> None:
+        review_path = self.root / "review.json"
+        review_path.write_text("{}\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(supervision_log.SupervisionLogError, "out of order"):
+            self.run_action("finalize", review_json=str(review_path))
+
+    def test_changed_content_under_existing_id_is_rejected(self) -> None:
+        self.prepare()
+        changed = json.loads(
+            (self.fixture.root / "report.json").read_text(encoding="utf-8")
+        )
+        changed["cognitive_review"]["headline"] = "Changed derivative hypothesis."
+        changed_path = self.root / "changed-report.json"
+        changed_path.write_text(json.dumps(changed, sort_keys=True), encoding="utf-8")
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "Existing factory evolution artifact differs",
+        ):
+            self.run_action(
+                "prepare",
+                report_paths=[str(changed_path)],
+                event_paths=[str(self.fixture.root / "events.jsonl")],
+            )
+
+    def test_command_rejects_unsafe_identity_and_has_no_promotion_action(self) -> None:
+        with self.assertRaisesRegex(supervision_log.SupervisionLogError, "Invalid"):
+            supervision_log.factory_evolution_directory(
+                self.root, "../escape"
+            )
+
+        action = next(
+            item
+            for item in supervision_log.parser()._actions
+            if isinstance(item, argparse._SubParsersAction)
+        ).choices["factory-evolution"]._option_string_actions["--action"].choices
+        self.assertEqual(tuple(action), ("prepare", "finalize", "evaluate", "verify"))
 
 
 class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
