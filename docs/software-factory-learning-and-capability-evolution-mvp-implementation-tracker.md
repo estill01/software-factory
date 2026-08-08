@@ -215,7 +215,7 @@ through an existing owner.
 | 1 | Build the deterministic derived learning packet | 0 | `accepted` |
 | 2 | Validate lessons, capability candidates, and experiments | 1 | `accepted` |
 | 3 | Integrate the evolution workflow through the supervision owner | 2 | `accepted` |
-| 4 | Add target-product capability framing to tracker authoring | 3 | `not-started` |
+| 4 | Add target-product capability framing to tracker authoring | 3 | `accepted` |
 | 5 | Apply target-product capability review during Block execution | 4 | `not-started` |
 | 6 | Reconcile terminal capability, dogfood the cycle, and accept | 5 | `not-started` |
 
@@ -686,7 +686,7 @@ Stop before changing tracker-authoring behavior.
 
 ## Block 4 — Add target-product capability framing to tracker authoring
 
-Status: `not-started`
+Status: `accepted`
 
 ### Objective
 
@@ -750,7 +750,51 @@ routine request without providing the intended answer.
 
 ### Completion evidence
 
-Pending.
+- Repository commits: initial candidate `d57f8a6`; rejected-review
+  remediations `f916ea4` and `6822ee8`; accepted candidate `c777c9c`.
+- Inputs: Block 3; the authoring skill, template, Block contract, verifier, and
+  tests at the planning baseline; direct Block 4 capability requirements in
+  this tracker.
+- Outputs: `author-implementation-trackers/SKILL.md`
+  (`8154687040df4afbae6dc187cd373761c784609b4f9dbec00eb3a80ce21f3ac3`),
+  `assets/implementation-tracker-template.md`
+  (`c24bd08a75fe88746b483243ec27b73df67896c7da937fb83ec6ee042cb6be5b`),
+  `references/block-contract.md`
+  (`8ac907bcd39505a9cf6446f9b1cb709f4798cd73c972a868c11ac0b2e506f7bc`),
+  `scripts/verify_tracker.py`
+  (`f0f5f18de4ebd52682df6634cc1bcf3121e18a67a72d7f300d9fae45ce33995c`),
+  and `scripts/test_verify_tracker.py`
+  (`fd3855056d22191c4f9be4595995eba8d8e2fe0bdf34cc3ed97808e8eef49fe8`).
+- Focused validation: 30 authoring tests passed; the authoring skill validator
+  passed; `git diff --check` passed.
+- Mapped validation: all 162 supervision tests passed under Python 3.14; this
+  inherited tracker passed the documented `--profile core` compatibility path.
+- Forward tests: a fresh consequential Download CSV request reconstructed the
+  direct-source portability capability across web and CLI and rejected a
+  second store/service; a fresh routine contributor-guide typo/link request
+  stayed one Block and added no product or documentation platform. Both
+  generated trackers passed the hardened full verifier unchanged at
+  `c777c9c`.
+- Candidate freeze: `c777c9c9b97787ad49d6dace328ca5b5041961b7`;
+  no implementation files changed after final review.
+- Remediation closure: contradictory or stray semantic sections, fenced and
+  indented-code decoys, placeholder/deferred evidence, posture contradictions,
+  valid angle-bracket prose, and sparse-ID allocation each received focused
+  regression coverage. The initial macOS Python 3.9 mapped run was diagnostic
+  because that runtime lacks `tomllib`; the identical suite passed under the
+  repository's Python 3.14 runtime.
+- Resource posture: the verifier is linear in document length; independent
+  probes scaled from about 0.063 seconds for 1,000 Blocks to 0.465 seconds for
+  8,000 Blocks, and a sparse Block 1,000,000,000 rejected in about 0.0011
+  seconds without magnitude-based allocation.
+- Independent review: exact-successor review at `c777c9c` found no remaining
+  issues after a 26-case adversarial matrix; a separate exact review at
+  `6822ee8` found no issues outside the later-contained evidence-deferral case.
+- Retained open work: implementation-path capability review remains Block 5;
+  terminal reconciliation and dogfood disposition remain Block 6.
+- Post-block audit: `accepted`.
+- Git durability: branch `codex/evolution-mvp`; accepted evidence commit and
+  push recorded immediately after this update.
 
 ### Stop
 
