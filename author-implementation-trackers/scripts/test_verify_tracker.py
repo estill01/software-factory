@@ -270,6 +270,14 @@ class VerifyTrackerTests(unittest.TestCase):
         result = self.verify_text(text)
         self.assertTrue(any("Block 0 is missing section 'target-product capability delta'" in error for error in result["errors"]))
 
+    def test_indented_code_fields_do_not_satisfy_frame(self) -> None:
+        text = tracker()
+        start = text.index("### Target-product capability frame")
+        end = text.index("## Status and required order")
+        frame = text[start:end].replace("\n- ", "\n    - ")
+        result = self.verify_text(text[:start] + frame + text[end:])
+        self.assertTrue(any("capability frame is missing field" in error for error in result["errors"]))
+
     def test_placeholder_prefixes_are_rejected(self) -> None:
         cases = (
             (
@@ -294,10 +302,60 @@ class VerifyTrackerTests(unittest.TestCase):
                 result = self.verify_text(tracker().replace(original, replacement, 1))
                 self.assertTrue(result["errors"])
 
+    def test_deferred_source_evidence_is_rejected(self) -> None:
+        cases = (
+            (
+                "- Direct product sources: `docs/product.md` at revision `abc123`.",
+                "- Direct product sources: Source evidence will be added later.",
+            ),
+            (
+                "- Tradeoff and source evidence: Prefer the direct owner identified in `docs/product.md` over a generalized platform.",
+                "- Tradeoff and source evidence: Evidence will be supplied after implementation.",
+            ),
+        )
+        for original, replacement in cases:
+            with self.subTest(replacement=replacement):
+                result = self.verify_text(tracker().replace(original, replacement, 1))
+                self.assertTrue(result["errors"])
+
+    def test_angle_brackets_in_concrete_prose_are_accepted(self) -> None:
+        text = tracker().replace(
+            "- Intended capability gain: Users can complete the bounded workflow.",
+            "- Intended capability gain: A typed `Result<T>` keeps failures below `<1%>` for the `<button>` path.",
+        )
+        result = self.verify_text(text)
+        self.assertEqual([], result["errors"])
+
     def test_routine_tracker_cannot_contain_consequential_block(self) -> None:
         text = tracker().replace("- Applicability: `consequential`.", "- Applicability: `routine`.")
         result = self.verify_text(text)
         self.assertTrue(any("contradicts tracker applicability 'routine'" in error for error in result["errors"]))
+
+    def test_consequential_tracker_requires_a_consequential_block(self) -> None:
+        text = tracker().replace(
+            "- Posture: `consequential`.\n"
+            "- Intended capability gain: Users can complete the bounded workflow.\n"
+            "- Potential capability loss or regression: Existing deterministic behavior could regress; preserve it.\n"
+            "- Protected-capability effect: Preserve the canonical writer boundary.\n"
+            "- Architecture and operating-model effect: Extend the existing owner without adding a service.\n"
+            "- Tradeoff and source evidence: Prefer the direct owner identified in `docs/product.md` over a generalized platform.\n",
+            "- Posture: `routine`.\n"
+            "- Routine or not-applicable justification: This Block changes no product capability.\n",
+            1,
+        )
+        result = self.verify_text(text)
+        self.assertTrue(any("requires at least one consequential Block" in error for error in result["errors"]))
+
+    def test_stray_capability_headings_outside_owned_scope_fail(self) -> None:
+        cases = (
+            tracker().replace("## Block 0 — First", "### Target-product capability delta\n\n## Block 0 — First", 1),
+            tracker().replace("### Objective", "### Target-product capability frame\n\n### Objective", 1),
+            tracker().replace("## Block 1 — Second", "## Target-product capability delta\n\n## Block 1 — Second", 1),
+        )
+        for text in cases:
+            with self.subTest():
+                result = self.verify_text(text)
+                self.assertTrue(any("total sections named" in error for error in result["errors"]))
 
     def test_duplicate_detection_consumes_input_once(self) -> None:
         class SinglePassNumbers:
@@ -313,6 +371,11 @@ class VerifyTrackerTests(unittest.TestCase):
         numbers = SinglePassNumbers()
         self.assertEqual([1, 2], MODULE.duplicate_numbers(numbers))
         self.assertEqual(1, numbers.iterations)
+
+    def test_sparse_large_block_id_is_bounded_by_document_length(self) -> None:
+        text = tracker().replace("## Block 1 — Second", "## Block 1000000000 — Second")
+        result = self.verify_text(text)
+        self.assertTrue(any("not continuous" in error for error in result["errors"]))
 
     def test_underreach_rejection_is_part_of_the_authoring_contract(self) -> None:
         skill = SKILL.read_text(encoding="utf-8")

@@ -101,6 +101,8 @@ def iter_unfenced_lines(lines: Sequence[str]) -> Iterator[tuple[int, str]]:
             fence_character = marker[0]
             fence_length = len(marker)
             continue
+        if line.startswith("    ") or line.startswith("\t"):
+            continue
         yield index, line
 
 
@@ -222,8 +224,18 @@ def is_meaningful(value: str) -> bool:
     normalized = normalized_value(value)
     placeholder_prefix = re.match(r"^(?:tbd|todo|pending|evidence pending)(?:\b|\s|:)", normalized)
     return bool(normalized) and normalized not in {"n/a", "none", "not applicable"} and not (
-        placeholder_prefix or "{{" in value or "}}" in value or re.search(r"<[^>]+>", value)
+        placeholder_prefix or "{{" in value or "}}" in value
     )
+
+
+def is_concrete_evidence(value: str) -> bool:
+    normalized = normalized_value(value)
+    deferred = re.search(
+        r"\b(?:will be|to be)\s+(?:added|collected|determined|provided|supplied)\b"
+        r"|\bevidence\s+(?:after|following)\s+implementation\b",
+        normalized,
+    )
+    return is_meaningful(value) and deferred is None
 
 
 def is_not_applicable(value: str) -> bool:
@@ -258,6 +270,8 @@ def verify_capability_frame(lines: list[str], first_block_line: int) -> tuple[li
         )
     if applicability == "consequential" and is_not_applicable(fields.get("direct product sources", "")):
         errors.append("consequential target-product capability frame requires direct product sources")
+    if applicability == "consequential" and not is_concrete_evidence(fields.get("direct product sources", "")):
+        errors.append("consequential target-product capability frame requires current direct product sources")
     return errors, applicability if applicability in CAPABILITY_APPLICABILITY else None
 
 
@@ -308,6 +322,11 @@ def verify_capability_delta(block: Block) -> tuple[list[str], str | None]:
                 errors.append(
                     f"line {block.line}: Block {block.number} consequential capability delta "
                     f"field '{label}' needs a concrete value"
+                )
+            elif label == "tradeoff and source evidence" and not is_concrete_evidence(value):
+                errors.append(
+                    f"line {block.line}: Block {block.number} consequential capability delta "
+                    "field 'tradeoff and source evidence' cannot defer its evidence"
                 )
     else:
         justification = fields.get("routine or not-applicable justification")
@@ -381,7 +400,7 @@ def verify(path: Path, profile: str) -> dict[str, object]:
     duplicates = duplicate_numbers(numbers)
     if duplicates:
         errors.append(f"duplicate Block headings: {', '.join(map(str, duplicates))}")
-    expected = list(range(0, max(numbers) + 1))
+    expected = list(range(len(numbers)))
     expected_set = set(expected)
     if numbers != expected:
         errors.append(f"Block headings are not continuous and ordered: found {numbers}, expected {expected}")
@@ -389,9 +408,21 @@ def verify(path: Path, profile: str) -> dict[str, object]:
     required_sections = FULL_SECTIONS if profile == "full" else CORE_SECTIONS
     tracker_capability_posture: str | None = None
     if profile == "full":
+        frame_count = count_section_headings(lines, CAPABILITY_FRAME_HEADING)
+        if frame_count != 1:
+            errors.append(
+                f"tracker has {frame_count} total sections named '{CAPABILITY_FRAME_HEADING}'; expected one"
+            )
+        delta_count = count_section_headings(lines, CAPABILITY_DELTA_HEADING)
+        if delta_count != len(blocks):
+            errors.append(
+                f"tracker has {delta_count} total sections named '{CAPABILITY_DELTA_HEADING}'; "
+                f"expected {len(blocks)}"
+            )
         frame_errors, tracker_capability_posture = verify_capability_frame(lines, blocks[0].line)
         errors.extend(frame_errors)
     block_statuses: dict[int, str] = {}
+    block_capability_postures: list[str] = []
     for block in blocks:
         status, _ = parse_status(block)
         if status is None:
@@ -408,6 +439,8 @@ def verify(path: Path, profile: str) -> dict[str, object]:
         if profile == "full":
             delta_errors, block_capability_posture = verify_capability_delta(block)
             errors.extend(delta_errors)
+            if block_capability_posture is not None:
+                block_capability_postures.append(block_capability_posture)
             if (
                 tracker_capability_posture in {"routine", "not-applicable"}
                 and block_capability_posture == "consequential"
@@ -416,6 +449,13 @@ def verify(path: Path, profile: str) -> dict[str, object]:
                     f"line {block.line}: Block {block.number} capability posture 'consequential' "
                     f"contradicts tracker applicability '{tracker_capability_posture}'"
                 )
+
+    if (
+        profile == "full"
+        and tracker_capability_posture == "consequential"
+        and "consequential" not in block_capability_postures
+    ):
+        errors.append("consequential tracker requires at least one consequential Block capability delta")
 
     table, table_errors = parse_status_table(lines)
     errors.extend(table_errors)
