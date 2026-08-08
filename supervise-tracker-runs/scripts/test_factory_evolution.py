@@ -454,7 +454,7 @@ class EvolutionReviewTests(unittest.TestCase):
         }
 
     def candidate(self, candidate_id: str, candidate_type: str) -> dict[str, object]:
-        selected = candidate_id == "candidate-architecture"
+        selected = candidate_id == "candidate-skill-method"
         return {
             "candidate_id": candidate_id,
             "candidate_type": candidate_type,
@@ -466,6 +466,9 @@ class EvolutionReviewTests(unittest.TestCase):
             "applicability": "Consequential tracker authoring and implementation decisions.",
             "tradeoffs": ["Adds one explicit review step"],
             "uncertainty": "Current evidence covers a bounded set of supervised runs.",
+            "counterexample_case_ids": ["EVT-000002"],
+            "counterexample_posture": "observed",
+            "counterexample_search": "Compared the underreach incident with the bounded resolution.",
             "implementation_owner": "implementer-1" if selected else "detector-implementer",
             "evaluation_owner": "evaluator-1" if selected else "detector-evaluator",
             "smaller_change_insufficient": "A local reminder would not bind acceptance evidence.",
@@ -544,37 +547,47 @@ class EvolutionReviewTests(unittest.TestCase):
                 }
             ],
             "candidates": [
-                self.candidate("candidate-architecture", "architecture"),
+                self.candidate("candidate-skill-method", "skill-method"),
                 self.candidate("candidate-detector", "detector"),
+                self.candidate("candidate-tracker-method", "tracker-method"),
             ],
             "selection": {
-                "candidate_id": "candidate-architecture",
-                "compared_candidate_ids": ["candidate-detector"],
-                "rationale": "The gap requires a capability method, not only another detector.",
+                "candidate_id": "candidate-skill-method",
+                "compared_candidate_ids": ["candidate-detector", "candidate-tracker-method"],
+                "rationale": "The gap spans authoring, implementation, and closure, so a tracker-only reminder and a detector both underreach.",
                 "dimensions_considered": list(factory_evolution.SELECTION_DIMENSIONS),
             },
             "experiment": {
                 "experiment_id": "experiment-target-product-alignment",
-                "candidate_id": "candidate-architecture",
+                "candidate_id": "candidate-skill-method",
                 "proposer_id": "proposer-1",
                 "implementer_id": "implementer-1",
                 "evaluator_id": "evaluator-1",
                 "baseline_revision": "a" * 40,
                 "candidate_revision": "b" * 40,
-                "positive_case_ids": ["case-positive"],
-                "exception_case_ids": ["case-exception"],
-                "expected_effects": ["Detect product underreach without defaulting to a platform."],
-                "resource_bounds": ["Two paired cases and one independent evaluator."],
+                "positive_case_ids": ["case-bounded-fit"],
+                "exception_case_ids": ["case-overarchitecture", "case-underreach"],
+                "expected_effects": ["Distinguish bounded fit, underreach, and overarchitecture without adding a platform."],
+                "resource_bounds": ["Three paired cases and one independent evaluator."],
                 "rollback_condition": "Revert the method if it causes lower-value architecture churn.",
-                "success_measures": ["Both paired cases receive the intended bounded decision."],
+                "success_measures": [
+                    "The underreach case is rejected when intended capability is absent.",
+                    "The overarchitecture case selects the existing-owner change without adding a service.",
+                    "The bounded-fit case proceeds without generalized redesign.",
+                ],
                 "regression_measures": ["No bypass of canonical tracker or implementation owners."],
-                "evidence_capture": "Record separate baseline and candidate case results.",
+                "evidence_capture": "Record revision-bound evidence roots for separate baseline and candidate case results.",
                 "stop_condition": "Stop after one exact-candidate disposition.",
+                "comparison_mode": "improvement",
+                "minimum_expected_delta": "Candidate passes all three cases while baseline misses at least one.",
+                "non_inferiority_justification": "",
             },
         }
 
     def evaluation_submission(self, review: dict[str, object]) -> dict[str, object]:
-        def result(case_id: str, outcome: str, evidence_id: str) -> dict[str, object]:
+        def result(
+            case_id: str, outcome: str, evidence_id: str, revision: str
+        ) -> dict[str, object]:
             return {
                 "case_id": case_id,
                 "evidence_class": "observed",
@@ -583,6 +596,15 @@ class EvolutionReviewTests(unittest.TestCase):
                 "observed_effect": f"Observed {outcome} for {case_id}.",
                 "resource_cost": "One bounded review pass.",
                 "regressions": [],
+                "condition_revision": revision,
+                "evidence_root": factory_evolution.digest(
+                    {
+                        "case_id": case_id,
+                        "outcome": outcome,
+                        "evidence_id": evidence_id,
+                        "revision": revision,
+                    }
+                ),
             }
 
         return {
@@ -593,15 +615,17 @@ class EvolutionReviewTests(unittest.TestCase):
             "review_id": review["review_id"],
             "review_root": review["review_root"],
             "experiment_id": "experiment-target-product-alignment",
-            "candidate_id": "candidate-architecture",
+            "candidate_id": "candidate-skill-method",
             "evaluator_id": "evaluator-1",
             "baseline_results": [
-                result("case-positive", "mixed", "EVT-000001"),
-                result("case-exception", "fail", "EVT-000002"),
+                result("case-bounded-fit", "pass", "EVT-000001", "a" * 40),
+                result("case-overarchitecture", "mixed", "EVT-000002", "a" * 40),
+                result("case-underreach", "fail", "EVT-000002", "a" * 40),
             ],
             "candidate_results": [
-                result("case-positive", "pass", "EVT-000004"),
-                result("case-exception", "pass", "EVT-000003"),
+                result("case-bounded-fit", "pass", "EVT-000004", "b" * 40),
+                result("case-overarchitecture", "pass", "EVT-000003", "b" * 40),
+                result("case-underreach", "pass", "EVT-000003", "b" * 40),
             ],
             "contrary_evidence_ids": ["EVT-000002"],
             "regression_findings": [],
@@ -622,7 +646,7 @@ class EvolutionReviewTests(unittest.TestCase):
             for item in review["candidates"]
             if item["candidate_id"] == review["selection"]["candidate_id"]
         )
-        self.assertEqual(selected["candidate_type"], "architecture")
+        self.assertEqual(selected["candidate_type"], "skill-method")
         self.assertEqual(
             set(selected["selection_dimensions"]),
             set(factory_evolution.SELECTION_DIMENSIONS),
@@ -652,6 +676,29 @@ class EvolutionReviewTests(unittest.TestCase):
         dangling["lessons"][0]["supporting_case_ids"] = ["EVT-999999"]
         with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "dangling"):
             factory_evolution.build_evolution_review(self.packet, dangling)
+
+        contradictory = self.review_submission()
+        contradictory["lessons"][0]["supporting_case_ids"] = ["EVT-000001"]
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "contradict"):
+            factory_evolution.build_evolution_review(self.packet, contradictory)
+
+        inconsistent_posture = self.review_submission()
+        inconsistent_posture["lessons"][0][
+            "counterexample_posture"
+        ] = "searched-none-found"
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "cannot cite"):
+            factory_evolution.build_evolution_review(
+                self.packet, inconsistent_posture
+            )
+
+    def test_candidate_admission_requires_counterexample_evidence_or_search(self) -> None:
+        submission = self.review_submission()
+        submission["candidates"][0]["counterexample_case_ids"] = []
+
+        with self.assertRaisesRegex(
+            factory_evolution.FactoryEvolutionError, "requires an exact case"
+        ):
+            factory_evolution.build_evolution_review(self.packet, submission)
 
     def test_opaque_scoring_is_rejected(self) -> None:
         submission = self.review_submission()
@@ -712,6 +759,38 @@ class EvolutionReviewTests(unittest.TestCase):
         with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "alone"):
             factory_evolution.build_candidate_evaluation(self.packet, review, synthetic)
 
+        synthetic_exception = self.evaluation_submission(review)
+        synthetic_exception["candidate_results"][1]["evidence_class"] = "synthetic"
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "alone"):
+            factory_evolution.build_candidate_evaluation(
+                self.packet, review, synthetic_exception
+            )
+
+        no_delta = self.evaluation_submission(review)
+        for item in no_delta["baseline_results"]:
+            item["outcome"] = "pass"
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "baseline delta"):
+            factory_evolution.build_candidate_evaluation(self.packet, review, no_delta)
+
+        same_condition_evidence = self.evaluation_submission(review)
+        candidate_by_case = {
+            item["case_id"]: item
+            for item in same_condition_evidence["candidate_results"]
+        }
+        for item in same_condition_evidence["baseline_results"]:
+            item["evidence_root"] = candidate_by_case[item["case_id"]]["evidence_root"]
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "each condition"):
+            factory_evolution.build_candidate_evaluation(
+                self.packet, review, same_condition_evidence
+            )
+
+        wrong_revision = self.evaluation_submission(review)
+        wrong_revision["candidate_results"][0]["condition_revision"] = "a" * 40
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "condition revision"):
+            factory_evolution.build_candidate_evaluation(
+                self.packet, review, wrong_revision
+            )
+
     def test_bundle_and_manifest_exactly_rebuild(self) -> None:
         review = self.build_review()
         evaluation = factory_evolution.build_candidate_evaluation(
@@ -730,6 +809,14 @@ class EvolutionReviewTests(unittest.TestCase):
         bundle["machine-report.json"]["counts"]["lessons"] = 99
         with self.assertRaises(factory_evolution.FactoryEvolutionError):
             factory_evolution.verify_evolution_bundle(bundle)
+
+    def test_manifest_rejects_oversized_artifacts(self) -> None:
+        oversized = {"payload": "x" * factory_evolution.MAX_ARTIFACT_BYTES}
+
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "byte bound"):
+            factory_evolution.build_evolution_manifest(
+                {"oversized.json": oversized}
+            )
 
 
 if __name__ == "__main__":

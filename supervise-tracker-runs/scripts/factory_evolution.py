@@ -935,6 +935,8 @@ MANIFEST_KIND = "software-factory-evolution-manifest"
 MAX_SEMANTIC_RECORDS = 64
 MAX_SEMANTIC_TEXT = 600
 MAX_SEMANTIC_LIST = 16
+MAX_ARTIFACT_BYTES = 2 * 1024 * 1024
+MAX_MANIFEST_ARTIFACT_BYTES = 4 * 1024 * 1024
 CANDIDATE_TYPES = frozenset(
     {
         "detector",
@@ -1070,7 +1072,7 @@ def _normalize_observations(value: Any, *, event_ids: set[str]) -> list[dict[str
 def _normalize_lessons(
     value: Any,
     *,
-    observation_ids: set[str],
+    observation_events: Mapping[str, set[str]],
     event_ids: set[str],
     hypothesis_ids: set[str],
 ) -> list[dict[str, Any]]:
@@ -1102,11 +1104,25 @@ def _normalize_lessons(
         if lesson_id in seen:
             raise FactoryEvolutionError("Review repeats a lesson ID")
         seen.add(lesson_id)
+        linked_observations = _semantic_ids(
+            item.get("observation_ids"),
+            label="lesson observation IDs",
+            allowed=set(observation_events),
+        )
         supporting = _semantic_ids(
             item.get("supporting_case_ids"),
             label="lesson supporting cases",
             allowed=event_ids,
         )
+        linked_events = {
+            event_id
+            for observation_id in linked_observations
+            for event_id in observation_events[observation_id]
+        }
+        if not set(supporting) <= linked_events:
+            raise FactoryEvolutionError(
+                "Lesson supporting cases contradict its linked observations"
+            )
         counterexamples = _semantic_ids(
             item.get("counterexample_case_ids"),
             label="lesson counterexample cases",
@@ -1118,6 +1134,10 @@ def _normalize_lessons(
             raise FactoryEvolutionError("Lesson counterexample posture is missing or unsupported")
         if posture == "observed" and not counterexamples:
             raise FactoryEvolutionError("Observed counterexample posture requires an exact case")
+        if posture != "observed" and counterexamples:
+            raise FactoryEvolutionError(
+                "Non-observed counterexample posture cannot cite observed cases"
+            )
         confidence = str(item.get("confidence"))
         if confidence not in CONFIDENCE_LEVELS:
             raise FactoryEvolutionError("Lesson confidence is unsupported")
@@ -1125,11 +1145,7 @@ def _normalize_lessons(
             {
                 "lesson_id": lesson_id,
                 "statement": _semantic_text(item.get("statement"), label="lesson statement"),
-                "observation_ids": _semantic_ids(
-                    item.get("observation_ids"),
-                    label="lesson observation IDs",
-                    allowed=observation_ids,
-                ),
+                "observation_ids": linked_observations,
                 "supporting_case_ids": supporting,
                 "report_hypothesis_ids": _semantic_ids(
                     item.get("report_hypothesis_ids"),
@@ -1279,6 +1295,9 @@ def _normalize_candidates(
         "smaller_change_insufficient",
         "proportionality",
         "selection_dimensions",
+        "counterexample_case_ids",
+        "counterexample_posture",
+        "counterexample_search",
     }
     for item in value:
         if not isinstance(item, Mapping):
@@ -1299,6 +1318,25 @@ def _normalize_candidates(
         )
         if implementation_owner == evaluation_owner:
             raise FactoryEvolutionError("Candidate implementation and evaluation owners collapse")
+        counterexamples = _semantic_ids(
+            item.get("counterexample_case_ids"),
+            label="candidate counterexample cases",
+            allowed=event_ids,
+            allow_empty=True,
+        )
+        posture = str(item.get("counterexample_posture"))
+        if posture not in COUNTEREXAMPLE_POSTURES:
+            raise FactoryEvolutionError(
+                "Candidate counterexample posture is missing or unsupported"
+            )
+        if posture == "observed" and not counterexamples:
+            raise FactoryEvolutionError(
+                "Observed candidate counterexample posture requires an exact case"
+            )
+        if posture != "observed" and counterexamples:
+            raise FactoryEvolutionError(
+                "Non-observed candidate counterexample posture cannot cite observed cases"
+            )
         result.append(
             {
                 "candidate_id": candidate_id,
@@ -1329,6 +1367,12 @@ def _normalize_candidates(
                 ),
                 "uncertainty": _semantic_text(
                     item.get("uncertainty"), label="candidate uncertainty"
+                ),
+                "counterexample_case_ids": counterexamples,
+                "counterexample_posture": posture,
+                "counterexample_search": _semantic_text(
+                    item.get("counterexample_search"),
+                    label="candidate counterexample search",
                 ),
                 "implementation_owner": implementation_owner,
                 "evaluation_owner": evaluation_owner,
@@ -1378,6 +1422,9 @@ def _normalize_experiment(
             "regression_measures",
             "evidence_capture",
             "stop_condition",
+            "comparison_mode",
+            "minimum_expected_delta",
+            "non_inferiority_justification",
         },
         label="Selected candidate experiment",
     )
@@ -1405,6 +1452,22 @@ def _normalize_experiment(
     )
     if set(positive_cases) & set(exception_cases):
         raise FactoryEvolutionError("Experiment positive and exception cases overlap")
+    comparison_mode = str(value.get("comparison_mode"))
+    if comparison_mode not in {"improvement", "non-inferiority"}:
+        raise FactoryEvolutionError("Experiment comparison mode is unsupported")
+    non_inferiority = _semantic_text(
+        value.get("non_inferiority_justification"),
+        label="experiment non-inferiority justification",
+        allow_empty=True,
+    )
+    if comparison_mode == "non-inferiority" and not non_inferiority:
+        raise FactoryEvolutionError(
+            "Non-inferiority experiments require an explicit justification"
+        )
+    if comparison_mode == "improvement" and non_inferiority:
+        raise FactoryEvolutionError(
+            "Improvement experiments cannot smuggle in a non-inferiority justification"
+        )
     return {
         "experiment_id": _exact_identifier(
             value.get("experiment_id"), label="experiment_id"
@@ -1438,6 +1501,12 @@ def _normalize_experiment(
         "stop_condition": _semantic_text(
             value.get("stop_condition"), label="experiment stop condition"
         ),
+        "comparison_mode": comparison_mode,
+        "minimum_expected_delta": _semantic_text(
+            value.get("minimum_expected_delta"),
+            label="experiment minimum expected delta",
+        ),
+        "non_inferiority_justification": non_inferiority,
     }
 
 
@@ -1472,10 +1541,12 @@ def _normalize_review_material(
         raise FactoryEvolutionError("Evolution review is not bound to the packet")
     event_ids, hypothesis_ids = _packet_reference_sets(packet)
     observations = _normalize_observations(submission.get("observations"), event_ids=event_ids)
-    observation_ids = {item["observation_id"] for item in observations}
+    observation_events = {
+        item["observation_id"]: set(item["event_ids"]) for item in observations
+    }
     lessons = _normalize_lessons(
         submission.get("lessons"),
-        observation_ids=observation_ids,
+        observation_events=observation_events,
         event_ids=event_ids,
         hypothesis_ids=hypothesis_ids,
     )
@@ -1567,7 +1638,12 @@ def verify_evolution_review(
 
 
 def _normalize_results(
-    value: Any, *, label: str, case_ids: set[str], event_ids: set[str]
+    value: Any,
+    *,
+    label: str,
+    case_ids: set[str],
+    event_ids: set[str],
+    expected_revision: str,
 ) -> list[dict[str, Any]]:
     if not isinstance(value, list) or len(value) != len(case_ids):
         raise FactoryEvolutionError(f"{label} must cover every experiment case exactly once")
@@ -1586,6 +1662,8 @@ def _normalize_results(
                 "observed_effect",
                 "resource_cost",
                 "regressions",
+                "condition_revision",
+                "evidence_root",
             },
             label=f"{label} result",
         )
@@ -1599,6 +1677,11 @@ def _normalize_results(
         outcome = str(item.get("outcome"))
         if outcome not in RESULT_OUTCOMES:
             raise FactoryEvolutionError(f"{label} outcome is unsupported")
+        condition_revision = _exact_revision(
+            item.get("condition_revision"), label=f"{label} condition revision"
+        )
+        if condition_revision != expected_revision:
+            raise FactoryEvolutionError(f"{label} is not bound to its condition revision")
         result.append(
             {
                 "case_id": case_id,
@@ -1619,6 +1702,10 @@ def _normalize_results(
                     item.get("regressions"),
                     label=f"{label} regressions",
                     allow_empty=True,
+                ),
+                "condition_revision": condition_revision,
+                "evidence_root": _exact_sha256(
+                    item.get("evidence_root"), label=f"{label} evidence root"
                 ),
             }
         )
@@ -1681,12 +1768,14 @@ def _normalize_evaluation_material(
         label="baseline results",
         case_ids=case_ids,
         event_ids=event_ids,
+        expected_revision=experiment["baseline_revision"],
     )
     candidate = _normalize_results(
         submission.get("candidate_results"),
         label="candidate results",
         case_ids=case_ids,
         event_ids=event_ids,
+        expected_revision=experiment["candidate_revision"],
     )
     disposition = str(submission.get("disposition"))
     if disposition not in DISPOSITIONS:
@@ -1701,11 +1790,25 @@ def _normalize_evaluation_material(
             raise FactoryEvolutionError("Candidate with regression findings cannot be promoted")
         if any(item["outcome"] != "pass" for item in candidate):
             raise FactoryEvolutionError("Promoted candidate must pass every experiment case")
-        if not any(item["evidence_class"] == "observed" for item in baseline) or not any(
-            item["evidence_class"] == "observed" for item in candidate
-        ):
+        if any(item["evidence_class"] != "observed" for item in baseline + candidate):
             raise FactoryEvolutionError(
                 "Synthetic or shadow evidence alone cannot justify promotion"
+            )
+        baseline_by_case = {item["case_id"]: item for item in baseline}
+        candidate_by_case = {item["case_id"]: item for item in candidate}
+        if any(
+            baseline_by_case[case_id]["evidence_root"]
+            == candidate_by_case[case_id]["evidence_root"]
+            for case_id in case_ids
+        ):
+            raise FactoryEvolutionError(
+                "Promotion evidence must be independently bound to each condition"
+            )
+        if experiment["comparison_mode"] == "improvement" and not any(
+            baseline_by_case[case_id]["outcome"] != "pass" for case_id in case_ids
+        ):
+            raise FactoryEvolutionError(
+                "Improvement promotion requires a mechanically visible baseline delta"
             )
     return {
         "schema_version": SCHEMA_VERSION,
@@ -1833,6 +1936,7 @@ def build_evolution_manifest(artifacts: Mapping[str, Mapping[str, Any]]) -> dict
     if not isinstance(artifacts, Mapping) or not artifacts or len(artifacts) > 8:
         raise FactoryEvolutionError("Evolution manifest requires bounded artifacts")
     entries: list[dict[str, Any]] = []
+    aggregate_bytes = 0
     for name in sorted(artifacts):
         if not re.fullmatch(r"[a-z][a-z0-9-]*\.json", name):
             raise FactoryEvolutionError("Evolution artifact name is unsafe")
@@ -1840,6 +1944,11 @@ def build_evolution_manifest(artifacts: Mapping[str, Mapping[str, Any]]) -> dict
         if not isinstance(artifact, Mapping):
             raise FactoryEvolutionError("Evolution artifact must be an object")
         raw = canonical(artifact)
+        if len(raw) > MAX_ARTIFACT_BYTES:
+            raise FactoryEvolutionError("Evolution artifact exceeds its byte bound")
+        aggregate_bytes += len(raw)
+        if aggregate_bytes > MAX_MANIFEST_ARTIFACT_BYTES:
+            raise FactoryEvolutionError("Evolution manifest artifacts exceed aggregate bytes")
         entries.append(
             {
                 "name": name,
