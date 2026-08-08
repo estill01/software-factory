@@ -217,7 +217,7 @@ through an existing owner.
 | 3 | Integrate the evolution workflow through the supervision owner | 2 | `accepted` |
 | 4 | Add target-product capability framing to tracker authoring | 3 | `accepted` |
 | 5 | Apply target-product capability review during Block execution | 4 | `accepted` |
-| 6 | Reconcile terminal capability, dogfood the cycle, and accept | 5 | `not-started` |
+| 6 | Reconcile terminal capability, dogfood the cycle, and accept | 5 | `accepted` |
 
 Required order:
 
@@ -939,7 +939,7 @@ Stop before terminal capability reconciliation or experiment disposition.
 
 ## Block 6 — Reconcile terminal capability, dogfood the cycle, and accept
 
-Status: `not-started`
+Status: `accepted`
 
 ### Objective
 
@@ -1015,7 +1015,94 @@ before the completion narrative.
 
 ### Completion evidence
 
-Pending.
+- Repository commits: initial terminal-contract candidate `3e24701`; semantic
+  enforcement successor `d773307`; terminal-report fixture successor
+  `41bc94e`; live-policy upgrade successor `1edd436`; accepted exact candidate
+  `363596c`.
+- Inputs: Block 5; verified weekly report
+  `weekly-20260801T001853Z-20260803T234400Z-62f881d083b0` and its explicit
+  canonical `events.jsonl`; the frozen baseline `876a03d`; the accepted
+  candidate `363596ce10c4c3a39ead387bc9db493c12128c8b`; and the maintained Factory
+  evolution wire contracts.
+- Terminal reconciliation outputs:
+  `supervise-tracker-runs/SKILL.md`
+  (`9358ef1afffccd5b30c2ef179db0830d7f625ef28149ce514b411a456ff3862c`),
+  `references/supervision-policy.md`
+  (`4d3404b4d1426fae61104dc67b33eef5e940b9bf3dfddc0572dc0e8e8b4b9b66`),
+  `references/terminal-capability-reconciliation.md`
+  (`fbdbdc16592ee397771276c63f582fbcbb187e338fcd1abb1e3d4cb47a97e4ba`),
+  `scripts/supervision_log.py`
+  (`12957199609aea462d146140a3d581538ccf6e392a7ab94cc3629edf6ffdf7c6`),
+  and focused completion/terminal-report tests.
+- Evolution-independence outputs:
+  `references/factory-evolution-contract.md`
+  (`57d25b4f6871262adb6d84be753d46815e39c8133557115882b03d0d5c6a46ac`)
+  and `scripts/factory_evolution.py`
+  (`c731ed0d03424f9e32d7689038affd8005b8f8f4a9ba97290e204efcf3cdf8b6`).
+  Review author now equals the recorded proposer, and evaluation rejects that
+  reviewer or the implementer as evaluator.
+- Behavior: `completion-record` now validates a bounded caller-owned semantic
+  JSON before append, binds target, mission, state fingerprint, current
+  revision, policy-eligible independent reviewer, implementation owner,
+  claim-linked evidence classes, architecture owner, tradeoffs, current
+  behavior, operator-visible effects, and enumerated gaps. A verified posture
+  requires zero gaps; process-only evidence, stale content, self-review, or an
+  unbound reviewer rejects. Only the normalized root and content-minimized
+  identity/posture fields enter the canonical ledger.
+- Compatibility and resource proof: the exact no-capability predecessor and
+  the intermediate Block 6 policy contract remain readable and upgrade only
+  through `bind`; a sparse oversized reconciliation rejects before open/JSON
+  parsing and the post-stat read is bounded to 64 KiB plus one byte.
+- Focused and mapped validation: 169 supervision tests, 30 authoring tests, and
+  7 implementation contract tests passed; all three Skill Creator validators,
+  `py_compile`, and `git diff --check` passed. This inherited tracker passed the
+  documented `--profile core` verifier path.
+- Paired independent condition reviews: baseline reviewer
+  `baseline-reviewer-block1` and candidate reviewer
+  `candidate-reviewer-block2` separately evaluated consequential underreach and
+  justified-local work. Both revisions rejected browser-only export underreach
+  and preserved the routine local fast path; candidate evidence additionally
+  made the local/bounded-general/canonical-owner comparison and terminal
+  reconciliation explicit. Baseline result SHA-256
+  `3c1b5fd711b2f753e8ad7928ce5575389b5ea8a1c3a4bbf1c70f4f8ce9a25594`;
+  candidate result SHA-256
+  `4d367c6db28c23fef5fd8544dec1bd22158f2a112a31c90a86be0be3524e2b5c`.
+- Verified local dogfood set: explicit root
+  `/tmp/software-factory-evolution-block6.OwGuCe`, target identity
+  `019fb18f-3d03-7ca0-9fe9-68353f0405ce`, evolution ID
+  `sf-block6-cycle-20260808-b`. `prepare`, `finalize`, `evaluate`, and `verify`
+  succeeded without target, policy, event, Gmail, automation, installation, or
+  repository-content writes. Packet root
+  `d13a5ab2f3cdc804f83edb30cc0d271bb2f34429c27d3a6244727a73534e8f49`;
+  review root
+  `b4ef76e84481c86985c18eb2230495593d43b3b9c8024e80b1dfa3c786f911ff`;
+  evaluation root
+  `274d7dd631656308d7c8fea6a15952e15bcbbb6d6c837b5784ff47578ab11a28`;
+  manifest root
+  `23abda282e79a9d0c44961c75e9d0038f92ecfcdb46ff31532672017408da71e`.
+- Independent disposition: `evolution-evaluator-block6` recorded `promote` on
+  a non-inferiority comparison because both exact revisions passed both cases
+  with no protected regression and the candidate added reusable evidence. The
+  disposition is review evidence only; it applied no promotion, install,
+  deployment, notification, schedule, target write, or authority change.
+- README evidence: `README.md`
+  (`992a34de6c894d43c11028e7e2cc5ea4abc7418c896539341542fbd9dabad372`)
+  describes only demonstrated reconciliation and non-automatic disposition
+  behavior.
+- Review history: exact review rejected opaque-hash and identity-alias
+  candidates, then found and closed the intermediate live-policy upgrade gap
+  and pre-read byte-bound gap. Final exact-archive review at
+  `363596ce10c4c3a39ead387bc9db493c12128c8b` found no issues.
+- Resource posture: one verified live report/event inventory was reused; only
+  the two named paired cases were cold-reviewed; an immutable `-a` dogfood set
+  was superseded before evaluation when review changed the candidate revision,
+  and only the affected review/result/final cycle was repeated as `-b`.
+- Retained open work: none in this tracker. Additional candidates, runtime
+  controls, deployment, release, or acting on the disposition remain outside
+  scope.
+- Post-block audit: `accepted`.
+- Git durability: branch `codex/evolution-mvp`; accepted evidence commit and
+  push recorded immediately after this update.
 
 ### Stop
 
