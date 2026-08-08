@@ -214,7 +214,7 @@ through an existing owner.
 | 0 | Freeze the MVP evidence and capability-evolution contract | — | `accepted` |
 | 1 | Build the deterministic derived learning packet | 0 | `accepted` |
 | 2 | Validate lessons, capability candidates, and experiments | 1 | `accepted` |
-| 3 | Integrate the evolution workflow through the supervision owner | 2 | `not-started` |
+| 3 | Integrate the evolution workflow through the supervision owner | 2 | `accepted` |
 | 4 | Add target-product capability framing to tracker authoring | 3 | `not-started` |
 | 5 | Apply target-product capability review during Block execution | 4 | `not-started` |
 | 6 | Reconcile terminal capability, dogfood the cycle, and accept | 5 | `not-started` |
@@ -564,7 +564,7 @@ Stop before public CLI integration or skill-method changes.
 
 ## Block 3 — Integrate the evolution workflow through the supervision owner
 
-Status: `not-started`
+Status: `accepted`
 
 ### Objective
 
@@ -629,7 +629,54 @@ and action ordering. Skill validation and policy review are required.
 
 ### Completion evidence
 
-Pending.
+- Repository commits: `891b891` (initial CLI/skill/policy integration),
+  `f29390f` (Skill Creator forward-test usability remediation), and accepted
+  successor `cf20f43dfb6a633ef1d0e3388abe46ede96e1add` (owner and artifact-set
+  containment).
+- Inputs: explicit report/event, review, and evaluation paths plus the frozen
+  packet/review from earlier stages. No command scans all supervision state.
+- Outputs: `factory-evolution` actions `prepare`, `finalize`, `evaluate`, and
+  `verify`; immutable stage artifacts and manifests under the target learning
+  directory; maintained skill/policy/wire-shape instructions. Exact SHA-256:
+  `supervision_log.py` `250cf473c8efca391432f849e5bd387ab23030c8b07187e05e3269d84b1be1f5`,
+  supervision skill `8fb29d1c057c19b9377c380c5c932fbd661e8683cd9a91b15d6153ab2f61f592`,
+  policy `06c4c4d6ad49644d137bf10e773b8f789da11cdf5717c5540195ede9af1d1242`,
+  evolution contract `5dbf4ce0d0b33e05efb72e1e142011ac6bda4456c4f8810a13f0f8a128a1f48e`.
+- Focused CLI/static validation: five original integration cases plus nested
+  symlink and unexpected-artifact adversarial cases passed within
+  `test_supervision_log.py`.
+- Mapped validation:
+  `uv run --python 3.14 --with reportlab python -m unittest discover -s
+  supervise-tracker-runs/scripts -p 'test_*.py'` — 162 tests, all passed;
+  `quick_validate.py supervise-tracker-runs` — `Skill is valid!`; `py_compile`
+  and `git diff --check` passed.
+- Candidate freeze: exact successor commit
+  `cf20f43dfb6a633ef1d0e3388abe46ede96e1add`.
+- Resource posture: explicit inputs prepared once; finalize/evaluate reopen
+  frozen stored artifacts; verify checks stored schemas/hashes/manifests without
+  producer rerun. Writes are serialized, atomic, immutable-or-identical, and
+  inventory-bounded to seven JSON artifacts plus the no-follow lock.
+- Independent review: distinct `block3_review` confirmed action ordering,
+  partial/tampered-set failure, idempotent reuse, and absence of canonical
+  event, policy, target, schedule, Gmail, notification, implementation, or
+  promotion writes. It found a nested-owner symlink escape, incomplete enum
+  guidance, and unmanifested `promotion.json` acceptance; `cf20f43` closed all
+  three and the reviewer returned no findings.
+- Skill Creator forward test: a cold-start reviewer using only the skill and
+  required references correctly separated prepare/review/owner implementation/
+  independent evaluation/verify and refused automatic edits or schedules. It
+  found runtime, role, root, and submission-wire discoverability gaps;
+  `f29390f` and `cf20f43` specified Python 3.11+/the maintained uv runtime,
+  exact Sol XHigh/Max roles, default absolute artifact root, all JSON shapes and
+  enum domains, normalization, and a runnable result-root command. Final
+  forward re-test returned no findings.
+- Retained open work: tracker-authoring and implementation-skill target-product
+  behavior remain in Blocks 4–6.
+- Post-block audit: accepted. Finalize-before-prepare, changed bytes under an
+  existing ID, unsafe IDs, symlink escapes, partial/tampered or unexpected sets,
+  producer inputs during verify, and any implicit promotion action fail closed.
+- Git durability: `codex/evolution-mvp`; all coherent implementation and
+  evidence commits pushed to configured `origin` after this checkpoint.
 
 ### Stop
 
