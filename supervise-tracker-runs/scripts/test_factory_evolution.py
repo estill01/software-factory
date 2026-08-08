@@ -191,6 +191,16 @@ class LearningPacketTests(unittest.TestCase):
         with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "identity"):
             self.build(reports=[mismatch])
 
+    def test_terminal_report_kind_is_explicitly_outside_weekly_loader_contract(self) -> None:
+        value = json.loads(self.report.read_text())
+        value["kind"] = "supervision-terminal-implementation-report-record"
+        terminal = self.write_json("terminal.json", value)
+
+        with self.assertRaisesRegex(
+            factory_evolution.FactoryEvolutionError, "Unsupported report kind"
+        ):
+            self.build(reports=[terminal])
+
     def test_unknown_event_kind_is_excluded_and_counted(self) -> None:
         unknown = event_record("EVT-01", previous=None, kind="future-unknown-kind")
         path = self.write_events("unknown.jsonl", [unknown])

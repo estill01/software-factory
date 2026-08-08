@@ -213,9 +213,7 @@ def _load_report(path: str | Path) -> tuple[dict[str, Any], list[dict[str, Any]]
     if not report_id or not report_id.endswith(source_root[:12]):
         raise FactoryEvolutionError("Report ID is not bound to its source root")
     kind = _bounded_text(report.get("kind"), limit=120)
-    if kind != "supervision-weekly-review-record" and not kind.startswith(
-        "supervision-terminal-implementation-report-"
-    ):
+    if kind != "supervision-weekly-review-record":
         raise FactoryEvolutionError("Unsupported report kind")
     if not isinstance(report.get("schema_version"), int):
         raise FactoryEvolutionError("Report schema_version must be an integer")
