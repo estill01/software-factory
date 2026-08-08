@@ -83,6 +83,28 @@ applicable first invocation. After any other concrete path failure is corrected,
 retain the corrected command, owner, or writer path in the brief and first reuse
 it on the next applicable invocation.
 
+When the tracker declares a `Target-product capability delta`, inspect its
+posture before selecting the implementation path. Read
+[references/product-capability-review.md](references/product-capability-review.md)
+and run its bounded review only when the Block is `consequential` or live
+evidence exposes a concrete drift trigger: changed feature behavior, canonical
+representation, architecture strategy, operating model, protected capability,
+owner bypass, or a delta that conflicts with direct product sources. A
+`routine` or `not-applicable` Block with no such trigger keeps the economical
+normal path; do not repeat product-strategy analysis merely because the frame
+exists.
+
+For a triggered review, hash and read the tracker-level frame once for that
+Block and reuse it in the execution brief. Compare the smallest local path, the
+smallest bounded-general path supported by current or evident adjacent needs,
+and the available architectural owner. Select the lowest-complexity path that
+fully supplies the source-backed capability while preserving canonical owners
+and protected capabilities—not automatically the local path and never the most
+general architecture by default. Widen only for one named missing product fact
+or affected owner. Bind the selected capability gain or preservation,
+rejected alternatives, protected-capability effects, and accepted tradeoffs to
+completion evidence at the frozen candidate revision.
+
 For a materially expensive read-only proof or audit with a separate reporter or
 helper, cheaply preflight the maintained reporting interface and its invocation
 binding before starting the expensive computation. If valid proof output
@@ -188,6 +210,11 @@ suite.
    not recreate working capability merely because it appears in a checklist.
 4. Implement every required delta through the narrowest authoritative layer.
    Do not absorb later blocks or invent adjacent infrastructure.
+   When product-capability review was triggered, implement the selected
+   architecture level and preserve its rejected alternatives and tradeoffs;
+   passing local tests never excuses a supported capability regression,
+   canonical-owner bypass, lower-power substitution, lost composability, or
+   speculative generalization.
 5. Run focused validation during the edit loop. Complete known in-scope changes
    and any review allowed to mutate the candidate before expensive final mapped
    validation when the workflow permits it.
@@ -277,6 +304,10 @@ After implementation, review the block against its original contract:
 - Does every completion claim resolve to live implementation and current proof?
 - Were negative cases, compatibility, migration, dirty-tree preservation,
   real-input proof, and independent review handled where required?
+- For a consequential Block or concrete drift trigger, does current evidence
+  show the capability added or preserved, the selected architecture level,
+  protected-capability effects, and accepted tradeoffs? For a routine Block,
+  was the bounded normal path retained without invented product analysis?
 - Did the implementation cross the stopping point or leave an unacknowledged
   acceptance gap?
 
