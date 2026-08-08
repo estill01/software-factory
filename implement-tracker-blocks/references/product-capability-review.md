@@ -4,6 +4,14 @@ Use this review to select the implementation level for one active Block. It is
 an execution aid, not a new product authority, approval gate, runtime monitor,
 or reason to enlarge the Block.
 
+## Contents
+
+- [Trigger and fast path](#trigger-and-fast-path)
+- [Reuse the accepted frame](#reuse-the-accepted-frame)
+- [Compare three implementation levels](#compare-three-implementation-levels)
+- [Required checks](#required-checks)
+- [Completion-evidence binding](#completion-evidence-binding)
+
 ## Trigger and fast path
 
 Run the review once when either condition is true:
@@ -28,6 +36,10 @@ or a generalized platform.
 Read the tracker-level `Target-product capability frame` and the active Block's
 delta once. Record the frame path, content hash, and Block number in the active
 execution brief; do not create a new artifact unless the tracker requires it.
+The frame content is the exact UTF-8 Markdown bytes from its heading through the
+line before the next heading of the same or higher level. Preserve those bytes,
+including line endings, and record their SHA-256; do not normalize or hash the
+whole tracker as a substitute.
 Use the frame's direct product sources, thesis and intended effect, protected
 capabilities, architecture strategy, requested capability, proportionality,
 tradeoffs, and uncertainty. Reuse the hash for the rest of the Block.
@@ -36,6 +48,8 @@ Inspect only the named live owners needed to test those claims. Widen to one
 additional source or owner only when one named missing product fact could
 materially change the selection. If direct sources do not resolve that fact,
 preserve it as the smallest dependency cut; do not invent product intent.
+An evident adjacent need must resolve to a named current consumer, accepted
+near-term Block, or direct source—not a hypothetical future use.
 
 ## Compare three implementation levels
 

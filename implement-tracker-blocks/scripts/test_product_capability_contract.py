@@ -18,7 +18,9 @@ AUTHOR_TEMPLATE = (
 class ProductCapabilityContractTests(unittest.TestCase):
     def test_routes_only_consequential_or_concrete_drift(self) -> None:
         self.assertIn("run its bounded review only when the Block is `consequential`", IMPLEMENT_SKILL)
+        self.assertIn("current full profile or an inherited format", IMPLEMENT_SKILL)
         self.assertIn("`routine` or `not-applicable` Block with no such trigger", IMPLEMENT_SKILL)
+        self.assertIn("live repository evidence exposes a concrete drift trigger", REVIEW)
         self.assertIn("Product-capability review: not triggered", REVIEW)
 
     def test_compares_three_levels_without_automatic_generality(self) -> None:
@@ -26,6 +28,7 @@ class ProductCapabilityContractTests(unittest.TestCase):
         self.assertIn("Bounded-general path", REVIEW)
         self.assertIn("Available architectural owner", REVIEW)
         self.assertIn("Select the lowest-complexity eligible level", REVIEW)
+        self.assertIn("“Local” does not win", REVIEW)
         self.assertIn("never the most\ngeneral architecture by default", IMPLEMENT_SKILL)
 
     def test_checks_both_underreach_and_speculative_generalization(self) -> None:
@@ -33,6 +36,13 @@ class ProductCapabilityContractTests(unittest.TestCase):
         self.assertIn("Composability", REVIEW)
         self.assertIn("Speculative generalization", REVIEW)
         self.assertIn("Product framing never overrides either", REVIEW)
+        self.assertIn("do not invent product intent", REVIEW)
+        self.assertIn("Do not claim the capability from local test success alone", REVIEW)
+
+    def test_unknown_intent_uses_the_existing_dependency_cut(self) -> None:
+        self.assertIn("smallest dependency cut", REVIEW)
+        self.assertIn("do not invent product intent", REVIEW)
+        self.assertIn("exact blocked subject, safe frontier,\nand revisit trigger", REVIEW)
 
     def test_completion_evidence_binds_capability_and_tradeoffs(self) -> None:
         for label in (
@@ -45,6 +55,11 @@ class ProductCapabilityContractTests(unittest.TestCase):
             "Frozen-candidate proof",
         ):
             self.assertIn(label, REVIEW)
+
+    def test_frame_identity_and_adjacent_need_are_reproducible(self) -> None:
+        self.assertIn("exact UTF-8 Markdown bytes", REVIEW)
+        self.assertIn("record their SHA-256", REVIEW)
+        self.assertIn("named current consumer, accepted\nnear-term Block, or direct source", REVIEW)
 
     def test_author_and_executor_share_capability_contract_names(self) -> None:
         for label in (

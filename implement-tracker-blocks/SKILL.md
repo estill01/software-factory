@@ -84,7 +84,8 @@ retain the corrected command, owner, or writer path in the brief and first reuse
 it on the next applicable invocation.
 
 When the tracker declares a `Target-product capability delta`, inspect its
-posture before selecting the implementation path. Read
+posture before selecting the implementation path. Whether the tracker uses the
+current full profile or an inherited format, read
 [references/product-capability-review.md](references/product-capability-review.md)
 and run its bounded review only when the Block is `consequential` or live
 evidence exposes a concrete drift trigger: changed feature behavior, canonical
