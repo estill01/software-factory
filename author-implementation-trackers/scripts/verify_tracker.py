@@ -16,6 +16,9 @@ BLOCK_HEADING = re.compile(
 )
 SECTION_HEADING = re.compile(r"^#{2,6}\s+(?P<title>.+?)\s*$")
 STATUS_LINE = re.compile(r"^\s*(?:\*\*)?Status(?:\*\*)?\s*:\s*`?(?P<status>[a-z][a-z0-9-]*)`?\s*$", re.I)
+LABELED_BULLET = re.compile(
+    r"^\s*-\s*(?:\*\*)?(?P<label>[^:*]+?)(?:\*\*)?\s*:\s*(?P<value>.*?)\s*$"
+)
 
 CORE_SECTIONS = (
     ("objective",),
@@ -32,6 +35,30 @@ FULL_SECTIONS = CORE_SECTIONS + (
     ("negative tests",),
     ("completion evidence",),
 )
+
+CAPABILITY_FRAME_HEADING = "target-product capability frame"
+CAPABILITY_FRAME_FIELDS = (
+    "applicability",
+    "applicability rationale",
+    "direct product sources",
+    "product thesis and intended effect",
+    "protected capabilities",
+    "architecture strategy",
+    "requested capability",
+    "proportionality",
+    "tradeoffs",
+    "uncertainty",
+)
+CAPABILITY_APPLICABILITY = {"consequential", "routine", "not-applicable"}
+CAPABILITY_DELTA_HEADING = "target-product capability delta"
+CAPABILITY_DELTA_FIELDS = (
+    "intended capability gain",
+    "potential capability loss or regression",
+    "protected-capability effect",
+    "architecture and operating-model effect",
+    "tradeoff and source evidence",
+)
+CAPABILITY_POSTURES = {"consequential", "routine", "not-applicable"}
 
 
 @dataclass(frozen=True)
@@ -103,6 +130,139 @@ def parse_sections(block: Block) -> set[str]:
     return sections
 
 
+def extract_section(lines: list[str] | tuple[str, ...], title: str) -> list[str] | None:
+    """Return one unfenced Markdown section body, bounded by heading level."""
+    wanted = normalize_heading(title)
+    start: int | None = None
+    level: int | None = None
+    in_fence = False
+    for index, line in enumerate(lines):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        match = SECTION_HEADING.match(line.rstrip())
+        if not match:
+            continue
+        current_level = len(line) - len(line.lstrip("#"))
+        if start is None:
+            if normalize_heading(match.group("title")) == wanted:
+                start = index + 1
+                level = current_level
+            continue
+        if current_level <= level:
+            return list(lines[start:index])
+    return list(lines[start:]) if start is not None else None
+
+
+def parse_labeled_bullets(lines: list[str]) -> tuple[dict[str, str], set[str]]:
+    fields: dict[str, str] = {}
+    duplicates: set[str] = set()
+    in_fence = False
+    for line in lines:
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        match = LABELED_BULLET.match(line)
+        if not match:
+            continue
+        label = normalize_heading(match.group("label"))
+        if label in fields:
+            duplicates.add(label)
+        else:
+            fields[label] = match.group("value").strip()
+    return fields, duplicates
+
+
+def normalized_value(value: str) -> str:
+    return value.strip().strip("`\".' ").lower()
+
+
+def is_meaningful(value: str) -> bool:
+    normalized = normalized_value(value)
+    return bool(normalized) and normalized not in {"tbd", "todo", "pending"} and not (
+        "{{" in value or "}}" in value or (normalized.startswith("<") and normalized.endswith(">"))
+    )
+
+
+def is_not_applicable(value: str) -> bool:
+    normalized = normalized_value(value)
+    return normalized == "n/a" or normalized.startswith("not applicable") or normalized.startswith("none")
+
+
+def verify_capability_frame(lines: list[str], first_block_line: int) -> list[str]:
+    errors: list[str] = []
+    preamble = lines[: first_block_line - 1]
+    section = extract_section(preamble, CAPABILITY_FRAME_HEADING)
+    if section is None:
+        return [f"before line {first_block_line}: missing section '{CAPABILITY_FRAME_HEADING}'"]
+    fields, duplicates = parse_labeled_bullets(section)
+    for label in sorted(duplicates):
+        errors.append(f"target-product capability frame has duplicate field '{label}'")
+    for label in CAPABILITY_FRAME_FIELDS:
+        value = fields.get(label)
+        if value is None:
+            errors.append(f"target-product capability frame is missing field '{label}'")
+        elif not is_meaningful(value):
+            errors.append(f"target-product capability frame field '{label}' is empty or a placeholder")
+
+    applicability = normalized_value(fields.get("applicability", ""))
+    if applicability not in CAPABILITY_APPLICABILITY:
+        errors.append(
+            "target-product capability frame field 'applicability' must be one of: "
+            + ", ".join(sorted(CAPABILITY_APPLICABILITY))
+        )
+    if applicability == "consequential" and is_not_applicable(fields.get("direct product sources", "")):
+        errors.append("consequential target-product capability frame requires direct product sources")
+    return errors
+
+
+def verify_capability_delta(block: Block) -> list[str]:
+    errors: list[str] = []
+    section = extract_section(block.body, CAPABILITY_DELTA_HEADING)
+    if section is None:
+        return [
+            f"line {block.line}: Block {block.number} is missing section "
+            f"'{CAPABILITY_DELTA_HEADING}'"
+        ]
+    fields, duplicates = parse_labeled_bullets(section)
+    for label in sorted(duplicates):
+        errors.append(
+            f"line {block.line}: Block {block.number} capability delta has duplicate field '{label}'"
+        )
+    posture = normalized_value(fields.get("posture", ""))
+    if posture not in CAPABILITY_POSTURES:
+        errors.append(
+            f"line {block.line}: Block {block.number} capability delta field 'posture' "
+            "must be one of: consequential, not-applicable, routine"
+        )
+        return errors
+    if posture == "consequential":
+        for label in CAPABILITY_DELTA_FIELDS:
+            value = fields.get(label)
+            if value is None:
+                errors.append(
+                    f"line {block.line}: Block {block.number} consequential capability delta "
+                    f"is missing field '{label}'"
+                )
+            elif not is_meaningful(value) or is_not_applicable(value):
+                errors.append(
+                    f"line {block.line}: Block {block.number} consequential capability delta "
+                    f"field '{label}' needs a concrete value"
+                )
+    else:
+        justification = fields.get("routine or not-applicable justification")
+        if justification is None or not is_meaningful(justification):
+            errors.append(
+                f"line {block.line}: Block {block.number} {posture} capability delta requires "
+                "field 'routine or not-applicable justification'"
+            )
+    return errors
+
+
 def parse_status_table(lines: list[str]) -> tuple[dict[int, tuple[str, str, int]], list[str]]:
     rows: dict[int, tuple[str, str, int]] = {}
     errors: list[str] = []
@@ -163,6 +323,8 @@ def verify(path: Path, profile: str) -> dict[str, object]:
         errors.append(f"Block headings are not continuous and ordered: found {numbers}, expected {expected}")
 
     required_sections = FULL_SECTIONS if profile == "full" else CORE_SECTIONS
+    if profile == "full":
+        errors.extend(verify_capability_frame(lines, blocks[0].line))
     block_statuses: dict[int, str] = {}
     for block in blocks:
         status, _ = parse_status(block)
@@ -177,6 +339,8 @@ def verify(path: Path, profile: str) -> dict[str, object]:
                     f"line {block.line}: Block {block.number} is missing section "
                     f"'{aliases[0]}'"
                 )
+        if profile == "full":
+            errors.extend(verify_capability_delta(block))
 
     table, table_errors = parse_status_table(lines)
     errors.extend(table_errors)
@@ -227,7 +391,10 @@ def main(argv: list[str] | None = None) -> int:
         "--profile",
         choices=("core", "full"),
         default="full",
-        help="full requires implementation-ready block sections; core checks the minimal inherited contract",
+        help=(
+            "full requires the current capability frame, deltas, and implementation-ready block sections; "
+            "core is the compatibility profile for inherited trackers"
+        ),
     )
     parser.add_argument("--json", action="store_true", help="emit machine-readable diagnostics")
     args = parser.parse_args(argv)

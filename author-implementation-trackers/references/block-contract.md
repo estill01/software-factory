@@ -38,6 +38,15 @@ Every block needs:
    limitations; use `Pending.` before execution.
 10. `Stop` — the first downstream action this block must not perform.
 
+Every full-profile Block also declares a concise `Target-product capability
+delta` posture. Use `consequential` when the Block changes feature behavior,
+canonical representation, architecture strategy, operating model, or a
+protected capability. A consequential delta names the intended capability gain,
+potential capability loss or regression, protected-capability effect,
+architecture and operating-model effect, and tradeoff with direct source
+evidence. A `routine` or `not-applicable` Block records only its posture and a
+concrete justification. Do not restate the tracker-level product frame.
+
 Use `Resource and economy contract` when provider calls, large corpora,
 rendering, broad scans, long tests, or repeated work require explicit bounds.
 When present, state the normal affected-scope path, exact reusable artifacts,
@@ -141,6 +150,7 @@ particular:
 Use only those that improve execution:
 
 - Purpose and intended outcome
+- Target-product capability frame
 - Target architecture and authority boundaries
 - Existing owners to reuse
 - Prior-work/source-adaptation map
@@ -154,3 +164,22 @@ Use only those that improve execution:
 - Final completion definition
 
 A small tracker may omit maps and matrices that add no information.
+
+## Target-product capability discipline
+
+Every new full-profile tracker has one concise target-product capability frame.
+Reconstruct it from direct mission and repository sources before decomposing
+consequential work. Record applicability and rationale, the exact sources,
+product thesis and intended effect, protected capabilities, architecture
+strategy, requested capability, proportionality, tradeoffs, and uncertainty.
+For a routine or not-applicable tracker, say why no product doctrine is being
+asserted rather than manufacturing one.
+
+Test both failure directions. Underreach occurs when literal feature wording is
+treated as the entire capability despite a broader direct source—for example,
+planning only a button while omitting the supported end-to-end user effect.
+Speculative over-architecture occurs when a local change is expanded into a
+platform, service, registry, or future operating model without direct support
+or an immediate or evident adjacent need. A tracker must not invent product
+ethos or prefer either extreme automatically; it records the proportional,
+source-backed strategy and its tradeoffs.
