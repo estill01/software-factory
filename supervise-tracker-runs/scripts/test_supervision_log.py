@@ -102,7 +102,7 @@ class FactoryEvolutionContractTests(unittest.TestCase):
             normalized = " ".join(text.split()).lower()
             self.assertIn("reports nominate hypotheses", normalized)
             self.assertIn("observed outcomes adjudicate", normalized)
-            self.assertIn("sol-level", normalized)
+            self.assertIn("gpt-5.6-sol", normalized)
             self.assertIn("existing", normalized)
             self.assertIn("independent", normalized)
             self.assertIn("not automatic", normalized)
@@ -110,9 +110,14 @@ class FactoryEvolutionContractTests(unittest.TestCase):
         self.assertIn("prepare → finalize → evaluate → verify", policy)
         self.assertIn("scripts/supervision_log.py", skill)
         self.assertIn("immutable-or-identical", skill)
+        self.assertIn("uv run --python 3.14 python", skill)
+        self.assertIn("Python 3.11+", skill)
+        self.assertIn("gpt-5.6-sol", skill)
         self.assertIn(
             "no implementation or target-write action", " ".join(policy.split())
         )
+        self.assertIn("## Exact submission wire shapes", self.contract)
+        self.assertIn("result_without_root", self.contract)
 
 
 class FactoryEvolutionCliTests(unittest.TestCase):

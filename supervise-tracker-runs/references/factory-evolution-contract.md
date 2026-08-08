@@ -135,3 +135,62 @@ through that owner, under its bounded learning directory, using safe
 identifiers and atomic immutable-or-identical writes. Deleting a derived set
 does not delete or mutate canonical evidence; the set can be rebuilt from its
 declared sources.
+
+## Exact submission wire shapes
+
+The public helper rejects extra or missing fields. Submission JSON is bounded,
+normalized, and source-bound; it contains no transcript, prompt, target-file
+content, or hidden reasoning.
+
+The `finalize --review-json` object has these exact top-level keys:
+
+`schema_version`, `kind`, `packet_id`, `packet_root`, `reviewer_id`,
+`observations`, `lessons`, `meta_patterns`, `candidates`, `selection`, and
+`experiment`. Use `software-factory-evolution-review` as `kind`.
+
+- Observation: `observation_id`, `summary`, `valence`, `event_ids`.
+- Lesson: `lesson_id`, `statement`, `observation_ids`,
+  `supporting_case_ids`, `report_hypothesis_ids`,
+  `counterexample_case_ids`, `counterexample_posture`,
+  `counterexample_search`, `goals_advanced`, `goals_threatened`,
+  `causal_hypothesis`, `confidence`, `applicability`,
+  `unresolved_questions`.
+- Meta-pattern: `meta_pattern_id`, `statement`, `lesson_ids`,
+  `supporting_case_ids`, `counterexample_lesson_ids`, `applicability`,
+  `uncertainty`.
+- Candidate: `candidate_id`, `candidate_type`, `capability_gap`, `effect`,
+  `meta_pattern_ids`, `evidence_ids`, `protected_capabilities`, `applicability`,
+  `tradeoffs`, `uncertainty`, `counterexample_case_ids`,
+  `counterexample_posture`, `counterexample_search`, `implementation_owner`,
+  `evaluation_owner`, `smaller_change_insufficient`, `proportionality`, and
+  `selection_dimensions`.
+- Every selection-dimension object has `rating`, `rationale`, and
+  `evidence_ids`. The exact dimensions are `effect`, `recurrence`, `reach`,
+  `compounding_value`, `reliability`, `product_gain`, `evidence_strength`,
+  `cost`, `regression_risk`, `complexity`, `reversibility`, and
+  `time_to_evidence`.
+- Selection: `candidate_id`, `compared_candidate_ids`, `rationale`, and
+  `dimensions_considered` in the maintained dimension order above.
+- Experiment: `experiment_id`, `candidate_id`, `proposer_id`, `implementer_id`,
+  `evaluator_id`, `baseline_revision`, `candidate_revision`,
+  `positive_case_ids`, `exception_case_ids`, `expected_effects`,
+  `resource_bounds`, `rollback_condition`, `success_measures`,
+  `regression_measures`, `evidence_capture`, `stop_condition`,
+  `comparison_mode`, `minimum_expected_delta`, and
+  `non_inferiority_justification`.
+
+The `evaluate --evaluation-json` object has these exact top-level keys:
+
+`schema_version`, `kind`, `packet_id`, `packet_root`, `review_id`,
+`review_root`, `experiment_id`, `candidate_id`, `evaluator_id`,
+`baseline_results`, `candidate_results`, `contrary_evidence_ids`,
+`regression_findings`, `disposition`, and `rationale`. Use
+`software-factory-candidate-evaluation` as `kind`.
+
+Every baseline or candidate result has `case_id`, `evidence_class`,
+`evidence_ids`, `outcome`, `observed_effect`, `resource_cost`, `regressions`,
+`condition_revision`, and `evidence_root`. Compute `evidence_root` with
+`factory_evolution.experiment_result_evidence_root(result_without_root)` after
+normalizing ID/string arrays; the validator recomputes it from every result
+field. Baseline and candidate result arrays each cover every positive and
+exception case exactly once.

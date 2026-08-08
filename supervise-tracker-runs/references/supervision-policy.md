@@ -174,17 +174,20 @@ Use the sequence `prepare → finalize → evaluate → verify`:
    `events.jsonl` paths. Reports nominate hypotheses; exact source-bound events
    and observed outcomes adjudicate them. The packet is content-minimized,
    rebuildable, and non-authoritative.
-2. `finalize` accepts one explicit cognitive-review submission. A Sol-level
-   reviewer proposes lessons, contrary cases, meta-patterns, capability gaps,
-   broad candidates, visible uncollapsed selection dimensions, and an
-   experiment. Deterministic code validates references and bounds but does not
-   synthesize semantic prose or causal judgment.
+2. `finalize` accepts one explicit cognitive-review submission. A distinct
+   `gpt-5.6-sol` reviewer at `xhigh` proposes lessons, contrary cases,
+   meta-patterns, capability gaps, broad candidates, visible uncollapsed
+   selection dimensions, and an experiment; escalate consequential or
+   unresolved selection to a separate Sol Max reviewer. Deterministic code
+   validates references and bounds but does not synthesize semantic prose or
+   causal judgment.
 3. Existing authoring, implementation, and supervision skill owners implement a
    selected candidate through their ordinary authority, tracker, validation,
    review, commit, and push contracts. This command family has no implementation
    or target-write action.
 4. `evaluate` accepts condition- and revision-bound baseline/candidate evidence
-   from an evaluator distinct from proposer and implementer. It records
+   from a separate `gpt-5.6-sol` evaluator at `xhigh` (or Max for a
+   consequential disposition), distinct from proposer and implementer. It records
    `promote`, `advisory`, `revise`, or `reject`; it does not apply that
    disposition. Synthetic or shadow evidence alone cannot support causal
    promotion, and regressions remain visible.
