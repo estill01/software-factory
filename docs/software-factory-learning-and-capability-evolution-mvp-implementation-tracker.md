@@ -213,7 +213,7 @@ through an existing owner.
 |---:|---|---:|---|
 | 0 | Freeze the MVP evidence and capability-evolution contract | — | `accepted` |
 | 1 | Build the deterministic derived learning packet | 0 | `accepted` |
-| 2 | Validate lessons, capability candidates, and experiments | 1 | `not-started` |
+| 2 | Validate lessons, capability candidates, and experiments | 1 | `accepted` |
 | 3 | Integrate the evolution workflow through the supervision owner | 2 | `not-started` |
 | 4 | Add target-product capability framing to tracker authoring | 3 | `not-started` |
 | 5 | Apply target-product capability review during Block execution | 4 | `not-started` |
@@ -436,7 +436,7 @@ Stop before accepting cognitive review or writing derived artifacts.
 
 ## Block 2 — Validate lessons, capability candidates, and experiments
 
-Status: `not-started`
+Status: `accepted`
 
 ### Objective
 
@@ -507,7 +507,54 @@ Independent review challenges the selected candidate and experiment.
 
 ### Completion evidence
 
-Pending.
+- Repository commits: `787135b` (initial review/experiment validators),
+  `dcd5e1f` (candidate admission and causal-comparison remediation), and
+  accepted successor `0eaa6231353ee53cbf1046cbe83756c85663ab9f`
+  (canonical condition-result evidence binding).
+- Inputs: verified synthetic learning packet, maintained evolution contract,
+  source-bound semantic review submission, selected experiment, and independent
+  evaluation submission. Deterministic code did not generate semantic prose.
+- Outputs: review, candidate, experiment, evaluation, machine-report, manifest,
+  and exact-bundle validators in `factory_evolution.py` at SHA-256
+  `23472379c6b616e8105ba197e3a1f3c34956ba6b9a714445a4f94b015cc7cf0c`;
+  focused tests at SHA-256
+  `af765f744121f3fc3e94030f8812060928245a4583747b4fb39ec36f873bc93c`.
+- Focused validation:
+  `uv run --python 3.14 python -m unittest discover -s
+  supervise-tracker-runs/scripts -p 'test_factory_evolution.py'` — 29 tests,
+  all passed.
+- Mapped validation:
+  `uv run --python 3.14 --with reportlab python -m unittest discover -s
+  supervise-tracker-runs/scripts -p 'test_*.py'` — 155 tests, all passed;
+  `py_compile` and `git diff --check` also passed.
+- Candidate freeze: exact successor commit
+  `0eaa6231353ee53cbf1046cbe83756c85663ab9f`.
+- Resource posture: bounded submitted objects only; no model/provider calls,
+  semantic generation, public writes, candidate implementation, or skill/CLI
+  changes. Manifest inputs are capped by count, per-artifact bytes, and
+  aggregate bytes.
+- Independent review: distinct `block2_review` rejected `787135b` because
+  candidate counterexample admission was absent, result contrast could be
+  non-causal, exact lesson references could conflict, manifest bytes were
+  unbounded, and the seeded fixture mislabeled a skill method as architecture
+  while comparing only against a detector. `dcd5e1f` added candidate
+  counterexamples/search, observation/support reconciliation, condition-bound
+  all-case observed comparison, finite bytes, and a skill-method candidate
+  compared with detector and tracker-method alternatives across explicit
+  bounded-fit, underreach, and overarchitecture measures. Re-review then found
+  caller-asserted result hashes; `0eaa623` derives each root from all normalized
+  result and revision fields. The final reviewer mutated every bound field and
+  confirmed rejection, returning no findings.
+- Retained open work: public CLI writes, skill-method changes, and local dogfood
+  remain in Blocks 3–6.
+- Post-block audit: accepted. Report-only lessons, missing or inconsistent
+  counterexample posture, dangling/contradictory references, opaque scores,
+  owner collapse, unsupported dispositions, regression-bearing promotion,
+  synthetic/shadow promotion, stale result roots, non-causal improvement, and
+  oversized artifacts are rejected. Baseline and candidate roots remain
+  separately attributable.
+- Git durability: `codex/evolution-mvp`; all coherent implementation and
+  evidence commits pushed to configured `origin` after this checkpoint.
 
 ### Stop
 
