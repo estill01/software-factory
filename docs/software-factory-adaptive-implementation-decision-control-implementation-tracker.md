@@ -111,17 +111,34 @@ Completion means:
 - Applicability rationale: this tracker changes how implementation scope,
   architecture strategy, Block decomposition, authority, and continuation can
   change during a live run for both target products and Software Factory.
-- Direct product sources: the direct 2026-08-08 user instruction in source
-  thread `019fe023-f305-70d2-b69a-7f9565bebe86` that the tracker remain the
-  plan while Software Factory may choose better implementations and learn
-  during execution; the two routed steering packets from side-conversation
-  source thread `019fe21e-486e-7c11-90b9-6bfbf19457c1` defining inline-first
-  correction and selective parallel comparison; `README.md`; the accepted
-  `docs/software-factory-learning-and-capability-evolution-mvp-implementation-tracker.md`;
-  the planned
-  `docs/software-factory-tracker-authoring-supervision-implementation-tracker.md`;
-  and the external planning input
+- Direct product sources: direct user instructions in source thread
+  `019fe023-f305-70d2-b69a-7f9565bebe86` on 2026-08-08 that Software Factory
+  should (a) remain governed by the implementation tracker while identifying
+  different or better implementations that achieve the broader product or
+  functionality goal, (b) update open Block content when live learning
+  warrants it instead of remaining waterfall-bound, (c) apply the capability
+  to both Software Factory and the underlying implemented project, (d) treat
+  ordinary human input as a failure mode, and (e) make permissiveness
+  configurable through fully autonomous operation; repository `README.md` at
+  SHA-256 `992a34de6c894d43c11028e7e2cc5ea4abc7418c896539341542fbd9dabad372`;
+  the accepted
+  `docs/software-factory-learning-and-capability-evolution-mvp-implementation-tracker.md`
+  at SHA-256
+  `ecc7b31ebd7bd7bc825746dded4059be2ddcc56377f4a702e1ab7781d09e07c6`;
+  `implement-tracker-blocks/SKILL.md` at SHA-256
+  `887b3eca6f8ca1219878990c0031c84675a7f6258e321e19dd036b6899366bab`;
+  and `supervise-tracker-runs/references/supervision-policy.md` at SHA-256
+  `4d3404b4d1426fae61104dc67b33eef5e940b9bf3dfddc0572dc0e8e8b4b9b66`.
+- Advisory design inputs, not product authority: routed `codex_delegation`
+  items 288 and 289 from side-conversation source thread
+  `019fe21e-486e-7c11-90b9-6bfbf19457c1`; the planned
+  `docs/software-factory-tracker-authoring-supervision-implementation-tracker.md`
+  at SHA-256
+  `dc87fde4b7fe4017a82426ad0199dd2ef226eb8d9a658d348ec0aea6ea2dd424`;
+  and the external
   `software_factory_adaptive_alignment_and_control_implementation_tracker (1).md`.
+  These sources may inform bounded authoring choices but cannot create or
+  override a requirement, mission, permission, or reserved authority.
 - Product thesis and intended effect: Software Factory should autonomously
   deliver the governing capability through an inspectable, dependency-ordered
   program while correcting bad implementation decisions at their smallest
@@ -132,11 +149,14 @@ Completion means:
   dependency-safe continuation, maximal autonomous scope, exact Block stops,
   current observable-outcome proof, bounded resource use, and reversible
   evidence-gated Software Factory self-improvement.
-- Architecture strategy: extend the executor with a default inline-correction
-  path and a selective isolated candidate lane; use the existing author and
-  supervisor owners only for exceptional structural amendment; reuse Factory
-  evolution for self-target changes; do not add a fourth skill, planner service,
-  mutable shadow tracker, or second event ledger.
+- Architecture strategy: the tracker author's proposed source-compatible design
+  is to extend the executor with a default inline-correction path and a selective
+  isolated candidate lane, use the existing author and supervisor owners only
+  for exceptional structural amendment, and reuse Factory evolution for self-
+  target changes. This is a reviewable design selection grounded in the direct
+  capability objective and current repository owners, not a requirement created
+  by the advisory packets. Do not add a fourth skill, planner service, mutable
+  shadow tracker, or second event ledger.
 - Requested capability: source-backed autonomous implementation decision
   correction, with bounded parallel comparison when necessary and structural
   replanning only when the active program contract is invalidated.
@@ -285,7 +305,7 @@ Authority rules:
 | Current execution capability-review method | `implement-tracker-blocks/references/product-capability-review.md`, SHA-256 `68d255c1cd7c03b61b9278e0d1a20290c7452abb661ba00ae47d15e60bfc3017` | adapt | 0–3, 6 | Correct inside the Block first; open candidate or structural paths only on exact triggers |
 | Current Git checkpoint/branch behavior | `implement-tracker-blocks/SKILL.md` at planning baseline | adapt | 2, 6–7 | Add one isolated candidate lane and automated winning-path cutover without dual authority |
 | Current supervision decision and continuation contracts | `supervise-tracker-runs/references/supervision-policy.md`, SHA-256 `4d3404b4d1426fae61104dc67b33eef5e940b9bf3dfddc0572dc0e8e8b4b9b66` | adapt | 0, 3–6 | Add bounded correction/candidate evidence, structural disposition, and configurable no-human posture |
-| Inline-first and parallel-alternative steering | routed packets from source thread `019fe21e-486e-7c11-90b9-6bfbf19457c1` | adopt | 0–7 | Keep inline correction normal, candidate comparison selective, and tracker amendment exceptional |
+| Inline-first and parallel-alternative advisory | routed `codex_delegation` items 288 and 289 from source thread `019fe21e-486e-7c11-90b9-6bfbf19457c1` | advisory-only; not authority | 0–7 | Evaluate the suggested design against eligible direct sources and current owners; no requirement or permission derives solely from these packets |
 | Adaptive alignment and control implementation tracker supplied as planning input | external 30-Block document | not adopted as this execution tracker | 0, 4, 7 | Reuse dual-target alignment and configurable authority; defer prospective hooks, event streaming, control libraries, and generalized runtime monitoring |
 
 ## 5. Scope, non-goals, and proportionality
@@ -479,9 +499,11 @@ authority invariants, before changing any skill or canonical behavior.
 - Architecture and operating-model effect: define inline execution as the
   primary owner, one isolated candidate lane as selective evidence gathering,
   and existing authoring supervision as the exceptional structural owner.
-- Tradeoff and source evidence: explicit routing adds bounded contract work but
-  directly implements the steering that inline correction remain normal,
-  parallel exploration selective, and tracker reauthoring exceptional.
+- Tradeoff and source evidence: explicit routing adds bounded contract work.
+  The inline/candidate/structural ladder is a tracker-authoring design proposal
+  selected from the direct adaptive-execution objective, current executor and
+  supervision owner boundaries, and bounded-economy principles; routed advisory
+  items 288 and 289 supplied comparison input but no governing requirement.
 
 ### Inputs and dependencies
 
@@ -621,8 +643,10 @@ reauthoring or a separate supervision lifecycle.
   product-capability comparison, correction, validation, audit, and checkpoint
   loop; do not invoke tracker authoring.
 - Tradeoff and source evidence: bounded comparison adds work only after a
-  concrete bad-decision trigger and directly implements the steering that inline
-  correction be the normal adaptive path.
+  concrete bad-decision trigger. Making inline correction the normal adaptive
+  path is the tracker author's proposed economical use of the existing executor
+  owner, subject to the Block 0 contract review; it is not authority derived
+  from a routed packet.
 
 ### Inputs and dependencies
 
@@ -745,8 +769,10 @@ maintaining duplicate implementations.
   equivalent candidate lane behind the executor's existing Git and review
   owners; do not add a parallel runtime service.
 - Tradeoff and source evidence: bounded duplicate implementation cost is
-  justified only by concrete expected decision value and the steering's
-  requirement for focused-first current outcome comparison.
+  justified only by concrete expected decision value. The candidate lane and
+  focused-first comparison are proposed implementation mechanisms for the
+  direct better-implementation objective and remain subject to independent
+  Block review; advisory item 289 does not make them mandatory authority.
 
 ### Inputs and dependencies
 
