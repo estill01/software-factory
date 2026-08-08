@@ -1,6 +1,6 @@
 # Software Factory Learning and Capability Evolution MVP Implementation Tracker
 
-- Tracker status: `planning`
+- Tracker status: `in-progress`
 - Tracker sequence: Blocks 0–6
 - Repository: `https://github.com/estill01/software-factory`
 - Planning baseline: `087803add9877b55763220070d68fa5c6e6dedb4`
@@ -211,7 +211,7 @@ through an existing owner.
 
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
-| 0 | Freeze the MVP evidence and capability-evolution contract | — | `not-started` |
+| 0 | Freeze the MVP evidence and capability-evolution contract | — | `accepted` |
 | 1 | Build the deterministic derived learning packet | 0 | `not-started` |
 | 2 | Validate lessons, capability candidates, and experiments | 1 | `not-started` |
 | 3 | Integrate the evolution workflow through the supervision owner | 2 | `not-started` |
@@ -225,7 +225,7 @@ Required order:
 
 ## Block 0 — Freeze the MVP evidence and capability-evolution contract
 
-Status: `not-started`
+Status: `accepted`
 
 ### Objective
 
@@ -288,7 +288,32 @@ than only a new detector.
 
 ### Completion evidence
 
-Pending.
+- Repository commits: `8f0c316f48f9bbfce74362cfcb96306cc1ed9d36`
+  (contract and initial tests) and
+  `4df0851c8a3304b74adf55ea44ac938b61889e24` (review remediation).
+- Inputs: planning baseline `087803add9877b55763220070d68fa5c6e6dedb4`,
+  Block 0 contract, current report/event shapes, and existing learning rules.
+- Outputs: `factory-evolution-contract.md` at SHA-256
+  `7884823f242ac18bb2a25eea103f01e1931636b16c91a8eddc6ab91af8526e4d`
+  plus six contract guardrail tests.
+- Focused and mapped validation:
+  `uv run --python 3.14 --with reportlab python -m unittest discover -s
+  supervise-tracker-runs/scripts -p 'test_supervision_log.py'` — 106 tests,
+  all passed.
+- Candidate freeze: exact successor commit `4df0851c8a3304b74adf55ea44ac938b61889e24`.
+- Resource posture: one bounded local shape/rule inspection; no provider calls,
+  target content, packet preparation, public writes, or whole-home discovery.
+- Independent review: distinct `block0_review` reviewer found the candidate
+  admission floor underspecified; successor commit `4df0851` added exact
+  hash-bound support and known-counterexample or documented-search requirements.
+  The reviewer re-reviewed that delta and returned no findings.
+- Retained open work: packet preparation and all runtime integration remain in
+  Blocks 1–6.
+- Post-block audit: accepted after remediation; the contract represents broad
+  capability types, productive and harmful patterns, evidence authority, and
+  evaluator independence while stopping before packet or CLI behavior.
+- Git durability: `codex/evolution-mvp`; implementation and evidence commits
+  pushed to configured `origin` after this evidence checkpoint.
 
 ### Stop
 
