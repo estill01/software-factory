@@ -17,6 +17,10 @@ schedules, bounds, escalation rules, logging commands, and stop conditions.
 Before preparing or reviewing Factory capability-evolution artifacts, also read
 `references/factory-evolution-contract.md` completely, including its exact
 submission wire-shape section.
+Before recording terminal outcome completion, also read
+`references/terminal-capability-reconciliation.md` completely and validate its
+exact reconciliation object through the helper; never substitute a caller-
+supplied digest.
 
 ## Resolve targets
 
@@ -192,8 +196,11 @@ Repeat independently for additional targets.
   capability, protected capabilities, selected architecture level, accepted
   tradeoffs, current behavior, operator-visible effects, and any supported gap
   with its narrow owning skill or repository component. Hash the exact
-  reconciliation bytes and record that root with the other five
-  content-minimized roots through `completion-record`. The helper must reject
+  normalized reconciliation object and record that root with the other five
+  content-minimized roots through `completion-record --capability-reconciliation-json`.
+  The submitted JSON remains caller-owned and is not copied into the canonical
+  ledger; the helper validates it first and retains its normalized root,
+  revision, posture, gap count, and independent role identities. The helper must reject
   `completed` when that record
   is missing, failed, stale, tied to another mission or fingerprint, or lacks
   any required binding.

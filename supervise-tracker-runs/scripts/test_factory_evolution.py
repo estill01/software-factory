@@ -486,7 +486,7 @@ class EvolutionReviewTests(unittest.TestCase):
             "kind": factory_evolution.REVIEW_KIND,
             "packet_id": self.packet["packet_id"],
             "packet_root": self.packet["packet_root"],
-            "reviewer_id": "semantic-reviewer-1",
+            "reviewer_id": "proposer-1",
             "observations": [
                 {
                     "observation_id": "observation-exception",
@@ -726,6 +726,16 @@ class EvolutionReviewTests(unittest.TestCase):
         self_review["experiment"]["evaluator_id"] = "implementer-1"
         with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "identities collapse"):
             factory_evolution.build_evolution_review(self.packet, self_review)
+
+    def test_review_author_must_be_the_recorded_experiment_proposer(self) -> None:
+        identity_alias = self.review_submission()
+        identity_alias["reviewer_id"] = "reviewer-alias-1"
+
+        with self.assertRaisesRegex(
+            factory_evolution.FactoryEvolutionError,
+            "review author must be the recorded experiment proposer",
+        ):
+            factory_evolution.build_evolution_review(self.packet, identity_alias)
 
     def test_evaluation_keeps_baseline_and_candidate_results_separate(self) -> None:
         review = self.build_review()

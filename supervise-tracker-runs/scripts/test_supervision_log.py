@@ -386,6 +386,9 @@ class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
         readme = HELPER_PATH.parent.parent.parent.joinpath("README.md").read_text(
             encoding="utf-8"
         )
+        reconciliation_contract = HELPER_PATH.parent.parent.joinpath(
+            "references", "terminal-capability-reconciliation.md"
+        ).read_text(encoding="utf-8")
 
         required_concepts = (
             "requested capability",
@@ -402,6 +405,16 @@ class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
         self.assertIn("evolution disposition", supervision_skill)
         self.assertIn("populated artifacts", policy)
         self.assertIn("reopen only the narrow owner", readme)
+        self.assertIn("--capability-reconciliation-json", supervision_skill)
+        self.assertIn("--capability-reconciliation-json", policy)
+        for evidence_class in (
+            "direct-authority",
+            "current-repository",
+            "observed-outcome",
+        ):
+            self.assertIn(evidence_class, reconciliation_contract)
+        self.assertIn('"owner_class"', reconciliation_contract)
+        self.assertIn("source JSON remains caller-owned", policy)
 
 
 class NoticeGateCorrelationTests(unittest.TestCase):
@@ -1993,6 +2006,86 @@ class MissionContainmentContractTests(unittest.TestCase):
 class OutcomeCompletionRecordTests(unittest.TestCase):
     mission_root = "a" * 64
 
+    def setUp(self) -> None:
+        self.reconciliation_temporary = tempfile.TemporaryDirectory()
+        self.reconciliation_path = Path(
+            self.reconciliation_temporary.name, "capability-reconciliation.json"
+        )
+        self.write_reconciliation()
+
+    def tearDown(self) -> None:
+        self.reconciliation_temporary.cleanup()
+
+    def write_reconciliation(self, **overrides: object) -> Path:
+        authority_id = "authority-1234"
+        repository_id = "repository-1234"
+        outcome_id = "outcome-1234"
+        value: dict[str, object] = {
+            "schema_version": 1,
+            "kind": supervision_log.CAPABILITY_RECONCILIATION_KIND,
+            "target_thread_id": "target-1234",
+            "mission_root": self.mission_root,
+            "state_fingerprint": "state-1234",
+            "current_revision": "2" * 40,
+            "implementation_owner_id": "target-1234",
+            "reviewer_id": "base-1234",
+            "requested_capability": {
+                "statement": "Deliver the requested visible capability.",
+                "evidence_ids": [authority_id],
+            },
+            "protected_capabilities": [
+                {
+                    "statement": "Preserve the existing supported path.",
+                    "evidence_ids": [repository_id],
+                }
+            ],
+            "selected_architecture_level": {
+                "level": "existing-owner",
+                "owner_ref": "supervise-tracker-runs",
+                "evidence_ids": [repository_id],
+            },
+            "accepted_tradeoffs": [
+                {
+                    "statement": "Keep the change bounded to the current owner.",
+                    "evidence_ids": [authority_id, repository_id],
+                }
+            ],
+            "current_behavior": {
+                "statement": "The frozen candidate supplies the requested behavior.",
+                "evidence_ids": [outcome_id],
+            },
+            "operator_visible_effects": [
+                {
+                    "statement": "The operator can use the result as requested.",
+                    "evidence_ids": [outcome_id],
+                }
+            ],
+            "supported_gaps": [],
+            "completion_posture": "verified",
+            "evidence": [
+                {
+                    "evidence_id": authority_id,
+                    "evidence_class": "direct-authority",
+                    "source_root": "3" * 64,
+                },
+                {
+                    "evidence_id": repository_id,
+                    "evidence_class": "current-repository",
+                    "source_root": "4" * 64,
+                },
+                {
+                    "evidence_id": outcome_id,
+                    "evidence_class": "observed-outcome",
+                    "source_root": "5" * 64,
+                },
+            ],
+        }
+        value.update(overrides)
+        self.reconciliation_path.write_text(
+            json.dumps(value, sort_keys=True), encoding="utf-8"
+        )
+        return self.reconciliation_path
+
     def policy(self) -> dict[str, object]:
         policy = supervision_log.default_policy(
             argparse.Namespace(
@@ -2013,10 +2106,11 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
         )
         return policy
 
-    def completion_args(self, **overrides: str) -> argparse.Namespace:
+    def completion_args(self, **overrides: object) -> argparse.Namespace:
         values = {
             "target_thread": "target-1234",
             "state_fingerprint": "state-1234",
+            "current_revision": "2" * 40,
             "mission_root": self.mission_root,
             "status": "verified",
             "model": "gpt-5.6-sol",
@@ -2026,7 +2120,7 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
             "effect_reconciliation_sha256": "d" * 64,
             "open_item_compatibility_sha256": "e" * 64,
             "independent_challenge_sha256": "f" * 64,
-            "capability_reconciliation_sha256": "1" * 64,
+            "capability_reconciliation_json": str(self.reconciliation_path),
             "active_block": "Block-64",
             "checkpoint": "checkpoint-1234",
             "summary": "Current operator-visible outcome verified.",
@@ -2050,6 +2144,16 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
             record = json.loads(output.getvalue())["record"]
             self.assertEqual(
                 record["category"], supervision_log.OUTCOME_COMPLETION_CATEGORY
+            )
+            reconciliation = json.loads(
+                self.reconciliation_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                record["capability_reconciliation_sha256"],
+                supervision_log.digest(reconciliation),
+            )
+            self.assertEqual(
+                record["capability_reconciliation_reviewer_id"], "base-1234"
             )
 
             output = io.StringIO()
@@ -2118,14 +2222,65 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
                     supervision_log.cmd_completion_record(
                         self.completion_args(artifact_currentness_sha256="missing")
                     )
+                self.write_reconciliation(state_fingerprint="state-old")
                 with self.assertRaisesRegex(
-                    supervision_log.SupervisionLogError, "must be an exact"
+                    supervision_log.SupervisionLogError, "stale state fingerprint"
                 ):
-                    supervision_log.cmd_completion_record(
-                        self.completion_args(
-                            capability_reconciliation_sha256="missing"
-                        )
-                    )
+                    supervision_log.cmd_completion_record(self.completion_args())
+                self.write_reconciliation(current_revision="9" * 40)
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, "stale current revision"
+                ):
+                    supervision_log.cmd_completion_record(self.completion_args())
+
+    def test_verified_completion_rejects_gap_or_self_review(self) -> None:
+        policy = self.policy()
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            with mock.patch.object(
+                supervision_log, "load_policy", return_value=(directory, policy)
+            ):
+                self.write_reconciliation(
+                    supported_gaps=[
+                        {
+                            "gap_id": "gap-1234",
+                            "statement": "The requested effect is not current.",
+                            "owner_class": "supervision",
+                            "owner_ref": "supervise-tracker-runs",
+                            "evidence_ids": ["outcome-1234"],
+                        }
+                    ],
+                    completion_posture="reopen-narrow-owner",
+                )
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, "supported capability gap"
+                ):
+                    supervision_log.cmd_completion_record(self.completion_args())
+
+                self.write_reconciliation(reviewer_id="target-1234")
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, "not independent"
+                ):
+                    supervision_log.cmd_completion_record(self.completion_args())
+
+                self.write_reconciliation(reviewer_id="watcher-1234")
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, "not an eligible bound"
+                ):
+                    supervision_log.cmd_completion_record(self.completion_args())
+
+                self.write_reconciliation()
+                process_only = json.loads(
+                    self.reconciliation_path.read_text(encoding="utf-8")
+                )
+                process_only["evidence"][2]["evidence_class"] = "validation"
+                self.reconciliation_path.write_text(
+                    json.dumps(process_only, sort_keys=True), encoding="utf-8"
+                )
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, "required evidence class"
+                ):
+                    supervision_log.cmd_completion_record(self.completion_args())
 
     def test_completion_contract_requires_product_capability_reconciliation(
         self,
@@ -2144,7 +2299,7 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
                 "accepted_tradeoffs",
                 "current_behavior",
                 "operator_visible_effects",
-                "supported_gaps_and_narrow_owner",
+                "supported_gaps",
             ],
         )
         self.assertEqual(
@@ -2268,6 +2423,11 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
                         field: "b" * 64
                         for field in supervision_log.OUTCOME_COMPLETION_HASH_FIELDS
                     },
+                    "capability_reconciliation_reviewer_id": "base-1234",
+                    "capability_reconciliation_implementation_owner_id": "target-1234",
+                    "capability_reconciliation_revision": "c" * 40,
+                    "capability_reconciliation_posture": "verified",
+                    "capability_reconciliation_gap_count": 0,
                 },
             )
         elif state == "completed":
@@ -2427,6 +2587,11 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
                 field: "b" * 64
                 for field in supervision_log.OUTCOME_COMPLETION_HASH_FIELDS
             },
+            "capability_reconciliation_reviewer_id": "base-1234",
+            "capability_reconciliation_implementation_owner_id": "target-1234",
+            "capability_reconciliation_revision": "c" * 40,
+            "capability_reconciliation_posture": "verified",
+            "capability_reconciliation_gap_count": 0,
         }
 
         failed = self.run_lifecycle_gate(
@@ -2460,6 +2625,11 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
                 field: "b" * 64
                 for field in supervision_log.OUTCOME_COMPLETION_HASH_FIELDS
             },
+            "capability_reconciliation_reviewer_id": "base-1234",
+            "capability_reconciliation_implementation_owner_id": "target-1234",
+            "capability_reconciliation_revision": "c" * 40,
+            "capability_reconciliation_posture": "verified",
+            "capability_reconciliation_gap_count": 0,
         }
 
         wrong_mission = self.run_lifecycle_gate(

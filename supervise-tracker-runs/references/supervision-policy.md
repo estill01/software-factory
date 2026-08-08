@@ -1766,14 +1766,15 @@ Record the independent terminal outcome proof before any completed lifecycle:
 
 ```bash
 python3 <LOG_HELPER> completion-record --target-thread <TARGET> \
-  --state-fingerprint <HASH> --mission-root <MISSION_SHA256> \
+  --state-fingerprint <HASH> --current-revision <COMMIT_OR_ROOT> \
+  --mission-root <MISSION_SHA256> \
   --status <verified|failed> --model gpt-5.6-sol --reasoning xhigh \
   --outcome-manifest-sha256 <SHA256> \
   --artifact-currentness-sha256 <SHA256> \
   --effect-reconciliation-sha256 <SHA256> \
   --open-item-compatibility-sha256 <SHA256> \
   --independent-challenge-sha256 <SHA256> \
-  --capability-reconciliation-sha256 <SHA256> \
+  --capability-reconciliation-json <RECONCILIATION_JSON> \
   --active-block <BLOCK> --checkpoint <CHECKPOINT> \
   --evidence <TARGET_TURN_OR_ITEM_ID> \
   --summary "Current operator-visible outcome was independently checked."
@@ -1782,6 +1783,12 @@ python3 <LOG_HELPER> completion-record --target-thread <TARGET> \
 Only a current `verified` record allows the subsequent generic `record --kind
 lifecycle --status completed` command. A missing or failed record must produce
 a critical false-completion review instead.
+The helper validates the exact object described in
+`terminal-capability-reconciliation.md`, requires its reviewer to match the
+bound base-reviewer or reviewer role and remain distinct from target, watcher,
+fix executor, and implementation owner, and computes the normalized object
+root itself. It retains only the root and content-minimized identity/posture
+fields in the ledger; the source JSON remains caller-owned.
 
 Prepare, finalize, and verify the two required terminal implementation reports:
 

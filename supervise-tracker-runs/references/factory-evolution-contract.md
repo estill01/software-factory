@@ -178,6 +178,9 @@ The `finalize --review-json` object has these exact top-level keys:
   `regression_measures`, `evidence_capture`, `stop_condition`,
   `comparison_mode`, `minimum_expected_delta`, and
   `non_inferiority_justification`.
+- `reviewer_id` is the experiment `proposer_id`; the helper rejects an alias.
+  The evaluation `evaluator_id` must remain distinct from that reviewer and the
+  implementer.
 
 The `evaluate --evaluation-json` object has these exact top-level keys:
 

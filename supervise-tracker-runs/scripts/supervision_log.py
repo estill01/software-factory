@@ -74,8 +74,13 @@ CAPABILITY_RECONCILIATION_FIELDS = (
     "accepted_tradeoffs",
     "current_behavior",
     "operator_visible_effects",
-    "supported_gaps_and_narrow_owner",
+    "supported_gaps",
 )
+CAPABILITY_RECONCILIATION_KIND = (
+    "software-factory-terminal-capability-reconciliation"
+)
+CAPABILITY_RECONCILIATION_POSTURES = {"verified", "reopen-narrow-owner"}
+MAX_CAPABILITY_RECONCILIATION_BYTES = 64 * 1024
 TERMINAL_REPORT_DELIVERY_CATEGORY = "gmail-terminal-completion"
 TERMINAL_SHUTDOWN_CATEGORY = "terminal-supervision-shutdown"
 GMAIL_CONVERSATION_NOTIFICATION_CATEGORIES = {
@@ -1979,6 +1984,50 @@ def assess_outcome_completion_record(
         value = item.get(field)
         if not isinstance(value, str) or not SHA256.fullmatch(value):
             return False, f"The completion record lacks an exact {field} binding."
+    reviewer_id = item.get("capability_reconciliation_reviewer_id")
+    if not isinstance(reviewer_id, str) or not SAFE_ID.fullmatch(reviewer_id):
+        return False, "The completion record lacks the independent capability reviewer."
+    runtime = policy.get("runtime")
+    if not isinstance(runtime, Mapping):
+        return False, "The current policy lacks bound capability reviewer roles."
+    eligible_reviewers = {
+        value
+        for value in (
+            runtime.get("base_reviewer_thread_id"),
+            runtime.get("reviewer_thread_id"),
+        )
+        if isinstance(value, str) and value
+    }
+    disallowed_reviewers = {
+        value
+        for value in (
+            policy.get("target_thread_id"),
+            runtime.get("watcher_thread_id"),
+            runtime.get("fix_executor_thread_id"),
+        )
+        if isinstance(value, str) and value
+    }
+    if reviewer_id not in eligible_reviewers or reviewer_id in disallowed_reviewers:
+        return False, "The capability reviewer is not a bound independent role."
+    implementation_owner = item.get(
+        "capability_reconciliation_implementation_owner_id"
+    )
+    if (
+        not isinstance(implementation_owner, str)
+        or not SAFE_ID.fullmatch(implementation_owner)
+        or implementation_owner == reviewer_id
+    ):
+        return False, "The capability reconciliation is self-certified."
+    revision = item.get("capability_reconciliation_revision")
+    if not isinstance(revision, str) or not re.fullmatch(
+        r"(?:[0-9a-f]{40}|[0-9a-f]{64})", revision
+    ):
+        return False, "The completion record lacks the reconciled current revision."
+    if (
+        item.get("capability_reconciliation_posture") != "verified"
+        or item.get("capability_reconciliation_gap_count") != 0
+    ):
+        return False, "The capability reconciliation retains a supported outcome gap."
     evidence = item.get("evidence")
     if not isinstance(evidence, list) or not evidence or not all(
         isinstance(value, str) and value for value in evidence
@@ -2004,6 +2053,295 @@ def latest_outcome_completion_record(
     )
 
 
+def load_capability_reconciliation(
+    path_value: str,
+    *,
+    target_thread: str,
+    mission_root: str,
+    state_fingerprint: str,
+    current_revision: str,
+    policy: Mapping[str, Any],
+) -> tuple[dict[str, Any], str]:
+    source = Path(path_value).expanduser()
+    try:
+        if not source.is_file():
+            raise SupervisionLogError(
+                "Capability reconciliation source is not an explicit file"
+            )
+        raw = source.read_bytes()
+    except OSError as exc:
+        raise SupervisionLogError(
+            "Capability reconciliation source cannot be read"
+        ) from exc
+    if len(raw) > MAX_CAPABILITY_RECONCILIATION_BYTES:
+        raise SupervisionLogError("Capability reconciliation exceeds its byte bound")
+    try:
+        value = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SupervisionLogError("Capability reconciliation is not valid JSON") from exc
+    if not isinstance(value, dict):
+        raise SupervisionLogError("Capability reconciliation must be an object")
+    expected = {
+        "schema_version",
+        "kind",
+        "target_thread_id",
+        "mission_root",
+        "state_fingerprint",
+        "current_revision",
+        "implementation_owner_id",
+        "reviewer_id",
+        "requested_capability",
+        "protected_capabilities",
+        "selected_architecture_level",
+        "accepted_tradeoffs",
+        "current_behavior",
+        "operator_visible_effects",
+        "supported_gaps",
+        "completion_posture",
+        "evidence",
+    }
+    if set(value) != expected:
+        raise SupervisionLogError(
+            "Capability reconciliation has unexpected or missing fields"
+        )
+    if value.get("schema_version") != 1 or value.get("kind") != CAPABILITY_RECONCILIATION_KIND:
+        raise SupervisionLogError("Capability reconciliation kind or schema differs")
+    if value.get("target_thread_id") != target_thread:
+        raise SupervisionLogError("Capability reconciliation cites another target")
+    if value.get("mission_root") != mission_root:
+        raise SupervisionLogError("Capability reconciliation cites a stale mission")
+    if value.get("state_fingerprint") != state_fingerprint:
+        raise SupervisionLogError(
+            "Capability reconciliation cites a stale state fingerprint"
+        )
+    revision = value.get("current_revision")
+    if revision != current_revision:
+        raise SupervisionLogError(
+            "Capability reconciliation cites a stale current revision"
+        )
+    implementation_owner_value = value.get("implementation_owner_id")
+    reviewer_value = value.get("reviewer_id")
+    if not isinstance(implementation_owner_value, str) or not isinstance(
+        reviewer_value, str
+    ):
+        raise SupervisionLogError(
+            "Capability reconciliation owner identities must be strings"
+        )
+    implementation_owner = safe_id(
+        implementation_owner_value, label="capability implementation owner"
+    )
+    reviewer = safe_id(reviewer_value, label="capability reviewer")
+    if implementation_owner == reviewer:
+        raise SupervisionLogError(
+            "Capability reconciliation reviewer is not independent of implementation"
+        )
+    runtime = policy.get("runtime")
+    if not isinstance(runtime, Mapping):
+        raise SupervisionLogError("Capability reconciliation lacks bound reviewer roles")
+    eligible_reviewers = {
+        item
+        for item in (
+            runtime.get("base_reviewer_thread_id"),
+            runtime.get("reviewer_thread_id"),
+        )
+        if isinstance(item, str) and item
+    }
+    disallowed_reviewers = {
+        item
+        for item in (
+            policy.get("target_thread_id"),
+            runtime.get("watcher_thread_id"),
+            runtime.get("fix_executor_thread_id"),
+        )
+        if isinstance(item, str) and item
+    }
+    if reviewer not in eligible_reviewers or reviewer in disallowed_reviewers:
+        raise SupervisionLogError(
+            "Capability reconciliation reviewer is not an eligible bound independent role"
+        )
+
+    def exact_text(item: Any, *, label: str, maximum: int = 1200) -> str:
+        if (
+            not isinstance(item, str)
+            or not item
+            or item != item.strip()
+            or len(item) > maximum
+        ):
+            raise SupervisionLogError(
+                f"Capability reconciliation {label} is not exact and bounded"
+            )
+        return item
+
+    evidence = value.get("evidence")
+    if not isinstance(evidence, list) or not evidence or len(evidence) > 32:
+        raise SupervisionLogError(
+            "Capability reconciliation evidence is not a bounded array"
+        )
+    evidence_classes = {
+        "direct-authority",
+        "current-repository",
+        "observed-outcome",
+        "validation",
+        "independent-review",
+    }
+    evidence_by_id: dict[str, str] = {}
+    for item in evidence:
+        if not isinstance(item, dict) or set(item) != {
+            "evidence_id",
+            "evidence_class",
+            "source_root",
+        }:
+            raise SupervisionLogError("Capability reconciliation evidence shape differs")
+        evidence_id_value = item.get("evidence_id")
+        if not isinstance(evidence_id_value, str):
+            raise SupervisionLogError("Capability reconciliation evidence ID must be a string")
+        evidence_id = safe_id(evidence_id_value, label="capability evidence ID")
+        evidence_class = item.get("evidence_class")
+        if evidence_class not in evidence_classes:
+            raise SupervisionLogError(
+                "Capability reconciliation evidence class is unsupported"
+            )
+        exact_sha256(item.get("source_root"), label="capability evidence source root")
+        if evidence_id in evidence_by_id:
+            raise SupervisionLogError("Capability reconciliation repeats evidence")
+        evidence_by_id[evidence_id] = str(evidence_class)
+
+    def evidence_ids(item: Any, *, label: str) -> list[str]:
+        if not isinstance(item, list) or not item or len(item) > 16:
+            raise SupervisionLogError(
+                f"Capability reconciliation {label} evidence is not a bounded array"
+            )
+        result: list[str] = []
+        for evidence_id_value in item:
+            if not isinstance(evidence_id_value, str):
+                raise SupervisionLogError(
+                    f"Capability reconciliation {label} evidence ID must be a string"
+                )
+            evidence_id = safe_id(
+                evidence_id_value, label=f"capability {label} evidence ID"
+            )
+            if evidence_id not in evidence_by_id:
+                raise SupervisionLogError(
+                    f"Capability reconciliation {label} has dangling evidence"
+                )
+            result.append(evidence_id)
+        if len(result) != len(set(result)):
+            raise SupervisionLogError(
+                f"Capability reconciliation {label} repeats evidence"
+            )
+        return result
+
+    def claim(
+        item: Any,
+        *,
+        label: str,
+        required_classes: set[str],
+    ) -> None:
+        if not isinstance(item, dict) or set(item) != {"statement", "evidence_ids"}:
+            raise SupervisionLogError(f"Capability reconciliation {label} shape differs")
+        exact_text(item.get("statement"), label=f"{label} statement")
+        linked = evidence_ids(item.get("evidence_ids"), label=label)
+        if not ({evidence_by_id[evidence_id] for evidence_id in linked} & required_classes):
+            raise SupervisionLogError(
+                f"Capability reconciliation {label} lacks required evidence class"
+            )
+
+    claim(
+        value.get("requested_capability"),
+        label="requested capability",
+        required_classes={"direct-authority"},
+    )
+    for field, classes in (
+        ("protected_capabilities", {"direct-authority", "current-repository"}),
+        ("accepted_tradeoffs", {"direct-authority", "current-repository"}),
+        ("operator_visible_effects", {"observed-outcome"}),
+    ):
+        items = value.get(field)
+        if not isinstance(items, list) or not items or len(items) > 16:
+            raise SupervisionLogError(
+                f"Capability reconciliation {field} is not a bounded array"
+            )
+        for index, item in enumerate(items):
+            claim(
+                item,
+                label=f"{field} {index}",
+                required_classes=classes,
+            )
+    claim(
+        value.get("current_behavior"),
+        label="current behavior",
+        required_classes={"observed-outcome"},
+    )
+    architecture = value.get("selected_architecture_level")
+    if not isinstance(architecture, dict) or set(architecture) != {
+        "level",
+        "owner_ref",
+        "evidence_ids",
+    }:
+        raise SupervisionLogError(
+            "Capability reconciliation selected architecture level shape differs"
+        )
+    exact_text(architecture.get("level"), label="architecture level", maximum=160)
+    exact_text(architecture.get("owner_ref"), label="architecture owner", maximum=300)
+    architecture_evidence = evidence_ids(
+        architecture.get("evidence_ids"), label="selected architecture level"
+    )
+    if "current-repository" not in {
+        evidence_by_id[evidence_id] for evidence_id in architecture_evidence
+    }:
+        raise SupervisionLogError(
+            "Capability reconciliation architecture lacks current repository evidence"
+        )
+    gaps = value.get("supported_gaps")
+    if not isinstance(gaps, list) or len(gaps) > 16:
+        raise SupervisionLogError(
+            "Capability reconciliation supported_gaps is not a bounded array"
+        )
+    seen_gap_ids: set[str] = set()
+    for gap in gaps:
+        if not isinstance(gap, dict) or set(gap) != {
+            "gap_id",
+            "statement",
+            "owner_class",
+            "owner_ref",
+            "evidence_ids",
+        }:
+            raise SupervisionLogError("Capability reconciliation gap shape differs")
+        gap_id_value = gap.get("gap_id")
+        if not isinstance(gap_id_value, str):
+            raise SupervisionLogError("Capability reconciliation gap ID must be a string")
+        gap_id = safe_id(gap_id_value, label="capability gap ID")
+        if gap_id in seen_gap_ids:
+            raise SupervisionLogError("Capability reconciliation repeats a gap ID")
+        seen_gap_ids.add(gap_id)
+        exact_text(gap.get("statement"), label="gap statement", maximum=500)
+        if gap.get("owner_class") not in {
+            "authoring",
+            "implementation",
+            "supervision",
+            "target-repository",
+        }:
+            raise SupervisionLogError(
+                "Capability reconciliation gap owner class is unsupported"
+            )
+        exact_text(gap.get("owner_ref"), label="gap owner reference", maximum=300)
+        gap_evidence = evidence_ids(gap.get("evidence_ids"), label="supported gap")
+        if "observed-outcome" not in {
+            evidence_by_id[evidence_id] for evidence_id in gap_evidence
+        }:
+            raise SupervisionLogError(
+                "Capability reconciliation gap lacks observed outcome evidence"
+            )
+    posture = value.get("completion_posture")
+    if posture not in CAPABILITY_RECONCILIATION_POSTURES:
+        raise SupervisionLogError("Capability reconciliation posture is unsupported")
+    if (posture == "verified") != (not gaps):
+        raise SupervisionLogError(
+            "Capability reconciliation gap set contradicts its completion posture"
+        )
+    return value, digest(value)
+
+
 def cmd_completion_record(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     if policy.get("outcome_completion") != outcome_completion_contract():
@@ -2019,6 +2357,9 @@ def cmd_completion_record(args: argparse.Namespace) -> None:
     state_fingerprint = safe_id(
         args.state_fingerprint, label="state fingerprint"
     )
+    current_revision = str(args.current_revision)
+    if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", current_revision):
+        raise SupervisionLogError("Outcome completion requires an exact current revision")
     if args.model != outcome_completion_contract()["reviewer_model"]:
         raise SupervisionLogError("Outcome completion requires the configured Sol reviewer")
     if args.reasoning not in outcome_completion_contract()["reviewer_reasoning"]:
@@ -2032,6 +2373,18 @@ def cmd_completion_record(args: argparse.Namespace) -> None:
         raise SupervisionLogError("Outcome completion requires exact source evidence")
     if len(evidence_values) > 16:
         raise SupervisionLogError("Too many outcome-completion evidence references")
+    reconciliation, reconciliation_root = load_capability_reconciliation(
+        args.capability_reconciliation_json,
+        target_thread=args.target_thread,
+        mission_root=mission_root,
+        state_fingerprint=state_fingerprint,
+        current_revision=current_revision,
+        policy=policy,
+    )
+    if args.status == "verified" and reconciliation["completion_posture"] != "verified":
+        raise SupervisionLogError(
+            "Verified completion cannot retain a supported capability gap"
+        )
     record: dict[str, Any] = {
         "schema_version": 1,
         "record_id": "",
@@ -2050,9 +2403,20 @@ def cmd_completion_record(args: argparse.Namespace) -> None:
         "evidence": evidence_values,
         "mission_root": mission_root,
         "policy_sha256": policy["policy_sha256"],
+        "capability_reconciliation_reviewer_id": reconciliation["reviewer_id"],
+        "capability_reconciliation_implementation_owner_id": reconciliation[
+            "implementation_owner_id"
+        ],
+        "capability_reconciliation_revision": reconciliation["current_revision"],
+        "capability_reconciliation_posture": reconciliation["completion_posture"],
+        "capability_reconciliation_gap_count": len(reconciliation["supported_gaps"]),
     }
     for field in OUTCOME_COMPLETION_HASH_FIELDS:
-        record[field] = exact_sha256(getattr(args, field), label=field)
+        record[field] = (
+            reconciliation_root
+            if field == "capability_reconciliation_sha256"
+            else exact_sha256(getattr(args, field), label=field)
+        )
     with append_lock(directory):
         current_events = events(directory / "events.jsonl")
         prior = latest_outcome_completion_record(
@@ -5328,6 +5692,7 @@ def parser() -> argparse.ArgumentParser:
     completion_record = subparsers.add_parser("completion-record")
     completion_record.add_argument("--target-thread", required=True)
     completion_record.add_argument("--state-fingerprint", required=True)
+    completion_record.add_argument("--current-revision", required=True)
     completion_record.add_argument("--mission-root", required=True)
     completion_record.add_argument(
         "--status", choices=sorted(OUTCOME_COMPLETION_STATUSES), required=True
@@ -5344,7 +5709,7 @@ def parser() -> argparse.ArgumentParser:
     )
     completion_record.add_argument("--independent-challenge-sha256", required=True)
     completion_record.add_argument(
-        "--capability-reconciliation-sha256", required=True
+        "--capability-reconciliation-json", required=True
     )
     completion_record.add_argument("--active-block", default="")
     completion_record.add_argument("--checkpoint", default="")

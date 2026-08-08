@@ -1593,14 +1593,19 @@ def _normalize_review_material(
     experiment = _normalize_experiment(
         submission.get("experiment"), selected=candidate_map[selected_id]
     )
+    reviewer_id = _exact_identifier(
+        submission.get("reviewer_id"), label="reviewer_id"
+    )
+    if reviewer_id != experiment["proposer_id"]:
+        raise FactoryEvolutionError(
+            "Evolution review author must be the recorded experiment proposer"
+        )
     return {
         "schema_version": SCHEMA_VERSION,
         "kind": REVIEW_KIND,
         "packet_id": packet["packet_id"],
         "packet_root": packet["packet_root"],
-        "reviewer_id": _exact_identifier(
-            submission.get("reviewer_id"), label="reviewer_id"
-        ),
+        "reviewer_id": reviewer_id,
         "observations": observations,
         "lessons": lessons,
         "meta_patterns": meta_patterns,
@@ -1773,7 +1778,7 @@ def _normalize_evaluation_material(
     if evaluator != experiment["evaluator_id"] or evaluator in {
         experiment["proposer_id"],
         experiment["implementer_id"],
-    }:
+    } or evaluator == verified_review["reviewer_id"]:
         raise FactoryEvolutionError("Candidate evaluation is not independent")
     case_ids = set(experiment["positive_case_ids"] + experiment["exception_case_ids"])
     event_ids, _ = _packet_reference_sets(packet)
