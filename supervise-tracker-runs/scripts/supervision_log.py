@@ -257,6 +257,17 @@ def legacy_outcome_completion_contract_without_capability() -> dict[str, Any]:
     return contract
 
 
+def legacy_outcome_completion_contract_with_unvalidated_capability() -> dict[str, Any]:
+    """Exact Block 6 predecessor accepted only so `bind` can upgrade it."""
+
+    contract = outcome_completion_contract()
+    contract["capability_reconciliation_required_fields"] = [
+        *contract["capability_reconciliation_required_fields"][:-1],
+        "supported_gaps_and_narrow_owner",
+    ]
+    return contract
+
+
 def skill_maintenance_contract(mode: str = "propose-only") -> dict[str, Any]:
     if mode not in SKILL_MAINTENANCE_MODES:
         raise SupervisionLogError("Unsupported skill-maintenance mode")
@@ -1065,6 +1076,7 @@ def validate_policy(policy: dict[str, Any]) -> None:
     if completion is not None and canonical(completion) not in {
         canonical(outcome_completion_contract()),
         canonical(legacy_outcome_completion_contract_without_capability()),
+        canonical(legacy_outcome_completion_contract_with_unvalidated_capability()),
     }:
         raise SupervisionLogError("Outcome-completion contract differs")
     decisions = policy.get("decision_resolution")

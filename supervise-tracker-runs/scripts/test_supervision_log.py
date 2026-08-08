@@ -1179,6 +1179,36 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
         )
         write.assert_called_once()
 
+    def test_bind_upgrades_intermediate_capability_completion_contract(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        policy["outcome_completion"] = (
+            supervision_log.legacy_outcome_completion_contract_with_unvalidated_capability()
+        )
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+        supervision_log.validate_policy(policy)
+        args = supervision_log.parser().parse_args(
+            ["bind", "--target-thread", "target-1234"]
+        )
+
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(Path("/tmp/supervision-test"), policy),
+            ),
+            mock.patch.object(supervision_log, "write_policy_version") as write,
+            redirect_stdout(io.StringIO()),
+        ):
+            supervision_log.cmd_bind(args)
+
+        self.assertEqual(
+            policy["outcome_completion"],
+            supervision_log.outcome_completion_contract(),
+        )
+        write.assert_called_once()
+
     def test_skill_maintenance_mode_change_requires_evidence(self) -> None:
         cases = (
             ("propose-only", "apply-allowlisted-skill-maintenance-with-review", []),
