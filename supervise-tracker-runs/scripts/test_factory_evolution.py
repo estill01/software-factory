@@ -122,11 +122,28 @@ class LearningPacketTests(unittest.TestCase):
         )
         return path
 
+    def write_report_for_records(self, name: str, record_ids: list[str]) -> Path:
+        value = json.loads(self.report.read_text())
+        for items in value["cognitive_review"]["sections"].values():
+            for item in items:
+                item["evidence"] = list(record_ids)
+        return self.write_json(name, value)
+
     def build(self, *, reports: list[Path] | None = None, events: list[Path] | None = None) -> dict[str, object]:
         return factory_evolution.build_learning_packet(
             report_paths=reports or [self.report],
             event_paths=events or [self.events],
         )
+
+    def reroot(self, packet: dict[str, object]) -> None:
+        material = {
+            key: value
+            for key, value in packet.items()
+            if key not in {"packet_id", "packet_root"}
+        }
+        packet_root = factory_evolution.digest(material)
+        packet["packet_root"] = packet_root
+        packet["packet_id"] = "learning-" + packet_root[:20]
 
     def test_equivalent_inputs_are_order_independent_and_deduplicated(self) -> None:
         duplicate_report = self.root / "report-duplicate.json"
@@ -191,6 +208,16 @@ class LearningPacketTests(unittest.TestCase):
         with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "identity"):
             self.build(reports=[mismatch])
 
+    def test_conflicting_reports_for_one_source_root_are_rejected(self) -> None:
+        value = json.loads(self.report.read_text())
+        value["cognitive_review"]["headline"] = "A conflicting derivative report."
+        conflict = self.write_json("report-conflict.json", value)
+
+        with self.assertRaisesRegex(
+            factory_evolution.FactoryEvolutionError, "conflicting report content"
+        ):
+            self.build(reports=[self.report, conflict])
+
     def test_terminal_report_kind_is_explicitly_outside_weekly_loader_contract(self) -> None:
         value = json.loads(self.report.read_text())
         value["kind"] = "supervision-terminal-implementation-report-record"
@@ -204,11 +231,34 @@ class LearningPacketTests(unittest.TestCase):
     def test_unknown_event_kind_is_excluded_and_counted(self) -> None:
         unknown = event_record("EVT-01", previous=None, kind="future-unknown-kind")
         path = self.write_events("unknown.jsonl", [unknown])
+        report = self.write_report_for_records("unknown-report.json", ["EVT-01"])
 
-        packet = self.build(events=[path])
+        packet = self.build(reports=[report], events=[path])
 
         self.assertEqual(packet["coverage"]["unsupported_event_kinds"], 1)
         self.assertEqual(packet["coverage"]["retained_event_records"], 0)
+
+    def test_report_evidence_must_resolve_to_an_explicit_canonical_event(self) -> None:
+        value = json.loads(self.report.read_text())
+        value["cognitive_review"]["sections"]["exceptions"][0]["evidence"] = [
+            "EVT-NOT-PRESENT"
+        ]
+        dangling = self.write_json("dangling.json", value)
+
+        with self.assertRaisesRegex(
+            factory_evolution.FactoryEvolutionError, "does not resolve"
+        ):
+            self.build(reports=[dangling])
+
+    def test_record_identity_is_rejected_rather_than_rewritten(self) -> None:
+        long_id = "E" * 200 + "01"
+        value = event_record(long_id, previous=None)
+        path = self.write_events("long-id.jsonl", [value])
+
+        with self.assertRaisesRegex(
+            factory_evolution.FactoryEvolutionError, "exact bounded identifier"
+        ):
+            self.build(events=[path])
 
     def test_text_and_evidence_are_bounded_and_reasoning_is_not_retained(self) -> None:
         long_text = "x" * 2_000
@@ -219,7 +269,8 @@ class LearningPacketTests(unittest.TestCase):
             evidence=[f"reference-{index}-" + long_text for index in range(20)],
         )
         path = self.write_events("bounded.jsonl", [value])
-        packet = self.build(events=[path])
+        report = self.write_report_for_records("bounded-report.json", ["EVT-01"])
+        packet = self.build(reports=[report], events=[path])
         retained = packet["evidence"]["events"][0]
 
         self.assertLessEqual(len(retained["summary"]), factory_evolution.MAX_EVENT_TEXT)
@@ -235,6 +286,32 @@ class LearningPacketTests(unittest.TestCase):
         with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "forbidden raw-content"):
             self.build(reports=[unsafe])
 
+    def test_verifier_rejects_rerooted_raw_content(self) -> None:
+        packet = self.build()
+        packet["raw_transcript"] = "x" * 10_000
+        self.reroot(packet)
+
+        with self.assertRaisesRegex(
+            factory_evolution.FactoryEvolutionError, "forbidden raw-content"
+        ):
+            factory_evolution.verify_learning_packet(packet)
+
+    def test_aggregate_inputs_and_retained_arrays_are_bounded(self) -> None:
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "Too many explicit report"):
+            self.build(
+                reports=[self.report]
+                * (factory_evolution.MAX_EXPLICIT_REPORT_INPUTS + 1)
+            )
+
+        packet = self.build()
+        event = packet["evidence"]["events"][0]
+        packet["evidence"]["events"] = [event] * (
+            factory_evolution.MAX_PACKET_EVENTS + 1
+        )
+        self.reroot(packet)
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "bounded array"):
+            factory_evolution.verify_learning_packet(packet)
+
     def test_inputs_are_required_and_never_discovered_implicitly(self) -> None:
         with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "explicit report"):
             factory_evolution.build_learning_packet(report_paths=[], event_paths=[self.events])
@@ -245,7 +322,7 @@ class LearningPacketTests(unittest.TestCase):
         packet = self.build()
         packet["coverage"]["retained_event_records"] = 9000
 
-        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "identity is stale"):
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "coverage.*stale"):
             factory_evolution.verify_learning_packet(packet)
 
 

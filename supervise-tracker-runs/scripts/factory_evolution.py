@@ -21,6 +21,12 @@ TRANSFORMATION = {
 SHA256 = re.compile(r"[0-9a-f]{64}")
 MAX_SOURCE_BYTES = 16 * 1024 * 1024
 MAX_EVENT_RECORDS = 10_000
+MAX_EXPLICIT_REPORT_INPUTS = 32
+MAX_EXPLICIT_EVENT_INPUTS = 32
+MAX_PACKET_REPORTS = 16
+MAX_PACKET_LEDGERS = 16
+MAX_PACKET_EVENTS = 5_000
+MAX_PACKET_HYPOTHESES = 512
 MAX_REPORT_HYPOTHESES = 64
 MAX_EVIDENCE_REFS = 8
 MAX_EVENT_TEXT = 280
@@ -88,6 +94,16 @@ def _exact_sha256(value: Any, *, label: str) -> str:
     if not SHA256.fullmatch(text):
         raise FactoryEvolutionError(f"{label} must be an exact lowercase SHA-256")
     return text
+
+
+def _exact_identifier(value: Any, *, label: str, limit: int = 160) -> str:
+    if not isinstance(value, str):
+        raise FactoryEvolutionError(f"{label} must be a string")
+    if not value or len(value) > limit or value != value.strip():
+        raise FactoryEvolutionError(f"{label} must be an exact bounded identifier")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]*", value):
+        raise FactoryEvolutionError(f"{label} contains unsafe identifier characters")
+    return value
 
 
 def _bounded_text(value: Any, *, limit: int) -> str:
@@ -165,6 +181,15 @@ def _evidence_refs(value: Any) -> list[str]:
     return [_evidence_ref(item) for item in value[:MAX_EVIDENCE_REFS]]
 
 
+def _report_evidence_ids(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        raise FactoryEvolutionError("Report evidence references must be an array")
+    return [
+        _exact_identifier(item, label="report evidence record ID")
+        for item in value[:MAX_EVIDENCE_REFS]
+    ]
+
+
 def _report_hypotheses(
     report: Mapping[str, Any], *, report_id: str, source_root: str, report_sha256: str
 ) -> list[dict[str, Any]]:
@@ -194,7 +219,7 @@ def _report_hypotheses(
                 "assessment": _bounded_text(
                     item.get("assessment"), limit=MAX_REPORT_TEXT
                 ),
-                "evidence_refs": _evidence_refs(item.get("evidence", [])),
+                "evidence_refs": _report_evidence_ids(item.get("evidence", [])),
                 "source_report_id": report_id,
                 "source_root": source_root,
                 "source_report_sha256": report_sha256,
@@ -209,7 +234,7 @@ def _load_report(path: str | Path) -> tuple[dict[str, Any], list[dict[str, Any]]
     report = _json_object(raw, label=source.name)
     _reject_forbidden_source_keys(report, label=source.name)
     source_root = _exact_sha256(report.get("source_root"), label="report source_root")
-    report_id = _bounded_text(report.get("report_id"), limit=160)
+    report_id = _exact_identifier(report.get("report_id"), label="report_id")
     if not report_id or not report_id.endswith(source_root[:12]):
         raise FactoryEvolutionError("Report ID is not bound to its source root")
     kind = _bounded_text(report.get("kind"), limit=120)
@@ -271,6 +296,7 @@ def _load_event_ledger(
     previous: str | None = None
     record_ids: set[str] = set()
     record_hashes: list[str] = []
+    record_index: list[dict[str, str]] = []
     retained: list[dict[str, Any]] = []
     unknown_count = 0
     target_thread_ids: set[str] = set()
@@ -304,15 +330,20 @@ def _load_event_ledger(
             raise FactoryEvolutionError(
                 f"{source.name} has a stale record hash at line {line_number}"
             )
-        record_id = _bounded_text(value.get("record_id"), limit=160)
-        if not record_id or record_id in record_ids:
+        record_id = _exact_identifier(value.get("record_id"), label="event record_id")
+        if record_id in record_ids:
             raise FactoryEvolutionError(
-                f"{source.name} has a missing or duplicate record ID at line {line_number}"
+                f"{source.name} has a duplicate record ID at line {line_number}"
             )
         record_ids.add(record_id)
         record_hashes.append(recorded_hash)
+        record_index.append(
+            {"record_id": record_id, "record_sha256": recorded_hash}
+        )
         previous = recorded_hash
-        target_thread_id = _bounded_text(value.get("target_thread_id"), limit=160)
+        target_thread_id = _exact_identifier(
+            value.get("target_thread_id"), label="event target_thread_id"
+        )
         if target_thread_id:
             target_thread_ids.add(target_thread_id)
 
@@ -348,9 +379,11 @@ def _load_event_ledger(
         "source_sha256": hashlib.sha256(raw).hexdigest(),
         "ledger_root": ledger_root,
         "record_count": len(record_hashes),
+        "record_index": record_index,
         "first_record_sha256": record_hashes[0],
         "last_record_sha256": record_hashes[-1],
         "target_thread_ids": sorted(target_thread_ids),
+        "unsupported_event_kinds": unknown_count,
     }
     return manifest, retained, unknown_count
 
@@ -364,6 +397,10 @@ def build_learning_packet(
         raise FactoryEvolutionError("At least one explicit report path is required")
     if not event_paths:
         raise FactoryEvolutionError("At least one explicit event path is required")
+    if len(report_paths) > MAX_EXPLICIT_REPORT_INPUTS:
+        raise FactoryEvolutionError("Too many explicit report inputs")
+    if len(event_paths) > MAX_EXPLICIT_EVENT_INPUTS:
+        raise FactoryEvolutionError("Too many explicit event inputs")
 
     reports_by_root: dict[str, tuple[dict[str, Any], list[dict[str, Any]]]] = {}
     for path in report_paths:
@@ -371,12 +408,18 @@ def build_learning_packet(
         source_root = reference["source_root"]
         candidate = (reference, hypotheses)
         current = reports_by_root.get(source_root)
-        if current is None or canonical(candidate) < canonical(current):
-            reports_by_root[source_root] = candidate
+        if current is not None:
+            if current[0]["report_sha256"] != reference["report_sha256"]:
+                raise FactoryEvolutionError(
+                    "One report source root has conflicting report content"
+                )
+            continue
+        reports_by_root[source_root] = candidate
+        if len(reports_by_root) > MAX_PACKET_REPORTS:
+            raise FactoryEvolutionError("Learning packet has too many report roots")
 
     ledgers_by_root: dict[str, dict[str, Any]] = {}
     events_by_hash: dict[str, dict[str, Any]] = {}
-    unknown_by_ledger: dict[str, int] = {}
     for path in event_paths:
         manifest, source_events, unknown_count = _load_event_ledger(path)
         ledger_root = manifest["ledger_root"]
@@ -384,7 +427,8 @@ def build_learning_packet(
         if current_manifest is not None and current_manifest != manifest:
             raise FactoryEvolutionError("One event ledger root has conflicting manifests")
         ledgers_by_root[ledger_root] = manifest
-        unknown_by_ledger[ledger_root] = unknown_count
+        if len(ledgers_by_root) > MAX_PACKET_LEDGERS:
+            raise FactoryEvolutionError("Learning packet has too many event ledger roots")
         for event in source_events:
             record_hash = event["record_sha256"]
             current = events_by_hash.get(record_hash)
@@ -400,6 +444,8 @@ def build_learning_packet(
             current["source_ledger_roots"] = sorted(
                 set(current["source_ledger_roots"] + event["source_ledger_roots"])
             )
+        if len(events_by_hash) > MAX_PACKET_EVENTS:
+            raise FactoryEvolutionError("Learning packet has too many retained events")
 
     reports = [reports_by_root[root][0] for root in sorted(reports_by_root)]
     hypotheses = [
@@ -407,6 +453,8 @@ def build_learning_packet(
         for root in sorted(reports_by_root)
         for item in reports_by_root[root][1]
     ]
+    if len(hypotheses) > MAX_PACKET_HYPOTHESES:
+        raise FactoryEvolutionError("Learning packet has too many report hypotheses")
     events = sorted(
         events_by_hash.values(),
         key=lambda item: (
@@ -432,7 +480,9 @@ def build_learning_packet(
             "canonical_event_records": sum(item["record_count"] for item in ledgers),
             "retained_event_records": len(events),
             "retained_report_hypotheses": len(hypotheses),
-            "unsupported_event_kinds": sum(unknown_by_ledger.values()),
+            "unsupported_event_kinds": sum(
+                item["unsupported_event_kinds"] for item in ledgers
+            ),
         },
     }
     packet_root = digest(material)
@@ -442,52 +492,401 @@ def build_learning_packet(
     return verify_learning_packet(packet)
 
 
-def verify_learning_packet(packet: Mapping[str, Any]) -> dict[str, Any]:
-    """Verify packet identity and that every retained claim resolves to a source."""
+def _exact_keys(value: Mapping[str, Any], expected: set[str], *, label: str) -> None:
+    if set(value) != expected:
+        raise FactoryEvolutionError(f"{label} has unexpected or missing fields")
 
+
+def _bounded_packet_text(value: Any, *, label: str, limit: int) -> str:
+    if not isinstance(value, str) or _bounded_text(value, limit=limit) != value:
+        raise FactoryEvolutionError(f"{label} is not normalized and bounded")
+    return value
+
+
+def _bounded_integer(value: Any, *, label: str, maximum: int | None = None) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise FactoryEvolutionError(f"{label} must be a non-negative integer")
+    if maximum is not None and value > maximum:
+        raise FactoryEvolutionError(f"{label} exceeds its aggregate bound")
+    return value
+
+
+def _string_array(
+    value: Any, *, label: str, limit: int, item_limit: int
+) -> list[str]:
+    if not isinstance(value, list) or len(value) > limit:
+        raise FactoryEvolutionError(f"{label} is not a bounded array")
+    result = [
+        _bounded_packet_text(item, label=f"{label} item", limit=item_limit)
+        for item in value
+    ]
+    if len(result) != len(set(result)):
+        raise FactoryEvolutionError(f"{label} contains duplicate entries")
+    return result
+
+
+def verify_learning_packet(packet: Mapping[str, Any]) -> dict[str, Any]:
+    """Fully verify packet schema, bounds, provenance, ordering, and identity."""
+
+    if not isinstance(packet, Mapping):
+        raise FactoryEvolutionError("Learning packet must be an object")
+    _reject_forbidden_source_keys(packet, label="learning packet")
     value = dict(packet)
+    _exact_keys(
+        value,
+        {
+            "schema_version",
+            "kind",
+            "authority",
+            "transformation",
+            "sources",
+            "evidence",
+            "coverage",
+            "packet_id",
+            "packet_root",
+        },
+        label="Learning packet",
+    )
     if value.get("schema_version") != SCHEMA_VERSION:
         raise FactoryEvolutionError("Learning packet schema_version is unsupported")
     if value.get("kind") != PACKET_KIND or value.get("authority") != PACKET_AUTHORITY:
         raise FactoryEvolutionError("Learning packet kind or authority is invalid")
     if value.get("transformation") != TRANSFORMATION:
         raise FactoryEvolutionError("Learning packet transformation is invalid")
-    recorded_root = _exact_sha256(value.pop("packet_root", None), label="packet_root")
-    packet_id = value.pop("packet_id", None)
-    expected_root = digest(value)
-    if recorded_root != expected_root or packet_id != "learning-" + expected_root[:20]:
-        raise FactoryEvolutionError("Learning packet identity is stale")
 
     sources = value.get("sources")
     evidence = value.get("evidence")
+    coverage = value.get("coverage")
     if not isinstance(sources, Mapping) or not isinstance(evidence, Mapping):
         raise FactoryEvolutionError("Learning packet sources and evidence must be objects")
-    report_keys = {
-        (item.get("report_id"), item.get("source_root"), item.get("report_sha256"))
-        for item in sources.get("reports", [])
-        if isinstance(item, Mapping)
-    }
-    ledger_roots = {
-        item.get("ledger_root")
-        for item in sources.get("event_ledgers", [])
-        if isinstance(item, Mapping)
-    }
-    for hypothesis in evidence.get("report_hypotheses", []):
+    if not isinstance(coverage, Mapping):
+        raise FactoryEvolutionError("Learning packet coverage must be an object")
+    _exact_keys(sources, {"reports", "event_ledgers"}, label="Packet sources")
+    _exact_keys(evidence, {"report_hypotheses", "events"}, label="Packet evidence")
+    _exact_keys(
+        coverage,
+        {
+            "report_roots",
+            "event_ledger_roots",
+            "canonical_event_records",
+            "retained_event_records",
+            "retained_report_hypotheses",
+            "unsupported_event_kinds",
+        },
+        label="Packet coverage",
+    )
+
+    reports = sources.get("reports")
+    ledgers = sources.get("event_ledgers")
+    events = evidence.get("events")
+    hypotheses = evidence.get("report_hypotheses")
+    if not isinstance(reports, list) or len(reports) > MAX_PACKET_REPORTS:
+        raise FactoryEvolutionError("Packet reports are not a bounded array")
+    if not isinstance(ledgers, list) or len(ledgers) > MAX_PACKET_LEDGERS:
+        raise FactoryEvolutionError("Packet event ledgers are not a bounded array")
+    if not isinstance(events, list) or len(events) > MAX_PACKET_EVENTS:
+        raise FactoryEvolutionError("Packet events are not a bounded array")
+    if not isinstance(hypotheses, list) or len(hypotheses) > MAX_PACKET_HYPOTHESES:
+        raise FactoryEvolutionError("Packet hypotheses are not a bounded array")
+
+    report_keys: set[tuple[str, str, str]] = set()
+    report_roots: list[str] = []
+    for report in reports:
+        if not isinstance(report, Mapping):
+            raise FactoryEvolutionError("Packet report source must be an object")
+        _exact_keys(
+            report,
+            {
+                "report_id",
+                "source_root",
+                "report_sha256",
+                "kind",
+                "schema_version",
+                "coverage",
+                "review_summary",
+            },
+            label="Packet report source",
+        )
+        report_id = _exact_identifier(report.get("report_id"), label="packet report_id")
+        source_root = _exact_sha256(report.get("source_root"), label="packet report source_root")
+        report_sha256 = _exact_sha256(
+            report.get("report_sha256"), label="packet report SHA-256"
+        )
+        if not report_id.endswith(source_root[:12]):
+            raise FactoryEvolutionError("Packet report ID is not bound to its source root")
+        if report.get("kind") != "supervision-weekly-review-record":
+            raise FactoryEvolutionError("Packet report kind is unsupported")
+        if report.get("schema_version") != 1:
+            raise FactoryEvolutionError("Packet report schema_version is unsupported")
+        report_coverage = report.get("coverage")
+        summary = report.get("review_summary")
+        if not isinstance(report_coverage, Mapping) or not isinstance(summary, Mapping):
+            raise FactoryEvolutionError("Packet report coverage and summary must be objects")
+        _exact_keys(report_coverage, {"start", "end"}, label="Packet report coverage")
+        _exact_keys(
+            summary,
+            {"headline", "executive_assessment", "overall_posture"},
+            label="Packet report review summary",
+        )
+        for key in ("start", "end"):
+            _bounded_packet_text(
+                report_coverage.get(key), label=f"report coverage {key}", limit=64
+            )
+        for key in ("headline", "executive_assessment"):
+            _bounded_packet_text(
+                summary.get(key), label=f"report summary {key}", limit=MAX_REPORT_TEXT
+            )
+        _bounded_packet_text(
+            summary.get("overall_posture"),
+            label="report summary overall_posture",
+            limit=120,
+        )
+        key = (report_id, source_root, report_sha256)
+        if key in report_keys or source_root in report_roots:
+            raise FactoryEvolutionError("Packet report roots are not unique")
+        report_keys.add(key)
+        report_roots.append(source_root)
+    if report_roots != sorted(report_roots):
+        raise FactoryEvolutionError("Packet reports are not deterministically ordered")
+
+    ledger_roots: list[str] = []
+    canonical_record_ids: set[str] = set()
+    canonical_record_hashes: dict[str, str] = {}
+    unsupported_total = 0
+    canonical_total = 0
+    for ledger in ledgers:
+        if not isinstance(ledger, Mapping):
+            raise FactoryEvolutionError("Packet event ledger must be an object")
+        _exact_keys(
+            ledger,
+            {
+                "source_sha256",
+                "ledger_root",
+                "record_count",
+                "record_index",
+                "first_record_sha256",
+                "last_record_sha256",
+                "target_thread_ids",
+                "unsupported_event_kinds",
+            },
+            label="Packet event ledger",
+        )
+        _exact_sha256(ledger.get("source_sha256"), label="ledger source SHA-256")
+        ledger_root = _exact_sha256(ledger.get("ledger_root"), label="ledger root")
+        first_hash = _exact_sha256(
+            ledger.get("first_record_sha256"), label="ledger first record SHA-256"
+        )
+        last_hash = _exact_sha256(
+            ledger.get("last_record_sha256"), label="ledger last record SHA-256"
+        )
+        record_count = _bounded_integer(
+            ledger.get("record_count"), label="ledger record count", maximum=MAX_EVENT_RECORDS
+        )
+        unsupported = _bounded_integer(
+            ledger.get("unsupported_event_kinds"),
+            label="ledger unsupported event count",
+            maximum=record_count,
+        )
+        record_index = ledger.get("record_index")
+        if not isinstance(record_index, list) or len(record_index) != record_count or not record_index:
+            raise FactoryEvolutionError("Ledger record index does not match its count")
+        record_hashes: list[str] = []
+        ledger_ids: set[str] = set()
+        for record in record_index:
+            if not isinstance(record, Mapping):
+                raise FactoryEvolutionError("Ledger record index entry must be an object")
+            _exact_keys(
+                record,
+                {"record_id", "record_sha256"},
+                label="Ledger record index entry",
+            )
+            record_id = _exact_identifier(
+                record.get("record_id"), label="ledger record_id"
+            )
+            record_hash = _exact_sha256(
+                record.get("record_sha256"), label="ledger record SHA-256"
+            )
+            if record_id in ledger_ids:
+                raise FactoryEvolutionError("Ledger record index repeats a record ID")
+            known_hash = canonical_record_hashes.get(record_id)
+            if known_hash is not None and known_hash != record_hash:
+                raise FactoryEvolutionError("One canonical record ID has conflicting hashes")
+            ledger_ids.add(record_id)
+            canonical_record_ids.add(record_id)
+            canonical_record_hashes[record_id] = record_hash
+            record_hashes.append(record_hash)
+        if first_hash != record_hashes[0] or last_hash != record_hashes[-1]:
+            raise FactoryEvolutionError("Ledger first or last record hash is stale")
+        if ledger_root != digest({"record_hashes": record_hashes}):
+            raise FactoryEvolutionError("Ledger root is stale")
+        target_ids = ledger.get("target_thread_ids")
+        if not isinstance(target_ids, list) or len(target_ids) > 32:
+            raise FactoryEvolutionError("Ledger target thread IDs are not bounded")
+        normalized_targets = [
+            _exact_identifier(item, label="ledger target thread ID") for item in target_ids
+        ]
+        if normalized_targets != sorted(set(normalized_targets)):
+            raise FactoryEvolutionError("Ledger target thread IDs are not sorted and unique")
+        if ledger_root in ledger_roots:
+            raise FactoryEvolutionError("Packet repeats an event ledger root")
+        ledger_roots.append(ledger_root)
+        canonical_total += record_count
+        unsupported_total += unsupported
+    if ledger_roots != sorted(ledger_roots):
+        raise FactoryEvolutionError("Packet ledgers are not deterministically ordered")
+    ledger_root_set = set(ledger_roots)
+
+    event_keys: set[tuple[str, str]] = set()
+    event_order: list[tuple[str, str, str]] = []
+    for event in events:
+        if not isinstance(event, Mapping):
+            raise FactoryEvolutionError("Packet event must be an object")
+        _exact_keys(
+            event,
+            {
+                "record_id",
+                "record_sha256",
+                "kind",
+                "timestamp",
+                "status",
+                "severity",
+                "category",
+                "active_block",
+                "checkpoint",
+                "summary",
+                "resolution",
+                "evidence_refs",
+                "target_thread_id",
+                "source_ledger_roots",
+            },
+            label="Packet event",
+        )
+        record_id = _exact_identifier(event.get("record_id"), label="packet event record_id")
+        record_hash = _exact_sha256(
+            event.get("record_sha256"), label="packet event record SHA-256"
+        )
+        if canonical_record_hashes.get(record_id) != record_hash:
+            raise FactoryEvolutionError("Packet event does not resolve to a canonical record")
+        if event.get("kind") not in SUPPORTED_EVENT_KINDS:
+            raise FactoryEvolutionError("Packet event kind is unsupported")
+        for key, limit in (
+            ("timestamp", 64),
+            ("status", 80),
+            ("severity", 40),
+            ("category", 100),
+            ("active_block", 100),
+            ("checkpoint", 100),
+            ("summary", MAX_EVENT_TEXT),
+            ("resolution", MAX_EVENT_TEXT),
+        ):
+            _bounded_packet_text(event.get(key), label=f"packet event {key}", limit=limit)
+        _exact_identifier(
+            event.get("target_thread_id"), label="packet event target_thread_id"
+        )
+        _string_array(
+            event.get("evidence_refs"),
+            label="packet event evidence refs",
+            limit=MAX_EVIDENCE_REFS,
+            item_limit=MAX_REFERENCE_TEXT,
+        )
+        roots = event.get("source_ledger_roots")
+        if not isinstance(roots, list) or not roots:
+            raise FactoryEvolutionError("Packet event has no source ledger roots")
+        validated_roots = [
+            _exact_sha256(item, label="packet event ledger root") for item in roots
+        ]
+        if validated_roots != sorted(set(validated_roots)) or not set(validated_roots) <= ledger_root_set:
+            raise FactoryEvolutionError("Packet event ledger roots are invalid")
+        event_key = (record_id, record_hash)
+        if event_key in event_keys:
+            raise FactoryEvolutionError("Packet repeats an event identity")
+        event_keys.add(event_key)
+        event_order.append((event["timestamp"], record_id, record_hash))
+    if event_order != sorted(event_order):
+        raise FactoryEvolutionError("Packet events are not deterministically ordered")
+
+    hypothesis_ids: set[str] = set()
+    for hypothesis in hypotheses:
         if not isinstance(hypothesis, Mapping):
             raise FactoryEvolutionError("Packet hypothesis must be an object")
+        _exact_keys(
+            hypothesis,
+            {
+                "section",
+                "position",
+                "title",
+                "assessment",
+                "evidence_refs",
+                "source_report_id",
+                "source_root",
+                "source_report_sha256",
+                "hypothesis_id",
+            },
+            label="Packet hypothesis",
+        )
         key = (
-            hypothesis.get("source_report_id"),
-            hypothesis.get("source_root"),
-            hypothesis.get("source_report_sha256"),
+            _exact_identifier(
+                hypothesis.get("source_report_id"), label="hypothesis report_id"
+            ),
+            _exact_sha256(hypothesis.get("source_root"), label="hypothesis source root"),
+            _exact_sha256(
+                hypothesis.get("source_report_sha256"), label="hypothesis report SHA-256"
+            ),
         )
         if key not in report_keys:
             raise FactoryEvolutionError("Packet hypothesis does not resolve to a report")
-    for event in evidence.get("events", []):
-        if not isinstance(event, Mapping):
-            raise FactoryEvolutionError("Packet event must be an object")
-        roots = event.get("source_ledger_roots")
-        if not isinstance(roots, list) or not roots or not set(roots) <= ledger_roots:
-            raise FactoryEvolutionError("Packet event does not resolve to an event ledger")
-        _exact_sha256(event.get("record_sha256"), label="packet event record_sha256")
-    result = dict(packet)
-    return result
+        _bounded_packet_text(
+            hypothesis.get("section"), label="hypothesis section", limit=160
+        )
+        _bounded_integer(
+            hypothesis.get("position"), label="hypothesis position", maximum=10_000
+        )
+        _bounded_packet_text(
+            hypothesis.get("title"), label="hypothesis title", limit=MAX_REPORT_TEXT
+        )
+        _bounded_packet_text(
+            hypothesis.get("assessment"),
+            label="hypothesis assessment",
+            limit=MAX_REPORT_TEXT,
+        )
+        evidence_ids = hypothesis.get("evidence_refs")
+        if not isinstance(evidence_ids, list) or len(evidence_ids) > MAX_EVIDENCE_REFS:
+            raise FactoryEvolutionError("Hypothesis evidence references are not bounded")
+        validated_evidence = [
+            _exact_identifier(item, label="hypothesis evidence record ID")
+            for item in evidence_ids
+        ]
+        if len(validated_evidence) != len(set(validated_evidence)):
+            raise FactoryEvolutionError("Hypothesis evidence references contain duplicates")
+        if not set(validated_evidence) <= canonical_record_ids:
+            raise FactoryEvolutionError(
+                "Hypothesis evidence does not resolve to a canonical event"
+            )
+        hypothesis_material = dict(hypothesis)
+        hypothesis_id = _exact_identifier(
+            hypothesis_material.pop("hypothesis_id"), label="hypothesis_id"
+        )
+        expected_id = "hyp-" + digest(hypothesis_material)[:20]
+        if hypothesis_id != expected_id or hypothesis_id in hypothesis_ids:
+            raise FactoryEvolutionError("Hypothesis identity is stale or duplicated")
+        hypothesis_ids.add(hypothesis_id)
+
+    expected_coverage = {
+        "report_roots": len(reports),
+        "event_ledger_roots": len(ledgers),
+        "canonical_event_records": canonical_total,
+        "retained_event_records": len(events),
+        "retained_report_hypotheses": len(hypotheses),
+        "unsupported_event_kinds": unsupported_total,
+    }
+    for key, expected in expected_coverage.items():
+        actual = _bounded_integer(coverage.get(key), label=f"coverage {key}")
+        if actual != expected:
+            raise FactoryEvolutionError(f"Packet coverage {key} is stale")
+
+    recorded_root = _exact_sha256(value.pop("packet_root", None), label="packet_root")
+    packet_id = _exact_identifier(value.pop("packet_id", None), label="packet_id")
+    expected_root = digest(value)
+    if recorded_root != expected_root or packet_id != "learning-" + expected_root[:20]:
+        raise FactoryEvolutionError("Learning packet identity is stale")
+    return dict(packet)
