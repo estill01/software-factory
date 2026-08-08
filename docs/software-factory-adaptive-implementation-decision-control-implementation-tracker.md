@@ -1,10 +1,11 @@
-# Software Factory Adaptive Implementation Decision Control Implementation Tracker
+# Software Factory Adaptive Implementation Decision Control and Autonomous Evolution Implementation Tracker
 
 - Tracker status: `planning`
-- Tracker sequence: Blocks 0–7
+- Tracker sequence: Blocks 0–12
 - Repository: `https://github.com/estill01/software-factory`
 - Planning baseline: `4a33cd9344f0fbb1d1feaa6caac13521eb3237f3`
-- Governing objective: `Allow Software Factory to notice and correct a materially bad implementation decision inline while executing, selectively compare an isolated alternative when implementation evidence is needed, and amend the active tracker only when live evidence invalidates the Block contract itself, then continue autonomously with configurable authority.`
+- Autonomous-evolution extension baseline: `6cdea4ff77a88f003739f9d3dbe90807683947d1`
+- Governing objective: `Allow Software Factory to notice and correct a materially bad implementation decision inline while executing, selectively compare an isolated alternative when implementation evidence is needed, amend the active tracker only when live evidence invalidates the Block contract itself, and autonomously turn eligible cross-run evidence into independently evaluated, policy-governed Factory improvements, then continue without ordinary human scheduling gates.`
 
 ## 1. Purpose and intended outcome
 
@@ -37,6 +38,17 @@ target product. The target's direct mission, product-capability frame, protected
 capabilities, and repository authorities govern either case. `Software Factory`
 as target adds self-modification separation and promotion safeguards; it does
 not use a different decision model.
+
+After that within-run control loop is demonstrated, add a coupled cross-run
+Factory-evolution loop. Existing weekly-report, canonical-event, outcome,
+tracker, and review evidence passes a cheap deterministic eligibility gate at
+maintained reporting and terminal checkpoints. A newly eligible evidence root
+may automatically enter the existing bounded learning-packet, independent
+review, normal-owner candidate implementation, isolated comparison, and
+policy-governed adoption path. Unchanged or ineligible evidence does nothing.
+Reports remain nominators rather than authority, `factory_evolution.py` remains
+a derived evidence/evaluation owner rather than a skill editor, and no
+candidate can self-evaluate or self-promote.
 
 Completion means:
 
@@ -74,7 +86,20 @@ Completion means:
   correction, bounded parallel comparison, exceptional structural replanning,
   a justified no-correction decision, zero human requests in full-autonomous
   mode, current operator-visible behavior, and no silent mission change or
-  self-promotion.
+  self-promotion;
+- maintained reporting and terminal workflows can automatically recognize a
+  newly eligible evidence root without adding a watcher, schedule, or second
+  ledger;
+- eligible Factory evidence can progress through the existing packet, review,
+  normal-owner implementation, isolated comparison, independent evaluation,
+  policy-gated adoption, rollback, and outcome-feedback owners without an
+  ordinary human prompt;
+- ineligible, unchanged, already-consumed, losing, inconclusive, or regressing
+  evidence converges cheaply and cannot cause repeated model/reviewer cycles,
+  target writes, or dual live skill implementations; and
+- an integrated self-improvement dogfood case proves current installed-skill
+  behavior, reversible cutover, recurrence suppression, and truthful changelog
+  and human-readable reporting at the frozen terminal revision.
 
 ### Mission frame
 
@@ -90,7 +115,9 @@ Completion means:
   fingerprint deduplication, bounded candidate isolation and comparison,
   structural revision semantics, authoring and verifier support, independent
   authoring supervision, configurable authority/budgets, selective currentness
-  invalidation, automatic resume, dual-target safeguards, tests,
+  invalidation, automatic resume, dual-target safeguards, deterministic
+  evolution eligibility and recurrence control, automatic owner/evaluator
+  handoffs, policy-gated adoption and rollback, outcome feedback, tests,
   documentation, and exact-candidate review.
 - Hard direct authority or safety boundaries: the direct mission and repository
   instructions remain controlling; independent reviewers do not write the
@@ -102,7 +129,8 @@ Completion means:
   than its implementation program, discarding a protected capability without
   direct support, granting new external or destructive authority, eliminating
   independent review of Software Factory self-modification, or replacing the
-  three-skill system with a general planner service requires renewed direct
+  three-skill system with a general planner service, or allowing evidence
+  artifacts to edit or promote skills directly requires renewed direct
   authority and is not a program revision.
 
 ### Target-product capability frame
@@ -158,8 +186,10 @@ Completion means:
   by the advisory packets. Do not add a fourth skill, planner service, mutable
   shadow tracker, or second event ledger.
 - Requested capability: source-backed autonomous implementation decision
-  correction, with bounded parallel comparison when necessary and structural
-  replanning only when the active program contract is invalidated.
+  correction, with bounded parallel comparison when necessary, structural
+  replanning only when the active program contract is invalidated, and
+  autonomous cross-run Factory learning that reuses those same implementation,
+  comparison, review, adoption, and outcome-control boundaries.
 - Proportionality: use the smallest control that can correct the actual defect:
   normal continuation for a sound path, inline correction within the Block,
   bounded candidate comparison when behavior must decide, and supervised
@@ -169,11 +199,13 @@ Completion means:
   adds revision/currentness cost. Exact triggers, ceilings, deduplication,
   independent cutover review, and selective invalidation keep those costs below
   the expected outcome benefit.
-- Uncertainty: the current repository proves capability framing and one Factory
-  evolution cycle but not inline decision correction, parallel candidate
-  cutover, continuous authoring supervision, or live structural revision. This
-  tracker treats accepted authoring supervision as a prerequisite only for the
-  exceptional structural path, not for normal or inline execution.
+- Uncertainty: the current repository proves capability framing and one
+  on-demand Factory evolution cycle but not inline decision correction,
+  parallel candidate cutover, continuous authoring supervision, live structural
+  revision, autonomous evolution eligibility, or unattended governed adoption.
+  This tracker treats accepted authoring supervision as a prerequisite only for
+  the exceptional structural path and consequential evolution-authored tracker
+  changes, not for normal, inline, or no-change execution.
 
 ## 2. Target architecture and authority boundaries
 
@@ -216,6 +248,26 @@ direct mission + capability frame + accepted tracker + live repository
                                                            v
                                              current target behavior and
                                                terminal reconciliation
+
+verified report/event/outcome checkpoint
+                              |
+                cheap evolution eligibility gate
+                    /                     \
+          unchanged/ineligible          newly eligible
+                  |                           |
+             no-op record               existing packet/review
+                                              |
+                                normal owner implements candidate
+                                              |
+                                 isolated independent comparison
+                                    /                     \
+                              loses/revise              wins
+                                  |                       |
+                             retain evidence       policy-gated cutover
+                                                          |
+                                                observe outcome/rollback
+                                                          |
+                                                canonical feedback evidence
 ```
 
 Authority rules:
@@ -279,6 +331,27 @@ Authority rules:
     review narratives are evidence or derived artifacts. None independently
     changes the mission, tracker, target, production authority, or promotion
     state.
+16. Evolution eligibility is checked only at maintained weekly-report,
+    terminal-report, or explicit Factory-maintenance checkpoints. It is not a
+    background watcher or schedule, and an unchanged eligibility fingerprint
+    incurs no cognitive review or producer rerun.
+17. A newly eligible root opens at most one bounded evolution cycle. The cycle
+    reuses the existing packet/review/evaluation artifacts, normal skill owner,
+    Block 2 candidate lane, and exact identity separation rather than adding an
+    evolution-specific implementation channel.
+18. `promote` makes a candidate eligible for a policy-governed adoption
+    decision. Adoption still requires current candidate proof, permission,
+    exact installed-target roots, reversible single-authority cutover, and
+    terminal capability reconciliation. `advisory`, `revise`, and `reject`
+    cannot cut over.
+19. Every automatic evolution cycle records its eligibility root, consumed
+    evidence root, identities, policy mode, outcome, cutover/rollback posture,
+    and feedback event through existing canonical owners. The same root is not
+    reconsidered without new outcome or source evidence.
+20. Full autonomy removes ordinary human scheduling gates but does not collapse
+    proposer, author, implementer, reviewer, evaluator, or adoption authority;
+    it also cannot exceed existing filesystem, Git, credential, communication,
+    release, deployment, or promotion permissions.
 
 ## 3. Existing owners to reuse
 
@@ -291,6 +364,8 @@ Authority rules:
 | Mission binding, decisions, incidents, checkpoints, steering, currentness, and canonical writes | `supervise-tracker-runs/scripts/supervision_log.py` | adapt for decision/candidate evidence |
 | Independent tracker-authoring review | `docs/software-factory-tracker-authoring-supervision-implementation-tracker.md` | require only for structural amendment; reuse after implementation |
 | Evidence-grounded Software Factory skill evolution and promotion disposition | `factory_evolution.py` and `references/factory-evolution-contract.md` | reuse for self-target changes only |
+| Evolution eligibility, cycle identity, recurrence control, adoption evidence, and status | `supervision_log.py`, canonical events, bound policy, weekly/terminal report checkpoints | adapt without a second ledger or scheduler |
+| Candidate implementation, installed-skill cutover, and rollback | existing skill owner plus the adaptive candidate/cutover path in `implement-tracker-blocks` | reuse; evolution never writes the skill |
 | Human-input avoidance, dependency cuts, and bounded continuation | current author, executor, and supervision decision contracts | adapt to configurable authority |
 | Public architecture and operating guidance | `README.md` and the three skill metadata owners | update after demonstrated behavior |
 
@@ -298,15 +373,16 @@ Authority rules:
 
 | Source or predecessor | Exact revision/hash | Disposition | Owning Block | Remaining work |
 |---|---|---|---:|---|
-| Current Software Factory repository | `4a33cd9344f0fbb1d1feaa6caac13521eb3237f3` | adapt | 0–7 | Add inline correction, selective candidate comparison, and exceptional program revision without weakening accepted behavior |
-| Accepted learning and capability-evolution MVP | tracker SHA-256 `ecc7b31ebd7bd7bc825746dded4059be2ddcc56377f4a702e1ab7781d09e07c6` | reuse | 0, 6, 7 | Reuse exact evidence and self-change evaluation; do not rerun evolution by default |
-| Planned tracker-authoring supervision program | tracker SHA-256 `dc87fde4b7fe4017a82426ad0199dd2ef226eb8d9a658d348ec0aea6ea2dd424` | external prerequisite for structural path | 0, 4, 7 | Implement and accept its Blocks before structural amendment is enabled; inline correction remains independent |
+| Current Software Factory repository | `4a33cd9344f0fbb1d1feaa6caac13521eb3237f3` | adapt | 0–12 | Add adaptive decision control and autonomous evidence-gated evolution without weakening accepted behavior |
+| Accepted learning and capability-evolution MVP | tracker SHA-256 `ecc7b31ebd7bd7bc825746dded4059be2ddcc56377f4a702e1ab7781d09e07c6` | reuse | 0, 6–12 | Reuse exact evidence, identity, evaluation, and self-change boundaries; add orchestration around them rather than another evidence engine |
+| Planned tracker-authoring supervision program | tracker SHA-256 `dc87fde4b7fe4017a82426ad0199dd2ef226eb8d9a658d348ec0aea6ea2dd424` | external prerequisite for structural path | 0, 4, 7, 10–12 | Implement and accept its Blocks before structural amendment or consequential evolution-authored tracker change is enabled; inline correction remains independent |
 | Current authoring amendment method | `author-implementation-trackers/references/amendment-and-renumbering.md`, SHA-256 `28edc9682cbfe87acbd61917a67a780e8bd7b282e16588befb7799f6bbe6067a` | adapt | 0, 4 | Make exceptional live revision exact, machine-checkable, and resumable |
 | Current execution capability-review method | `implement-tracker-blocks/references/product-capability-review.md`, SHA-256 `68d255c1cd7c03b61b9278e0d1a20290c7452abb661ba00ae47d15e60bfc3017` | adapt | 0–3, 6 | Correct inside the Block first; open candidate or structural paths only on exact triggers |
 | Current Git checkpoint/branch behavior | `implement-tracker-blocks/SKILL.md` at planning baseline | adapt | 2, 6–7 | Add one isolated candidate lane and automated winning-path cutover without dual authority |
 | Current supervision decision and continuation contracts | `supervise-tracker-runs/references/supervision-policy.md`, SHA-256 `4d3404b4d1426fae61104dc67b33eef5e940b9bf3dfddc0572dc0e8e8b4b9b66` | adapt | 0, 3–6 | Add bounded correction/candidate evidence, structural disposition, and configurable no-human posture |
 | Inline-first and parallel-alternative advisory | routed `codex_delegation` items 288 and 289 from source thread `019fe21e-486e-7c11-90b9-6bfbf19457c1` | advisory-only; not authority | 0–7 | Evaluate the suggested design against eligible direct sources and current owners; no requirement or permission derives solely from these packets |
 | Adaptive alignment and control implementation tracker supplied as planning input | external 30-Block document | not adopted as this execution tracker | 0, 4, 7 | Reuse dual-target alignment and configurable authority; defer prospective hooks, event streaming, control libraries, and generalized runtime monitoring |
+| Direct 2026-08-08 request for autonomous Factory evolution integrated with adaptive decision control | current source thread `019fe023-f305-70d2-b69a-7f9565bebe86` | adopt | 8–12 | Add configurable automatic eligibility, existing-owner execution/evaluation/adoption, feedback, and human-readable change history |
 
 ## 5. Scope, non-goals, and proportionality
 
@@ -336,6 +412,14 @@ Authority rules:
 - One shared protocol for Software Factory self-work and external target work.
 - Focused, paired, interrupted-resume, compatibility, and operator-visible
   dogfood proof.
+- Cheap deterministic evolution eligibility at maintained report and terminal
+  checkpoints, with exact deduplication and bounded automatic-cycle admission.
+- Autonomous orchestration through existing packet, authoring, implementation,
+  candidate, independent evaluation, cutover, rollback, and outcome owners.
+- Policy-controlled Factory adoption from disabled/recommend-only through
+  reviewed full autonomy, without expanding unrelated permissions.
+- Canonical outcome feedback and useful human-readable changelog/report
+  projection without making either report or changelog operational authority.
 
 ### Out of scope
 
@@ -355,6 +439,9 @@ Authority rules:
 - Two simultaneous production owners, permanent dual implementations, or a
   candidate lane without isolation and explicit decision value.
 - Removing independent review from Software Factory self-modification.
+- A new background watcher, autonomous scheduler, model router, learning
+  database, self-editing evolution helper, automatic external release, or
+  promotion based only on a `promote` disposition.
 
 ### Proportionality
 
@@ -367,11 +454,14 @@ declared ceiling makes the expected decision value positive. Tracker amendment
 is used only when inline correction cannot preserve the Block contract or later
 program. Every path compares the local correction, bounded-general option, and
 available architectural owner without assuming that either the incumbent or
-the most general new design should win.
+the most general new design should win. Cross-run learning performs only a
+cheap eligibility/currentness check until new evidence justifies one bounded
+cycle, then reuses the same candidate and cutover controls. It does not make
+continuous cognition the price of ordinary execution.
 
 ## 6. Block execution contract
 
-1. Execute Blocks 0–7 in dependency order and audit each Block before
+1. Execute Blocks 0–12 in dependency order and audit each Block before
    advancing.
 2. Inline-correction and candidate foundations may begin from the planning
    baseline. Do not enable Block 4 structural amendment until the separate
@@ -415,12 +505,24 @@ the most general new design should win.
     cutover, or tracker revision. Reuse exact unaffected proof and producers.
 15. Use Factory evolution only when Software Factory skills or methods change;
     do not run it for ordinary target-repository correction or replanning.
+    After Block 8, maintained checkpoints may admit one new exact eligible root
+    automatically under policy; unchanged or ineligible roots remain no-ops.
 16. Finish mutating review before final mapped validation, freeze the candidate,
     obtain exact-revision independent review, and run broad mapped proof only
     once unless a mapped successor change invalidates it.
 17. Stop after current operator-visible outcome proof and the declared dogfood
     cases. Do not continue into prospective monitoring or a generalized control
     platform.
+18. Keep evidence synthesis, implementation, evaluation, and adoption
+    identities distinct. The evolution helper validates and records derived
+    artifacts but never edits or installs a skill.
+19. Treat `promote` as eligibility for adoption review, not adoption itself.
+    Apply only a current, permission-compatible, independently evaluated winner
+    through the normal owner and one reversible cutover; otherwise retain
+    non-authoritative evidence and continue.
+20. Feed current post-cutover effects, failures, rollbacks, and recurrence into
+    canonical events. Do not reopen the same eligibility root without a changed
+    source/outcome fingerprint.
 
 ### Completion-evidence template
 
@@ -437,6 +539,8 @@ the most general new design should win.
 - Selected and rejected paths: `<local, bounded-general, architectural owner>`
 - Preserved and invalidated state: `<work/evidence maps and dependency closure>`
 - Autonomy posture: `<mode, decisions made, human requests, reserved deferrals>`
+- Evolution posture: `<eligibility root, cycle/stage, identities, disposition, adoption or no-op>`
+- Outcome feedback: `<current effect, recurrence posture, rollback or not-applicable>`
 - Focused validation: `<commands and results>`
 - Mapped validation: `<plan, commands and results>`
 - Candidate freeze: `<commit/content root and whether it changed afterward>`
@@ -461,6 +565,11 @@ the most general new design should win.
 | 5 | Cut over a winning candidate, reconcile currentness, and resume | 2, 3 | `not-started` |
 | 6 | Bind the same protocol to target repositories and Software Factory self-work | 4, 5 | `not-started` |
 | 7 | Dogfood all decision paths and document demonstrated operation | 6 | `not-started` |
+| 8 | Admit newly eligible Factory evidence automatically and economically | 7 | `not-started` |
+| 9 | Orchestrate one bounded Factory candidate through existing owners | 8 | `not-started` |
+| 10 | Evaluate and adopt or retire the candidate under configurable policy | 9 | `not-started` |
+| 11 | Feed current outcomes back, suppress recurrence, and support rollback | 10 | `not-started` |
+| 12 | Dogfood autonomous evolution and document the integrated system | 11 | `not-started` |
 
 Required order:
 
@@ -470,11 +579,15 @@ Required order:
 0 + 3 → 4
 2 + 3 → 5
 4 + 5 → 6 → 7
+7 → 8 → 9 → 10 → 11 → 12
 ```
 
 Block 4 also requires the separately accepted tracker-authoring supervision
 predecessor named in its inputs; that external prerequisite does not change the
-internal Block numbering or dependency graph.
+internal Block numbering or dependency graph. Blocks 9–10 reuse that accepted
+profile only when the selected Factory candidate requires a consequential
+tracker amendment; skill-method and direct implementation candidates continue
+through their ordinary owner without manufacturing an authoring cycle.
 
 ## Block 0 — Freeze the three-path adaptive decision-control contract
 
@@ -1572,15 +1685,690 @@ Pending.
 
 ### Stop
 
-Stop before external release, mandatory adaptive correction for unrelated runs,
-prospective event/hook integration, or the broader adaptive-control platform.
+Stop before automatic Factory-evolution eligibility or candidate orchestration.
+
+---
+
+## Block 8 — Admit newly eligible Factory evidence automatically and economically
+
+Status: `not-started`
+
+### Objective
+
+Let maintained report and terminal checkpoints recognize one new evidence-bound
+Factory-improvement opportunity automatically, while unchanged or unsupported
+evidence converges as a cheap no-op and reports remain non-authoritative.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: move the accepted Factory-evolution workflow from
+  operator-only initiation to deterministic, policy-controlled admission at
+  existing checkpoints.
+- Potential capability loss or regression: eager admission could create a
+  cognitive-review tax on every report, treat narrative as authority, repeat
+  unchanged cycles, or create a hidden background watcher.
+- Protected-capability effect: preserve canonical-event authority, bounded
+  source loading, verified-report provenance, no-change economy, immutable
+  artifacts, and explicit Factory-only scope.
+- Architecture and operating-model effect: add one eligibility/currentness
+  gate to the existing `supervision_log.py` Factory-evolution owner and invoke
+  it only from maintained report/terminal workflows.
+- Tradeoff and source evidence: deterministic packet inspection adds bounded
+  checkpoint work, but it eliminates manual initiation without adding a
+  scheduler, detector framework, or continuous model loop; the direct autonomy
+  request and accepted on-demand MVP support that proportional extension.
+
+### Inputs and dependencies
+
+- Block 7 accepted at an exact revision.
+- Accepted learning/evolution packet contract and weekly `report.json` plus
+  canonical `events.jsonl` sources.
+- Bound adaptive mode, candidate budgets, mission, policy history, and current
+  target directory.
+
+### Required work
+
+- Add an exact Factory-evolution eligibility contract under the existing
+  supervision policy. Reuse `adaptive_decision_mode`: `fixed` records no
+  automatic admission; `recommend` may form a recommendation packet but cannot
+  apply; `reviewed-autonomous` and `full-autonomous` may admit one cycle within
+  existing permissions and budgets.
+- At weekly-report finalization, terminal-report verification, and explicit
+  Factory-maintenance checkpoints only, validate explicit report/event paths,
+  derive the same bounded learning packet in memory, and compute an eligibility
+  root from packet root, target/mission/policy roots, checkpoint kind, and
+  current Factory revision.
+- Mark the root eligible only when sources verify, at least one report-nominated
+  hypothesis resolves to canonical evidence, the root is new, no conflicting
+  active cycle exists, Factory scope is explicit, and bounded cycle/review
+  resources remain. Report hypotheses nominate; canonical events and outcomes
+  remain adjudicating evidence.
+- Derive a safe evolution ID from the eligibility root, prepare the existing
+  immutable packet/manifests once, and record admission through the canonical
+  supervision writer. Reuse the prepared packet in later stages.
+- For ineligible, disabled, duplicate, already-consumed, stale, or resource-
+  exhausted roots, return an exact reason and next revisit condition without a
+  model/reviewer call, artifact churn, target write, repeated event, or human
+  request.
+- Surface current eligibility/cycle posture in existing status and machine
+  reports; add only a concise human-readable nomination/no-op summary to report
+  projections. Do not make the projection an operational source.
+- Add compatibility and focused tests for every gate, deterministic identity,
+  unchanged recurrence, report-only claims, conflicting active cycles, policy
+  modes, path containment, interruption, and legacy policy migration.
+
+### Scope and non-goals
+
+- In scope: deterministic eligibility, exact ID/root, policy binding,
+  checkpoint integration, prepare reuse, canonical admission/no-op evidence,
+  status, and focused tests.
+- Not in scope: cognitive review generation, candidate implementation,
+  evaluation, adoption, rollback, a new schedule, or a background process.
+- Do not add an eligibility scoring model, learning database, second event log,
+  or terminal-report input support to the weekly-only packet loader.
+
+### Deliverables and recorded state
+
+- Versioned eligibility/policy contract and migration.
+- Maintained checkpoint admission path plus exact eligible/no-op result.
+- Reused prepared packet/manifests and canonical cycle identity.
+
+### Resource and economy contract
+
+Run at most once per exact checkpoint/source root. Stat and bounded-read inputs
+before parsing, derive one packet in memory, and persist it only when eligible.
+The duplicate/ineligible path performs zero model/reviewer calls and no producer
+rerun. One target may have at most one active cycle; a changed root is required
+after terminal disposition or consumed outcome.
+
+### QA and independent review
+
+Mechanical tests cover roots, migration, bounds, containment, modes, and
+deduplication. Independent review challenges false-positive admission,
+productive-signal preservation, report authority leakage, and hidden recurring
+work at the exact candidate revision.
+
+### Acceptance
+
+- A new supported Factory evidence root is admitted automatically at a
+  maintained checkpoint under reviewed/full autonomy.
+- The identical root is a cheap no-op and never causes another reviewer cycle.
+- Disabled, unsupported, report-only, stale, or resource-ineligible evidence
+  cannot prepare or advance a cycle.
+- The existing packet is byte-identical to a direct prepare from the same
+  inputs, and no new scheduler, watcher, ledger, or skill writer exists.
+- Legacy on-demand `prepare/finalize/evaluate/verify` behavior remains readable
+  and callable.
+
+### Negative tests
+
+- Reject eligibility from unverified prose or an event-unbound hypothesis.
+- Reject a duplicate or concurrently conflicting active cycle.
+- Reject automatic admission in `fixed` mode or beyond existing permission and
+  resource ceilings.
+- Reject a checkpoint path that reruns cognition or writes outside the target
+  supervision owner.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before generating cognitive review or implementing a candidate.
+
+---
+
+## Block 9 — Orchestrate one bounded Factory candidate through existing owners
+
+Status: `not-started`
+
+### Objective
+
+Advance one admitted evolution packet through independent candidate selection
+and normal-owner implementation automatically, while keeping evidence,
+tracker, skill, and target writers separate.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: turn eligible cross-run evidence into one coherent,
+  testable Factory candidate without requiring an operator to manually connect
+  the existing workflow stages.
+- Potential capability loss or regression: orchestration could let the
+  evolution helper edit skills, bypass tracker authoring, collapse identities,
+  overgeneralize a weak signal, or start multiple candidates.
+- Protected-capability effect: preserve direct-source authority, counterexample
+  discipline, normal owner boundaries, candidate ceilings, accepted history,
+  safe continuation, and no self-promotion.
+- Architecture and operating-model effect: the supervision skill coordinates
+  existing reviewer, author, executor, Git, and candidate-lane owners; the
+  deterministic helper validates handoffs but does not perform model judgment
+  or target edits.
+- Tradeoff and source evidence: one automatic bounded handoff chain reduces
+  manual scheduling while retaining the independent roles and evidence ladder
+  established by the accepted MVP and Blocks 0–7.
+
+### Inputs and dependencies
+
+- Block 8 with one current admitted packet and cycle identity.
+- Current authoring-supervision prerequisite when the candidate requires a
+  consequential tracker change.
+- Current live skill roots, target mission/capability frame, normal owner,
+  candidate budget, and proposer/implementer/reviewer/evaluator role bindings.
+
+### Required work
+
+- Add a canonical cycle-stage/action read model that returns the next eligible
+  action from packet, policy, identity, artifact, repository, and currentness
+  state. It may return `review`, `author`, `implement`, `compare`, `evaluate`,
+  `adopt`, `observe`, or a terminal no-op/revise/reject posture; it does not
+  execute another owner's mutation.
+- In the supervision skill workflow, automatically route an admitted packet to
+  a distinct cognitive reviewer using the exact existing review schema,
+  counterexample floor, selection dimensions, one experiment, and bounded
+  resource/Stop contract. Consequential unresolved selection receives the
+  existing independent higher-reasoning review rather than a human gate.
+- Validate/finalize the review and bind the selected candidate to exactly one
+  current implementation owner. Use `author-implementation-trackers` only when
+  a tracker is the required normal owner; use `implement-tracker-blocks` for a
+  bounded implementation program; use `supervise-tracker-runs` for its owned
+  policy/evidence surfaces.
+- Apply Blocks 0–6 to the Factory-as-target implementation itself: leave a
+  sound owner path unchanged, correct a bad local approach inline, use one
+  isolated candidate lane only when implementation evidence is necessary, and
+  structurally amend only when the active program contract is invalidated.
+- Checkpoint the incumbent skill/repository state, bind hypothesis/scope/
+  capability/protected capabilities/ceiling/Stop and exact identities, and
+  preserve one production authority. Candidate work remains isolated until a
+  later adoption decision.
+- Record exact owner handoffs and acknowledgements through existing canonical
+  events. Reject stale roots, alias identities, duplicate action delivery,
+  unacknowledged owner results, or candidate writes that bypass the owner.
+- Add focused and interrupted-resume tests for direct skill-method, tracker-
+  method, supervision, removal/simplification, rejected owner, inline
+  correction during candidate implementation, and candidate-lane escalation.
+
+### Scope and non-goals
+
+- In scope: deterministic next-action state, automatic role/owner handoff,
+  review finalization, one isolated implemented candidate, acknowledgement,
+  interruption recovery, and tests.
+- Not in scope: evaluation disposition, adoption/cutover, rollback, multiple
+  simultaneous candidates, arbitrary target-product learning, or model routing
+  infrastructure.
+- Do not let `factory_evolution.py` edit a skill, tracker, repository, Git
+  branch, or policy.
+
+### Deliverables and recorded state
+
+- Exact cycle-stage/action output and canonical handoff records.
+- Independently authored review and one normal-owner candidate revision.
+- Incumbent/candidate roots, budget use, Stop, and preserved-authority state.
+
+### Resource and economy contract
+
+One reviewer submission and one selected candidate per admitted root. Use one
+normal owner, one isolated lane, focused proof first, and the Block 2 ceilings.
+Reuse packet, review, repository inspection, and current skill roots. Do not
+rerun a completed stage or widen candidate type/owner after an unchanged
+fingerprint.
+
+### QA and independent review
+
+Mechanically verify stage order, identities, owner acknowledgement, roots,
+ceilings, and isolation. A distinct reviewer challenges candidate admission,
+smaller-change sufficiency, protected capabilities, and whether the selected
+owner/architecture is proportional before broad validation.
+
+### Acceptance
+
+- An eligible cycle reaches one coherent isolated candidate through existing
+  review, authoring/implementation, Git, and supervision owners automatically.
+- The candidate has explicit hypothesis, scope, capability, protected
+  capabilities, resource ceiling, Stop, current roots, and distinct identities.
+- The evolution helper validates and records but never performs the owner
+  mutation.
+- Inline correction remains the normal response to a bad candidate-
+  implementation approach, and structural authoring remains exceptional.
+- Duplicate, stale, interrupted, or rejected handoffs cannot create a second
+  candidate or production authority.
+
+### Negative tests
+
+- Reject proposer/reviewer/implementer identity collapse or an evaluator
+  preselected as the implementation judge.
+- Reject skill/tracker writes by the evolution helper or a bypass of the normal
+  owner.
+- Reject a second candidate for an unchanged admitted root.
+- Reject implementation beyond the experiment scope, ceiling, or Stop.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before evaluator disposition, adoption, installed-skill cutover, or
+rollback.
+
+---
+
+## Block 10 — Evaluate and adopt or retire the candidate under configurable policy
+
+Status: `not-started`
+
+### Objective
+
+Independently compare the incumbent and current candidate, then automatically
+adopt one demonstrably better, authorized winner or retire the candidate
+without forcing promotion or preserving dual live implementations.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: make independently demonstrated Factory
+  improvements effective under configurable autonomy rather than stopping at a
+  proposal or `promote` artifact.
+- Potential capability loss or regression: stale or self-serving evaluation,
+  permission leakage, non-atomic cutover, novelty bias, or dual installed skill
+  paths could degrade the Factory while records appear successful.
+- Protected-capability effect: preserve evaluator independence, current
+  observable behavior, compatibility, reversibility, installed-skill identity,
+  normal Git owner, single authority, and non-promotion dispositions.
+- Architecture and operating-model effect: compose the existing evaluator,
+  adaptive candidate comparison/cutover, bound policy, skill owner, and
+  terminal reconciliation; do not grant the evolution artifact write power.
+- Tradeoff and source evidence: reviewed autonomous adoption increases effect
+  and risk together, so exact currentness, permissions, rollback, and outcome
+  gates remain stricter for Software Factory self-change than for ordinary
+  target implementation.
+
+### Inputs and dependencies
+
+- Block 9 with current incumbent/candidate roots, owner acknowledgement,
+  complete review, coherent focused proof, and experiment contract.
+- Current adaptive/evolution mode, permissions, Git state, live skill symlink
+  roots, independent evaluator binding, and terminal capability frame.
+
+### Required work
+
+- Automatically request a distinct evaluator only after the candidate is
+  coherent. Require revision-bound baseline and candidate results for every
+  positive and exception case, current observable effects, cost,
+  compatibility, reversibility, protected-capability evidence, contrary
+  evidence, and regression findings.
+- Validate and record exactly one existing disposition. Treat `promote` as
+  candidate eligibility for adoption; `advisory`, `revise`, and `reject` stop
+  or return to their exact normal owner and cannot cut over.
+- Add an adoption gate that recomputes mission/tracker/policy/incumbent/
+  candidate/evaluation/installed-skill roots, validates identity separation and
+  permissions, and maps mode: `fixed` cannot adopt; `recommend` exposes a
+  recommendation without application; `reviewed-autonomous` and
+  `full-autonomous` apply a reversible in-authority winner after required
+  review. Ordinary engineering judgment creates no human gate in full autonomy.
+- Cut over through the normal target/skill Git owner using Block 5 atomicity,
+  make the winner the sole authoritative implementation, preserve useful losing
+  history as non-authoritative, selectively invalidate affected proof, and
+  update live skill symlink/current-root evidence without rewriting global
+  configuration unless that path is already authorized.
+- Before accepting adoption, reconcile requested capability, protected
+  behavior, selected architecture, tradeoffs, current installed behavior, and
+  operator-visible effects. If a gap remains, do not call the candidate adopted;
+  reopen only its normal owner or roll back.
+- Record adoption/recommendation/retirement through the existing canonical
+  writer and expose exact stage, disposition, application authority, roots, and
+  safe continuation in status. Preserve legacy on-demand disposition semantics.
+- Add tests for every mode, stale/changed roots, identity collapse, process-only
+  evidence, regression, permission ceiling, atomic cutover, losing/inconclusive
+  candidate, interruption, duplicate adoption, and live-symlink currentness.
+
+### Scope and non-goals
+
+- In scope: automatic evaluation handoff, disposition validation, adoption
+  gate, normal-owner cutover/retirement, currentness reconciliation, status,
+  and tests.
+- Not in scope: external release/deployment, unconfigured global installation,
+  a candidate marketplace, policy self-expansion, outcome monitoring beyond the
+  bounded post-cutover check, or new learning candidates.
+- Do not make `promote`, a green suite, or an adoption record sufficient proof
+  of current installed behavior.
+
+### Deliverables and recorded state
+
+- Independent evaluation bundle and disposition.
+- Exact adoption-gate result and canonical application/retirement evidence.
+- One current authoritative installed path or unchanged incumbent, with
+  selective invalidation and resume posture.
+
+### Resource and economy contract
+
+One evaluator and one adoption decision per candidate root. Reuse focused proof
+and run only the declared mapped comparison after candidate coherence. A
+non-promote disposition stops without cutover validation. A stale root rejects
+before expensive proof. No broad rerun occurs merely to improve a narrative.
+
+### QA and independent review
+
+The evaluator is distinct from proposer, author, implementer, and adoption
+executor. Exact-candidate review independently inspects raw incumbent/candidate
+effects and the installed result before reading the completion narrative.
+
+### Acceptance
+
+- Every coherent candidate receives one independent, current disposition.
+- Only a permission-compatible, current `promote` winner can enter adoption;
+  lower dispositions stop or revise without target writes.
+- Reviewed/full autonomy can cut over without a human scheduling gate while
+  preserving all unrelated permission ceilings.
+- Cutover leaves exactly one authoritative live implementation and current
+  observable capability proof; failure produces bounded rollback/reopen rather
+  than false completion.
+- Existing on-demand evolution and legacy policy behavior remain compatible.
+
+### Negative tests
+
+- Reject adoption from stale roots, same-identity evaluation, synthetic-only
+  process proof, unsupported regression, or missing protected-capability proof.
+- Reject a `promote` artifact as direct permission to edit or install a skill.
+- Reject two live implementations, non-atomic cutover, or broader permission
+  inferred from full autonomy.
+- Reject a human approval or manual Resume for an ordinary in-authority winner
+  in `full-autonomous` mode.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before recurrence adjudication, later learning cycles, or terminal
+integrated dogfood.
+
+---
+
+## Block 11 — Feed current outcomes back, suppress recurrence, and support rollback
+
+Status: `not-started`
+
+### Objective
+
+Close each automatic evolution cycle against current effects, return its useful
+outcome to canonical evidence, prevent unchanged repetition, and reverse a
+regressing adoption through the normal owner.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: let Software Factory learn whether an adopted or
+  rejected change actually helped and use that fact in later bounded cycles.
+- Potential capability loss or regression: a vague feedback loop could certify
+  itself, turn reports into reinforcement authority, hide regressions, or
+  permanently suppress reconsideration after materially new evidence.
+- Protected-capability effect: preserve observable-outcome closure, independent
+  evidence, reversible adoption, canonical-event authority, exact recurrence
+  keys, and changed-evidence reconsideration.
+- Architecture and operating-model effect: append bounded outcome and rollback
+  events through `supervision_log.py` and project them into existing reports;
+  do not add a learning database, score, or continuous monitor.
+- Tradeoff and source evidence: one bounded post-disposition observation adds
+  verification cost but prevents proposal/evaluation records from masquerading
+  as demonstrated capability and gives later cycles causal evidence.
+
+### Inputs and dependencies
+
+- Block 10 terminal adoption, recommendation, retirement, revise, or reject
+  posture at exact roots.
+- Current installed Factory behavior, terminal capability reconciliation,
+  canonical events, report projections, rollback owner, and cycle identity.
+
+### Required work
+
+- Add one exact outcome record for each terminal cycle with eligibility,
+  packet/review/evaluation/adoption roots; selected and rejected paths; intended
+  effect; current observed effect; protected regressions; resource cost;
+  recurrence posture; rollback/reopen result; identities; and evidence refs.
+- Require current operator-visible or independently observed behavior for
+  `adopted-effective`. Process records alone support only pending, ineffective,
+  regressing, retired, or inconclusive posture.
+- On a supported post-cutover regression, stop affected use at the smallest
+  safe boundary, invoke the normal owner to restore the preserved incumbent or
+  accepted successor, reconcile live skill roots, retain the rejected history,
+  and continue unaffected work automatically.
+- Mark the eligibility root consumed only after a terminal outcome record. An
+  identical source/outcome fingerprint remains closed; new canonical events,
+  changed observed effects, changed Factory revision, or a bounded `revise`
+  successor creates a new root rather than mutating the old cycle.
+- Feed outcome records into future learning packets as canonical evidence and
+  include concise exact-cycle summaries in weekly/terminal machine and human
+  reports. Reports still nominate; they cannot override outcome or reopen a
+  root.
+- Expose active, terminal, rolled-back, and next-eligible posture in status.
+  Recover interruption idempotently and reject partial, conflicting, or
+  duplicate terminal outcomes.
+- Add focused tests for effective adoption, no-adoption retirement, regression
+  rollback, missing observable proof, duplicate suppression, materially new
+  evidence, revise successor, report projection, interruption, and stale roots.
+
+### Scope and non-goals
+
+- In scope: terminal cycle outcome, observable-effect gate, rollback/reopen,
+  consumed-root recurrence control, future-packet evidence, status/report
+  projection, and tests.
+- Not in scope: continuous monitoring, reward scores, causal inference beyond
+  exact evidence, automatic external deployment, deleting history, or opening
+  a later cycle without changed evidence.
+- Do not claim that absence of a recorded regression proves general benefit.
+
+### Deliverables and recorded state
+
+- Canonical terminal evolution outcome and consumed-root identity.
+- Current rollback/reopen or adopted-effective evidence.
+- Future packet/report/status projection of exact outcomes.
+
+### Resource and economy contract
+
+Perform one bounded post-disposition effect check using current existing proof;
+rehydrate only an affected observable when its root is stale. Reuse preserved
+incumbent/candidate evidence. Duplicate roots are constant-time no-ops. Rollback
+runs only focused affected validation before mapped proof justified by the
+changed installed path.
+
+### QA and independent review
+
+Mechanical tests cover identity, terminal states, recurrence, event linkage,
+rollback, and projection. Independent review challenges false effectiveness,
+under-observed regressions, stale currentness, and accidental permanent
+suppression of materially new evidence.
+
+### Acceptance
+
+- Every cycle reaches one exact terminal outcome without relying on a report or
+  evaluation narrative as effect proof.
+- A current effective adoption becomes canonical evidence for later cycles; a
+  regression rolls back/reopens through the normal owner and remains visible.
+- Identical evidence cannot repeat cognition, candidate work, or adoption;
+  materially changed evidence can create one new exact cycle.
+- Reports and changelog projections remain human-readable derived summaries,
+  while canonical events and exact artifacts retain precision.
+- Interruption or duplicate delivery cannot create contradictory terminal
+  outcomes or lose the preserved incumbent.
+
+### Negative tests
+
+- Reject `adopted-effective` without current observable outcome evidence.
+- Reject report prose or a `promote` disposition as a terminal outcome.
+- Reject reopening an unchanged consumed root or suppressing a changed root.
+- Reject rollback that deletes evidence, bypasses the normal owner, or leaves
+  live skill symlinks on a regressing candidate.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before broad dogfood, public capability claims, or another evolution
+candidate.
+
+---
+
+## Block 12 — Dogfood autonomous evolution and document the integrated system
+
+Status: `not-started`
+
+### Objective
+
+Demonstrate at one frozen revision that the coupled within-run and cross-run
+loops autonomously improve Software Factory when justified, leave unchanged
+state alone, recover from a bad candidate, and remain usable through the three
+live skills and maintained human-readable documentation.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: establish current operator-visible proof of the
+  complete autonomous self-improvement path rather than only isolated contracts
+  and process records.
+- Potential capability loss or regression: scripted happy-path evidence could
+  hide missing owner invocation, stale installed skills, repeated cognition,
+  false adoption, rollback failure, or incompatibility with ordinary runs.
+- Protected-capability effect: preserve all three live skill entrypoints,
+  static/routine fast paths, legacy on-demand evolution, exact autonomy and
+  permission boundaries, independent identities, current outcome closure, and
+  useful changelog/report separation.
+- Architecture and operating-model effect: exercise the integrated system
+  through existing skills, helpers, policy, Git owners, and symlinks; document
+  the bounded demonstrated envelope without adding deployment machinery.
+- Tradeoff and source evidence: a compact paired dogfood matrix and one frozen
+  broad validation provide stronger usable evidence than additional framework
+  construction or an unbounded corpus.
+
+### Inputs and dependencies
+
+- Block 11 and all accepted Blocks 0–10 at exact revisions.
+- Accepted tracker-authoring supervision prerequisite, three live skill
+  symlinks, current policy/migration fixtures, isolated target repository,
+  report/event fixtures, and terminal reconciliation owner.
+
+### Required work
+
+- Run all likely-mutating review before final validation, freeze the exact
+  candidate, then run affected focused tests, all mapped skill suites, all
+  three skill validators, full tracker verification, compatibility checks, and
+  exact-revision independent review once.
+- Resolve and record the three live skill symlinks and invoke current skill
+  instructions rather than only calling internal Python functions.
+- Dogfood a newly eligible Factory signal that automatically prepares one
+  packet, obtains independent candidate review, uses the normal owner to build
+  a bounded isolated candidate, independently evaluates it, adopts a
+  demonstrably better winner in reviewed/full autonomy, reconciles the installed
+  result, records effective outcome feedback, and suppresses an identical
+  second checkpoint without a model/reviewer cycle or human request.
+- Dogfood an ineligible or justified-no-change signal and prove near-zero added
+  work, no artifacts beyond exact no-op status, no candidate, no authoring
+  handoff, and no oversteering.
+- Dogfood a losing/regressing candidate and prove no adoption or reversible
+  rollback, one authoritative installed path, retained non-authoritative
+  history, selective invalidation, and continued safe work.
+- During candidate implementation, expose one tempting lower-power shortcut
+  and one unsupported generalized layer; prove adaptive decision control
+  selects the bounded existing owner and that structural tracker authoring is
+  invoked only if the Block/program contract actually changes.
+- Prove `fixed`, `recommend`, `reviewed-autonomous`, and `full-autonomous`
+  postures, including zero ordinary human requests in full autonomy and narrow
+  reserved-external deferral without manual Resume.
+- Independently inspect current operator-visible CLI/status outputs, exact
+  artifacts/events, installed skill behavior, changelog/report projections,
+  and isolated target effects. Do not infer success from tests or record
+  population alone.
+- Update `README.md`, all affected skill/reference guidance, copyable commands,
+  `CHANGELOG.md`, and tracker evidence to distinguish high-precision canonical
+  data from human-consumable reports and to label planned, implemented,
+  demonstrated, corrected, or retained limitations truthfully.
+
+### Scope and non-goals
+
+- In scope: bounded paired dogfood, live-skill access, exact current outcomes,
+  compatibility, independent terminal review, README/skill/changelog/report
+  guidance, and final tracker evidence.
+- Not in scope: external release, Gmail action, deployment, global skill-store
+  cleanup, continuous background operation, statistical claims, generalized
+  target-product learning, or another capability candidate.
+- Do not retain dogfood as a second live implementation or claim unlimited
+  autonomous authority.
+
+### Deliverables and recorded state
+
+- Frozen eligible/adopted, no-op, and losing/rollback dogfood evidence sets.
+- Current live-skill and isolated-target outputs with exact roots and identities.
+- Accurate public guidance, changelog, human-readable report projection, and
+  terminal tracker evidence.
+
+### Resource and economy contract
+
+Reuse one existing minimal report/event fixture and one isolated temporary Git
+repository. Run one candidate lane and one evaluator per eligible case; reuse
+the accepted packet and result roots. The no-op case performs zero model calls.
+Run broad mapped validation once after mutating review and rerun only affected
+proof after a finding. No Gmail, PDF regeneration unless mapped by an actual
+projection change, release, external provider campaign, or broad benchmark.
+
+### QA and independent review
+
+The final reviewer is distinct from tracker author, candidate proposer,
+implementer, evaluator, and adoption executor. It inspects exact raw inputs,
+current outputs, skill symlinks, installed revisions, selected/rejected paths,
+cost, rollback, recurrence, and human-request evidence before the completion
+narrative.
+
+### Acceptance
+
+- One newly eligible root progresses automatically through existing owners to
+  a current effective adopted capability without ordinary human input or
+  self-promotion.
+- An unchanged/ineligible root costs no cognitive cycle, and an identical
+  consumed root cannot repeat work.
+- A losing/regressing candidate cannot remain authoritative and is retired or
+  rolled back with current proof.
+- Adaptive decision control governs Factory-evolution implementation itself,
+  including inline correction, selective candidate comparison, and exceptional
+  structural replanning.
+- Live skills, legacy on-demand evolution, static tracker execution, target-
+  repository supervision, and existing policy histories remain compatible.
+- Canonical data retains exact detail while README, reports, and changelog give
+  useful human-readable summaries with truthful capability labels.
+- Current operator-visible behavior, not test or process records alone,
+  establishes terminal completion.
+
+### Negative tests
+
+- Reject terminal acceptance from green tests, populated evolution artifacts,
+  `promote`, or changelog prose without current installed behavior.
+- Reject a dogfood flow that bypasses a normal owner, collapses independent
+  identities, prompts a human for ordinary judgment, or leaves two live paths.
+- Reject broad background monitoring, external release, or another candidate
+  after the terminal proof boundary.
+- Reject documentation that describes planned or evaluated behavior as
+  implemented/adopted without exact evidence.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before external release, deployment, Gmail action, continuous background
+operation, generalized adaptive-control infrastructure, or a second autonomous
+evolution candidate.
 
 ## 8. Verification matrix
 
 | Capability/invariant | Primary Block | Integration Blocks | Terminal proof |
 |---|---:|---|---:|
-| Mission fixed while implementation decisions/program may change | 0 | 1–7 | 7 |
-| Sound-path near-zero-overhead fast path | 0 | 1–7 | 7 |
+| Mission fixed while implementation decisions/program may change | 0 | 1–12 | 12 |
+| Sound-path near-zero-overhead fast path | 0 | 1–12 | 12 |
 | Source-backed inline correction and continuation | 1 | 3, 5–7 | 7 |
 | Bounded isolated candidate and sole production authority | 2 | 3, 5–7 | 7 |
 | Independent outcome/cost/protected-capability comparison | 2 | 5–7 | 7 |
@@ -1596,17 +2384,29 @@ prospective event/hook integration, or the broader adaptive-control platform.
 | Current operator-visible outcome proof | 5 | 6–7 | 7 |
 | Static-plan, legacy policy, and current-owner compatibility | 1 | 3–7 | 7 |
 | No fourth skill, second ledger, or prospective-control platform | 0 | 1–7 | 7 |
+| Deterministic checkpoint eligibility and exact no-op deduplication | 8 | 9–12 | 12 |
+| Reports nominate while canonical evidence adjudicates | 8 | 9–12 | 12 |
+| Existing-owner autonomous candidate orchestration | 9 | 10–12 | 12 |
+| Adaptive control governs Factory-evolution implementation | 9 | 10–12 | 12 |
+| Independent evaluation and policy-gated adoption | 10 | 11–12 | 12 |
+| Single installed authority and reversible cutover | 10 | 11–12 | 12 |
+| Current outcome feedback, recurrence suppression, and rollback | 11 | 12 | 12 |
+| Canonical data versus human-readable report/changelog separation | 11 | 12 | 12 |
+| Live-skill integrated operator-visible proof | 12 | — | 12 |
 
 ## 9. Final completion definition
 
 This tracker is complete only when every Block is accepted at exact current
-revisions and frozen dogfood demonstrates that Software Factory can leave a
-sound path alone, detect and correct a bad implementation decision inline,
-selectively build and independently compare one isolated alternative, cut over
-only when it is demonstrably better, amend the tracker only when the Block
-contract or later program is invalidated, preserve mission/history/currentness,
-and automatically resume to current operator-visible behavior for both target
-classes.
+revisions and frozen dogfood demonstrates both coupled loops: Software Factory
+can leave a sound path alone, detect and correct a bad implementation decision
+inline, selectively build and independently compare one isolated alternative,
+cut over only when it is demonstrably better, amend the tracker only when the
+Block contract or later program is invalidated, preserve
+mission/history/currentness, and automatically resume to current operator-
+visible behavior for both target classes; and a newly eligible cross-run
+Factory evidence root can progress automatically through the existing learning,
+normal-owner implementation, independent evaluation, policy-gated adoption,
+outcome, rollback, and recurrence owners while unchanged evidence does nothing.
 
 Process evidence does not establish this outcome. A decision/candidate/revision
 record, green verifier, policy mode, review disposition, commit, test suite, or
@@ -1619,7 +2419,10 @@ Stops must also remain current.
 The accepted tracker-authoring supervision capability remains a prerequisite
 and independent owner only for structural amendment; inline correction and
 bounded candidate comparison do not depend on or invoke it. This tracker neither
-merges nor rewrites that predecessor. Broader prospective monitoring, hook
-integration, event-chain learning, control libraries, generalized routing,
-external release, and mandatory adaptive correction remain future work outside
-this program.
+merges nor rewrites that predecessor. Factory evolution remains a derived
+evidence/evaluation workflow and never becomes a direct skill writer or
+self-promotion authority. Human-readable reports and `CHANGELOG.md` summarize
+exact canonical data without replacing it. Broader prospective monitoring,
+hook integration, event-chain learning, control libraries, generalized routing,
+external release, deployment, and mandatory adaptive correction remain future
+work outside this program.

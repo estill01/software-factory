@@ -37,28 +37,20 @@ the completed program materially changes Software Factory.
 
 ## Unreleased
 
-### Proposed
-
-- **Autonomous Factory-evolution orchestration.** Integrate the implemented
-  on-demand learning/evaluation workflow with existing report, supervision,
-  tracker-authoring, candidate-implementation, and independent-evaluation
-  workflows. The intended direction is configurable autonomy through automatic
-  evidence eligibility, candidate experimentation, reviewed adoption, and
-  outcome feedback without making reports authoritative or permitting
-  self-promotion. Implementation of that successor is itself governed by
-  adaptive decision control as `software-factory` target work, including inline
-  correction, bounded alternatives, and structural replanning with the stricter
-  self-change identity/evaluation boundaries. No implementation tracker or
-  implementation has yet been accepted for this successor capability.
-
 ### Planned
 
-- **Adaptive implementation decision control.** An eight-Block program plans a
+- **Adaptive implementation decision control and autonomous Factory
+  evolution.** A thirteen-Block program plans a
   near-zero-overhead unchanged path, inline correction of bad implementation
   decisions, selective isolated candidate comparison, exceptional supervised
   tracker amendment, configurable full autonomy, single-authority cutover, and
-  shared operation for target repositories and Software Factory self-work.
-  This is planning, not implemented functionality. Initial plan:
+  shared operation for target repositories and Software Factory self-work. It
+  then couples the accepted on-demand evolution workflow to maintained report
+  and terminal checkpoints through deterministic eligibility, existing-owner
+  candidate implementation, independent evaluation, policy-gated reversible
+  adoption, outcome feedback, and recurrence suppression. Reports remain
+  nominators rather than authority; the evolution helper never edits or
+  promotes a skill. This is planning, not implemented functionality. Initial plan:
   `765c32bd15a52f8eb0f0bb48f07217d0851ebac5`; provenance-corrected successor:
   `851bc1aa5150eaa4de7fc5346c45abf892002a1f`; tracker:
   [`docs/software-factory-adaptive-implementation-decision-control-implementation-tracker.md`](docs/software-factory-adaptive-implementation-decision-control-implementation-tracker.md).
