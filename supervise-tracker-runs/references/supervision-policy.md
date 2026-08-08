@@ -235,8 +235,12 @@ exact state fingerprint and mission root, with exact SHA-256 roots for:
 - the complete expected operator-visible outcome manifest;
 - currentness of every required artifact or explicit no-artifact disposition;
 - exact expected-versus-actual effect reconciliation;
-- compatibility of every retained open item with the primary outcome; and
-- the independent outcome challenge and verdict.
+- compatibility of every retained open item with the primary outcome;
+- the independent outcome challenge and verdict; and
+- a product-capability reconciliation covering the requested capability,
+  protected capabilities, selected architecture level, accepted tradeoffs,
+  current behavior, operator-visible effects, and every supported gap with its
+  narrow owner.
 
 The helper rejects a completed lifecycle record when this evidence is absent,
 failed, stale, bound to another mission or fingerprint, produced by an
@@ -245,6 +249,11 @@ binding before notification or pause. A test, audit, commit, push, schema-valid
 record, hash chain, or tracker status is supporting process evidence only. If
 the direct outcome is missing or stale, record a critical false-completion
 review, keep target and supervision active, and route the narrow correction.
+Passing tests, populated artifacts, or a Factory-evolution disposition cannot
+stand in for this product-capability proof. If the reconciliation supports a
+gap, reject completion and reopen only the narrow authoring, implementation,
+supervision, or target owner that can close it; do not invent missing product
+intent or broaden the mission.
 
 After that outcome proof passes, terminal reporting and delivery are mandatory
 before supervision may pause. The base reviewer uses `terminal-report prepare`
@@ -1260,7 +1269,7 @@ effects, inspect those deliverables at their exact current commit/revision/root,
 reconcile expected versus actual effects, and classify every open item for
 compatibility with the primary outcome. Challenge whether the tracker omitted
 or deferred work needed for the direct goal. Passing process evidence cannot
-substitute. Record the five exact roots with `completion-record`; use `verified`
+substitute. Record the six exact roots with `completion-record`; use `verified`
 only when the outcome is actually current. Otherwise record `failed`, escalate
 the false-completion defect, and keep the target active.
 
@@ -1764,6 +1773,7 @@ python3 <LOG_HELPER> completion-record --target-thread <TARGET> \
   --effect-reconciliation-sha256 <SHA256> \
   --open-item-compatibility-sha256 <SHA256> \
   --independent-challenge-sha256 <SHA256> \
+  --capability-reconciliation-sha256 <SHA256> \
   --active-block <BLOCK> --checkpoint <CHECKPOINT> \
   --evidence <TARGET_TURN_OR_ITEM_ID> \
   --summary "Current operator-visible outcome was independently checked."

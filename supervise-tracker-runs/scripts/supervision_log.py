@@ -65,6 +65,16 @@ OUTCOME_COMPLETION_HASH_FIELDS = (
     "effect_reconciliation_sha256",
     "open_item_compatibility_sha256",
     "independent_challenge_sha256",
+    "capability_reconciliation_sha256",
+)
+CAPABILITY_RECONCILIATION_FIELDS = (
+    "requested_capability",
+    "protected_capabilities",
+    "selected_architecture_level",
+    "accepted_tradeoffs",
+    "current_behavior",
+    "operator_visible_effects",
+    "supported_gaps_and_narrow_owner",
 )
 TERMINAL_REPORT_DELIVERY_CATEGORY = "gmail-terminal-completion"
 TERMINAL_SHUTDOWN_CATEGORY = "terminal-supervision-shutdown"
@@ -217,11 +227,29 @@ def outcome_completion_contract() -> dict[str, Any]:
         "terminal_state": "completed",
         "record_category": OUTCOME_COMPLETION_CATEGORY,
         "required_bindings": list(OUTCOME_COMPLETION_HASH_FIELDS),
+        "capability_reconciliation_required_fields": list(
+            CAPABILITY_RECONCILIATION_FIELDS
+        ),
+        "supported_gap_posture": "reject-completed-and-reopen-narrow-owner",
         "reviewer_model": "gpt-5.6-sol",
         "reviewer_reasoning": ["xhigh", "max"],
         "missing_or_failed_posture": "reject-completed-and-open-critical-review",
         "process_proxies_sufficient": False,
     }
+
+
+def legacy_outcome_completion_contract_without_capability() -> dict[str, Any]:
+    """Exact predecessor accepted only so `bind` can upgrade a live policy."""
+
+    contract = outcome_completion_contract()
+    contract["required_bindings"] = [
+        field
+        for field in contract["required_bindings"]
+        if field != "capability_reconciliation_sha256"
+    ]
+    contract.pop("capability_reconciliation_required_fields")
+    contract.pop("supported_gap_posture")
+    return contract
 
 
 def skill_maintenance_contract(mode: str = "propose-only") -> dict[str, Any]:
@@ -1029,7 +1057,10 @@ def validate_policy(policy: dict[str, Any]) -> None:
     if economy is not None and economy != execution_economy_contract():
         raise SupervisionLogError("Execution-economy contract differs")
     completion = policy.get("outcome_completion")
-    if completion is not None and completion != outcome_completion_contract():
+    if completion is not None and canonical(completion) not in {
+        canonical(outcome_completion_contract()),
+        canonical(legacy_outcome_completion_contract_without_capability()),
+    }:
         raise SupervisionLogError("Outcome-completion contract differs")
     decisions = policy.get("decision_resolution")
     if decisions is not None and canonical(decisions) not in {
@@ -5312,6 +5343,9 @@ def parser() -> argparse.ArgumentParser:
         "--open-item-compatibility-sha256", required=True
     )
     completion_record.add_argument("--independent-challenge-sha256", required=True)
+    completion_record.add_argument(
+        "--capability-reconciliation-sha256", required=True
+    )
     completion_record.add_argument("--active-block", default="")
     completion_record.add_argument("--checkpoint", default="")
     completion_record.add_argument("--summary", required=True)

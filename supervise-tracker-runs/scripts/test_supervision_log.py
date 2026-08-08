@@ -374,6 +374,35 @@ class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
         self.assertIn("report of\nreports", policy)
         self.assertIn("both verified PDFs attached", policy)
 
+    def test_terminal_capability_reconciliation_is_documented_end_to_end(
+        self,
+    ) -> None:
+        supervision_skill = HELPER_PATH.parent.parent.joinpath("SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        policy = HELPER_PATH.parent.parent.joinpath(
+            "references", "supervision-policy.md"
+        ).read_text(encoding="utf-8")
+        readme = HELPER_PATH.parent.parent.parent.joinpath("README.md").read_text(
+            encoding="utf-8"
+        )
+
+        required_concepts = (
+            "requested capability",
+            "protected capabilities",
+            "selected architecture level",
+            "accepted tradeoffs",
+            "current behavior",
+            "operator-visible effects",
+        )
+        for text in (supervision_skill, policy):
+            for concept in required_concepts:
+                self.assertIn(concept, text)
+            self.assertIn("reopen only the narrow", text)
+        self.assertIn("evolution disposition", supervision_skill)
+        self.assertIn("populated artifacts", policy)
+        self.assertIn("reopen only the narrow owner", readme)
+
 
 class NoticeGateCorrelationTests(unittest.TestCase):
     incident_id = "INC-20260801-123456-ABCDEF"
@@ -1105,6 +1134,36 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
         self.assertFalse(policy["permissions"]["gmail_priority_notification"])
         self.assertFalse(policy["notifications"]["gmail_priority"]["enabled"])
         self.assertNotIn("mission_binding", policy)
+        write.assert_called_once()
+
+    def test_bind_upgrades_exact_predecessor_completion_contract(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        policy["outcome_completion"] = (
+            supervision_log.legacy_outcome_completion_contract_without_capability()
+        )
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+        supervision_log.validate_policy(policy)
+        args = supervision_log.parser().parse_args(
+            ["bind", "--target-thread", "target-1234"]
+        )
+
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(Path("/tmp/supervision-test"), policy),
+            ),
+            mock.patch.object(supervision_log, "write_policy_version") as write,
+            redirect_stdout(io.StringIO()),
+        ):
+            supervision_log.cmd_bind(args)
+
+        self.assertEqual(
+            policy["outcome_completion"],
+            supervision_log.outcome_completion_contract(),
+        )
         write.assert_called_once()
 
     def test_skill_maintenance_mode_change_requires_evidence(self) -> None:
@@ -1967,6 +2026,7 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
             "effect_reconciliation_sha256": "d" * 64,
             "open_item_compatibility_sha256": "e" * 64,
             "independent_challenge_sha256": "f" * 64,
+            "capability_reconciliation_sha256": "1" * 64,
             "active_block": "Block-64",
             "checkpoint": "checkpoint-1234",
             "summary": "Current operator-visible outcome verified.",
@@ -2058,6 +2118,39 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
                     supervision_log.cmd_completion_record(
                         self.completion_args(artifact_currentness_sha256="missing")
                     )
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, "must be an exact"
+                ):
+                    supervision_log.cmd_completion_record(
+                        self.completion_args(
+                            capability_reconciliation_sha256="missing"
+                        )
+                    )
+
+    def test_completion_contract_requires_product_capability_reconciliation(
+        self,
+    ) -> None:
+        contract = supervision_log.outcome_completion_contract()
+
+        self.assertIn(
+            "capability_reconciliation_sha256", contract["required_bindings"]
+        )
+        self.assertEqual(
+            contract["capability_reconciliation_required_fields"],
+            [
+                "requested_capability",
+                "protected_capabilities",
+                "selected_architecture_level",
+                "accepted_tradeoffs",
+                "current_behavior",
+                "operator_visible_effects",
+                "supported_gaps_and_narrow_owner",
+            ],
+        )
+        self.assertEqual(
+            contract["supported_gap_posture"],
+            "reject-completed-and-reopen-narrow-owner",
+        )
 
     def test_completed_lifecycle_cannot_enter_ledger_without_proof(self) -> None:
         policy = self.policy()

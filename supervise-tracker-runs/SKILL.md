@@ -188,10 +188,26 @@ Repeat independently for additional targets.
   primary outcome from current direct sources, inspect the operator-visible
   deliverables, reconcile expected versus actual effects, verify exact
   artifact/currentness bindings, and determine whether every retained open item
-  is compatible with that outcome. Record those five content-minimized roots
-  with `completion-record`. The helper must reject `completed` when that record
+  is compatible with that outcome. Also reconcile the requested product
+  capability, protected capabilities, selected architecture level, accepted
+  tradeoffs, current behavior, operator-visible effects, and any supported gap
+  with its narrow owning skill or repository component. Hash the exact
+  reconciliation bytes and record that root with the other five
+  content-minimized roots through `completion-record`. The helper must reject
+  `completed` when that record
   is missing, failed, stale, tied to another mission or fingerprint, or lacks
   any required binding.
+- Treat product-capability reconciliation as semantic outcome proof, not a
+  duplicate test inventory. Reconstruct the requested capability from the
+  direct mission and current product-capability frame when one exists. Verify
+  that the selected architecture level still matches the current owner, that
+  accepted tradeoffs remain compatible with the request, and that current
+  operator-visible effects establish the capability without regressing
+  protected behavior. If current evidence supports a gap, reject completion and
+  reopen only the narrow authoring, implementation, supervision, or target
+  owner that can close it. Do not broaden the mission, invent product intent,
+  or treat populated artifacts, passing tests, or an evolution disposition as
+  the capability itself.
 - A tracker, test, audit, commit, push, record population, or terminal ledger may
   support but never replace outcome proof. When the tracker and direct mission
   disagree, open a critical false-completion review, keep supervision and the
@@ -554,6 +570,14 @@ Keep the roles and authority sequence exact:
 5. Run `verify` against the stored set. Verification reopens the immutable
    packet, review, evaluation, report, and manifests and recomputes their hashes
    and schemas without rerunning a producer.
+
+The evaluation disposition remains independent evidence. Before terminal
+completion, reconcile the resulting current Factory behavior against the
+requested capability, protected capabilities, selected architecture level,
+accepted tradeoffs, and operator-visible effects. A populated or verified
+evolution artifact set cannot replace that reconciliation. A supported gap
+reopens only its narrow ordinary owner; `promote` is never forced merely to
+finish the cycle.
 
 Run the helper with the maintained `uv run --python 3.14 python` runtime, or
 another Python 3.11+ interpreter; the macOS system `python3` may be too old for
