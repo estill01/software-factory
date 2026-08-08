@@ -40,7 +40,7 @@ the completed program materially changes Software Factory.
 ### Planned
 
 - **Adaptive implementation decision control and autonomous Factory
-  evolution.** A thirteen-Block program plans a
+  evolution.** A fourteen-Block program plans a
   near-zero-overhead unchanged path, inline correction of bad implementation
   decisions, selective isolated candidate comparison, exceptional supervised
   tracker amendment, configurable full autonomy, single-authority cutover, and
