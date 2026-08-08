@@ -2080,7 +2080,12 @@ def load_capability_reconciliation(
             raise SupervisionLogError(
                 "Capability reconciliation source is not an explicit file"
             )
-        raw = source.read_bytes()
+        if source.stat().st_size > MAX_CAPABILITY_RECONCILIATION_BYTES:
+            raise SupervisionLogError(
+                "Capability reconciliation exceeds its byte bound"
+            )
+        with source.open("rb") as handle:
+            raw = handle.read(MAX_CAPABILITY_RECONCILIATION_BYTES + 1)
     except OSError as exc:
         raise SupervisionLogError(
             "Capability reconciliation source cannot be read"

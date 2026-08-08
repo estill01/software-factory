@@ -2312,6 +2312,27 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
                 ):
                     supervision_log.cmd_completion_record(self.completion_args())
 
+    def test_oversized_reconciliation_rejects_before_json_parsing(self) -> None:
+        with self.reconciliation_path.open("wb") as handle:
+            handle.truncate(supervision_log.MAX_CAPABILITY_RECONCILIATION_BYTES + 1)
+        policy = self.policy()
+
+        with (
+            mock.patch.object(supervision_log.json, "loads") as loads,
+            self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "exceeds its byte bound"
+            ),
+        ):
+            supervision_log.load_capability_reconciliation(
+                str(self.reconciliation_path),
+                target_thread="target-1234",
+                mission_root=self.mission_root,
+                state_fingerprint="state-1234",
+                current_revision="2" * 40,
+                policy=policy,
+            )
+        loads.assert_not_called()
+
     def test_completion_contract_requires_product_capability_reconciliation(
         self,
     ) -> None:
