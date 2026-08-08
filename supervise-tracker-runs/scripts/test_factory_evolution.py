@@ -402,5 +402,335 @@ class LearningPacketTests(unittest.TestCase):
             factory_evolution.verify_learning_packet(packet)
 
 
+class EvolutionReviewTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        records: list[dict[str, object]] = []
+        previous: str | None = None
+        for record_id, kind, summary in (
+            ("EVT-000001", "check", "Productive bounded execution preserved capability."),
+            ("EVT-000002", "incident", "An exception exposed product underreach."),
+            ("EVT-000003", "checkpoint-review", "Review identified a reusable capability gap."),
+            ("EVT-000004", "resolution", "A bounded correction preserved architecture."),
+        ):
+            record = event_record(
+                record_id,
+                previous=previous,
+                kind=kind,
+                summary=summary,
+            )
+            records.append(record)
+            previous = str(record["record_sha256"])
+        event_path = self.root / "events.jsonl"
+        event_path.write_text(
+            "".join(json.dumps(item, sort_keys=True) + "\n" for item in records),
+            encoding="utf-8",
+        )
+        source_root = factory_evolution.digest(
+            {"record_hashes": [item["record_sha256"] for item in records]}
+        )
+        report = report_record(source_root)
+        for items in report["cognitive_review"]["sections"].values():
+            for item in items:
+                item["evidence"] = ["EVT-000001", "EVT-000002"]
+        report_path = self.root / "report.json"
+        report_path.write_text(json.dumps(report, sort_keys=True), encoding="utf-8")
+        self.packet = factory_evolution.build_learning_packet(
+            report_paths=[report_path], event_paths=[event_path]
+        )
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def dimensions(self) -> dict[str, object]:
+        return {
+            name: {
+                "rating": "high" if name in {"effect", "product_gain", "reversibility"} else "medium",
+                "rationale": f"Visible {name} evidence remains separately reviewable.",
+                "evidence_ids": ["EVT-000001"],
+            }
+            for name in factory_evolution.SELECTION_DIMENSIONS
+        }
+
+    def candidate(self, candidate_id: str, candidate_type: str) -> dict[str, object]:
+        selected = candidate_id == "candidate-architecture"
+        return {
+            "candidate_id": candidate_id,
+            "candidate_type": candidate_type,
+            "capability_gap": "The factory lacks source-backed target-product capability review.",
+            "effect": "Make product underreach and overarchitecture visible before acceptance.",
+            "meta_pattern_ids": ["meta-product-alignment"],
+            "evidence_ids": ["EVT-000001", "EVT-000002", "EVT-000003"],
+            "protected_capabilities": ["bounded execution", "canonical ownership"],
+            "applicability": "Consequential tracker authoring and implementation decisions.",
+            "tradeoffs": ["Adds one explicit review step"],
+            "uncertainty": "Current evidence covers a bounded set of supervised runs.",
+            "implementation_owner": "implementer-1" if selected else "detector-implementer",
+            "evaluation_owner": "evaluator-1" if selected else "detector-evaluator",
+            "smaller_change_insufficient": "A local reminder would not bind acceptance evidence.",
+            "proportionality": "Extend existing skill owners without adding a service or daemon.",
+            "selection_dimensions": self.dimensions(),
+        }
+
+    def review_submission(self) -> dict[str, object]:
+        hypotheses = [
+            item["hypothesis_id"]
+            for item in self.packet["evidence"]["report_hypotheses"]
+        ]
+        return {
+            "schema_version": 1,
+            "kind": factory_evolution.REVIEW_KIND,
+            "packet_id": self.packet["packet_id"],
+            "packet_root": self.packet["packet_root"],
+            "reviewer_id": "semantic-reviewer-1",
+            "observations": [
+                {
+                    "observation_id": "observation-exception",
+                    "summary": "An accepted-looking path underreached the intended product.",
+                    "valence": "exception",
+                    "event_ids": ["EVT-000002"],
+                },
+                {
+                    "observation_id": "observation-productive",
+                    "summary": "Bounded architecture-aware review preserved capability.",
+                    "valence": "productive",
+                    "event_ids": ["EVT-000001", "EVT-000004"],
+                },
+            ],
+            "lessons": [
+                {
+                    "lesson_id": "lesson-exception",
+                    "statement": "Mechanical completion can coexist with product underreach.",
+                    "observation_ids": ["observation-exception"],
+                    "supporting_case_ids": ["EVT-000002"],
+                    "report_hypothesis_ids": hypotheses[:1],
+                    "counterexample_case_ids": ["EVT-000004"],
+                    "counterexample_posture": "observed",
+                    "counterexample_search": "Compared the bounded architecture-preserving resolution.",
+                    "goals_advanced": [],
+                    "goals_threatened": ["target-product capability"],
+                    "causal_hypothesis": "Acceptance omitted an explicit product-capability comparison.",
+                    "confidence": "medium",
+                    "applicability": "Consequential implementation-path decisions.",
+                    "unresolved_questions": ["How often does underreach recur?"],
+                },
+                {
+                    "lesson_id": "lesson-productive",
+                    "statement": "Architecture-aware bounded review can preserve intended capability.",
+                    "observation_ids": ["observation-productive"],
+                    "supporting_case_ids": ["EVT-000001", "EVT-000004"],
+                    "report_hypothesis_ids": hypotheses[1:2],
+                    "counterexample_case_ids": ["EVT-000002"],
+                    "counterexample_posture": "observed",
+                    "counterexample_search": "Inspected the contrary underreach incident.",
+                    "goals_advanced": ["target-product capability"],
+                    "goals_threatened": [],
+                    "causal_hypothesis": "A visible capability comparison changes path selection.",
+                    "confidence": "medium",
+                    "applicability": "Consequential tracker and implementation reviews.",
+                    "unresolved_questions": ["Which changes are consequential?"],
+                },
+            ],
+            "meta_patterns": [
+                {
+                    "meta_pattern_id": "meta-product-alignment",
+                    "statement": "Product-capability judgment is distinct from mechanical correctness.",
+                    "lesson_ids": ["lesson-exception", "lesson-productive"],
+                    "supporting_case_ids": ["EVT-000001", "EVT-000002", "EVT-000004"],
+                    "counterexample_lesson_ids": ["lesson-productive"],
+                    "applicability": "Changes with material product or architecture consequences.",
+                    "uncertainty": "The evidence does not justify a general runtime control platform.",
+                }
+            ],
+            "candidates": [
+                self.candidate("candidate-architecture", "architecture"),
+                self.candidate("candidate-detector", "detector"),
+            ],
+            "selection": {
+                "candidate_id": "candidate-architecture",
+                "compared_candidate_ids": ["candidate-detector"],
+                "rationale": "The gap requires a capability method, not only another detector.",
+                "dimensions_considered": list(factory_evolution.SELECTION_DIMENSIONS),
+            },
+            "experiment": {
+                "experiment_id": "experiment-target-product-alignment",
+                "candidate_id": "candidate-architecture",
+                "proposer_id": "proposer-1",
+                "implementer_id": "implementer-1",
+                "evaluator_id": "evaluator-1",
+                "baseline_revision": "a" * 40,
+                "candidate_revision": "b" * 40,
+                "positive_case_ids": ["case-positive"],
+                "exception_case_ids": ["case-exception"],
+                "expected_effects": ["Detect product underreach without defaulting to a platform."],
+                "resource_bounds": ["Two paired cases and one independent evaluator."],
+                "rollback_condition": "Revert the method if it causes lower-value architecture churn.",
+                "success_measures": ["Both paired cases receive the intended bounded decision."],
+                "regression_measures": ["No bypass of canonical tracker or implementation owners."],
+                "evidence_capture": "Record separate baseline and candidate case results.",
+                "stop_condition": "Stop after one exact-candidate disposition.",
+            },
+        }
+
+    def evaluation_submission(self, review: dict[str, object]) -> dict[str, object]:
+        def result(case_id: str, outcome: str, evidence_id: str) -> dict[str, object]:
+            return {
+                "case_id": case_id,
+                "evidence_class": "observed",
+                "evidence_ids": [evidence_id],
+                "outcome": outcome,
+                "observed_effect": f"Observed {outcome} for {case_id}.",
+                "resource_cost": "One bounded review pass.",
+                "regressions": [],
+            }
+
+        return {
+            "schema_version": 1,
+            "kind": factory_evolution.EVALUATION_KIND,
+            "packet_id": self.packet["packet_id"],
+            "packet_root": self.packet["packet_root"],
+            "review_id": review["review_id"],
+            "review_root": review["review_root"],
+            "experiment_id": "experiment-target-product-alignment",
+            "candidate_id": "candidate-architecture",
+            "evaluator_id": "evaluator-1",
+            "baseline_results": [
+                result("case-positive", "mixed", "EVT-000001"),
+                result("case-exception", "fail", "EVT-000002"),
+            ],
+            "candidate_results": [
+                result("case-positive", "pass", "EVT-000004"),
+                result("case-exception", "pass", "EVT-000003"),
+            ],
+            "contrary_evidence_ids": ["EVT-000002"],
+            "regression_findings": [],
+            "disposition": "promote",
+            "rationale": "The candidate passed both cases with observed evidence and no regression.",
+        }
+
+    def build_review(self) -> dict[str, object]:
+        return factory_evolution.build_evolution_review(
+            self.packet, self.review_submission()
+        )
+
+    def test_review_can_identify_a_broad_capability_gap(self) -> None:
+        review = self.build_review()
+
+        selected = next(
+            item
+            for item in review["candidates"]
+            if item["candidate_id"] == review["selection"]["candidate_id"]
+        )
+        self.assertEqual(selected["candidate_type"], "architecture")
+        self.assertEqual(
+            set(selected["selection_dimensions"]),
+            set(factory_evolution.SELECTION_DIMENSIONS),
+        )
+        self.assertNotIn("score", review["selection"])
+        self.assertEqual(factory_evolution.verify_evolution_review(self.packet, review), review)
+
+    def test_every_supported_candidate_type_is_accepted(self) -> None:
+        for candidate_type in factory_evolution.CANDIDATE_TYPES:
+            submission = self.review_submission()
+            submission["candidates"][0]["candidate_type"] = candidate_type
+            with self.subTest(candidate_type=candidate_type):
+                factory_evolution.build_evolution_review(self.packet, submission)
+
+    def test_lesson_requires_exact_cases_and_counterexample_posture(self) -> None:
+        report_only = self.review_submission()
+        report_only["lessons"][0]["supporting_case_ids"] = []
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "must not be empty"):
+            factory_evolution.build_evolution_review(self.packet, report_only)
+
+        missing_posture = self.review_submission()
+        missing_posture["lessons"][0]["counterexample_posture"] = ""
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "posture"):
+            factory_evolution.build_evolution_review(self.packet, missing_posture)
+
+        dangling = self.review_submission()
+        dangling["lessons"][0]["supporting_case_ids"] = ["EVT-999999"]
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "dangling"):
+            factory_evolution.build_evolution_review(self.packet, dangling)
+
+    def test_opaque_scoring_is_rejected(self) -> None:
+        submission = self.review_submission()
+        submission["selection"]["aggregate_score"] = 0.9
+
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "unexpected"):
+            factory_evolution.build_evolution_review(self.packet, submission)
+
+    def test_selected_experiment_requires_exception_rollback_and_distinct_owners(self) -> None:
+        no_exception = self.review_submission()
+        no_exception["experiment"]["exception_case_ids"] = []
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "must not be empty"):
+            factory_evolution.build_evolution_review(self.packet, no_exception)
+
+        no_rollback = self.review_submission()
+        no_rollback["experiment"]["rollback_condition"] = ""
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "rollback"):
+            factory_evolution.build_evolution_review(self.packet, no_rollback)
+
+        self_review = self.review_submission()
+        self_review["experiment"]["evaluator_id"] = "implementer-1"
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "identities collapse"):
+            factory_evolution.build_evolution_review(self.packet, self_review)
+
+    def test_evaluation_keeps_baseline_and_candidate_results_separate(self) -> None:
+        review = self.build_review()
+        evaluation = factory_evolution.build_candidate_evaluation(
+            self.packet, review, self.evaluation_submission(review)
+        )
+        report = factory_evolution.build_evolution_machine_report(
+            self.packet, review, evaluation
+        )
+
+        self.assertNotEqual(
+            report["result_roots"]["baseline"], report["result_roots"]["candidate"]
+        )
+        self.assertEqual(evaluation["disposition"], "promote")
+        self.assertEqual(
+            factory_evolution.verify_candidate_evaluation(self.packet, review, evaluation),
+            evaluation,
+        )
+
+    def test_evaluation_rejects_unsupported_or_unsafe_promotion(self) -> None:
+        review = self.build_review()
+        unsupported = self.evaluation_submission(review)
+        unsupported["disposition"] = "auto-promote"
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "unsupported"):
+            factory_evolution.build_candidate_evaluation(self.packet, review, unsupported)
+
+        regression = self.evaluation_submission(review)
+        regression["candidate_results"][0]["regressions"] = ["Lost composability."]
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "regression"):
+            factory_evolution.build_candidate_evaluation(self.packet, review, regression)
+
+        synthetic = self.evaluation_submission(review)
+        for item in synthetic["baseline_results"] + synthetic["candidate_results"]:
+            item["evidence_class"] = "synthetic"
+        with self.assertRaisesRegex(factory_evolution.FactoryEvolutionError, "alone"):
+            factory_evolution.build_candidate_evaluation(self.packet, review, synthetic)
+
+    def test_bundle_and_manifest_exactly_rebuild(self) -> None:
+        review = self.build_review()
+        evaluation = factory_evolution.build_candidate_evaluation(
+            self.packet, review, self.evaluation_submission(review)
+        )
+        bundle = factory_evolution.build_evolution_bundle(
+            self.packet, review, evaluation
+        )
+
+        self.assertEqual(factory_evolution.verify_evolution_bundle(bundle), bundle)
+        rebuilt = factory_evolution.build_evolution_bundle(
+            self.packet, review, evaluation
+        )
+        self.assertEqual(bundle, rebuilt)
+
+        bundle["machine-report.json"]["counts"]["lessons"] = 99
+        with self.assertRaises(factory_evolution.FactoryEvolutionError):
+            factory_evolution.verify_evolution_bundle(bundle)
+
+
 if __name__ == "__main__":
     unittest.main()

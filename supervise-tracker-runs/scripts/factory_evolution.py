@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from copy import deepcopy
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -925,3 +926,997 @@ def verify_learning_packet(packet: Mapping[str, Any]) -> dict[str, Any]:
     if recorded_root != expected_root or packet_id != "learning-" + expected_root[:20]:
         raise FactoryEvolutionError("Learning packet identity is stale")
     return dict(packet)
+
+
+REVIEW_KIND = "software-factory-evolution-review"
+EVALUATION_KIND = "software-factory-candidate-evaluation"
+MACHINE_REPORT_KIND = "software-factory-evolution-machine-report"
+MANIFEST_KIND = "software-factory-evolution-manifest"
+MAX_SEMANTIC_RECORDS = 64
+MAX_SEMANTIC_TEXT = 600
+MAX_SEMANTIC_LIST = 16
+CANDIDATE_TYPES = frozenset(
+    {
+        "detector",
+        "correction",
+        "exculpator",
+        "skill-method",
+        "tracker-method",
+        "supervision",
+        "execution",
+        "evaluation",
+        "resource-policy",
+        "architecture",
+        "removal",
+        "experiment",
+    }
+)
+SELECTION_DIMENSIONS = (
+    "effect",
+    "recurrence",
+    "reach",
+    "compounding_value",
+    "reliability",
+    "product_gain",
+    "evidence_strength",
+    "cost",
+    "regression_risk",
+    "complexity",
+    "reversibility",
+    "time_to_evidence",
+)
+DIMENSION_RATINGS = frozenset({"low", "medium", "high", "unknown"})
+COUNTEREXAMPLE_POSTURES = frozenset(
+    {"observed", "searched-none-found", "unknown-limits-applicability"}
+)
+CONFIDENCE_LEVELS = frozenset({"low", "medium", "high"})
+RESULT_EVIDENCE_CLASSES = frozenset({"observed", "shadow", "synthetic"})
+RESULT_OUTCOMES = frozenset({"pass", "fail", "mixed"})
+DISPOSITIONS = frozenset({"promote", "advisory", "revise", "reject"})
+
+
+def _semantic_text(value: Any, *, label: str, allow_empty: bool = False) -> str:
+    if not isinstance(value, str):
+        raise FactoryEvolutionError(f"{label} must be text")
+    normalized = _bounded_text(value, limit=MAX_SEMANTIC_TEXT)
+    if normalized != value or (not value and not allow_empty):
+        raise FactoryEvolutionError(f"{label} must be nonempty, normalized, bounded text")
+    return value
+
+
+def _semantic_strings(
+    value: Any, *, label: str, allow_empty: bool = False
+) -> list[str]:
+    if not isinstance(value, list) or len(value) > MAX_SEMANTIC_LIST:
+        raise FactoryEvolutionError(f"{label} must be a bounded array")
+    result = [_semantic_text(item, label=f"{label} item") for item in value]
+    if not result and not allow_empty:
+        raise FactoryEvolutionError(f"{label} must not be empty")
+    if len(result) != len(set(result)):
+        raise FactoryEvolutionError(f"{label} contains duplicates")
+    return sorted(result)
+
+
+def _semantic_ids(
+    value: Any,
+    *,
+    label: str,
+    allowed: set[str] | None = None,
+    allow_empty: bool = False,
+) -> list[str]:
+    if not isinstance(value, list) or len(value) > MAX_SEMANTIC_LIST:
+        raise FactoryEvolutionError(f"{label} must be a bounded ID array")
+    result = [_exact_identifier(item, label=f"{label} item") for item in value]
+    if not result and not allow_empty:
+        raise FactoryEvolutionError(f"{label} must not be empty")
+    if len(result) != len(set(result)):
+        raise FactoryEvolutionError(f"{label} contains duplicate IDs")
+    if allowed is not None and not set(result) <= allowed:
+        raise FactoryEvolutionError(f"{label} contains a dangling reference")
+    return sorted(result)
+
+
+def _packet_reference_sets(packet: Mapping[str, Any]) -> tuple[set[str], set[str]]:
+    verified = verify_learning_packet(packet)
+    event_ids = {
+        str(item["record_id"])
+        for ledger in verified["sources"]["event_ledgers"]
+        for item in ledger["record_index"]
+    }
+    hypothesis_ids = {
+        str(item["hypothesis_id"])
+        for item in verified["evidence"]["report_hypotheses"]
+    }
+    return event_ids, hypothesis_ids
+
+
+def _normalize_observations(value: Any, *, event_ids: set[str]) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or not value or len(value) > MAX_SEMANTIC_RECORDS:
+        raise FactoryEvolutionError("Review observations must be a nonempty bounded array")
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise FactoryEvolutionError("Review observation must be an object")
+        _exact_keys(
+            item,
+            {"observation_id", "summary", "valence", "event_ids"},
+            label="Review observation",
+        )
+        observation_id = _exact_identifier(
+            item.get("observation_id"), label="observation_id"
+        )
+        if observation_id in seen:
+            raise FactoryEvolutionError("Review repeats an observation ID")
+        seen.add(observation_id)
+        valence = str(item.get("valence"))
+        if valence not in {"productive", "harmful", "exception", "mixed"}:
+            raise FactoryEvolutionError("Observation valence is unsupported")
+        result.append(
+            {
+                "observation_id": observation_id,
+                "summary": _semantic_text(item.get("summary"), label="observation summary"),
+                "valence": valence,
+                "event_ids": _semantic_ids(
+                    item.get("event_ids"),
+                    label="observation event IDs",
+                    allowed=event_ids,
+                ),
+            }
+        )
+    return sorted(result, key=lambda item: item["observation_id"])
+
+
+def _normalize_lessons(
+    value: Any,
+    *,
+    observation_ids: set[str],
+    event_ids: set[str],
+    hypothesis_ids: set[str],
+) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or not value or len(value) > MAX_SEMANTIC_RECORDS:
+        raise FactoryEvolutionError("Review lessons must be a nonempty bounded array")
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    expected = {
+        "lesson_id",
+        "statement",
+        "observation_ids",
+        "supporting_case_ids",
+        "report_hypothesis_ids",
+        "counterexample_case_ids",
+        "counterexample_posture",
+        "counterexample_search",
+        "goals_advanced",
+        "goals_threatened",
+        "causal_hypothesis",
+        "confidence",
+        "applicability",
+        "unresolved_questions",
+    }
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise FactoryEvolutionError("Review lesson must be an object")
+        _exact_keys(item, expected, label="Review lesson")
+        lesson_id = _exact_identifier(item.get("lesson_id"), label="lesson_id")
+        if lesson_id in seen:
+            raise FactoryEvolutionError("Review repeats a lesson ID")
+        seen.add(lesson_id)
+        supporting = _semantic_ids(
+            item.get("supporting_case_ids"),
+            label="lesson supporting cases",
+            allowed=event_ids,
+        )
+        counterexamples = _semantic_ids(
+            item.get("counterexample_case_ids"),
+            label="lesson counterexample cases",
+            allowed=event_ids,
+            allow_empty=True,
+        )
+        posture = str(item.get("counterexample_posture"))
+        if posture not in COUNTEREXAMPLE_POSTURES:
+            raise FactoryEvolutionError("Lesson counterexample posture is missing or unsupported")
+        if posture == "observed" and not counterexamples:
+            raise FactoryEvolutionError("Observed counterexample posture requires an exact case")
+        confidence = str(item.get("confidence"))
+        if confidence not in CONFIDENCE_LEVELS:
+            raise FactoryEvolutionError("Lesson confidence is unsupported")
+        result.append(
+            {
+                "lesson_id": lesson_id,
+                "statement": _semantic_text(item.get("statement"), label="lesson statement"),
+                "observation_ids": _semantic_ids(
+                    item.get("observation_ids"),
+                    label="lesson observation IDs",
+                    allowed=observation_ids,
+                ),
+                "supporting_case_ids": supporting,
+                "report_hypothesis_ids": _semantic_ids(
+                    item.get("report_hypothesis_ids"),
+                    label="lesson report hypothesis IDs",
+                    allowed=hypothesis_ids,
+                    allow_empty=True,
+                ),
+                "counterexample_case_ids": counterexamples,
+                "counterexample_posture": posture,
+                "counterexample_search": _semantic_text(
+                    item.get("counterexample_search"), label="lesson counterexample search"
+                ),
+                "goals_advanced": _semantic_strings(
+                    item.get("goals_advanced"), label="lesson goals advanced", allow_empty=True
+                ),
+                "goals_threatened": _semantic_strings(
+                    item.get("goals_threatened"),
+                    label="lesson goals threatened",
+                    allow_empty=True,
+                ),
+                "causal_hypothesis": _semantic_text(
+                    item.get("causal_hypothesis"), label="lesson causal hypothesis"
+                ),
+                "confidence": confidence,
+                "applicability": _semantic_text(
+                    item.get("applicability"), label="lesson applicability"
+                ),
+                "unresolved_questions": _semantic_strings(
+                    item.get("unresolved_questions"),
+                    label="lesson unresolved questions",
+                    allow_empty=True,
+                ),
+            }
+        )
+    return sorted(result, key=lambda item: item["lesson_id"])
+
+
+def _normalize_meta_patterns(
+    value: Any, *, lesson_ids: set[str], event_ids: set[str]
+) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or not value or len(value) > MAX_SEMANTIC_RECORDS:
+        raise FactoryEvolutionError("Review meta-patterns must be a nonempty bounded array")
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise FactoryEvolutionError("Review meta-pattern must be an object")
+        _exact_keys(
+            item,
+            {
+                "meta_pattern_id",
+                "statement",
+                "lesson_ids",
+                "supporting_case_ids",
+                "counterexample_lesson_ids",
+                "applicability",
+                "uncertainty",
+            },
+            label="Review meta-pattern",
+        )
+        meta_id = _exact_identifier(item.get("meta_pattern_id"), label="meta_pattern_id")
+        if meta_id in seen:
+            raise FactoryEvolutionError("Review repeats a meta-pattern ID")
+        seen.add(meta_id)
+        linked_lessons = _semantic_ids(
+            item.get("lesson_ids"), label="meta-pattern lesson IDs", allowed=lesson_ids
+        )
+        if len(linked_lessons) < 2:
+            raise FactoryEvolutionError("Meta-pattern must relate at least two lessons")
+        result.append(
+            {
+                "meta_pattern_id": meta_id,
+                "statement": _semantic_text(
+                    item.get("statement"), label="meta-pattern statement"
+                ),
+                "lesson_ids": linked_lessons,
+                "supporting_case_ids": _semantic_ids(
+                    item.get("supporting_case_ids"),
+                    label="meta-pattern supporting cases",
+                    allowed=event_ids,
+                ),
+                "counterexample_lesson_ids": _semantic_ids(
+                    item.get("counterexample_lesson_ids"),
+                    label="meta-pattern counterexample lessons",
+                    allowed=lesson_ids,
+                    allow_empty=True,
+                ),
+                "applicability": _semantic_text(
+                    item.get("applicability"), label="meta-pattern applicability"
+                ),
+                "uncertainty": _semantic_text(
+                    item.get("uncertainty"), label="meta-pattern uncertainty"
+                ),
+            }
+        )
+    return sorted(result, key=lambda item: item["meta_pattern_id"])
+
+
+def _normalize_dimensions(value: Any, *, event_ids: set[str]) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise FactoryEvolutionError("Candidate selection dimensions must be an object")
+    _exact_keys(value, set(SELECTION_DIMENSIONS), label="Candidate selection dimensions")
+    result: dict[str, Any] = {}
+    for name in SELECTION_DIMENSIONS:
+        item = value.get(name)
+        if not isinstance(item, Mapping):
+            raise FactoryEvolutionError(f"Candidate dimension {name} must be an object")
+        _exact_keys(item, {"rating", "rationale", "evidence_ids"}, label=f"Dimension {name}")
+        rating = str(item.get("rating"))
+        if rating not in DIMENSION_RATINGS:
+            raise FactoryEvolutionError(f"Candidate dimension {name} rating is unsupported")
+        result[name] = {
+            "rating": rating,
+            "rationale": _semantic_text(
+                item.get("rationale"), label=f"candidate dimension {name} rationale"
+            ),
+            "evidence_ids": _semantic_ids(
+                item.get("evidence_ids"),
+                label=f"candidate dimension {name} evidence IDs",
+                allowed=event_ids,
+                allow_empty=rating == "unknown",
+            ),
+        }
+    return result
+
+
+def _normalize_candidates(
+    value: Any, *, meta_ids: set[str], event_ids: set[str]
+) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or not value or len(value) > MAX_SEMANTIC_RECORDS:
+        raise FactoryEvolutionError("Review candidates must be a nonempty bounded array")
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    expected = {
+        "candidate_id",
+        "candidate_type",
+        "capability_gap",
+        "effect",
+        "meta_pattern_ids",
+        "evidence_ids",
+        "protected_capabilities",
+        "applicability",
+        "tradeoffs",
+        "uncertainty",
+        "implementation_owner",
+        "evaluation_owner",
+        "smaller_change_insufficient",
+        "proportionality",
+        "selection_dimensions",
+    }
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise FactoryEvolutionError("Review candidate must be an object")
+        _exact_keys(item, expected, label="Review candidate")
+        candidate_id = _exact_identifier(item.get("candidate_id"), label="candidate_id")
+        if candidate_id in seen:
+            raise FactoryEvolutionError("Review repeats a candidate ID")
+        seen.add(candidate_id)
+        candidate_type = str(item.get("candidate_type"))
+        if candidate_type not in CANDIDATE_TYPES:
+            raise FactoryEvolutionError("Candidate type is unsupported")
+        implementation_owner = _exact_identifier(
+            item.get("implementation_owner"), label="candidate implementation owner"
+        )
+        evaluation_owner = _exact_identifier(
+            item.get("evaluation_owner"), label="candidate evaluation owner"
+        )
+        if implementation_owner == evaluation_owner:
+            raise FactoryEvolutionError("Candidate implementation and evaluation owners collapse")
+        result.append(
+            {
+                "candidate_id": candidate_id,
+                "candidate_type": candidate_type,
+                "capability_gap": _semantic_text(
+                    item.get("capability_gap"), label="candidate capability gap"
+                ),
+                "effect": _semantic_text(item.get("effect"), label="candidate effect"),
+                "meta_pattern_ids": _semantic_ids(
+                    item.get("meta_pattern_ids"),
+                    label="candidate meta-pattern IDs",
+                    allowed=meta_ids,
+                ),
+                "evidence_ids": _semantic_ids(
+                    item.get("evidence_ids"),
+                    label="candidate evidence IDs",
+                    allowed=event_ids,
+                ),
+                "protected_capabilities": _semantic_strings(
+                    item.get("protected_capabilities"),
+                    label="candidate protected capabilities",
+                ),
+                "applicability": _semantic_text(
+                    item.get("applicability"), label="candidate applicability"
+                ),
+                "tradeoffs": _semantic_strings(
+                    item.get("tradeoffs"), label="candidate tradeoffs"
+                ),
+                "uncertainty": _semantic_text(
+                    item.get("uncertainty"), label="candidate uncertainty"
+                ),
+                "implementation_owner": implementation_owner,
+                "evaluation_owner": evaluation_owner,
+                "smaller_change_insufficient": _semantic_text(
+                    item.get("smaller_change_insufficient"),
+                    label="candidate smaller-change rationale",
+                ),
+                "proportionality": _semantic_text(
+                    item.get("proportionality"), label="candidate proportionality"
+                ),
+                "selection_dimensions": _normalize_dimensions(
+                    item.get("selection_dimensions"), event_ids=event_ids
+                ),
+            }
+        )
+    return sorted(result, key=lambda item: item["candidate_id"])
+
+
+def _exact_revision(value: Any, *, label: str) -> str:
+    text = str(value)
+    if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", text):
+        raise FactoryEvolutionError(f"{label} must be an exact 40- or 64-hex revision")
+    return text
+
+
+def _normalize_experiment(
+    value: Any, *, selected: Mapping[str, Any]
+) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise FactoryEvolutionError("Selected candidate experiment must be an object")
+    _exact_keys(
+        value,
+        {
+            "experiment_id",
+            "candidate_id",
+            "proposer_id",
+            "implementer_id",
+            "evaluator_id",
+            "baseline_revision",
+            "candidate_revision",
+            "positive_case_ids",
+            "exception_case_ids",
+            "expected_effects",
+            "resource_bounds",
+            "rollback_condition",
+            "success_measures",
+            "regression_measures",
+            "evidence_capture",
+            "stop_condition",
+        },
+        label="Selected candidate experiment",
+    )
+    candidate_id = _exact_identifier(value.get("candidate_id"), label="experiment candidate_id")
+    if candidate_id != selected["candidate_id"]:
+        raise FactoryEvolutionError("Experiment does not target the selected candidate")
+    proposer = _exact_identifier(value.get("proposer_id"), label="experiment proposer_id")
+    implementer = _exact_identifier(
+        value.get("implementer_id"), label="experiment implementer_id"
+    )
+    evaluator = _exact_identifier(value.get("evaluator_id"), label="experiment evaluator_id")
+    if len({proposer, implementer, evaluator}) != 3:
+        raise FactoryEvolutionError("Proposer, implementer, and evaluator identities collapse")
+    if implementer != selected["implementation_owner"] or evaluator != selected["evaluation_owner"]:
+        raise FactoryEvolutionError("Experiment owners do not match the selected candidate")
+    baseline = _exact_revision(value.get("baseline_revision"), label="baseline revision")
+    candidate = _exact_revision(value.get("candidate_revision"), label="candidate revision")
+    if baseline == candidate:
+        raise FactoryEvolutionError("Baseline and candidate revisions must differ")
+    positive_cases = _semantic_ids(
+        value.get("positive_case_ids"), label="experiment positive cases"
+    )
+    exception_cases = _semantic_ids(
+        value.get("exception_case_ids"), label="experiment exception cases"
+    )
+    if set(positive_cases) & set(exception_cases):
+        raise FactoryEvolutionError("Experiment positive and exception cases overlap")
+    return {
+        "experiment_id": _exact_identifier(
+            value.get("experiment_id"), label="experiment_id"
+        ),
+        "candidate_id": candidate_id,
+        "proposer_id": proposer,
+        "implementer_id": implementer,
+        "evaluator_id": evaluator,
+        "baseline_revision": baseline,
+        "candidate_revision": candidate,
+        "positive_case_ids": positive_cases,
+        "exception_case_ids": exception_cases,
+        "expected_effects": _semantic_strings(
+            value.get("expected_effects"), label="experiment expected effects"
+        ),
+        "resource_bounds": _semantic_strings(
+            value.get("resource_bounds"), label="experiment resource bounds"
+        ),
+        "rollback_condition": _semantic_text(
+            value.get("rollback_condition"), label="experiment rollback condition"
+        ),
+        "success_measures": _semantic_strings(
+            value.get("success_measures"), label="experiment success measures"
+        ),
+        "regression_measures": _semantic_strings(
+            value.get("regression_measures"), label="experiment regression measures"
+        ),
+        "evidence_capture": _semantic_text(
+            value.get("evidence_capture"), label="experiment evidence capture"
+        ),
+        "stop_condition": _semantic_text(
+            value.get("stop_condition"), label="experiment stop condition"
+        ),
+    }
+
+
+def _normalize_review_material(
+    packet: Mapping[str, Any], submission: Mapping[str, Any]
+) -> dict[str, Any]:
+    if not isinstance(submission, Mapping):
+        raise FactoryEvolutionError("Evolution review submission must be an object")
+    _reject_forbidden_source_keys(submission, label="evolution review")
+    _exact_keys(
+        submission,
+        {
+            "schema_version",
+            "kind",
+            "packet_id",
+            "packet_root",
+            "reviewer_id",
+            "observations",
+            "lessons",
+            "meta_patterns",
+            "candidates",
+            "selection",
+            "experiment",
+        },
+        label="Evolution review submission",
+    )
+    if submission.get("schema_version") != SCHEMA_VERSION or submission.get("kind") != REVIEW_KIND:
+        raise FactoryEvolutionError("Evolution review kind or schema is unsupported")
+    if submission.get("packet_id") != packet.get("packet_id") or submission.get(
+        "packet_root"
+    ) != packet.get("packet_root"):
+        raise FactoryEvolutionError("Evolution review is not bound to the packet")
+    event_ids, hypothesis_ids = _packet_reference_sets(packet)
+    observations = _normalize_observations(submission.get("observations"), event_ids=event_ids)
+    observation_ids = {item["observation_id"] for item in observations}
+    lessons = _normalize_lessons(
+        submission.get("lessons"),
+        observation_ids=observation_ids,
+        event_ids=event_ids,
+        hypothesis_ids=hypothesis_ids,
+    )
+    lesson_ids = {item["lesson_id"] for item in lessons}
+    meta_patterns = _normalize_meta_patterns(
+        submission.get("meta_patterns"), lesson_ids=lesson_ids, event_ids=event_ids
+    )
+    meta_ids = {item["meta_pattern_id"] for item in meta_patterns}
+    candidates = _normalize_candidates(
+        submission.get("candidates"), meta_ids=meta_ids, event_ids=event_ids
+    )
+    candidate_map = {item["candidate_id"]: item for item in candidates}
+    selection = submission.get("selection")
+    if not isinstance(selection, Mapping):
+        raise FactoryEvolutionError("Candidate selection must be an object")
+    _exact_keys(
+        selection,
+        {"candidate_id", "compared_candidate_ids", "rationale", "dimensions_considered"},
+        label="Candidate selection",
+    )
+    selected_id = _exact_identifier(selection.get("candidate_id"), label="selected candidate_id")
+    if selected_id not in candidate_map:
+        raise FactoryEvolutionError("Selected candidate is dangling")
+    compared = _semantic_ids(
+        selection.get("compared_candidate_ids"),
+        label="compared candidate IDs",
+        allowed=set(candidate_map),
+        allow_empty=len(candidate_map) == 1,
+    )
+    if selected_id in compared:
+        raise FactoryEvolutionError("Selected candidate cannot compare against itself")
+    dimensions = selection.get("dimensions_considered")
+    if dimensions != list(SELECTION_DIMENSIONS):
+        raise FactoryEvolutionError("Selection must preserve every visible dimension in order")
+    normalized_selection = {
+        "candidate_id": selected_id,
+        "compared_candidate_ids": compared,
+        "rationale": _semantic_text(
+            selection.get("rationale"), label="candidate selection rationale"
+        ),
+        "dimensions_considered": list(SELECTION_DIMENSIONS),
+    }
+    experiment = _normalize_experiment(
+        submission.get("experiment"), selected=candidate_map[selected_id]
+    )
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "kind": REVIEW_KIND,
+        "packet_id": packet["packet_id"],
+        "packet_root": packet["packet_root"],
+        "reviewer_id": _exact_identifier(
+            submission.get("reviewer_id"), label="reviewer_id"
+        ),
+        "observations": observations,
+        "lessons": lessons,
+        "meta_patterns": meta_patterns,
+        "candidates": candidates,
+        "selection": normalized_selection,
+        "experiment": experiment,
+    }
+
+
+def build_evolution_review(
+    packet: Mapping[str, Any], submission: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Validate submitted semantic judgment and bind it to one learning packet."""
+
+    material = _normalize_review_material(packet, submission)
+    review_root = digest(material)
+    return {
+        **material,
+        "review_id": "evolution-review-" + review_root[:20],
+        "review_root": review_root,
+    }
+
+
+def verify_evolution_review(
+    packet: Mapping[str, Any], review: Mapping[str, Any]
+) -> dict[str, Any]:
+    if not isinstance(review, Mapping):
+        raise FactoryEvolutionError("Evolution review must be an object")
+    material = dict(review)
+    recorded_root = _exact_sha256(material.pop("review_root", None), label="review_root")
+    review_id = _exact_identifier(material.pop("review_id", None), label="review_id")
+    rebuilt = build_evolution_review(packet, material)
+    if rebuilt["review_root"] != recorded_root or rebuilt["review_id"] != review_id:
+        raise FactoryEvolutionError("Evolution review identity is stale")
+    return dict(review)
+
+
+def _normalize_results(
+    value: Any, *, label: str, case_ids: set[str], event_ids: set[str]
+) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or len(value) != len(case_ids):
+        raise FactoryEvolutionError(f"{label} must cover every experiment case exactly once")
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, Mapping):
+            raise FactoryEvolutionError(f"{label} result must be an object")
+        _exact_keys(
+            item,
+            {
+                "case_id",
+                "evidence_class",
+                "evidence_ids",
+                "outcome",
+                "observed_effect",
+                "resource_cost",
+                "regressions",
+            },
+            label=f"{label} result",
+        )
+        case_id = _exact_identifier(item.get("case_id"), label=f"{label} case_id")
+        if case_id not in case_ids or case_id in seen:
+            raise FactoryEvolutionError(f"{label} has a dangling or duplicate case")
+        seen.add(case_id)
+        evidence_class = str(item.get("evidence_class"))
+        if evidence_class not in RESULT_EVIDENCE_CLASSES:
+            raise FactoryEvolutionError(f"{label} evidence class is unsupported")
+        outcome = str(item.get("outcome"))
+        if outcome not in RESULT_OUTCOMES:
+            raise FactoryEvolutionError(f"{label} outcome is unsupported")
+        result.append(
+            {
+                "case_id": case_id,
+                "evidence_class": evidence_class,
+                "evidence_ids": _semantic_ids(
+                    item.get("evidence_ids"),
+                    label=f"{label} evidence IDs",
+                    allowed=event_ids,
+                ),
+                "outcome": outcome,
+                "observed_effect": _semantic_text(
+                    item.get("observed_effect"), label=f"{label} observed effect"
+                ),
+                "resource_cost": _semantic_text(
+                    item.get("resource_cost"), label=f"{label} resource cost"
+                ),
+                "regressions": _semantic_strings(
+                    item.get("regressions"),
+                    label=f"{label} regressions",
+                    allow_empty=True,
+                ),
+            }
+        )
+    return sorted(result, key=lambda item: item["case_id"])
+
+
+def _normalize_evaluation_material(
+    packet: Mapping[str, Any],
+    review: Mapping[str, Any],
+    submission: Mapping[str, Any],
+) -> dict[str, Any]:
+    verified_review = verify_evolution_review(packet, review)
+    if not isinstance(submission, Mapping):
+        raise FactoryEvolutionError("Candidate evaluation submission must be an object")
+    _reject_forbidden_source_keys(submission, label="candidate evaluation")
+    _exact_keys(
+        submission,
+        {
+            "schema_version",
+            "kind",
+            "packet_id",
+            "packet_root",
+            "review_id",
+            "review_root",
+            "experiment_id",
+            "candidate_id",
+            "evaluator_id",
+            "baseline_results",
+            "candidate_results",
+            "contrary_evidence_ids",
+            "regression_findings",
+            "disposition",
+            "rationale",
+        },
+        label="Candidate evaluation submission",
+    )
+    if submission.get("schema_version") != SCHEMA_VERSION or submission.get("kind") != EVALUATION_KIND:
+        raise FactoryEvolutionError("Candidate evaluation kind or schema is unsupported")
+    for field in ("packet_id", "packet_root", "review_id", "review_root"):
+        expected = packet[field] if field.startswith("packet") else verified_review[field]
+        if submission.get(field) != expected:
+            raise FactoryEvolutionError(f"Candidate evaluation {field} is stale")
+    experiment = verified_review["experiment"]
+    if submission.get("experiment_id") != experiment["experiment_id"]:
+        raise FactoryEvolutionError("Candidate evaluation experiment is stale")
+    if submission.get("candidate_id") != experiment["candidate_id"]:
+        raise FactoryEvolutionError("Candidate evaluation candidate is stale")
+    evaluator = _exact_identifier(
+        submission.get("evaluator_id"), label="evaluation evaluator_id"
+    )
+    if evaluator != experiment["evaluator_id"] or evaluator in {
+        experiment["proposer_id"],
+        experiment["implementer_id"],
+    }:
+        raise FactoryEvolutionError("Candidate evaluation is not independent")
+    case_ids = set(experiment["positive_case_ids"] + experiment["exception_case_ids"])
+    event_ids, _ = _packet_reference_sets(packet)
+    baseline = _normalize_results(
+        submission.get("baseline_results"),
+        label="baseline results",
+        case_ids=case_ids,
+        event_ids=event_ids,
+    )
+    candidate = _normalize_results(
+        submission.get("candidate_results"),
+        label="candidate results",
+        case_ids=case_ids,
+        event_ids=event_ids,
+    )
+    disposition = str(submission.get("disposition"))
+    if disposition not in DISPOSITIONS:
+        raise FactoryEvolutionError("Candidate disposition is unsupported")
+    regression_findings = _semantic_strings(
+        submission.get("regression_findings"),
+        label="evaluation regression findings",
+        allow_empty=True,
+    )
+    if disposition == "promote":
+        if regression_findings or any(item["regressions"] for item in candidate):
+            raise FactoryEvolutionError("Candidate with regression findings cannot be promoted")
+        if any(item["outcome"] != "pass" for item in candidate):
+            raise FactoryEvolutionError("Promoted candidate must pass every experiment case")
+        if not any(item["evidence_class"] == "observed" for item in baseline) or not any(
+            item["evidence_class"] == "observed" for item in candidate
+        ):
+            raise FactoryEvolutionError(
+                "Synthetic or shadow evidence alone cannot justify promotion"
+            )
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "kind": EVALUATION_KIND,
+        "packet_id": packet["packet_id"],
+        "packet_root": packet["packet_root"],
+        "review_id": verified_review["review_id"],
+        "review_root": verified_review["review_root"],
+        "experiment_id": experiment["experiment_id"],
+        "candidate_id": experiment["candidate_id"],
+        "evaluator_id": evaluator,
+        "baseline_results": baseline,
+        "candidate_results": candidate,
+        "contrary_evidence_ids": _semantic_ids(
+            submission.get("contrary_evidence_ids"),
+            label="evaluation contrary evidence IDs",
+            allowed=event_ids,
+            allow_empty=True,
+        ),
+        "regression_findings": regression_findings,
+        "disposition": disposition,
+        "rationale": _semantic_text(
+            submission.get("rationale"), label="evaluation rationale"
+        ),
+    }
+
+
+def build_candidate_evaluation(
+    packet: Mapping[str, Any],
+    review: Mapping[str, Any],
+    submission: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate independent baseline/candidate results and record a disposition."""
+
+    material = _normalize_evaluation_material(packet, review, submission)
+    evaluation_root = digest(material)
+    return {
+        **material,
+        "evaluation_id": "candidate-evaluation-" + evaluation_root[:20],
+        "evaluation_root": evaluation_root,
+    }
+
+
+def verify_candidate_evaluation(
+    packet: Mapping[str, Any],
+    review: Mapping[str, Any],
+    evaluation: Mapping[str, Any],
+) -> dict[str, Any]:
+    if not isinstance(evaluation, Mapping):
+        raise FactoryEvolutionError("Candidate evaluation must be an object")
+    material = dict(evaluation)
+    recorded_root = _exact_sha256(
+        material.pop("evaluation_root", None), label="evaluation_root"
+    )
+    evaluation_id = _exact_identifier(
+        material.pop("evaluation_id", None), label="evaluation_id"
+    )
+    rebuilt = build_candidate_evaluation(packet, review, material)
+    if rebuilt["evaluation_root"] != recorded_root or rebuilt["evaluation_id"] != evaluation_id:
+        raise FactoryEvolutionError("Candidate evaluation identity is stale")
+    return dict(evaluation)
+
+
+def build_evolution_machine_report(
+    packet: Mapping[str, Any],
+    review: Mapping[str, Any],
+    evaluation: Mapping[str, Any],
+) -> dict[str, Any]:
+    verified_review = verify_evolution_review(packet, review)
+    verified_evaluation = verify_candidate_evaluation(packet, review, evaluation)
+    selected_id = verified_review["selection"]["candidate_id"]
+    selected = next(
+        item for item in verified_review["candidates"] if item["candidate_id"] == selected_id
+    )
+    material = {
+        "schema_version": SCHEMA_VERSION,
+        "kind": MACHINE_REPORT_KIND,
+        "packet_id": packet["packet_id"],
+        "packet_root": packet["packet_root"],
+        "review_id": verified_review["review_id"],
+        "review_root": verified_review["review_root"],
+        "evaluation_id": verified_evaluation["evaluation_id"],
+        "evaluation_root": verified_evaluation["evaluation_root"],
+        "selected_candidate": {
+            "candidate_id": selected_id,
+            "candidate_type": selected["candidate_type"],
+            "selection_dimensions": selected["selection_dimensions"],
+            "disposition": verified_evaluation["disposition"],
+        },
+        "result_roots": {
+            "baseline": digest(verified_evaluation["baseline_results"]),
+            "candidate": digest(verified_evaluation["candidate_results"]),
+            "contrary_evidence": digest(verified_evaluation["contrary_evidence_ids"]),
+            "regression_findings": digest(verified_evaluation["regression_findings"]),
+        },
+        "counts": {
+            "lessons": len(verified_review["lessons"]),
+            "meta_patterns": len(verified_review["meta_patterns"]),
+            "candidates": len(verified_review["candidates"]),
+            "baseline_results": len(verified_evaluation["baseline_results"]),
+            "candidate_results": len(verified_evaluation["candidate_results"]),
+        },
+    }
+    report_root = digest(material)
+    return {
+        **material,
+        "report_id": "evolution-report-" + report_root[:20],
+        "report_root": report_root,
+    }
+
+
+def verify_evolution_machine_report(
+    packet: Mapping[str, Any],
+    review: Mapping[str, Any],
+    evaluation: Mapping[str, Any],
+    report: Mapping[str, Any],
+) -> dict[str, Any]:
+    expected = build_evolution_machine_report(packet, review, evaluation)
+    if canonical(expected) != canonical(report):
+        raise FactoryEvolutionError("Evolution machine report does not exactly rebuild")
+    return dict(report)
+
+
+def build_evolution_manifest(artifacts: Mapping[str, Mapping[str, Any]]) -> dict[str, Any]:
+    if not isinstance(artifacts, Mapping) or not artifacts or len(artifacts) > 8:
+        raise FactoryEvolutionError("Evolution manifest requires bounded artifacts")
+    entries: list[dict[str, Any]] = []
+    for name in sorted(artifacts):
+        if not re.fullmatch(r"[a-z][a-z0-9-]*\.json", name):
+            raise FactoryEvolutionError("Evolution artifact name is unsafe")
+        artifact = artifacts[name]
+        if not isinstance(artifact, Mapping):
+            raise FactoryEvolutionError("Evolution artifact must be an object")
+        raw = canonical(artifact)
+        entries.append(
+            {
+                "name": name,
+                "sha256": hashlib.sha256(raw).hexdigest(),
+                "bytes": len(raw),
+            }
+        )
+    material = {
+        "schema_version": SCHEMA_VERSION,
+        "kind": MANIFEST_KIND,
+        "artifacts": entries,
+    }
+    manifest_root = digest(material)
+    return {
+        **material,
+        "manifest_id": "evolution-manifest-" + manifest_root[:20],
+        "manifest_root": manifest_root,
+    }
+
+
+def verify_evolution_manifest(
+    manifest: Mapping[str, Any], artifacts: Mapping[str, Mapping[str, Any]]
+) -> dict[str, Any]:
+    expected = build_evolution_manifest(artifacts)
+    if canonical(expected) != canonical(manifest):
+        raise FactoryEvolutionError("Evolution manifest does not exactly rebuild")
+    return dict(manifest)
+
+
+def build_evolution_bundle(
+    packet: Mapping[str, Any],
+    review: Mapping[str, Any],
+    evaluation: Mapping[str, Any],
+) -> dict[str, Any]:
+    verified_packet = verify_learning_packet(packet)
+    verified_review = verify_evolution_review(packet, review)
+    verified_evaluation = verify_candidate_evaluation(packet, review, evaluation)
+    report = build_evolution_machine_report(packet, review, evaluation)
+    artifacts = {
+        "learning-packet.json": verified_packet,
+        "review.json": verified_review,
+        "evaluation.json": verified_evaluation,
+        "machine-report.json": report,
+    }
+    return {**artifacts, "manifest.json": build_evolution_manifest(artifacts)}
+
+
+def verify_evolution_bundle(bundle: Mapping[str, Any]) -> dict[str, Any]:
+    if not isinstance(bundle, Mapping):
+        raise FactoryEvolutionError("Evolution bundle must be an object")
+    _exact_keys(
+        bundle,
+        {
+            "learning-packet.json",
+            "review.json",
+            "evaluation.json",
+            "machine-report.json",
+            "manifest.json",
+        },
+        label="Evolution bundle",
+    )
+    packet = bundle["learning-packet.json"]
+    review = bundle["review.json"]
+    evaluation = bundle["evaluation.json"]
+    report = bundle["machine-report.json"]
+    manifest = bundle["manifest.json"]
+    verify_learning_packet(packet)
+    verify_evolution_review(packet, review)
+    verify_candidate_evaluation(packet, review, evaluation)
+    verify_evolution_machine_report(packet, review, evaluation, report)
+    verify_evolution_manifest(
+        manifest,
+        {
+            "learning-packet.json": packet,
+            "review.json": review,
+            "evaluation.json": evaluation,
+            "machine-report.json": report,
+        },
+    )
+    return deepcopy(dict(bundle))
