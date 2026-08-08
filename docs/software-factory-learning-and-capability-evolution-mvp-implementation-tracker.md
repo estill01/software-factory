@@ -1,0 +1,782 @@
+# Software Factory Learning and Capability Evolution MVP Implementation Tracker
+
+- Tracker status: `planning`
+- Tracker sequence: Blocks 0–6
+- Repository: `https://github.com/estill01/software-factory`
+- Planning baseline: `087803add9877b55763220070d68fa5c6e6dedb4`
+- Governing objective: `Use verified cross-run evidence to identify one Software Factory capability gap, implement the selected capability through the existing three-skill system, compare baseline and candidate behavior, and permit promotion only from current independent evidence.`
+
+## 1. Purpose and intended outcome
+
+Build the smallest complete Software Factory evolution loop. The loop must turn
+existing canonical supervision evidence and derived reports into source-bound
+lessons, synthesize higher-order capability gaps rather than only detector
+changes, select one reversible candidate, implement it through existing owners,
+and compare baseline and candidate behavior before promotion.
+
+The first seeded candidate is target-product capability alignment. It is a
+candidate to be tested, not a conclusion that the evidence-processing machinery
+may silently assume.
+
+Completion means:
+
+- a deterministic, content-minimized learning packet can be rebuilt from exact
+  report and canonical-event roots without becoming operational authority;
+- a bounded cognitive review can record lessons, counterexamples, meta-patterns,
+  capability candidates, and a visible multidimensional selection rationale;
+- one selected capability can receive a baseline-versus-candidate experiment
+  with independent disposition of `promote`, `advisory`, `revise`, or `reject`;
+- the existing authoring, execution, and supervision skills implement a
+  source-backed target-product capability frame without always preferring
+  generalized architecture; and
+- a dogfood cycle proves the packet-to-candidate-to-implementation-to-evaluation
+  path at one frozen repository revision.
+
+### Mission frame
+
+- Primary outcome: Software Factory can improve its own capability set from
+  verified experience, not merely add incident detectors or rewrite itself from
+  persuasive report prose.
+- Observable completion: The derived evolution artifacts verify from exact
+  source roots, the three installed skills exhibit the selected target-product
+  alignment behavior, paired underreach/over-architecture cases distinguish the
+  intended behavior, and an independent exact-candidate review supports the
+  recorded terminal disposition.
+- Ordinary effect classes needed: derived packet creation, contract validation,
+  bounded semantic synthesis, candidate selection, skill-method changes,
+  focused and mapped tests, baseline/candidate comparison, independent review,
+  Git checkpoints, and local skill activation through the existing symlinks.
+- Hard direct authority or safety boundaries: reports remain derived; canonical
+  supervision records remain unchanged; `supervision_log.py` remains the only
+  public supervision filesystem writer; target repositories are read-only for
+  evidence; no hidden reasoning is requested; no candidate self-promotes; no
+  user/global Codex configuration, external release, destructive operation, or
+  target-product implementation is authorized by this tracker.
+- Material goal alteration or reversal: adding autonomous promotion, target
+  writes, a new canonical ledger, runtime action interception, App Server or
+  hook integration, a general detector/control platform, or an opaque aggregate
+  quality score requires a later tracker or renewed direct authority.
+
+### Target-product capability frame
+
+- Applicability: `consequential`.
+- Product thesis: Software Factory is a three-skill system that turns an
+  implementation goal into a dependency-ordered program, executes it
+  autonomously and economically, independently supervises drift and recovery,
+  and verifies the operator-visible outcome.
+- Intended user effect: improvements learned from prior runs change future
+  Software Factory behavior through inspectable, reversible, evidence-gated
+  skill changes.
+- Protected capabilities: direct-mission authority, independent review,
+  one canonical supervision writer, bounded continuation, exact Block
+  checkpoints, current observable-outcome proof, and local skill activation.
+- Architecture strategy: extend the three existing skill owners and the
+  supervision helper; use derived artifacts for synthesis and evaluation;
+  do not introduce a fourth skill, service, database, or runtime daemon in this
+  MVP.
+- Requested capability: evidence-grounded Factory capability evolution.
+- First candidate capability: source-backed target-product alignment during
+  tracker authoring, consequential Block execution, and terminal closure.
+- Proportionality rule: reject both a lower-power local path that conflicts with
+  supported product capability and a generalized platform unsupported by the
+  immediate or evident adjacent need.
+- Uncertainty: four current report artifacts cover one long supervised target,
+  while canonical event ledgers cover four targets; this is sufficient for an
+  MVP and not for broad statistical calibration.
+
+## 2. Target architecture and authority boundaries
+
+```text
+verified report.json + canonical events.jsonl
+                     |
+                     v
+        deterministic derived learning packet
+                     |
+                     v
+  bounded cognitive review: lessons + counterexamples
+                     |
+                     v
+        meta-patterns + capability candidates
+                     |
+                     v
+ visible dimensions + selected experiment candidate
+                     |
+                     v
+ existing author -> implement -> supervise owners
+                     |
+                     v
+ baseline/candidate cases + independent disposition
+                     |
+                     v
+ accepted skill change or explicit revise/reject record
+```
+
+Authority rules:
+
+1. `events.jsonl` and verified report source roots remain evidence authority.
+2. Evolution packets, reviews, candidates, experiments, and manifests are
+   derived artifacts and may be deleted and rebuilt.
+3. `factory_evolution.py` validates and computes artifacts; public writes occur
+   only through `supervision_log.py`.
+4. Cognitive review proposes lessons and candidates but cannot write canonical
+   incidents, change target repositories, edit skills, or promote itself.
+5. Existing tracker authoring, implementation, Git, supervision maintenance,
+   and exact-candidate review contracts own actual skill changes.
+6. Candidate and evaluator identities remain distinct in accepted experiment
+   evidence.
+
+## 3. Existing owners to reuse
+
+| Concern | Existing owner | Treatment |
+|---|---|---|
+| Canonical events, policy, and public supervision writes | `supervise-tracker-runs/scripts/supervision_log.py` | adapt |
+| Verified cognitive reports and source roots | `weekly_report.py`, `terminal_report.py`, and their verified artifacts | reuse |
+| Supervisor learning threshold and skill-maintenance authority | `supervise-tracker-runs/SKILL.md` and `references/supervision-policy.md` | adapt |
+| Tracker capability framing and verification | `author-implementation-trackers/` | adapt |
+| Consequential implementation-path selection | `implement-tracker-blocks/SKILL.md` | adapt |
+| Terminal observable-outcome challenge | current completion-record and terminal-review owners | adapt |
+| Local installation | the three existing `~/.codex/skills/` symlinks | reuse without configuration mutation |
+
+## 4. Prior-work and source-adaptation map
+
+| Source or predecessor | Exact revision/hash | Disposition | Owning Block | Remaining work |
+|---|---|---|---:|---|
+| Current repository | `087803add9877b55763220070d68fa5c6e6dedb4` | adapt | 0 | Freeze exact owners and behavior |
+| Existing supervisor-effectiveness learning loop | planning-baseline policy/skill hash | adapt | 0–3 | Generalize from skill-maintenance defects to capability gaps |
+| Attached adaptive alignment/control tracker | planning input outside repository | not adopted as the MVP execution tracker | 0 | Reuse bounded alignment, replay, false-positive, and authority principles only |
+| Strategic Learning and Evolution Engine note | direct user-supplied planning source | adapt | 0–6 | Prove one complete vertical cycle |
+
+## 5. Scope, non-goals, and proportionality
+
+### In scope
+
+- Exact-source learning packet preparation and verification.
+- Structured lessons covering productive and harmful patterns.
+- Counterexamples, applicability, uncertainty, and causal hypotheses.
+- Meta-pattern and capability-gap synthesis.
+- Visible selection dimensions and one reversible experiment contract.
+- The first target-product-alignment capability across existing skill owners.
+- Synthetic and local dogfood evidence with independent candidate review.
+
+### Out of scope
+
+- App Server streams, lifecycle hooks, runtime interception, event-chain engines,
+  adaptive routers, control registries, shadow controls, or automatic blocking.
+- Embeddings, vector databases, learned models, hosted services, dashboards,
+  schedulers, telemetry systems, or broad statistical claims.
+- Unreviewed skill mutation or automatic promotion.
+- Target-repository implementation or target-owned alignment files.
+- A fourth Software Factory skill merely to hold this workflow.
+
+### Proportionality
+
+Build one vertical capability-evolution proof before generalizing runtime
+control infrastructure. Reuse exact current report/event artifacts and batch
+them once. Add a mechanism only when an acceptance condition cannot be met
+through an existing owner.
+
+## 6. Block execution contract
+
+1. Execute Blocks 0–6 in dependency order and audit each Block before advancing.
+2. Re-read the active Block and inspect current owners before editing.
+3. Keep derived evolution artifacts outside canonical target/event authority.
+4. Use synthetic fixtures for repository tests and content-minimized exact IDs
+   for local dogfood; never commit target prose, transcripts, or secrets.
+5. Finish likely-mutating review before mapped final validation and bind proof
+   to the frozen candidate.
+6. Commit and push every coherent accepted Block. Preserve rejected candidates
+   and remediate through successor commits.
+7. Do not implement any out-of-scope runtime control feature merely because it
+   appeared in the predecessor tracker.
+
+### Completion-evidence template
+
+```markdown
+### Completion evidence
+
+- Repository commit: `<sha>`
+- Inputs: `<paths, IDs, versions, hashes>`
+- Outputs: `<paths, IDs, versions, hashes>`
+- Focused validation: `<commands and results>`
+- Mapped validation: `<commands and results>`
+- Candidate freeze: `<commit/content root>`
+- Resource posture: `<bounded inputs and widening>`
+- Independent review: `<reviewer/evidence or not-applicable>`
+- Retained open work: `<items or none>`
+- Post-block audit: `<accepted/reopened>`
+- Git durability: `<branch, commit, push>`
+```
+
+## 7. Status and required order
+
+| Block | Scope | Depends on | Status |
+|---:|---|---:|---|
+| 0 | Freeze the MVP evidence and capability-evolution contract | — | `not-started` |
+| 1 | Build the deterministic derived learning packet | 0 | `not-started` |
+| 2 | Validate lessons, capability candidates, and experiments | 1 | `not-started` |
+| 3 | Integrate the evolution workflow through the supervision owner | 2 | `not-started` |
+| 4 | Add target-product capability framing to tracker authoring | 3 | `not-started` |
+| 5 | Apply target-product capability review during Block execution | 4 | `not-started` |
+| 6 | Reconcile terminal capability, dogfood the cycle, and accept | 5 | `not-started` |
+
+Required order:
+
+`0 → 1 → 2 → 3 → 4 → 5 → 6`
+
+## Block 0 — Freeze the MVP evidence and capability-evolution contract
+
+Status: `not-started`
+
+### Objective
+
+Establish the exact evidence classes, derived-artifact contract, first-candidate
+posture, and baseline behavior before adding implementation machinery.
+
+### Inputs and dependencies
+
+- Planning baseline `087803add9877b55763220070d68fa5c6e6dedb4`.
+- Current three skills, supervision helper/policy, report contracts, tests, and
+  local content-minimized supervision-state inventory.
+- The attached strategic note and predecessor tracker as planning inputs.
+
+### Required work
+
+- Add one concise maintained evolution contract reference under the supervision
+  skill defining evidence authority, lessons, meta-patterns, capability gaps,
+  candidates, experiments, promotion dispositions, and rebuildability.
+- Record supported source classes and the minimum evidence/counterexample
+  posture for a candidate.
+- Define target-product alignment as the seeded first experiment, not a
+  pre-approved promotion.
+- Add contract-level tests that prevent report prose from becoming authority,
+  prevent candidate self-promotion, and preserve positive-pattern learning.
+
+### Scope and non-goals
+
+- In scope: maintained semantic contract and static tests.
+- Not in scope: packet code, CLI changes, or skill behavior changes.
+- Do not create a schema collection or runtime state owner.
+
+### Deliverables and recorded state
+
+- `supervise-tracker-runs/references/factory-evolution-contract.md`.
+- Focused contract tests in the existing supervision test owner.
+
+### Resource and economy contract
+
+One bounded inspection of current report/event shapes and existing learning
+rules; no model/provider calls and no copied target content.
+
+### QA and independent review
+
+Mechanical tests verify explicit authority and disposition boundaries.
+Substantive review checks that the contract can produce a new capability rather
+than only a new detector.
+
+### Acceptance
+
+- Reports nominate hypotheses; exact canonical evidence adjudicates them.
+- Productive and harmful patterns are both representable.
+- Lessons remain distinct from controls and capabilities.
+- Candidate implementation and promotion are separate.
+
+### Negative tests
+
+- Reject `report says so` as sufficient promotion evidence.
+- Reject a contract limited to detector/control candidates.
+- Reject self-certified promotion.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before implementing packet preparation or file writes.
+
+---
+
+## Block 1 — Build the deterministic derived learning packet
+
+Status: `not-started`
+
+### Objective
+
+Produce one bounded, rebuildable packet from verified reports and canonical
+events with exact source roots and enough content-minimized evidence for lesson
+synthesis.
+
+### Inputs and dependencies
+
+- Block 0.
+- Existing `report.json` and `events.jsonl` contracts.
+
+### Required work
+
+- Add `factory_evolution.py` behind the supervision script owner.
+- Validate report identity/source roots and canonical event record hashes.
+- Select supported evidence kinds, retain exact record IDs/hashes, and bound
+  summaries/evidence arrays without copying full transcripts or target files.
+- Deduplicate repeated report roots and event records.
+- Compute deterministic coverage, source manifest, packet identity, and packet
+  root independent of caller ordering.
+- Add synthetic positive, productive, exception, and malformed fixtures/tests.
+
+### Scope and non-goals
+
+- In scope: pure packet construction, validation, minimization, and hashing.
+- Not in scope: semantic lessons, candidate selection, or public CLI writes.
+- Do not scan all supervision state implicitly; inputs are explicit.
+
+### Deliverables and recorded state
+
+- `supervise-tracker-runs/scripts/factory_evolution.py` packet functions.
+- `supervise-tracker-runs/scripts/test_factory_evolution.py` packet tests.
+
+### Resource and economy contract
+
+Read each explicit source once, cap retained text and evidence fields, and
+deduplicate by exact identity/root. No model calls or repository scans.
+
+### QA and independent review
+
+Focused tests cover ordering, duplicate roots, invalid hashes, unknown kinds,
+bounded text, and rebuild equality. Review checks minimization and authority.
+
+### Acceptance
+
+- Equivalent explicit inputs yield the same packet root.
+- A changed source changes the root.
+- Every retained claim resolves to a report or event identity.
+- The packet is explicitly derived and non-authoritative.
+
+### Negative tests
+
+- Reject malformed JSONL or a record whose declared hash is invalid.
+- Reject raw transcript fields and unbounded strings.
+- Reject implicit whole-home discovery.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before accepting cognitive review or writing derived artifacts.
+
+---
+
+## Block 2 — Validate lessons, capability candidates, and experiments
+
+Status: `not-started`
+
+### Objective
+
+Turn a packet-bound cognitive review into validated lessons, meta-patterns,
+capability candidates, and one independently evaluable experiment without
+pretending semantic judgment is deterministic.
+
+### Inputs and dependencies
+
+- Block 1.
+- The maintained evolution contract.
+
+### Required work
+
+- Validate lesson records with observations, supporting cases,
+  counterexamples/posture, goals advanced or threatened, causal hypothesis,
+  confidence, applicability, and unresolved questions.
+- Validate meta-patterns against lesson IDs and capability candidates against
+  meta-pattern/evidence IDs.
+- Support detector, correction, exculpator, skill method, tracker method,
+  supervision, execution, evaluation, resource policy, architecture, removal,
+  and experiment candidate types.
+- Preserve visible effect, recurrence, reach, compounding value, reliability,
+  product gain, evidence strength, cost, regression risk, complexity,
+  reversibility, and time-to-evidence dimensions; do not collapse them into one
+  opaque score.
+- Validate one selected-candidate experiment with baseline/candidate revisions,
+  positive and exception cases, expected effects, resource bounds, rollback,
+  evaluator independence, and disposition.
+- Add deterministic machine report and manifest verification functions.
+
+### Scope and non-goals
+
+- In scope: validation, exact references, selection transparency, experiment
+  comparison, and manifest equality.
+- Not in scope: generating semantic prose, implementing candidates, or
+  promoting changes.
+- Do not infer causal benefit from shadow or synthetic observations alone.
+
+### Deliverables and recorded state
+
+- Review/candidate/experiment functions and focused tests in the Block 1 owners.
+
+### Resource and economy contract
+
+Validate bounded submitted objects once; reopen source evidence only through
+exact cited references. No model calls inside deterministic code.
+
+### QA and independent review
+
+Tests cover dangling evidence, missing counterexample posture, opaque scoring,
+self-review, unsupported disposition, regression cases, and exact rebuild.
+Independent review challenges the selected candidate and experiment.
+
+### Acceptance
+
+- A validated review can conclude that a capability—not another rule—is
+  missing.
+- Candidate dimensions and contrary evidence remain visible.
+- No candidate can be marked promoted without an independent experiment.
+- Baseline and candidate results remain separately attributable.
+
+### Negative tests
+
+- Reject lessons supported only by report prose when exact cases are absent.
+- Reject a selected candidate with no exception case or rollback condition.
+- Reject proposer, implementer, and evaluator identity collapse.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before public CLI integration or skill-method changes.
+
+---
+
+## Block 3 — Integrate the evolution workflow through the supervision owner
+
+Status: `not-started`
+
+### Objective
+
+Expose prepare, finalize, evaluate, and verify operations through the existing
+supervision filesystem writer and maintained skill/policy without creating a
+new operational ledger or scheduler.
+
+### Inputs and dependencies
+
+- Block 2.
+- `supervision_log.py`, supervision skill/policy, and existing atomic derived
+  report patterns.
+
+### Required work
+
+- Add one `factory-evolution` command family for prepare, finalize, evaluate,
+  and verify.
+- Store derived sets under the existing supervision learning directory with
+  safe identities, exact source roots, atomic writes, immutable-or-identical
+  reuse, and a verifiable manifest.
+- Add the workflow to the supervision skill and policy: reports nominate,
+  exact evidence adjudicates, Sol-level cognitive review proposes, existing
+  skill owners implement, and independent evidence disposes.
+- Keep scheduled execution, automatic implementation, notification, and
+  promotion outside this Block.
+- Add CLI integration and static skill/policy tests.
+
+### Scope and non-goals
+
+- In scope: existing CLI/writer integration and operating instructions.
+- Not in scope: new schedules, Gmail, target routing, or automatic skill edits.
+- Do not add a separate `evolution` skill.
+
+### Deliverables and recorded state
+
+- Integrated CLI commands, skill/policy guidance, and tests.
+
+### Resource and economy contract
+
+Inputs are explicit and prepared once. Finalize/evaluate reuse the frozen
+packet and review. Verify performs hashes/schema checks without re-running the
+producer.
+
+### QA and independent review
+
+Focused CLI tests verify safe paths, idempotent reuse, changed-artifact failure,
+and action ordering. Skill validation and policy review are required.
+
+### Acceptance
+
+- The public workflow is usable through `supervision_log.py` only.
+- Derived files cannot alter canonical events or policy.
+- Re-running unchanged input reuses identical artifacts.
+- Skill instructions clearly separate discovery, implementation, evaluation,
+  and promotion.
+
+### Negative tests
+
+- Reject finalize before prepare.
+- Reject changed content under an existing evolution ID.
+- Reject promotion or target writes from the command family.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before changing tracker-authoring behavior.
+
+---
+
+## Block 4 — Add target-product capability framing to tracker authoring
+
+Status: `not-started`
+
+### Objective
+
+Make new implementation trackers reconstruct source-backed target-product
+capability intent before decomposing consequential product work.
+
+### Inputs and dependencies
+
+- Block 3.
+- Existing authoring skill, template, block contract, verifier, and tests.
+
+### Required work
+
+- Add one concise tracker-level target-product capability frame covering
+  applicability, thesis/effect, protected capabilities, architecture strategy,
+  requested capability, proportionality, tradeoffs, and uncertainty.
+- Require direct mission/repository sources for asserted product doctrine and
+  permit explicit routine/not-applicable posture.
+- Add a consequential-Block capability delta when feature behavior, canonical
+  representation, architecture strategy, operating model, or a protected
+  capability changes.
+- Extend the full-profile verifier mechanically without pretending it can judge
+  product quality; retain a documented compatibility path for inherited
+  trackers.
+- Add paired underreach and speculative-over-architecture tests.
+
+### Scope and non-goals
+
+- In scope: authoring skill, template, block contract, verifier, and tests.
+- Not in scope: implementation-path selection or terminal review.
+- Do not duplicate the global frame in every Block.
+
+### Deliverables and recorded state
+
+- Updated `author-implementation-trackers/` owners and accepted fixtures.
+
+### Resource and economy contract
+
+Perform one bounded target-product reconstruction per tracker and reuse it.
+Verifier work remains linear in document length.
+
+### QA and independent review
+
+Run verifier tests and skill validation. Forward-test one consequential and one
+routine request without providing the intended answer.
+
+### Acceptance
+
+- New full-profile trackers declare a target-product frame or justified
+  not-applicable posture.
+- Consequential Blocks expose capability gains/losses and tradeoffs.
+- Unsupported product ethos and automatic preference for a platform are both
+  rejected.
+
+### Negative tests
+
+- Reject literal feature wording as the whole product capability when direct
+  broader intent exists.
+- Reject unsupported architecture doctrine.
+- Reject requiring generalized infrastructure for every local change.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before changing the implementation skill.
+
+---
+
+## Block 5 — Apply target-product capability review during Block execution
+
+Status: `not-started`
+
+### Objective
+
+Make the executor select a proportionate implementation path against the
+accepted target-product frame without repeating product-strategy analysis for
+routine Blocks.
+
+### Inputs and dependencies
+
+- Block 4.
+- Current implementation skill and accepted tracker frame.
+
+### Required work
+
+- Add a concise product-capability review reference and route the implementation
+  skill to it only for consequential Blocks or concrete drift triggers.
+- Compare the smallest local path, bounded-general path, and available
+  architectural owner; justify the selected level from current and evident
+  adjacent needs.
+- Check protected-capability regression, canonical-owner bypass, lower-power
+  substitution, lost composability, and speculative generalization.
+- Bind the selected capability delta and tradeoffs into completion evidence.
+- Add static contract tests and paired realistic forward tests.
+
+### Scope and non-goals
+
+- In scope: implementation skill and one supporting reference.
+- Not in scope: runtime interception, prospective monitoring, or broad
+  rearchitecture outside the active Block.
+- Routine Blocks retain the economical normal path.
+
+### Deliverables and recorded state
+
+- Updated `implement-tracker-blocks/SKILL.md` and
+  `references/product-capability-review.md`.
+- Focused cross-skill contract tests.
+
+### Resource and economy contract
+
+Read the tracker-level frame once per consequential Block and reuse its hash.
+Widen only for one named missing product fact or affected owner.
+
+### QA and independent review
+
+Skill validation plus blind paired-case forward tests. Review rejects both
+lower-power underreach and unsupported generalization.
+
+### Acceptance
+
+- The executor can state the product capability added or preserved.
+- Passing local tests do not excuse a supported capability regression.
+- A proportionate local solution is not rejected for lacking hypothetical
+  future generality.
+- Unknown product intent becomes a bounded dependency, not invented strategy.
+
+### Negative tests
+
+- Reject `always choose the most general architecture`.
+- Reject treating every refactor as a consequential capability decision.
+- Reject product framing that overrides explicit Block scope or direct mission.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before terminal capability reconciliation or experiment disposition.
+
+---
+
+## Block 6 — Reconcile terminal capability, dogfood the cycle, and accept
+
+Status: `not-started`
+
+### Objective
+
+Demonstrate at one frozen revision that the derived evolution workflow produced,
+implemented, and independently evaluated the first capability without replacing
+the substantive outcome with process evidence.
+
+### Inputs and dependencies
+
+- Block 5.
+- Frozen packet/review/candidate/experiment contracts and the changed three
+  skills.
+
+### Required work
+
+- Add terminal target-product capability reconciliation to the supervision
+  skill/policy and completion contract guidance.
+- Reconcile requested capability, protected capabilities, selected architecture
+  level, accepted tradeoffs, current behavior, and operator-visible effects;
+  reopen only the narrow owner on a supported gap.
+- Run the evolution prepare/finalize/evaluate/verify cycle against bounded local
+  evidence without committing target content.
+- Compare baseline and candidate on paired consequential-underreach and
+  justified-local-solution cases using distinct reviewers.
+- Run focused tests, all three skill validators, full mapped tests, tracker
+  verification, and exact-candidate independent review.
+- Record `promote`, `advisory`, `revise`, or `reject`; do not force `promote`.
+- Update README only with behavior demonstrated by the accepted candidate.
+
+### Scope and non-goals
+
+- In scope: terminal capability review, dogfood evaluation, accurate docs,
+  terminal evidence, and final disposition.
+- Not in scope: runtime controls, automated deployment, external release, or
+  additional capability candidates.
+- Stop once the first cycle is truthfully disposed.
+
+### Deliverables and recorded state
+
+- Updated terminal supervision contracts/tests and evidence-bound README.
+- Verified local dogfood artifact set outside canonical target state.
+- Final tracker evidence and exact candidate commit.
+
+### Resource and economy contract
+
+Use the existing bounded local evidence inventory once. Forward-test only the
+paired cases. Run the full mapped suite once after all mutating review; rerun
+only affected proof after remediation.
+
+### QA and independent review
+
+The candidate author/implementer cannot be the sole evaluator. Independent
+review reads the direct objective, raw paired cases, and exact candidate diff
+before the completion narrative.
+
+### Acceptance
+
+- The complete packet-to-capability-to-evaluation path verifies.
+- Target-product alignment changes all three owned workflow stages.
+- Paired cases show less strategic underreach without systematic
+  over-architecture.
+- No report, test, tracker status, or self-review substitutes for current skill
+  behavior and exact candidate evidence.
+- The recorded disposition is supported and all Critical/High findings are
+  resolved or block promotion explicitly.
+
+### Negative tests
+
+- Reject terminal acceptance from green tests without behavior evidence.
+- Reject evaluator identity collapse.
+- Reject target content in committed dogfood artifacts.
+- Reject continuing into the predecessor tracker's broader control platform.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop after the first capability-evolution cycle is verified and dispositioned;
+do not implement additional candidates, runtime controls, or release work.
+
+## 8. Verification matrix
+
+| Capability or invariant | Primary Block | Integration Blocks | Terminal proof |
+|---|---:|---|---:|
+| Evidence authority and derived-artifact boundary | 0 | 1–3 | 6 |
+| Rebuildable content-minimized learning packet | 1 | 2–3 | 6 |
+| Lessons, meta-patterns, and broad capability candidates | 2 | 3 | 6 |
+| Visible selection dimensions and independent experiment | 2 | 3 | 6 |
+| One public supervision writer | 3 | 6 | 6 |
+| Source-backed target-product tracker frame | 4 | 5–6 | 6 |
+| Proportionate consequential implementation review | 5 | 6 | 6 |
+| Terminal target-product capability reconciliation | 6 | — | 6 |
+| Exact baseline/candidate behavior comparison | 6 | — | 6 |
+| No autonomous promotion or broader runtime platform | 0 | 1–6 | 6 |
+
+## 9. Final completion definition
+
+The tracker is complete only when every Block is accepted at exact current
+revisions; the evolution artifact set verifies from explicit source roots; the
+first selected capability is implemented through the existing three owners;
+paired behavior evidence and exact-candidate independent review support the
+recorded disposition; the installed symlink targets expose the accepted files;
+all focused and mapped validation passes; retained limitations remain explicit;
+and no Block introduced a second operational authority, target write,
+autonomous promotion, or broader prospective-control platform.
