@@ -47,7 +47,7 @@ TARGET_ROOT = "/software-factory-inline-correction-target"
 TRACKER_RECORD_PATH = f"{TARGET_ROOT}/{TRACKER_PATH.relative_to(REPO_ROOT).as_posix()}"
 EXPECTED_EXERCISE_ROOT = "46fc23e6a1f09e543f40a4a4ada967fc9e3c36a645adc6b14aa17cfca285cf2b"
 EXPECTED_ACCEPTED_SNAPSHOT_ROOT = (
-    "73f6019fa40ea8f45dc5e602a625c2a183e538ac32d7a3f3334d77e604300727"
+    "54037ea3771b57346f7d812ee4cfda7bfc791752fa9c0e841d6109280a435ad7"
 )
 
 
@@ -546,6 +546,7 @@ def _decide(case: dict[str, object], expected_source_root: str) -> dict[str, obj
         if (
             snapshot_id != accepted["record_id"]
             or case["case_id"] != accepted["case_id"]
+            or accepted["case_source_root"] != expected_source_root
             or accepted["tracker_sha256"] != EXERCISE["tracker_sha256"]
             or accepted["target_revision_root"] != EXERCISE["target_revision_root"]
         ):
