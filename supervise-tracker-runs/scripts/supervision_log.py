@@ -929,6 +929,28 @@ def read_json(path: Path) -> dict[str, Any]:
     return value
 
 
+def file_snapshot(stat: os.stat_result) -> tuple[int, int, int, int]:
+    return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+
+
+def read_json_snapshot(path: Path) -> tuple[dict[str, Any], tuple[int, int, int, int]]:
+    try:
+        with path.open("rb") as handle:
+            before = file_snapshot(os.fstat(handle.fileno()))
+            raw = handle.read()
+            after = file_snapshot(os.fstat(handle.fileno()))
+        if before != after:
+            raise SupervisionLogError(
+                f"Supervision state changed while reading: {path.name}"
+            )
+        value = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SupervisionLogError(f"Cannot read supervision state: {path.name}") from exc
+    if not isinstance(value, dict):
+        raise SupervisionLogError(f"Supervision state is not an object: {path.name}")
+    return value, after
+
+
 def atomic_json(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
@@ -947,10 +969,19 @@ def atomic_json(path: Path, value: dict[str, Any]) -> None:
 
 def default_policy(args: argparse.Namespace) -> dict[str, Any]:
     target = safe_id(args.target_thread, label="target thread ID")
+    created_at = utc_now()
     policy: dict[str, Any] = {
         "schema_version": 1,
         "policy_version": 1,
         "target_thread_id": target,
+        "supervision_group_id": "supervision-group-"
+        + digest(
+            {
+                "kind": "supervision-group",
+                "target_thread_id": target,
+                "created_at": created_at,
+            }
+        )[:24],
         "target_label": clean(args.target_label, label="target label", maximum=80)
         or target[:12],
         "models": {
@@ -1056,7 +1087,7 @@ def default_policy(args: argparse.Namespace) -> dict[str, Any]:
             "roundup_thread_id": None,
             "roundup_automation_id": None,
         },
-        "created_at": utc_now(),
+        "created_at": created_at,
     }
     mission_binding = mission_binding_from_args(args, required=False)
     if mission_binding is not None:
@@ -1394,6 +1425,17 @@ def load_policy(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
     if policy.get("target_thread_id") != args.target_thread:
         raise SupervisionLogError("Policy belongs to a different target")
     return directory, policy
+
+
+def load_policy_snapshot(
+    args: argparse.Namespace,
+) -> tuple[Path, dict[str, Any], tuple[int, int, int, int]]:
+    directory = target_dir(args)
+    policy, snapshot = read_json_snapshot(directory / "policy.json")
+    validate_policy(policy)
+    if policy.get("target_thread_id") != args.target_thread:
+        raise SupervisionLogError("Policy belongs to a different target")
+    return directory, policy, snapshot
 
 
 def write_policy_version(
@@ -3016,7 +3058,7 @@ def cmd_notice_gate(args: argparse.Namespace) -> None:
 
 
 def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
-    directory, policy = load_policy(args)
+    directory, policy, policy_snapshot = load_policy_snapshot(args)
     source_record = safe_id(args.source_record, label="source record ID")
     lifecycle_state = args.lifecycle_state
     state_fingerprint = clean(
@@ -3172,6 +3214,7 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
         directory=directory,
         policy=policy,
         owner_events=all_events,
+        owner_policy_snapshot=policy_snapshot,
     )
     supervision_pause_permitted = bool(
         supervision_pause_permitted
@@ -3224,7 +3267,7 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                 "source_stop_permitted": control_posture[
                     "required_target_posture"
                 ]
-                in {"blocked", "completed"},
+                in {"blocked", "completed", "stopped"},
                 "required_target_posture": control_posture[
                     "required_target_posture"
                 ],
@@ -3514,7 +3557,7 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
 
 
 def cmd_successor_transition_gate(args: argparse.Namespace) -> None:
-    directory, policy = load_policy(args)
+    directory, policy, policy_snapshot = load_policy_snapshot(args)
     transition_id = safe_id(args.transition_id, label="successor transition ID")
     all_events = events(directory / "events.jsonl")
     records = successor_transition_events(all_events, transition_id)
@@ -3543,6 +3586,7 @@ def cmd_successor_transition_gate(args: argparse.Namespace) -> None:
         directory=directory,
         policy=policy,
         owner_events=all_events,
+        owner_policy_snapshot=policy_snapshot,
     )
     print(
         json.dumps(
@@ -3575,13 +3619,24 @@ def cmd_successor_transition_gate(args: argparse.Namespace) -> None:
     )
 
 
-def supervision_group_identity(policy: Mapping[str, Any]) -> str:
-    return digest(
-        {
-            "kind": "supervision-group",
-            "target_thread_id": policy.get("target_thread_id"),
-            "created_at": policy.get("created_at"),
-        }
+def supervision_group_identity(
+    policy: Mapping[str, Any], *, legacy_claim: str | None = None
+) -> tuple[str, str]:
+    persisted = policy.get("supervision_group_id")
+    if isinstance(persisted, str) and SAFE_ID.fullmatch(persisted):
+        return persisted, "policy"
+    if legacy_claim and SAFE_ID.fullmatch(legacy_claim):
+        return legacy_claim, "legacy-transition"
+    return (
+        "legacy-supervision-group-"
+        + digest(
+            {
+                "kind": "legacy-supervision-group-projection",
+                "target_thread_id": policy.get("target_thread_id"),
+                "created_at": policy.get("created_at"),
+            }
+        )[:24],
+        "legacy-policy-projection",
     )
 
 
@@ -3594,7 +3649,7 @@ def execution_run_identity(policy: Mapping[str, Any]) -> str | None:
             "kind": "execution-run",
             "governing_outcome_root": mission["mission_root"],
             "task_id": policy.get("target_thread_id"),
-            "supervision_group_id": supervision_group_identity(policy),
+            "supervision_group_id": supervision_group_identity(policy)[0],
         }
     )
 
@@ -3665,6 +3720,7 @@ def load_governing_outcome_members(
     owner_directory: Path,
     owner_policy: dict[str, Any],
     owner_events: list[dict[str, Any]],
+    owner_policy_snapshot: tuple[int, int, int, int] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]], str, bool]:
     root = owner_directory.parent.resolve()
     owner_target = str(
@@ -3677,22 +3733,49 @@ def load_governing_outcome_members(
             dict[str, Any],
             list[dict[str, Any]],
             dict[str, Any] | None,
+            tuple[int, int, int, int] | None,
         ]
     ] = [
-        (owner_target, owner_directory, owner_policy, owner_events, None)
+        (
+            owner_target,
+            owner_directory,
+            owner_policy,
+            owner_events,
+            None,
+            owner_policy_snapshot,
+        )
     ]
     queued = {owner_target}
     members: list[dict[str, Any]] = []
     issues: list[dict[str, str]] = []
-    snapshots: dict[str, tuple[Path, str | None]] = {}
+    snapshots: dict[
+        str,
+        tuple[
+            Path,
+            str | None,
+            Path,
+            tuple[int, int, int, int] | None,
+        ],
+    ] = {}
 
     while queue:
-        target, directory, policy, member_events, edge = queue.pop(0)
+        target, directory, policy, member_events, edge, policy_snapshot = queue.pop(0)
         event_path = directory / "events.jsonl"
+        policy_path = directory / "policy.json"
         event_head = (
             member_events[-1].get("record_sha256") if member_events else None
         )
-        snapshots[target] = (event_path, event_head if isinstance(event_head, str) else None)
+        if policy_snapshot is None:
+            try:
+                policy_snapshot = file_snapshot(policy_path.stat())
+            except OSError:
+                policy_snapshot = None
+        snapshots[target] = (
+            event_path,
+            event_head if isinstance(event_head, str) else None,
+            policy_path,
+            policy_snapshot,
+        )
         mission = bound_mission(policy)
         if mission is None:
             issues.append(
@@ -3710,8 +3793,17 @@ def load_governing_outcome_members(
                         "target_thread_id": target,
                     }
                 )
-        derived_group_id = supervision_group_identity(policy)
-        if edge is not None and edge.get("successor_group_id") != derived_group_id:
+        claimed_group_id = (
+            str(edge.get("successor_group_id", "")) if edge is not None else None
+        )
+        group_id, group_binding_mode = supervision_group_identity(
+            policy, legacy_claim=claimed_group_id
+        )
+        if (
+            edge is not None
+            and group_binding_mode == "policy"
+            and claimed_group_id != group_id
+        ):
             issues.append(
                 {
                     "kind": "member-group-mismatch",
@@ -3727,7 +3819,8 @@ def load_governing_outcome_members(
                 "event_head_sha256": event_head,
                 "mission_root": mission.get("mission_root") if mission else None,
                 "task_id": target,
-                "supervision_group_id": derived_group_id,
+                "supervision_group_id": group_id,
+                "supervision_group_binding": group_binding_mode,
                 "membership_claimed_group_id": (
                     edge.get("successor_group_id") if edge is not None else None
                 ),
@@ -3759,7 +3852,9 @@ def load_governing_outcome_members(
             queued.add(successor_target)
             try:
                 successor_directory = member_directory(root, successor_target)
-                successor_policy = read_json(successor_directory / "policy.json")
+                successor_policy, successor_policy_snapshot = read_json_snapshot(
+                    successor_directory / "policy.json"
+                )
                 validate_policy(successor_policy)
                 if successor_policy.get("target_thread_id") != successor_target:
                     raise SupervisionLogError(
@@ -3781,6 +3876,7 @@ def load_governing_outcome_members(
                     successor_policy,
                     successor_events,
                     successor,
+                    successor_policy_snapshot,
                 )
             )
 
@@ -3793,7 +3889,12 @@ def load_governing_outcome_members(
         for member in sorted(members, key=lambda value: value["target_thread_id"])
     ]
     stable = True
-    for target, (path, recorded_head) in snapshots.items():
+    for target, (
+        path,
+        recorded_head,
+        policy_path,
+        recorded_policy_snapshot,
+    ) in snapshots.items():
         try:
             current_head = event_head_hash(path)
         except (OSError, SupervisionLogError):
@@ -3810,6 +3911,18 @@ def load_governing_outcome_members(
             issues.append(
                 {
                     "kind": "member-head-changed-during-read",
+                    "target_thread_id": target,
+                }
+            )
+        try:
+            current_policy_snapshot = file_snapshot(policy_path.stat())
+        except OSError:
+            current_policy_snapshot = None
+        if current_policy_snapshot != recorded_policy_snapshot:
+            stable = False
+            issues.append(
+                {
+                    "kind": "member-policy-changed-during-read",
                     "target_thread_id": target,
                 }
             )
@@ -3851,6 +3964,39 @@ def decision_can_block(head: Mapping[str, Any], policy: dict[str, Any]) -> bool:
     )
 
 
+def decision_authorizes_direct_stop(
+    head: Mapping[str, Any],
+    lifecycle: Mapping[str, Any],
+    policy: dict[str, Any],
+) -> bool:
+    mission = bound_mission(policy)
+    evidence = lifecycle.get("evidence", [])
+    if not isinstance(evidence, list):
+        return False
+    decision_fingerprint = str(head.get("state_fingerprint", ""))
+    lifecycle_fingerprint = str(lifecycle.get("state_fingerprint", ""))
+    return bool(
+        mission is not None
+        and lifecycle.get("status") == "stopped"
+        and head.get("record_id") in evidence
+        and head.get("phase") == "target-acknowledged"
+        and head.get("classification") == "reserved-authority"
+        and head.get("outcome") == "user-supplied"
+        and head.get("safe_frontier") == "empty"
+        and head.get("mission_root") == mission.get("mission_root")
+        and head.get("authority_source_class") in DIRECT_AUTHORITY_SOURCE_CLASSES
+        and bool(head.get("authority_source_record"))
+        and head.get("independent_mission_review") is True
+        and head.get("impact_class") in {"goal-blocking", "goal-reversing"}
+        and head.get("ordinary_means_disabled") is True
+        and (
+            not decision_fingerprint
+            or not lifecycle_fingerprint
+            or decision_fingerprint == lifecycle_fingerprint
+        )
+    )
+
+
 def tracker_program_roots(members: list[dict[str, Any]]) -> list[str]:
     roots = {
         str(item["tracker_sha256"])
@@ -3875,11 +4021,13 @@ def reduce_control_posture(
     directory: Path,
     policy: dict[str, Any],
     owner_events: list[dict[str, Any]],
+    owner_policy_snapshot: tuple[int, int, int, int] | None = None,
 ) -> dict[str, Any]:
     members, issues, currentness_root, stable = load_governing_outcome_members(
         owner_directory=directory,
         owner_policy=policy,
         owner_events=owner_events,
+        owner_policy_snapshot=owner_policy_snapshot,
     )
     mission = bound_mission(policy)
     owner_target = str(policy.get("target_thread_id") or directory.name)
@@ -3901,6 +4049,7 @@ def reduce_control_posture(
                     "mission_root",
                     "membership_source_record",
                     "membership_claimed_group_id",
+                    "supervision_group_binding",
                 )
             }
             for member in members
@@ -3914,6 +4063,9 @@ def reduce_control_posture(
     open_transitions: list[dict[str, Any]] = []
     open_decisions: list[tuple[dict[str, Any], dict[str, Any]]] = []
     completion_candidates: list[dict[str, Any]] = []
+    subordinate_completion_candidates: list[dict[str, Any]] = []
+    direct_stop_candidates: list[dict[str, Any]] = []
+    subordinate_stop_records: list[str] = []
     for member in members:
         member_events = member["events"]
         member_policy = member["policy"]
@@ -3948,19 +4100,23 @@ def reduce_control_posture(
                 policy=member_policy,
                 state_fingerprint=state_fingerprint,
             )
+            candidate = {
+                "lifecycle_record_id": lifecycle.get("record_id"),
+                "completion_record_id": (
+                    completion.get("record_id") if completion is not None else None
+                ),
+                "target_thread_id": member["target_thread_id"],
+            }
             if (
                 permitted
                 and completion is not None
                 and lifecycle.get("outcome_completion_record_id")
                 == completion.get("record_id")
             ):
-                completion_candidates.append(
-                    {
-                        "lifecycle_record_id": lifecycle.get("record_id"),
-                        "completion_record_id": completion.get("record_id"),
-                        "target_thread_id": member["target_thread_id"],
-                    }
-                )
+                if member["target_thread_id"] == owner_target:
+                    completion_candidates.append(candidate)
+                else:
+                    subordinate_completion_candidates.append(candidate)
             elif permitted:
                 issues.append(
                     {
@@ -3974,6 +4130,37 @@ def reduce_control_posture(
                         "kind": "completion-not-current",
                         "target_thread_id": member["target_thread_id"],
                         "reason": reason,
+                    }
+                )
+        if lifecycle is not None and lifecycle.get("status") == "stopped":
+            stop_decision = next(
+                (
+                    head
+                    for head in heads.values()
+                    if decision_authorizes_direct_stop(
+                        head, lifecycle, member_policy
+                    )
+                ),
+                None,
+            )
+            if member["target_thread_id"] != owner_target:
+                subordinate_stop_records.append(str(lifecycle.get("record_id")))
+            elif stop_decision is not None:
+                direct_stop_candidates.append(
+                    {
+                        "lifecycle_record_id": lifecycle.get("record_id"),
+                        "decision_record_id": stop_decision.get("record_id"),
+                        "authority_source_record": stop_decision.get(
+                            "authority_source_record"
+                        ),
+                        "target_thread_id": owner_target,
+                    }
+                )
+            else:
+                issues.append(
+                    {
+                        "kind": "direct-stop-authority-missing-or-invalid",
+                        "target_thread_id": owner_target,
                     }
                 )
 
@@ -4003,6 +4190,9 @@ def reduce_control_posture(
     elif blocking_decisions:
         required_posture = "blocked"
         next_action = "preserve-safe-deferral-and-revisit-on-authority-change"
+    elif direct_stop_candidates:
+        required_posture = "stopped"
+        next_action = "close-governing-outcome-at-direct-stop"
     elif completion_candidates:
         required_posture = "completed"
         next_action = "close-governing-outcome"
@@ -4029,15 +4219,19 @@ def reduce_control_posture(
             item.get("record_id") for item in blocking_decisions
         ],
         "completion_candidates": completion_candidates,
+        "subordinate_completion_candidates": subordinate_completion_candidates,
+        "direct_stop_candidates": direct_stop_candidates,
+        "subordinate_stop_records": subordinate_stop_records,
     }
 
 
 def cmd_control_posture_gate(args: argparse.Namespace) -> None:
-    directory, policy = load_policy(args)
+    directory, policy, policy_snapshot = load_policy_snapshot(args)
     result = reduce_control_posture(
         directory=directory,
         policy=policy,
         owner_events=events(directory / "events.jsonl"),
+        owner_policy_snapshot=policy_snapshot,
     )
     print(json.dumps(result, sort_keys=True))
 
@@ -4405,7 +4599,7 @@ def decision_notification(
 
 
 def cmd_decision_gate(args: argparse.Namespace) -> None:
-    directory, policy = load_policy(args)
+    directory, policy, policy_snapshot = load_policy_snapshot(args)
     decision_id = safe_id(args.decision_id, label="decision ID")
     all_events = events(directory / "events.jsonl")
     records = decision_events(all_events, decision_id)
@@ -4500,6 +4694,7 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
         directory=directory,
         policy=policy,
         owner_events=all_events,
+        owner_policy_snapshot=policy_snapshot,
     )
     blocking_permitted = (
         control_posture["required_target_posture"] == "blocked"
@@ -6367,7 +6562,7 @@ def cmd_gmail_cadence(args: argparse.Namespace) -> None:
 
 
 def cmd_status(args: argparse.Namespace) -> None:
-    directory, policy = load_policy(args)
+    directory, policy, policy_snapshot = load_policy_snapshot(args)
     all_events = events(directory / "events.jsonl")
     incident_events = [item for item in all_events if item.get("kind") == "incident"]
     incident_heads: dict[str, dict[str, Any]] = {}
@@ -6432,6 +6627,7 @@ def cmd_status(args: argparse.Namespace) -> None:
         directory=directory,
         policy=policy,
         owner_events=all_events,
+        owner_policy_snapshot=policy_snapshot,
     )
     print(
         json.dumps(

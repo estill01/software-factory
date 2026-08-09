@@ -415,9 +415,17 @@ The reducer applies one precedence order:
    `in-progress`;
 4. an exact safely deferred missing fact or reserved authority may return
    `blocked` only when every safe frontier is empty and no transition remains;
-5. current independently verified observable completion may return `completed`
-   only when no prior obligation remains; and
-6. every other state remains `in-progress` under the governing outcome.
+5. an owner-locus `stopped` lifecycle may return `stopped` only when it cites
+   the exact acknowledged direct reserved-authority decision that supplied the
+   stop, binds the governing mission, and has no safe frontier;
+6. current independently verified observable completion may return `completed`
+   only from the canonical owner locus and when no prior obligation remains;
+   subordinate task completion remains diagnostic evidence; and
+7. every other state remains `in-progress` under the governing outcome.
+
+New policies persist a stable supervision-group identity. Legacy policies stay
+readable: an exact successor-transition group claim remains the member identity
+for that legacy join, while a new policy-owned identity must match the claim.
 
 Run:
 

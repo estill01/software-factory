@@ -493,8 +493,8 @@ class SuccessorTransitionContractTests(unittest.TestCase):
         with (
             mock.patch.object(
                 supervision_log,
-                "load_policy",
-                return_value=(self.directory, self.policy),
+                "load_policy_snapshot",
+                return_value=(self.directory, self.policy, None),
             ),
             redirect_stdout(output),
         ):
@@ -665,8 +665,8 @@ class SuccessorTransitionContractTests(unittest.TestCase):
         )
         with mock.patch.object(
             supervision_log,
-            "load_policy",
-            return_value=(self.directory, self.policy),
+            "load_policy_snapshot",
+            return_value=(self.directory, self.policy, None),
         ):
             lifecycle_output = io.StringIO()
             with redirect_stdout(lifecycle_output):
@@ -803,6 +803,44 @@ class ControlPostureReducerTests(unittest.TestCase):
             owner_events=supervision_log.events(directory / "events.jsonl"),
         )
 
+    def record_public_transition(self, phase: str, *extra: str) -> dict[str, object]:
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "successor-transition-record",
+                "--target-thread",
+                self.owner,
+                "--transition-id",
+                "TRANSITION-PUBLIC-1234",
+                "--phase",
+                phase,
+                "--tracker-sha256",
+                "c" * 64,
+                "--tracker-source-record",
+                "tracker-public-1234",
+                "--requested-block-range",
+                "Block 0",
+                "--first-eligible-block",
+                "Block 0",
+                "--source-mission-root",
+                self.owner_mission,
+                "--governing-authority-source-class",
+                "direct-user",
+                "--governing-authority-source-record",
+                "item-340",
+                "--state-fingerprint",
+                f"state-{phase}",
+                "--evidence",
+                f"evidence-{phase}",
+                *extra,
+            ]
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            args.func(args)
+        return json.loads(output.getvalue())
+
     def test_identity_types_remain_separate_on_the_default_continue_path(self) -> None:
         directory, policy = self.create_target(self.owner, self.owner_mission)
 
@@ -815,7 +853,10 @@ class ControlPostureReducerTests(unittest.TestCase):
         )
         member = identities["members"][0]
         self.assertEqual(member["task_id"], self.owner)
-        self.assertRegex(member["supervision_group_id"], r"^[0-9a-f]{64}$")
+        self.assertRegex(
+            member["supervision_group_id"],
+            r"^supervision-group-[0-9a-f]{24}$",
+        )
         self.assertRegex(member["execution_run_id"], r"^[0-9a-f]{64}$")
         self.assertIsNone(member["active_block"])
         self.assertEqual(result["member_count"], 1)
@@ -918,7 +959,7 @@ class ControlPostureReducerTests(unittest.TestCase):
                     "successor_thread_id": targets[index + 1],
                     "successor_mission_root": missions[index + 1],
                     "successor_group_id": (
-                        supervision_log.supervision_group_identity(successor_policy)
+                        supervision_log.supervision_group_identity(successor_policy)[0]
                     ),
                 },
             )
@@ -1049,7 +1090,7 @@ class ControlPostureReducerTests(unittest.TestCase):
                 "successor_mission_root": self.child_mission,
                 "successor_group_id": supervision_log.supervision_group_identity(
                     child_policy
-                ),
+                )[0],
                 "started_block": "Block 0",
             },
         )
@@ -1077,6 +1118,86 @@ class ControlPostureReducerTests(unittest.TestCase):
             {item["kind"] for item in mismatched["issues"]},
         )
 
+    def test_public_transition_writer_produces_a_successfully_joined_group(self) -> None:
+        owner_directory, owner_policy = self.create_target(
+            self.owner, self.owner_mission
+        )
+        _child_directory, child_policy = self.create_target(
+            self.child, self.child_mission
+        )
+        successor = ["--successor-thread", self.child]
+        bound = [
+            *successor,
+            "--successor-mission-root",
+            self.child_mission,
+            "--successor-group-id",
+            str(child_policy["supervision_group_id"]),
+        ]
+        handed_off = [*bound, "--handoff-record", "HANDOFF-PUBLIC-1234"]
+        acknowledged = [
+            *handed_off,
+            "--acknowledgement-record",
+            "ACK-PUBLIC-1234",
+        ]
+
+        self.record_public_transition("required")
+        self.record_public_transition("successor-created", *successor)
+        self.record_public_transition("successor-bound", *bound)
+        self.record_public_transition("handoff-sent", *handed_off)
+        self.record_public_transition("target-acknowledged", *acknowledged)
+        self.record_public_transition(
+            "work-started", *acknowledged, "--started-block", "Block 0"
+        )
+
+        result = self.reduce(owner_directory, owner_policy)
+        self.assertEqual(result["member_count"], 2)
+        self.assertEqual(result["issues"], [])
+        child_member = next(
+            item
+            for item in result["identities"]["members"]
+            if item["task_id"] == self.child
+        )
+        self.assertEqual(child_member["supervision_group_binding"], "policy")
+
+    def test_legacy_literal_group_claim_remains_readable(self) -> None:
+        owner_directory, owner_policy = self.create_target(
+            self.owner, self.owner_mission
+        )
+        child_directory, child_policy = self.create_target(
+            self.child, self.child_mission
+        )
+        child_policy.pop("supervision_group_id")
+        child_policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(child_policy)
+        )
+        supervision_log.atomic_json(child_directory / "policy.json", child_policy)
+        self.append(
+            owner_directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "successor-transition",
+                "transition_id": "TRANSITION-LEGACY-1234",
+                "phase": "work-started",
+                "tracker_sha256": "c" * 64,
+                "successor_thread_id": self.child,
+                "successor_mission_root": self.child_mission,
+                "successor_group_id": "group-1234",
+            },
+        )
+
+        result = self.reduce(owner_directory, owner_policy)
+
+        self.assertEqual(result["issues"], [])
+        child_member = next(
+            item
+            for item in result["identities"]["members"]
+            if item["task_id"] == self.child
+        )
+        self.assertEqual(child_member["supervision_group_id"], "group-1234")
+        self.assertEqual(
+            child_member["supervision_group_binding"], "legacy-transition"
+        )
+
     def test_changed_member_head_returns_retry_currentness(self) -> None:
         directory, policy = self.create_target(self.owner, self.owner_mission)
         self.append(
@@ -1092,6 +1213,48 @@ class ControlPostureReducerTests(unittest.TestCase):
         self.assertFalse(result["snapshot_stable"])
         self.assertEqual(result["required_target_posture"], "in-progress")
         self.assertEqual(result["next_action"], "retry-control-currentness")
+
+    def test_changed_policy_returns_retry_currentness(self) -> None:
+        directory, _policy = self.create_target(self.owner, self.owner_mission)
+        original_reader = supervision_log.read_json_snapshot
+
+        def read_then_replace(path: Path):
+            value, snapshot = original_reader(path)
+            replacement = dict(value)
+            replacement["updated_at"] = "2026-08-09T00:00:00+00:00"
+            replacement["policy_sha256"] = supervision_log.digest(
+                supervision_log.policy_material(replacement)
+            )
+            supervision_log.atomic_json(path, replacement)
+            return value, snapshot
+
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "control-posture-gate",
+                "--target-thread",
+                self.owner,
+            ]
+        )
+        output = io.StringIO()
+        with (
+            mock.patch.object(
+                supervision_log,
+                "read_json_snapshot",
+                side_effect=read_then_replace,
+            ),
+            redirect_stdout(output),
+        ):
+            args.func(args)
+
+        result = json.loads(output.getvalue())
+        self.assertFalse(result["snapshot_stable"])
+        self.assertEqual(result["next_action"], "retry-control-currentness")
+        self.assertIn(
+            "member-policy-changed-during-read",
+            {item["kind"] for item in result["issues"]},
+        )
 
     def test_completion_requires_current_observable_outcome_binding(self) -> None:
         directory, policy = self.create_target(self.owner, self.owner_mission)
@@ -1141,6 +1304,135 @@ class ControlPostureReducerTests(unittest.TestCase):
         self.assertIn(
             "completion-lifecycle-binding-mismatch",
             {item["kind"] for item in stale["issues"]},
+        )
+
+    def test_subordinate_completion_does_not_close_the_governing_outcome(self) -> None:
+        owner_directory, owner_policy = self.create_target(
+            self.owner, self.owner_mission
+        )
+        child_directory, child_policy = self.create_target(
+            self.child, self.child_mission
+        )
+        self.append(
+            owner_directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "successor-transition",
+                "transition_id": "TRANSITION-1234",
+                "phase": "work-started",
+                "tracker_sha256": "c" * 64,
+                "successor_thread_id": self.child,
+                "successor_mission_root": self.child_mission,
+                "successor_group_id": child_policy["supervision_group_id"],
+            },
+        )
+        completion = {
+            "record_id": "EVT-000001",
+            "kind": "check",
+            "category": supervision_log.OUTCOME_COMPLETION_CATEGORY,
+            "status": "verified",
+            "state_fingerprint": "state-1234",
+            "mission_root": self.child_mission,
+            "model": "gpt-5.6-sol",
+            "reasoning": "xhigh",
+            "evidence": ["behavior-proof-1234"],
+            **{
+                field: "d" * 64
+                for field in supervision_log.OUTCOME_COMPLETION_HASH_FIELDS
+            },
+            "capability_reconciliation_reviewer_id": f"base-{self.child}",
+            "capability_reconciliation_implementation_owner_id": self.child,
+            "capability_reconciliation_revision": "e" * 40,
+            "capability_reconciliation_posture": "verified",
+            "capability_reconciliation_gap_count": 0,
+        }
+        self.append(child_directory, completion)
+        self.append(
+            child_directory,
+            {
+                "record_id": "EVT-000002",
+                "kind": "lifecycle",
+                "status": "completed",
+                "state_fingerprint": "state-1234",
+                "outcome_completion_record_id": "EVT-000001",
+            },
+        )
+
+        result = self.reduce(owner_directory, owner_policy)
+
+        self.assertEqual(result["required_target_posture"], "in-progress")
+        self.assertEqual(result["completion_candidates"], [])
+        self.assertEqual(
+            result["subordinate_completion_candidates"][0]["target_thread_id"],
+            self.child,
+        )
+
+    def test_owner_direct_stop_requires_exact_acknowledged_direct_authority(self) -> None:
+        directory, policy = self.create_target(self.owner, self.owner_mission)
+        decision = {
+            "record_id": "EVT-000001",
+            "kind": "decision",
+            "decision_id": "DEC-STOP-1234",
+            "phase": "target-acknowledged",
+            "classification": "reserved-authority",
+            "outcome": "user-supplied",
+            "safe_frontier": "empty",
+            "state_fingerprint": "state-stop-1234",
+            "mission_root": self.owner_mission,
+            "authority_source_class": "direct-user",
+            "authority_source_record": "item-stop-1234",
+            "impact_class": "goal-blocking",
+            "ordinary_means_disabled": True,
+            "independent_mission_review": True,
+        }
+        lifecycle = {
+            "record_id": "EVT-000002",
+            "kind": "lifecycle",
+            "status": "stopped",
+            "state_fingerprint": "state-stop-1234",
+            "evidence": ["EVT-000001"],
+        }
+        self.append(directory, decision)
+        self.append(directory, lifecycle)
+
+        stopped = self.reduce(directory, policy)
+        self.assertEqual(stopped["required_target_posture"], "stopped")
+        self.assertEqual(
+            stopped["next_action"], "close-governing-outcome-at-direct-stop"
+        )
+        gate_args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "lifecycle-gate",
+                "--target-thread",
+                self.owner,
+                "--lifecycle-state",
+                "stopped",
+                "--source-record",
+                "EVT-000002",
+                "--state-fingerprint",
+                "state-stop-1234",
+            ]
+        )
+        gate_output = io.StringIO()
+        with redirect_stdout(gate_output):
+            gate_args.func(gate_args)
+        gate = json.loads(gate_output.getvalue())
+        self.assertTrue(gate["source_stop_permitted"])
+        self.assertEqual(gate["required_target_posture"], "stopped")
+
+        routed = supervision_log.events(directory / "events.jsonl")
+        routed[0]["authority_source_class"] = "supervisor-steer"
+        rejected = supervision_log.reduce_control_posture(
+            directory=directory,
+            policy=policy,
+            owner_events=routed,
+        )
+        self.assertEqual(rejected["required_target_posture"], "in-progress")
+        self.assertIn(
+            "direct-stop-authority-missing-or-invalid",
+            {item["kind"] for item in rejected["issues"]},
         )
 
     def test_contracts_route_terminal_posture_through_one_reducer(self) -> None:
@@ -1212,10 +1504,11 @@ class NoticeGateCorrelationTests(unittest.TestCase):
         with (
             mock.patch.object(
                 supervision_log,
-                "load_policy",
+                "load_policy_snapshot",
                 return_value=(
                     Path("/tmp/test-supervision"),
                     {"policy_sha256": "test-policy"},
+                    None,
                 ),
             ),
             mock.patch.object(supervision_log, "events", return_value=event_records),
@@ -3258,8 +3551,8 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
         with (
             mock.patch.object(
                 supervision_log,
-                "load_policy",
-                return_value=(Path("/tmp/supervision-test"), policy),
+                "load_policy_snapshot",
+                return_value=(Path("/tmp/supervision-test"), policy, None),
             ),
             mock.patch.object(
                 supervision_log,
@@ -3669,7 +3962,9 @@ class DecisionResolutionTests(unittest.TestCase):
         output = io.StringIO()
         with (
             mock.patch.object(
-                supervision_log, "load_policy", return_value=(directory, policy)
+                supervision_log,
+                "load_policy",
+                return_value=(directory, policy),
             ),
             redirect_stdout(output),
         ):
@@ -3696,7 +3991,9 @@ class DecisionResolutionTests(unittest.TestCase):
         output = io.StringIO()
         with (
             mock.patch.object(
-                supervision_log, "load_policy", return_value=(directory, policy)
+                supervision_log,
+                "load_policy_snapshot",
+                return_value=(directory, policy, None),
             ),
             redirect_stdout(output),
         ):
