@@ -49,23 +49,71 @@ operator-visible behavior.
 
 ### 1. Install the skills
 
-This repository is a **reference Codex skill tree**, not a packaged hosted service or plugin.
+This repository is a **reference Codex skill tree**, not a packaged hosted
+service or plugin. Installed behavior is pinned to an accepted immutable local
+release; editing a checkout does not update the live skills.
 
 ```bash
 git clone https://github.com/estill01/software-factory.git
 cd software-factory
-mkdir -p "$HOME/.agents/skills"
-
-for skill in \
-  author-implementation-trackers \
-  implement-tracker-blocks \
-  supervise-tracker-runs
-do
-  ln -sfn "$(pwd)/$skill" "$HOME/.agents/skills/$skill"
-done
+python3 scripts/skill_release.py --help
 ```
 
-Codex also supports repository-local `.agents/skills/` directories and follows symlinked skill folders. Invoke the skills as `$author-implementation-trackers`, `$implement-tracker-blocks`, and `$supervise-tracker-runs`. If a newly installed or updated skill does not appear, restart Codex. See the [Codex Skills documentation](https://developers.openai.com/codex/build-skills) for current discovery and distribution guidance.
+Freeze a clean commit and obtain an independent exact-revision review. Then
+stage it with the reviewer's identity, record, and SHA-256 root:
+
+```bash
+python3 scripts/skill_release.py stage \
+  --repo "$PWD" \
+  --source-commit "$ACCEPTED_COMMIT" \
+  --reviewer-id "$REVIEWER_ID" \
+  --review-record "$REVIEW_RECORD" \
+  --review-root "$REVIEW_ROOT_SHA256"
+```
+
+For a new installation, establish the three stable discovery links through the
+single release-root `current` pointer. For migration from the old direct-link
+layout, also pass `--legacy-source-root "$PWD"`; bootstrap verifies that the
+staged baseline and all three existing resolved skill trees are identical and
+rolls every link back if setup is interrupted.
+
+```bash
+python3 scripts/skill_release.py bootstrap "$RELEASE_ID" \
+  --quiescent-boundary-record "$QUIESCENT_RECORD" \
+  --quiescent-boundary-root "$QUIESCENT_ROOT_SHA256"
+```
+
+Subsequent accepted cutovers never rewrite the three discovery links. They
+atomically replace only `~/.codex/software-factory-releases/current`, launch a
+fresh-process resolution check, and restore the prior pointer on failure:
+
+```bash
+python3 scripts/skill_release.py activate "$RELEASE_ID" \
+  --quiescent-boundary-record "$QUIESCENT_RECORD" \
+  --quiescent-boundary-root "$QUIESCENT_ROOT_SHA256"
+
+python3 scripts/skill_release.py status
+python3 scripts/skill_release.py rollback \
+  --quiescent-boundary-record "$QUIESCENT_RECORD" \
+  --quiescent-boundary-root "$QUIESCENT_ROOT_SHA256"
+```
+
+An already-loaded Codex task continues with the instructions it loaded before
+the swap; start a new task or restart Codex after activation. The helper proves
+a fresh filesystem resolution but does not claim a transactional multi-skill
+snapshot inside an already-running host. Exact state, manifest fields, failure
+posture, and migration details are in
+[`docs/software-factory-skill-releases.md`](docs/software-factory-skill-releases.md).
+
+Directly symlinking the three discovery paths to a mutable checkout is an
+explicit **development-live/unsafe mode**. It is useful only when immediate
+instruction changes are intentionally desired and is not the default install
+or release workflow.
+
+Invoke the installed skills as `$author-implementation-trackers`,
+`$implement-tracker-blocks`, and `$supervise-tracker-runs`. See the
+[Codex Skills documentation](https://developers.openai.com/codex/build-skills)
+for current discovery behavior.
 
 ### 2. Choose the operating mode
 
