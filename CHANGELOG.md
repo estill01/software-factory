@@ -73,7 +73,10 @@ the completed program materially changes Software Factory.
   protocol for target repositories and Software Factory self-work with stricter
   self-change role separation. This is the accepted Block 4 semantic boundary;
   it does not yet activate correction, candidate execution, tracker mutation,
-  policy changes, or autonomous evolution owned by later Blocks.
+  policy changes, or autonomous evolution owned by later Blocks. The reviewed
+  contract is installed in active release `96974ea056a9-bd814c616698` with
+  verification root
+  `e1f16091e78fd438423ceef7bc830773570b44cc686e744907375a7b0d293f19`.
 
 - **Successor-transition continuity and structured failure-mode records.** A
   requested implementation that must cross into a distinct task now remains an

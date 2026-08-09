@@ -633,7 +633,7 @@ continuous cognition the price of ordinary execution.
 | 1 | Correct, supersede, cancel, or expire invalid execution transitions | 0 | `completed` |
 | 2 | Stage, pin, activate, and roll back one accepted three-skill release | 1 | `completed` |
 | 3 | Replay observed failures and prove control-plane convergence | 0, 1, 2 | `completed` |
-| 4 | Freeze the three-path adaptive decision-control contract | 3 | `not-started` |
+| 4 | Freeze the three-path adaptive decision-control contract | 3 | `completed` |
 | 5 | Correct bad implementation decisions inline and continue | 4 | `not-started` |
 | 6 | Build and independently compare one bounded parallel candidate | 5 | `not-started` |
 | 7 | Add configurable adaptive authority, budgets, and human-input posture | 5, 6 | `not-started` |
@@ -1375,7 +1375,7 @@ external release/deployment, Gmail, or any background automation.
 
 ## Block 4 — Freeze the three-path adaptive decision-control contract
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -1507,7 +1507,64 @@ autonomous external deferral.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: `96974ea056a9533f039719c8b89a051f4c4b7aac` on
+  `codex/control-plane-foundation`, pushed to `origin`.
+- External/target revision: active three-skill release
+  `96974ea056a9-bd814c616698`; installed verification root
+  `e1f16091e78fd438423ceef7bc830773570b44cc686e744907375a7b0d293f19`.
+- Inputs: tracker commit `94c8118adca77b574b1e6ef5a1f2a5aad0aa9d91`;
+  accepted Block 3 release `2022accad4dc-8c78bd4e7a9b`; current three skill
+  contracts; exact candidate root
+  `330ebbc724bf7d07441b0bdcd531cc11186d53dda4c2124866440ad7bb6a9cb6`.
+- Decision path: bounded-general existing implementation owner; freeze one
+  shared exact decision grammar rather than an informal prose record, runtime
+  controller, or target-specific parallel planning system.
+- Inline correction: not yet activated; owned by Block 5.
+- Candidate lane: not opened; owned by Block 6.
+- Program revision: not-applicable; Block 4 defines the structural packet but
+  does not mutate the tracker through it.
+- Selected and rejected paths: selected one normative embedded JSON grammar and
+  maintained reference under `implement-tracker-blocks`; rejected a prose-only
+  field list and any new schema service, ledger, controller, or policy owner.
+- Preserved and invalidated state: all accepted Blocks 0–3 evidence and prior
+  release history preserved; only rejected Block 4 candidate proof was
+  superseded by the exact successor review.
+- Autonomy posture: contract defines `fixed`, `recommend`,
+  `reviewed-autonomous`, and `full-autonomous`; no policy state changed and no
+  human path exists for ordinary judgment in the full-autonomous contract.
+- Evolution posture: unchanged; the on-demand evolution owner is referenced but
+  not invoked or granted adoption authority.
+- Outcome feedback: fresh installation resolves the new semantic contract from
+  one active release pointer; runtime correction remains intentionally absent.
+- Focused validation: adaptive contract `25/25`; all tests passed.
+- Mapped validation: implementation skill `35/35`; all three fixed Skill
+  Creator validators passed; full-profile tracker verifier found Blocks 0–17
+  with no errors or warnings; `py_compile` and diff checks passed.
+- Candidate freeze: exact commit `96974ea056a9533f039719c8b89a051f4c4b7aac`;
+  reference SHA-256
+  `5423e9838c286846c29b101fc88b44c2998c99a34a071905de605a683e784cff`;
+  static-test SHA-256
+  `ade3dfb15c9e070bbdb7b3abb6050f175635080e087961a5efc7fcc12209de25`.
+- Remediation closure: review findings around record exactness, evidence
+  identity/currentness, role separation, terminal candidate retirement,
+  recovery classification, proposer attribution, and revision-root binding all
+  received focused regressions and exact successor re-review.
+- Resource posture: one maintained reference, one static test owner, O(1)
+  unchanged fingerprint/currentness contract, no runtime/model/reviewer path
+  activated for unchanged work.
+- Independent review: `/root/block2_review`; no findings on exact successor
+  `96974ea056a9533f039719c8b89a051f4c4b7aac`; signed release-review root
+  `55574978f993276d57e21a4d1dce70f0b127c325f35933305643249fa957ac04`;
+  `/root/block1_review` independently accepted the fresh installed release and
+  its 25/25 active-skill probe with no runtime or policy activation.
+- Retained open work: Blocks 5–17 only.
+- Decision/continuation posture: Block Stop is an internal checkpoint under the
+  full-tracker range; Block 5 is the next dependency-safe action.
+- Post-block audit: accepted after exact semantic review, signed release review,
+  one-use sequence-4 operator permit, pointer activation, and installed-root
+  verification.
+- Git durability: coherent implementation commits through `96974ea` are pushed;
+  this evidence-only tracker checkpoint is committed separately before Block 5.
 
 ### Stop
 
