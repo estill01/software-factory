@@ -718,9 +718,11 @@ review before freezing the baseline.
   reinspection.
 - Post-block audit: `accepted`; the contract is source-bound, planned features
   remain planned/unavailable where required, and the Block 0 Stop was honored.
-- Git durability: candidate `ee0837d` is committed locally; this acceptance
-  checkpoint must be pushed non-force before Block 1 implementation begins,
-  with remote ancestry verified immediately after the push.
+- Git durability: a non-force push advanced
+  `origin/codex/evolution-mvp` from `2b73de1` through acceptance checkpoint
+  `6ef84c767c7a145fd4283c4d86769c4dabb88085`; local and remote then matched
+  exactly with `0 0` divergence. This evidence-finalization successor is
+  included in the immediate follow-on non-force push before Block 1 begins.
 
 ### Stop
 
