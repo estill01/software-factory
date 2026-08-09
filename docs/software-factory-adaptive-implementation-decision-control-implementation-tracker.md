@@ -632,7 +632,7 @@ continuous cognition the price of ordinary execution.
 | 0 | Separate governing outcome identity and derive one canonical posture | — | `completed` |
 | 1 | Correct, supersede, cancel, or expire invalid execution transitions | 0 | `completed` |
 | 2 | Stage, pin, activate, and roll back one accepted three-skill release | 1 | `completed` |
-| 3 | Replay observed failures and prove control-plane convergence | 0, 1, 2 | `not-started` |
+| 3 | Replay observed failures and prove control-plane convergence | 0, 1, 2 | `completed` |
 | 4 | Freeze the three-path adaptive decision-control contract | 3 | `not-started` |
 | 5 | Correct bad implementation decisions inline and continue | 4 | `not-started` |
 | 6 | Build and independently compare one bounded parallel candidate | 5 | `not-started` |
@@ -1225,7 +1225,7 @@ Stop before replay certification or implementation of original Block 4.
 
 ## Block 3 — Replay observed failures and prove control-plane convergence
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -1337,7 +1337,34 @@ recheck.
 
 ### Completion evidence
 
-Pending.
+- Accepted source: `2022accad4dcb4994b45e8ab9f7e701c7ec99f5e`.
+  Earlier candidates `65f66eb92b0fda9bd4aec497348aacd2c30cc7aa`
+  and `41a34153adc62a03cc62e94ebd8c88e68da387db` remain rejected history;
+  their independent reviews exposed missing explicit observable-effect coverage
+  and governing-owner/subordinate decision-precedence defects respectively.
+- Content-minimized fixture
+  `supervise-tracker-runs/scripts/fixtures/control_posture_replay_v1.json`
+  and four focused replay/property tests cover the observed transition sequence,
+  the 60 supported control-state combinations, self-successor rejection,
+  subordinate decision/stop non-authority, and governing-owner blocking
+  precedence. Focused `4/4`, mapped supervision `247/247`, authoring `30/30`,
+  implementation `10/10`, release `17/17`, the full 18-Block tracker verifier,
+  all three fixed skill validators, `py_compile`, and diff checks passed.
+- Independent exact-revision review accepted candidate root
+  `5b5f44e7957e8e2c32c0022a0fd7c7df8d862bad6deefdb2a71e7ca00942b488`
+  with review record `block3-release-candidate-2022acc` and review root
+  `8d2f81117ef2a465f2e0a73c48d12c6334834aee1c2d56c46f565055e9ae9c06`.
+- Release `2022accad4dc-8c78bd4e7a9b` activated through the single current
+  pointer using sequence-3 operator record
+  `software-factory-activate-2022accad4dc-8c78bd4e7a9b`; verification root
+  `e0cc6a23d434424ba997433415815b04d631d8e49288f67218b93e02151f5cca`.
+  The prior accepted `b7269cc0d71f-eb1269660b3e` release remains the sealed
+  rollback baseline and all three discovery links remained stable.
+- A separate fresh process resolved only the installed release and passed the
+  observed sequence, self-successor/subordinate-authority, and full state-matrix
+  probes `3/3`. It observed autonomous same-task continuation, no human-input or
+  manual-resume path, owner-only terminal authority, and completion only from
+  current observable-outcome proof.
 
 ### Stop
 
