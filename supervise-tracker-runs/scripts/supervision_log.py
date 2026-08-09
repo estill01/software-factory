@@ -1296,14 +1296,23 @@ def append_raw_locked_at(
     value: dict[str, Any],
     *,
     previous_record_sha256: str | None,
+    expected_file_snapshot: tuple[int, int, int, int] | None,
 ) -> str:
     material = dict(value)
     material["previous_record_sha256"] = previous_record_sha256
     record_sha256 = digest(material)
     material["record_sha256"] = record_sha256
-    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_WRONLY | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+    flags |= os.O_EXCL | os.O_CREAT if expected_file_snapshot is None else 0
     descriptor = os.open(name, flags, 0o600, dir_fd=directory_fd)
     try:
+        if (
+            expected_file_snapshot is not None
+            and file_snapshot(os.fstat(descriptor)) != expected_file_snapshot
+        ):
+            raise SupervisionLogError(
+                "Supervision event ledger changed before append"
+            )
         os.write(descriptor, canonical(material) + b"\n")
         os.fsync(descriptor)
     finally:
@@ -2929,6 +2938,7 @@ def cmd_record(args: argparse.Namespace) -> None:
                     previous_record_sha256=(
                         str(prior_hash) if prior_hash is not None else None
                     ),
+                    expected_file_snapshot=event_snapshot,
                 )
             finally:
                 os.close(write_directory_fd)

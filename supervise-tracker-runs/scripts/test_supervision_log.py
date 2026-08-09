@@ -5,6 +5,7 @@ import argparse
 import importlib.util
 import io
 import json
+import os
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -1772,6 +1773,57 @@ class ControlPostureReducerTests(unittest.TestCase):
         )
         self.assertFalse(
             any(item.get("status") == "completed" for item in preserved_events)
+        )
+
+    def test_relative_terminal_append_rejects_regular_file_replacement(self) -> None:
+        directory, _policy = self.create_target(self.owner, self.owner_mission)
+        self.append(
+            directory,
+            {"record_id": "EVT-000001", "kind": "check", "status": "ok"},
+        )
+        _opened_directory, directory_fd, _directory_snapshot = (
+            supervision_log.open_member_directory(self.root, self.owner)
+        )
+        try:
+            event_snapshot = supervision_log.path_snapshot_at(
+                directory_fd, "events.jsonl"
+            )
+            original_events = supervision_log.events(directory / "events.jsonl")
+            preserved = directory / "events-preserved.jsonl"
+            (directory / "events.jsonl").rename(preserved)
+            self.append(
+                directory,
+                {
+                    "record_id": "EVT-000001",
+                    "kind": "check",
+                    "status": "replacement",
+                },
+            )
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "changed before append",
+            ):
+                supervision_log.append_raw_locked_at(
+                    directory_fd,
+                    "events.jsonl",
+                    {
+                        "record_id": "EVT-000002",
+                        "kind": "lifecycle",
+                        "status": "completed",
+                    },
+                    previous_record_sha256=str(
+                        original_events[-1]["record_sha256"]
+                    ),
+                    expected_file_snapshot=event_snapshot,
+                )
+        finally:
+            os.close(directory_fd)
+
+        self.assertFalse(
+            any(
+                item.get("status") == "completed"
+                for item in supervision_log.events(directory / "events.jsonl")
+            )
         )
 
     def test_completion_requires_current_observable_outcome_binding(self) -> None:
