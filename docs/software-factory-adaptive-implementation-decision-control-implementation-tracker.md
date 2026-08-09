@@ -304,6 +304,11 @@ Authority rules:
    successor-transition, mission, and outcome evidence and returns the sole
    required run posture. Specialized gates may explain their local state but
    cannot independently prescribe a conflicting terminal posture.
+   The initial target/group ledger is the governing-outcome locus. Exact
+   successor-transition edges in that ledger bind a bounded acyclic set of
+   member target/group ledgers; their policy and event-head hashes form one
+   currentness root. Missing, divergent, cyclic, or changing members produce
+   `in-progress` plus an exact reconciliation action, never an inferred stop.
 3. A distinct Codex task is exceptional execution topology, not a default
    continuation mechanism. Reuse the current task with a new run/group when it
    can own the work; create a successor task only when an explicit request or a
@@ -716,10 +721,20 @@ one deterministic posture that reconciles every current control record.
   mission, policy, event, and tracker owners. Persist no duplicate copy where a
   stable existing root already owns the identity.
 - Add one public read-only `control-posture-gate` to `supervision_log.py`. It
-  inventories every current lifecycle, open decision, successor transition,
-  mission binding, and observable-outcome record for the target, rejects
-  ambiguous duplicate heads, and returns one required posture, next safe
-  action, controlling evidence, and subordinate diagnostics.
+  treats the invoked initial target/group ledger as the canonical governing-
+  outcome locus; inventories its current lifecycle, open decision, mission,
+  transition, and observable-outcome evidence; and follows only exact active
+  successor-transition edges to bounded member target/group ledgers under the
+  same supervision root. It rejects ambiguous duplicate heads and returns one
+  required posture, next safe action, controlling evidence, and subordinate
+  diagnostics for the whole joined outcome.
+- Bind every joined member by the source transition's exact successor task,
+  mission root, and group identity. Require a maximum of eight members, reject
+  cycles/duplicate ownership/path escape, read each policy and ledger once,
+  and compute a currentness root from ordered target IDs, policy hashes, and
+  append-only event-head hashes. Recheck heads after the bounded read; if a
+  member changed, return an explicit retry-currentness posture instead of
+  combining different snapshots.
 - Define precedence from the governing outcome: verified observable completion
   or an exact current direct valid-stop may terminate; an authorized unavailable
   external fact may block only when its safe frontier is empty; every other
@@ -745,10 +760,12 @@ decision control, creating tasks, or writing any target repository.
 
 ### Resource and economy contract
 
-Read the target policy and append-only event ledger once, reduce heads in one
-linear pass, and emit bounded content-minimized JSON. Do not invoke a model,
-rerun producers, scan repositories, or create a report. Reject inputs whose
-cost is not linear in ledger bytes and event count.
+Read the canonical outcome-owner policy/ledger and at most seven exact joined
+member policy/ledgers once each, reduce heads in one linear pass, perform one
+cheap event-head stability recheck, and emit bounded content-minimized JSON. Do
+not scan the supervision root for possible members, invoke a model, rerun
+producers, scan repositories, or create a report. Reject inputs whose cost is
+not linear in the explicitly joined ledger bytes and event count.
 
 ### QA and independent review
 
@@ -950,9 +967,17 @@ and atomically activated, with a verified rollback path.
   missing, partial, symlink-escaping, or unreviewed source; acceptance must be
   supplied as an exact external review record/root rather than inferred from
   tests.
-- Atomically replace the three installed links as one logical operation. On any
-  failure, restore the prior complete set; never expose a mixed release or two
-  active production authorities.
+- Keep three stable discovery links that traverse one release-root `current`
+  pointer into an immutable complete release-set directory. Activation creates,
+  validates, fsyncs, and atomically renames that one pointer; it never renames
+  three independent live links. On any pre-swap failure the old pointer remains,
+  and recovery removes only an uncommitted temporary pointer.
+- Define current-reader semantics honestly: an already-loaded task continues
+  with its loaded instructions; a new resolution after the pointer swap reaches
+  the new immutable set. Because the Codex host does not expose a transactional
+  three-skill read, activation requires an explicit quiescent task boundary and
+  post-swap reload/restart verification; it must not claim that a reader which
+  begins across the swap has an atomic multi-file snapshot.
 - Make rollback select only a prior validated accepted release and verify all
   resolved installed targets afterward.
 - Document the explicit development workflow: edit/test in candidate source,
@@ -995,11 +1020,14 @@ inside the accepted release root.
 - Editing the repository candidate leaves installed skill roots/content
   unchanged.
 - Staging alone leaves installed behavior unchanged.
-- Activation either changes all three links to one accepted release or changes
-  none; status reports exact source/content roots.
+- Activation performs one `current`-pointer mutation from one complete accepted
+  release set to another or none; stable discovery links are never partially
+  rewritten, and status reports exact source/content roots.
 - Rollback restores one prior accepted complete release.
 - Missing review identity/root, dirty source, partial skill set, path escape,
-  hash drift, mixed active roots, and interrupted activation fail closed.
+  hash drift, mixed resolved roots, absent quiescent-boundary evidence,
+  interrupted activation, and missing post-swap reload verification fail
+  closed.
 
 ### Negative tests
 
@@ -2922,7 +2950,7 @@ live skills and maintained human-readable documentation.
 
 ### Inputs and dependencies
 
-- Block 16 and all accepted Blocks 4–11 at exact revisions.
+- Block 16 and all accepted Blocks 4–15 at exact revisions.
 - Accepted tracker-authoring supervision prerequisite, three live skill
   symlinks, current policy/migration fixtures, isolated target repository,
   report/event fixtures, and terminal reconciliation owner.
