@@ -11,7 +11,7 @@ export function ChartPlaceholder() {
       <div className="chart-placeholder-copy">
         <span className="status-dot status-neutral" />
         <strong>No verified metric series</strong>
-        <span>Sources arrive in later tracker Blocks.</span>
+        <span>No metric source is connected.</span>
       </div>
     </div>
   )

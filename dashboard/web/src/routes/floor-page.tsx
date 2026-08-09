@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query"
 import {
   ArrowDownRight,
   CircleAlert,
-  CircleDashed,
   Factory,
   ShieldCheck,
   Workflow,
@@ -10,18 +9,17 @@ import {
 
 import { ChartPlaceholder } from "@/components/chart-placeholder"
 import { fetchHealth } from "@/lib/api"
-
-const summaryCards = [
-  { label: "Registered projects", value: "—", detail: "Catalog unavailable", tone: "neutral" },
-  { label: "Active implementations", value: "—", detail: "Task source unavailable", tone: "neutral" },
-  { label: "Supervisor groups", value: "—", detail: "Bindings unavailable", tone: "neutral" },
-  { label: "Action required", value: "—", detail: "Cannot be determined", tone: "neutral" },
-] as const
+import { fetchProjects } from "@/lib/projects-api"
 
 export function Component() {
   const runtimeHealth = useQuery({
     queryKey: ["runtime-health"],
     queryFn: ({ signal }) => fetchHealth(signal),
+    retry: 1,
+  })
+  const projects = useQuery({
+    queryKey: ["projects", false],
+    queryFn: ({ signal }) => fetchProjects(false, signal),
     retry: 1,
   })
   const runtimeReadiness = runtimeHealth.isPending
@@ -41,25 +39,34 @@ export function Component() {
           label: "Ready",
           ready: true,
         }
+  const projectReadiness = projects.isPending
+    ? { detail: "Awaiting the bounded catalog", label: "Checking", ready: false }
+    : projects.isError
+      ? { detail: "Catalog or registered roots could not be read", label: "Unavailable", ready: false }
+      : {
+          detail: `${projects.data.data.projects.length} visible project${projects.data.data.projects.length === 1 ? "" : "s"}`,
+          label: "Ready",
+          ready: true,
+        }
+  const summaryCards = [
+    {
+      label: "Registered projects",
+      value: projects.isSuccess ? String(projects.data.data.projects.length) : "—",
+      detail: projects.isPending
+        ? "Checking catalog"
+        : projects.isError
+          ? "Catalog unavailable"
+          : "Visible catalog records",
+      tone: projects.isSuccess ? "green" : "neutral",
+    },
+    { label: "Active implementations", value: "—", detail: "Task source unavailable", tone: "neutral" },
+    { label: "Supervisor groups", value: "—", detail: "Bindings unavailable", tone: "neutral" },
+    { label: "Action required", value: "—", detail: "Cannot be determined", tone: "neutral" },
+  ] as const
 
   return (
     <div className="page-stack floor-page">
-      <header className="page-heading">
-        <div>
-          <p className="eyebrow">Factory floor</p>
-          <h1>Know what is moving—and what needs you.</h1>
-          <p className="page-lede">
-            Implementations, supervisors, issues, conclusions, and history will meet here.
-            This shell is live; operational sources are not connected yet.
-          </p>
-        </div>
-        <div className="posture-badge posture-neutral">
-          <CircleDashed aria-hidden="true" />
-          Source state unknown
-        </div>
-      </header>
-
-      <section className="summary-grid" aria-label="Factory summary placeholders">
+      <section className="summary-grid" aria-label="Factory summary">
         {summaryCards.map((card) => (
           <article className="summary-card" key={card.label}>
             <div className="summary-card-topline">
@@ -78,10 +85,7 @@ export function Component() {
       <div className="floor-layout">
         <section className="panel floor-panel" aria-labelledby="floor-panel-title">
           <div className="panel-heading">
-            <div>
-              <p className="eyebrow">Live operations</p>
-              <h2 id="floor-panel-title">Implementation lanes</h2>
-            </div>
+            <h2 id="floor-panel-title">Implementation lanes</h2>
             <span className="data-state-label">No source coverage</span>
           </div>
 
@@ -98,21 +102,15 @@ export function Component() {
               <Factory />
             </div>
             <div>
-              <h3>No implementation lanes can be established yet.</h3>
-              <p>
-                Project registration begins in Block 2. Unknown is intentionally not shown as
-                idle, healthy, or complete.
-              </p>
+              <h3>Implementation data unavailable</h3>
+              <p>Tracker and task sources are not connected.</p>
             </div>
           </div>
         </section>
 
         <aside className="panel readiness-panel" aria-labelledby="readiness-title">
           <div className="panel-heading">
-            <div>
-              <p className="eyebrow">Integration health</p>
-              <h2 id="readiness-title">Source readiness</h2>
-            </div>
+            <h2 id="readiness-title">Source readiness</h2>
           </div>
           <ul className="readiness-list">
             <li>
@@ -127,9 +125,13 @@ export function Component() {
               </span>
             </li>
             <li>
-              <span className="readiness-icon"><Workflow aria-hidden="true" /></span>
-              <div><strong>Project sources</strong><span>Available after Block 2</span></div>
-              <span className="readiness-state">Unavailable</span>
+              <span className={`readiness-icon ${projectReadiness.ready ? "readiness-ready" : ""}`}>
+                <Workflow aria-hidden="true" />
+              </span>
+              <div><strong>Project catalog</strong><span>{projectReadiness.detail}</span></div>
+              <span className={`readiness-state ${projectReadiness.ready ? "state-ready" : ""}`}>
+                {projectReadiness.label}
+              </span>
             </li>
             <li>
               <span className="readiness-icon"><Factory aria-hidden="true" /></span>
@@ -142,11 +144,8 @@ export function Component() {
 
       <section className="panel metrics-panel" aria-labelledby="metrics-title">
         <div className="panel-heading metrics-heading">
-          <div>
-            <p className="eyebrow">Operating signal</p>
-            <h2 id="metrics-title">Factory activity</h2>
-          </div>
-          <p>Every future number will carry period, source coverage, and limitations.</p>
+          <h2 id="metrics-title">Factory activity</h2>
+          <span className="data-state-label">Unavailable</span>
         </div>
         <ChartPlaceholder />
       </section>

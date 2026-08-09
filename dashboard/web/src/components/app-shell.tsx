@@ -63,31 +63,14 @@ export function AppShell() {
           </div>
         </div>
 
-        <div className="sidebar-section-label">Control room</div>
         <nav className="sidebar-nav"><NavigationLinks /></nav>
-
-        <div className="sidebar-readiness">
-          <div className="sidebar-readiness-heading">
-            <span className="status-dot status-green" />
-            Shell ready
-          </div>
-          <p>Operational sources remain disconnected until their owning Blocks are accepted.</p>
-        </div>
-
-        <div className="sidebar-footer">
-          <span>Local only</span>
-          <span>Block 1</span>
-        </div>
       </aside>
 
       <div className="shell-body">
         <header className="topbar">
           <div className="topbar-title">
             <span className="mobile-brand-mark" aria-hidden="true"><Factory /></span>
-            <div>
-              <span className="topbar-kicker">Factory workspace</span>
-              <strong>{current?.label ?? "Workspace"}</strong>
-            </div>
+            <h1>{current?.label ?? "Not found"}</h1>
           </div>
           <div className="topbar-actions">
             <ConnectionStatus />

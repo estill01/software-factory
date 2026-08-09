@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import re
+import subprocess
 from tempfile import TemporaryDirectory
 from threading import Thread
 from typing import Iterator
@@ -21,9 +22,15 @@ from software_factory_dashboard.server import (
 
 
 @contextmanager
-def running_server(static_dir: Path) -> Iterator[str]:
+def running_server(static_dir: Path, *, catalog_path: Path | None = None) -> Iterator[str]:
     server = create_server(
-        ServerConfig(host="127.0.0.1", port=0, static_dir=static_dir, quiet=True),
+        ServerConfig(
+            host="127.0.0.1",
+            port=0,
+            static_dir=static_dir,
+            catalog_path=catalog_path or static_dir / ".catalog" / "projects.json",
+            quiet=True,
+        ),
         nonce="test-launch-nonce",
     )
     thread = Thread(target=server.serve_forever, daemon=True)
@@ -73,6 +80,37 @@ class DashboardServerTests(unittest.TestCase):
             "console.log('ready')", encoding="utf-8"
         )
 
+    def make_repo(self, name: str) -> Path:
+        root = (self.static_dir / "repositories" / name).resolve()
+        root.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", str(root)], check=True)
+        subprocess.run(["git", "-C", str(root), "config", "user.email", "api@test.invalid"], check=True)
+        subprocess.run(["git", "-C", str(root), "config", "user.name", "API Test"], check=True)
+        (root / "README.md").write_text(f"# {name}\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(root), "commit", "-qm", "initial"], check=True)
+        return root
+
+    @staticmethod
+    def catalog_request(
+        origin: str,
+        path: str,
+        payload: dict[str, object],
+        method: str = "POST",
+    ) -> TestResponse:
+        return response(
+            Request(
+                f"{origin}{path}",
+                data=json.dumps(payload).encode("utf-8"),
+                method=method,
+                headers={
+                    "Content-Type": "application/json",
+                    "Origin": origin,
+                    "X-Software-Factory-Nonce": "test-launch-nonce",
+                },
+            )
+        )
+
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
@@ -88,6 +126,8 @@ class DashboardServerTests(unittest.TestCase):
         self.assertEqual(result.status, 200)
         self.assertEqual(payload["data"]["status"], "ok")
         self.assertEqual(payload["data"]["integrations"]["frontend"]["status"], "available")
+        self.assertEqual(payload["data"]["integrations"]["project_sources"]["status"], "available")
+        self.assertIn("project-catalog", payload["coverage"]["observed"])
         self.assertEqual(payload["coverage"]["status"], "partial")
         self.assertRegex(payload["fingerprint"], r"^[0-9a-f]{64}$")
         self.assertNotIn(self.temporary.name, json.dumps(payload))
@@ -168,6 +208,123 @@ class DashboardServerTests(unittest.TestCase):
         self.assertEqual(missing.status, 404)
         self.assertEqual(payload["error"]["code"], "not_found")
         self.assertTrue(re.fullmatch(r"[0-9a-f]{64}", payload["fingerprint"]))
+
+    def test_catalog_api_registers_three_archives_restores_and_rejects_stale_truth(self) -> None:
+        roots = [self.make_repo(name) for name in ("alpha", "beta", "gamma")]
+        with running_server(self.static_dir) as origin:
+            initial = response(f"{origin}/api/v1/projects?include_archived=true")
+            initial_payload = json.loads(initial.body)
+            fingerprint = initial_payload["data"]["catalog_fingerprint"]
+
+            for name, root in zip(("alpha", "beta", "gamma"), roots, strict=True):
+                created = self.catalog_request(
+                    origin,
+                    "/api/v1/projects",
+                    {
+                        "source_fingerprint": fingerprint,
+                        "project": {
+                            "id": name,
+                            "label": name.title(),
+                            "root": str(root),
+                            "tracker_patterns": [],
+                            "description": None,
+                        },
+                    },
+                )
+                self.assertEqual(created.status, 201)
+                created_payload = json.loads(created.body)
+                fingerprint = created_payload["data"]["catalog_fingerprint"]
+
+            detail = json.loads(response(f"{origin}/api/v1/projects/alpha").body)
+            self.assertEqual(detail["data"]["project"]["id"], "alpha")
+            self.assertEqual(detail["data"]["project"]["discovery"]["git"]["status"], "available")
+
+            archived = self.catalog_request(
+                origin,
+                "/api/v1/projects/beta",
+                {
+                    "source_fingerprint": fingerprint,
+                    "action": "archive",
+                    "confirmation": "archive:beta",
+                },
+                method="PATCH",
+            )
+            self.assertEqual(archived.status, 200)
+            fingerprint = json.loads(archived.body)["data"]["catalog_fingerprint"]
+            visible = json.loads(response(f"{origin}/api/v1/projects").body)
+            self.assertEqual([project["id"] for project in visible["data"]["projects"]], ["alpha", "gamma"])
+
+            restored = self.catalog_request(
+                origin,
+                "/api/v1/projects/beta",
+                {"source_fingerprint": fingerprint, "action": "unarchive"},
+                method="PATCH",
+            )
+            self.assertEqual(restored.status, 200)
+            restored_payload = json.loads(restored.body)
+            all_projects = restored_payload["data"]["projects"]
+            self.assertEqual([project["id"] for project in all_projects], ["alpha", "beta", "gamma"])
+
+            updated = self.catalog_request(
+                origin,
+                "/api/v1/projects/alpha",
+                {
+                    "source_fingerprint": restored_payload["data"]["catalog_fingerprint"],
+                    "action": "update_presentation",
+                    "changes": {"label": "Alpha Project", "description": "Display metadata."},
+                },
+                method="PATCH",
+            )
+            self.assertEqual(updated.status, 200)
+            updated_payload = json.loads(updated.body)
+            self.assertEqual(updated_payload["data"]["projects"][0]["label"], "Alpha Project")
+
+            stale = self.catalog_request(
+                origin,
+                "/api/v1/projects/alpha",
+                {
+                    "source_fingerprint": initial_payload["data"]["catalog_fingerprint"],
+                    "action": "update_presentation",
+                    "changes": {"label": "Stale"},
+                },
+                method="PATCH",
+            )
+            self.assertEqual(stale.status, 409)
+            self.assertEqual(json.loads(stale.body)["error"]["code"], "stale_catalog_fingerprint")
+
+            copied_truth = self.catalog_request(
+                origin,
+                "/api/v1/projects",
+                {
+                    "source_fingerprint": updated_payload["data"]["catalog_fingerprint"],
+                    "project": {
+                        "id": "truth-copy",
+                        "label": "Truth copy",
+                        "root": str(roots[0]),
+                        "tracker_patterns": [],
+                        "description": None,
+                        "status": "running",
+                    },
+                },
+            )
+            self.assertEqual(copied_truth.status, 400)
+            self.assertEqual(json.loads(copied_truth.body)["error"]["code"], "unsupported_catalog_field")
+
+            invalid_fingerprint = self.catalog_request(
+                origin,
+                "/api/v1/projects/alpha",
+                {
+                    "source_fingerprint": 42,
+                    "action": "update_presentation",
+                    "changes": {"label": "Invalid fingerprint"},
+                },
+                method="PATCH",
+            )
+            self.assertEqual(invalid_fingerprint.status, 400)
+            self.assertEqual(
+                json.loads(invalid_fingerprint.body)["error"]["code"],
+                "invalid_catalog_fingerprint",
+            )
 
 
 if __name__ == "__main__":

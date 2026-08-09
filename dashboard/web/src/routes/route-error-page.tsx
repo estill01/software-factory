@@ -14,8 +14,7 @@ export function RouteErrorPage() {
   return (
     <main className="fatal-state">
       <AlertTriangle aria-hidden="true" />
-      <p className="eyebrow">Workspace error</p>
-      <h1>This route could not be rendered.</h1>
+      <h1>Route unavailable</h1>
       <p>{detail}. No Factory operation was attempted.</p>
       <Button asChild><Link to="/">Return to Factory Floor</Link></Button>
     </main>

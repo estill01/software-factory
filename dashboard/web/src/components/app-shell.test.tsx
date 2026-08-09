@@ -35,11 +35,11 @@ function renderShell() {
         path: "/",
         element: <AppShell />,
         children: [
-          { index: true, element: <h1>Floor view</h1> },
-          { path: "projects", element: <h1>Project view</h1> },
-          { path: "trackers", element: <h1>Tracker view</h1> },
-          { path: "reports", element: <h1>Report view</h1> },
-          { path: "admin", element: <h1>Admin view</h1> },
+          { index: true, element: <div>Floor view</div> },
+          { path: "projects", element: <div>Project view</div> },
+          { path: "trackers", element: <div>Tracker view</div> },
+          { path: "reports", element: <div>Report view</div> },
+          { path: "admin", element: <div>Admin view</div> },
         ],
       },
     ],
@@ -61,7 +61,9 @@ describe("AppShell", () => {
       expect(screen.getAllByRole("link", { name: label })[0]).toBeVisible()
     }
     await userEvent.click(screen.getAllByRole("link", { name: "Projects" })[0])
-    expect(await screen.findByRole("heading", { name: "Project view" })).toBeVisible()
+    expect(await screen.findByRole("heading", { name: "Projects", level: 1 })).toBeVisible()
+    expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1)
+    expect(await screen.findByText("Project view")).toBeVisible()
     expect(await screen.findByText("Local runtime online")).toBeVisible()
   })
 

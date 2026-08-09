@@ -18,8 +18,7 @@ export class AppErrorBoundary extends Component<Props, State> {
     if (this.state.error) {
       return (
         <main className="fatal-state">
-          <p className="eyebrow">Interface error</p>
-          <h1>The dashboard shell could not render.</h1>
+          <h1>Dashboard unavailable</h1>
           <p>Reload the local page. No Factory operation was attempted.</p>
           <button className="button button-primary" onClick={() => window.location.reload()}>
             Reload dashboard

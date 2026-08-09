@@ -4,12 +4,13 @@ import { PageState } from "@/components/page-state"
 
 export function Component() {
   return (
-    <PageState
-      icon={FileChartColumn}
-      eyebrow="Reports"
-      title="Verified report history is not connected."
-      description="Reports and metrics will retain their manifests, source roots, definitions, periods, limitations, and estimated-versus-measured posture."
-      availableAfter="Report projection arrives in Block 4; the full workspace arrives in Block 9."
-    />
+    <div className="page-stack reports-page">
+      <PageState
+        icon={FileChartColumn}
+        title="Report source unavailable"
+        description="No verified report history is connected."
+        status="Not connected"
+      />
+    </div>
   )
 }

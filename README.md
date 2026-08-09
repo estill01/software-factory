@@ -127,12 +127,15 @@ Run in a dedicated Task:
 $supervise-tracker-runs {session ID}
 ```
 
-### 5. Preview the local dashboard shell
+### 5. Preview the local operations dashboard
 
-The operations dashboard currently provides its loopback runtime and
-responsive application shell. Project, task, supervision, and report sources
+The operations dashboard currently provides its loopback runtime, responsive
+application shell, and bounded multi-project catalog. Register exact local Git
+roots in Admin to see per-project discovery health, current revision, branch,
+and tracker candidate counts. The catalog never scans the workstation or copies
+operational status; tracker contents, task, supervision, and report sources
 remain visibly unavailable until their owning implementation Blocks are
-accepted; the shell does not fabricate factory status.
+accepted.
 
 ```bash
 npm --prefix dashboard/web ci
@@ -142,8 +145,10 @@ uv run --project dashboard/server software-factory-dashboard --port 8787
 ```
 
 Open `http://127.0.0.1:8787`. The port is selectable and the runtime refuses a
-non-loopback bind. See the [dashboard developer guide](dashboard/README.md) for
-development, validation, and browser-test commands.
+non-loopback bind. Archiving a catalog record only hides it from normal views;
+it never deletes files or stops work. See the
+[dashboard developer guide](dashboard/README.md) for catalog storage, API,
+development, validation, and browser-test details.
 
 ## Architecture
 

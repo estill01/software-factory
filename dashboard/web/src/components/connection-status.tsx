@@ -37,7 +37,7 @@ export function ConnectionStatus() {
         <Tooltip.Portal>
           <Tooltip.Content className="tooltip-content" sideOffset={8}>
             {health.data
-              ? `Runtime ${health.data.data.service.version}; project and Codex sources are intentionally unavailable in Block 1.`
+              ? `Runtime ${health.data.data.service.version}; project catalog ${health.data.data.integrations.project_sources.status}; Codex tasks ${health.data.data.integrations.codex_app_server.status}.`
               : "The shell keeps source availability separate from visual readiness."}
             <Tooltip.Arrow className="tooltip-arrow" />
           </Tooltip.Content>

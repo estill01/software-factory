@@ -43,13 +43,25 @@ the completed program materially changes Software Factory.
   runtime and a responsive React/TypeScript/Vite shell for the planned Factory
   Floor, Projects, Trackers, Reports, and Admin workspaces. The service binds
   only to loopback, serves a versioned health envelope and production SPA,
-  rejects non-loopback startup and wrong-origin or wrong-nonce mutation
-  requests, and deliberately exposes no mutation endpoint. The shell uses the
+  rejects non-loopback startup, and gates local writes by exact origin and a
+  per-launch nonce. The shell uses the
   frozen reference stack, preserves keyboard, dark-mode, responsive, loading,
   error, empty, and unavailable states, and labels all operational sources as
   disconnected until their owning Blocks are accepted. Developer commands and
   boundaries are documented in [`dashboard/README.md`](dashboard/README.md);
   implementation scope is Block 1 of the operations-dashboard tracker.
+- **Bounded multi-project catalog and discovery.** Added a versioned,
+  atomically written owner-only project catalog with optimistic fingerprints,
+  prior-file recovery, canonical Git-root enforcement, duplicate and overlap
+  protection, deterministic ordering, and explicit archive/restore semantics.
+  The Admin and Projects views can register and independently refresh exact
+  local roots, show Git revision/branch and tracker candidate paths, and retain
+  per-project discovery failures without hiding healthy repositories. The
+  catalog stores presentation/discovery metadata only, never scans the
+  workstation, never reads tracker contents in this slice, and rejects copied
+  operational state, traversal, symlink escape, stale writes, and any wording
+  or behavior implying that archive deletes files or stops work. Implementation
+  scope is Block 2 of the operations-dashboard tracker.
 - **Successor-transition continuity and structured failure-mode records.** A
   requested implementation that must cross into a distinct task now remains an
   open append-only transition through `required`, task creation, isolated
@@ -79,8 +91,10 @@ the completed program materially changes Software Factory.
   evolution/lifecycle operations. Tracker Markdown, Git, Codex tasks,
   supervision ledgers, automations, and reports remain their own authorities;
   the dashboard stores only project discovery metadata and never treats a green
-  light, task terminality, test, commit, or report as completion. This is
-  planning, not implemented functionality. Planning baseline:
+  light, task terminality, test, commit, or report as completion. The planned
+  runtime is explicitly data-backed through loopback `/api/v1` typed adapters
+  to those primary owners, with no runtime demo-data or duplicated-owner
+  fallback. This is planning, not implemented functionality. Planning baseline:
   `c7d4efce3e3bf5fb3a8dbc4d9ab0db0ef2cd89bd`; tracker:
   [`docs/software-factory-operations-dashboard-implementation-tracker.md`](docs/software-factory-operations-dashboard-implementation-tracker.md).
 - **Adaptive implementation decision control and autonomous Factory

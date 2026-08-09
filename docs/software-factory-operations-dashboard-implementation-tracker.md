@@ -241,6 +241,14 @@ Authority rules:
 12. No source available is represented as `unknown` or `unavailable`, never as
     zero, healthy, complete, or inactive. Every projection includes source,
     `observed_at`, source revision/fingerprint, coverage, and limitations.
+13. The browser reads and acts only through the loopback `/api/v1` surface and
+    its authenticated event stream. Every route selects one closed typed
+    adapter and calls the primary owner through a maintained import, exact
+    argument-vector subprocess, or version-gated App Server stdio method.
+    Runtime routes may not fall back to fixtures, demo rows, frontend filesystem
+    access, duplicated owner logic, or hard-coded operational state. Every
+    response identifies its owner, version or revision, fingerprint, coverage,
+    limitations, and source-local failure posture.
 
 ### Operator capability map
 
@@ -489,7 +497,7 @@ the relevant authority and evidence contract.
 |---:|---|---:|---|
 | 0 | Product contract and live-owner baseline | — | `accepted` |
 | 1 | Loopback runtime and reference frontend scaffold | 0 | `accepted` |
-| 2 | Project catalog and bounded discovery | 1 | `not-started` |
+| 2 | Project catalog and bounded discovery | 1 | `in-progress` |
 | 3 | Tracker truth and Git-currentness projection | 2 | `not-started` |
 | 4 | Supervision, automation, report, and metrics projection | 2 | `not-started` |
 | 5 | Codex task and App Server adapter | 1 | `not-started` |
@@ -545,6 +553,15 @@ was split into current Blocks 15–17, its Blocks 16–19 moved to 18–21, its 
 20 was narrowed to current Block 22's derived evaluation/disposition owner, and
 its Blocks 21–23 moved to 23–25. Prior structural verification/review remains
 diagnostic rather than current completion proof.
+
+Data-backing clarification: the direct 2026-08-09 operator request to ensure
+that the application is backed by primary Software Factory functionality and
+data was reviewed against the existing owner split. No generic backend Block
+was added because accepted Block 1 owns loopback transport, Blocks 3–5 own
+tracker/Git, supervision/reporting/metrics, and App Server adapters, Block 6
+owns their composed read model, and Block 10 owns gated mutations. Those future
+slices are strengthened below so each remains independently acceptable and no
+second implementation of a primary owner is introduced.
 
 ## Block 0 — Product contract and live-owner baseline
 
@@ -906,7 +923,7 @@ Stop before creating the project catalog or reading any project source.
 
 ## Block 2 — Project catalog and bounded discovery
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -1005,7 +1022,11 @@ pattern; never scan `$HOME` or follow symlinks outside the registered root.
 
 ### Completion evidence
 
-Pending.
+- Activation: began automatically from accepted and pushed Block 1 durability
+  checkpoint `90f5eaf2f37296e3d7c4d8ef2e5dad19e1326f60` under the same direct-user
+  implementation authority and mission root; no new mission, routed authority,
+  or manual resume was introduced.
+- Candidate, validation, review, checkpoint, and acceptance evidence: pending.
 
 ### Stop
 
@@ -1065,6 +1086,11 @@ and Git currentness exactly enough for trustworthy review.
   records supply one.
 - Produce tracker list/detail APIs with source fingerprint, parser limitations,
   verifier diagnostics, source anchors, and exact raw-file-open path metadata.
+- Implement this as a closed Python adapter behind `/api/v1`: the React client
+  never reads Markdown or Git directly. HTTP contract tests must compare the
+  response with the same registered file, Git revision, and maintained tracker
+  verifier invocation, including the owner command/version and source-local
+  failure in the response.
 - Add fixture coverage for the repository's current full-profile, inherited
   core-profile, malformed, dirty, untracked, and changed-after-binding cases.
 
@@ -1222,6 +1248,11 @@ creating a second operational ledger.
 - Implement project/run/report/metrics read APIs and freshness/error aggregation
   so one corrupt or unavailable source does not suppress independent healthy
   sources.
+- Have the server call the frozen supervision, reporting, and evolution owners
+  through maintained imports or exact argument-vector helpers and return the
+  owner identity/root/revision with each projection. Runtime fixtures, copied
+  operational JSON, frontend lifecycle interpretation, and duplicated metric
+  logic are prohibited.
 
 ### Scope and non-goals
 
@@ -1362,6 +1393,10 @@ work and support the exact bounded interactions required by later operations.
   requests, input requests, connection state, and operation correlation. Use
   TanStack Query invalidation for durable source rereads; do not turn the stream
   into a durable event ledger.
+- Expose only the narrowed task methods through `/api/v1` and the authenticated
+  event stream. The browser cannot access raw App Server transport or method
+  names, and neither the adapter nor frontend may substitute fixture responses
+  when the primary process or negotiated method is unavailable.
 - Implement disconnect, CLI-not-installed, incompatible-schema, task-not-found,
   idle/active/terminal, duplicate-response, stream-resume, and bounded-backoff
   states. All mutation capability becomes disabled on incompatibility while
@@ -1508,6 +1543,10 @@ conclusions, source health, and cross-project metrics immediately legible.
 - Use TanStack Query for read/poll/invalidation, Jotai only for ephemeral filters
   and inspector state, Zod at the API edge, and Recharts only where a trend is
   materially clearer than a number/table.
+- Populate every Factory Floor region from live Block 3–5 HTTP projections or
+  one server-composed endpoint over them. Runtime sample rows and hard-coded
+  operational state are forbidden; independent partial outages remain visible
+  in the affected region without suppressing healthy sources.
 
 ### Scope and non-goals
 
@@ -2028,6 +2067,10 @@ proves the resulting canonical postcondition.
   unchanged source fingerprint, explicit typed confirmation, one registered
   operation, and canonical target authorization. Reject free-form commands,
   paths, App Server methods, recipients, and extra fields.
+- Dispatch only to the registry-named maintained owner through its import,
+  exact argument-vector helper, version-gated App Server method, or automation
+  owner. The browser never invokes primary functionality directly, and the
+  HTTP handler may not reproduce a domain mutation owned elsewhere.
 - Implement operation-specific correlation and ephemeral state:
   `previewed`, `confirmed`, `requested`, `awaiting-approval`, `awaiting-input`,
   `verifying`, `applied`, `failed`, `unverified`, or `cancelled`. Do not add a
@@ -3755,6 +3798,11 @@ off a reproducible local operating workflow.
 - Sample current real-project factory-floor/project/tracker/report projections
   against raw source IDs and direct validators. Confirm that at least one partial
   or unavailable integration produces honest degradation.
+- Trace each sampled workspace from its visible UI region through `/api/v1` to
+  the current primary-owner call and compare the returned identity, revision,
+  fingerprint, coverage, and failure posture with that owner. Any runtime mock,
+  demo row, direct browser source access, or duplicated owner interpretation is
+  a release blocker.
 - Measure the frozen representative corpus: at least the current live project/
   target/report volume and a deterministic 2× synthetic history expansion. The
   factory floor must become interactive without loading all historical bodies;
@@ -3821,6 +3869,9 @@ work solely to inflate coverage.
   controls are absent or disabled with exact reasons.
 - Fresh browser evidence verifies all named views/interactions/viewports and
   current source cross-checks verify displayed truth.
+- Every sampled operational row and enabled action is traceable through
+  `/api/v1` to one current primary owner; disabled or unavailable integrations
+  expose their exact owner-local reason and never substitute demonstration data.
 - Documentation and changelog distinguish implemented behavior, read-only
   projections, unavailable/planned capability, estimates, and out-of-scope work.
 
@@ -3847,6 +3898,7 @@ capabilities.
 | Capability/invariant | Focused proof | Mapped proof | Outcome evidence |
 |---|---|---|---|
 | Local runtime/reference stack | Python health/static tests; manifest/lock checks; TypeScript/build | clean install, server start, shell browser matrix | operator reaches the built dashboard locally with exact stack/integration health |
+| Primary-owner API integration | per-adapter HTTP contract tests against the same owner input/command and structured source failure | three-project live owner-to-API cross-check across tracker/Git, supervision/reporting/metrics, App Server, and one gated mutation | every displayed operational row and enabled action traces through `/api/v1` to one current owner with version/revision, fingerprint, coverage, limitations, and no runtime demo fallback |
 | Project boundary/catalog | store/path/currentness unit tests | multi-project restart and partial-source integration | three projects register/archive/restore without copied operational truth or filesystem escape |
 | Tracker truth | parser fixtures plus maintained verifier JSON | full/core/malformed/dirty/stale tracker comparison | reviewer reaches exact capability, Block, evidence, diagnostics, and source |
 | Supervision/history | ledger/policy/report validators and corrupt/partial fixtures | live target source cross-check | active and historical run claims match exact event/incident/decision/transition records |

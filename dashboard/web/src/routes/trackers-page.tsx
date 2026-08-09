@@ -4,12 +4,13 @@ import { PageState } from "@/components/page-state"
 
 export function Component() {
   return (
-    <PageState
-      icon={ListChecks}
-      eyebrow="Trackers"
-      title="Tracker truth has not been projected."
-      description="This workspace will preserve exact Block state, dependencies, verifier diagnostics, Git currentness, evidence, and Stop boundaries."
-      availableAfter="Tracker projection begins after project discovery in Block 3."
-    />
+    <div className="page-stack trackers-page">
+      <PageState
+        icon={ListChecks}
+        title="Tracker source unavailable"
+        description="No tracker has been parsed for a registered project."
+        status="Not connected"
+      />
+    </div>
   )
 }
