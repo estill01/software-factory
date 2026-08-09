@@ -56,7 +56,7 @@ release; editing a checkout does not update the live skills.
 ```bash
 git clone https://github.com/estill01/software-factory.git
 cd software-factory
-python3 scripts/skill_release.py --help
+/usr/bin/python3 scripts/skill_release.py --help
 ```
 
 Freeze a clean commit, generate its read-only candidate projection, and obtain
@@ -64,11 +64,11 @@ an independent exact-revision review. The reviewer returns an externally owned
 review JSON record bound to the projection root; then stage it:
 
 ```bash
-python3 scripts/skill_release.py review-request \
+/usr/bin/python3 scripts/skill_release.py review-request \
   --repo "$PWD" \
   --source-commit "$ACCEPTED_COMMIT" > /tmp/software-factory-review-request.json
 
-python3 scripts/skill_release.py stage \
+/usr/bin/python3 scripts/skill_release.py stage \
   --repo "$PWD" \
   --source-commit "$ACCEPTED_COMMIT" \
   --implementer-id "$IMPLEMENTER_ID" \
@@ -82,7 +82,7 @@ staged baseline and all three existing resolved skill trees are identical and
 rolls every link back if setup is interrupted.
 
 ```bash
-python3 scripts/skill_release.py bootstrap "$RELEASE_ID" \
+/usr/bin/python3 scripts/skill_release.py bootstrap "$RELEASE_ID" \
   --quiescent-evidence "$QUIESCENT_EVIDENCE_JSON"
 ```
 
@@ -91,11 +91,11 @@ atomically replace only `~/.codex/software-factory-releases/current`, launch a
 fresh-process resolution check, and restore the prior pointer on failure:
 
 ```bash
-python3 scripts/skill_release.py activate "$RELEASE_ID" \
+/usr/bin/python3 scripts/skill_release.py activate "$RELEASE_ID" \
   --quiescent-evidence "$QUIESCENT_EVIDENCE_JSON"
 
-python3 scripts/skill_release.py status
-python3 scripts/skill_release.py rollback \
+/usr/bin/python3 scripts/skill_release.py status
+/usr/bin/python3 scripts/skill_release.py rollback \
   --quiescent-evidence "$QUIESCENT_EVIDENCE_JSON"
 ```
 
@@ -105,6 +105,9 @@ a fresh filesystem resolution but does not claim a transactional multi-skill
 snapshot inside an already-running host. Exact state, manifest fields, failure
 posture, and migration details are in
 [`docs/software-factory-skill-releases.md`](docs/software-factory-skill-releases.md).
+That guide also gives the exact independent reviewer/operator key
+provisioning, canonical signing, verification, rotation, and recovery procedure
+required before `stage` or `bootstrap` can succeed.
 
 Directly symlinking the three discovery paths to a mutable checkout is an
 explicit **development-live/unsafe mode**. It is useful only when immediate

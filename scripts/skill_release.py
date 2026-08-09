@@ -34,7 +34,29 @@ ACCEPTANCE_NAME = "accepted-releases.jsonl"
 LOCK_NAME = ".release.lock"
 KEY_DIRECTORY = ".software-factory-release-keys"
 SCHEMA_VERSION = 1
-AUTHORITY_ROOT = Path.home() / ".codex/software-factory-release-authority"
+AUTHORITY_ROOT = Path(
+    "/Users/ethanstillman/.codex/software-factory-release-authority"
+)
+TRUSTED_OPENSSL_PATH = Path("/opt/homebrew/Cellar/openssl@3/3.6.2/bin/openssl")
+TRUSTED_OPENSSL_SHA256 = "bf63843e6856e1994ca71092ff3b46834236eb2144dd9b6ceb85d511128b836e"
+TRUSTED_PYTHON_PATH = Path("/usr/bin/python3")
+TRUSTED_PYTHON_SHA256 = "179301dcb41ea78accc3fa0048a7e6f6710d891945a751a34addd622020c1818"
+TRUSTED_YAML_PATH = Path(
+    "/Users/ethanstillman/Library/Python/3.9/lib/python/site-packages/yaml"
+)
+TRUSTED_YAML_ROOT_SHA256 = (
+    "a641f6774e48216cd3e2e8be89b0313f464e5b070e41d222da7f5022b08cf7e7"
+)
+TRUSTED_VALIDATOR_PATH = Path(
+    "/Users/ethanstillman/.codex/skills/.system/skill-creator/scripts/quick_validate.py"
+)
+TRUSTED_VALIDATOR_SHA256 = (
+    "6cc9dc3199c935916cf6f73fcbbbb0e3bb1b58c8f5109fefa499978908164f51"
+)
+TRUSTED_AUTHORITY_IDS = {
+    "reviewers": ("software-factory-release-reviewer-v1",),
+    "operators": ("software-factory-release-operator-v1",),
+}
 
 
 class ReleaseError(RuntimeError):
@@ -166,11 +188,17 @@ def release_key_path(release_root: Path) -> Path:
     return key_directory / key_name
 
 
+def release_state_path(release_root: Path) -> Path:
+    return release_key_path(release_root).with_suffix(".state.json")
+
+
 def release_key(release_root: Path, *, allow_create: bool) -> bytes:
     path = release_key_path(release_root)
     protected_state_exists = any(
         (release_root / name).exists() for name in (ACCEPTANCE_NAME, HISTORY_NAME)
-    )
+    ) or release_state_path(release_root).exists() or release_state_path(
+        release_root
+    ).is_symlink()
     if not path.exists():
         if protected_state_exists or not allow_create:
             raise ReleaseError("External release authority key is missing")
@@ -211,6 +239,65 @@ def record_hmac(key: bytes, material: Mapping[str, Any]) -> str:
     return hmac.new(key, canonical(material), hashlib.sha256).hexdigest()
 
 
+def release_external_state(
+    release_root: Path,
+    key: bytes,
+    acceptances: Sequence[Mapping[str, Any]],
+    activations: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    material: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "kind": "software-factory-release-external-head",
+        "release_root_sha256": hashlib.sha256(
+            str(release_root).encode("utf-8")
+        ).hexdigest(),
+        "acceptance_count": len(acceptances),
+        "acceptance_head_hmac_sha256": (
+            acceptances[-1].get("record_hmac_sha256") if acceptances else None
+        ),
+        "activation_count": len(activations),
+        "activation_head_hmac_sha256": (
+            activations[-1].get("record_hmac_sha256") if activations else None
+        ),
+        "active_release_id": (
+            activations[-1].get("release_id") if activations else None
+        ),
+    }
+    material["state_hmac_sha256"] = record_hmac(key, material)
+    return material
+
+
+def validate_release_external_state(
+    release_root: Path,
+    acceptances: Sequence[Mapping[str, Any]],
+    activations: Sequence[Mapping[str, Any]],
+) -> None:
+    path = release_state_path(release_root)
+    if not acceptances and not activations and not (path.exists() or path.is_symlink()):
+        return
+    if path.is_symlink() or not path.is_file():
+        raise ReleaseError("Canonical external release head is missing or symlinked")
+    key = release_key(release_root, allow_create=False)
+    value = load_bounded_json(path, label="External release head", maximum=16384)
+    expected = release_external_state(release_root, key, acceptances, activations)
+    if value != expected:
+        raise ReleaseError(
+            "Canonical external release head rejects truncation or replacement"
+        )
+
+
+def write_release_external_state(
+    release_root: Path,
+    acceptances: Sequence[Mapping[str, Any]],
+    activations: Sequence[Mapping[str, Any]],
+) -> None:
+    key = release_key(release_root, allow_create=False)
+    atomic_json(
+        release_state_path(release_root),
+        release_external_state(release_root, key, acceptances, activations),
+    )
+
+
 def load_bounded_json(path: Path, *, label: str, maximum: int = 65536) -> dict[str, Any]:
     if path.is_symlink() or not path.is_file():
         raise ReleaseError(f"{label} must be a real regular file")
@@ -232,6 +319,88 @@ def load_bounded_json(path: Path, *, label: str, maximum: int = 65536) -> dict[s
     return value
 
 
+def trusted_executable(path: Path, expected_sha256: str, *, label: str) -> Path:
+    if path.is_symlink() or not path.is_file():
+        raise ReleaseError(f"Canonical {label} is missing or symlinked")
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or not metadata.st_mode & stat.S_IXUSR
+            or metadata.st_size > 16 * 1024 * 1024
+        ):
+            raise ReleaseError(f"Canonical {label} has an invalid file shape")
+        payload = bytearray()
+        while len(payload) <= 16 * 1024 * 1024:
+            chunk = os.read(descriptor, 65536)
+            if not chunk:
+                break
+            payload.extend(chunk)
+    finally:
+        os.close(descriptor)
+    if len(payload) != metadata.st_size or len(payload) > 16 * 1024 * 1024:
+        raise ReleaseError(f"Canonical {label} changed or exceeds its size limit")
+    if hashlib.sha256(payload).hexdigest() != expected_sha256:
+        raise ReleaseError(f"Canonical {label} content identity differs")
+    return path
+
+
+def trusted_directory_root(path: Path, *, label: str, expected_sha256: str) -> Path:
+    if path.is_symlink() or not path.is_dir():
+        raise ReleaseError(f"Canonical {label} is missing or symlinked")
+    entries: list[dict[str, str]] = []
+    total = 0
+    for base, directory_names, file_names in os.walk(path, followlinks=False):
+        directory_names.sort()
+        file_names.sort()
+        base_path = Path(base)
+        for name in directory_names:
+            if (base_path / name).is_symlink():
+                raise ReleaseError(f"Canonical {label} contains a directory symlink")
+        for name in file_names:
+            child = base_path / name
+            metadata = child.lstat()
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+                raise ReleaseError(f"Canonical {label} contains a non-regular file")
+            total += metadata.st_size
+            if len(entries) >= 128 or total > 4 * 1024 * 1024:
+                raise ReleaseError(f"Canonical {label} exceeds its bounded tree")
+            payload = child.read_bytes()
+            entries.append(
+                {
+                    "path": child.relative_to(path).as_posix(),
+                    "mode": "100755" if metadata.st_mode & stat.S_IXUSR else "100644",
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                }
+            )
+    if not entries or digest(entries) != expected_sha256:
+        raise ReleaseError(f"Canonical {label} content identity differs")
+    return path
+
+
+def trusted_openssl() -> Path:
+    return trusted_executable(
+        TRUSTED_OPENSSL_PATH,
+        TRUSTED_OPENSSL_SHA256,
+        label="OpenSSL verifier",
+    )
+
+
+def trusted_validator_python() -> tuple[Path, Path]:
+    interpreter = trusted_executable(
+        TRUSTED_PYTHON_PATH,
+        TRUSTED_PYTHON_SHA256,
+        label="Skill Creator Python interpreter",
+    )
+    yaml_path = trusted_directory_root(
+        TRUSTED_YAML_PATH,
+        label="Skill Creator YAML runtime",
+        expected_sha256=TRUSTED_YAML_ROOT_SHA256,
+    )
+    return interpreter, yaml_path.parent
+
+
 def authority_id(value: str, *, label: str) -> str:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{2,79}", value or ""):
         raise ReleaseError(f"{label} is invalid")
@@ -242,6 +411,8 @@ def trusted_public_key(role: str, principal_id: str) -> tuple[Path, str]:
     if role not in {"reviewers", "operators"}:
         raise ReleaseError("Release authority role is invalid")
     principal = authority_id(principal_id, label="release authority ID")
+    if principal not in TRUSTED_AUTHORITY_IDS[role]:
+        raise ReleaseError("Release authority ID is not the pinned trusted role")
     root = AUTHORITY_ROOT
     role_root = root / role
     key_path = role_root / f"{principal}.pem"
@@ -281,9 +452,7 @@ def verify_trusted_signature(
         raise ReleaseError("Release authority signature is invalid base64") from exc
     if not signature or len(signature) > 8192:
         raise ReleaseError("Release authority signature has an invalid size")
-    openssl = shutil.which("openssl")
-    if not openssl:
-        raise ReleaseError("OpenSSL is required to verify release authority")
+    openssl = trusted_openssl()
     with tempfile.TemporaryDirectory(prefix="software-factory-signature-") as raw:
         temporary = Path(raw)
         material_path = temporary / "material.json"
@@ -292,7 +461,7 @@ def verify_trusted_signature(
         signature_path.write_bytes(signature)
         result = subprocess.run(
             [
-                openssl,
+                str(openssl),
                 "pkeyutl",
                 "-verify",
                 "-pubin",
@@ -323,7 +492,10 @@ def append_jsonl(path: Path, record: Mapping[str, Any]) -> None:
 
 
 def append_history(release_root: Path, record: Mapping[str, Any]) -> None:
+    acceptances = acceptance_records(release_root)
+    records = history(release_root)
     append_jsonl(release_root / HISTORY_NAME, record)
+    write_release_external_state(release_root, acceptances, [*records, record])
 
 
 def jsonl_records(path: Path, *, label: str) -> list[dict[str, Any]]:
@@ -417,6 +589,7 @@ def append_acceptance(
     release_root: Path, manifest: Mapping[str, Any]
 ) -> dict[str, Any]:
     records = acceptance_records(release_root)
+    activations = history(release_root)
     existing = [
         item for item in records if item["release_id"] == manifest["release_id"]
     ]
@@ -454,12 +627,15 @@ def append_acceptance(
     }
     material["record_hmac_sha256"] = record_hmac(key, material)
     append_jsonl(release_root / ACCEPTANCE_NAME, material)
+    write_release_external_state(release_root, [*records, material], activations)
     return material
 
 
 def history(release_root: Path) -> list[dict[str, Any]]:
     records = jsonl_records(release_root / HISTORY_NAME, label="Activation history")
+    acceptances = acceptance_records(release_root)
     if not records:
+        validate_release_external_state(release_root, acceptances, [])
         return []
     key = release_key(release_root, allow_create=False)
     previous: str | None = None
@@ -513,12 +689,13 @@ def history(release_root: Path) -> list[dict[str, Any]]:
             str(value["post_swap_reload_root_sha256"]),
             label="activation reload root",
         )
-        if accepted_release_record(release_root, release_id) is None:
+        if not any(item["release_id"] == release_id for item in acceptances):
             raise ReleaseError("Activation history names an unaccepted release")
         if active:
             seen_active.add(active)
         active = release_id
         previous = str(value["record_hmac_sha256"])
+    validate_release_external_state(release_root, acceptances, records)
     return records
 
 
@@ -630,29 +807,42 @@ def materialize_commit(repo: Path, commit: str, destination: Path) -> None:
 
 
 def canonical_validator() -> tuple[Path, dict[str, str]]:
-    validator = (
-        Path.home()
-        / ".codex/skills/.system/skill-creator/scripts/quick_validate.py"
-    )
+    validator = TRUSTED_VALIDATOR_PATH
     if validator.is_symlink() or not validator.is_file():
         raise ReleaseError("Canonical Skill Creator validator is missing or symlinked")
     payload = validator.read_bytes()
-    return validator.resolve(strict=True), {
-        "path": str(validator.resolve(strict=True)),
-        "sha256": hashlib.sha256(payload).hexdigest(),
-    }
+    validator_sha256 = hashlib.sha256(payload).hexdigest()
+    if validator_sha256 != TRUSTED_VALIDATOR_SHA256:
+        raise ReleaseError("Canonical Skill Creator validator content identity differs")
+    return validator, {"path": str(validator), "sha256": validator_sha256}
 
 
 def run_validator(
     validator: Path, validator_identity: Mapping[str, str], skill: Path
 ) -> dict[str, Any]:
-    command = [str(validator), str(skill)]
-    if not os.access(validator, os.X_OK):
-        python = shutil.which("python3")
-        if not python:
-            raise ReleaseError("No Python runtime is available for the skill validator")
-        command.insert(0, python)
-    result = subprocess.run(command, check=False, capture_output=True)
+    python, yaml_parent = trusted_validator_python()
+    wrapper = (
+        "import runpy,sys;"
+        "sys.path.insert(0,sys.argv[1]);"
+        "validator,skill=sys.argv[2:4];"
+        "sys.argv=[validator,skill];"
+        "runpy.run_path(validator,run_name='__main__')"
+    )
+    command = [
+        str(python),
+        "-I",
+        "-c",
+        wrapper,
+        str(yaml_parent),
+        str(validator),
+        str(skill),
+    ]
+    result = subprocess.run(
+        command,
+        check=False,
+        capture_output=True,
+        env={"HOME": "/var/empty", "LANG": "C", "PATH": "/usr/bin:/bin"},
+    )
     output = result.stdout + result.stderr
     if result.returncode:
         raise ReleaseError(f"Skill validation failed for {skill.name}")
@@ -660,6 +850,9 @@ def run_validator(
         "status": "passed",
         "validator_path": validator_identity["path"],
         "validator_sha256": validator_identity["sha256"],
+        "interpreter_path": str(python),
+        "interpreter_sha256": TRUSTED_PYTHON_SHA256,
+        "yaml_root_sha256": TRUSTED_YAML_ROOT_SHA256,
         "output_sha256": hashlib.sha256(output).hexdigest(),
     }
 
@@ -862,8 +1055,22 @@ def read_manifest(
         if (
             not isinstance(validator_record, dict)
             or set(validator_record)
-            != {"status", "validator_path", "validator_sha256", "output_sha256"}
+            != {
+                "status",
+                "validator_path",
+                "validator_sha256",
+                "interpreter_path",
+                "interpreter_sha256",
+                "yaml_root_sha256",
+                "output_sha256",
+            }
             or validator_record.get("status") != "passed"
+            or validator_record.get("validator_path") != str(TRUSTED_VALIDATOR_PATH)
+            or validator_record.get("validator_sha256") != TRUSTED_VALIDATOR_SHA256
+            or validator_record.get("interpreter_path") != str(TRUSTED_PYTHON_PATH)
+            or validator_record.get("interpreter_sha256") != TRUSTED_PYTHON_SHA256
+            or validator_record.get("yaml_root_sha256")
+            != TRUSTED_YAML_ROOT_SHA256
         ):
             raise ReleaseError("Release validator evidence is invalid")
         exact_sha256(

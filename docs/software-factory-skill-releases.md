@@ -28,6 +28,10 @@ The default release root is
 ├── activation-history.jsonl
 └── .release.lock
 
+~/.codex/.software-factory-release-keys/
+├── <release-root-hash>.key
+└── <release-root-hash>.state.json
+
 ~/.codex/skills/
 ├── author-implementation-trackers -> .../current/author-implementation-trackers
 ├── implement-tracker-blocks -> .../current/implement-tracker-blocks
@@ -43,6 +47,9 @@ directory is rehashed before every activation and rollback. A separate
 HMAC-authenticated acceptance ledger is keyed outside the release root, so a
 rewritten manifest cannot authorize itself. The same key authenticates the
 semantic activation history used for rollback eligibility.
+The external state head binds both ledger counts/heads and the active-release
+identity. A valid HMAC prefix cannot be substituted to erase a consumed
+quiescent record or make a former rollback state current.
 Manifest and evidence JSON must use exact canonical bytes and remain within
 small pre-read limits; acceptance/history ledgers are likewise bounded,
 canonical JSONL. Whitespace padding, suffix data, oversized files, and
@@ -115,7 +122,7 @@ root and excluding only `signature_base64`):
   "schema_version": 1,
   "kind": "software-factory-skill-release-review",
   "record_id": "block2-review-a62d8e7",
-  "reviewer_id": "independent-reviewer-1234",
+  "reviewer_id": "software-factory-release-reviewer-v1",
   "implementer_id": "implementation-owner-1234",
   "disposition": "accepted",
   "source_commit": "0123456789abcdef0123456789abcdef01234567",
@@ -135,7 +142,7 @@ Quiescent-boundary shape (root and signature coverage follow the same rule):
   "schema_version": 1,
   "kind": "software-factory-quiescent-boundary",
   "record_id": "cutover-boundary-1234",
-  "operator_id": "release-operator-1234",
+  "operator_id": "software-factory-release-operator-v1",
   "operation": "activate",
   "release_id": "0123456789ab-0123456789ab",
   "previous_active_release_id": "fedcba987654-fedcba987654",
@@ -147,6 +154,97 @@ Quiescent-boundary shape (root and signature coverage follow the same rule):
   "signature_base64": "<detached Ed25519 signature>"
 }
 ```
+
+## Provision and sign external authority evidence
+
+Provisioning is an out-of-band authority action, not an implementer or release
+command. The independent reviewer owns the reviewer private key; the cutover
+operator owns a different operator private key. Neither private key belongs in
+the repository, release root, evidence JSON, shell history, or activation
+ledger. This release pins the exact OpenSSL verifier at
+`/opt/homebrew/Cellar/openssl@3/3.6.2/bin/openssl` and recognizes only the
+versioned role IDs shown below.
+
+Run this once from the corresponding authority context, substituting an
+external private-key directory that only that role can read:
+
+```bash
+AUTHORITY_ROOT=/Users/ethanstillman/.codex/software-factory-release-authority
+PRIVATE_ROOT=/absolute/external/private-key-directory
+OPENSSL=/opt/homebrew/Cellar/openssl@3/3.6.2/bin/openssl
+
+mkdir -p "$AUTHORITY_ROOT/reviewers" "$AUTHORITY_ROOT/operators" "$PRIVATE_ROOT"
+chmod 700 "$AUTHORITY_ROOT" "$AUTHORITY_ROOT/reviewers" \
+  "$AUTHORITY_ROOT/operators" "$PRIVATE_ROOT"
+
+"$OPENSSL" genpkey -algorithm Ed25519 \
+  -out "$PRIVATE_ROOT/software-factory-release-reviewer-v1.private.pem"
+"$OPENSSL" pkey \
+  -in "$PRIVATE_ROOT/software-factory-release-reviewer-v1.private.pem" -pubout \
+  -out "$AUTHORITY_ROOT/reviewers/software-factory-release-reviewer-v1.pem"
+
+"$OPENSSL" genpkey -algorithm Ed25519 \
+  -out "$PRIVATE_ROOT/software-factory-release-operator-v1.private.pem"
+"$OPENSSL" pkey \
+  -in "$PRIVATE_ROOT/software-factory-release-operator-v1.private.pem" -pubout \
+  -out "$AUTHORITY_ROOT/operators/software-factory-release-operator-v1.pem"
+
+chmod 400 "$PRIVATE_ROOT"/*.private.pem
+chmod 444 "$AUTHORITY_ROOT"/*/*.pem
+chmod 555 "$AUTHORITY_ROOT" "$AUTHORITY_ROOT/reviewers" \
+  "$AUTHORITY_ROOT/operators"
+```
+
+Put the SHA-256 of the corresponding public PEM in
+`authority_key_sha256`. Create the unsigned material with every field shown in
+the applicable schema except its root and `signature_base64`. Then use this
+exact canonical root/sign procedure; use `review_root_sha256` for review
+evidence or `evidence_root_sha256` for quiescent evidence:
+
+```bash
+/usr/bin/python3 - "$UNSIGNED_JSON" "$ROOTED_JSON" "$ROOT_FIELD" <<'PY'
+import hashlib, json, pathlib, sys
+source, destination, root_field = sys.argv[1:]
+value = json.loads(pathlib.Path(source).read_bytes())
+canonical = lambda item: json.dumps(
+    item, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+).encode("utf-8")
+value[root_field] = hashlib.sha256(canonical(value)).hexdigest()
+pathlib.Path(destination).write_bytes(canonical(value))
+PY
+
+/opt/homebrew/Cellar/openssl@3/3.6.2/bin/openssl pkeyutl -sign \
+  -inkey "$PRIVATE_KEY" -rawin -in "$ROOTED_JSON" -out "$SIGNATURE_BIN"
+
+/usr/bin/python3 - "$ROOTED_JSON" "$SIGNATURE_BIN" "$FINAL_JSON" <<'PY'
+import base64, json, pathlib, sys
+rooted, signature, destination = sys.argv[1:]
+value = json.loads(pathlib.Path(rooted).read_bytes())
+value["signature_base64"] = base64.b64encode(
+    pathlib.Path(signature).read_bytes()
+).decode("ascii")
+payload = json.dumps(
+    value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+).encode("utf-8") + b"\n"
+pathlib.Path(destination).write_bytes(payload)
+PY
+```
+
+The reviewer independently compares `review-request` output with the exact
+source commit before signing. The operator creates quiescent evidence only
+after observing the named current release and no concurrent skill resolution;
+its timestamp must still be current at cutover. Verify a final record by
+removing only `signature_base64` and running `openssl pkeyutl -verify -pubin`
+against the pinned public key and base64-decoded signature; the release command
+performs the same check again.
+
+Recovery fails closed: never delete/re-root the external key or state-head
+files and never regenerate a private key under an existing role ID. If a
+private key is lost, retain its public key for old-release verification, add a
+new versioned role ID/public key only in a newly reviewed release-helper source
+revision, and generate new evidence. If the pinned Python, YAML, validator, or
+OpenSSL identity changes, update those identities through the same exact-source
+review path; do not bypass the check with `PATH` or a CLI override.
 
 ## Reader semantics
 

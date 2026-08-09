@@ -41,11 +41,15 @@ class SkillReleaseTests(unittest.TestCase):
         (
             self.reviewer_private,
             self.reviewer_key_sha256,
-        ) = self.create_authority("reviewers", "independent-reviewer-1234")
+        ) = self.create_authority(
+            "reviewers", skill_release.TRUSTED_AUTHORITY_IDS["reviewers"][0]
+        )
         (
             self.operator_private,
             self.operator_key_sha256,
-        ) = self.create_authority("operators", "release-operator-1234")
+        ) = self.create_authority(
+            "operators", skill_release.TRUSTED_AUTHORITY_IDS["operators"][0]
+        )
         for directory in (
             self.authority_root,
             self.authority_root / "reviewers",
@@ -83,13 +87,20 @@ class SkillReleaseTests(unittest.TestCase):
         private = self.root / f"{principal}.private.pem"
         public = self.authority_root / role / f"{principal}.pem"
         subprocess.run(
-            ["openssl", "genpkey", "-algorithm", "Ed25519", "-out", str(private)],
+            [
+                str(skill_release.TRUSTED_OPENSSL_PATH),
+                "genpkey",
+                "-algorithm",
+                "Ed25519",
+                "-out",
+                str(private),
+            ],
             check=True,
             capture_output=True,
         )
         subprocess.run(
             [
-                "openssl",
+                str(skill_release.TRUSTED_OPENSSL_PATH),
                 "pkey",
                 "-in",
                 str(private),
@@ -110,7 +121,7 @@ class SkillReleaseTests(unittest.TestCase):
         material_path.write_bytes(skill_release.canonical(material))
         subprocess.run(
             [
-                "openssl",
+                str(skill_release.TRUSTED_OPENSSL_PATH),
                 "pkeyutl",
                 "-sign",
                 "-inkey",
@@ -150,7 +161,7 @@ class SkillReleaseTests(unittest.TestCase):
             "schema_version": skill_release.SCHEMA_VERSION,
             "kind": "software-factory-skill-release-review",
             "record_id": f"independent-review-{self.evidence_counter}-1234",
-            "reviewer_id": "independent-reviewer-1234",
+            "reviewer_id": skill_release.TRUSTED_AUTHORITY_IDS["reviewers"][0],
             "implementer_id": "implementation-owner-1234",
             "disposition": "accepted",
             "source_commit": commit,
@@ -190,7 +201,7 @@ class SkillReleaseTests(unittest.TestCase):
             "schema_version": skill_release.SCHEMA_VERSION,
             "kind": "software-factory-quiescent-boundary",
             "record_id": f"quiescent-boundary-{self.evidence_counter}-1234",
-            "operator_id": "release-operator-1234",
+            "operator_id": skill_release.TRUSTED_AUTHORITY_IDS["operators"][0],
             "operation": operation,
             "release_id": release_id,
             "previous_active_release_id": previous_release_id,
@@ -470,6 +481,11 @@ class SkillReleaseTests(unittest.TestCase):
         skill_release.rollback_release(back_to_first)
         with self.assertRaisesRegex(skill_release.ReleaseError, "already consumed"):
             skill_release.activate_release(first_to_second)
+        history_path = self.release_root / skill_release.HISTORY_NAME
+        first_record = history_path.read_bytes().splitlines(keepends=True)[0]
+        history_path.write_bytes(first_record)
+        with self.assertRaisesRegex(skill_release.ReleaseError, "external release head"):
+            skill_release.activate_release(first_to_second)
         self.assertEqual(
             skill_release.current_release_id(self.release_root.resolve()),
             first["release_id"],
@@ -485,6 +501,39 @@ class SkillReleaseTests(unittest.TestCase):
             skill_release.stage_release(
                 self.stage_args(commit, review_evidence=review_path)
             )
+
+    def test_path_substitution_cannot_replace_signature_or_validator_tools(self) -> None:
+        commit = self.git("rev-parse", "HEAD")
+        review_path = self.review_evidence(commit)
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["signature_base64"] = base64.b64encode(b"fabricated").decode("ascii")
+        review_path.write_bytes(skill_release.canonical(review) + b"\n")
+        fake_bin = self.root / "fake-bin"
+        fake_bin.mkdir()
+        for name in ("openssl", "python3"):
+            tool = fake_bin / name
+            tool.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            tool.chmod(0o755)
+        substituted_path = str(fake_bin) + os.pathsep + os.environ.get("PATH", "")
+        with mock.patch.dict(os.environ, {"PATH": substituted_path}):
+            with self.assertRaisesRegex(skill_release.ReleaseError, "signature"):
+                skill_release.stage_release(
+                    self.stage_args(commit, review_evidence=review_path)
+                )
+            name = skill_release.SKILLS[0]
+            (self.repo / name / "SKILL.md").write_text(
+                f"---\nname: {name}\n---\n\n# Missing description\n",
+                encoding="utf-8",
+            )
+            invalid_commit = self.commit("invalid skill under substituted path")
+            with self.assertRaisesRegex(skill_release.ReleaseError, "validation failed"):
+                skill_release.review_request(
+                    argparse.Namespace(repo=str(self.repo), source_commit=invalid_commit)
+                )
+            with self.assertRaisesRegex(skill_release.ReleaseError, "validation failed"):
+                skill_release.stage_release(
+                    self.stage_args(invalid_commit, review_evidence=review_path)
+                )
 
     def test_mixed_or_escaping_legacy_install_is_rejected(self) -> None:
         commit = self.git("rev-parse", "HEAD")
