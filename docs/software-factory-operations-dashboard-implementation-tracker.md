@@ -892,7 +892,11 @@ and Block 0 contract amendment.
 - Post-block audit: `accepted`; the requested shell is runnable and truthful,
   all real operational sources remain unavailable, and the Block 1 Stop was
   honored before project catalog creation or source reads.
-- Git durability: acceptance checkpoint and non-force push pending.
+- Git durability: a non-force push advanced `origin/codex/evolution-mvp` from
+  `c0bb5d1` through accepted Block 1 checkpoint
+  `0e8ff510e80a1fe0e18693b66503782c43aceeab`; local and remote then matched
+  with `0 0` divergence. This evidence-finalization successor is included in
+  the immediate follow-on non-force push before Block 2 begins.
 
 ### Stop
 
