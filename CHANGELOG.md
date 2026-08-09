@@ -157,7 +157,11 @@ the completed program materially changes Software Factory.
   currentness, and fail-closed lifecycle rules across tracker authoring,
   implementation, and supervision. Regression fixtures include this Software
   Factory run and task `019fb18f-3d03-7ca0-9fe9-68353f0405ce`, where a bare
-  skill invocation was incorrectly reduced to Block 0.
+  skill invocation was incorrectly reduced to Block 0. Hardened the successor
+  correction against polarity-blind range parsing, caller-selected replacement
+  trackers, fabricated distinct-task topology, canonical range/mission drift,
+  event-ledger symlink escape, policy/event history truncation, and correction
+  evidence attached before a terminal disposition.
 
 - **Adaptive tracker provenance.** Corrected the planned adaptive-decision
   tracker so routed `codex_delegation` advice remains advisory rather than being

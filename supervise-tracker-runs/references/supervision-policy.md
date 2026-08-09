@@ -463,10 +463,18 @@ stable transition in the existing event ledger with these exact ordered phases:
 
 Every transition preserves prior identity and may advance only one phase. It
 cannot skip a phase, claim future evidence early, change the tracker or mission,
-or start at a different Block. `same-task-new-run` is the default topology and
-moves directly from `required` to `work-started` without task creation or human
-scheduling. `distinct-task` requires the exact direct request or technical-
-isolation rationale and rejects a successor equal to the source. The gate
+or start at a different Block. When a canonical implementation range is bound,
+the initial transition derives and compares the exact tracker hash, requested
+Block set, first dependency-safe Block, and source mission root from that owner
+state; caller-shaped replacements fail closed. `same-task-new-run` is the
+default topology and moves directly from `required` to `work-started` without
+task creation or human scheduling. `distinct-task` is exceptional: a
+`direct-request` basis must be the exact canonical direct-user governing source,
+while `technical-isolation` must resolve a pre-existing hash-chained
+`successor-topology-decision` owner event binding the transition, rationale,
+authority, policy-history root, independent verifier, and evidence.
+`legacy-linear` is migration-only and cannot be selected for new records. Every
+topology rejects a successor equal to the source. The gate
 returns `source_stop_permitted=true` only when a distinct successor reaches
 `work-started`; same-task work continues under the governing outcome.
 
@@ -587,7 +595,7 @@ python3 <LOG_HELPER> implementation-range-bind \
 
 python3 <LOG_HELPER> implementation-range-amend \
   --target-thread <TARGET> --tracker <ABSOLUTE_TRACKER_PATH> \
-  --amendment-map-sha256 <EXACT_MAP_ROOT>
+  --amendment-event-record <CANONICAL_ACCEPTED_AMENDMENT_EVENT>
 
 python3 <LOG_HELPER> implementation-range-gate \
   --target-thread <TARGET> \
@@ -610,6 +618,17 @@ entry. The resolver then cites that source record/hash on
 Initial binding and contraction also hash the exact request text bytes and
 require equality with the accepted direct source SHA-256; authentic authority
 metadata cannot be paired with fabricated scope text.
+
+Ordinary tracker status or content updates preserve the owner-pinned tracker
+path and exact Block-number set. Changing that path or set requires a
+pre-existing, independently accepted `implementation-tracker-amendment` owner
+event binding the old and new paths, hashes, complete Block sets, and an
+injective renumbering map. The event must predate the range amendment and match
+the current policy-history anchor; a caller-supplied map or replacement tracker
+is never amendment authority. Policy history is version-contiguous and the
+event ledger is pinned by a separately current, self-hashed head anchor, so
+truncation, re-rooting, stale suffixes, symlink substitution, and detached-owner
+writes fail closed before range or transition decisions.
 
 ## Target-state fingerprint
 

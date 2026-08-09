@@ -891,8 +891,12 @@ ordinary scheduling back to the human.
   exact prior record, reason, authority class/source, replacement identity when
   applicable, and governing-outcome effect.
 - Add topology posture for `same-task-new-run` versus `distinct-task`. Reuse the
-  current task by default; a distinct task requires an explicit request or
-  exact technical-isolation reason. Reject `source task == successor task`.
+  current task by default. A distinct task with `direct-request` basis requires
+  the exact canonical direct-user governing source; a `technical-isolation`
+  basis requires a pre-existing hash-chained owner event binding the
+  transition, rationale, authority, current policy-history root, independent
+  verifier, and evidence. Keep `legacy-linear` migration-only and reject it for
+  new transitions. Reject `source task == successor task`.
 - Allow a current eligible direct user/system/repository/tracker source to
   cancel or correct a transition whose topology premise is invalid. Supervisory
   or `codex_delegation` evidence may trigger review but cannot supply the
@@ -914,7 +918,16 @@ ordinary scheduling back to the human.
   contraction only from a newer direct-user source already ingested as a
   hash-chained owner event with independently verified task/item provenance,
   forbid the receipt resolver from minting source/reviewer/evidence claims, and
-  reject caller-selected binding or terminal-evidence files.
+  require a pre-existing independently accepted owner event for any tracker
+  path or Block-set/renumbering change. Reject caller-selected replacement
+  trackers, binding files, map hashes, or terminal-evidence files.
+- Bind a new successor-transition genesis to the canonical implementation-range
+  tracker root, full requested Block set, first dependency-safe Block, and
+  bound mission root. Write transition events only through the held canonical
+  owner directory with no-follow event/lock handling and post-write currentness.
+  Require version-contiguous policy history and a current self-hashed event-head
+  anchor so truncation, re-rooting, suffix deletion, symlink substitution, and
+  detached-owner writes fail closed.
 - At every Block Stop derive accepted, remaining, and dependency-safe Blocks
   from the owner-pinned current tracker. Treat a nonterminal result as an
   immediate continuation action, integrate it into lifecycle completion, and
@@ -972,6 +985,9 @@ retiring a control does not close the outcome.
   symlinked tracker paths, arbitrary SHA-shaped terminal roots, stale policy or
   event heads, and terminal lifecycle writes with remaining Blocks fail closed.
   A genuine exact one-Block request still returns after that accepted Block.
+- Negated or contradictory prose cannot accidentally expand or contract scope:
+  `implement only Block N` and `implement Block N only` remain exact bounded
+  requests, while a positive unbounded tracker request remains full-range.
 
 ### Negative tests
 
