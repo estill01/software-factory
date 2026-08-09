@@ -498,7 +498,7 @@ the relevant authority and evidence contract.
 | 0 | Product contract and live-owner baseline | — | `accepted` |
 | 1 | Loopback runtime and reference frontend scaffold | 0 | `accepted` |
 | 2 | Project catalog and bounded discovery | 1 | `accepted` |
-| 3 | Tracker truth and Git-currentness projection | 2 | `not-started` |
+| 3 | Tracker truth and Git-currentness projection | 2 | `in-progress` |
 | 4 | Supervision, automation, report, and metrics projection | 2 | `not-started` |
 | 5 | Codex task and App Server adapter | 1 | `not-started` |
 | 6 | Cross-project factory floor | 3, 4, 5 | `not-started` |
@@ -1074,10 +1074,12 @@ pattern; never scan `$HOME` or follow symlinks outside the registered root.
   no supervision, task, report, metric, or lifecycle state was aggregated.
 - Post-block audit: `accepted`; all Block 2 acceptance and negative conditions
   were demonstrated on the reviewed revision.
-- Git durability: the accepted candidate was non-force pushed to
-  `origin/codex/evolution-mvp` and local/remote matched before review. This
-  acceptance-evidence checkpoint is non-force pushed immediately; its exact
-  revision is recorded by the evidence-finalization successor before Block 3
+- Git durability: a non-force push advanced `origin/codex/evolution-mvp`
+  through acceptance-evidence checkpoint
+  `38ad817b3b951c25be1629ffa0a40e084acb7d11`, whose tracker blob is
+  `01053379da3bc7eae36c3be89245c0a1d6994558`; local and remote matched with
+  `0 0` divergence. This evidence-finalization successor records that durable
+  checkpoint and is included in the immediate non-force push before Block 3
   implementation changes begin.
 
 ### Stop
@@ -1088,7 +1090,7 @@ Stop before parsing tracker content or aggregating supervision/task state.
 
 ## Block 3 — Tracker truth and Git-currentness projection
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -1194,7 +1196,14 @@ per refresh and widen parsing only for a reproduced supported tracker form.
 
 ### Completion evidence
 
-Pending.
+- Activation: began automatically from accepted and pushed Block 2 candidate
+  `dba8274f3f06bbd48fbf9c7703f87ce0baa40448` and acceptance-evidence
+  checkpoint `38ad817b3b951c25be1629ffa0a40e084acb7d11` under direct-user item 44
+  and mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+  No new mission, successor task, routed authority, or manual resume was used.
+- Candidate, validation, exact review, checkpoint, and acceptance evidence:
+  pending.
 
 ### Stop
 
