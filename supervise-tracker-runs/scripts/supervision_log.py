@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import sys
 import tempfile
 import tomllib
@@ -998,6 +999,40 @@ def atomic_json(path: Path, value: dict[str, Any]) -> None:
     os.replace(temporary, path)
 
 
+def atomic_json_at(directory_fd: int, name: str, value: dict[str, Any]) -> None:
+    temporary_name = f".{name}.{secrets.token_hex(12)}"
+    flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    descriptor = os.open(temporary_name, flags, 0o600, dir_fd=directory_fd)
+    try:
+        payload = json.dumps(
+            value, ensure_ascii=False, sort_keys=True, indent=2
+        ).encode("utf-8") + b"\n"
+        offset = 0
+        while offset < len(payload):
+            offset += os.write(descriptor, payload[offset:])
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    try:
+        os.rename(
+            temporary_name,
+            name,
+            src_dir_fd=directory_fd,
+            dst_dir_fd=directory_fd,
+        )
+        os.fsync(directory_fd)
+    finally:
+        try:
+            os.unlink(temporary_name, dir_fd=directory_fd)
+        except FileNotFoundError:
+            pass
+
+
 def default_policy(args: argparse.Namespace) -> dict[str, Any]:
     target = safe_id(args.target_thread, label="target thread ID")
     created_at = utc_now()
@@ -1651,13 +1686,48 @@ def write_policy_version(
     reason: str,
     evidence_values: list[str],
 ) -> None:
-    policy["policy_version"] = int(policy["policy_version"]) + 1
-    policy["updated_at"] = utc_now()
-    policy["policy_sha256"] = digest(policy_material(policy))
-    atomic_json(directory / "policy.json", policy)
-    append_raw(
-        directory / "policy-history.jsonl",
-        {
+    expected_policy_sha256 = str(policy.get("policy_sha256", ""))
+    expected_policy_version = int(policy["policy_version"])
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        directory_fd = os.open(directory, flags)
+        directory_snapshot = file_snapshot(os.fstat(directory_fd))
+    except OSError as exc:
+        raise SupervisionLogError(
+            "Cannot open policy owner directory safely"
+        ) from exc
+    try:
+        if path_snapshot(directory) != directory_snapshot:
+            raise SupervisionLogError(
+                "Policy owner directory changed before mutation"
+            )
+        with append_lock_at(directory_fd):
+            current_policy, _current_snapshot = read_json_snapshot(
+                Path("policy.json"), directory_fd=directory_fd
+            )
+            validate_policy(current_policy)
+            if (
+                current_policy.get("policy_sha256") != expected_policy_sha256
+                or int(current_policy.get("policy_version", -1))
+                != expected_policy_version
+                or current_policy.get("target_thread_id")
+                != policy.get("target_thread_id")
+            ):
+                raise SupervisionLogError(
+                    "Policy changed after it was loaded; reload before mutation"
+                )
+            policy["policy_version"] = expected_policy_version + 1
+            policy["updated_at"] = utc_now()
+            policy["policy_sha256"] = digest(policy_material(policy))
+            validate_policy(policy)
+            policy_history, history_snapshot = events_snapshot(
+                Path("policy-history.jsonl"), directory_fd=directory_fd
+            )
+            history_record = {
             "schema_version": 1,
             "record_id": f"POLICY-{policy['policy_version']}",
             "timestamp": utc_now(),
@@ -1665,8 +1735,24 @@ def write_policy_version(
             "reason": reason,
             "evidence": evidence_values,
             "policy": policy,
-        },
-    )
+            }
+            atomic_json_at(directory_fd, "policy.json", policy)
+            prior_hash = (
+                policy_history[-1].get("record_sha256")
+                if policy_history
+                else None
+            )
+            append_raw_locked_at(
+                directory_fd,
+                "policy-history.jsonl",
+                history_record,
+                previous_record_sha256=(
+                    str(prior_hash) if prior_hash is not None else None
+                ),
+                expected_file_snapshot=history_snapshot,
+            )
+    finally:
+        os.close(directory_fd)
 
 
 def cmd_bind(args: argparse.Namespace) -> None:

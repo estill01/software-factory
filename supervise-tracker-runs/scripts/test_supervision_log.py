@@ -7,8 +7,9 @@ import io
 import json
 import os
 import tempfile
+import threading
 import unittest
-from contextlib import redirect_stdout
+from contextlib import contextmanager, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -1840,6 +1841,139 @@ class ControlPostureReducerTests(unittest.TestCase):
             )
         )
 
+    def test_terminal_append_serializes_a_maintained_policy_writer(self) -> None:
+        directory, policy = self.create_target(self.owner, self.owner_mission)
+        self.append(
+            directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "check",
+                "category": supervision_log.OUTCOME_COMPLETION_CATEGORY,
+                "status": "verified",
+                "state_fingerprint": "state-1234",
+                "mission_root": self.owner_mission,
+                "model": "gpt-5.6-sol",
+                "reasoning": "xhigh",
+                "evidence": ["behavior-proof-1234"],
+                **{
+                    field: "d" * 64
+                    for field in supervision_log.OUTCOME_COMPLETION_HASH_FIELDS
+                },
+                "capability_reconciliation_reviewer_id": f"base-{self.owner}",
+                "capability_reconciliation_implementation_owner_id": self.owner,
+                "capability_reconciliation_revision": "e" * 40,
+                "capability_reconciliation_posture": "verified",
+                "capability_reconciliation_gap_count": 0,
+            },
+        )
+        terminal_args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "record",
+                "--target-thread",
+                self.owner,
+                "--kind",
+                "lifecycle",
+                "--status",
+                "completed",
+                "--state-fingerprint",
+                "state-1234",
+                "--summary",
+                "Complete while a maintained policy writer waits.",
+            ]
+        )
+        proposed_policy = json.loads(json.dumps(policy))
+        proposed_policy["mission_binding"] = (
+            supervision_log.mission_binding_contract(
+                "f" * 64, "replacement-mission-source-1234"
+            )
+        )
+        reducer_paused = threading.Event()
+        release_reducer = threading.Event()
+        policy_waiting_on_lock = threading.Event()
+        errors: list[BaseException] = []
+        original_reduce = supervision_log.reduce_control_posture
+        original_append_lock_at = supervision_log.append_lock_at
+
+        def paused_reduce(**values: object):
+            result = original_reduce(**values)
+            reducer_paused.set()
+            if not release_reducer.wait(5):
+                raise AssertionError("Timed out waiting to release terminal reducer")
+            return result
+
+        @contextmanager
+        def observed_append_lock_at(directory_fd: int):
+            if threading.current_thread().name == "maintained-policy-writer":
+                policy_waiting_on_lock.set()
+            with original_append_lock_at(directory_fd):
+                yield
+
+        def run_terminal() -> None:
+            try:
+                terminal_args.func(terminal_args)
+            except BaseException as exc:  # pragma: no cover - asserted below
+                errors.append(exc)
+
+        def run_policy_writer() -> None:
+            try:
+                supervision_log.write_policy_version(
+                    directory,
+                    proposed_policy,
+                    kind="policy-test",
+                    reason="Exercise maintained writer serialization.",
+                    evidence_values=["threaded-regression"],
+                )
+            except BaseException as exc:  # pragma: no cover - asserted below
+                errors.append(exc)
+
+        with (
+            mock.patch.object(
+                supervision_log,
+                "reduce_control_posture",
+                side_effect=paused_reduce,
+            ),
+            mock.patch.object(
+                supervision_log,
+                "append_lock_at",
+                side_effect=observed_append_lock_at,
+            ),
+            mock.patch("builtins.print"),
+        ):
+            terminal = threading.Thread(target=run_terminal, name="terminal-writer")
+            terminal.start()
+            self.assertTrue(reducer_paused.wait(5))
+            policy_writer = threading.Thread(
+                target=run_policy_writer, name="maintained-policy-writer"
+            )
+            policy_writer.start()
+            self.assertTrue(policy_waiting_on_lock.wait(5))
+            self.assertEqual(
+                supervision_log.read_json(directory / "policy.json")[
+                    "policy_sha256"
+                ],
+                policy["policy_sha256"],
+            )
+            release_reducer.set()
+            terminal.join(5)
+            policy_writer.join(5)
+
+        self.assertFalse(terminal.is_alive())
+        self.assertFalse(policy_writer.is_alive())
+        self.assertEqual(errors, [])
+        self.assertTrue(
+            any(
+                item.get("status") == "completed"
+                for item in supervision_log.events(directory / "events.jsonl")
+            )
+        )
+        current_policy = supervision_log.read_json(directory / "policy.json")
+        supervision_log.validate_policy(current_policy)
+        self.assertEqual(
+            current_policy["mission_binding"]["mission_root"], "f" * 64
+        )
+
     def test_completion_requires_current_observable_outcome_binding(self) -> None:
         directory, policy = self.create_target(self.owner, self.owner_mission)
         completion = {
@@ -2822,6 +2956,7 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             policy = supervision_log.default_policy(self.init_args())
+            supervision_log.atomic_json(directory / "policy.json", policy)
             args = argparse.Namespace(
                 target_thread="target-1234",
                 routine_minutes=None,
@@ -2845,8 +2980,6 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
                     "load_policy",
                     return_value=(directory, policy),
                 ),
-                mock.patch.object(supervision_log, "atomic_json"),
-                mock.patch.object(supervision_log, "append_raw"),
                 redirect_stdout(output),
             ):
                 supervision_log.cmd_adjust(args)
