@@ -445,6 +445,12 @@ Repeat independently for additional targets.
   narrow correction, and effective resumed behavior. The reusable lane prevents
   recurrence in later runs. Neither lane may claim the other lane's evidence or
   remain open merely to justify broader work after its own stop condition passes.
+- Before recording effectiveness or terminal closure for a supported execution-
+  economy incident, record one explicit bounded reusable-lane disposition on
+  that incident-owned event: `candidate-opened`, `existing-owner-sufficient`
+  with exact evidence, `repository-specific-not-applicable` with rationale, or
+  `evidence-pending` with its next evidence trigger. Current-run correction and
+  the reusable lane remain independently owned; silence is not a disposition.
 - The Sol XHigh fix executor normally applies only the bounded policy fields
   accepted by `supervision_log.py adjust`. In
   `apply-allowlisted-skill-maintenance-with-review` mode, it may also update
