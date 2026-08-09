@@ -627,8 +627,8 @@ class SuccessorTransitionContractTests(unittest.TestCase):
             with (
                 mock.patch.object(
                     supervision_log,
-                    "load_policy",
-                    return_value=(self.directory, self.policy),
+                    "load_policy_snapshot",
+                    return_value=(self.directory, self.policy, None),
                 ),
                 redirect_stdout(output),
             ):
@@ -836,6 +836,62 @@ class ControlPostureReducerTests(unittest.TestCase):
                 *extra,
             ]
         )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            args.func(args)
+        return json.loads(output.getvalue())
+
+    def record_public_stop_decision(
+        self, phase: str, *, outcome: str = ""
+    ) -> dict[str, object]:
+        arguments = [
+            "--root",
+            str(self.root),
+            "decision-record",
+            "--target-thread",
+            self.owner,
+            "--decision-id",
+            "DEC-PUBLIC-STOP-1234",
+            "--classification",
+            "reserved-authority",
+            "--phase",
+            phase,
+            "--safe-frontier",
+            "empty",
+            "--attempt",
+            "0",
+            "--decision-packet-hash",
+            "d" * 64,
+            "--blocked-scope-hash",
+            "e" * 64,
+            "--safe-frontier-hash",
+            "f" * 64,
+            "--state-fingerprint",
+            "state-stop-1234",
+            "--evidence",
+            f"evidence-{phase}",
+            "--mission-root",
+            self.owner_mission,
+            "--authority-source-class",
+            "direct-user",
+            "--authority-source-record",
+            "item-stop-1234",
+            "--impact-class",
+            "goal-blocking",
+            "--affected-width",
+            "governing-outcome",
+            "--duration",
+            "until-stopped",
+            "--reversibility",
+            "reversible",
+            "--ordinary-means-disabled",
+            "yes",
+            "--independent-mission-review",
+            "yes",
+        ]
+        if outcome:
+            arguments.extend(["--outcome", outcome])
+        args = supervision_log.parser().parse_args(arguments)
         output = io.StringIO()
         with redirect_stdout(output):
             args.func(args)
@@ -1197,6 +1253,154 @@ class ControlPostureReducerTests(unittest.TestCase):
         self.assertEqual(
             child_member["supervision_group_binding"], "legacy-transition"
         )
+        self.assertEqual(
+            child_member["execution_run_id"],
+            supervision_log.digest(
+                {
+                    "kind": "execution-run",
+                    "governing_outcome_root": self.child_mission,
+                    "task_id": self.child,
+                    "supervision_group_id": "group-1234",
+                }
+            ),
+        )
+
+    def test_malformed_persisted_group_cannot_downgrade_to_a_legacy_claim(self) -> None:
+        owner_directory, owner_policy = self.create_target(
+            self.owner, self.owner_mission
+        )
+        child_directory, child_policy = self.create_target(
+            self.child, self.child_mission
+        )
+        child_policy["supervision_group_id"] = "not valid"
+        child_policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(child_policy)
+        )
+        supervision_log.atomic_json(child_directory / "policy.json", child_policy)
+        self.append(
+            owner_directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "successor-transition",
+                "transition_id": "TRANSITION-MALFORMED-GROUP-1234",
+                "phase": "work-started",
+                "tracker_sha256": "c" * 64,
+                "successor_thread_id": self.child,
+                "successor_mission_root": self.child_mission,
+                "successor_group_id": "attacker-group",
+            },
+        )
+
+        result = self.reduce(owner_directory, owner_policy)
+
+        self.assertEqual(result["member_count"], 1)
+        self.assertIn(
+            "member-state-unavailable-or-invalid",
+            {item["kind"] for item in result["issues"]},
+        )
+
+    def test_join_rejects_symlinked_canonical_policy_file(self) -> None:
+        owner_directory, owner_policy = self.create_target(
+            self.owner, self.owner_mission
+        )
+        child_directory, child_policy = self.create_target(
+            self.child, self.child_mission
+        )
+        external = tempfile.TemporaryDirectory()
+        self.addCleanup(external.cleanup)
+        external_policy = Path(external.name) / "policy.json"
+        supervision_log.atomic_json(external_policy, child_policy)
+        (child_directory / "policy.json").unlink()
+        (child_directory / "policy.json").symlink_to(external_policy)
+        self.append(
+            owner_directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "successor-transition",
+                "transition_id": "TRANSITION-POLICY-LINK-1234",
+                "phase": "work-started",
+                "tracker_sha256": "c" * 64,
+                "successor_thread_id": self.child,
+                "successor_mission_root": self.child_mission,
+                "successor_group_id": child_policy["supervision_group_id"],
+            },
+        )
+
+        result = self.reduce(owner_directory, owner_policy)
+        self.assertEqual(result["member_count"], 1)
+        self.assertIn(
+            "member-state-unavailable-or-invalid",
+            {item["kind"] for item in result["issues"]},
+        )
+
+    def test_join_rejects_symlinked_canonical_event_file(self) -> None:
+        owner_directory, owner_policy = self.create_target(
+            self.owner, self.owner_mission
+        )
+        child_directory, child_policy = self.create_target(
+            self.child, self.child_mission
+        )
+        external = tempfile.TemporaryDirectory()
+        self.addCleanup(external.cleanup)
+        external_events = Path(external.name) / "events.jsonl"
+        supervision_log.append_raw(
+            external_events,
+            {"record_id": "EVT-000001", "kind": "check", "status": "ok"},
+        )
+        (child_directory / "events.jsonl").symlink_to(external_events)
+        self.append(
+            owner_directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "successor-transition",
+                "transition_id": "TRANSITION-EVENT-LINK-1234",
+                "phase": "work-started",
+                "tracker_sha256": "c" * 64,
+                "successor_thread_id": self.child,
+                "successor_mission_root": self.child_mission,
+                "successor_group_id": child_policy["supervision_group_id"],
+            },
+        )
+
+        result = self.reduce(owner_directory, owner_policy)
+        self.assertEqual(result["member_count"], 1)
+        self.assertIn(
+            "member-state-unavailable-or-invalid",
+            {item["kind"] for item in result["issues"]},
+        )
+
+    def test_event_file_link_replacement_fails_the_snapshot_recheck(self) -> None:
+        directory, policy = self.create_target(self.owner, self.owner_mission)
+        self.append(
+            directory,
+            {"record_id": "EVT-000001", "kind": "check", "status": "ok"},
+        )
+        owner_events, event_snapshot = supervision_log.events_snapshot(
+            directory / "events.jsonl"
+        )
+        external = tempfile.TemporaryDirectory()
+        self.addCleanup(external.cleanup)
+        external_events = Path(external.name) / "events.jsonl"
+        supervision_log.append_raw(
+            external_events,
+            {"record_id": "EVT-000001", "kind": "check", "status": "ok"},
+        )
+        (directory / "events.jsonl").unlink()
+        (directory / "events.jsonl").symlink_to(external_events)
+
+        result = supervision_log.reduce_control_posture(
+            directory=directory,
+            policy=policy,
+            owner_events=owner_events,
+            owner_event_snapshot=event_snapshot,
+        )
+
+        self.assertFalse(result["snapshot_stable"])
+        self.assertEqual(result["next_action"], "retry-control-currentness")
+        self.assertIn(
+            "member-event-file-changed-during-read",
+            {item["kind"] for item in result["issues"]},
+        )
 
     def test_changed_member_head_returns_retry_currentness(self) -> None:
         directory, policy = self.create_target(self.owner, self.owner_mission)
@@ -1255,6 +1459,75 @@ class ControlPostureReducerTests(unittest.TestCase):
             "member-policy-changed-during-read",
             {item["kind"] for item in result["issues"]},
         )
+
+    def test_completed_lifecycle_writer_rejects_policy_replacement(self) -> None:
+        directory, _policy = self.create_target(self.owner, self.owner_mission)
+        self.append(
+            directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "check",
+                "category": supervision_log.OUTCOME_COMPLETION_CATEGORY,
+                "status": "verified",
+                "state_fingerprint": "state-1234",
+                "mission_root": self.owner_mission,
+                "model": "gpt-5.6-sol",
+                "reasoning": "xhigh",
+                "evidence": ["behavior-proof-1234"],
+                **{
+                    field: "d" * 64
+                    for field in supervision_log.OUTCOME_COMPLETION_HASH_FIELDS
+                },
+                "capability_reconciliation_reviewer_id": f"base-{self.owner}",
+                "capability_reconciliation_implementation_owner_id": self.owner,
+                "capability_reconciliation_revision": "e" * 40,
+                "capability_reconciliation_posture": "verified",
+                "capability_reconciliation_gap_count": 0,
+            },
+        )
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "record",
+                "--target-thread",
+                self.owner,
+                "--kind",
+                "lifecycle",
+                "--status",
+                "completed",
+                "--state-fingerprint",
+                "state-1234",
+                "--summary",
+                "Attempted completion during policy replacement.",
+            ]
+        )
+        original_loader = supervision_log.load_policy_snapshot
+
+        def load_then_replace(arguments: argparse.Namespace):
+            loaded_directory, loaded_policy, snapshot = original_loader(arguments)
+            replacement = dict(loaded_policy)
+            replacement["updated_at"] = "2026-08-09T01:00:00+00:00"
+            replacement["policy_sha256"] = supervision_log.digest(
+                supervision_log.policy_material(replacement)
+            )
+            supervision_log.atomic_json(
+                loaded_directory / "policy.json", replacement
+            )
+            return loaded_directory, loaded_policy, snapshot
+
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy_snapshot",
+                side_effect=load_then_replace,
+            ),
+            self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "governing-outcome control: retry-control-currentness",
+            ),
+        ):
+            args.func(args)
 
     def test_completion_requires_current_observable_outcome_binding(self) -> None:
         directory, policy = self.create_target(self.owner, self.owner_mission)
@@ -1435,6 +1708,138 @@ class ControlPostureReducerTests(unittest.TestCase):
             {item["kind"] for item in rejected["issues"]},
         )
 
+    def test_public_writers_produce_an_exact_current_direct_stop(self) -> None:
+        self.create_target(self.owner, self.owner_mission)
+        self.record_public_stop_decision("decision-ready")
+        self.record_public_stop_decision("user-responded")
+        self.record_public_stop_decision("resolved", outcome="user-supplied")
+        self.record_public_stop_decision("handoff-sent", outcome="user-supplied")
+        acknowledged = self.record_public_stop_decision(
+            "target-acknowledged", outcome="user-supplied"
+        )["record"]
+        lifecycle_args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "record",
+                "--target-thread",
+                self.owner,
+                "--kind",
+                "lifecycle",
+                "--status",
+                "stopped",
+                "--state-fingerprint",
+                "state-stop-1234",
+                "--evidence",
+                str(acknowledged["record_id"]),
+                "--summary",
+                "Recorded the exact governing direct stop.",
+            ]
+        )
+        lifecycle_output = io.StringIO()
+        with redirect_stdout(lifecycle_output):
+            lifecycle_args.func(lifecycle_args)
+
+        gate_args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "control-posture-gate",
+                "--target-thread",
+                self.owner,
+            ]
+        )
+        gate_output = io.StringIO()
+        with redirect_stdout(gate_output):
+            gate_args.func(gate_args)
+        result = json.loads(gate_output.getvalue())
+
+        self.assertEqual(result["required_target_posture"], "stopped")
+        self.assertEqual(
+            result["direct_stop_candidates"][0]["decision_record_id"],
+            acknowledged["record_id"],
+        )
+
+    def test_direct_stop_rejects_missing_or_mismatched_currentness(self) -> None:
+        directory, policy = self.create_target(self.owner, self.owner_mission)
+        decision = {
+            "record_id": "EVT-000001",
+            "kind": "decision",
+            "decision_id": "DEC-STOP-1234",
+            "phase": "target-acknowledged",
+            "classification": "reserved-authority",
+            "outcome": "user-supplied",
+            "safe_frontier": "empty",
+            "state_fingerprint": "old-state-1234",
+            "mission_root": self.owner_mission,
+            "authority_source_class": "direct-user",
+            "authority_source_record": "item-stop-1234",
+            "impact_class": "goal-blocking",
+            "ordinary_means_disabled": True,
+            "independent_mission_review": True,
+        }
+        self.append(directory, decision)
+        self.append(
+            directory,
+            {
+                "record_id": "EVT-000002",
+                "kind": "lifecycle",
+                "status": "stopped",
+                "state_fingerprint": "",
+                "evidence": ["EVT-000001"],
+            },
+        )
+
+        missing = self.reduce(directory, policy)
+        self.assertEqual(missing["required_target_posture"], "in-progress")
+        records = supervision_log.events(directory / "events.jsonl")
+        records[-1]["state_fingerprint"] = "new-state-1234"
+        mismatched = supervision_log.reduce_control_posture(
+            directory=directory,
+            policy=policy,
+            owner_events=records,
+        )
+        self.assertEqual(mismatched["required_target_posture"], "in-progress")
+
+    def test_direct_stop_controls_a_separate_wait_posture(self) -> None:
+        directory, policy = self.create_target(self.owner, self.owner_mission)
+        stop_decision = {
+            "record_id": "EVT-000001",
+            "kind": "decision",
+            "decision_id": "DEC-STOP-1234",
+            "phase": "target-acknowledged",
+            "classification": "reserved-authority",
+            "outcome": "user-supplied",
+            "safe_frontier": "empty",
+            "state_fingerprint": "state-stop-1234",
+            "mission_root": self.owner_mission,
+            "authority_source_class": "direct-user",
+            "authority_source_record": "item-stop-1234",
+            "impact_class": "goal-blocking",
+            "ordinary_means_disabled": True,
+            "independent_mission_review": True,
+        }
+        blocking_decision = {
+            **stop_decision,
+            "record_id": "EVT-000002",
+            "decision_id": "DEC-WAIT-1234",
+            "outcome": "safe-deferred",
+        }
+        lifecycle = {
+            "record_id": "EVT-000003",
+            "kind": "lifecycle",
+            "status": "stopped",
+            "state_fingerprint": "state-stop-1234",
+            "evidence": ["EVT-000001"],
+        }
+        for record in (stop_decision, blocking_decision, lifecycle):
+            self.append(directory, record)
+
+        result = self.reduce(directory, policy)
+
+        self.assertEqual(result["required_target_posture"], "stopped")
+        self.assertEqual(result["blocking_decision_records"], ["EVT-000002"])
+
     def test_contracts_route_terminal_posture_through_one_reducer(self) -> None:
         supervision_skill = HELPER_PATH.parent.parent.joinpath("SKILL.md").read_text(
             encoding="utf-8"
@@ -1511,7 +1916,11 @@ class NoticeGateCorrelationTests(unittest.TestCase):
                     None,
                 ),
             ),
-            mock.patch.object(supervision_log, "events", return_value=event_records),
+            mock.patch.object(
+                supervision_log,
+                "events_snapshot",
+                return_value=(event_records, None),
+            ),
             redirect_stdout(output),
         ):
             supervision_log.cmd_status(args)
@@ -2123,7 +2532,9 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
             output = io.StringIO()
             with (
                 mock.patch.object(
-                    supervision_log, "load_policy", return_value=(directory, policy)
+                    supervision_log,
+                    "load_policy",
+                    return_value=(directory, policy),
                 ),
                 mock.patch.object(supervision_log, "atomic_json"),
                 mock.patch.object(supervision_log, "append_raw"),
@@ -3262,7 +3673,9 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
             output = io.StringIO()
             with (
                 mock.patch.object(
-                    supervision_log, "load_policy", return_value=(directory, policy)
+                    supervision_log,
+                    "load_policy_snapshot",
+                    return_value=(directory, policy, None),
                 ),
                 redirect_stdout(output),
             ):
@@ -3277,7 +3690,9 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             with mock.patch.object(
-                supervision_log, "load_policy", return_value=(directory, policy)
+                supervision_log,
+                "load_policy",
+                return_value=(directory, policy),
             ):
                 with self.assertRaisesRegex(
                     supervision_log.SupervisionLogError, "stale mission root"
@@ -3426,7 +3841,9 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
                 containment=False,
             )
             with mock.patch.object(
-                supervision_log, "load_policy", return_value=(directory, policy)
+                supervision_log,
+                "load_policy_snapshot",
+                return_value=(directory, policy, None),
             ):
                 with self.assertRaisesRegex(
                     supervision_log.SupervisionLogError,
@@ -3556,8 +3973,8 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
             ),
             mock.patch.object(
                 supervision_log,
-                "events",
-                return_value=[*event_records, source],
+                "events_snapshot",
+                return_value=([*event_records, source], None),
             ),
             redirect_stdout(output),
         ):

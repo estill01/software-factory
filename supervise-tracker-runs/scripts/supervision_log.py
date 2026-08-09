@@ -933,22 +933,48 @@ def file_snapshot(stat: os.stat_result) -> tuple[int, int, int, int]:
     return (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
 
 
+def path_snapshot(path: Path) -> tuple[int, int, int, int] | None:
+    try:
+        return file_snapshot(path.lstat())
+    except OSError:
+        return None
+
+
+def read_text_snapshot(
+    path: Path, *, missing_ok: bool = False
+) -> tuple[str, tuple[int, int, int, int] | None]:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except FileNotFoundError:
+        if missing_ok:
+            return "", None
+        raise
+    try:
+        before = file_snapshot(os.fstat(descriptor))
+        handle = os.fdopen(descriptor, "r", encoding="utf-8")
+        descriptor = -1
+        with handle:
+            text = handle.read()
+            after = file_snapshot(os.fstat(handle.fileno()))
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if before != after:
+        raise SupervisionLogError(f"Supervision state changed while reading: {path.name}")
+    return text, after
+
+
 def read_json_snapshot(path: Path) -> tuple[dict[str, Any], tuple[int, int, int, int]]:
     try:
-        with path.open("rb") as handle:
-            before = file_snapshot(os.fstat(handle.fileno()))
-            raw = handle.read()
-            after = file_snapshot(os.fstat(handle.fileno()))
-        if before != after:
-            raise SupervisionLogError(
-                f"Supervision state changed while reading: {path.name}"
-            )
+        raw, snapshot = read_text_snapshot(path)
         value = json.loads(raw)
     except (OSError, json.JSONDecodeError) as exc:
         raise SupervisionLogError(f"Cannot read supervision state: {path.name}") from exc
     if not isinstance(value, dict):
         raise SupervisionLogError(f"Supervision state is not an object: {path.name}")
-    return value, after
+    assert snapshot is not None
+    return value, snapshot
 
 
 def atomic_json(path: Path, value: dict[str, Any]) -> None:
@@ -1106,6 +1132,11 @@ def validate_policy(policy: dict[str, Any]) -> None:
         raise SupervisionLogError("Supervision policy hash is stale")
     if policy.get("schema_version") != 1:
         raise SupervisionLogError("Unsupported supervision policy schema")
+    group_id = policy.get("supervision_group_id")
+    if group_id is not None:
+        if not isinstance(group_id, str):
+            raise SupervisionLogError("Supervision group ID is not a string")
+        safe_id(group_id, label="supervision group ID")
     mission_binding = policy.get("mission_binding")
     if mission_binding is not None:
         if not isinstance(mission_binding, dict):
@@ -1260,22 +1291,18 @@ def append_raw(path: Path, value: dict[str, Any]) -> None:
         append_raw_locked(path, value)
 
 
-def events(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
+def parse_events(text: str, *, ledger_name: str) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     previous: str | None = None
     record_ids: set[str] = set()
-    for line_number, line in enumerate(
-        path.read_text(encoding="utf-8").splitlines(), start=1
-    ):
+    for line_number, line in enumerate(text.splitlines(), start=1):
         if not line:
             continue
         try:
             value = json.loads(line)
         except json.JSONDecodeError as exc:
             raise SupervisionLogError(
-                f"Ledger {path.name} has malformed JSON at line {line_number}"
+                f"Ledger {ledger_name} has malformed JSON at line {line_number}"
             ) from exc
         if not isinstance(value, dict):
             raise SupervisionLogError("Event ledger contains a non-object")
@@ -1283,22 +1310,38 @@ def events(path: Path) -> list[dict[str, Any]]:
         material = {key: item for key, item in value.items() if key != "record_sha256"}
         if material.get("previous_record_sha256") != previous:
             raise SupervisionLogError(
-                f"Ledger {path.name} has a broken hash chain at line {line_number}"
+                f"Ledger {ledger_name} has a broken hash chain at line {line_number}"
             )
         if not isinstance(recorded_hash, str) or digest(material) != recorded_hash:
             raise SupervisionLogError(
-                f"Ledger {path.name} has a stale record hash at line {line_number}"
+                f"Ledger {ledger_name} has a stale record hash at line {line_number}"
             )
         record_id = value.get("record_id")
         if isinstance(record_id, str):
             if record_id in record_ids:
                 raise SupervisionLogError(
-                    f"Ledger {path.name} repeats record ID {record_id}"
+                    f"Ledger {ledger_name} repeats record ID {record_id}"
                 )
             record_ids.add(record_id)
         previous = recorded_hash
         result.append(value)
     return result
+
+
+def events(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    return parse_events(path.read_text(encoding="utf-8"), ledger_name=path.name)
+
+
+def events_snapshot(
+    path: Path,
+) -> tuple[list[dict[str, Any]], tuple[int, int, int, int] | None]:
+    try:
+        text, snapshot = read_text_snapshot(path, missing_ok=True)
+    except OSError as exc:
+        raise SupervisionLogError(f"Cannot read supervision state: {path.name}") from exc
+    return parse_events(text, ledger_name=path.name), snapshot
 
 
 def append_markdown(path: Path, record: dict[str, Any], *, create: bool) -> None:
@@ -2575,7 +2618,11 @@ def cmd_completion_record(args: argparse.Namespace) -> None:
 
 
 def cmd_record(args: argparse.Namespace) -> None:
-    directory, policy = load_policy(args)
+    policy_snapshot: tuple[int, int, int, int] | None = None
+    if args.kind == "lifecycle" and args.status == "completed":
+        directory, policy, policy_snapshot = load_policy_snapshot(args)
+    else:
+        directory, policy = load_policy(args)
     if args.kind not in KINDS:
         raise SupervisionLogError("Unsupported event kind")
     evidence_values = [clean(item, label="evidence", maximum=160) for item in args.evidence]
@@ -2627,7 +2674,13 @@ def cmd_record(args: argparse.Namespace) -> None:
             )
         record["failure_mode"] = failure_mode_envelope_from_args(args)
     with append_lock(directory):
-        current_events = events(directory / "events.jsonl")
+        if args.kind == "lifecycle" and record["status"] == "completed":
+            current_events, event_snapshot = events_snapshot(
+                directory / "events.jsonl"
+            )
+        else:
+            current_events = events(directory / "events.jsonl")
+            event_snapshot = None
         if args.kind == "lifecycle" and record["status"] == "completed":
             if successor_transition_heads(current_events, open_only=True):
                 raise SupervisionLogError(
@@ -2651,6 +2704,8 @@ def cmd_record(args: argparse.Namespace) -> None:
                 directory=directory,
                 policy=policy,
                 owner_events=current_events,
+                owner_policy_snapshot=policy_snapshot,
+                owner_event_snapshot=event_snapshot,
             )
             if (
                 control_posture["issues"]
@@ -3064,7 +3119,7 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
     state_fingerprint = clean(
         args.state_fingerprint, label="state fingerprint", maximum=128
     )
-    all_events = events(directory / "events.jsonl")
+    all_events, event_snapshot = events_snapshot(directory / "events.jsonl")
     source = next(
         (item for item in all_events if item.get("record_id") == source_record),
         None,
@@ -3215,6 +3270,7 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
         policy=policy,
         owner_events=all_events,
         owner_policy_snapshot=policy_snapshot,
+        owner_event_snapshot=event_snapshot,
     )
     supervision_pause_permitted = bool(
         supervision_pause_permitted
@@ -3559,7 +3615,7 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
 def cmd_successor_transition_gate(args: argparse.Namespace) -> None:
     directory, policy, policy_snapshot = load_policy_snapshot(args)
     transition_id = safe_id(args.transition_id, label="successor transition ID")
-    all_events = events(directory / "events.jsonl")
+    all_events, event_snapshot = events_snapshot(directory / "events.jsonl")
     records = successor_transition_events(all_events, transition_id)
     if not records:
         raise SupervisionLogError("Successor transition does not exist")
@@ -3587,6 +3643,7 @@ def cmd_successor_transition_gate(args: argparse.Namespace) -> None:
         policy=policy,
         owner_events=all_events,
         owner_policy_snapshot=policy_snapshot,
+        owner_event_snapshot=event_snapshot,
     )
     print(
         json.dumps(
@@ -3640,7 +3697,9 @@ def supervision_group_identity(
     )
 
 
-def execution_run_identity(policy: Mapping[str, Any]) -> str | None:
+def execution_run_identity(
+    policy: Mapping[str, Any], *, supervision_group_id: str | None = None
+) -> str | None:
     mission = bound_mission(dict(policy))
     if mission is None:
         return None
@@ -3649,7 +3708,9 @@ def execution_run_identity(policy: Mapping[str, Any]) -> str | None:
             "kind": "execution-run",
             "governing_outcome_root": mission["mission_root"],
             "task_id": policy.get("target_thread_id"),
-            "supervision_group_id": supervision_group_identity(policy)[0],
+            "supervision_group_id": (
+                supervision_group_id or supervision_group_identity(policy)[0]
+            ),
         }
     )
 
@@ -3664,9 +3725,14 @@ def latest_active_block(all_events: list[dict[str, Any]]) -> dict[str, Any] | No
 
 
 def event_head_hash(path: Path) -> str | None:
-    if not path.exists() or path.stat().st_size == 0:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except FileNotFoundError:
         return None
-    with path.open("rb") as handle:
+    with os.fdopen(descriptor, "rb") as handle:
+        if os.fstat(handle.fileno()).st_size == 0:
+            return None
         handle.seek(0, os.SEEK_END)
         position = handle.tell()
         buffer = bytearray()
@@ -3721,6 +3787,7 @@ def load_governing_outcome_members(
     owner_policy: dict[str, Any],
     owner_events: list[dict[str, Any]],
     owner_policy_snapshot: tuple[int, int, int, int] | None = None,
+    owner_event_snapshot: tuple[int, int, int, int] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]], str, bool]:
     root = owner_directory.parent.resolve()
     owner_target = str(
@@ -3734,6 +3801,7 @@ def load_governing_outcome_members(
             list[dict[str, Any]],
             dict[str, Any] | None,
             tuple[int, int, int, int] | None,
+            tuple[int, int, int, int] | None,
         ]
     ] = [
         (
@@ -3743,6 +3811,7 @@ def load_governing_outcome_members(
             owner_events,
             None,
             owner_policy_snapshot,
+            owner_event_snapshot,
         )
     ]
     queued = {owner_target}
@@ -3753,26 +3822,35 @@ def load_governing_outcome_members(
         tuple[
             Path,
             str | None,
+            tuple[int, int, int, int] | None,
             Path,
             tuple[int, int, int, int] | None,
         ],
     ] = {}
 
     while queue:
-        target, directory, policy, member_events, edge, policy_snapshot = queue.pop(0)
+        (
+            target,
+            directory,
+            policy,
+            member_events,
+            edge,
+            policy_snapshot,
+            event_snapshot,
+        ) = queue.pop(0)
         event_path = directory / "events.jsonl"
         policy_path = directory / "policy.json"
         event_head = (
             member_events[-1].get("record_sha256") if member_events else None
         )
+        if event_snapshot is None:
+            event_snapshot = path_snapshot(event_path)
         if policy_snapshot is None:
-            try:
-                policy_snapshot = file_snapshot(policy_path.stat())
-            except OSError:
-                policy_snapshot = None
+            policy_snapshot = path_snapshot(policy_path)
         snapshots[target] = (
             event_path,
             event_head if isinstance(event_head, str) else None,
+            event_snapshot,
             policy_path,
             policy_snapshot,
         )
@@ -3824,7 +3902,9 @@ def load_governing_outcome_members(
                 "membership_claimed_group_id": (
                     edge.get("successor_group_id") if edge is not None else None
                 ),
-                "execution_run_id": execution_run_identity(policy),
+                "execution_run_id": execution_run_identity(
+                    policy, supervision_group_id=group_id
+                ),
                 "active_block": latest_active_block(member_events),
                 "membership_source_record": edge.get("record_id") if edge else None,
             }
@@ -3860,7 +3940,9 @@ def load_governing_outcome_members(
                     raise SupervisionLogError(
                         "Member policy belongs to a different target"
                     )
-                successor_events = events(successor_directory / "events.jsonl")
+                successor_events, successor_event_snapshot = events_snapshot(
+                    successor_directory / "events.jsonl"
+                )
             except SupervisionLogError:
                 issues.append(
                     {
@@ -3877,6 +3959,7 @@ def load_governing_outcome_members(
                     successor_events,
                     successor,
                     successor_policy_snapshot,
+                    successor_event_snapshot,
                 )
             )
 
@@ -3892,6 +3975,7 @@ def load_governing_outcome_members(
     for target, (
         path,
         recorded_head,
+        recorded_event_snapshot,
         policy_path,
         recorded_policy_snapshot,
     ) in snapshots.items():
@@ -3914,10 +3998,15 @@ def load_governing_outcome_members(
                     "target_thread_id": target,
                 }
             )
-        try:
-            current_policy_snapshot = file_snapshot(policy_path.stat())
-        except OSError:
-            current_policy_snapshot = None
+        if path_snapshot(path) != recorded_event_snapshot:
+            stable = False
+            issues.append(
+                {
+                    "kind": "member-event-file-changed-during-read",
+                    "target_thread_id": target,
+                }
+            )
+        current_policy_snapshot = path_snapshot(policy_path)
         if current_policy_snapshot != recorded_policy_snapshot:
             stable = False
             issues.append(
@@ -3989,11 +4078,8 @@ def decision_authorizes_direct_stop(
         and head.get("independent_mission_review") is True
         and head.get("impact_class") in {"goal-blocking", "goal-reversing"}
         and head.get("ordinary_means_disabled") is True
-        and (
-            not decision_fingerprint
-            or not lifecycle_fingerprint
-            or decision_fingerprint == lifecycle_fingerprint
-        )
+        and bool(decision_fingerprint)
+        and decision_fingerprint == lifecycle_fingerprint
     )
 
 
@@ -4022,12 +4108,14 @@ def reduce_control_posture(
     policy: dict[str, Any],
     owner_events: list[dict[str, Any]],
     owner_policy_snapshot: tuple[int, int, int, int] | None = None,
+    owner_event_snapshot: tuple[int, int, int, int] | None = None,
 ) -> dict[str, Any]:
     members, issues, currentness_root, stable = load_governing_outcome_members(
         owner_directory=directory,
         owner_policy=policy,
         owner_events=owner_events,
         owner_policy_snapshot=owner_policy_snapshot,
+        owner_event_snapshot=owner_event_snapshot,
     )
     mission = bound_mission(policy)
     owner_target = str(policy.get("target_thread_id") or directory.name)
@@ -4181,6 +4269,9 @@ def reduce_control_posture(
     elif issues:
         required_posture = "in-progress"
         next_action = "reconcile-control-membership-or-evidence"
+    elif direct_stop_candidates:
+        required_posture = "stopped"
+        next_action = "close-governing-outcome-at-direct-stop"
     elif open_transitions:
         required_posture = "in-progress"
         next_action = "continue-open-successor-transition"
@@ -4190,9 +4281,6 @@ def reduce_control_posture(
     elif blocking_decisions:
         required_posture = "blocked"
         next_action = "preserve-safe-deferral-and-revisit-on-authority-change"
-    elif direct_stop_candidates:
-        required_posture = "stopped"
-        next_action = "close-governing-outcome-at-direct-stop"
     elif completion_candidates:
         required_posture = "completed"
         next_action = "close-governing-outcome"
@@ -4227,11 +4315,13 @@ def reduce_control_posture(
 
 def cmd_control_posture_gate(args: argparse.Namespace) -> None:
     directory, policy, policy_snapshot = load_policy_snapshot(args)
+    owner_events, event_snapshot = events_snapshot(directory / "events.jsonl")
     result = reduce_control_posture(
         directory=directory,
         policy=policy,
-        owner_events=events(directory / "events.jsonl"),
+        owner_events=owner_events,
         owner_policy_snapshot=policy_snapshot,
+        owner_event_snapshot=event_snapshot,
     )
     print(json.dumps(result, sort_keys=True))
 
@@ -4601,7 +4691,7 @@ def decision_notification(
 def cmd_decision_gate(args: argparse.Namespace) -> None:
     directory, policy, policy_snapshot = load_policy_snapshot(args)
     decision_id = safe_id(args.decision_id, label="decision ID")
-    all_events = events(directory / "events.jsonl")
+    all_events, event_snapshot = events_snapshot(directory / "events.jsonl")
     records = decision_events(all_events, decision_id)
     if not records:
         raise SupervisionLogError("Decision does not exist")
@@ -4695,6 +4785,7 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
         policy=policy,
         owner_events=all_events,
         owner_policy_snapshot=policy_snapshot,
+        owner_event_snapshot=event_snapshot,
     )
     blocking_permitted = (
         control_posture["required_target_posture"] == "blocked"
@@ -5260,7 +5351,7 @@ def write_exact_or_reuse(path: Path, value: Mapping[str, Any]) -> bool:
 def cmd_weekly_report_prepare(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     module = weekly_report_module()
-    all_events = events(directory / "events.jsonl")
+    all_events, event_snapshot = events_snapshot(directory / "events.jsonl")
     if not all_events:
         raise SupervisionLogError("Cannot report an empty supervision ledger")
     policy_history = events(directory / "policy-history.jsonl")
@@ -6563,7 +6654,7 @@ def cmd_gmail_cadence(args: argparse.Namespace) -> None:
 
 def cmd_status(args: argparse.Namespace) -> None:
     directory, policy, policy_snapshot = load_policy_snapshot(args)
-    all_events = events(directory / "events.jsonl")
+    all_events, event_snapshot = events_snapshot(directory / "events.jsonl")
     incident_events = [item for item in all_events if item.get("kind") == "incident"]
     incident_heads: dict[str, dict[str, Any]] = {}
     for item in all_events:
@@ -6628,6 +6719,7 @@ def cmd_status(args: argparse.Namespace) -> None:
         policy=policy,
         owner_events=all_events,
         owner_policy_snapshot=policy_snapshot,
+        owner_event_snapshot=event_snapshot,
     )
     print(
         json.dumps(

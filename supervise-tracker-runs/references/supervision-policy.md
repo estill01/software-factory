@@ -410,14 +410,16 @@ never becomes an inferred stop.
 The reducer applies one precedence order:
 
 1. unstable or invalid membership/evidence remains `in-progress`;
-2. any open implementation/topology transition remains `in-progress`;
-3. any nonempty safe frontier or unresolved nonblocking decision remains
+2. an owner-locus `stopped` lifecycle may return `stopped` and control
+   subordinate implementation/wait postures only when it cites the exact
+   acknowledged direct reserved-authority decision that supplied the stop,
+   binds the governing mission and same nonempty fingerprint, and has no safe
+   frontier;
+3. any open implementation/topology transition remains `in-progress`;
+4. any nonempty safe frontier or unresolved nonblocking decision remains
    `in-progress`;
-4. an exact safely deferred missing fact or reserved authority may return
+5. an exact safely deferred missing fact or reserved authority may return
    `blocked` only when every safe frontier is empty and no transition remains;
-5. an owner-locus `stopped` lifecycle may return `stopped` only when it cites
-   the exact acknowledged direct reserved-authority decision that supplied the
-   stop, binds the governing mission, and has no safe frontier;
 6. current independently verified observable completion may return `completed`
    only from the canonical owner locus and when no prior obligation remains;
    subordinate task completion remains diagnostic evidence; and
