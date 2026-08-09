@@ -9,14 +9,24 @@
   "tracker_sha256": "4e677d5e6d0cc4a116110c5891f0df3f9b789f52dad9c490709066781629a318",
   "target_revision": "fixture-rev-1",
   "target_revision_root": "60eed009637d2f85fe43c8f9cfa268620b8d05ec03df3d5a82b77a51df10d194",
+  "case_source_roots": {
+    "wrong-owner": "d74d55eea2d91abc3d4818dc3bbee6488a021856711a04081a1a316c13d3e8bd",
+    "lower-power-shortcut": "8c99518c395187a7310903fc9d242cc781de2220022c73662e055052b9685b8e",
+    "unnecessary-abstraction": "1d377c48885b7a3ee9d8c48a7765f653d09ed8a1d62ccac87b9509644c9e20ae",
+    "blind-retry": "daa6546a34a200de81ca1d8ac93fcec734b58efb9b87411f68d84c6bf484628d",
+    "overbroad-validation": "0839921493948a4057fb0d5bd0101c8c7d77aede4233b6e3a9e03d08b8119c0c",
+    "protected-capability-regression": "6408d58be94ab98cc32f9c386b46be5f0834ca60737dd15210fcd6039c705417",
+    "justified-incumbent": "29320717a0986f97785cc6adec8ac3a6bc9a796fd9f6f310f851e4d8c08c48b1",
+    "unchanged-repeat": "1cabcc0d56e086d6af58e8e60ec4211221fecba96080a3798f904abd2182ffff",
+    "requires-candidate": "16b72bc037b63d3ab065ed93285ffeafe4163b2ad886b338fc70e2d6be8a5bb9",
+    "requires-structural-amendment": "af84cbc4f581ddb826eac98eeacd92a0648ac215edd0a2cf144c5e02fc6e3c05"
+  },
   "cases": [
     {
       "case_id": "wrong-owner",
       "trigger": "wrong-owner",
       "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "live_block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "accepted_fingerprint": null,
-      "accepted_currentness_root": null,
       "canonical_owner_id": "owner-canonical",
       "incumbent_path_id": "local",
       "evidence_refs": [
@@ -147,15 +157,14 @@
         "closed"
       ],
       "expected_continue_to": "block:5:remaining-work",
-      "expected_extra_cycle": true
+      "expected_extra_cycle": true,
+      "accepted_snapshot_case_id": null
     },
     {
       "case_id": "lower-power-shortcut",
       "trigger": "lower-power-shortcut",
       "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "live_block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "accepted_fingerprint": null,
-      "accepted_currentness_root": null,
       "canonical_owner_id": "owner-canonical",
       "incumbent_path_id": "local",
       "evidence_refs": [
@@ -281,15 +290,14 @@
         "closed"
       ],
       "expected_continue_to": "block:5:remaining-work",
-      "expected_extra_cycle": true
+      "expected_extra_cycle": true,
+      "accepted_snapshot_case_id": null
     },
     {
       "case_id": "unnecessary-abstraction",
       "trigger": "unnecessary-abstraction",
       "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "live_block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "accepted_fingerprint": null,
-      "accepted_currentness_root": null,
       "canonical_owner_id": "owner-canonical",
       "incumbent_path_id": "architectural-owner",
       "evidence_refs": [
@@ -412,15 +420,14 @@
         "closed"
       ],
       "expected_continue_to": "block:5:remaining-work",
-      "expected_extra_cycle": true
+      "expected_extra_cycle": true,
+      "accepted_snapshot_case_id": null
     },
     {
       "case_id": "blind-retry",
       "trigger": "blind-retry",
       "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "live_block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "accepted_fingerprint": null,
-      "accepted_currentness_root": null,
       "canonical_owner_id": "owner-canonical",
       "incumbent_path_id": "local",
       "evidence_refs": [
@@ -549,15 +556,14 @@
         "closed"
       ],
       "expected_continue_to": "block:5:remaining-work",
-      "expected_extra_cycle": true
+      "expected_extra_cycle": true,
+      "accepted_snapshot_case_id": null
     },
     {
       "case_id": "overbroad-validation",
       "trigger": "invalid-validation",
       "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "live_block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "accepted_fingerprint": null,
-      "accepted_currentness_root": null,
       "canonical_owner_id": "owner-canonical",
       "incumbent_path_id": "architectural-owner",
       "evidence_refs": [
@@ -683,15 +689,14 @@
         "closed"
       ],
       "expected_continue_to": "block:5:remaining-work",
-      "expected_extra_cycle": true
+      "expected_extra_cycle": true,
+      "accepted_snapshot_case_id": null
     },
     {
       "case_id": "protected-capability-regression",
       "trigger": "protected-capability-regression",
       "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "live_block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "accepted_fingerprint": null,
-      "accepted_currentness_root": null,
       "canonical_owner_id": "owner-canonical",
       "incumbent_path_id": "local",
       "evidence_refs": [
@@ -817,15 +822,14 @@
         "closed"
       ],
       "expected_continue_to": "block:5:remaining-work",
-      "expected_extra_cycle": true
+      "expected_extra_cycle": true,
+      "accepted_snapshot_case_id": null
     },
     {
       "case_id": "justified-incumbent",
       "trigger": "none",
       "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "live_block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "accepted_fingerprint": null,
-      "accepted_currentness_root": null,
       "canonical_owner_id": "owner-canonical",
       "incumbent_path_id": "local",
       "evidence_refs": [
@@ -933,15 +937,14 @@
       "expected_selected_path": "local",
       "expected_decision_stages": [],
       "expected_continue_to": "block:5:remaining-work",
-      "expected_extra_cycle": false
+      "expected_extra_cycle": false,
+      "accepted_snapshot_case_id": null
     },
     {
       "case_id": "unchanged-repeat",
       "trigger": "equivalent-fingerprint",
       "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "live_block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "accepted_fingerprint": "d7f5cd62d74dab01adec9cf0c04774a0f1cd1cf816bf09da7e921b4c5baf7fae",
-      "accepted_currentness_root": "6e5879d678c161e3c699fc6778c5a6ae910e87be04d8baf2b8b35c4daf3b0ac7",
       "canonical_owner_id": "owner-canonical",
       "incumbent_path_id": "local",
       "evidence_refs": [
@@ -1049,15 +1052,14 @@
       "expected_selected_path": "local",
       "expected_decision_stages": [],
       "expected_continue_to": "block:5:remaining-work",
-      "expected_extra_cycle": false
+      "expected_extra_cycle": false,
+      "accepted_snapshot_case_id": "unchanged-repeat"
     },
     {
       "case_id": "requires-candidate",
       "trigger": "material-better-path",
       "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "live_block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "accepted_fingerprint": null,
-      "accepted_currentness_root": null,
       "canonical_owner_id": "owner-canonical",
       "incumbent_path_id": "local",
       "evidence_refs": [
@@ -1177,15 +1179,14 @@
         "selected"
       ],
       "expected_continue_to": "block:5:safe-frontier",
-      "expected_extra_cycle": true
+      "expected_extra_cycle": true,
+      "accepted_snapshot_case_id": null
     },
     {
       "case_id": "requires-structural-amendment",
       "trigger": "block-contract-invalidated",
       "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "live_block_contract_root": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "accepted_fingerprint": null,
-      "accepted_currentness_root": null,
       "canonical_owner_id": "owner-canonical",
       "incumbent_path_id": "local",
       "evidence_refs": [
@@ -1308,7 +1309,8 @@
         "selected"
       ],
       "expected_continue_to": "block:5:safe-frontier",
-      "expected_extra_cycle": true
+      "expected_extra_cycle": true,
+      "accepted_snapshot_case_id": null
     }
   ]
 }

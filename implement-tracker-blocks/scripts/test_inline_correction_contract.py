@@ -39,11 +39,42 @@ MISSION_ROOT = "0" * 64
 POLICY_ROOT = "1" * 64
 EVENT_HEAD_ROOT = "2" * 64
 TARGET_ROOT = "/tmp/software-factory-inline-correction-target"
+TRACKER_RECORD_PATH = TRACKER_PATH.relative_to(REPO_ROOT).as_posix()
 
 
 def canonical_root(value: object) -> str:
     raw = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def case_source_material(case: dict[str, object]) -> dict[str, object]:
+    """Return the exact repository-owned input, excluding expected test outputs."""
+    return {
+        key: copy.deepcopy(value)
+        for key, value in case.items()
+        if not key.startswith("expected_")
+    }
+
+
+def case_source_root(case: dict[str, object]) -> str:
+    return canonical_root(case_source_material(case))
+
+
+def canonical_case(case_id: str) -> dict[str, object]:
+    matches = [case for case in EXERCISE["cases"] if case["case_id"] == case_id]
+    if len(matches) != 1:
+        raise ValueError("case identity is absent or duplicated")
+    case = matches[0]
+    expected_roots = EXERCISE["case_source_roots"]
+    if set(expected_roots) != {item["case_id"] for item in EXERCISE["cases"]}:
+        raise ValueError("case source-root catalog is incomplete")
+    if case_source_root(case) != expected_roots[case_id]:
+        raise ValueError("repository-owned case source root differs")
+    return copy.deepcopy(case)
+
+
+def tracker_sha256() -> str:
+    return hashlib.sha256(TRACKER_PATH.read_bytes()).hexdigest()
 
 
 def evidence_root(source_class: str, claim_ids: list[str]) -> str:
@@ -246,7 +277,7 @@ def decision_projection(
         "authority_evidence_refs": [],
         "prior_mission_root": MISSION_ROOT,
         "proposed_mission_root": None,
-        "tracker_path": str(TRACKER_PATH.resolve()),
+        "tracker_path": TRACKER_RECORD_PATH,
         "block_number": EXERCISE["current_block"],
         "block_contract_root": case["block_contract_root"],
         "target_class": "target-repository",
@@ -412,32 +443,28 @@ def accepted_snapshot_root(case: dict[str, object], selected: str) -> tuple[str,
     return str(records[-1]["decision_fingerprint"]), str(records[-1]["currentness_root"])
 
 
-def closure_evidence_is_current(record: dict[str, object]) -> bool:
-    validation = [
-        item for item in record["evidence_refs"]
-        if item["source_class"] == "validation"
-        and item["adjudication_posture"] == "process"
-    ]
-    outcomes = [
-        item for item in record["evidence_refs"]
-        if item["source_class"] == "observed-outcome"
-        and item["adjudication_posture"] == "current-outcome"
-    ]
-    validation_claims = {record["decision_id"], record["current_target_state_root"]}
-    outcome_claims = {
-        record["decision_id"],
-        record["current_target_state_root"],
-        record["target_revision_root"],
-    }
-    return (
-        record["decision_stage"] == "closed"
-        and any(validation_claims.issubset(set(item["claim_ids"])) for item in validation)
-        and any(outcome_claims.issubset(set(item["claim_ids"])) for item in outcomes)
-        and record["currentness_root"] == canonical_root(currentness_projection(record))
-    )
+def closure_evidence_is_current(
+    record: dict[str, object], case: dict[str, object]
+) -> bool:
+    """Compare closure to independently derived repository and outcome material."""
+    try:
+        expected_root = EXERCISE["case_source_roots"][case["case_id"]]
+        if case_source_root(case) != expected_root:
+            return False
+        if EXERCISE["tracker_sha256"] != tracker_sha256():
+            return False
+        selected = str(record["selected_path"])
+        expected = build_inline_stage_records(case, selected)[-1]
+    except (AssertionError, KeyError, TypeError, ValueError):
+        return False
+    return record == expected
 
 
-def decide(case: dict[str, object], current_block: int) -> dict[str, object]:
+def _decide(case: dict[str, object], expected_source_root: str) -> dict[str, object]:
+    if case_source_root(case) != expected_source_root:
+        raise ValueError("case differs from repository-owned source root")
+    if EXERCISE["tracker_sha256"] != tracker_sha256():
+        raise ValueError("tracker source root is stale")
     disposition, selected = derive_selection(case)
     fingerprint = decision_fingerprint(case, selected)
     deduplicated = False
@@ -445,18 +472,25 @@ def decide(case: dict[str, object], current_block: int) -> dict[str, object]:
     if case["trigger"] == "equivalent-fingerprint":
         if selected is None:
             raise ValueError("equivalent decision has no incumbent")
-        expected_fingerprint, expected_currentness = accepted_snapshot_root(case, selected)
-        if (
-            case["accepted_fingerprint"] != expected_fingerprint
-            or case["accepted_currentness_root"] != expected_currentness
-        ):
+        snapshot_id = case["accepted_snapshot_case_id"]
+        if not isinstance(snapshot_id, str):
+            raise ValueError("equivalent decision lacks an accepted snapshot")
+        accepted_case = canonical_case(snapshot_id)
+        accepted_disposition, accepted_selected = derive_selection(accepted_case)
+        if accepted_disposition != "continue-unchanged" or accepted_selected is None:
+            raise ValueError("accepted snapshot does not describe the incumbent")
+        expected_fingerprint, expected_currentness = accepted_snapshot_root(
+            accepted_case, accepted_selected
+        )
+        live_fingerprint, live_currentness = accepted_snapshot_root(case, selected)
+        if live_fingerprint != expected_fingerprint or live_currentness != expected_currentness:
             raise ValueError("accepted fingerprint/currentness is stale")
         deduplicated = True
     elif disposition == "correct-inline":
         assert selected is not None
         records = build_inline_stage_records(case, selected)
         closed = records[-1]
-        if not closure_evidence_is_current(closed):
+        if not closure_evidence_is_current(closed, case):
             raise ValueError("inline closure lacks current validation/outcome")
 
     rejected = {
@@ -466,9 +500,9 @@ def decide(case: dict[str, object], current_block: int) -> dict[str, object]:
         if path["path_id"] != selected
     }
     continuation = (
-        f"block:{current_block}:remaining-work"
+        f"block:{EXERCISE['current_block']}:remaining-work"
         if disposition in {"continue-unchanged", "correct-inline"}
-        else f"block:{current_block}:safe-frontier"
+        else f"block:{EXERCISE['current_block']}:safe-frontier"
     )
     return {
         "disposition": disposition,
@@ -486,25 +520,31 @@ def decide(case: dict[str, object], current_block: int) -> dict[str, object]:
     }
 
 
-def refresh_path_evidence(case: dict[str, object], path_id: str) -> None:
-    path = next(path for path in case["paths"] if path["path_id"] == path_id)
-    claims = sorted({*required_path_claims(path), "protected-existing-effect"})
-    for ref_id in path["evidence_ref_ids"]:
-        evidence = next(item for item in case["evidence_refs"] if item["ref_id"] == ref_id)
-        evidence["claim_ids"] = claims
-        evidence["root_sha256"] = evidence_root(evidence["source_class"], claims)
+def decide(case_id: str) -> dict[str, object]:
+    case = canonical_case(case_id)
+    return _decide(case, EXERCISE["case_source_roots"][case_id])
 
 
 class InlineCorrectionContractTests(unittest.TestCase):
     def test_source_cases_derive_disposition_identity_stages_and_continuation(self) -> None:
         self.assertEqual(EXERCISE["schema_version"], 2)
         self.assertEqual(len(EXERCISE["cases"]), 10)
+        self.assertEqual(EXERCISE["tracker_sha256"], tracker_sha256())
         self.assertEqual(
             EXERCISE["target_revision_root"],
             canonical_root({"target_revision": EXERCISE["target_revision"]}),
         )
-        for case in EXERCISE["cases"]:
-            result = decide(case, EXERCISE["current_block"])
+        self.assertEqual(
+            set(EXERCISE["case_source_roots"]),
+            {case["case_id"] for case in EXERCISE["cases"]},
+        )
+        for source_case in EXERCISE["cases"]:
+            case_id = source_case["case_id"]
+            case = canonical_case(case_id)
+            self.assertEqual(
+                case_source_root(case), EXERCISE["case_source_roots"][case_id]
+            )
+            result = decide(case_id)
             self.assertEqual(result["disposition"], case["expected_disposition"])
             self.assertEqual(result["selected_path"], case["expected_selected_path"])
             self.assertEqual(result["decision_stages"], case["expected_decision_stages"])
@@ -515,11 +555,8 @@ class InlineCorrectionContractTests(unittest.TestCase):
                 self.assertTrue(reasons, rejected_path)
 
     def test_inline_records_are_exact_immutable_and_close_on_current_outcome(self) -> None:
-        case = next(
-            item for item in EXERCISE["cases"]
-            if item["case_id"] == "lower-power-shortcut"
-        )
-        result = decide(case, 5)
+        case = canonical_case("lower-power-shortcut")
+        result = decide("lower-power-shortcut")
         records = result["stage_records"]
         self.assertEqual([record["decision_stage"] for record in records], [
             "selected", "implementing", "validated", "closed"
@@ -548,7 +585,7 @@ class InlineCorrectionContractTests(unittest.TestCase):
         self.assertIn(closed["decision_id"], outcome["claim_ids"])
         self.assertIn(closed["current_target_state_root"], outcome["claim_ids"])
         self.assertIn(closed["target_revision_root"], outcome["claim_ids"])
-        self.assertTrue(closure_evidence_is_current(closed))
+        self.assertTrue(closure_evidence_is_current(closed, case))
 
         missing_outcome = copy.deepcopy(closed)
         missing_outcome["evidence_refs"] = [
@@ -561,7 +598,7 @@ class InlineCorrectionContractTests(unittest.TestCase):
         missing_outcome["currentness_root"] = canonical_root(
             currentness_projection(missing_outcome)
         )
-        self.assertFalse(closure_evidence_is_current(missing_outcome))
+        self.assertFalse(closure_evidence_is_current(missing_outcome, case))
 
         stale_claim = copy.deepcopy(closed)
         stale_outcome = next(
@@ -571,68 +608,104 @@ class InlineCorrectionContractTests(unittest.TestCase):
         stale_outcome["claim_ids"] = [closed["decision_id"]]
         stale_claim["evidence_manifest_root"] = canonical_root(stale_claim["evidence_refs"])
         stale_claim["currentness_root"] = canonical_root(currentness_projection(stale_claim))
-        self.assertFalse(closure_evidence_is_current(stale_claim))
+        self.assertFalse(closure_evidence_is_current(stale_claim, case))
 
-    def test_legitimate_owner_and_capability_evidence_changes_selection_and_root(self) -> None:
-        original = next(
-            case for case in EXERCISE["cases"]
-            if case["case_id"] == "lower-power-shortcut"
+        for field, replacement in (
+            ("target_revision", "unbound-revision"),
+            ("target_revision_root", "f" * 64),
+            ("decision_fingerprint", "f" * 64),
+            ("tracker_sha256", "f" * 64),
+            ("block_number", 999),
+        ):
+            attacked = copy.deepcopy(closed)
+            attacked[field] = replacement
+            attacked["currentness_root"] = canonical_root(
+                currentness_projection(attacked)
+            )
+            self.assertFalse(closure_evidence_is_current(attacked, case), field)
+
+        invented_outcome = copy.deepcopy(closed)
+        attacked_outcome = next(
+            item for item in invented_outcome["evidence_refs"]
+            if item["source_class"] == "observed-outcome"
         )
-        base = decide(original, 5)
-        self.assertEqual(base["selected_path"], "bounded-general")
-
-        changed_owner = copy.deepcopy(original)
-        changed_owner["canonical_owner_id"] = "owner-other"
-        owner_path = next(
-            path for path in changed_owner["paths"]
-            if path["path_id"] == "architectural-owner"
+        attacked_outcome["root_sha256"] = "f" * 64
+        invented_outcome["evidence_manifest_root"] = canonical_root(
+            invented_outcome["evidence_refs"]
         )
-        owner_path["owner_id"] = "owner-other"
-        owner_path["current_consumers"] = ["consumer-current"]
-        refresh_path_evidence(changed_owner, "architectural-owner")
-        owner_result = decide(changed_owner, 5)
-        self.assertEqual(owner_result["selected_path"], "architectural-owner")
-        self.assertNotEqual(base["decision_fingerprint"], owner_result["decision_fingerprint"])
+        invented_outcome["currentness_root"] = canonical_root(
+            currentness_projection(invented_outcome)
+        )
+        self.assertFalse(closure_evidence_is_current(invented_outcome, case))
 
-        local_complete = copy.deepcopy(original)
-        local = next(path for path in local_complete["paths"] if path["path_id"] == "local")
+    def test_repository_sources_select_all_three_paths_and_reject_self_authoring(self) -> None:
+        selections = {
+            "wrong-owner": "architectural-owner",
+            "lower-power-shortcut": "bounded-general",
+            "unnecessary-abstraction": "local",
+        }
+        for case_id, selected in selections.items():
+            self.assertEqual(decide(case_id)["selected_path"], selected)
+
+        case = canonical_case("lower-power-shortcut")
+        expected_root = EXERCISE["case_source_roots"][case["case_id"]]
+        mutations: list[tuple[str, dict[str, object]]] = []
+
+        changed_owner = copy.deepcopy(case)
+        changed_owner["canonical_owner_id"] = "invented-owner"
+        mutations.append(("owner", changed_owner))
+
+        invented_capability = copy.deepcopy(case)
+        local = next(
+            path for path in invented_capability["paths"] if path["path_id"] == "local"
+        )
         local["capability_complete"] = True
-        local["current_consumers"] = ["consumer-current"]
-        refresh_path_evidence(local_complete, "local")
-        local_result = decide(local_complete, 5)
-        self.assertEqual(local_result["selected_path"], "local")
-        self.assertNotEqual(base["decision_fingerprint"], local_result["decision_fingerprint"])
+        local["current_consumers"] = ["invented-consumer"]
+        mutations.append(("capability", invented_capability))
+
+        changed_contract = copy.deepcopy(case)
+        changed_contract["block_contract_root"] = "f" * 64
+        changed_contract["live_block_contract_root"] = "f" * 64
+        mutations.append(("contract", changed_contract))
+
+        rewritten_evidence = copy.deepcopy(case)
+        evidence = rewritten_evidence["evidence_refs"][0]
+        evidence["claim_ids"] = sorted([*evidence["claim_ids"], "consumer:invented"])
+        evidence["root_sha256"] = evidence_root(
+            evidence["source_class"], evidence["claim_ids"]
+        )
+        mutations.append(("evidence", rewritten_evidence))
+
+        for label, attacked in mutations:
+            with self.assertRaisesRegex(ValueError, "repository-owned source root", msg=label):
+                _decide(attacked, expected_root)
 
     def test_stale_or_dangling_evidence_and_overlap_fail_closed(self) -> None:
-        wrong_owner = next(
-            case for case in EXERCISE["cases"] if case["case_id"] == "wrong-owner"
-        )
+        wrong_owner = canonical_case("wrong-owner")
         overlap = copy.deepcopy(wrong_owner)
         overlap["valid_work_refs"] = ["ev-local"]
         with self.assertRaisesRegex(ValueError, "valid and stale"):
-            decide(overlap, 5)
+            derive_selection(overlap)
 
         dangling = copy.deepcopy(wrong_owner)
         dangling["paths"][1]["evidence_ref_ids"] = ["missing"]
         with self.assertRaisesRegex(ValueError, "dangling"):
-            decide(dangling, 5)
+            derive_selection(dangling)
 
         process_trigger = copy.deepcopy(wrong_owner)
         process_trigger["evidence_refs"][0]["adjudication_posture"] = "process"
         with self.assertRaisesRegex(ValueError, "not adjudicating"):
-            decide(process_trigger, 5)
+            derive_selection(process_trigger)
 
         stale_fact = copy.deepcopy(wrong_owner)
         local = next(path for path in stale_fact["paths"] if path["path_id"] == "local")
         local["capability_complete"] = False
         with self.assertRaisesRegex(ValueError, "facts differ"):
-            decide(stale_fact, 5)
+            derive_selection(stale_fact)
 
     def test_equal_fingerprint_fast_path_rejects_stale_live_mutation(self) -> None:
-        repeated = next(
-            case for case in EXERCISE["cases"] if case["case_id"] == "unchanged-repeat"
-        )
-        result = decide(repeated, 5)
+        repeated = canonical_case("unchanged-repeat")
+        result = decide("unchanged-repeat")
         self.assertEqual(result["disposition"], "continue-unchanged")
         self.assertTrue(result["deduplicated"])
         self.assertFalse(result["extra_cycle"])
@@ -642,8 +715,22 @@ class InlineCorrectionContractTests(unittest.TestCase):
         local = next(path for path in mutated["paths"] if path["path_id"] == "local")
         local["owner_id"] = "owner-wrong"
         local["capability_complete"] = False
-        with self.assertRaises(ValueError):
-            decide(mutated, 5)
+        with self.assertRaisesRegex(ValueError, "repository-owned source root"):
+            _decide(mutated, EXERCISE["case_source_roots"]["unchanged-repeat"])
+
+    def test_continuation_identity_is_canonical_and_not_caller_selected(self) -> None:
+        result = decide("lower-power-shortcut")
+        self.assertEqual(result["continue_to"], "block:5:remaining-work")
+        self.assertTrue(
+            all(record["block_number"] == 5 for record in result["stage_records"])
+        )
+        self.assertEqual(
+            TRACKER_RECORD_PATH,
+            "docs/software-factory-adaptive-implementation-decision-control-implementation-tracker.md",
+        )
+        self.assertNotIn(str(REPO_ROOT), result["stage_records"][0]["tracker_path"])
+        with self.assertRaises((TypeError, ValueError)):
+            decide(999)  # type: ignore[arg-type]
 
     def test_method_preserves_work_rejects_meta_flow_and_escalates_exactly(self) -> None:
         for phrase in (
@@ -655,15 +742,11 @@ class InlineCorrectionContractTests(unittest.TestCase):
             "zero model, reviewer, candidate, or authoring work",
         ):
             self.assertIn(phrase, SKILL)
-        candidate = next(
-            case for case in EXERCISE["cases"] if case["case_id"] == "requires-candidate"
+        self.assertEqual(decide("requires-candidate")["disposition"], "compare-candidate")
+        self.assertEqual(
+            decide("requires-structural-amendment")["disposition"],
+            "amend-structure",
         )
-        structural = next(
-            case for case in EXERCISE["cases"]
-            if case["case_id"] == "requires-structural-amendment"
-        )
-        self.assertEqual(decide(candidate, 5)["disposition"], "compare-candidate")
-        self.assertEqual(decide(structural, 5)["disposition"], "amend-structure")
 
 
 if __name__ == "__main__":
