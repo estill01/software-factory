@@ -129,6 +129,18 @@ the completed program materially changes Software Factory.
 
 ### Corrected
 
+- **Critical full-tracker continuation and early-return control.** Recorded the
+  recurring root failure as unauthorized requested-range contraction followed
+  by false terminalization at an internal Block/procedural boundary
+  (`FM-UNAUTHORIZED-EARLY-RETURN`), with routed-precedence shadowing retained as
+  a contributing mechanism. Added a canonical, policy-history-anchored direct
+  range binding, dynamic full-tracker amendment coverage, reviewed direct-user-
+  only contraction, dependency-safe continuation, reducer-derived terminal
+  currentness, and fail-closed lifecycle rules across tracker authoring,
+  implementation, and supervision. Regression fixtures include this Software
+  Factory run and task `019fb18f-3d03-7ca0-9fe9-68353f0405ce`, where a bare
+  skill invocation was incorrectly reduced to Block 0.
+
 - **Adaptive tracker provenance.** Corrected the planned adaptive-decision
   tracker so routed `codex_delegation` advice remains advisory rather than being
   represented as direct product authority. Direct requirements are bound to the

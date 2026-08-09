@@ -188,6 +188,16 @@ renumbering mechanically, then inspect every dependency and semantic
 cross-reference. Do not mark newly introduced work complete merely because
 adjacent implementation exists.
 
+An accepted amendment changes the plan, not the standing direct implementation
+range. When the user authorized implementation of the tracker as a whole,
+inserted prerequisite Blocks, splits, merges, and renumbering remain inside the
+same full-tracker intent through the new terminal Block and observable outcome.
+Record the old-to-new map, but never reinterpret the amendment as authorization
+to implement only the newly inserted Blocks or to discard the previously
+requested remainder. Only a newer exact direct-user instruction may contract
+that range. Authoring Stop boundaries and authoring-review acceptance are
+internal prerequisites to implementation, not outcome completion.
+
 ## Record status and evidence
 
 Read [references/evidence-and-status-rules.md](references/evidence-and-status-rules.md)

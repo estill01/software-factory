@@ -463,10 +463,22 @@ stable transition in the existing event ledger with these exact ordered phases:
 
 Every transition preserves prior identity and may advance only one phase. It
 cannot skip a phase, claim future evidence early, change the tracker or mission,
-or start at a different Block. The gate returns `source_stop_permitted=true`
-only at `work-started`. Before then, the required source posture is
-`in-progress`; a handoff, accepted tracker, created task, bound group, or target
-acknowledgement cannot close the user's requested scope.
+or start at a different Block. `same-task-new-run` is the default topology and
+moves directly from `required` to `work-started` without task creation or human
+scheduling. `distinct-task` requires the exact direct request or technical-
+isolation rationale and rejects a successor equal to the source. The gate
+returns `source_stop_permitted=true` only when a distinct successor reaches
+`work-started`; same-task work continues under the governing outcome.
+
+When a transition premise becomes stale or wrong, append one `corrected`,
+`cancelled`, bounded `expired`, or `superseded` disposition. It must cite the
+exact current prior record, reason, reviewed direct authority, and governing-
+outcome effect. Supersession requires one already declared forward replacement
+whose genesis names the predecessor; it becomes current only after the exact
+supersession link. Correction, cancellation, and expiry resume the source task.
+Old records remain immutable and inspectable. Routed supervision may trigger
+review but cannot supply correction authority, and expiry ends only its bounded
+operation control—never the governing outcome.
 
 Create the initial record with the direct governing source, not the routed
 packet that happened to trigger the topology change:
@@ -533,6 +545,56 @@ authority. For the initiating class here, use:
 `status` exposes every open successor transition. `lifecycle-gate` rejects a
 completed source and returns `source_stop_permitted=false` for paused, stopped,
 or completed postures while any transition remains before `work-started`.
+
+## Critical early-return prevention
+
+Freeze one direct requested-range binding in the canonical supervision policy
+before implementation begins. A bare `implement-tracker-blocks` invocation or
+an unbounded request to implement an established tracker binds the complete
+current tracker; exact numeric Block requests remain bounded. The policy-
+history chain anchors immutable genesis and every accepted range amendment. A
+full-tracker binding expands across accepted prerequisite insertion and
+renumbering. It can contract only through a later reviewed direct-user
+authority receipt resolved by the canonical owner, never from a caller string,
+routed supervision, `codex_delegation`, tracker or process evidence, a
+task/run/group transition, handoff, review, commit, push, or Block Stop.
+
+`FM-UNAUTHORIZED-EARLY-RETURN` is critical. Its root characterization is
+unauthorized requested-range contraction followed by false terminalization at
+an internal Block or procedural boundary. Routed-authority precedence may be a
+contributing mechanism but is not the causal root. At every Block Stop and
+immediately before a terminal lifecycle write or final response, call
+`implementation-range-gate`. It rehydrates the owner-pinned tracker, verifies
+policy-history and range-history currentness, derives accepted/remaining/
+dependency-safe Blocks, and consumes the canonical governing-outcome reducer;
+it accepts no caller-supplied terminal roots. Any nonterminal result requires
+immediate safe continuation and forbids terminalization. It never requests
+Resume or ordinary human scheduling. Only an exact one-Block request may
+normally return at that Block's Stop.
+
+Bind once, amend only after an accepted tracker revision, and gate every Stop:
+
+```bash
+python3 <LOG_HELPER> implementation-range-bind \
+  --target-thread <TARGET> --range-id <STABLE_RANGE_ID> \
+  --tracker <ABSOLUTE_TRACKER_PATH> --request-text <EXACT_DIRECT_REQUEST> \
+  --authority-source-record <DIRECT_ITEM> \
+  --authority-source-sha256 <DIRECT_ITEM_SHA256>
+
+python3 <LOG_HELPER> implementation-range-amend \
+  --target-thread <TARGET> --tracker <ABSOLUTE_TRACKER_PATH> \
+  --amendment-map-sha256 <EXACT_MAP_ROOT>
+
+python3 <LOG_HELPER> implementation-range-gate \
+  --target-thread <TARGET> \
+  --response-kind <block-boundary|outcome-terminal>
+```
+
+The initial source must resolve to the bound direct mission or an already
+reviewed canonical authority receipt. A contraction first records
+`implementation-range-authority-receipt` with an eligible independent reviewer,
+then cites that exact record/hash on `implementation-range-amend`. Naming a new
+string without that receipt fails closed.
 
 ## Target-state fingerprint
 

@@ -862,7 +862,8 @@ ordinary scheduling back to the human.
 - Posture: `consequential`.
 - Intended capability gain: recover automatically when evidence shows that a
   required successor task, hold, or transition premise was wrong or is no
-  longer current.
+  longer current, and prevent a full-tracker request from being silently
+  contracted or terminalized at an internal Block/procedural boundary.
 - Potential capability loss or regression: permissive retirement could erase a
   genuine unfulfilled implementation obligation or turn supervisor advice into
   mission authority.
@@ -903,13 +904,25 @@ ordinary scheduling back to the human.
   consumers receive the same final posture and automatic next action.
 - Keep legacy linear transition records readable and preserve their exact
   evidence; migration is additive and lazy.
+- Bind the original direct implementation range canonically under the
+  supervision/outcome owner. An unbounded or bare skill invocation means the
+  full amended tracker; only exact Block/range wording is bounded. Anchor
+  immutable genesis and append-only changes in policy history, resolve any
+  contraction only from a newer reviewed direct-user authority receipt, and
+  reject caller-selected binding or terminal-evidence files.
+- At every Block Stop derive accepted, remaining, and dependency-safe Blocks
+  from the owner-pinned current tracker. Treat a nonterminal result as an
+  immediate continuation action, integrate it into lifecycle completion, and
+  classify a return as critical `FM-UNAUTHORIZED-EARLY-RETURN` until the full
+  requested range and governing outcome are current.
 
 ### Scope and non-goals
 
 In scope: existing transition event schema/CLI, correction validation, head
-selection, reducer integration, documentation, and focused tests. Out of scope:
-creating a Codex task, altering the old live ledger, closing old incidents,
-changing the direct mission, or implementing the later adaptive tracker.
+selection, canonical range binding/gate, terminal lifecycle integration,
+reducer integration, documentation, and focused tests. Out of scope: creating a
+Codex task, altering the old live ledger, closing old incidents, changing the
+direct mission, or implementing the later adaptive tracker.
 
 ### Deliverables and recorded state
 
@@ -917,6 +930,9 @@ changing the direct mission, or implementing the later adaptive tracker.
 - Current-head derivation with historical/superseded visibility.
 - Same-task default, distinct-task proof, and self-successor rejection.
 - Focused replay of the stale transition without mutating the source ledger.
+- Canonical full-range continuation and critical early-return prevention,
+  including the reproduced Software Factory run and task
+  `019fb18f-3d03-7ca0-9fe9-68353f0405ce`.
 
 ### Resource and economy contract
 
@@ -943,6 +959,14 @@ retiring a control does not close the outcome.
   remains open until current completion or direct valid-stop proof exists.
 - The observed failure requires zero human scheduling input after the direct
   correction is already available.
+- A full-tracker or bare skill request remains bound through inserted/
+  renumbered prerequisites and the terminal Block. Block Stop, commit, push,
+  review, handoff, task/run/group, and routed `stop here` evidence cannot narrow
+  it or permit a final response.
+- Fabricated direct-user record strings, replaced/truncated binding state,
+  symlinked tracker paths, arbitrary SHA-shaped terminal roots, stale policy or
+  event heads, and terminal lifecycle writes with remaining Blocks fail closed.
+  A genuine exact one-Block request still returns after that accepted Block.
 
 ### Negative tests
 
@@ -953,6 +977,8 @@ retiring a control does not close the outcome.
 - Do not accept a successor task equal to the source task or a replacement
   chain that points backward/cyclically.
 - Do not rewrite or delete any prior event.
+- Do not permit a caller to select a replacement range-binding path, mint newer
+  direct authority by naming a record, or supply its own terminal roots.
 
 ### Completion evidence
 

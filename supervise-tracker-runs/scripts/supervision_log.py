@@ -10,6 +10,7 @@ import json
 import os
 import re
 import secrets
+import stat
 import sys
 import tempfile
 import tomllib
@@ -45,6 +46,7 @@ KINDS = {
     "roundup",
     "decision",
     "successor-transition",
+    "implementation-range",
 }
 STANDARD_LIFECYCLE_STATES = {"completed", "paused"}
 PRIORITY_LIFECYCLE_STATES = {"blocked", "failed", "stopped"}
@@ -162,6 +164,39 @@ SUCCESSOR_TRANSITION_PHASES = (
     "target-acknowledged",
     "work-started",
 )
+SUCCESSOR_TRANSITION_TERMINAL_PHASES = (
+    "corrected",
+    "superseded",
+    "cancelled",
+    "expired",
+)
+SUCCESSOR_TRANSITION_ALL_PHASES = (
+    *SUCCESSOR_TRANSITION_PHASES,
+    *SUCCESSOR_TRANSITION_TERMINAL_PHASES,
+)
+SUCCESSOR_TRANSITION_CLOSED_PHASES = {
+    "work-started",
+    *SUCCESSOR_TRANSITION_TERMINAL_PHASES,
+}
+SUCCESSOR_TOPOLOGY_POSTURES = {"same-task-new-run", "distinct-task"}
+SUCCESSOR_TOPOLOGY_BASES = {
+    "same-task-default",
+    "direct-request",
+    "technical-isolation",
+    "legacy-linear",
+}
+SUCCESSOR_GOVERNING_OUTCOME_EFFECTS = {
+    "continue-same-task",
+    "continue-replacement-transition",
+}
+MAX_SUCCESSOR_TRANSITION_HOURS = 24
+IMPLEMENTATION_RANGE_INTENTS = {"full-tracker", "explicit-blocks"}
+MAX_IMPLEMENTATION_TRACKER_BYTES = 2 * 1024 * 1024
+IMPLEMENTATION_BLOCK_HEADING = re.compile(r"^## Block (\d+)\b", re.MULTILINE)
+IMPLEMENTATION_TABLE_ROW = re.compile(r"^\|\s*(\d+)\s*\|(.+)$")
+IMPLEMENTATION_EXACT_RANGE = re.compile(
+    r"(?:^|\b)blocks?\s+(\d+)(?:\s*[-–]\s*(\d+))?(?:\b|$)", re.I
+)
 SUCCESSOR_TRANSITION_IDENTITY_FIELDS = (
     "tracker_sha256",
     "tracker_source_record",
@@ -170,6 +205,11 @@ SUCCESSOR_TRANSITION_IDENTITY_FIELDS = (
     "source_mission_root",
     "governing_authority_source_class",
     "governing_authority_source_record",
+    "topology_posture",
+    "topology_basis",
+    "topology_rationale",
+    "transition_expires_at",
+    "replaces_transition_id",
 )
 MAX_GOVERNING_OUTCOME_MEMBERS = 8
 FAILURE_MODE_LAYERS = {
@@ -1194,6 +1234,45 @@ def validate_policy(policy: dict[str, Any]) -> None:
             target_thread=str(policy.get("target_thread_id", "")),
         ):
             raise SupervisionLogError("Mission binding contract differs")
+    implementation_range = policy.get("implementation_range")
+    if implementation_range is not None:
+        if not isinstance(implementation_range, Mapping):
+            raise SupervisionLogError("Implementation range binding is not an object")
+        validate_implementation_range_contract(implementation_range)
+    authority_receipts = policy.get("direct_authority_receipts", [])
+    if not isinstance(authority_receipts, list):
+        raise SupervisionLogError("Direct-authority receipts are malformed")
+    seen_authority_receipts: set[tuple[str, str]] = set()
+    for receipt in authority_receipts:
+        if not isinstance(receipt, Mapping) or receipt.get("source_class") != "direct-user":
+            raise SupervisionLogError("Direct-authority receipt provenance differs")
+        source_record = safe_id(
+            str(receipt.get("source_record", "")),
+            label="direct-authority source record",
+        )
+        source_sha256 = exact_sha256(
+            str(receipt.get("source_sha256", "")),
+            label="direct-authority source SHA-256",
+        )
+        reviewer_id = safe_id(
+            str(receipt.get("reviewer_id", "")),
+            label="direct-authority receipt reviewer",
+        )
+        if receipt.get("accepted") is not True or not receipt.get("evidence"):
+            raise SupervisionLogError("Direct-authority receipt is not accepted evidence")
+        if not isinstance(receipt.get("accepted_policy_version"), int) or receipt[
+            "accepted_policy_version"
+        ] <= 0:
+            raise SupervisionLogError("Direct-authority receipt version is invalid")
+        if (source_record, source_sha256) in seen_authority_receipts:
+            raise SupervisionLogError("Direct-authority receipt is duplicated")
+        seen_authority_receipts.add((source_record, source_sha256))
+        runtime = policy.get("runtime", {})
+        if reviewer_id not in {
+            runtime.get("base_reviewer_thread_id"),
+            runtime.get("reviewer_thread_id"),
+        }:
+            raise SupervisionLogError("Direct-authority receipt reviewer is not bound")
     maintenance = policy.get("skill_maintenance")
     if maintenance is not None:
         if maintenance.get("mode") not in SKILL_MAINTENANCE_MODES:
@@ -1570,10 +1649,42 @@ def cmd_init(args: argparse.Namespace) -> None:
     print(json.dumps({"created": True, "policy": policy}, sort_keys=True))
 
 
+def range_policy_requires_history(policy: Mapping[str, Any]) -> bool:
+    return bool(
+        policy.get("implementation_range") is not None
+        or policy.get("direct_authority_receipts")
+    )
+
+
+def validate_range_policy_history_at(
+    directory_fd: int, policy: Mapping[str, Any]
+) -> None:
+    if not range_policy_requires_history(policy):
+        return
+    history, _snapshot = events_snapshot(
+        Path("policy-history.jsonl"), directory_fd=directory_fd
+    )
+    if not history or history[-1].get("policy") != policy:
+        raise SupervisionLogError(
+            "Canonical implementation-range policy history is stale or replaced"
+        )
+
+
+def validate_range_policy_history(directory: Path, policy: Mapping[str, Any]) -> None:
+    if not range_policy_requires_history(policy):
+        return
+    history = events(directory / "policy-history.jsonl")
+    if not history or history[-1].get("policy") != policy:
+        raise SupervisionLogError(
+            "Canonical implementation-range policy history is stale or replaced"
+        )
+
+
 def load_policy(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
     directory = target_dir(args)
     policy = read_json(directory / "policy.json")
     validate_policy(policy)
+    validate_range_policy_history(directory, policy)
     if policy.get("target_thread_id") != args.target_thread:
         raise SupervisionLogError("Policy belongs to a different target")
     return directory, policy
@@ -1604,9 +1715,10 @@ def load_policy_directory_snapshot(
         policy, snapshot = read_json_snapshot(
             Path("policy.json"), directory_fd=directory_fd
         )
+        validate_policy(policy)
+        validate_range_policy_history_at(directory_fd, policy)
     finally:
         os.close(directory_fd)
-    validate_policy(policy)
     if policy.get("target_thread_id") != args.target_thread:
         raise SupervisionLogError("Policy belongs to a different target")
     return directory, policy, snapshot, directory_snapshot
@@ -1630,12 +1742,13 @@ def load_control_snapshot(
         policy, policy_snapshot = read_json_snapshot(
             Path("policy.json"), directory_fd=directory_fd
         )
+        validate_policy(policy)
+        validate_range_policy_history_at(directory_fd, policy)
         all_events, event_snapshot = events_snapshot(
             Path("events.jsonl"), directory_fd=directory_fd
         )
     finally:
         os.close(directory_fd)
-    validate_policy(policy)
     if policy.get("target_thread_id") != args.target_thread:
         raise SupervisionLogError("Policy belongs to a different target")
     return (
@@ -2967,6 +3080,17 @@ def cmd_record(args: argparse.Namespace) -> None:
             current_events = events(directory / "events.jsonl")
             event_snapshot = None
         if args.kind == "lifecycle" and record["status"] == "completed":
+            range_state = implementation_range_state(policy)
+            if range_state is not None and range_state["remaining_blocks"]:
+                next_range_action = (
+                    "continue-next-eligible-block"
+                    if range_state["eligible_blocks"]
+                    else "reconcile-unmet-dependencies-without-final-response"
+                )
+                raise SupervisionLogError(
+                    "Completed lifecycle rejected by critical implementation-range "
+                    f"gate: {next_range_action}"
+                )
             if successor_transition_heads(current_events, open_only=True):
                 raise SupervisionLogError(
                     "Completed lifecycle rejected: an open successor transition "
@@ -3511,6 +3635,12 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
         open_transitions
         and lifecycle_state in {"completed", "paused", "stopped"}
     )
+    range_state = implementation_range_state(policy)
+    range_completion_conflict = bool(
+        range_state is not None
+        and range_state["remaining_blocks"]
+        and lifecycle_state == "completed"
+    )
 
     completion_permitted = True
     completion_record_id: str | None = None
@@ -3540,6 +3670,12 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
             completion_reason = (
                 "An open successor transition has not reached work-started; "
                 "handoff is not completion of the governing requested scope."
+            )
+        if range_completion_conflict:
+            completion_permitted = False
+            completion_reason = (
+                "Critical implementation-range gate retains requested Blocks; "
+                "continue the dependency-safe frontier before terminalization."
             )
 
     terminal_reporting = bool(
@@ -3662,7 +3798,13 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                     else "primary-status" if send_now else "none"
                 ),
                 "completion_action": (
-                    "resume-successor-transition"
+                    "continue-next-eligible-block"
+                    if range_completion_conflict
+                    and range_state is not None
+                    and range_state["eligible_blocks"]
+                    else "reconcile-unmet-dependencies-without-final-response"
+                    if range_completion_conflict
+                    else "resume-successor-transition"
                     if transition_stop_conflict
                     else "open-critical-false-completion-review"
                     if not completion_permitted
@@ -3706,6 +3848,7 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                 "control_posture": control_posture,
                 "state_fingerprint": source.get("state_fingerprint", ""),
                 "open_successor_transitions": list(open_transitions.values()),
+                "implementation_range": range_state,
                 "supervision_pause_permitted": supervision_pause_permitted,
                 "terminal_email_recipient": (
                     notification_config.get("recipient") if terminal_reporting else None
@@ -3757,33 +3900,846 @@ def successor_transition_heads(
     return {
         transition_id: item
         for transition_id, item in heads.items()
-        if item.get("phase") != "work-started"
+        if item.get("phase") not in SUCCESSOR_TRANSITION_CLOSED_PHASES
+        and successor_transition_is_activated(heads, transition_id, item)
     }
+
+
+def successor_transition_is_activated(
+    heads: Mapping[str, Mapping[str, Any]],
+    transition_id: str,
+    head: Mapping[str, Any],
+) -> bool:
+    predecessor_id = head.get("replaces_transition_id")
+    if not predecessor_id:
+        return True
+    predecessor = heads.get(str(predecessor_id))
+    return bool(
+        predecessor is not None
+        and predecessor.get("phase") == "superseded"
+        and predecessor.get("replacement_transition_id") == transition_id
+    )
+
+
+def transition_first_record(
+    all_events: list[dict[str, Any]], transition_id: str
+) -> dict[str, Any] | None:
+    return next(
+        (
+            item
+            for item in all_events
+            if item.get("kind") == "successor-transition"
+            and item.get("transition_id") == transition_id
+        ),
+        None,
+    )
+
+
+def implementation_tracker_snapshot(
+    path_value: str,
+) -> tuple[Path, str, dict[int, dict[str, Any]]]:
+    supplied = Path(path_value).expanduser()
+    descriptor = -1
+    try:
+        resolved = supplied.resolve(strict=True)
+        if supplied.is_symlink():
+            raise SupervisionLogError(
+                "Implementation tracker must be one explicit non-symlink file"
+            )
+        descriptor = os.open(
+            resolved,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+        )
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode):
+            raise SupervisionLogError("Implementation tracker is not a regular file")
+        if before.st_size > MAX_IMPLEMENTATION_TRACKER_BYTES:
+            raise SupervisionLogError("Implementation tracker exceeds its byte bound")
+        with os.fdopen(descriptor, "rb") as handle:
+            descriptor = -1
+            raw = handle.read(MAX_IMPLEMENTATION_TRACKER_BYTES + 1)
+            after = os.fstat(handle.fileno())
+        if file_snapshot(before) != file_snapshot(after) or path_snapshot(resolved) != file_snapshot(after):
+            raise SupervisionLogError("Implementation tracker changed while reading")
+    except OSError as exc:
+        raise SupervisionLogError("Implementation tracker cannot be read") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if len(raw) > MAX_IMPLEMENTATION_TRACKER_BYTES:
+        raise SupervisionLogError("Implementation tracker exceeds its byte bound")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise SupervisionLogError("Implementation tracker is not UTF-8") from exc
+    heading_values = [int(value) for value in IMPLEMENTATION_BLOCK_HEADING.findall(text)]
+    headings = set(heading_values)
+    if len(heading_values) != len(headings):
+        raise SupervisionLogError("Implementation tracker repeats a Block heading")
+    rows: dict[int, dict[str, Any]] = {}
+    for line in text.splitlines():
+        match = IMPLEMENTATION_TABLE_ROW.match(line)
+        if match is None:
+            continue
+        number = int(match.group(1))
+        cells = [item.strip().strip("`") for item in line.strip().strip("|").split("|")]
+        if len(cells) < 4 or number not in headings:
+            continue
+        if number in rows:
+            raise SupervisionLogError("Implementation tracker repeats a status row")
+        rows[number] = {
+            "scope": cells[1],
+            "dependencies": [int(item) for item in re.findall(r"\d+", cells[2])],
+            "status": cells[3],
+        }
+    missing = sorted(headings - set(rows))
+    if missing or not rows:
+        raise SupervisionLogError(
+            "Implementation tracker status table is incomplete"
+        )
+    return resolved, hashlib.sha256(raw).hexdigest(), rows
+
+
+def classify_implementation_request(
+    request_text: str, blocks: set[int]
+) -> tuple[str, list[int]]:
+    value = clean(
+        request_text,
+        label="implementation range request text",
+        maximum=1200,
+    )
+    match = IMPLEMENTATION_EXACT_RANGE.search(value)
+    if match is not None:
+        start = int(match.group(1))
+        end = int(match.group(2) or start)
+        if end < start:
+            raise SupervisionLogError("Implementation range is reversed")
+        requested = list(range(start, end + 1))
+        if set(requested) - blocks:
+            raise SupervisionLogError("Implementation range cites absent Blocks")
+        return "explicit-blocks", requested
+    if re.fullmatch(r"\d+(?:\s*[-–]\s*\d+)?", value.lower()):
+        return classify_implementation_request("Block " + value, blocks)
+    markers = (
+        "all",
+        "full",
+        "entire tracker",
+        "complete tracker",
+        "full tracker",
+        "this tracker",
+        "the tracker",
+        "implement-tracker-blocks",
+    )
+    if any(marker in value.lower() for marker in markers):
+        return "full-tracker", sorted(blocks)
+    raise SupervisionLogError(
+        "Implementation request does not establish full-tracker or exact Block intent"
+    )
+
+
+def implementation_range_contract(policy: Mapping[str, Any]) -> dict[str, Any] | None:
+    value = policy.get("implementation_range")
+    return dict(value) if isinstance(value, Mapping) else None
+
+
+def validate_implementation_range_contract(value: Mapping[str, Any]) -> None:
+    if value.get("schema_version") != 1 or value.get("kind") != "implementation-range-binding":
+        raise SupervisionLogError("Implementation range binding schema differs")
+    safe_id(str(value.get("range_id", "")), label="implementation range ID")
+    if value.get("range_intent") not in IMPLEMENTATION_RANGE_INTENTS:
+        raise SupervisionLogError("Implementation range intent is invalid")
+    exact_sha256(str(value.get("genesis_sha256", "")), label="range genesis SHA-256")
+    exact_sha256(str(value.get("tracker_sha256", "")), label="range tracker SHA-256")
+    tracker_path = value.get("tracker_path")
+    if not isinstance(tracker_path, str) or not Path(tracker_path).is_absolute():
+        raise SupervisionLogError("Implementation range tracker path is not exact")
+    source = value.get("authority")
+    if not isinstance(source, Mapping) or source.get("source_class") != "direct-user":
+        raise SupervisionLogError("Implementation range lacks direct-user authority")
+    safe_id(str(source.get("source_record", "")), label="range authority source record")
+    exact_sha256(str(source.get("source_sha256", "")), label="range authority source SHA-256")
+    explicit = value.get("explicit_blocks")
+    if not isinstance(explicit, list) or not all(isinstance(item, int) for item in explicit):
+        raise SupervisionLogError("Implementation range explicit Block set is invalid")
+    if value.get("range_intent") == "full-tracker" and explicit:
+        raise SupervisionLogError("Full-tracker binding cannot carry an explicit subset")
+    history = value.get("history")
+    if not isinstance(history, list) or not history:
+        raise SupervisionLogError("Implementation range lacks append-only history")
+    prior_hash = ""
+    prior_authority_version = 0
+    for index, item in enumerate(history):
+        if not isinstance(item, Mapping):
+            raise SupervisionLogError("Implementation range history is malformed")
+        if item.get("sequence") != index + 1 or item.get("prior_entry_sha256", "") != prior_hash:
+            raise SupervisionLogError("Implementation range history chain differs")
+        material = {key: item[key] for key in item if key != "entry_sha256"}
+        expected = digest(material)
+        if item.get("entry_sha256") != expected:
+            raise SupervisionLogError("Implementation range history entry hash is stale")
+        authority_version = item.get("authority_policy_version")
+        if not isinstance(authority_version, int) or authority_version <= 0:
+            raise SupervisionLogError(
+                "Implementation range authority version is invalid"
+            )
+        if item.get("operation") == "contracted" and authority_version <= prior_authority_version:
+            raise SupervisionLogError(
+                "Implementation range contraction authority is not newer"
+            )
+        prior_authority_version = max(prior_authority_version, authority_version)
+        prior_hash = expected
+    if value.get("history_head_sha256") != prior_hash:
+        raise SupervisionLogError("Implementation range history head is stale")
+    head = history[-1]
+    for contract_field, history_field in (
+        ("tracker_sha256", "tracker_sha256"),
+        ("tracker_path", "tracker_path"),
+        ("range_intent", "range_intent"),
+        ("explicit_blocks", "explicit_blocks"),
+        ("authority", "authority"),
+    ):
+        if value.get(contract_field) != head.get(history_field):
+            raise SupervisionLogError(
+                f"Implementation range current {contract_field.replace('_', ' ')} "
+                "differs from its append-only head"
+            )
+    genesis_material = {
+        "range_id": value["range_id"],
+        "authority": history[0].get("authority"),
+        "request_text_sha256": history[0].get("request_text_sha256"),
+        "initial_tracker_sha256": history[0].get("tracker_sha256"),
+        "initial_range_intent": history[0].get("range_intent"),
+        "initial_explicit_blocks": history[0].get("explicit_blocks"),
+    }
+    if value.get("genesis_sha256") != digest(genesis_material):
+        raise SupervisionLogError("Implementation range immutable genesis differs")
+
+
+def eligible_direct_authority(
+    policy: Mapping[str, Any], source_record: str, source_sha256: str
+) -> bool:
+    mission = bound_mission(dict(policy))
+    if mission is not None:
+        controlling = mission.get("mission_derivation", {}).get("controlling_source", {})
+        if (
+            controlling.get("class") == "direct-user"
+            and controlling.get("record") == source_record
+            and controlling.get("sha256") == source_sha256
+        ):
+            return True
+    receipts = policy.get("direct_authority_receipts", [])
+    return any(
+        isinstance(item, Mapping)
+        and item.get("source_class") == "direct-user"
+        and item.get("source_record") == source_record
+        and item.get("source_sha256") == source_sha256
+        and item.get("accepted") is True
+        for item in receipts
+    )
+
+
+def implementation_range_requested_blocks(
+    contract: Mapping[str, Any], blocks: set[int]
+) -> list[int]:
+    if contract.get("range_intent") == "full-tracker":
+        return sorted(blocks)
+    requested = contract.get("explicit_blocks", [])
+    if set(requested) - blocks:
+        raise SupervisionLogError(
+            "Bound explicit Blocks require an exact accepted renumbering map"
+        )
+    return sorted(set(requested))
+
+
+def implementation_range_state(
+    policy: Mapping[str, Any], *, require_tracker_hash: bool = True
+) -> dict[str, Any] | None:
+    contract = implementation_range_contract(policy)
+    if contract is None:
+        return None
+    validate_implementation_range_contract(contract)
+    path, tracker_sha256, blocks = implementation_tracker_snapshot(
+        str(contract["tracker_path"])
+    )
+    if str(path) != contract["tracker_path"]:
+        raise SupervisionLogError("Implementation tracker path identity changed")
+    if require_tracker_hash and tracker_sha256 != contract["tracker_sha256"]:
+        raise SupervisionLogError(
+            "Implementation tracker changed without an accepted range amendment"
+        )
+    requested = implementation_range_requested_blocks(contract, set(blocks))
+    accepted = [
+        number for number in requested if blocks[number]["status"] == "completed"
+    ]
+    remaining = [number for number in requested if number not in accepted]
+    eligible = [
+        number
+        for number in remaining
+        if all(
+            dependency in accepted
+            for dependency in blocks[number]["dependencies"]
+        )
+    ]
+    return {
+        "range_id": contract["range_id"],
+        "range_intent": contract["range_intent"],
+        "tracker_path": str(path),
+        "tracker_sha256": tracker_sha256,
+        "requested_blocks": requested,
+        "accepted_blocks": accepted,
+        "remaining_blocks": remaining,
+        "eligible_blocks": eligible,
+        "range_history_head_sha256": contract["history_head_sha256"],
+    }
+
+
+def cmd_implementation_authority_receipt(args: argparse.Namespace) -> None:
+    directory, policy = load_policy(args)
+    source_record = safe_id(
+        args.authority_source_record, label="direct-authority source record"
+    )
+    source_sha256 = exact_sha256(
+        args.authority_source_sha256, label="direct-authority source SHA-256"
+    )
+    reviewer_id = safe_id(args.reviewer_id, label="authority receipt reviewer")
+    runtime = policy.get("runtime", {})
+    eligible = {
+        runtime.get("base_reviewer_thread_id"),
+        runtime.get("reviewer_thread_id"),
+    }
+    disallowed = {
+        policy.get("target_thread_id"),
+        runtime.get("watcher_thread_id"),
+        runtime.get("fix_executor_thread_id"),
+    }
+    if reviewer_id not in eligible or reviewer_id in disallowed:
+        raise SupervisionLogError(
+            "Direct-authority receipt requires a bound independent reviewer"
+        )
+    evidence = [clean(item, label="authority evidence", maximum=300) for item in args.evidence]
+    if not evidence:
+        raise SupervisionLogError("Direct-authority receipt requires exact evidence")
+    receipts = policy.setdefault("direct_authority_receipts", [])
+    if any(
+        item.get("source_record") == source_record
+        and item.get("source_sha256") == source_sha256
+        for item in receipts
+    ):
+        print(json.dumps({"duplicate": True, "source_record": source_record}, sort_keys=True))
+        return
+    receipt = {
+        "source_class": "direct-user",
+        "source_record": source_record,
+        "source_sha256": source_sha256,
+        "reviewer_id": reviewer_id,
+        "accepted": True,
+        "accepted_policy_version": int(policy["policy_version"]) + 1,
+        "evidence": evidence,
+    }
+    receipts.append(receipt)
+    write_policy_version(
+        directory,
+        policy,
+        kind="implementation-range-authority-receipt",
+        reason="Accepted a reviewed direct-user range-authority source.",
+        evidence_values=evidence,
+    )
+    print(json.dumps({"duplicate": False, "receipt": receipt}, sort_keys=True))
+
+
+def implementation_range_history_entry(
+    *,
+    sequence: int,
+    prior_entry_sha256: str,
+    operation: str,
+    request_text: str,
+    tracker_sha256: str,
+    tracker_path: str,
+    range_intent: str,
+    explicit_blocks: list[int],
+    authority: Mapping[str, Any],
+    authority_policy_version: int,
+    amendment_map_sha256: str = "",
+) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "sequence": sequence,
+        "prior_entry_sha256": prior_entry_sha256,
+        "operation": operation,
+        "request_text_sha256": hashlib.sha256(request_text.encode("utf-8")).hexdigest(),
+        "tracker_sha256": tracker_sha256,
+        "tracker_path": tracker_path,
+        "range_intent": range_intent,
+        "explicit_blocks": explicit_blocks,
+        "authority": dict(authority),
+        "authority_policy_version": authority_policy_version,
+        "amendment_map_sha256": amendment_map_sha256,
+    }
+    entry["entry_sha256"] = digest(entry)
+    return entry
+
+
+def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
+    directory, policy = load_policy(args)
+    if implementation_range_contract(policy) is not None:
+        raise SupervisionLogError("Implementation range is already bound")
+    tracker_path, tracker_sha256, blocks = implementation_tracker_snapshot(args.tracker)
+    intent, requested = classify_implementation_request(args.request_text, set(blocks))
+    source_record = safe_id(
+        args.authority_source_record, label="range authority source record"
+    )
+    source_sha256 = exact_sha256(
+        args.authority_source_sha256, label="range authority source SHA-256"
+    )
+    if not eligible_direct_authority(policy, source_record, source_sha256):
+        raise SupervisionLogError(
+            "Implementation range source is not canonical eligible direct authority"
+        )
+    authority = {
+        "source_class": "direct-user",
+        "source_record": source_record,
+        "source_sha256": source_sha256,
+    }
+    range_id = safe_id(args.range_id, label="implementation range ID")
+    explicit = requested if intent == "explicit-blocks" else []
+    entry = implementation_range_history_entry(
+        sequence=1,
+        prior_entry_sha256="",
+        operation="bound",
+        request_text=args.request_text,
+        tracker_sha256=tracker_sha256,
+        tracker_path=str(tracker_path),
+        range_intent=intent,
+        explicit_blocks=explicit,
+        authority=authority,
+        authority_policy_version=int(policy["policy_version"]) + 1,
+    )
+    genesis = digest(
+        {
+            "range_id": range_id,
+            "authority": authority,
+            "request_text_sha256": entry["request_text_sha256"],
+            "initial_tracker_sha256": tracker_sha256,
+            "initial_range_intent": intent,
+            "initial_explicit_blocks": explicit,
+        }
+    )
+    policy["implementation_range"] = {
+        "schema_version": 1,
+        "kind": "implementation-range-binding",
+        "range_id": range_id,
+        "genesis_sha256": genesis,
+        "authority": authority,
+        "range_intent": intent,
+        "explicit_blocks": explicit,
+        "tracker_path": str(tracker_path),
+        "tracker_sha256": tracker_sha256,
+        "history": [entry],
+        "history_head_sha256": entry["entry_sha256"],
+    }
+    validate_implementation_range_contract(policy["implementation_range"])
+    write_policy_version(
+        directory,
+        policy,
+        kind="implementation-range-bind",
+        reason="Freeze the direct requested implementation range.",
+        evidence_values=[source_record, tracker_sha256, genesis],
+    )
+    print(json.dumps({"binding": policy["implementation_range"]}, sort_keys=True))
+
+
+def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
+    directory, policy = load_policy(args)
+    contract = implementation_range_contract(policy)
+    if contract is None:
+        raise SupervisionLogError("Implementation range is not bound")
+    validate_implementation_range_contract(contract)
+    tracker_path, tracker_sha256, blocks = implementation_tracker_snapshot(args.tracker)
+    old_intent = str(contract["range_intent"])
+    old_explicit = list(contract["explicit_blocks"])
+    if args.request_text:
+        new_intent, requested = classify_implementation_request(
+            args.request_text, set(blocks)
+        )
+        new_explicit = requested if new_intent == "explicit-blocks" else []
+    else:
+        new_intent = old_intent
+        new_explicit = old_explicit
+        if set(new_explicit) - set(blocks):
+            raise SupervisionLogError(
+                "Explicit range amendment requires an exact renumbering map"
+            )
+    contraction = bool(
+        old_intent == "full-tracker" and new_intent != "full-tracker"
+        or old_intent == "explicit-blocks"
+        and new_intent == "explicit-blocks"
+        and not set(old_explicit).issubset(new_explicit)
+    )
+    history = list(contract["history"])
+    authority = dict(contract["authority"])
+    if contraction:
+        source_record = safe_id(
+            args.authority_source_record,
+            label="range-change authority source record",
+        )
+        source_sha256 = exact_sha256(
+            args.authority_source_sha256,
+            label="range-change authority source SHA-256",
+        )
+        if (
+            source_record == contract["authority"]["source_record"]
+            or not eligible_direct_authority(policy, source_record, source_sha256)
+        ):
+            raise SupervisionLogError(
+                "Range contraction lacks a newer canonical direct-user authority event"
+            )
+        matching_receipt = next(
+            (
+                item
+                for item in policy.get("direct_authority_receipts", [])
+                if item.get("source_record") == source_record
+                and item.get("source_sha256") == source_sha256
+                and item.get("accepted") is True
+            ),
+            None,
+        )
+        minimum_authority_version = max(
+            int(item.get("authority_policy_version", 0)) for item in history
+        )
+        if (
+            matching_receipt is None
+            or int(matching_receipt.get("accepted_policy_version", 0))
+            <= minimum_authority_version
+        ):
+            raise SupervisionLogError(
+                "Range contraction authority is not newer than the frozen range"
+            )
+        authority = {
+            "source_class": "direct-user",
+            "source_record": source_record,
+            "source_sha256": source_sha256,
+        }
+        authority_policy_version = int(matching_receipt["accepted_policy_version"])
+    else:
+        authority_policy_version = int(
+            contract["history"][-1].get("authority_policy_version", 0)
+        )
+    amendment_map = (
+        exact_sha256(args.amendment_map_sha256, label="range amendment map SHA-256")
+        if args.amendment_map_sha256
+        else ""
+    )
+    entry = implementation_range_history_entry(
+        sequence=len(history) + 1,
+        prior_entry_sha256=str(contract["history_head_sha256"]),
+        operation="contracted" if contraction else "tracker-amended",
+        request_text=args.request_text or "preserve-frozen-range-intent",
+        tracker_sha256=tracker_sha256,
+        tracker_path=str(tracker_path),
+        range_intent=new_intent,
+        explicit_blocks=new_explicit,
+        authority=authority,
+        authority_policy_version=authority_policy_version,
+        amendment_map_sha256=amendment_map,
+    )
+    history.append(entry)
+    contract.update(
+        {
+            "authority": authority,
+            "range_intent": new_intent,
+            "explicit_blocks": new_explicit,
+            "tracker_path": str(tracker_path),
+            "tracker_sha256": tracker_sha256,
+            "history": history,
+            "history_head_sha256": entry["entry_sha256"],
+        }
+    )
+    validate_implementation_range_contract(contract)
+    policy["implementation_range"] = contract
+    write_policy_version(
+        directory,
+        policy,
+        kind="implementation-range-amend",
+        reason="Advance the canonical tracker identity without losing direct range intent.",
+        evidence_values=[tracker_sha256, entry["entry_sha256"], *( [amendment_map] if amendment_map else [])],
+    )
+    print(json.dumps({"binding": contract, "contraction": contraction}, sort_keys=True))
+
+
+def cmd_implementation_range_gate(args: argparse.Namespace) -> None:
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        owner_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
+    state = implementation_range_state(policy)
+    if state is None:
+        raise SupervisionLogError("Implementation range is not canonically bound")
+    control = reduce_control_posture(
+        directory=directory,
+        policy=policy,
+        owner_events=owner_events,
+        owner_policy_snapshot=policy_snapshot,
+        owner_event_snapshot=event_snapshot,
+        owner_directory_snapshot=directory_snapshot,
+    )
+    remaining = state["remaining_blocks"]
+    if remaining:
+        next_action = (
+            "continue-next-eligible-block"
+            if state["eligible_blocks"]
+            else "reconcile-unmet-dependencies-without-final-response"
+        )
+        final_permitted = False
+    elif state["range_intent"] == "explicit-blocks" and args.response_kind == "block-boundary":
+        next_action = "requested-block-boundary-satisfied"
+        final_permitted = True
+    elif control["required_target_posture"] in {"completed", "stopped"}:
+        next_action = "governing-outcome-terminal-current"
+        final_permitted = True
+    else:
+        next_action = control["next_action"]
+        final_permitted = False
+    result = {
+        **state,
+        "response_kind": args.response_kind,
+        "final_response_permitted": final_permitted,
+        "next_action": next_action,
+        "failure_mode_if_returned": (
+            None if final_permitted else "FM-UNAUTHORIZED-EARLY-RETURN"
+        ),
+        "severity_if_returned": None if final_permitted else "critical",
+        "process_boundary_implies_completion": False,
+        "manual_resume_required": False,
+        "human_input_required": False,
+        "control_posture": control,
+        "governing_outcome_currentness_sha256": control[
+            "governing_outcome_currentness_sha256"
+        ],
+        "policy_sha256": policy["policy_sha256"],
+    }
+    print(json.dumps(result, sort_keys=True))
 
 
 def validate_successor_transition(
     prior: dict[str, Any] | None,
     record: dict[str, Any],
+    all_events: list[dict[str, Any]],
 ) -> None:
     phase = str(record["phase"])
-    phase_index = SUCCESSOR_TRANSITION_PHASES.index(phase)
+    topology_posture = str(record.get("topology_posture", ""))
+    topology_basis = str(record.get("topology_basis", ""))
+    topology_rationale = str(record.get("topology_rationale", ""))
+    if topology_posture not in SUCCESSOR_TOPOLOGY_POSTURES:
+        raise SupervisionLogError("Successor transition topology is invalid")
+    if topology_posture == "same-task-new-run":
+        if topology_basis != "same-task-default":
+            raise SupervisionLogError(
+                "Same-task continuation requires the same-task default basis"
+            )
+    elif (
+        topology_basis not in {"direct-request", "technical-isolation", "legacy-linear"}
+        or not topology_rationale
+    ):
+        raise SupervisionLogError(
+            "Distinct-task topology requires an exact request or isolation rationale"
+        )
+    if record.get("successor_thread_id") == record.get("target_thread_id"):
+        raise SupervisionLogError("A task cannot be its own successor")
+
     if prior is None:
         if phase != "required":
             raise SupervisionLogError("A successor transition must begin required")
+        if any(
+            record.get(field)
+            for field in (
+                "prior_record_id",
+                "disposition_reason",
+                "correction_authority_source_class",
+                "correction_authority_source_record",
+                "replacement_transition_id",
+                "governing_outcome_effect",
+            )
+        ):
+            raise SupervisionLogError(
+                "An initial transition cannot claim a correction disposition"
+            )
+        if any(
+            record.get(field)
+            for field in (
+                "successor_thread_id",
+                "successor_mission_root",
+                "successor_group_id",
+                "handoff_record",
+                "acknowledgement_record",
+                "started_block",
+            )
+        ):
+            raise SupervisionLogError(
+                "required cannot claim later successor evidence"
+            )
+        expires_at = str(record.get("transition_expires_at", ""))
+        if expires_at:
+            created = parse_time(str(record["timestamp"]))
+            expiry = parse_time(expires_at)
+            if expiry <= created or expiry - created > dt.timedelta(
+                hours=MAX_SUCCESSOR_TRANSITION_HOURS
+            ):
+                raise SupervisionLogError(
+                    "Transition expiry must be future and bounded to 24 hours"
+                )
+        replaced_id = str(record.get("replaces_transition_id", ""))
+        if replaced_id:
+            if replaced_id == record["transition_id"]:
+                raise SupervisionLogError("A transition cannot replace itself")
+            replaced = transition_first_record(all_events, replaced_id)
+            if replaced is None:
+                raise SupervisionLogError(
+                    "A replacement transition requires its exact predecessor"
+                )
+            replaced_records = successor_transition_events(all_events, replaced_id)
+            if replaced_records[-1].get("phase") in SUCCESSOR_TRANSITION_CLOSED_PHASES:
+                raise SupervisionLogError(
+                    "A replacement transition requires an open predecessor"
+                )
+            if any(
+                item.get("kind") == "successor-transition"
+                and item.get("replaces_transition_id") == replaced_id
+                for item in all_events
+            ):
+                raise SupervisionLogError(
+                    "A transition already has a declared replacement"
+                )
+            cursor = replaced
+            seen = {str(record["transition_id"])}
+            while cursor.get("replaces_transition_id"):
+                cursor_id = str(cursor["replaces_transition_id"])
+                if cursor_id in seen:
+                    raise SupervisionLogError(
+                        "Replacement transition chain is cyclic"
+                    )
+                seen.add(cursor_id)
+                predecessor = transition_first_record(all_events, cursor_id)
+                if predecessor is None:
+                    raise SupervisionLogError(
+                        "Replacement transition chain is incomplete"
+                    )
+                cursor = predecessor
+        return
+
+    prior_phase = str(prior.get("phase", ""))
+    if prior_phase not in SUCCESSOR_TRANSITION_ALL_PHASES:
+        raise SupervisionLogError("Prior successor transition phase is invalid")
+    if prior_phase in SUCCESSOR_TRANSITION_CLOSED_PHASES:
+        raise SupervisionLogError("A closed successor transition cannot advance")
+    for field in SUCCESSOR_TRANSITION_IDENTITY_FIELDS:
+        if prior.get(field, "") != record.get(field, ""):
+            raise SupervisionLogError(
+                f"Successor transition must preserve {field.replace('_', ' ')}"
+            )
+
+    if phase in SUCCESSOR_TRANSITION_TERMINAL_PHASES:
+        if record.get("prior_record_id") != prior.get("record_id"):
+            raise SupervisionLogError(
+                "A transition disposition requires the exact current prior record"
+            )
+        if not record.get("disposition_reason"):
+            raise SupervisionLogError("A transition disposition requires a reason")
+        if (
+            record.get("correction_authority_source_class")
+            not in DIRECT_AUTHORITY_SOURCE_CLASSES
+            or not record.get("correction_authority_source_record")
+        ):
+            raise SupervisionLogError(
+                "A transition disposition requires current direct authority"
+            )
+        effect = record.get("governing_outcome_effect")
+        if effect not in SUCCESSOR_GOVERNING_OUTCOME_EFFECTS:
+            raise SupervisionLogError(
+                "A transition disposition requires its governing-outcome effect"
+            )
+        replacement_id = str(record.get("replacement_transition_id", ""))
+        if phase == "superseded":
+            if effect != "continue-replacement-transition" or not replacement_id:
+                raise SupervisionLogError(
+                    "Supersession requires one replacement transition"
+                )
+            if replacement_id == record["transition_id"]:
+                raise SupervisionLogError("A transition cannot supersede itself")
+            replacement_records = successor_transition_events(
+                all_events, replacement_id
+            )
+            if not replacement_records:
+                raise SupervisionLogError(
+                    "Supersession replacement transition does not exist"
+                )
+            replacement = replacement_records[-1]
+            if replacement.get("replaces_transition_id") != record["transition_id"]:
+                raise SupervisionLogError(
+                    "Replacement transition lacks the exact supersession link"
+                )
+            if replacement.get("phase") in SUCCESSOR_TRANSITION_CLOSED_PHASES:
+                raise SupervisionLogError(
+                    "A closed transition cannot become the replacement"
+                )
+            old_first = transition_first_record(
+                all_events, str(record["transition_id"])
+            )
+            replacement_first = replacement_records[0]
+            if old_first is None or all_events.index(replacement_first) <= all_events.index(
+                old_first
+            ):
+                raise SupervisionLogError(
+                    "Replacement transition cannot point backward"
+                )
+        elif replacement_id:
+            raise SupervisionLogError(
+                "Only a supersession may name a replacement transition"
+            )
+        elif effect != "continue-same-task":
+            raise SupervisionLogError(
+                "Correction, cancellation, and expiry continue in the source task"
+            )
+        if phase == "expired":
+            expires_at = str(record.get("transition_expires_at", ""))
+            if not expires_at or parse_time(str(record["timestamp"])) < parse_time(
+                expires_at
+            ):
+                raise SupervisionLogError(
+                    "A transition cannot expire before its declared bounded event"
+                )
+        return
+
+    if phase not in SUCCESSOR_TRANSITION_PHASES:
+        raise SupervisionLogError("Successor transition phase is invalid")
+    if any(
+        record.get(field)
+        for field in (
+            "prior_record_id",
+            "disposition_reason",
+            "correction_authority_source_class",
+            "correction_authority_source_record",
+            "replacement_transition_id",
+            "governing_outcome_effect",
+        )
+    ):
+        raise SupervisionLogError(
+            "Correction disposition fields are valid only on terminal dispositions"
+        )
+    phase_index = SUCCESSOR_TRANSITION_PHASES.index(phase)
+    prior_index = SUCCESSOR_TRANSITION_PHASES.index(prior_phase)
+    if topology_posture == "same-task-new-run":
+        if not (prior_phase == "required" and phase == "work-started"):
+            raise SupervisionLogError(
+                "Same-task continuation must move directly from required to work-started"
+            )
     else:
-        prior_phase = str(prior.get("phase", ""))
-        if prior_phase not in SUCCESSOR_TRANSITION_PHASES:
-            raise SupervisionLogError("Prior successor transition phase is invalid")
-        prior_index = SUCCESSOR_TRANSITION_PHASES.index(prior_phase)
         if phase_index != prior_index + 1:
             raise SupervisionLogError(
                 f"Successor transition {prior_phase} -> {phase} is not allowed"
             )
-        for field in SUCCESSOR_TRANSITION_IDENTITY_FIELDS:
-            if prior.get(field) != record.get(field):
-                raise SupervisionLogError(
-                    f"Successor transition must preserve {field.replace('_', ' ')}"
-                )
 
     required_by_phase = {
         "successor-created": ("successor_thread_id",),
@@ -3806,14 +4762,18 @@ def validate_successor_transition(
             "acknowledgement_record",
         ),
         "work-started": (
+            "started_block",
+        ),
+    }
+    if topology_posture == "distinct-task":
+        required_by_phase["work-started"] = (
             "successor_thread_id",
             "successor_mission_root",
             "successor_group_id",
             "handoff_record",
             "acknowledgement_record",
             "started_block",
-        ),
-    }
+        )
     expected_fields = required_by_phase.get(phase, ())
     for field in expected_fields:
         if not record.get(field):
@@ -3831,13 +4791,12 @@ def validate_successor_transition(
             raise SupervisionLogError(
                 f"{phase} cannot claim later {field.replace('_', ' ')}"
             )
-    if prior is not None:
-        for field in all_successor_fields:
-            prior_value = prior.get(field, "")
-            if prior_value and record.get(field) != prior_value:
-                raise SupervisionLogError(
-                    f"Successor transition cannot change {field.replace('_', ' ')}"
-                )
+    for field in all_successor_fields:
+        prior_value = prior.get(field, "")
+        if prior_value and record.get(field) != prior_value:
+            raise SupervisionLogError(
+                f"Successor transition cannot change {field.replace('_', ' ')}"
+            )
     if phase == "work-started" and record.get("started_block") != record.get(
         "first_eligible_block"
     ):
@@ -3921,6 +4880,49 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
         successor_mission_root = exact_sha256(
             successor_mission_root, label="successor mission root"
         )
+    topology_posture = clean(
+        args.topology_posture, label="topology posture", maximum=40
+    )
+    topology_basis = clean(
+        args.topology_basis, label="topology basis", maximum=40
+    )
+    topology_rationale = clean(
+        args.topology_rationale, label="topology rationale", maximum=300
+    )
+    transition_expires_at = (
+        parse_time(args.expires_at).isoformat() if args.expires_at else ""
+    )
+    replaces_transition_id = clean(
+        args.replaces_transition,
+        label="replaced transition ID",
+        maximum=128,
+    )
+    prior_record_id = clean(
+        args.prior_record, label="prior transition record", maximum=128
+    )
+    disposition_reason = clean(
+        args.disposition_reason,
+        label="transition disposition reason",
+        maximum=500,
+    )
+    correction_authority_source_record = clean(
+        args.correction_authority_source_record,
+        label="correction authority source record",
+        maximum=128,
+    )
+    replacement_transition_id = clean(
+        args.replacement_transition,
+        label="replacement transition ID",
+        maximum=128,
+    )
+    for label, value in (
+        ("replaced transition ID", replaces_transition_id),
+        ("prior transition record", prior_record_id),
+        ("correction authority source record", correction_authority_source_record),
+        ("replacement transition ID", replacement_transition_id),
+    ):
+        if value:
+            safe_id(value, label=label)
     record: dict[str, Any] = {
         "schema_version": 1,
         "record_id": "",
@@ -3940,6 +4942,11 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
         ),
         "governing_authority_source_class": authority_source_class,
         "governing_authority_source_record": authority_source_record,
+        "topology_posture": topology_posture,
+        "topology_basis": topology_basis,
+        "topology_rationale": topology_rationale,
+        "transition_expires_at": transition_expires_at,
+        "replaces_transition_id": replaces_transition_id,
         "successor_thread_id": successor_thread_id,
         "successor_mission_root": successor_mission_root,
         "successor_group_id": successor_group_id,
@@ -3953,13 +4960,60 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
             label="state fingerprint",
             maximum=128,
         ),
+        "prior_record_id": prior_record_id,
+        "disposition_reason": disposition_reason,
+        "correction_authority_source_class": (
+            args.correction_authority_source_class or ""
+        ),
+        "correction_authority_source_record": (
+            correction_authority_source_record
+        ),
+        "replacement_transition_id": replacement_transition_id,
+        "governing_outcome_effect": args.governing_outcome_effect or "",
         "evidence": evidence_values,
         "policy_sha256": policy["policy_sha256"],
     }
     with append_lock(directory):
         all_events = events(directory / "events.jsonl")
         records = successor_transition_events(all_events, transition_id)
-        prior = records[-1] if records else None
+        prior = dict(records[-1]) if records else None
+        if prior is None:
+            if not record["topology_posture"]:
+                record["topology_posture"] = "same-task-new-run"
+            if not record["topology_basis"]:
+                record["topology_basis"] = (
+                    "same-task-default"
+                    if record["topology_posture"] == "same-task-new-run"
+                    else ""
+                )
+        else:
+            prior.setdefault("topology_posture", "distinct-task")
+            prior.setdefault("topology_basis", "legacy-linear")
+            prior.setdefault(
+                "topology_rationale", "Legacy linear successor transition."
+            )
+            prior.setdefault("transition_expires_at", "")
+            prior.setdefault("replaces_transition_id", "")
+            for field in (
+                "topology_posture",
+                "topology_basis",
+                "topology_rationale",
+                "transition_expires_at",
+                "replaces_transition_id",
+            ):
+                if not record[field]:
+                    record[field] = prior[field]
+            if record["phase"] in SUCCESSOR_TRANSITION_TERMINAL_PHASES:
+                for field in (
+                    "successor_thread_id",
+                    "successor_mission_root",
+                    "successor_group_id",
+                    "handoff_record",
+                    "acknowledgement_record",
+                    "started_block",
+                ):
+                    if not record[field]:
+                        record[field] = prior.get(field, "")
         if prior is not None and all(
             prior.get(field) == record.get(field)
             for field in (
@@ -3971,6 +5025,12 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
                 "handoff_record",
                 "acknowledgement_record",
                 "started_block",
+                "prior_record_id",
+                "disposition_reason",
+                "correction_authority_source_class",
+                "correction_authority_source_record",
+                "replacement_transition_id",
+                "governing_outcome_effect",
                 "state_fingerprint",
                 "evidence",
             )
@@ -3982,7 +5042,7 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
                 )
             )
             return
-        validate_successor_transition(prior, record)
+        validate_successor_transition(prior, record, all_events)
         record["record_id"] = f"EVT-{len(all_events) + 1:06d}"
         append_raw_locked(directory / "events.jsonl", record)
     print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
@@ -4003,13 +5063,30 @@ def cmd_successor_transition_gate(args: argparse.Namespace) -> None:
         raise SupervisionLogError("Successor transition does not exist")
     head = records[-1]
     phase = str(head["phase"])
-    if phase == "required":
+    heads = successor_transition_heads(all_events)
+    activated = successor_transition_is_activated(heads, transition_id, head)
+    topology = str(head.get("topology_posture") or "distinct-task")
+    if not activated:
+        next_action = "await-exact-supersession-link"
+        authority_required = False
+    elif phase == "required" and topology == "same-task-new-run":
+        next_action = "start-same-task-new-run"
+        authority_required = False
+    elif phase == "required":
         if args.task_creation_authority == "available":
             next_action = "create-successor-task"
             authority_required = False
         else:
             next_action = "keep-open-await-direct-task-creation-authority"
             authority_required = True
+    elif phase in SUCCESSOR_TRANSITION_TERMINAL_PHASES:
+        authority_required = False
+        next_action = {
+            "corrected": "continue-governing-outcome-in-source-task",
+            "cancelled": "continue-governing-outcome-in-source-task",
+            "expired": "continue-governing-outcome-in-source-task",
+            "superseded": "continue-replacement-transition",
+        }[phase]
     else:
         authority_required = False
         next_action = {
@@ -4017,9 +5094,18 @@ def cmd_successor_transition_gate(args: argparse.Namespace) -> None:
             "successor-bound": "send-exact-handoff",
             "handoff-sent": "obtain-target-acknowledgement",
             "target-acknowledged": "start-first-eligible-block",
-            "work-started": "continue-successor-and-close-transition-incident",
+            "work-started": (
+                "continue-same-task-run"
+                if topology == "same-task-new-run"
+                else "continue-successor-and-close-transition-incident"
+            ),
         }[phase]
-    source_stop_permitted = phase == "work-started"
+    source_stop_permitted = bool(
+        activated and phase == "work-started" and topology == "distinct-task"
+    )
+    transition_open = bool(
+        activated and phase not in SUCCESSOR_TRANSITION_CLOSED_PHASES
+    )
     control_posture = reduce_control_posture(
         directory=directory,
         policy=policy,
@@ -4033,14 +5119,14 @@ def cmd_successor_transition_gate(args: argparse.Namespace) -> None:
             {
                 "transition_id": transition_id,
                 "phase": phase,
-                "transition_open": not source_stop_permitted,
+                "transition_open": transition_open,
                 "source_stop_permitted": source_stop_permitted,
                 "required_source_posture": (
                     "transition-satisfied" if source_stop_permitted else "in-progress"
                 ),
                 "next_action": next_action,
                 "direct_task_creation_authority_required": authority_required,
-                "human_input_required": authority_required,
+                "human_input_required": False,
                 "task_creation_authority": args.task_creation_authority,
                 "failure_mode_if_stopped": "handoff-without-continuation",
                 "tracker_sha256": head["tracker_sha256"],
@@ -4051,6 +5137,18 @@ def cmd_successor_transition_gate(args: argparse.Namespace) -> None:
                 "first_eligible_block": head["first_eligible_block"],
                 "policy_sha256": policy["policy_sha256"],
                 "record_id": head["record_id"],
+                "topology_posture": topology,
+                "topology_basis": head.get("topology_basis") or "legacy-linear",
+                "disposition_reason": head.get("disposition_reason") or None,
+                "governing_outcome_effect": (
+                    head.get("governing_outcome_effect") or None
+                ),
+                "replacement_transition_id": (
+                    head.get("replacement_transition_id") or None
+                ),
+                "transition_history_record_ids": [
+                    item["record_id"] for item in records
+                ],
                 "control_posture": control_posture,
                 "required_target_posture": control_posture["required_target_posture"],
             },
@@ -4191,11 +5289,14 @@ def path_snapshot_at(
 def active_successor_edges(
     all_events: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    heads = successor_transition_heads(all_events)
     return [
         item
-        for item in successor_transition_heads(all_events).values()
+        for transition_id, item in heads.items()
         if isinstance(item.get("successor_thread_id"), str)
         and item.get("successor_thread_id")
+        and item.get("phase") not in SUCCESSOR_TRANSITION_TERMINAL_PHASES
+        and successor_transition_is_activated(heads, transition_id, item)
     ]
 
 
@@ -7539,11 +8640,48 @@ def parser() -> argparse.ArgumentParser:
     control_posture_gate.add_argument("--target-thread", required=True)
     control_posture_gate.set_defaults(func=cmd_control_posture_gate)
 
+    range_authority = subparsers.add_parser(
+        "implementation-range-authority-receipt"
+    )
+    range_authority.add_argument("--target-thread", required=True)
+    range_authority.add_argument("--authority-source-record", required=True)
+    range_authority.add_argument("--authority-source-sha256", required=True)
+    range_authority.add_argument("--reviewer-id", required=True)
+    range_authority.add_argument("--evidence", action="append", required=True)
+    range_authority.set_defaults(func=cmd_implementation_authority_receipt)
+
+    range_bind = subparsers.add_parser("implementation-range-bind")
+    range_bind.add_argument("--target-thread", required=True)
+    range_bind.add_argument("--range-id", required=True)
+    range_bind.add_argument("--tracker", required=True)
+    range_bind.add_argument("--request-text", required=True)
+    range_bind.add_argument("--authority-source-record", required=True)
+    range_bind.add_argument("--authority-source-sha256", required=True)
+    range_bind.set_defaults(func=cmd_implementation_range_bind)
+
+    range_amend = subparsers.add_parser("implementation-range-amend")
+    range_amend.add_argument("--target-thread", required=True)
+    range_amend.add_argument("--tracker", required=True)
+    range_amend.add_argument("--request-text", default="")
+    range_amend.add_argument("--authority-source-record", default="")
+    range_amend.add_argument("--authority-source-sha256", default="")
+    range_amend.add_argument("--amendment-map-sha256", default="")
+    range_amend.set_defaults(func=cmd_implementation_range_amend)
+
+    range_gate = subparsers.add_parser("implementation-range-gate")
+    range_gate.add_argument("--target-thread", required=True)
+    range_gate.add_argument(
+        "--response-kind",
+        choices=("block-boundary", "outcome-terminal"),
+        default="outcome-terminal",
+    )
+    range_gate.set_defaults(func=cmd_implementation_range_gate)
+
     successor_record = subparsers.add_parser("successor-transition-record")
     successor_record.add_argument("--target-thread", required=True)
     successor_record.add_argument("--transition-id", required=True)
     successor_record.add_argument(
-        "--phase", choices=SUCCESSOR_TRANSITION_PHASES, required=True
+        "--phase", choices=SUCCESSOR_TRANSITION_ALL_PHASES, required=True
     )
     successor_record.add_argument("--tracker-sha256", required=True)
     successor_record.add_argument("--tracker-source-record", required=True)
@@ -7558,12 +8696,35 @@ def parser() -> argparse.ArgumentParser:
     successor_record.add_argument(
         "--governing-authority-source-record", required=True
     )
+    successor_record.add_argument(
+        "--topology-posture", choices=sorted(SUCCESSOR_TOPOLOGY_POSTURES), default=""
+    )
+    successor_record.add_argument(
+        "--topology-basis", choices=sorted(SUCCESSOR_TOPOLOGY_BASES), default=""
+    )
+    successor_record.add_argument("--topology-rationale", default="")
+    successor_record.add_argument("--expires-at", default="")
+    successor_record.add_argument("--replaces-transition", default="")
     successor_record.add_argument("--successor-thread", default="")
     successor_record.add_argument("--successor-mission-root", default="")
     successor_record.add_argument("--successor-group-id", default="")
     successor_record.add_argument("--handoff-record", default="")
     successor_record.add_argument("--acknowledgement-record", default="")
     successor_record.add_argument("--started-block", default="")
+    successor_record.add_argument("--prior-record", default="")
+    successor_record.add_argument("--disposition-reason", default="")
+    successor_record.add_argument(
+        "--correction-authority-source-class",
+        choices=sorted(AUTHORITY_SOURCE_CLASSES),
+    )
+    successor_record.add_argument(
+        "--correction-authority-source-record", default=""
+    )
+    successor_record.add_argument("--replacement-transition", default="")
+    successor_record.add_argument(
+        "--governing-outcome-effect",
+        choices=sorted(SUCCESSOR_GOVERNING_OUTCOME_EFFECTS),
+    )
     successor_record.add_argument("--state-fingerprint", default="")
     successor_record.add_argument("--evidence", action="append", required=True)
     successor_record.add_argument("--now")

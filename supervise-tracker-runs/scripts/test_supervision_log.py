@@ -456,6 +456,12 @@ class SuccessorTransitionContractTests(unittest.TestCase):
                 "direct-user",
                 "--governing-authority-source-record",
                 "item-340",
+                "--topology-posture",
+                "distinct-task",
+                "--topology-basis",
+                "direct-request",
+                "--topology-rationale",
+                "The direct request requires one isolated successor task.",
                 "--state-fingerprint",
                 f"state-{phase}",
                 "--evidence",
@@ -611,6 +617,159 @@ class SuccessorTransitionContractTests(unittest.TestCase):
                 redirect_stdout(output),
             ):
                 supervision_log.cmd_successor_transition_record(args)
+
+    def test_same_task_is_default_continuation_and_never_stops_the_source(self) -> None:
+        self.record(
+            "required",
+            "--topology-posture",
+            "same-task-new-run",
+            "--topology-basis",
+            "same-task-default",
+            "--topology-rationale",
+            "",
+        )
+        ready = self.gate()
+        self.assertEqual(ready["next_action"], "start-same-task-new-run")
+        self.assertFalse(ready["human_input_required"])
+        self.record(
+            "work-started",
+            "--topology-posture",
+            "same-task-new-run",
+            "--topology-basis",
+            "same-task-default",
+            "--topology-rationale",
+            "",
+            "--started-block",
+            "Block 0",
+        )
+        started = self.gate()
+        self.assertFalse(started["source_stop_permitted"])
+        self.assertFalse(started["transition_open"])
+        self.assertEqual(started["next_action"], "continue-same-task-run")
+
+    def test_direct_cancellation_retires_control_without_closing_outcome(self) -> None:
+        required = self.record("required")["record"]
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "current direct authority"
+        ):
+            self.record(
+                "cancelled",
+                "--prior-record",
+                required["record_id"],
+                "--disposition-reason",
+                "The distinct-task premise was invalid.",
+                "--correction-authority-source-class",
+                "supervisor-steer",
+                "--correction-authority-source-record",
+                "routed-steer-1234",
+                "--governing-outcome-effect",
+                "continue-same-task",
+            )
+        self.record(
+            "cancelled",
+            "--prior-record",
+            required["record_id"],
+            "--disposition-reason",
+            "The distinct-task premise was invalid.",
+            "--correction-authority-source-class",
+            "direct-user",
+            "--correction-authority-source-record",
+            "direct-item-1234",
+            "--governing-outcome-effect",
+            "continue-same-task",
+        )
+        result = self.gate()
+        self.assertFalse(result["transition_open"])
+        self.assertFalse(result["source_stop_permitted"])
+        self.assertEqual(
+            result["next_action"], "continue-governing-outcome-in-source-task"
+        )
+        self.assertEqual(result["required_target_posture"], "in-progress")
+
+    def test_replacement_is_inactive_until_exact_forward_supersession(self) -> None:
+        old = self.record("required")["record"]
+        replacement_args = self.transition_args(
+            "required", "--replaces-transition", self.transition_id
+        )
+        replacement_args.transition_id = "TRANSITION-REPLACEMENT-1234"
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(self.directory, self.policy),
+            ),
+            redirect_stdout(io.StringIO()),
+        ):
+            supervision_log.cmd_successor_transition_record(replacement_args)
+        all_events = supervision_log.events(self.directory / "events.jsonl")
+        self.assertEqual(
+            set(supervision_log.successor_transition_heads(all_events, open_only=True)),
+            {self.transition_id},
+        )
+        self.record(
+            "superseded",
+            "--prior-record",
+            old["record_id"],
+            "--disposition-reason",
+            "The replacement carries the corrected topology.",
+            "--correction-authority-source-class",
+            "direct-user",
+            "--correction-authority-source-record",
+            "direct-item-1234",
+            "--replacement-transition",
+            "TRANSITION-REPLACEMENT-1234",
+            "--governing-outcome-effect",
+            "continue-replacement-transition",
+        )
+        all_events = supervision_log.events(self.directory / "events.jsonl")
+        self.assertEqual(
+            set(supervision_log.successor_transition_heads(all_events, open_only=True)),
+            {"TRANSITION-REPLACEMENT-1234"},
+        )
+        result = self.gate()
+        self.assertEqual(result["next_action"], "continue-replacement-transition")
+        self.assertFalse(result["source_stop_permitted"])
+
+    def test_expiry_is_bounded_and_cannot_expire_the_outcome_early(self) -> None:
+        required = self.record(
+            "required",
+            "--now",
+            "2026-08-09T00:00:00+00:00",
+            "--expires-at",
+            "2026-08-09T01:00:00+00:00",
+        )["record"]
+        disposition = (
+            "--prior-record",
+            required["record_id"],
+            "--disposition-reason",
+            "The bounded transition window elapsed.",
+            "--correction-authority-source-class",
+            "direct-user",
+            "--correction-authority-source-record",
+            "direct-item-1234",
+            "--governing-outcome-effect",
+            "continue-same-task",
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "cannot expire before"
+        ):
+            self.record(
+                "expired",
+                "--now",
+                "2026-08-09T00:30:00+00:00",
+                *disposition,
+            )
+        self.record(
+            "expired",
+            "--now",
+            "2026-08-09T01:00:00+00:00",
+            *disposition,
+        )
+        result = self.gate()
+        self.assertEqual(
+            result["next_action"], "continue-governing-outcome-in-source-task"
+        )
+        self.assertEqual(result["required_target_posture"], "in-progress")
 
     def test_completed_lifecycle_is_rejected_while_transition_is_open(self) -> None:
         self.record("required")
@@ -772,6 +931,279 @@ class SuccessorTransitionContractTests(unittest.TestCase):
         self.assertIn("human-scheduling leak", readme)
 
 
+class ImplementationRangeControlTests(unittest.TestCase):
+    target = "range-target-1234"
+    initial_source = "direct-item-100"
+    initial_sha = "a" * 64
+    later_source = "direct-item-200"
+    later_sha = "b" * 64
+    reviewer = "range-reviewer-1234"
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.tracker = self.root / "tracker.md"
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "init",
+                "--target-thread",
+                self.target,
+                "--target-label",
+                "Range target",
+                "--watcher-thread",
+                "range-watcher-1234",
+                "--reviewer-thread",
+                self.reviewer,
+                "--mission-source-class",
+                "direct-user",
+                "--mission-source-record",
+                self.initial_source,
+                "--mission-source-sha256",
+                self.initial_sha,
+            ]
+        )
+        with redirect_stdout(io.StringIO()):
+            args.func(args)
+
+    def write_tracker(self, statuses: list[str]) -> None:
+        rows = []
+        headings = []
+        for number, status in enumerate(statuses):
+            dependency = "—" if number == 0 else str(number - 1)
+            rows.append(
+                f"| {number} | Scope {number} | {dependency} | `{status}` |"
+            )
+            headings.append(
+                f"## Block {number} — Scope {number}\n\nStatus: `{status}`\n"
+            )
+        self.tracker.write_text(
+            "| Block | Scope | Depends on | Status |\n"
+            "|---:|---|---:|---|\n"
+            + "\n".join(rows)
+            + "\n\n"
+            + "\n".join(headings),
+            encoding="utf-8",
+        )
+
+    def call(self, *arguments: str) -> dict[str, object]:
+        args = supervision_log.parser().parse_args(
+            ["--root", str(self.root), *arguments]
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            args.func(args)
+        return json.loads(output.getvalue())
+
+    def bind(self, request_text: str = "implement this tracker") -> dict[str, object]:
+        return self.call(
+            "implementation-range-bind",
+            "--target-thread",
+            self.target,
+            "--range-id",
+            "RANGE-1234",
+            "--tracker",
+            str(self.tracker),
+            "--request-text",
+            request_text,
+            "--authority-source-record",
+            self.initial_source,
+            "--authority-source-sha256",
+            self.initial_sha,
+        )
+
+    def gate(self, response_kind: str = "outcome-terminal") -> dict[str, object]:
+        return self.call(
+            "implementation-range-gate",
+            "--target-thread",
+            self.target,
+            "--response-kind",
+            response_kind,
+        )
+
+    def test_skill_only_full_range_survives_inserted_prerequisites_and_continues(self) -> None:
+        self.write_tracker(["completed", "not-started"])
+        self.bind(
+            "[$implement-tracker-blocks](/repo/implement-tracker-blocks/SKILL.md)"
+        )
+        self.write_tracker(["completed", "not-started", "not-started"])
+        self.call(
+            "implementation-range-amend",
+            "--target-thread",
+            self.target,
+            "--tracker",
+            str(self.tracker),
+        )
+        result = self.gate()
+        self.assertEqual(result["requested_blocks"], [0, 1, 2])
+        self.assertEqual(result["eligible_blocks"], [1])
+        self.assertEqual(result["next_action"], "continue-next-eligible-block")
+        self.assertEqual(result["severity_if_returned"], "critical")
+
+    def test_fabricated_direct_user_string_cannot_contract_but_accepted_receipt_can(self) -> None:
+        self.write_tracker(["completed", "not-started"])
+        self.bind()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "newer canonical direct-user"
+        ):
+            self.call(
+                "implementation-range-amend",
+                "--target-thread",
+                self.target,
+                "--tracker",
+                str(self.tracker),
+                "--request-text",
+                "Block 0",
+                "--authority-source-record",
+                "invented-item-999",
+                "--authority-source-sha256",
+                "c" * 64,
+            )
+        self.call(
+            "implementation-range-authority-receipt",
+            "--target-thread",
+            self.target,
+            "--authority-source-record",
+            self.later_source,
+            "--authority-source-sha256",
+            self.later_sha,
+            "--reviewer-id",
+            self.reviewer,
+            "--evidence",
+            "independent-readback-of-direct-user-item-200",
+        )
+        amended = self.call(
+            "implementation-range-amend",
+            "--target-thread",
+            self.target,
+            "--tracker",
+            str(self.tracker),
+            "--request-text",
+            "Block 0",
+            "--authority-source-record",
+            self.later_source,
+            "--authority-source-sha256",
+            self.later_sha,
+        )
+        self.assertTrue(amended["contraction"])
+        result = self.gate("block-boundary")
+        self.assertEqual(result["requested_blocks"], [0])
+        self.assertTrue(result["final_response_permitted"])
+
+    def test_policy_replacement_and_tracker_symlink_are_rejected(self) -> None:
+        self.write_tracker(["completed", "not-started"])
+        self.bind()
+        directory = self.root / self.target
+        policy_path = directory / "policy.json"
+        policy = supervision_log.read_json(policy_path)
+        contract = policy["implementation_range"]
+        contract["range_intent"] = "explicit-blocks"
+        contract["explicit_blocks"] = [0]
+        contract["history"][-1]["range_intent"] = "explicit-blocks"
+        contract["history"][-1]["explicit_blocks"] = [0]
+        material = {
+            key: contract["history"][-1][key]
+            for key in contract["history"][-1]
+            if key != "entry_sha256"
+        }
+        contract["history"][-1]["entry_sha256"] = supervision_log.digest(material)
+        contract["history_head_sha256"] = contract["history"][-1]["entry_sha256"]
+        contract["genesis_sha256"] = supervision_log.digest(
+            {
+                "range_id": contract["range_id"],
+                "authority": contract["history"][0]["authority"],
+                "request_text_sha256": contract["history"][0]["request_text_sha256"],
+                "initial_tracker_sha256": contract["history"][0]["tracker_sha256"],
+                "initial_range_intent": "explicit-blocks",
+                "initial_explicit_blocks": [0],
+            }
+        )
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+        supervision_log.atomic_json(policy_path, policy)
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "history is stale or replaced"
+        ):
+            self.gate()
+
+        # Restore the policy from its canonical append-only history.
+        canonical_policy = supervision_log.events(
+            directory / "policy-history.jsonl"
+        )[-1]["policy"]
+        supervision_log.atomic_json(policy_path, canonical_policy)
+        outside = self.root / "outside-tracker.md"
+        outside.write_bytes(self.tracker.read_bytes())
+        self.tracker.unlink()
+        self.tracker.symlink_to(outside)
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "non-symlink file"
+        ):
+            self.gate()
+
+    def test_fabricated_terminal_roots_have_no_input_surface_and_cannot_close(self) -> None:
+        self.write_tracker(["completed"])
+        self.bind()
+        result = self.gate()
+        self.assertFalse(result["final_response_permitted"])
+        self.assertEqual(result["next_action"], "continue-governing-outcome")
+        self.assertRegex(result["governing_outcome_currentness_sha256"], r"^[0-9a-f]{64}$")
+        gate_help = supervision_log.parser().format_help()
+        self.assertNotIn("terminal-evidence-json", gate_help)
+
+    def test_nonterminal_range_rejects_completed_lifecycle_before_other_claims(self) -> None:
+        self.write_tracker(["completed", "not-started"])
+        self.bind()
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "record",
+                "--target-thread",
+                self.target,
+                "--kind",
+                "lifecycle",
+                "--status",
+                "completed",
+                "--state-fingerprint",
+                "range-state-1234",
+                "--summary",
+                "Attempted early completion.",
+            ]
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "critical implementation-range gate: continue-next-eligible-block",
+        ):
+            with redirect_stdout(io.StringIO()):
+                args.func(args)
+
+    def test_critical_range_contract_is_encoded_across_all_three_owners(self) -> None:
+        repository = HELPER_PATH.parent.parent.parent
+        implementation = repository.joinpath(
+            "implement-tracker-blocks", "SKILL.md"
+        ).read_text(encoding="utf-8")
+        authoring = repository.joinpath(
+            "author-implementation-trackers", "SKILL.md"
+        ).read_text(encoding="utf-8")
+        supervision = repository.joinpath(
+            "supervise-tracker-runs", "SKILL.md"
+        ).read_text(encoding="utf-8")
+        policy = repository.joinpath(
+            "supervise-tracker-runs", "references", "supervision-policy.md"
+        ).read_text(encoding="utf-8")
+        changelog = repository.joinpath("CHANGELOG.md").read_text(encoding="utf-8")
+        for text in (implementation, supervision, policy):
+            self.assertIn("implementation-range-gate", text)
+            self.assertIn("FM-UNAUTHORIZED-EARLY-RETURN", text)
+            self.assertIn("critical", text.lower())
+        self.assertIn("newer exact direct-user", authoring)
+        self.assertIn("unauthorized requested-range contraction", changelog)
+        self.assertIn("019fb18f-3d03-7ca0-9fe9-68353f0405ce", changelog)
+
+
 class ControlPostureReducerTests(unittest.TestCase):
     owner = "owner-1234"
     child = "child-1234"
@@ -845,6 +1277,12 @@ class ControlPostureReducerTests(unittest.TestCase):
                 "direct-user",
                 "--governing-authority-source-record",
                 "item-340",
+                "--topology-posture",
+                "distinct-task",
+                "--topology-basis",
+                "direct-request",
+                "--topology-rationale",
+                "The direct request requires one isolated successor task.",
                 "--state-fingerprint",
                 f"state-{phase}",
                 "--evidence",

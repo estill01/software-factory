@@ -650,6 +650,22 @@ hidden reasoning into the review.
   authority is unavailable, preserve that boundary as an open transition—do
   not invent authority, manufacture a successor ID, falsely close the source,
   or turn the internal orchestration obligation into routine human scheduling.
+  Reuse the current task by default through `same-task-new-run`; require an
+  exact direct request or technical-isolation rationale for `distinct-task`,
+  and reject self-successors. If the premise changes, preserve history and
+  append only `corrected`, `cancelled`, bounded `expired`, or `superseded` from
+  reviewed direct authority. A replacement is inactive until its predecessor
+  carries the exact supersession link, and no retired transition closes the
+  governing outcome.
+- Preserve the implementation owner's canonical direct requested-range
+  binding. A routed steer, reviewer Stop, task/run/group boundary, transition,
+  handoff, commit, push, or accepted checkpoint may constrain its own operation
+  but cannot narrow or cancel that range. Before any terminal lifecycle, call
+  `implementation-range-gate`. If it reports remaining Blocks or a noncurrent
+  governing outcome, classify a return as the critical
+  `FM-UNAUTHORIZED-EARLY-RETURN` failure, reject terminalization, and require
+  its immediate dependency-safe `next_action`. A Block Stop inside a
+  full-tracker request is an audit checkpoint, never a user-return boundary.
 - Characterize a material recurrence with the record command's
   `--failure-mode` envelope: stable failure-mode ID, layer, mechanism, trigger,
   observed effect, detection rule, bounded correction, recurrence invariant,

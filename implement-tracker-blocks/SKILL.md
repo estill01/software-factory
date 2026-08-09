@@ -16,11 +16,30 @@ while treating live repository instructions and authorities as controlling.
 3. Extract the requested block's dependencies, objective, required work,
    deliverables, acceptance criteria, stopping point, status rules, and required
    evidence.
-4. If the user requested a range, preserve the tracker's dependency order. If
-   the user requested one block, do not silently advance to another.
+4. Classify and freeze the direct requested range before the first Block. An
+   unbounded request to implement `this tracker`, `the tracker`, the referenced
+   functionality, or a bare invocation of this skill after a tracker was
+   established means the complete current tracker through its terminal Block
+   and observable outcome. Only an exact one-Block or numeric range request is
+   bounded to that subset. If the user requested a range, preserve the
+   tracker's dependency order. If the user requested one Block, do not silently
+   advance to another.
 5. Treat the tracker path and requested block number or range as reusable
    inputs. Never bake a demonstrated repository path or block number into the
    workflow.
+
+Persist that classification through the supervision owner's
+`implementation-range-bind`; never use a caller-selected binding JSON file.
+The canonical policy-history chain anchors one immutable genesis, direct source
+record/hash, owner-resolved tracker path/hash, and append-only amendment head.
+Reuse `implementation-range-gate` at every Block transition and before every
+final answer. Never recreate or replace the binding to obtain a smaller range.
+A full-tracker binding dynamically includes prerequisite Blocks inserted or
+renumbered by an accepted tracker amendment. It may be narrowed only by a newer
+reviewed direct-user authority receipt resolved by the canonical owner; a
+caller string, tracker edit, routed supervisor packet, `codex_delegation`,
+task/run/group boundary, handoff, reviewer statement, commit, push, or process
+record cannot contract it.
 
 If the user explicitly asks to monitor, babysit, supervise, periodically audit,
 or prevent drift in the implementation run, use `$supervise-tracker-runs` as a
@@ -57,6 +76,14 @@ inspect the actual operator-visible deliverables and reconcile the complete
 expected effect set against actual effects. Passing tests, audits, schemas,
 hashes, populated records, reviewer counts, commits, pushes, or a terminal
 ledger are process evidence; none substitutes for a current deliverable.
+
+An unjustified early return is a **critical control failure**. In particular,
+`FM-UNAUTHORIZED-EARLY-RETURN` means the implementation owner returned while a
+directly requested Block, ordinary authorized effect, or current observable
+outcome remained. Its common root form is unauthorized requested-range
+contraction followed by false terminalization at an internal Block or
+procedural boundary. Routed-authority precedence may contribute to the failure,
+but cannot redefine the direct requested outcome.
 
 `completed-with-open-items` is terminal only when every retained item is
 compatible with the primary outcome and is genuinely reserved, external,
@@ -252,7 +279,11 @@ suite.
    bind it to the exact candidate revision.
 8. Update the tracker only with evidence that is current. Use its prescribed
    status and completion-evidence format.
-9. Stop at the block's explicit stopping point.
+9. Honor the Block's explicit Stop as a mutation/audit boundary. For an exact
+   one-Block request it is also the requested return boundary. For a multi-Block
+   or full-tracker request it is an internal checkpoint only: commit, push,
+   audit, update truthful evidence, run the range gate, and immediately execute
+   its dependency-safe `next_action`.
 
 Keep routine implementation, validation, audit, checkpoint, and completion
 evidence in the active implementation thread. Send a cross-thread packet only
@@ -394,6 +425,37 @@ For each subsequent block in the requested range:
    evidence;
 4. audit it before advancing again.
 
+Run the persistent gate after each accepted Block. A nonterminal exit status or
+`final_response_permitted=false` is an instruction to execute `next_action`
+now. It is not a blocker, a request for human scheduling, a reason to pause, or
+content for a terminal response. A routed `stop here` can constrain the routed
+operation or reviewer but cannot cancel a standing direct implementation
+range. Commit, push, review, handoff, task, run, group, and Block Stops are
+process evidence only and never imply requested-outcome completion.
+
+Immediately before any final response, rerun the same canonical gate. It
+rehydrates the policy-pinned tracker, requested and accepted Block sets, policy
+and event heads, ordinary effects, and observable outcome through the governing
+control-posture reducer. Caller booleans, paths, arbitrary roots, or prose
+claims are not terminal evidence. A final response is forbidden while any
+requested Block or ordinary effect remains, the observable outcome is not
+current, or the supervision control posture remains nonterminal for the
+governing outcome.
+
+```bash
+python3 <supervision-log-helper> implementation-range-gate \
+  --target-thread <governing-outcome-owner> \
+  --response-kind <block-boundary|outcome-terminal>
+```
+
+On first use call `implementation-range-bind` with the tracker, request text,
+and exact canonical direct-user source record/hash. Use
+`implementation-range-amend` after an accepted tracker revision; the frozen
+full-range intent persists automatically. A contraction additionally requires
+an independently reviewed canonical `implementation-range-authority-receipt`.
+The terminal lifecycle writer calls the same owner and rejects completion while
+the governing range is nonterminal.
+
 The only exception to whole-Block sequential acceptance is a declared
 continuation slice around a bounded unresolved input. It must have no dependency
 on the unresolved answer, preserve the earlier Block's non-accepted posture,
@@ -401,7 +463,8 @@ forbid dependent promotion/freeze/release, and record exact exclusions and the
 rejoin condition. This is dependency-respecting continuation, not silent Block
 skipping.
 
-End with a concise outcome: completed blocks, material files changed,
+Only after the persistent range and terminal-evidence gate permits a final
+response, end with a concise outcome: completed blocks, material files changed,
 validation and review evidence, preserved open items, and the next eligible
 block. Do not release, merge, open a pull request, or perform destructive
 cleanup unless the user separately authorizes it or the repository's ordinary
