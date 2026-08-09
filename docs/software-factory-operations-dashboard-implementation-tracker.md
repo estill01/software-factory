@@ -499,8 +499,8 @@ the relevant authority and evidence contract.
 | 1 | Loopback runtime and reference frontend scaffold | 0 | `accepted` |
 | 2 | Project catalog and bounded discovery | 1 | `accepted` |
 | 3 | Tracker truth and Git-currentness projection | 2 | `accepted` |
-| 4 | Supervision, automation, report, and metrics projection | 2 | `in-progress` |
-| 5 | Codex task and App Server adapter | 1 | `not-started` |
+| 4 | Supervision, automation, report, and metrics projection | 2 | `accepted` |
+| 5 | Codex task and App Server adapter | 1 | `in-progress` |
 | 6 | Cross-project factory floor | 3, 4, 5 | `not-started` |
 | 7 | Project and run workspaces | 6 | `not-started` |
 | 8 | Tracker review and progress workspace | 3, 6 | `not-started` |
@@ -1273,7 +1273,7 @@ Stop before building tracker pages or initiating authoring/implementation tasks.
 
 ## Block 4 — Supervision, automation, report, and metrics projection
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -1456,8 +1456,88 @@ or explicit manual refresh.
   `4a29c457ec45e03c090a7440644cdc61182c2ef0` were non-force pushed with local
   and remote at `0 0` divergence before implementation changes began. No new
   mission, successor task, routed authority, or manual resume was used.
-- Candidate implementation, validation, exact review, and acceptance evidence:
-  pending.
+- Delivered projection: added a bounded read-only Python adapter and closed Zod
+  contracts for `/api/v1/runs`, run detail, reports, and metrics. It discovers
+  only configured supervision and automation roots; validates policy/history/
+  event chains through the maintained supervision owner; verifies weekly,
+  terminal, and evolution bundles through their maintained owners; and keeps
+  every source-local failure visible without creating a dashboard-owned
+  operations ledger.
+- Currentness and truth posture: active-mission issues, decisions, conclusions,
+  metrics, lifecycle, and project binding are partitioned from predecessor
+  missions. Supervisor roles, tasks, automations, schedules, bindings,
+  unmonitored projects, orphans, duplicates, unavailable sources, and report
+  limitations stay explicit. Mechanical activity is separate from semantic
+  conclusions; only dispositive `resolved` or `safe-deferred` decision records
+  enter the conclusion stream. Actor attribution and live task state remain
+  unavailable rather than inferred until Block 5.
+- Health, metric, and privacy posture: transparent precedence facts derive
+  red/amber/green/neutral lights without persisting them or calling green
+  complete. Failed/blocked/stopped and evidence-insufficient completion remain
+  red; paused and unavailable states remain neutral. Cross-run metrics aggregate
+  only maintained additive dimensions, never synthesize percentiles, and label
+  every cost value `API-equivalent estimate` with actual billing unavailable.
+  Automation prompt bodies are never projected.
+- Product-capability review: the selected architecture is the smallest
+  capability-complete path: one loopback Python adapter over the maintained
+  supervision/report/evolution owners and read-only automation manifests, with
+  a closed React Zod boundary. A local duplicate parser/metric owner and a new
+  generalized telemetry/database/registry were rejected as owner bypass and
+  speculative platform expansion. The tradeoff is live validation and a large
+  typed envelope; task state/cwd and exact task-actor attribution remain
+  intentionally unavailable for Block 5.
+- Initial candidate and mapped validation: exact pushed commit
+  `6d2f9e4e8ee92465a0504986106d79cd48b92116`, tree
+  `63d22118713541ed7ce6c121acc50a4161ef3dcf`, parent
+  `68095fb`, passed the dashboard Python suite 37/37 with `ResourceWarning`
+  fatal, maintained owner suites 196/196, frontend TypeScript/Vitest 21/21,
+  production build, Playwright 18/18 across desktop/tablet/mobile, the
+  full-profile tracker verifier with Blocks 0–25 and 0 errors/warnings, all 30
+  verifier tests, 21 relative-link checks, and `git diff --check`.
+- Live source proof: the exact service on loopback port 8787 projected six
+  canonical supervision targets, one explicitly unmonitored registered
+  project, source-bearing attention, current/predecessor mission partitioning,
+  six covered metric rows, and verified report inventory. One weekly bundle
+  independently reproduced maintained-owner verification with source root
+  `62f881d083b0e64262f54a81c575d0dd7b7a3e4330ea363f5a2b9414aadfd032`
+  and manifest root
+  `8046f7ae7223f19c348c9e4205375208bfcf4944905183273272b160c2a9a227`;
+  all four API envelopes parsed through the exact Zod contracts.
+- Rejected history and bounded remediation: independent review rejected
+  `6d2f9e4` because predecessor event paths could contaminate a successor's
+  current project binding and non-dispositive decision phases were classified
+  as conclusions. The exact successor changes only the operations adapter and
+  focused tests: binding now reads current policy plus active-mission events,
+  and decision conclusions are limited to `resolved`/`safe-deferred`.
+  Regression coverage proves current-project movement, predecessor-only
+  unassignment, and all eight maintained decision phases.
+- Accepted candidate: exact pushed successor
+  `afe3ed10de196bf7cff8f9e693368ba44d320886`, tree
+  `dea0d93555808a716f7d814671b023fd8ccf321f`, parent `6d2f9e4`. Authoritative
+  accepted blobs are operations adapter
+  `784bfa63be3ac7a750ab8154e8ea140123f204ef`, focused operations tests
+  `801b1c0808dbe3e478b9e57f5e07167ac7a1efb7`, Zod operations client
+  `c7e04722d190c1d857af23c486c0e19fc7f3eece`, and changelog
+  `f6ee8e0280cfbade96847826639ea74509428a98`.
+- Fresh exact review: `tracker_exact_review` accepted `afe3ed1` with no material
+  findings after reproducing current-project and predecessor-only binding,
+  all decision-phase classifications, focused operations tests 21/21 with
+  `ResourceWarning` fatal, the full dashboard Python suite 39/39, Ruff,
+  `git diff --check`, clean isolated status, and local/upstream `0 0`
+  divergence. Unchanged frontend, browser, owner, verifier, and link evidence
+  remains bound to the rejected parent and the reviewed two-file delta.
+- Authority and Stop posture: no task control, workflow page, owner mutation,
+  report generation, lifecycle action, automation change, or reconciliation
+  file was created. Direct-user item 44 and mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`
+  remain the implementation authority; routed messages are start evidence only.
+- Post-block audit: `accepted`; every Block 4 acceptance and negative condition
+  is satisfied on the exact reviewed successor, with the two rejected findings
+  retained as history and no overall implementation-completion claim.
+- Git durability: candidate and correction were non-force pushed to
+  `origin/codex/evolution-mvp` with local and remote at `0 0` divergence. The
+  exact acceptance-evidence checkpoint is recorded by the immediate successor
+  before Block 5 implementation changes begin.
 
 ### Stop
 
@@ -1468,7 +1548,7 @@ automation, report, or evolution owner.
 
 ## Block 5 — Codex task and App Server adapter
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -1590,7 +1670,15 @@ task/source identifiers. Never poll every historical task body.
 
 ### Completion evidence
 
-Pending.
+- Activation: began automatically from accepted and pushed Block 4 candidate
+  `afe3ed10de196bf7cff8f9e693368ba44d320886` under direct-user item 44 and
+  mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+  Block 4's exact acceptance-evidence checkpoint is frozen and pushed before
+  implementation changes begin. No new mission, successor task, routed
+  authority, or manual resume is used.
+- Candidate implementation, validation, exact review, and acceptance evidence:
+  pending.
 
 ### Stop
 
