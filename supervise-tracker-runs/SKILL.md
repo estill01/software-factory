@@ -626,10 +626,16 @@ hidden reasoning into the review.
   exposed, and all safe scoped work is exhausted. Otherwise steer the target to
   continue or narrow the stop. Record when the blocker was first foreseeable
   and when it became decision-ready.
-- Before accepting any target `blocked` lifecycle, call `decision-gate` for
-  every open decision head. If any result has `blocking_permitted=false`, record
-  the target block as invalid, keep supervision active, steer the target to
-  report `in-progress`, and continue the state machine. A stale application
+- Before accepting any target `blocked`, `paused`, `stopped`, or `completed`
+  lifecycle, call `control-posture-gate` on the governing-outcome owner target.
+  It is the sole required target posture. The gate keeps governing outcome,
+  tracker/program, execution run, Codex task, supervision group, and Block
+  identities separate; follows at most eight exact acyclic successor-member
+  ledgers; and binds their policy/event heads into one currentness root. Use
+  `decision-gate`, `successor-transition-gate`, and `lifecycle-gate` only for
+  their local diagnostics. If any local result conflicts with the canonical
+  posture, preserve it as evidence and obey `control-posture-gate`.
+- A stale application
   `Goal blocked` card after target acknowledgement is not current target state;
   the exact active turn and supervision decision head control. The resumed
   notification must say that no manual Resume action is required.

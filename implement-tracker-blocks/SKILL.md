@@ -187,6 +187,15 @@ no safe frontier. If a prior UI card still says `Goal blocked` after a handoff,
 state that the card is stale and continue; do not require or wait for a manual
 resume.
 
+Before adopting any terminal target posture, call the supervision owner's
+`control-posture-gate` when that owner is configured. Treat its governing
+outcome, tracker/program, execution-run, Codex-task, supervision-group, and
+Block identities as distinct. Its bounded joined-ledger result is the sole
+required target posture; decision, transition, and lifecycle gates remain local
+diagnostics. If the canonical posture is `in-progress`, continue its exact safe
+action even when a subordinate task, handoff, decision, Block, test, review, or
+UI card appears terminal.
+
 When the requested implementation must move to a distinct successor task,
 treat that as an execution-topology transition, not as completion of the
 requested scope. Keep the source run `in-progress` and preserve one exact

@@ -756,6 +756,413 @@ class SuccessorTransitionContractTests(unittest.TestCase):
         self.assertIn("human-scheduling leak", readme)
 
 
+class ControlPostureReducerTests(unittest.TestCase):
+    owner = "owner-1234"
+    child = "child-1234"
+    owner_mission = "a" * 64
+    child_mission = "b" * 64
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+
+    def create_target(self, target: str, mission_root: str) -> tuple[Path, dict[str, object]]:
+        args = supervision_log.parser().parse_args(
+            [
+                "init",
+                "--target-thread",
+                target,
+                "--target-label",
+                target,
+                "--watcher-thread",
+                f"watcher-{target}",
+                "--reviewer-thread",
+                f"reviewer-{target}",
+                "--base-reviewer-thread",
+                f"base-{target}",
+                "--mission-root",
+                mission_root,
+                "--mission-source-record",
+                f"mission-{target}",
+            ]
+        )
+        policy = supervision_log.default_policy(args)
+        directory = self.root / target
+        directory.mkdir()
+        supervision_log.atomic_json(directory / "policy.json", policy)
+        return directory, policy
+
+    def append(self, directory: Path, value: dict[str, object]) -> None:
+        supervision_log.append_raw(directory / "events.jsonl", value)
+
+    def reduce(self, directory: Path, policy: dict[str, object]) -> dict[str, object]:
+        return supervision_log.reduce_control_posture(
+            directory=directory,
+            policy=policy,
+            owner_events=supervision_log.events(directory / "events.jsonl"),
+        )
+
+    def test_identity_types_remain_separate_on_the_default_continue_path(self) -> None:
+        directory, policy = self.create_target(self.owner, self.owner_mission)
+
+        result = self.reduce(directory, policy)
+
+        self.assertEqual(result["required_target_posture"], "in-progress")
+        identities = result["identities"]
+        self.assertEqual(
+            identities["governing_outcome"]["root"], self.owner_mission
+        )
+        member = identities["members"][0]
+        self.assertEqual(member["task_id"], self.owner)
+        self.assertRegex(member["supervision_group_id"], r"^[0-9a-f]{64}$")
+        self.assertRegex(member["execution_run_id"], r"^[0-9a-f]{64}$")
+        self.assertIsNone(member["active_block"])
+        self.assertEqual(result["member_count"], 1)
+        self.assertFalse(result["human_input_required"])
+        self.assertEqual(result, self.reduce(directory, policy))
+
+    def test_public_gate_emits_the_canonical_default_posture(self) -> None:
+        self.create_target(self.owner, self.owner_mission)
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "control-posture-gate",
+                "--target-thread",
+                self.owner,
+            ]
+        )
+        output = io.StringIO()
+
+        with redirect_stdout(output):
+            args.func(args)
+
+        result = json.loads(output.getvalue())
+        self.assertEqual(result["required_target_posture"], "in-progress")
+        self.assertEqual(result["next_action"], "continue-governing-outcome")
+        self.assertEqual(result["member_count"], 1)
+
+    def test_cyclic_successor_membership_fails_into_reconciliation(self) -> None:
+        directory, policy = self.create_target(self.owner, self.owner_mission)
+        self.append(
+            directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "successor-transition",
+                "transition_id": "TRANSITION-1234",
+                "phase": "work-started",
+                "tracker_sha256": "c" * 64,
+                "successor_thread_id": self.owner,
+                "successor_mission_root": self.owner_mission,
+                "successor_group_id": "group-owner-1234",
+            },
+        )
+
+        result = self.reduce(directory, policy)
+
+        self.assertEqual(result["required_target_posture"], "in-progress")
+        self.assertEqual(
+            result["next_action"], "reconcile-control-membership-or-evidence"
+        )
+        self.assertIn(
+            "successor-membership-cycle-or-duplicate",
+            {item["kind"] for item in result["issues"]},
+        )
+
+    def test_escaped_successor_path_fails_into_reconciliation(self) -> None:
+        directory, policy = self.create_target(self.owner, self.owner_mission)
+        external = tempfile.TemporaryDirectory()
+        self.addCleanup(external.cleanup)
+        (self.root / self.child).symlink_to(Path(external.name), target_is_directory=True)
+        self.append(
+            directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "successor-transition",
+                "transition_id": "TRANSITION-1234",
+                "phase": "work-started",
+                "tracker_sha256": "c" * 64,
+                "successor_thread_id": self.child,
+                "successor_mission_root": self.child_mission,
+                "successor_group_id": "group-child-1234",
+            },
+        )
+
+        result = self.reduce(directory, policy)
+
+        self.assertEqual(result["required_target_posture"], "in-progress")
+        self.assertIn(
+            "member-state-unavailable-or-invalid",
+            {item["kind"] for item in result["issues"]},
+        )
+
+    def test_successor_membership_stops_at_the_eight_member_bound(self) -> None:
+        targets = [f"member-{index:04d}" for index in range(9)]
+        missions = [f"{index:x}" * 64 for index in range(9)]
+        created = [
+            self.create_target(target, mission)
+            for target, mission in zip(targets, missions, strict=True)
+        ]
+        for index in range(8):
+            directory, _policy = created[index]
+            _successor_directory, successor_policy = created[index + 1]
+            self.append(
+                directory,
+                {
+                    "record_id": "EVT-000001",
+                    "kind": "successor-transition",
+                    "transition_id": f"TRANSITION-{index:04d}",
+                    "phase": "work-started",
+                    "tracker_sha256": "c" * 64,
+                    "successor_thread_id": targets[index + 1],
+                    "successor_mission_root": missions[index + 1],
+                    "successor_group_id": (
+                        supervision_log.supervision_group_identity(successor_policy)
+                    ),
+                },
+            )
+
+        owner_directory, owner_policy = created[0]
+        result = self.reduce(owner_directory, owner_policy)
+
+        self.assertEqual(result["member_count"], 8)
+        self.assertEqual(result["required_target_posture"], "in-progress")
+        self.assertIn(
+            "member-bound-exceeded",
+            {item["kind"] for item in result["issues"]},
+        )
+
+    def test_open_transition_overrides_a_locally_blocking_decision(self) -> None:
+        directory, policy = self.create_target(self.owner, self.owner_mission)
+        self.append(
+            directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "decision",
+                "decision_id": "DEC-1234",
+                "phase": "handoff-sent",
+                "classification": "reserved-authority",
+                "outcome": "safe-deferred",
+                "safe_frontier": "empty",
+                "mission_root": self.owner_mission,
+                "authority_source_class": "direct-user",
+                "authority_source_record": "item-340",
+                "impact_class": "goal-blocking",
+                "ordinary_means_disabled": True,
+                "independent_mission_review": True,
+            },
+        )
+        self.append(
+            directory,
+            {
+                "record_id": "EVT-000002",
+                "kind": "successor-transition",
+                "transition_id": "TRANSITION-1234",
+                "phase": "required",
+                "tracker_sha256": "c" * 64,
+            },
+        )
+
+        result = self.reduce(directory, policy)
+
+        self.assertEqual(result["required_target_posture"], "in-progress")
+        self.assertEqual(result["next_action"], "continue-open-successor-transition")
+        self.assertEqual(result["blocking_decision_records"], ["EVT-000001"])
+        self.assertEqual(result["open_transition_records"], ["EVT-000002"])
+
+    def test_exact_direct_safe_deferral_can_block_after_safe_work_is_exhausted(self) -> None:
+        directory, policy = self.create_target(self.owner, self.owner_mission)
+        self.append(
+            directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "decision",
+                "decision_id": "DEC-1234",
+                "phase": "target-acknowledged",
+                "classification": "reserved-authority",
+                "outcome": "safe-deferred",
+                "safe_frontier": "empty",
+                "mission_root": self.owner_mission,
+                "authority_source_class": "direct-user",
+                "authority_source_record": "item-340",
+                "impact_class": "goal-blocking",
+                "ordinary_means_disabled": True,
+                "independent_mission_review": True,
+            },
+        )
+
+        result = self.reduce(directory, policy)
+
+        self.assertEqual(result["required_target_posture"], "blocked")
+        self.assertEqual(
+            result["next_action"],
+            "preserve-safe-deferral-and-revisit-on-authority-change",
+        )
+        self.assertEqual(result["blocking_decision_records"], ["EVT-000001"])
+
+    def test_routed_authority_cannot_turn_a_safe_deferral_into_a_stop(self) -> None:
+        directory, policy = self.create_target(self.owner, self.owner_mission)
+        self.append(
+            directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "decision",
+                "decision_id": "DEC-1234",
+                "phase": "target-acknowledged",
+                "classification": "reserved-authority",
+                "outcome": "safe-deferred",
+                "safe_frontier": "empty",
+                "mission_root": self.owner_mission,
+                "authority_source_class": "supervisor-steer",
+                "authority_source_record": "EVT-ROUTED",
+                "impact_class": "goal-blocking",
+                "ordinary_means_disabled": True,
+                "independent_mission_review": True,
+            },
+        )
+
+        result = self.reduce(directory, policy)
+
+        self.assertEqual(result["required_target_posture"], "in-progress")
+        self.assertEqual(
+            result["next_action"], "continue-safe-frontier-or-resolve-decision"
+        )
+        self.assertEqual(result["blocking_decision_records"], [])
+
+    def test_exact_successor_edge_joins_one_member_without_scanning(self) -> None:
+        owner_directory, owner_policy = self.create_target(
+            self.owner, self.owner_mission
+        )
+        _child_directory, child_policy = self.create_target(
+            self.child, self.child_mission
+        )
+        self.append(
+            owner_directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "successor-transition",
+                "transition_id": "TRANSITION-1234",
+                "phase": "work-started",
+                "tracker_sha256": "c" * 64,
+                "successor_thread_id": self.child,
+                "successor_mission_root": self.child_mission,
+                "successor_group_id": supervision_log.supervision_group_identity(
+                    child_policy
+                ),
+                "started_block": "Block 0",
+            },
+        )
+
+        result = self.reduce(owner_directory, owner_policy)
+
+        self.assertEqual(result["member_count"], 2)
+        self.assertEqual(result["issues"], [])
+        self.assertTrue(result["snapshot_stable"])
+        self.assertEqual(result["identities"]["tracker_program_roots"], ["c" * 64])
+        self.assertEqual(
+            {item["task_id"] for item in result["identities"]["members"]},
+            {self.owner, self.child},
+        )
+
+        records = supervision_log.events(owner_directory / "events.jsonl")
+        records[0]["successor_group_id"] = "wrong-group-1234"
+        mismatched = supervision_log.reduce_control_posture(
+            directory=owner_directory,
+            policy=owner_policy,
+            owner_events=records,
+        )
+        self.assertIn(
+            "member-group-mismatch",
+            {item["kind"] for item in mismatched["issues"]},
+        )
+
+    def test_changed_member_head_returns_retry_currentness(self) -> None:
+        directory, policy = self.create_target(self.owner, self.owner_mission)
+        self.append(
+            directory,
+            {"record_id": "EVT-000001", "kind": "check", "status": "ok"},
+        )
+
+        with mock.patch.object(
+            supervision_log, "event_head_hash", return_value="f" * 64
+        ):
+            result = self.reduce(directory, policy)
+
+        self.assertFalse(result["snapshot_stable"])
+        self.assertEqual(result["required_target_posture"], "in-progress")
+        self.assertEqual(result["next_action"], "retry-control-currentness")
+
+    def test_completion_requires_current_observable_outcome_binding(self) -> None:
+        directory, policy = self.create_target(self.owner, self.owner_mission)
+        completion = {
+            "record_id": "EVT-000001",
+            "kind": "check",
+            "category": supervision_log.OUTCOME_COMPLETION_CATEGORY,
+            "status": "verified",
+            "state_fingerprint": "state-1234",
+            "mission_root": self.owner_mission,
+            "model": "gpt-5.6-sol",
+            "reasoning": "xhigh",
+            "evidence": ["behavior-proof-1234"],
+            **{
+                field: "d" * 64
+                for field in supervision_log.OUTCOME_COMPLETION_HASH_FIELDS
+            },
+            "capability_reconciliation_reviewer_id": f"base-{self.owner}",
+            "capability_reconciliation_implementation_owner_id": self.owner,
+            "capability_reconciliation_revision": "e" * 40,
+            "capability_reconciliation_posture": "verified",
+            "capability_reconciliation_gap_count": 0,
+        }
+        self.append(directory, completion)
+        self.append(
+            directory,
+            {
+                "record_id": "EVT-000002",
+                "kind": "lifecycle",
+                "status": "completed",
+                "state_fingerprint": "state-1234",
+                "outcome_completion_record_id": "EVT-000001",
+            },
+        )
+
+        completed = self.reduce(directory, policy)
+        self.assertEqual(completed["required_target_posture"], "completed")
+
+        records = supervision_log.events(directory / "events.jsonl")
+        records[-1]["outcome_completion_record_id"] = "EVT-WRONG"
+        stale = supervision_log.reduce_control_posture(
+            directory=directory,
+            policy=policy,
+            owner_events=records,
+        )
+        self.assertEqual(stale["required_target_posture"], "in-progress")
+        self.assertIn(
+            "completion-lifecycle-binding-mismatch",
+            {item["kind"] for item in stale["issues"]},
+        )
+
+    def test_contracts_route_terminal_posture_through_one_reducer(self) -> None:
+        supervision_skill = HELPER_PATH.parent.parent.joinpath("SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        implementation_skill = HELPER_PATH.parent.parent.parent.joinpath(
+            "implement-tracker-blocks", "SKILL.md"
+        ).read_text(encoding="utf-8")
+        policy = HELPER_PATH.parent.parent.joinpath(
+            "references", "supervision-policy.md"
+        ).read_text(encoding="utf-8")
+
+        for text in (supervision_skill, implementation_skill, policy):
+            normalized = " ".join(text.split())
+            self.assertIn("control-posture-gate", normalized)
+            self.assertIn("sole required target posture", normalized)
+        self.assertIn("at most eight", policy)
+        self.assertIn("event-head hash", policy)
+        self.assertIn("never scans the supervision root", policy)
+
+
 class NoticeGateCorrelationTests(unittest.TestCase):
     incident_id = "INC-20260801-123456-ABCDEF"
     alert_source = "EVT-000001"

@@ -390,6 +390,49 @@ handoff, and target acknowledgement in the existing content-minimized JSONL
 ledger. Substantive alternatives and rationale remain in the tracker/project's
 existing decision owners. Do not add a second decision ledger or status service.
 
+## Governing outcome identity and canonical posture
+
+The governing requested outcome persists across subordinate tracker/program,
+execution-run, Codex-task, supervision-group, and Block identities. The initial
+target/group ledger is its canonical locus. A successor-transition edge may
+join another target/group ledger only when it supplies the exact successor task,
+mission root, and group identity. `control-posture-gate` follows those edges
+acyclically to at most eight members; it never scans the supervision root for
+possible members or copies their state into a second ledger.
+
+For each member, the gate reads one policy and append-only event ledger, records
+the policy hash and event-head hash, and rechecks the event head after the
+bounded read. The ordered member set produces one governing-outcome currentness
+root. Missing, divergent, cyclic, duplicate, escaped, over-bound, or changed
+member state requires `in-progress` plus exact reconciliation/retry action. It
+never becomes an inferred stop.
+
+The reducer applies one precedence order:
+
+1. unstable or invalid membership/evidence remains `in-progress`;
+2. any open implementation/topology transition remains `in-progress`;
+3. any nonempty safe frontier or unresolved nonblocking decision remains
+   `in-progress`;
+4. an exact safely deferred missing fact or reserved authority may return
+   `blocked` only when every safe frontier is empty and no transition remains;
+5. current independently verified observable completion may return `completed`
+   only when no prior obligation remains; and
+6. every other state remains `in-progress` under the governing outcome.
+
+Run:
+
+```bash
+python3 <LOG_HELPER> control-posture-gate \
+  --target-thread <GOVERNING_OUTCOME_OWNER_TARGET>
+```
+
+`decision-gate`, `successor-transition-gate`, and `lifecycle-gate` retain their
+bounded local diagnostics and expose the canonical result, but they do not own
+a separate terminal posture. The `control-posture-gate` result is the sole
+required target posture. A task, group, Block, handoff, acknowledgement,
+tracker, test, review, or commit boundary cannot substitute for current outcome
+completion or an exact valid stop.
+
 ## Successor transition and failure-mode control
 
 A source task may reach an internal task boundary while its governing requested
