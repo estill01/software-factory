@@ -441,6 +441,10 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
             "cutover_owner_id",
             roles["software-factory"]["compare-candidate"]["distinct"],
         )
+        self.assertIn(
+            ["implementation_owner_id", "production_authority_owner_id"],
+            roles["software-factory"]["compare-candidate"]["equal"],
+        )
 
     def test_candidate_and_structural_extensions_are_closed(self) -> None:
         candidate = SPEC["candidate_fields"]

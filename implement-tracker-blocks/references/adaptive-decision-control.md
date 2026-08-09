@@ -411,7 +411,7 @@ IDs or roots, and obey `min_items`. Objects reject unknown keys. `id` and
     "software-factory": {
       "continue-unchanged": {"must_be_null": ["proposer_author_id", "reviewer_id", "evaluator_id"]},
       "correct-inline": {"must_be_nonnull": ["proposer_author_id", "reviewer_id", "evaluator_id"], "distinct": ["proposer_author_id", "implementation_owner_id", "reviewer_id", "evaluator_id"]},
-      "compare-candidate": {"must_be_nonnull": ["proposer_author_id", "reviewer_id", "evaluator_id"], "equal": [["reviewer_id", "independent_reviewer_id"]], "distinct": ["proposer_author_id", "implementation_owner_id", "reviewer_id", "evaluator_id", "cutover_owner_id"]},
+      "compare-candidate": {"must_be_nonnull": ["proposer_author_id", "reviewer_id", "evaluator_id"], "equal": [["reviewer_id", "independent_reviewer_id"], ["implementation_owner_id", "production_authority_owner_id"]], "distinct": ["proposer_author_id", "implementation_owner_id", "reviewer_id", "evaluator_id", "cutover_owner_id"]},
       "amend-structure": {"must_be_nonnull": ["proposer_author_id", "reviewer_id", "evaluator_id"], "equal": [["proposer_author_id", "author_owner_id"], ["reviewer_id", "authoring_reviewer_id"]], "distinct": ["proposer_author_id", "implementation_owner_id", "reviewer_id", "evaluator_id"]}
     }
   },
