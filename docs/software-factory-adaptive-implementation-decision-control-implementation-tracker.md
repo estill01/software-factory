@@ -893,7 +893,9 @@ ordinary scheduling back to the human.
 - Add topology posture for `same-task-new-run` versus `distinct-task`. Reuse the
   current task by default. A distinct task with `direct-request` basis requires
   the exact request bytes whose SHA-256 is the canonical direct-user governing
-  source and whose content explicitly requests a distinct task; a `technical-isolation`
+  source and whose single affirmative clause explicitly requires a distinct
+  task. Reject negative, same/current-task, conditional, optional, or
+  contradictory phrasing; a `technical-isolation`
   basis requires a pre-existing hash-chained owner event binding the
   transition, rationale, authority, current policy-history root, independent
   verifier, and evidence. Keep `legacy-linear` migration-only and reject it for
@@ -933,8 +935,15 @@ ordinary scheduling back to the human.
   event-head projection, and a separate append-only owner-root history binding
   both ledgers' genesis/count/head so truncation, coordinated sibling-anchor
   replacement, re-rooting, suffix deletion, symlink substitution, and
-  detached-owner writes fail closed. Migrate a true legacy unanchored
+  detached-owner writes fail closed. HMAC-bind that root through a private
+  per-target key outside the mutable target directory, and treat key existence
+  as non-downgradeable enforcement. Migrate a true legacy unkeyed
   transition once under the canonical lock and continue automatically.
+- Freeze canonical range identity at transition genesis. On later phases,
+  preserve the frozen identity and verify that its exact range-history entry
+  remains present and structurally compatible with the current requested set
+  and mission, so status/completion-evidence-only amendments can advance while
+  structural drift requires correction or supersession.
 - At every Block Stop derive accepted, remaining, and dependency-safe Blocks
   from the owner-pinned current tracker. Treat a nonterminal result as an
   immediate continuation action, integrate it into lifecycle completion, and

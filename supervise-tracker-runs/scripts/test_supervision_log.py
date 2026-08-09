@@ -806,6 +806,20 @@ class SuccessorTransitionContractTests(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 args.func(args)
 
+        for forbidden in (
+            "Implement this tracker without a new task.",
+            "Implement this tracker in the current task; avoid a separate thread.",
+            "Implement this tracker; use a new task only if technically necessary.",
+        ):
+            self.assertFalse(
+                supervision_log.direct_request_requires_distinct_task(forbidden)
+            )
+        self.assertTrue(
+            supervision_log.direct_request_requires_distinct_task(
+                self.authority_request
+            )
+        )
+
     def test_transition_writer_rejects_event_ledger_symlink(self) -> None:
         outside = self.root / "outside-ledger.jsonl"
         outside.write_text("", encoding="utf-8")
@@ -849,6 +863,12 @@ class SuccessorTransitionContractTests(unittest.TestCase):
         )
         (self.directory / supervision_log.EVENT_LEDGER_ANCHOR_NAME).unlink()
         (self.directory / supervision_log.OWNER_ROOT_HISTORY_NAME).unlink()
+        key = (
+            self.root
+            / supervision_log.OWNER_ROOT_KEY_DIRECTORY
+            / (hashlib.sha256(self.target.encode("utf-8")).hexdigest() + ".key")
+        )
+        key.unlink()
 
         advanced = self.record(
             "successor-created",
@@ -1269,7 +1289,9 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 f"| {number} | Scope {number} | {dependency} | `{status}` |"
             )
             headings.append(
-                f"## Block {number} — Scope {number}\n\nStatus: `{status}`\n"
+                f"## Block {number} — Scope {number}\n\nStatus: `{status}`\n\n"
+                "### Completion evidence\n\nPending.\n\n"
+                "### Stop\n\nStop at this Block boundary.\n"
             )
         self.tracker.write_text(
             "| Block | Scope | Depends on | Status |\n"
@@ -1406,6 +1428,25 @@ class ImplementationRangeControlTests(unittest.TestCase):
             self.target,
             "--response-kind",
             response_kind,
+        )
+
+    def rewrite_owner_root_without_external_authority(self) -> None:
+        directory = self.root / self.target
+        history = supervision_log.events(directory / "policy-history.jsonl")
+        all_events = supervision_log.events(directory / "events.jsonl")
+        material = {
+            "schema_version": 1,
+            "record_id": "OWNER-ROOT-000001",
+            "timestamp": supervision_log.utc_now(),
+            "kind": "supervision-owner-root",
+            "sequence": 1,
+            **supervision_log.owner_root_material(history, all_events),
+            "previous_record_sha256": None,
+            "owner_hmac_sha256": "0" * 64,
+        }
+        material["record_sha256"] = supervision_log.digest(material)
+        (directory / supervision_log.OWNER_ROOT_HISTORY_NAME).write_bytes(
+            supervision_log.canonical(material) + b"\n"
         )
 
     def test_skill_only_full_range_survives_inserted_prerequisites_and_continues(self) -> None:
@@ -1622,6 +1663,39 @@ class ImplementationRangeControlTests(unittest.TestCase):
             valid.func(valid)
         self.assertEqual(json.loads(output.getvalue())["record"]["phase"], "required")
 
+        self.tracker.write_text(
+            self.tracker.read_text(encoding="utf-8").replace(
+                "Pending.", "Accepted status-only evidence.", 1
+            ),
+            encoding="utf-8",
+        )
+        amendment = self.call(
+            "implementation-range-amend",
+            "--target-thread",
+            self.target,
+            "--tracker",
+            str(self.tracker),
+        )["binding"]
+        self.assertNotEqual(
+            amendment["tracker_sha256"], binding["tracker_sha256"]
+        )
+        self.assertEqual(
+            amendment["tracker_structure_sha256"],
+            binding["tracker_structure_sha256"],
+        )
+        continued = transition_args(str(binding["tracker_sha256"]))
+        continued.phase = "work-started"
+        continued.started_block = "Block 1"
+        continued.state_fingerprint = "state-work-started"
+        continued.evidence = ["status-only-range-amendment-continuity"]
+        continued_output = io.StringIO()
+        with redirect_stdout(continued_output):
+            continued.func(continued)
+        self.assertEqual(
+            json.loads(continued_output.getvalue())["record"]["phase"],
+            "work-started",
+        )
+
     def test_fabricated_direct_user_string_cannot_contract_but_accepted_receipt_can(self) -> None:
         self.write_tracker(["completed", "not-started"])
         self.bind()
@@ -1782,9 +1856,10 @@ class ImplementationRangeControlTests(unittest.TestCase):
             directory / supervision_log.EVENT_LEDGER_ANCHOR_NAME,
             supervision_log.event_ledger_anchor(truncated_events),
         )
+        self.rewrite_owner_root_without_external_authority()
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError,
-            "owner-root history differs",
+            "external authority",
         ):
             self.gate()
 
@@ -1815,9 +1890,10 @@ class ImplementationRangeControlTests(unittest.TestCase):
         (directory / "policy-history.jsonl").write_bytes(
             b"".join(supervision_log.canonical(item) + b"\n" for item in records)
         )
+        self.rewrite_owner_root_without_external_authority()
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError,
-            "owner-root history differs",
+            "external authority",
         ):
             self.gate()
 
@@ -1873,6 +1949,39 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.tracker.symlink_to(outside)
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError, "non-symlink file"
+        ):
+            self.gate()
+
+    def test_owner_root_enforcement_cannot_be_removed_from_bound_range(self) -> None:
+        self.write_tracker(["completed", "not-started"])
+        self.bind()
+        directory = self.root / self.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        policy.pop("owner_root_history_required")
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+        supervision_log.atomic_json(directory / "policy.json", policy)
+        history = supervision_log.events(directory / "policy-history.jsonl")
+        history[-1]["policy"] = policy
+        previous = None
+        rebuilt = []
+        for item in history:
+            material = {
+                key: value
+                for key, value in item.items()
+                if key not in {"previous_record_sha256", "record_sha256"}
+            }
+            material["previous_record_sha256"] = previous
+            material["record_sha256"] = supervision_log.digest(material)
+            previous = material["record_sha256"]
+            rebuilt.append(material)
+        (directory / "policy-history.jsonl").write_bytes(
+            b"".join(supervision_log.canonical(item) + b"\n" for item in rebuilt)
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "requires owner-root history|cannot be downgraded",
         ):
             self.gate()
 

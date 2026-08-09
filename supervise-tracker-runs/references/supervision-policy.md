@@ -471,8 +471,9 @@ closed. `same-task-new-run` is the
 default topology and moves directly from `required` to `work-started` without
 task creation or human scheduling. `distinct-task` is exceptional: a
 `direct-request` basis must supply the exact request bytes whose SHA-256 is the
-canonical direct-user governing source and whose unambiguous text actually
-requests a distinct task,
+canonical direct-user governing source and whose one affirmative clause
+unambiguously requires a distinct task. Negation, same/current-task contrast,
+conditional, optional, or contradictory language fails closed,
 while `technical-isolation` must resolve a pre-existing hash-chained
 `successor-topology-decision` owner event binding the transition, rationale,
 authority, policy-history root, independent verifier, and evidence.
@@ -635,9 +636,19 @@ event ledger is pinned by a separately current, self-hashed head anchor, so
 truncation, re-rooting, stale suffixes, symlink substitution, and detached-owner
 writes fail closed before range or transition decisions. A separate append-only
 owner-root history binds both policy-history and event-ledger genesis, count,
-and current head; regenerating a mutable sibling anchor cannot make a replaced
-ledger current. A true pre-root legacy transition receives one locked, lazy
+and current head. Each root is HMAC-bound by a private per-target key in the
+supervision root outside the mutable target directory; the key's existence
+forces enforcement even if policy is rewritten, and its path is not a caller
+input. Regenerating or re-rooting mutable sibling files cannot make a replaced
+ledger current. A true pre-key legacy transition receives one locked, lazy
 policy/root migration before it advances.
+
+The transition freezes its genesis tracker/range identity. Later phases preserve
+that identity and prove it still appears in the canonical range history with the
+same structural root, requested set, and mission. A status or completion-
+evidence-only tracker amendment may therefore advance normally; a structural or
+mission change requires correction/supersession instead of trapping both the old
+and new identities.
 
 ## Target-state fingerprint
 

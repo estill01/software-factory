@@ -164,8 +164,10 @@ the completed program materially changes Software Factory.
   evidence attached before a terminal disposition. The final hardening adds a
   status-independent tracker structural root, exact distinct-task request-byte
   proof, canonical range-history provenance, lazy legacy-root migration, and an
-  append-only owner-root history that detects coordinated policy/event sibling
-  replacement.
+  externally HMAC-bound append-only owner-root history that detects coordinated
+  policy/event/root replacement and cannot be disabled by policy rewrite.
+  Frozen transition identity now survives status/evidence-only tracker
+  amendments while structural drift still fails closed.
 
 - **Adaptive tracker provenance.** Corrected the planned adaptive-decision
   tracker so routed `codex_delegation` advice remains advisory rather than being

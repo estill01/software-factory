@@ -6,6 +6,7 @@ import base64
 import datetime as dt
 import fcntl
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -196,6 +197,7 @@ TRACKER_AMENDMENT_EVENT_KIND = "implementation-tracker-amendment"
 SUCCESSOR_TOPOLOGY_EVENT_KIND = "successor-topology-decision"
 EVENT_LEDGER_ANCHOR_NAME = "events-head.json"
 OWNER_ROOT_HISTORY_NAME = "owner-root-history.jsonl"
+OWNER_ROOT_KEY_DIRECTORY = ".owner-root-keys"
 MAX_IMPLEMENTATION_TRACKER_BYTES = 2 * 1024 * 1024
 IMPLEMENTATION_BLOCK_HEADING = re.compile(r"^## Block (\d+)\b", re.MULTILINE)
 IMPLEMENTATION_TABLE_ROW = re.compile(r"^\|\s*(\d+)\s*\|(.+)$")
@@ -1221,6 +1223,13 @@ def validate_policy(policy: dict[str, Any]) -> None:
     owner_root_required = policy.get("owner_root_history_required")
     if owner_root_required is not None and owner_root_required is not True:
         raise SupervisionLogError("Canonical owner-root history posture is invalid")
+    if (
+        policy.get("implementation_range") is not None
+        or policy.get("direct_authority_receipts")
+    ) and owner_root_required is not True:
+        raise SupervisionLogError(
+            "Canonical range or authority state requires owner-root history"
+        )
     group_id = policy.get("supervision_group_id")
     if group_id is not None:
         if not isinstance(group_id, str):
@@ -1492,7 +1501,11 @@ def append_raw_locked_at(
 ) -> str:
     owner_policy_history: list[dict[str, Any]] = []
     owner_events: list[dict[str, Any]] = []
-    if name in {"events.jsonl", "policy-history.jsonl"}:
+    owner_root_enabled = bool(
+        name in {"events.jsonl", "policy-history.jsonl"}
+        and owner_root_enabled_at(directory_fd)
+    )
+    if owner_root_enabled:
         owner_policy_history, _owner_policy_history_snapshot = events_snapshot(
             Path("policy-history.jsonl"), directory_fd=directory_fd
         )
@@ -1553,7 +1566,10 @@ def append_raw_locked_at(
             EVENT_LEDGER_ANCHOR_NAME,
             event_ledger_anchor(current_events),
         )
-    if name in {"events.jsonl", "policy-history.jsonl"}:
+    if (
+        name in {"events.jsonl", "policy-history.jsonl"}
+        and (owner_root_enabled or owner_root_enabled_at(directory_fd))
+    ):
         current_policy_history, _current_policy_history_snapshot = events_snapshot(
             Path("policy-history.jsonl"), directory_fd=directory_fd
         )
@@ -1716,12 +1732,95 @@ def owner_root_material(
     }
 
 
+def directory_path_from_fd(directory_fd: int) -> Path:
+    if sys.platform != "darwin":
+        proc_path = Path(f"/proc/self/fd/{directory_fd}")
+        try:
+            return proc_path.resolve(strict=True)
+        except OSError as exc:
+            raise SupervisionLogError(
+                "Cannot resolve canonical owner directory for root authority"
+            ) from exc
+    try:
+        raw = fcntl.fcntl(directory_fd, 50, b"\0" * 1024)
+    except OSError as exc:
+        raise SupervisionLogError(
+            "Cannot resolve canonical owner directory for root authority"
+        ) from exc
+    value = raw.split(b"\0", 1)[0].decode("utf-8")
+    return Path(value).resolve(strict=True)
+
+
+def owner_root_key_path_at(directory_fd: int) -> Path:
+    directory = directory_path_from_fd(directory_fd)
+    key_directory = directory.parent / OWNER_ROOT_KEY_DIRECTORY
+    key_name = hashlib.sha256(directory.name.encode("utf-8")).hexdigest() + ".key"
+    return key_directory / key_name
+
+
+def owner_root_key_exists_at(directory_fd: int) -> bool:
+    path = owner_root_key_path_at(directory_fd)
+    return path.exists() and not path.is_symlink()
+
+
+def owner_root_key_at(directory_fd: int, *, allow_create: bool) -> bytes:
+    path = owner_root_key_path_at(directory_fd)
+    if not path.exists():
+        if not allow_create:
+            raise SupervisionLogError("Canonical external owner-root key is missing")
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if path.parent.is_symlink():
+            raise SupervisionLogError("Canonical owner-root key directory is symlinked")
+        os.chmod(path.parent, 0o700)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags, 0o400)
+        try:
+            os.write(descriptor, secrets.token_bytes(32))
+            os.fsync(descriptor)
+            os.fchmod(descriptor, 0o400)
+        finally:
+            os.close(descriptor)
+    if path.is_symlink():
+        raise SupervisionLogError("Canonical external owner-root key is symlinked")
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        metadata = os.fstat(descriptor)
+        key = os.read(descriptor, 33)
+    finally:
+        os.close(descriptor)
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_size != 32
+        or len(key) != 32
+        or stat.S_IMODE(metadata.st_mode) & 0o077
+    ):
+        raise SupervisionLogError("Canonical external owner-root key is invalid")
+    return key
+
+
+def owner_root_enabled_at(directory_fd: int) -> bool:
+    if path_snapshot_at(directory_fd, OWNER_ROOT_HISTORY_NAME) is not None:
+        return True
+    if owner_root_key_exists_at(directory_fd):
+        return True
+    try:
+        policy, _snapshot = read_json_snapshot(
+            Path("policy.json"), directory_fd=directory_fd
+        )
+        validate_policy(policy)
+    except (OSError, SupervisionLogError):
+        return False
+    return policy.get("owner_root_history_required") is True
+
+
 def owner_root_bootstrap_allowed_at(
     directory_fd: int,
     policy_history: list[dict[str, Any]],
     all_events: list[dict[str, Any]],
 ) -> bool:
     if path_snapshot_at(directory_fd, OWNER_ROOT_HISTORY_NAME) is not None:
+        return False
+    if owner_root_key_exists_at(directory_fd):
         return False
     try:
         policy, _snapshot = read_json_snapshot(
@@ -1752,6 +1851,7 @@ def validate_owner_root_history_at(
     )
     if not roots:
         raise SupervisionLogError("Canonical owner-root history is empty")
+    key = owner_root_key_at(directory_fd, allow_create=False)
     for index, record in enumerate(roots, start=1):
         expected_fields = {
             "schema_version",
@@ -1760,6 +1860,7 @@ def validate_owner_root_history_at(
             "kind",
             "sequence",
             *owner_root_material([], []).keys(),
+            "owner_hmac_sha256",
             "previous_record_sha256",
             "record_sha256",
         }
@@ -1771,6 +1872,22 @@ def validate_owner_root_history_at(
             or record.get("record_id") != f"OWNER-ROOT-{index:06d}"
         ):
             raise SupervisionLogError("Canonical owner-root history shape differs")
+        signed = {
+            field: value
+            for field, value in record.items()
+            if field not in {"owner_hmac_sha256", "record_sha256"}
+        }
+        expected_hmac = hmac.new(
+            key,
+            canonical(signed),
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(
+            str(record.get("owner_hmac_sha256", "")), expected_hmac
+        ):
+            raise SupervisionLogError(
+                "Canonical owner-root history lacks external authority"
+            )
     expected = owner_root_material(policy_history, all_events)
     if any(roots[-1].get(field) != value for field, value in expected.items()):
         raise SupervisionLogError(
@@ -1786,6 +1903,7 @@ def append_owner_root_history_at(
     roots, snapshot = events_snapshot(
         Path(OWNER_ROOT_HISTORY_NAME), directory_fd=directory_fd
     )
+    key = owner_root_key_at(directory_fd, allow_create=True)
     material: dict[str, Any] = {
         "schema_version": 1,
         "record_id": f"OWNER-ROOT-{len(roots) + 1:06d}",
@@ -1797,6 +1915,11 @@ def append_owner_root_history_at(
             roots[-1].get("record_sha256") if roots else None
         ),
     }
+    material["owner_hmac_sha256"] = hmac.new(
+        key,
+        canonical(material),
+        hashlib.sha256,
+    ).hexdigest()
     material["record_sha256"] = digest(material)
     flags = os.O_WRONLY | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
     flags |= os.O_EXCL | os.O_CREAT if snapshot is None else 0
@@ -2402,7 +2525,18 @@ def validate_policy_history_sequence(
 def validate_range_policy_history_at(
     directory_fd: int, policy: Mapping[str, Any]
 ) -> None:
-    owner_root_required = policy.get("owner_root_history_required") is True
+    external_owner_root = owner_root_key_exists_at(directory_fd)
+    owner_root_required = (
+        policy.get("owner_root_history_required") is True
+        or external_owner_root
+    )
+    if (
+        external_owner_root
+        or range_policy_requires_history(policy)
+    ) and policy.get("owner_root_history_required") is not True:
+        raise SupervisionLogError(
+            "Canonical owner-root history enforcement cannot be downgraded"
+        )
     if not range_policy_requires_history(policy) and not owner_root_required:
         return
     history, _snapshot = events_snapshot(
@@ -4970,24 +5104,36 @@ def direct_request_requires_distinct_task(request_text: str) -> bool:
         r"|successor\s+(?:codex\s+)?(?:task|thread|chat|conversation)"
     )
     if re.search(
-        rf"\b(?:do\s+not|don't|never)\b.{{0,100}}\b(?:{task_phrase})\b",
+        r"\b(?:do\s+not|don't|never|without|avoid|instead\s+of|"
+        r"current\s+(?:task|thread|chat|conversation)|"
+        r"same\s+(?:task|thread|chat|conversation)|"
+        r"if|unless|only\s+if|may|might|could|optional(?:ly)?)\b",
         value,
         re.I,
     ):
         return False
-    return bool(
-        re.search(
-            rf"\b(?:create|start|use|move|continue|implement|execute|run)\b"
-            rf".{{0,160}}\b(?:{task_phrase})\b",
-            value,
+    positive = 0
+    for raw_clause in re.split(r"[.;]", value):
+        clause = raw_clause.strip()
+        if not clause:
+            continue
+        if re.fullmatch(
+            rf"(?:please\s+)?(?:create|start|use)\s+(?:a|one|the)\s+"
+            rf"(?:{task_phrase})(?:\s+for\s+.+)?",
+            clause,
             re.I,
-        )
-        or re.search(
-            rf"\b(?:in|within|through)\s+(?:a|one|the)\s+(?:{task_phrase})\b",
-            value,
+        ) or re.fullmatch(
+            rf"(?:please\s+)?(?:move|continue|implement|execute|run)\b"
+            rf".{{0,140}}\b(?:in|within|through|to)\s+"
+            rf"(?:a|one|the)\s+(?:{task_phrase})",
+            clause,
             re.I,
-        )
-    )
+        ):
+            positive += 1
+            continue
+        if re.search(rf"\b(?:{task_phrase})\b", clause, re.I):
+            return False
+    return positive == 1
 
 
 def implementation_range_contract(policy: Mapping[str, Any]) -> dict[str, Any] | None:
@@ -6209,35 +6355,6 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
         "policy_sha256": policy["policy_sha256"],
     }
     range_state = implementation_range_state(policy)
-    if range_state is not None:
-        mission = bound_mission(policy)
-        if mission is None:
-            raise SupervisionLogError(
-                "Canonical implementation range lacks a bound mission"
-            )
-        eligible_blocks = list(range_state["eligible_blocks"])
-        if not eligible_blocks:
-            raise SupervisionLogError(
-                "Successor transition has no dependency-safe first Block"
-            )
-        canonical_identity = {
-            "tracker_sha256": range_state["tracker_sha256"],
-            "tracker_source_record": (
-                "implementation-range-history:"
-                + str(range_state["range_history_head_sha256"])
-            ),
-            "requested_block_range": format_implementation_block_set(
-                list(range_state["requested_blocks"])
-            ),
-            "first_eligible_block": f"Block {eligible_blocks[0]}",
-            "source_mission_root": mission["mission_root"],
-        }
-        for field, expected in canonical_identity.items():
-            if record.get(field) != expected:
-                raise SupervisionLogError(
-                    "Successor transition identity differs from the canonical "
-                    f"implementation range: {field.replace('_', ' ')}"
-                )
     if record["phase"] in SUCCESSOR_TRANSITION_TERMINAL_PHASES and not canonical_authority_source(
         policy,
         source_class=str(record["correction_authority_source_class"]),
@@ -6296,6 +6413,71 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
             )
         records = successor_transition_events(all_events, transition_id)
         prior = dict(records[-1]) if records else None
+        if range_state is not None:
+            mission = bound_mission(current_policy)
+            contract = implementation_range_contract(current_policy)
+            if mission is None or contract is None:
+                raise SupervisionLogError(
+                    "Canonical implementation range lacks a bound mission"
+                )
+            if prior is None:
+                eligible_blocks = list(range_state["eligible_blocks"])
+                if not eligible_blocks:
+                    raise SupervisionLogError(
+                        "Successor transition has no dependency-safe first Block"
+                    )
+                canonical_identity = {
+                    "tracker_sha256": range_state["tracker_sha256"],
+                    "tracker_source_record": (
+                        "implementation-range-history:"
+                        + str(range_state["range_history_head_sha256"])
+                    ),
+                    "requested_block_range": format_implementation_block_set(
+                        list(range_state["requested_blocks"])
+                    ),
+                    "first_eligible_block": f"Block {eligible_blocks[0]}",
+                    "source_mission_root": mission["mission_root"],
+                }
+                for field, expected in canonical_identity.items():
+                    if record.get(field) != expected:
+                        raise SupervisionLogError(
+                            "Successor transition identity differs from the canonical "
+                            f"implementation range: {field.replace('_', ' ')}"
+                        )
+            else:
+                source_prefix = "implementation-range-history:"
+                source_record = str(prior.get("tracker_source_record", ""))
+                source_head = (
+                    source_record[len(source_prefix):]
+                    if source_record.startswith(source_prefix)
+                    else ""
+                )
+                source_entry = next(
+                    (
+                        item
+                        for item in contract["history"]
+                        if item.get("entry_sha256") == source_head
+                    ),
+                    None,
+                )
+                compatible = bool(
+                    source_entry is not None
+                    and source_entry.get("tracker_sha256")
+                    == prior.get("tracker_sha256")
+                    and source_entry.get("tracker_structure_sha256")
+                    == contract.get("tracker_structure_sha256")
+                    and prior.get("requested_block_range")
+                    == format_implementation_block_set(
+                        list(range_state["requested_blocks"])
+                    )
+                    and prior.get("source_mission_root")
+                    == mission.get("mission_root")
+                )
+                if not compatible:
+                    raise SupervisionLogError(
+                        "Current implementation range is not structurally compatible "
+                        "with the frozen successor genesis"
+                    )
         if prior is None:
             if not record["topology_posture"]:
                 record["topology_posture"] = "same-task-new-run"

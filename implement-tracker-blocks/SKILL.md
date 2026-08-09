@@ -242,7 +242,9 @@ the handoff into an ordinary user scheduling request.
 
 Use `same-task-new-run` by default. Select `distinct-task/direct-request` only
 when the exact request bytes hash to the canonical direct-user governing source
-and explicitly request a distinct task. Select
+and one affirmative clause explicitly requires a distinct task. Reject
+negation, same/current-task contrast, conditional, optional, or contradictory
+language. Select
 `distinct-task/technical-isolation` only from a pre-existing, independently
 verified, hash-chained `successor-topology-decision` owner event; never mint the
 rationale from CLI prose. New `legacy-linear` transitions are forbidden. When
@@ -483,6 +485,12 @@ its canonical self-hashed head anchor. Reject truncation, re-rooting, stale
 suffixes, symlink/path substitution, or a detached owner before using range,
 transition, or terminal posture. Validate both against the separate append-only
 owner-root history; a rewritten mutable anchor does not confer currentness.
+The owner-root chain is HMAC-bound by a per-target key outside the target
+directory, and key existence makes enforcement non-downgradeable. After a
+transition genesis, preserve its frozen range identity while checking that the
+current range history still contains it with the same structural root,
+requested set, and mission; status/evidence-only amendments must not trap the
+transition.
 The terminal lifecycle writer calls the same owner and rejects completion while
 the governing range is nonterminal.
 
