@@ -1742,7 +1742,7 @@ def write_policy_version(
                 if policy_history
                 else None
             )
-            append_raw_locked_at(
+            history_head = append_raw_locked_at(
                 directory_fd,
                 "policy-history.jsonl",
                 history_record,
@@ -1751,6 +1751,24 @@ def write_policy_version(
                 ),
                 expected_file_snapshot=history_snapshot,
             )
+            installed_policy, _installed_snapshot = read_json_snapshot(
+                Path("policy.json"), directory_fd=directory_fd
+            )
+            validate_policy(installed_policy)
+            current_directory_snapshot = path_snapshot(directory)
+            if (
+                installed_policy.get("policy_sha256")
+                != policy.get("policy_sha256")
+                or current_directory_snapshot is None
+                or current_directory_snapshot[:2] != directory_snapshot[:2]
+                or event_head_hash(
+                    Path("policy-history.jsonl"), directory_fd=directory_fd
+                )
+                != history_head
+            ):
+                raise SupervisionLogError(
+                    "Policy mutation lost canonical currentness"
+                )
     finally:
         os.close(directory_fd)
 
