@@ -1663,17 +1663,25 @@ class ControlPostureReducerTests(unittest.TestCase):
 
         def reduce_then_mutate(**values: object):
             result = original_reduce(**values)
-            replacement = dict(policy)
-            replacement["mission_binding"] = supervision_log.mission_binding_contract(
-                "f" * 64, "replacement-mission-source-1234"
+            policy_path = directory / "policy.json"
+            original_stat = policy_path.stat()
+            original_snapshot = supervision_log.path_snapshot(policy_path)
+            replacement = json.loads(json.dumps(policy))
+            replacement["mission_binding"]["mission_root"] = "f" * 64
+            serialized = (
+                json.dumps(
+                    replacement, ensure_ascii=False, sort_keys=True, indent=2
+                )
+                + "\n"
             )
-            replacement["policy_sha256"] = supervision_log.digest(
-                supervision_log.policy_material(replacement)
+            self.assertEqual(len(serialized.encode("utf-8")), original_stat.st_size)
+            policy_path.write_text(serialized, encoding="utf-8")
+            os.utime(
+                policy_path,
+                ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns),
             )
-            (directory / "policy.json").write_text(
-                json.dumps(replacement, ensure_ascii=False, sort_keys=True, indent=2)
-                + "\n",
-                encoding="utf-8",
+            self.assertEqual(
+                supervision_log.path_snapshot(policy_path), original_snapshot
             )
             return result
 

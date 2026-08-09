@@ -1613,6 +1613,36 @@ def load_control_snapshot(
     )
 
 
+def require_bound_policy_at(
+    directory_fd: int,
+    *,
+    expected_policy: dict[str, Any],
+    expected_snapshot: tuple[int, int, int, int],
+) -> dict[str, Any]:
+    try:
+        current_policy, current_snapshot = read_json_snapshot(
+            Path("policy.json"), directory_fd=directory_fd
+        )
+        validate_policy(current_policy)
+    except (OSError, SupervisionLogError) as exc:
+        raise SupervisionLogError(
+            "Completed lifecycle rejected by governing-outcome control: "
+            "retry-control-currentness"
+        ) from exc
+    if (
+        current_snapshot != expected_snapshot
+        or current_policy.get("policy_sha256")
+        != expected_policy.get("policy_sha256")
+        or current_policy.get("target_thread_id")
+        != expected_policy.get("target_thread_id")
+    ):
+        raise SupervisionLogError(
+            "Completed lifecycle rejected by governing-outcome control: "
+            "retry-control-currentness"
+        )
+    return current_policy
+
+
 def write_policy_version(
     directory: Path,
     policy: dict[str, Any],
@@ -2962,14 +2992,12 @@ def cmd_record(args: argparse.Namespace) -> None:
                         "Completed lifecycle rejected by governing-outcome control: "
                         "retry-control-currentness"
                     )
-                if (
-                    path_snapshot_at(terminal_directory_fd, "policy.json")
-                    != policy_snapshot
-                ):
-                    raise SupervisionLogError(
-                        "Completed lifecycle rejected by governing-outcome control: "
-                        "retry-control-currentness"
-                    )
+                assert policy_snapshot is not None
+                require_bound_policy_at(
+                    terminal_directory_fd,
+                    expected_policy=policy,
+                    expected_snapshot=policy_snapshot,
+                )
                 prior_hash = (
                     current_events[-1].get("record_sha256")
                     if current_events
@@ -2997,14 +3025,14 @@ def cmd_record(args: argparse.Namespace) -> None:
                     "Completed lifecycle append lost canonical currentness"
                 ) from exc
             try:
-                verified_policy, verified_policy_snapshot = read_json_snapshot(
-                    Path("policy.json"), directory_fd=verified_directory_fd
+                assert policy_snapshot is not None
+                require_bound_policy_at(
+                    verified_directory_fd,
+                    expected_policy=policy,
+                    expected_snapshot=policy_snapshot,
                 )
                 if (
                     verified_directory_snapshot != directory_snapshot
-                    or verified_policy_snapshot != policy_snapshot
-                    or verified_policy.get("policy_sha256")
-                    != policy.get("policy_sha256")
                     or event_head_hash(
                         Path("events.jsonl"), directory_fd=verified_directory_fd
                     )
