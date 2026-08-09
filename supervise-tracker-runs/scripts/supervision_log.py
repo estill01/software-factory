@@ -5180,30 +5180,27 @@ def direct_request_requires_distinct_task(request_text: str) -> bool:
         re.I,
     ):
         return False
-    positive = 0
-    for raw_clause in re.split(r"[.;]", value):
-        clause = raw_clause.strip()
-        if not clause:
-            continue
-        if re.fullmatch(
+    clauses = [item.strip() for item in re.split(r"[.;]", value) if item.strip()]
+    if len(clauses) != 1:
+        return False
+    clause = clauses[0]
+    return bool(
+        re.fullmatch(
             rf"(?:please\s+)?(?:create|start|use)\s+(?:a|one|the)\s+"
             rf"(?:{task_phrase})(?:\s+for\s+"
             rf"(?:this(?:\s+(?:work|implementation|tracker))?|"
             rf"the\s+(?:work|implementation|tracker)))?",
             clause,
             re.I,
-        ) or re.fullmatch(
+        )
+        or re.fullmatch(
             rf"(?:please\s+)?(?:move|continue|implement|execute|run)\b"
             rf".{{0,140}}\b(?:in|within|through|to)\s+"
             rf"(?:a|one|the)\s+(?:{task_phrase})",
             clause,
             re.I,
-        ):
-            positive += 1
-            continue
-        if re.search(rf"\b(?:{task_phrase})\b", clause, re.I):
-            return False
-    return positive == 1
+        )
+    )
 
 
 def implementation_range_contract(policy: Mapping[str, Any]) -> dict[str, Any] | None:

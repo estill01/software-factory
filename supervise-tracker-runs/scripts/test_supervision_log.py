@@ -814,6 +814,9 @@ class SuccessorTransitionContractTests(unittest.TestCase):
             "Create a new task for this provided it is feasible.",
             "Create a new task for this depending on feasibility.",
             "Create a new task for this, or stay here.",
+            "Create a new task for this. That is at your discretion.",
+            "Create a new task for this. Either option is acceptable.",
+            "Create a new task for this. Staying here is also acceptable.",
         ):
             self.assertFalse(
                 supervision_log.direct_request_requires_distinct_task(forbidden)
@@ -830,6 +833,9 @@ class SuccessorTransitionContractTests(unittest.TestCase):
             "Create a new task for this provided it is feasible.",
             "Create a new task for this depending on feasibility.",
             "Create a new task for this, or stay here.",
+            "Create a new task for this. That is at your discretion.",
+            "Create a new task for this. Either option is acceptable.",
+            "Create a new task for this. Staying here is also acceptable.",
         )
         for index, request_text in enumerate(forbidden_requests, start=1):
             source_sha256 = hashlib.sha256(request_text.encode("utf-8")).hexdigest()
