@@ -498,8 +498,8 @@ the relevant authority and evidence contract.
 | 0 | Product contract and live-owner baseline | — | `accepted` |
 | 1 | Loopback runtime and reference frontend scaffold | 0 | `accepted` |
 | 2 | Project catalog and bounded discovery | 1 | `accepted` |
-| 3 | Tracker truth and Git-currentness projection | 2 | `in-progress` |
-| 4 | Supervision, automation, report, and metrics projection | 2 | `not-started` |
+| 3 | Tracker truth and Git-currentness projection | 2 | `accepted` |
+| 4 | Supervision, automation, report, and metrics projection | 2 | `in-progress` |
 | 5 | Codex task and App Server adapter | 1 | `not-started` |
 | 6 | Cross-project factory floor | 3, 4, 5 | `not-started` |
 | 7 | Project and run workspaces | 6 | `not-started` |
@@ -1090,7 +1090,7 @@ Stop before parsing tracker content or aggregating supervision/task state.
 
 ## Block 3 — Tracker truth and Git-currentness projection
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -1230,8 +1230,36 @@ per refresh and widen parsing only for a reproduced supported tracker form.
 - Authority and Stop posture: tracker Markdown and Git remain the writers;
   this slice performs no tracker edit, status transition, Block acceptance,
   task start, tracker-page construction, supervision read, or mutation.
-- Exact candidate commit, full verifier/link/diff proof, independent review,
-  acceptance checkpoint, and durability evidence: pending.
+- Accepted candidate: exact pushed commit
+  `796de4ff6835f6bc9cd2ae4fef74bf077439c3f0`, tree
+  `d56dfd5740344f0ab69a6a6873d06c7d9242c8f2`, parent
+  `2f73e9be91e1e4c36b7e6022777b230c1c7a72c9`. Authoritative candidate blobs
+  were Python tracker adapter `e1a4180b27b9864fcfda2ea9ebfa932a948477d1`,
+  Zod tracker client `eaf06fc780c9453d952d9c1d8dc9271bb321e6e0`, tracker
+  `415751be57562d757e9ebad7563ff85d92a2ebc0`, and changelog
+  `44650c25ad9496a298fe0c65e8161699ad48a340`.
+- Exact validation: Python passed 17/17 with `ResourceWarning` promoted to
+  errors; TypeScript/Vitest passed 18/18 across 6 files; the production build
+  and Playwright 18/18 across desktop, tablet, and mobile passed. The full
+  tracker verifier passed Blocks 0–25 with 0 errors and 0 warnings, its 30
+  verifier tests passed, local documentation links resolved, and
+  `git diff --check` passed. Live exact-candidate projection matched direct
+  verifier JSON for four registered trackers (full 14, inherited core 7, full
+  26, inherited core 5), including identical raw/source/committed hashes and
+  current Git posture.
+- Independent review: `tracker_exact_review` accepted exact candidate
+  `796de4ff6835f6bc9cd2ae4fef74bf077439c3f0` with no material findings after
+  reproducing the mapped suites and live exact-clone projection. It confirmed
+  that the implementation reuses the maintained verifier and Git owners behind
+  the loopback typed API, creates no duplicate parser authority or database,
+  and performs no tracker UI, mutation, acceptance, or task-start work.
+- Post-block audit: `accepted`; all Block 3 acceptance and negative conditions
+  were demonstrated on the exact reviewed revision, including selective cache
+  invalidation and preserved invalid/dirty/stale/partial distinctions.
+- Git durability: exact acceptance-evidence checkpoint and tracker blob are
+  recorded by the immediate evidence-finalization successor before Block 4
+  implementation begins; the accepted candidate was already non-force pushed
+  with local and remote at `0 0` divergence.
 
 ### Stop
 
@@ -1241,7 +1269,7 @@ Stop before building tracker pages or initiating authoring/implementation tasks.
 
 ## Block 4 — Supervision, automation, report, and metrics projection
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -1415,7 +1443,15 @@ or explicit manual refresh.
 
 ### Completion evidence
 
-Pending.
+- Activation: began automatically from accepted and pushed Block 3 candidate
+  `796de4ff6835f6bc9cd2ae4fef74bf077439c3f0` under direct-user item 44 and
+  mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+  The exact Block 3 acceptance checkpoint is recorded by the immediate
+  evidence-finalization successor before implementation changes begin. No new
+  mission, successor task, routed authority, or manual resume was used.
+- Candidate implementation, validation, exact review, and acceptance evidence:
+  pending.
 
 ### Stop
 
