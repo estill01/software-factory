@@ -230,6 +230,19 @@ FAILURE_MODE_LAYERS = {
     "resource",
     "validation",
 }
+REUSABLE_LANE_REQUIRED_FAILURE_MODE_IDS = {
+    "FM-INVOCATION-ENVELOPE-MAINTENANCE-OMISSION",
+}
+REUSABLE_LANE_DISPOSITIONS = (
+    "candidate-opened",
+    "existing-owner-sufficient",
+    "repository-specific-not-applicable",
+    "evidence-pending",
+)
+REUSABLE_LANE_EFFECTIVENESS_STATUSES = TERMINAL_INCIDENT_STATUSES | {
+    "effective",
+    "verified",
+}
 AUTHORITY_SOURCE_CLASSES = {
     "direct-user",
     "system",
@@ -301,7 +314,18 @@ def execution_economy_contract() -> dict[str, Any]:
             "minimum_distinct_episodes": 2,
             "single_material_episode_allowed": True,
         },
+        "effectiveness_or_closure_requires_reusable_lane_disposition": True,
+        "reusable_lane_dispositions": list(REUSABLE_LANE_DISPOSITIONS),
     }
+
+
+def legacy_execution_economy_contract_without_reusable_lane() -> dict[str, Any]:
+    """Exact predecessor accepted only so `bind` can upgrade a live policy."""
+
+    contract = execution_economy_contract()
+    contract.pop("effectiveness_or_closure_requires_reusable_lane_disposition")
+    contract.pop("reusable_lane_dispositions")
+    return contract
 
 
 def outcome_completion_contract() -> dict[str, Any]:
@@ -1318,7 +1342,10 @@ def validate_policy(policy: dict[str, Any]) -> None:
         if maintenance.get("allowlist") != ALLOWLISTED_MAINTENANCE_SKILLS:
             raise SupervisionLogError("Skill-maintenance allowlist differs")
     economy = policy.get("execution_economy")
-    if economy is not None and economy != execution_economy_contract():
+    if economy is not None and canonical(economy) not in {
+        canonical(execution_economy_contract()),
+        canonical(legacy_execution_economy_contract_without_reusable_lane()),
+    }:
         raise SupervisionLogError("Execution-economy contract differs")
     completion = policy.get("outcome_completion")
     if completion is not None and canonical(completion) not in {
@@ -2452,7 +2479,7 @@ def append_markdown(path: Path, record: dict[str, Any], *, create: bool) -> None
             rows.append(f"- {key.replace('_', ' ').title()}: `{value}`\n")
     if record.get("evidence"):
         rows.append("- Evidence: " + ", ".join(f"`{item}`" for item in record["evidence"]) + "\n")
-    for envelope_name in ("failure_mode", "containment"):
+    for envelope_name in ("failure_mode", "containment", "reusable_lane"):
         if record.get(envelope_name):
             rows.append(
                 f"- {envelope_name.replace('_', ' ').title()}: "
@@ -3364,6 +3391,96 @@ def failure_mode_envelope_from_args(args: argparse.Namespace) -> dict[str, Any]:
     return result
 
 
+def reusable_lane_envelope_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    disposition = str(getattr(args, "reusable_lane_disposition", ""))
+    if disposition not in REUSABLE_LANE_DISPOSITIONS:
+        raise SupervisionLogError(
+            "Reusable lane requires one maintained bounded disposition"
+        )
+    owner = clean(
+        getattr(args, "reusable_lane_owner", ""),
+        label="reusable lane owner",
+        maximum=128,
+    )
+    if owner:
+        safe_id(owner, label="reusable lane owner")
+    rationale = clean(
+        getattr(args, "reusable_lane_rationale", ""),
+        label="reusable lane rationale",
+        maximum=300,
+    )
+    evidence = [
+        clean(item, label="reusable lane evidence", maximum=160)
+        for item in getattr(args, "reusable_lane_evidence", [])
+    ]
+    if len(evidence) > 8:
+        raise SupervisionLogError("Too many reusable lane evidence references")
+    if any(not item for item in evidence):
+        raise SupervisionLogError("Reusable lane evidence references must be exact")
+    if disposition in {"candidate-opened", "existing-owner-sufficient"}:
+        if not owner or not evidence:
+            raise SupervisionLogError(
+                f"Reusable lane disposition {disposition} requires an owner and evidence"
+            )
+    elif disposition == "repository-specific-not-applicable":
+        if not rationale:
+            raise SupervisionLogError(
+                "Repository-specific reusable lane disposition requires rationale"
+            )
+    elif disposition == "evidence-pending":
+        if not rationale or not evidence:
+            raise SupervisionLogError(
+                "Pending reusable lane disposition requires rationale and a next evidence trigger"
+            )
+    return {
+        "disposition": disposition,
+        "owner": owner,
+        "evidence": evidence,
+        "rationale": rationale,
+    }
+
+
+def is_supported_execution_economy_incident_record(
+    item: dict[str, Any], current_incident_id: str
+) -> bool:
+    if not is_substantive_incident_record(item, current_incident_id):
+        return False
+    category = item.get("category")
+    category_marks_economy = isinstance(category, str) and (
+        category == "execution-economy"
+        or category.startswith("execution-economy-")
+    )
+    failure_mode = item.get("failure_mode")
+    failure_mode_marks_economy = isinstance(failure_mode, Mapping) and (
+        failure_mode.get("failure_mode_id")
+        in REUSABLE_LANE_REQUIRED_FAILURE_MODE_IDS
+    )
+    return category_marks_economy or failure_mode_marks_economy
+
+
+def requires_reusable_lane_disposition(
+    current_events: list[dict[str, Any]], record: dict[str, Any]
+) -> bool:
+    incident_id_value = record.get("incident_id")
+    if not isinstance(incident_id_value, str) or not incident_id_value:
+        return False
+    if record.get("kind") == "resolution":
+        effectiveness_or_closure = True
+    elif record.get("kind") == "meta-review":
+        effectiveness_or_closure = (
+            record.get("status") in REUSABLE_LANE_EFFECTIVENESS_STATUSES
+            or record.get("notice_disposition") == "terminal"
+        )
+    else:
+        return False
+    return effectiveness_or_closure and any(
+        is_supported_execution_economy_incident_record(
+            item, incident_id_value
+        )
+        for item in [*current_events, record]
+    )
+
+
 def cmd_thread_route_gate(args: argparse.Namespace) -> None:
     _, policy = load_policy(args)
     routing = policy.get("cross_thread_routing")
@@ -4062,6 +4179,20 @@ def cmd_record(args: argparse.Namespace) -> None:
                 "A successor failure-mode record must reference its incident"
             )
         record["failure_mode"] = failure_mode_envelope_from_args(args)
+    reusable_lane_inputs = any(
+        (
+            getattr(args, "reusable_lane_disposition", ""),
+            getattr(args, "reusable_lane_owner", ""),
+            getattr(args, "reusable_lane_rationale", ""),
+            getattr(args, "reusable_lane_evidence", []),
+        )
+    )
+    if reusable_lane_inputs:
+        if args.kind not in {"resolution", "meta-review"} or not args.incident_id:
+            raise SupervisionLogError(
+                "Reusable lane disposition requires an incident-owned effectiveness or resolution record"
+            )
+        record["reusable_lane"] = reusable_lane_envelope_from_args(args)
     terminal_record = args.kind == "lifecycle" and record["status"] == "completed"
     lock_context = (
         owner_append_lock(
@@ -4162,6 +4293,14 @@ def cmd_record(args: argparse.Namespace) -> None:
                 return
         if args.kind == "incident" or args.incident_id:
             record["incident_id"] = incident_id(args, record)
+        if (
+            policy.get("execution_economy") == execution_economy_contract()
+            and requires_reusable_lane_disposition(current_events, record)
+            and "reusable_lane" not in record
+        ):
+            raise SupervisionLogError(
+                "Supported execution-economy incident effectiveness or closure requires an explicit reusable lane disposition"
+            )
         sequence = len(current_events) + 1
         record["record_id"] = f"EVT-{sequence:06d}"
 
@@ -10180,6 +10319,13 @@ def parser() -> argparse.ArgumentParser:
     record.add_argument(
         "--failure-human-scheduling-leak", choices=["yes", "no"]
     )
+    record.add_argument(
+        "--reusable-lane-disposition",
+        choices=list(REUSABLE_LANE_DISPOSITIONS),
+    )
+    record.add_argument("--reusable-lane-owner", default="")
+    record.add_argument("--reusable-lane-evidence", action="append", default=[])
+    record.add_argument("--reusable-lane-rationale", default="")
     record.set_defaults(func=cmd_record)
 
     completion_record = subparsers.add_parser("completion-record")

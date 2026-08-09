@@ -3728,8 +3728,268 @@ class ControlPostureReducerTests(unittest.TestCase):
         self.assertIn("at most eight", policy)
         self.assertIn("event-head hash", policy)
         self.assertIn("never scans the supervision root", policy)
+class ReusableLaneDispositionTests(unittest.TestCase):
+    target = "target-economy-1234"
 
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.directory = Path(self.temporary.name)
+        self.policy = {
+            "policy_sha256": "e" * 64,
+            "execution_economy": supervision_log.execution_economy_contract(),
+        }
+        self.sequence = 0
 
+    def run_record(self, arguments: list[str]) -> dict[str, object]:
+        args = supervision_log.parser().parse_args(
+            ["record", "--target-thread", self.target, *arguments]
+        )
+        output = io.StringIO()
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(self.directory, self.policy),
+            ),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_record(args)
+        return json.loads(output.getvalue())
+
+    def open_failure_mode(
+        self,
+        *,
+        category: str = "execution-economy-invocation",
+        layer: str = "execution",
+        failure_mode_id: str = "FM-INVOCATION-ENVELOPE-MAINTENANCE-OMISSION",
+    ) -> str:
+        self.sequence += 1
+        result = self.run_record(
+            [
+                "--kind",
+                "incident",
+                "--category",
+                category,
+                "--summary",
+                "A maintained invocation envelope was incomplete.",
+                "--dedup-key",
+                f"economy-episode-{self.sequence}",
+                "--failure-mode",
+                "--failure-mode-id",
+                failure_mode_id,
+                "--failure-layer",
+                layer,
+                "--failure-mechanism",
+                "The outer launcher was omitted from setup proof.",
+                "--failure-trigger",
+                "A repository-owned focused command was first invoked.",
+                "--failure-effect",
+                "The first proof invocation failed before test collection.",
+                "--failure-detection",
+                "The exact maintained command chain was incomplete.",
+                "--failure-correction",
+                "Resolve and reuse the complete repository-owned envelope.",
+                "--failure-recurrence-invariant",
+                "Every invoked launcher belongs to the frozen envelope.",
+                "--failure-human-scheduling-leak",
+                "no",
+            ]
+        )
+        return str(result["record"]["incident_id"])
+
+    def closure_arguments(self, incident_id: str, *extra: str) -> list[str]:
+        return [
+            "--kind",
+            "resolution",
+            "--incident-id",
+            incident_id,
+            "--status",
+            "corrected",
+            "--notice-disposition",
+            "terminal",
+            "--summary",
+            "The current-run correction was effective.",
+            *extra,
+        ]
+
+    def test_execution_economy_closure_requires_an_explicit_disposition(self) -> None:
+        incident_id = self.open_failure_mode(category="runtime-invocation")
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "requires an explicit reusable lane disposition",
+        ):
+            self.run_record(self.closure_arguments(incident_id))
+
+    def test_effectiveness_finding_also_requires_the_disposition(self) -> None:
+        incident_id = self.open_failure_mode(failure_mode_id="FM-OTHER-EXECUTION")
+        arguments = [
+            "--kind",
+            "meta-review",
+            "--incident-id",
+            incident_id,
+            "--status",
+            "effective",
+            "--summary",
+            "The correction stopped the current waste.",
+        ]
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "requires an explicit reusable lane disposition",
+        ):
+            self.run_record(arguments)
+
+        arguments[arguments.index("effective")] = "observing"
+        result = self.run_record(arguments)
+        self.assertEqual(result["record"]["status"], "observing")
+
+    def test_candidate_and_existing_owner_require_exact_owner_evidence(self) -> None:
+        for disposition in ("candidate-opened", "existing-owner-sufficient"):
+            with self.subTest(disposition=disposition):
+                incident_id = self.open_failure_mode()
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "requires an owner and evidence",
+                ):
+                    self.run_record(
+                        self.closure_arguments(
+                            incident_id,
+                            "--reusable-lane-disposition",
+                            disposition,
+                            "--reusable-lane-owner",
+                            "implement-tracker-blocks",
+                        )
+                    )
+
+                result = self.run_record(
+                    self.closure_arguments(
+                        incident_id,
+                        "--reusable-lane-disposition",
+                        disposition,
+                        "--reusable-lane-owner",
+                        "implement-tracker-blocks",
+                        "--reusable-lane-evidence",
+                        "EVT-001171",
+                    )
+                )
+                lane = result["record"]["reusable_lane"]
+                self.assertEqual(lane["disposition"], disposition)
+                self.assertEqual(lane["owner"], "implement-tracker-blocks")
+                self.assertEqual(lane["evidence"], ["EVT-001171"])
+
+    def test_not_applicable_and_pending_require_bounded_explanations(self) -> None:
+        incident_id = self.open_failure_mode()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "requires rationale",
+        ):
+            self.run_record(
+                self.closure_arguments(
+                    incident_id,
+                    "--reusable-lane-disposition",
+                    "repository-specific-not-applicable",
+                )
+            )
+        result = self.run_record(
+            self.closure_arguments(
+                incident_id,
+                "--reusable-lane-disposition",
+                "repository-specific-not-applicable",
+                "--reusable-lane-rationale",
+                "The defect is confined to a repository-owned launcher.",
+            )
+        )
+        self.assertEqual(
+            result["record"]["reusable_lane"]["disposition"],
+            "repository-specific-not-applicable",
+        )
+
+        pending_id = self.open_failure_mode()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "requires rationale and a next evidence trigger",
+        ):
+            self.run_record(
+                self.closure_arguments(
+                    pending_id,
+                    "--reusable-lane-disposition",
+                    "evidence-pending",
+                    "--reusable-lane-rationale",
+                    "A second supported episode has not been adjudicated.",
+                )
+            )
+        pending = self.run_record(
+            self.closure_arguments(
+                pending_id,
+                "--reusable-lane-disposition",
+                "evidence-pending",
+                "--reusable-lane-rationale",
+                "A second supported episode has not been adjudicated.",
+                "--reusable-lane-evidence",
+                "next-trigger:second-adjudicated-episode",
+            )
+        )
+        self.assertEqual(
+            pending["record"]["reusable_lane"]["evidence"],
+            ["next-trigger:second-adjudicated-episode"],
+        )
+
+    def test_non_economy_failure_mode_preserves_existing_closure_behavior(self) -> None:
+        incident_id = self.open_failure_mode(
+            category="goal-preventing-procedural-stop",
+            layer="control-plane",
+            failure_mode_id="FM-HANDOFF-WITHOUT-CONTINUATION",
+        )
+
+        result = self.run_record(self.closure_arguments(incident_id))
+
+        self.assertEqual(result["record"]["status"], "corrected")
+        self.assertNotIn("reusable_lane", result["record"])
+
+    def test_exact_legacy_policy_defers_enforcement_until_bind_upgrade(self) -> None:
+        self.policy["execution_economy"] = (
+            supervision_log.legacy_execution_economy_contract_without_reusable_lane()
+        )
+        incident_id = self.open_failure_mode()
+
+        result = self.run_record(self.closure_arguments(incident_id))
+
+        self.assertEqual(result["record"]["status"], "corrected")
+        self.assertNotIn("reusable_lane", result["record"])
+
+    def test_contract_is_documented_in_skill_policy_and_cli(self) -> None:
+        skill = HELPER_PATH.parent.parent.joinpath("SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        policy = HELPER_PATH.parent.parent.joinpath(
+            "references", "supervision-policy.md"
+        ).read_text(encoding="utf-8")
+        for text in (skill, policy):
+            for disposition in supervision_log.REUSABLE_LANE_DISPOSITIONS:
+                self.assertIn(disposition, text)
+            self.assertIn("reusable lane", text.lower())
+        parsed = supervision_log.parser().parse_args(
+            [
+                "record",
+                "--target-thread",
+                self.target,
+                "--kind",
+                "resolution",
+                "--incident-id",
+                "INC-TEST-1234",
+                "--summary",
+                "CLI schema probe.",
+                "--reusable-lane-disposition",
+                "candidate-opened",
+                "--reusable-lane-owner",
+                "implement-tracker-blocks",
+                "--reusable-lane-evidence",
+                "EVT-001171",
+            ]
+        )
+        self.assertEqual(parsed.reusable_lane_disposition, "candidate-opened")
 class NoticeGateCorrelationTests(unittest.TestCase):
     incident_id = "INC-20260801-123456-ABCDEF"
     alert_source = "EVT-000001"
@@ -4353,6 +4613,15 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
         policy = supervision_log.default_policy(self.init_args())
 
         self.assertTrue(policy["execution_economy"]["enabled"])
+        self.assertTrue(
+            policy["execution_economy"][
+                "effectiveness_or_closure_requires_reusable_lane_disposition"
+            ]
+        )
+        self.assertEqual(
+            policy["execution_economy"]["reusable_lane_dispositions"],
+            list(supervision_log.REUSABLE_LANE_DISPOSITIONS),
+        )
         self.assertEqual(
             policy["outcome_completion"],
             supervision_log.outcome_completion_contract(),
@@ -4582,6 +4851,24 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
             "Execution-economy contract differs",
         ):
             supervision_log.validate_policy(policy)
+
+    def test_bind_upgrades_only_the_exact_predecessor_economy_contract(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        policy["execution_economy"] = (
+            supervision_log.legacy_execution_economy_contract_without_reusable_lane()
+        )
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+
+        supervision_log.validate_policy(policy)
+        changed = supervision_log.ensure_execution_economy_policy(policy)
+
+        self.assertTrue(changed)
+        self.assertEqual(
+            policy["execution_economy"],
+            supervision_log.execution_economy_contract(),
+        )
 
     def test_policy_validation_rejects_outcome_completion_drift(self) -> None:
         policy = supervision_log.default_policy(self.init_args())

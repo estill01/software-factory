@@ -139,6 +139,22 @@ and close both applicable lanes:
    does not close the current-run incident, and closing the incident does not by
    itself justify reusable maintenance.
 
+When a supported execution-economy incident reaches an effectiveness finding or
+terminal closure, the same incident-owned event must record exactly one bounded
+reusable-lane disposition through `--reusable-lane-disposition`:
+
+- `candidate-opened` identifies the reusable owner and exact candidate evidence;
+- `existing-owner-sufficient` identifies the existing reusable owner and exact
+  evidence that it already covers recurrence;
+- `repository-specific-not-applicable` records why the defect belongs only to
+  the repository or why reusable maintenance does not apply; or
+- `evidence-pending` records the rationale and exact next evidence trigger.
+
+This disposition does not couple the two stop conditions: current-run
+effectiveness may be true while reusable evidence remains pending, and a reusable
+candidate never proves current-run correction. It prevents silent omission of
+the reusable lane without creating another ledger, owner, detector, or schedule.
+
 Skill-maintenance modes are:
 
 - `propose-only` — record and report candidates; do not edit skills;
@@ -1714,6 +1730,11 @@ Also compare supported execution-economy incidents and sampled false negatives
 across Blocks. Promote a reusable maintenance candidate only at the policy
 threshold, classify its owning layer, and reject project-specific or
 phrase-specific rules.
+Before recording an effectiveness finding or terminal closure for such an
+incident, include one helper-validated reusable-lane disposition with the exact
+owner/evidence, repository-specific rationale, or pending-evidence trigger. Do
+not leave the reusable lane implicit merely because current-run remediation
+succeeded.
 Also inspect open-incident heads for missing notice adjudication, missing later
 evidence checks, a steer incorrectly treated as resolution, or a required Gmail
 outcome that was never sent. Route stale open incidents to the notice reviewer
