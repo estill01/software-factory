@@ -631,7 +631,7 @@ continuous cognition the price of ordinary execution.
 |---:|---|---|---|
 | 0 | Separate governing outcome identity and derive one canonical posture | — | `completed` |
 | 1 | Correct, supersede, cancel, or expire invalid execution transitions | 0 | `completed` |
-| 2 | Stage, pin, activate, and roll back one accepted three-skill release | 1 | `not-started` |
+| 2 | Stage, pin, activate, and roll back one accepted three-skill release | 1 | `completed` |
 | 3 | Replay observed failures and prove control-plane convergence | 0, 1, 2 | `not-started` |
 | 4 | Freeze the three-path adaptive decision-control contract | 3 | `not-started` |
 | 5 | Correct bad implementation decisions inline and continue | 4 | `not-started` |
@@ -1058,7 +1058,7 @@ creating any successor Codex task.
 
 ## Block 2 — Stage, pin, activate, and roll back one accepted three-skill release
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -1174,7 +1174,48 @@ inside the accepted release root.
 
 ### Completion evidence
 
-Pending.
+- Implemented and independently accepted the bounded three-skill release owner
+  at exact source commit
+  `b7269cc0d71f0717b53a5aed0dbda96c75656bed`; candidate projection
+  `ade98a3a2965a4d97a9450358e26e8b5cd23df5df793f501cf3f1ad78cfac9bf`
+  binds author root `e2b532e5...` (8 files), implement root `69c139cf...`
+  (5 files), and supervise root `420082c5...` (15 files).
+- Independent reviewer Euler (`/root/block2_review`) returned no findings on
+  the exact source after 17 focused release tests, a 24-case signed numeric-
+  type attack matrix, 243 supervision tests, 30 authoring tests, ten
+  implementation tests, three pinned validators, and the mapped adversarial
+  release/recovery probes. Signed review records bind both the exact legacy
+  baseline and accepted candidate under the sealed reviewer role; neither a
+  commit, test result, manifest, nor implementer assertion supplied acceptance.
+- Staged exact baseline release `dba8274f3f06-f17ebeafde01` and candidate
+  release `b7269cc0d71f-eb1269660b3e` without changing installed behavior. The
+  baseline came from an isolated clean checkout because unrelated concurrent
+  dashboard work in the source repository was preserved rather than removed or
+  included. Generated skill `__pycache__` directories were moved recoverably to
+  `/tmp/software-factory-live-cache-archive.LgW2Sv` before the independently
+  accepted physical-root comparison.
+- A distinct operator authority supplied two current, signed, externally
+  headed quiescent records. Content-identical bootstrap established the three
+  stable discovery links and exact baseline verification root
+  `4991583a8d2e4a92fbd6cdf42bb7fce9b921176ed3f40023c8e65c8b7134c123`;
+  accepted activation then changed only the single `current` pointer and
+  produced candidate verification root
+  `b83ecbd1c5f0003242695d3c9c5b57b7f5bfa3bf7889f4fd7807cab3a99f8c5e`.
+- Current release status reports two valid activation-history records, one
+  complete accepted prior baseline retained for rollback, exact source commit
+  `b7269cc0d71f0717b53a5aed0dbda96c75656bed`, all three stable discovery
+  links through the release owner, and the three exact accepted installed
+  roots. Independent post-activation reviewer Herschel
+  (`/root/block1_review`) accepted the current observable installed outcome
+  after fresh-process `status` and `verify-installed` produced verification
+  root `b83ecbd1...f8c5e`, found no mixed/path-escaping roots, and confirmed the
+  sealed baseline remains the eligible rollback target. Already-loaded tasks
+  retain their loaded instructions; fresh-process verification resolves the
+  accepted immutable candidate.
+- Every implementation and remediation commit through `b7269cc` is pushed to
+  `origin/codex/control-plane-foundation`; the 18-Block full-profile tracker
+  verifier, all mapped suites, all three Skill Creator validators, compilation,
+  and diff check pass.
 
 ### Stop
 
