@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import io
 import json
@@ -425,12 +426,22 @@ class SuccessorTransitionContractTests(unittest.TestCase):
     tracker_sha256 = "a" * 64
     source_mission_root = "b" * 64
     successor_mission_root = "c" * 64
+    authority_sha256 = "f" * 64
 
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
-        self.policy = {"policy_sha256": "d" * 64}
+        self.policy = {
+            "policy_sha256": "d" * 64,
+            "target_thread_id": self.target,
+            "mission_binding": supervision_log.derive_mission_binding(
+                target_thread=self.target,
+                source_class="direct-user",
+                source_record="item-340",
+                source_sha256=self.authority_sha256,
+            ),
+        }
 
     def transition_args(self, phase: str, *extra: str) -> argparse.Namespace:
         return supervision_log.parser().parse_args(
@@ -456,6 +467,8 @@ class SuccessorTransitionContractTests(unittest.TestCase):
                 "direct-user",
                 "--governing-authority-source-record",
                 "item-340",
+                "--governing-authority-source-sha256",
+                self.authority_sha256,
                 "--topology-posture",
                 "distinct-task",
                 "--topology-basis",
@@ -618,6 +631,45 @@ class SuccessorTransitionContractTests(unittest.TestCase):
             ):
                 supervision_log.cmd_successor_transition_record(args)
 
+    def test_caller_strings_cannot_mint_governing_or_correction_authority(self) -> None:
+        governing = self.transition_args("required")
+        governing.governing_authority_source_record = "invented-governing-item"
+        governing.governing_authority_source_sha256 = "e" * 64
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "governing authority is not canonical",
+        ):
+            with (
+                mock.patch.object(
+                    supervision_log,
+                    "load_policy",
+                    return_value=(self.directory, self.policy),
+                ),
+                redirect_stdout(io.StringIO()),
+            ):
+                supervision_log.cmd_successor_transition_record(governing)
+
+        required = self.record("required")["record"]
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "correction authority is not canonical",
+        ):
+            self.record(
+                "cancelled",
+                "--prior-record",
+                required["record_id"],
+                "--disposition-reason",
+                "Invented authority must not retire the transition.",
+                "--correction-authority-source-class",
+                "direct-user",
+                "--correction-authority-source-record",
+                "invented-correction-item",
+                "--correction-authority-source-sha256",
+                "e" * 64,
+                "--governing-outcome-effect",
+                "continue-same-task",
+            )
+
     def test_same_task_is_default_continuation_and_never_stops_the_source(self) -> None:
         self.record(
             "required",
@@ -650,7 +702,7 @@ class SuccessorTransitionContractTests(unittest.TestCase):
     def test_direct_cancellation_retires_control_without_closing_outcome(self) -> None:
         required = self.record("required")["record"]
         with self.assertRaisesRegex(
-            supervision_log.SupervisionLogError, "current direct authority"
+            supervision_log.SupervisionLogError, "correction authority is not canonical"
         ):
             self.record(
                 "cancelled",
@@ -662,6 +714,8 @@ class SuccessorTransitionContractTests(unittest.TestCase):
                 "supervisor-steer",
                 "--correction-authority-source-record",
                 "routed-steer-1234",
+                "--correction-authority-source-sha256",
+                self.authority_sha256,
                 "--governing-outcome-effect",
                 "continue-same-task",
             )
@@ -674,7 +728,9 @@ class SuccessorTransitionContractTests(unittest.TestCase):
             "--correction-authority-source-class",
             "direct-user",
             "--correction-authority-source-record",
-            "direct-item-1234",
+            "item-340",
+            "--correction-authority-source-sha256",
+            self.authority_sha256,
             "--governing-outcome-effect",
             "continue-same-task",
         )
@@ -715,7 +771,9 @@ class SuccessorTransitionContractTests(unittest.TestCase):
             "--correction-authority-source-class",
             "direct-user",
             "--correction-authority-source-record",
-            "direct-item-1234",
+            "item-340",
+            "--correction-authority-source-sha256",
+            self.authority_sha256,
             "--replacement-transition",
             "TRANSITION-REPLACEMENT-1234",
             "--governing-outcome-effect",
@@ -746,7 +804,9 @@ class SuccessorTransitionContractTests(unittest.TestCase):
             "--correction-authority-source-class",
             "direct-user",
             "--correction-authority-source-record",
-            "direct-item-1234",
+            "item-340",
+            "--correction-authority-source-sha256",
+            self.authority_sha256,
             "--governing-outcome-effect",
             "continue-same-task",
         )
@@ -934,9 +994,11 @@ class SuccessorTransitionContractTests(unittest.TestCase):
 class ImplementationRangeControlTests(unittest.TestCase):
     target = "range-target-1234"
     initial_source = "direct-item-100"
-    initial_sha = "a" * 64
+    initial_request = "implement this tracker"
+    initial_sha = hashlib.sha256(initial_request.encode("utf-8")).hexdigest()
     later_source = "direct-item-200"
-    later_sha = "b" * 64
+    later_request = "Block 0"
+    later_sha = hashlib.sha256(later_request.encode("utf-8")).hexdigest()
     reviewer = "range-reviewer-1234"
 
     def setUp(self) -> None:
@@ -997,7 +1059,23 @@ class ImplementationRangeControlTests(unittest.TestCase):
             args.func(args)
         return json.loads(output.getvalue())
 
-    def bind(self, request_text: str = "implement this tracker") -> dict[str, object]:
+    def bind(self, request_text: str = initial_request) -> dict[str, object]:
+        source_record = self.initial_source
+        source_sha256 = self.initial_sha
+        if request_text != self.initial_request:
+            source_sha256 = hashlib.sha256(request_text.encode("utf-8")).hexdigest()
+            source_record = f"direct-variant-{source_sha256[:16]}"
+            authority_event = self.ingest_direct_authority_event(
+                source_record=source_record,
+                source_sha256=source_sha256,
+            )
+            self.call(
+                "implementation-range-authority-receipt",
+                "--target-thread",
+                self.target,
+                "--authority-event-record",
+                authority_event,
+            )
         return self.call(
             "implementation-range-bind",
             "--target-thread",
@@ -1009,10 +1087,38 @@ class ImplementationRangeControlTests(unittest.TestCase):
             "--request-text",
             request_text,
             "--authority-source-record",
-            self.initial_source,
+            source_record,
             "--authority-source-sha256",
-            self.initial_sha,
+            source_sha256,
         )
+
+    def ingest_direct_authority_event(
+        self, *, source_record: str, source_sha256: str
+    ) -> str:
+        directory = self.root / self.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        current_events = supervision_log.events(directory / "events.jsonl")
+        event_record = f"EVT-{len(current_events) + 1:06d}"
+        supervision_log.append_raw(
+            directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": event_record,
+                "timestamp": supervision_log.utc_now(),
+                "target_thread_id": self.target,
+                "kind": supervision_log.DIRECT_AUTHORITY_EVENT_KIND,
+                "source_class": "direct-user",
+                "source_record": source_record,
+                "source_sha256": source_sha256,
+                "source_task_id": self.target,
+                "source_item_id": source_record,
+                "verifier_id": self.reviewer,
+                "provenance_status": "verified-before-entry",
+                "policy_sha256": policy["policy_sha256"],
+                "evidence": [f"app-readback:{self.target}:{source_record}"],
+            },
+        )
+        return event_record
 
     def gate(self, response_kind: str = "outcome-terminal") -> dict[str, object]:
         return self.call(
@@ -1042,9 +1148,58 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.assertEqual(result["next_action"], "continue-next-eligible-block")
         self.assertEqual(result["severity_if_returned"], "critical")
 
+    def test_incidental_block_mentions_cannot_contract_full_tracker_intent(self) -> None:
+        blocks = {0, 1, 2}
+        for request in (
+            "Do not stop at Block 1; implement this tracker.",
+            "Implement this tracker; Block 1 was already reviewed.",
+            "Do not implement only Block 1; implement this tracker.",
+        ):
+            intent, requested = supervision_log.classify_implementation_request(
+                request, blocks
+            )
+            self.assertEqual(intent, "full-tracker")
+            self.assertEqual(requested, [0, 1, 2])
+        intent, requested = supervision_log.classify_implementation_request(
+            "Implement Blocks 1 and 2.", blocks
+        )
+        self.assertEqual(intent, "explicit-blocks")
+        self.assertEqual(requested, [1, 2])
+        intent, requested = supervision_log.classify_implementation_request(
+            "Implement this tracker, but only Block 1.", blocks
+        )
+        self.assertEqual(intent, "explicit-blocks")
+        self.assertEqual(requested, [1])
+        with self.assertRaises(supervision_log.SupervisionLogError):
+            supervision_log.classify_implementation_request(
+                "Make the small Block 1 correction.", blocks
+            )
+
+    def test_exact_range_uses_completed_prerequisites_outside_requested_set(self) -> None:
+        self.write_tracker(["completed", "not-started", "not-started"])
+        result = self.bind("Block 1")
+        self.assertEqual(result["binding"]["range_intent"], "explicit-blocks")
+        gate = self.gate("block-boundary")
+        self.assertEqual(gate["requested_blocks"], [1])
+        self.assertEqual(gate["accepted_blocks"], [])
+        self.assertEqual(gate["completed_prerequisite_blocks"], [0])
+        self.assertEqual(gate["eligible_blocks"], [1])
+        self.assertEqual(gate["next_action"], "continue-next-eligible-block")
+
     def test_fabricated_direct_user_string_cannot_contract_but_accepted_receipt_can(self) -> None:
         self.write_tracker(["completed", "not-started"])
         self.bind()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "not in the canonical owner event ledger",
+        ):
+            self.call(
+                "implementation-range-authority-receipt",
+                "--target-thread",
+                self.target,
+                "--authority-event-record",
+                "EVT-INVENTED-9999",
+            )
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError, "newer canonical direct-user"
         ):
@@ -1061,18 +1216,16 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 "--authority-source-sha256",
                 "c" * 64,
             )
+        authority_event = self.ingest_direct_authority_event(
+            source_record=self.later_source,
+            source_sha256=self.later_sha,
+        )
         self.call(
             "implementation-range-authority-receipt",
             "--target-thread",
             self.target,
-            "--authority-source-record",
-            self.later_source,
-            "--authority-source-sha256",
-            self.later_sha,
-            "--reviewer-id",
-            self.reviewer,
-            "--evidence",
-            "independent-readback-of-direct-user-item-200",
+            "--authority-event-record",
+            authority_event,
         )
         amended = self.call(
             "implementation-range-amend",
@@ -1081,7 +1234,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
             "--tracker",
             str(self.tracker),
             "--request-text",
-            "Block 0",
+            self.later_request,
             "--authority-source-record",
             self.later_source,
             "--authority-source-sha256",
@@ -1091,6 +1244,50 @@ class ImplementationRangeControlTests(unittest.TestCase):
         result = self.gate("block-boundary")
         self.assertEqual(result["requested_blocks"], [0])
         self.assertTrue(result["final_response_permitted"])
+
+    def test_initial_request_text_must_match_canonical_source_bytes(self) -> None:
+        self.write_tracker(["completed", "not-started"])
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "request text does not match its canonical direct source",
+        ):
+            self.call(
+                "implementation-range-bind",
+                "--target-thread",
+                self.target,
+                "--range-id",
+                "RANGE-FABRICATED-1234",
+                "--tracker",
+                str(self.tracker),
+                "--request-text",
+                "Block 0",
+                "--authority-source-record",
+                self.initial_source,
+                "--authority-source-sha256",
+                self.initial_sha,
+            )
+
+    def test_authority_receipt_rejects_owner_event_path_substitution(self) -> None:
+        self.write_tracker(["completed", "not-started"])
+        authority_event = self.ingest_direct_authority_event(
+            source_record=self.later_source,
+            source_sha256=self.later_sha,
+        )
+        self.call(
+            "implementation-range-authority-receipt",
+            "--target-thread",
+            self.target,
+            "--authority-event-record",
+            authority_event,
+        )
+        self.bind()
+        directory = self.root / self.target
+        ledger = directory / "events.jsonl"
+        outside = self.root / "outside-events.jsonl"
+        ledger.rename(outside)
+        ledger.symlink_to(outside)
+        with self.assertRaises(supervision_log.SupervisionLogError):
+            self.gate()
 
     def test_policy_replacement_and_tracker_symlink_are_rejected(self) -> None:
         self.write_tracker(["completed", "not-started"])
@@ -1276,7 +1473,9 @@ class ControlPostureReducerTests(unittest.TestCase):
                 "--governing-authority-source-class",
                 "direct-user",
                 "--governing-authority-source-record",
-                "item-340",
+                f"mission-{self.owner}",
+                "--governing-authority-source-sha256",
+                self.owner_mission,
                 "--topology-posture",
                 "distinct-task",
                 "--topology-basis",

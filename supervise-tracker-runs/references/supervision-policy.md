@@ -495,6 +495,7 @@ python3 <LOG_HELPER> successor-transition-record \
   --source-mission-root <EXACT_SOURCE_MISSION_ROOT> \
   --governing-authority-source-class <direct-user|system|repository|tracker> \
   --governing-authority-source-record <EXACT_DIRECT_RECORD> \
+  --governing-authority-source-sha256 <EXACT_SOURCE_SHA256> \
   --state-fingerprint <CURRENT_FINGERPRINT> \
   --evidence <EXACT_EVIDENCE_REFERENCE>
 ```
@@ -554,8 +555,11 @@ an unbounded request to implement an established tracker binds the complete
 current tracker; exact numeric Block requests remain bounded. The policy-
 history chain anchors immutable genesis and every accepted range amendment. A
 full-tracker binding expands across accepted prerequisite insertion and
-renumbering. It can contract only through a later reviewed direct-user
-authority receipt resolved by the canonical owner, never from a caller string,
+renumbering. It can contract only through a later direct-user source already
+ingested as a hash-chained canonical owner event with verified task/item
+provenance. The receipt command only resolves that existing event and cannot
+accept source, hash, reviewer, or evidence claims from its caller. It never
+contracts from a caller string,
 routed supervision, `codex_delegation`, tracker or process evidence, a
 task/run/group transition, handoff, review, commit, push, or Block Stop.
 
@@ -591,10 +595,21 @@ python3 <LOG_HELPER> implementation-range-gate \
 ```
 
 The initial source must resolve to the bound direct mission or an already
-reviewed canonical authority receipt. A contraction first records
-`implementation-range-authority-receipt` with an eligible independent reviewer,
-then cites that exact record/hash on `implementation-range-amend`. Naming a new
-string without that receipt fails closed.
+reviewed canonical authority receipt. A contraction first resolves a separately
+ingested `direct-user-authority-source` owner event by exact ledger record:
+
+```bash
+python3 <LOG_HELPER> implementation-range-authority-receipt \
+  --target-thread <TARGET> --authority-event-record <CANONICAL_EVENT_ID>
+```
+
+The source event must already bind exact task/item provenance, content hash,
+eligible independent verifier, owner policy-history root, and evidence before
+entry. The resolver then cites that source record/hash on
+`implementation-range-amend`. Naming a new event or source string fails closed.
+Initial binding and contraction also hash the exact request text bytes and
+require equality with the accepted direct source SHA-256; authentic authority
+metadata cannot be paired with fabricated scope text.
 
 ## Target-state fingerprint
 

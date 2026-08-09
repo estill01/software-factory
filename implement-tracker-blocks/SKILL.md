@@ -31,13 +31,16 @@ while treating live repository instructions and authorities as controlling.
 Persist that classification through the supervision owner's
 `implementation-range-bind`; never use a caller-selected binding JSON file.
 The canonical policy-history chain anchors one immutable genesis, direct source
-record/hash, owner-resolved tracker path/hash, and append-only amendment head.
+record/hash, the exact request bytes whose SHA-256 matches that source,
+owner-resolved tracker path/hash, and append-only amendment head.
 Reuse `implementation-range-gate` at every Block transition and before every
 final answer. Never recreate or replace the binding to obtain a smaller range.
 A full-tracker binding dynamically includes prerequisite Blocks inserted or
 renumbered by an accepted tracker amendment. It may be narrowed only by a newer
-reviewed direct-user authority receipt resolved by the canonical owner; a
-caller string, tracker edit, routed supervisor packet, `codex_delegation`,
+direct-user source already ingested as a hash-chained canonical owner event
+with independently verified task/item provenance; the range helper may resolve
+that event but cannot create it. A caller string, tracker edit, routed
+supervisor packet, `codex_delegation`,
 task/run/group boundary, handoff, reviewer statement, commit, push, or process
 record cannot contract it.
 
@@ -452,7 +455,9 @@ On first use call `implementation-range-bind` with the tracker, request text,
 and exact canonical direct-user source record/hash. Use
 `implementation-range-amend` after an accepted tracker revision; the frozen
 full-range intent persists automatically. A contraction additionally requires
-an independently reviewed canonical `implementation-range-authority-receipt`.
+an independently reviewed canonical `implementation-range-authority-receipt`
+resolved from that pre-existing owner event. The receipt command cannot accept
+source, hash, reviewer, or evidence claims directly.
 The terminal lifecycle writer calls the same owner and rejects completion while
 the governing range is nonterminal.
 

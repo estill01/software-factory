@@ -54,6 +54,24 @@ the completed program materially changes Software Factory.
   `INC-20260808-180850-C22F9D` / `EVT-000067`; focused regression coverage is in
   `SuccessorTransitionContractTests`.
 
+### Corrected
+
+- **Critical unauthorized early-return recurrence.** The root failure is
+  recorded as unauthorized requested-range contraction followed by false
+  terminalization at an internal Block or procedural boundary; later routed
+  authority precedence was contributory, not causal. A bare or unbounded
+  `implement-tracker-blocks` request now freezes the complete current tracker in
+  canonical policy history, survives prerequisite insertion and renumbering,
+  and must pass the same range/outcome gate at every Block Stop, terminal
+  lifecycle write, and final response. Exact one-Block requests remain bounded,
+  but incidental Block mentions cannot contract full-tracker intent. New direct
+  authority can narrow a range only after a separately ingested, hash-chained
+  owner event binds verified task/item provenance and content hash; the range
+  helper cannot mint that authority from caller strings. Concrete recurrence
+  fixtures include this run and task
+  `019fb18f-3d03-7ca0-9fe9-68353f0405ce`; behavioral coverage is in
+  `ImplementationRangeControlTests`.
+
 ### Planned
 
 - **Adaptive implementation decision control and autonomous Factory

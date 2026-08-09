@@ -896,7 +896,9 @@ ordinary scheduling back to the human.
 - Allow a current eligible direct user/system/repository/tracker source to
   cancel or correct a transition whose topology premise is invalid. Supervisory
   or `codex_delegation` evidence may trigger review but cannot supply the
-  governing authority.
+  governing authority. Resolve the exact source record and content root through
+  the canonical mission or reviewed direct-authority receipts; caller class/
+  record strings cannot mint governing or correction authority.
 - Make expiry end only the operation-specific control at its declared event;
   never infer that the governing outcome expired or completed. A correction or
   supersession preserves the old record and points to the current head.
@@ -907,8 +909,11 @@ ordinary scheduling back to the human.
 - Bind the original direct implementation range canonically under the
   supervision/outcome owner. An unbounded or bare skill invocation means the
   full amended tracker; only exact Block/range wording is bounded. Anchor
-  immutable genesis and append-only changes in policy history, resolve any
-  contraction only from a newer reviewed direct-user authority receipt, and
+  immutable genesis and append-only changes in policy history, require the
+  exact request bytes to match the canonical direct-source root, resolve any
+  contraction only from a newer direct-user source already ingested as a
+  hash-chained owner event with independently verified task/item provenance,
+  forbid the receipt resolver from minting source/reviewer/evidence claims, and
   reject caller-selected binding or terminal-evidence files.
 - At every Block Stop derive accepted, remaining, and dependency-safe Blocks
   from the owner-pinned current tracker. Treat a nonterminal result as an

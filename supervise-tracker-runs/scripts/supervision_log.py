@@ -191,12 +191,10 @@ SUCCESSOR_GOVERNING_OUTCOME_EFFECTS = {
 }
 MAX_SUCCESSOR_TRANSITION_HOURS = 24
 IMPLEMENTATION_RANGE_INTENTS = {"full-tracker", "explicit-blocks"}
+DIRECT_AUTHORITY_EVENT_KIND = "direct-user-authority-source"
 MAX_IMPLEMENTATION_TRACKER_BYTES = 2 * 1024 * 1024
 IMPLEMENTATION_BLOCK_HEADING = re.compile(r"^## Block (\d+)\b", re.MULTILINE)
 IMPLEMENTATION_TABLE_ROW = re.compile(r"^\|\s*(\d+)\s*\|(.+)$")
-IMPLEMENTATION_EXACT_RANGE = re.compile(
-    r"(?:^|\b)blocks?\s+(\d+)(?:\s*[-–]\s*(\d+))?(?:\b|$)", re.I
-)
 SUCCESSOR_TRANSITION_IDENTITY_FIELDS = (
     "tracker_sha256",
     "tracker_source_record",
@@ -205,6 +203,7 @@ SUCCESSOR_TRANSITION_IDENTITY_FIELDS = (
     "source_mission_root",
     "governing_authority_source_class",
     "governing_authority_source_record",
+    "governing_authority_source_sha256",
     "topology_posture",
     "topology_basis",
     "topology_rationale",
@@ -1258,6 +1257,26 @@ def validate_policy(policy: dict[str, Any]) -> None:
             str(receipt.get("reviewer_id", "")),
             label="direct-authority receipt reviewer",
         )
+        safe_id(
+            str(receipt.get("source_event_record_id", "")),
+            label="direct-authority canonical event record",
+        )
+        exact_sha256(
+            str(receipt.get("source_event_sha256", "")),
+            label="direct-authority canonical event SHA-256",
+        )
+        safe_id(
+            str(receipt.get("source_task_id", "")),
+            label="direct-authority source task",
+        )
+        safe_id(
+            str(receipt.get("source_item_id", "")),
+            label="direct-authority source item",
+        )
+        exact_sha256(
+            str(receipt.get("source_policy_sha256", "")),
+            label="direct-authority source policy SHA-256",
+        )
         if receipt.get("accepted") is not True or not receipt.get("evidence"):
             raise SupervisionLogError("Direct-authority receipt is not accepted evidence")
         if not isinstance(receipt.get("accepted_policy_version"), int) or receipt[
@@ -1520,6 +1539,138 @@ def events(path: Path) -> list[dict[str, Any]]:
     return parse_events(path.read_text(encoding="utf-8"), ledger_name=path.name)
 
 
+def canonical_direct_authority_event(
+    all_events: list[dict[str, Any]],
+    *,
+    event_record_id: str,
+    policy: Mapping[str, Any],
+    policy_history: list[dict[str, Any]],
+) -> dict[str, Any]:
+    event = next(
+        (item for item in all_events if item.get("record_id") == event_record_id),
+        None,
+    )
+    if event is None:
+        raise SupervisionLogError(
+            "Direct-authority source is not in the canonical owner event ledger"
+        )
+    required = {
+        "schema_version",
+        "record_id",
+        "timestamp",
+        "target_thread_id",
+        "kind",
+        "source_class",
+        "source_record",
+        "source_sha256",
+        "source_task_id",
+        "source_item_id",
+        "verifier_id",
+        "provenance_status",
+        "policy_sha256",
+        "evidence",
+        "previous_record_sha256",
+        "record_sha256",
+    }
+    if set(event) != required:
+        raise SupervisionLogError(
+            "Canonical direct-authority source event shape differs"
+        )
+    if (
+        event.get("schema_version") != 1
+        or event.get("kind") != DIRECT_AUTHORITY_EVENT_KIND
+        or event.get("source_class") != "direct-user"
+        or event.get("provenance_status") != "verified-before-entry"
+        or event.get("target_thread_id") != policy.get("target_thread_id")
+    ):
+        raise SupervisionLogError(
+            "Canonical direct-authority source provenance differs"
+        )
+    safe_id(str(event["record_id"]), label="direct-authority event record")
+    source_record = safe_id(
+        str(event["source_record"]), label="direct-authority source record"
+    )
+    source_item_id = safe_id(
+        str(event["source_item_id"]), label="direct-authority source item"
+    )
+    if source_record != source_item_id:
+        raise SupervisionLogError(
+            "Canonical direct-authority source record and item differ"
+        )
+    safe_id(str(event["source_task_id"]), label="direct-authority source task")
+    exact_sha256(str(event["source_sha256"]), label="direct-authority source SHA-256")
+    exact_sha256(str(event["record_sha256"]), label="direct-authority event SHA-256")
+    source_policy_sha256 = exact_sha256(
+        str(event["policy_sha256"]), label="direct-authority source policy SHA-256"
+    )
+    if not any(
+        isinstance(item.get("policy"), Mapping)
+        and item["policy"].get("policy_sha256") == source_policy_sha256
+        for item in policy_history
+    ):
+        raise SupervisionLogError(
+            "Canonical direct-authority event is not anchored to owner policy history"
+        )
+    verifier_id = safe_id(
+        str(event["verifier_id"]), label="direct-authority provenance verifier"
+    )
+    runtime = policy.get("runtime", {})
+    eligible = {
+        runtime.get("base_reviewer_thread_id"),
+        runtime.get("reviewer_thread_id"),
+    }
+    disallowed = {
+        policy.get("target_thread_id"),
+        runtime.get("watcher_thread_id"),
+        runtime.get("fix_executor_thread_id"),
+    }
+    evidence = event.get("evidence")
+    if (
+        verifier_id not in eligible
+        or verifier_id in disallowed
+        or not isinstance(evidence, list)
+        or not evidence
+        or len(evidence) > 16
+        or not all(isinstance(item, str) and item for item in evidence)
+    ):
+        raise SupervisionLogError(
+            "Canonical direct-authority event lacks independent provenance evidence"
+        )
+    return event
+
+
+def validate_direct_authority_receipts(
+    policy: Mapping[str, Any],
+    *,
+    all_events: list[dict[str, Any]],
+    policy_history: list[dict[str, Any]],
+) -> None:
+    for receipt in policy.get("direct_authority_receipts", []):
+        event = canonical_direct_authority_event(
+            all_events,
+            event_record_id=str(receipt["source_event_record_id"]),
+            policy=policy,
+            policy_history=policy_history,
+        )
+        comparisons = {
+            "source_record": "source_record",
+            "source_sha256": "source_sha256",
+            "reviewer_id": "verifier_id",
+            "source_event_sha256": "record_sha256",
+            "source_task_id": "source_task_id",
+            "source_item_id": "source_item_id",
+            "source_policy_sha256": "policy_sha256",
+            "evidence": "evidence",
+        }
+        if any(
+            receipt.get(receipt_field) != event.get(event_field)
+            for receipt_field, event_field in comparisons.items()
+        ):
+            raise SupervisionLogError(
+                "Direct-authority receipt differs from its canonical owner event"
+            )
+
+
 def events_snapshot(
     path: Path, *, directory_fd: int | None = None
 ) -> tuple[list[dict[str, Any]], tuple[int, int, int, int] | None]:
@@ -1668,6 +1819,15 @@ def validate_range_policy_history_at(
         raise SupervisionLogError(
             "Canonical implementation-range policy history is stale or replaced"
         )
+    if policy.get("direct_authority_receipts"):
+        all_events, _event_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        validate_direct_authority_receipts(
+            policy,
+            all_events=all_events,
+            policy_history=history,
+        )
 
 
 def validate_range_policy_history(directory: Path, policy: Mapping[str, Any]) -> None:
@@ -1678,15 +1838,18 @@ def validate_range_policy_history(directory: Path, policy: Mapping[str, Any]) ->
         raise SupervisionLogError(
             "Canonical implementation-range policy history is stale or replaced"
         )
+    if policy.get("direct_authority_receipts"):
+        validate_direct_authority_receipts(
+            policy,
+            all_events=events(directory / "events.jsonl"),
+            policy_history=history,
+        )
 
 
 def load_policy(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
-    directory = target_dir(args)
-    policy = read_json(directory / "policy.json")
-    validate_policy(policy)
-    validate_range_policy_history(directory, policy)
-    if policy.get("target_thread_id") != args.target_thread:
-        raise SupervisionLogError("Policy belongs to a different target")
+    directory, policy, _policy_snapshot, _directory_snapshot = (
+        load_policy_directory_snapshot(args)
+    )
     return directory, policy
 
 
@@ -1772,6 +1935,7 @@ def require_bound_policy_at(
             Path("policy.json"), directory_fd=directory_fd
         )
         validate_policy(current_policy)
+        validate_range_policy_history_at(directory_fd, current_policy)
     except (OSError, SupervisionLogError) as exc:
         raise SupervisionLogError(
             "Completed lifecycle rejected by governing-outcome control: "
@@ -1823,6 +1987,7 @@ def write_policy_version(
                 Path("policy.json"), directory_fd=directory_fd
             )
             validate_policy(current_policy)
+            validate_range_policy_history_at(directory_fd, current_policy)
             if (
                 current_policy.get("policy_sha256") != expected_policy_sha256
                 or int(current_policy.get("policy_version", -1))
@@ -1868,6 +2033,7 @@ def write_policy_version(
                 Path("policy.json"), directory_fd=directory_fd
             )
             validate_policy(installed_policy)
+            validate_range_policy_history_at(directory_fd, installed_policy)
             current_directory_snapshot = path_snapshot(directory)
             if (
                 installed_policy.get("policy_sha256")
@@ -4008,21 +4174,41 @@ def classify_implementation_request(
         label="implementation range request text",
         maximum=1200,
     )
-    match = IMPLEMENTATION_EXACT_RANGE.search(value)
-    if match is not None:
-        start = int(match.group(1))
-        end = int(match.group(2) or start)
-        if end < start:
-            raise SupervisionLogError("Implementation range is reversed")
-        requested = list(range(start, end + 1))
+    def exact_blocks(expression: str) -> list[int]:
+        normalized = expression.strip().lower().rstrip(".!")
+        range_match = re.fullmatch(r"(\d+)\s*[-–]\s*(\d+)", normalized)
+        if range_match is not None:
+            start, end = map(int, range_match.groups())
+            if end < start:
+                raise SupervisionLogError("Implementation range is reversed")
+            requested = list(range(start, end + 1))
+        else:
+            parts = re.split(r"\s*(?:,|\band\b)\s*", normalized)
+            if not parts or not all(part.isdigit() for part in parts):
+                raise SupervisionLogError("Explicit implementation Block list is invalid")
+            requested = [int(part) for part in parts]
+            if len(requested) != len(set(requested)):
+                raise SupervisionLogError("Explicit implementation Block list repeats a Block")
         if set(requested) - blocks:
             raise SupervisionLogError("Implementation range cites absent Blocks")
-        return "explicit-blocks", requested
-    if re.fullmatch(r"\d+(?:\s*[-–]\s*\d+)?", value.lower()):
-        return classify_implementation_request("Block " + value, blocks)
+        return sorted(requested)
+
+    block_expression = r"(\d+(?:\s*[-–]\s*\d+|(?:\s*(?:,|\band\b)\s*\d+)*))"
+    only_match = re.fullmatch(
+        rf"\s*(?:please\s+)?(?:implement|execute|continue|do)?\s*"
+        rf"only\s+blocks?\s+{block_expression}\s*[.!]?\s*",
+        value,
+        re.I,
+    )
+    if only_match is None:
+        only_match = re.search(
+            rf"(?:,\s*but|;)\s*only\s+blocks?\s+{block_expression}\s*[.!]?\s*$",
+            value,
+            re.I,
+        )
+    if only_match is not None:
+        return "explicit-blocks", exact_blocks(only_match.group(1))
     markers = (
-        "all",
-        "full",
         "entire tracker",
         "complete tracker",
         "full tracker",
@@ -4030,8 +4216,27 @@ def classify_implementation_request(
         "the tracker",
         "implement-tracker-blocks",
     )
-    if any(marker in value.lower() for marker in markers):
+    lowered = value.lower()
+    if (
+        lowered in {"all", "full"}
+        or re.search(r"\ball\s+(?:blocks?|of\s+the\s+blocks?)\b", lowered)
+        or any(marker in lowered for marker in markers)
+    ):
         return "full-tracker", sorted(blocks)
+    command_match = re.fullmatch(
+        rf"\s*(?:please\s+)?(?:implement|execute|continue|do)\s+blocks?\s+{block_expression}\s*[.!]?\s*",
+        value,
+        re.I,
+    )
+    if command_match is not None:
+        return "explicit-blocks", exact_blocks(command_match.group(1))
+    plain_match = re.fullmatch(
+        rf"\s*blocks?\s+{block_expression}\s*[.!]?\s*", value, re.I
+    )
+    if plain_match is not None:
+        return "explicit-blocks", exact_blocks(plain_match.group(1))
+    if re.fullmatch(r"\d+(?:\s*[-–]\s*\d+)?", value.lower()):
+        return "explicit-blocks", exact_blocks(value)
     raise SupervisionLogError(
         "Implementation request does not establish full-tracker or exact Block intent"
     )
@@ -4138,6 +4343,40 @@ def eligible_direct_authority(
     )
 
 
+def canonical_authority_source(
+    policy: Mapping[str, Any],
+    *,
+    source_class: str,
+    source_record: str,
+    source_sha256: str,
+) -> bool:
+    mission = bound_mission(dict(policy))
+    controlling = (
+        mission.get("mission_derivation", {}).get("controlling_source", {})
+        if mission is not None
+        else {}
+    )
+    if (
+        controlling.get("class") == source_class
+        and controlling.get("record") == source_record
+        and controlling.get("sha256") == source_sha256
+    ):
+        return True
+    if (
+        mission is not None
+        and mission.get("mission_derivation", {}).get("mode")
+        == "explicit-exact-root"
+        and source_class in DIRECT_AUTHORITY_SOURCE_CLASSES
+        and mission.get("mission_source_record") == source_record
+        and mission.get("mission_root") == source_sha256
+    ):
+        return True
+    return bool(
+        source_class == "direct-user"
+        and eligible_direct_authority(policy, source_record, source_sha256)
+    )
+
+
 def implementation_range_requested_blocks(
     contract: Mapping[str, Any], blocks: set[int]
 ) -> list[int]:
@@ -4168,6 +4407,9 @@ def implementation_range_state(
             "Implementation tracker changed without an accepted range amendment"
         )
     requested = implementation_range_requested_blocks(contract, set(blocks))
+    completed_tracker_blocks = {
+        number for number in blocks if blocks[number]["status"] == "completed"
+    }
     accepted = [
         number for number in requested if blocks[number]["status"] == "completed"
     ]
@@ -4176,7 +4418,7 @@ def implementation_range_state(
         number
         for number in remaining
         if all(
-            dependency in accepted
+            dependency in completed_tracker_blocks
             for dependency in blocks[number]["dependencies"]
         )
     ]
@@ -4187,6 +4429,9 @@ def implementation_range_state(
         "tracker_sha256": tracker_sha256,
         "requested_blocks": requested,
         "accepted_blocks": accepted,
+        "completed_prerequisite_blocks": sorted(
+            completed_tracker_blocks - set(requested)
+        ),
         "remaining_blocks": remaining,
         "eligible_blocks": eligible,
         "range_history_head_sha256": contract["history_head_sha256"],
@@ -4195,30 +4440,18 @@ def implementation_range_state(
 
 def cmd_implementation_authority_receipt(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
-    source_record = safe_id(
-        args.authority_source_record, label="direct-authority source record"
+    policy_history = events(directory / "policy-history.jsonl")
+    source_event = canonical_direct_authority_event(
+        events(directory / "events.jsonl"),
+        event_record_id=safe_id(
+            args.authority_event_record,
+            label="canonical direct-authority event record",
+        ),
+        policy=policy,
+        policy_history=policy_history,
     )
-    source_sha256 = exact_sha256(
-        args.authority_source_sha256, label="direct-authority source SHA-256"
-    )
-    reviewer_id = safe_id(args.reviewer_id, label="authority receipt reviewer")
-    runtime = policy.get("runtime", {})
-    eligible = {
-        runtime.get("base_reviewer_thread_id"),
-        runtime.get("reviewer_thread_id"),
-    }
-    disallowed = {
-        policy.get("target_thread_id"),
-        runtime.get("watcher_thread_id"),
-        runtime.get("fix_executor_thread_id"),
-    }
-    if reviewer_id not in eligible or reviewer_id in disallowed:
-        raise SupervisionLogError(
-            "Direct-authority receipt requires a bound independent reviewer"
-        )
-    evidence = [clean(item, label="authority evidence", maximum=300) for item in args.evidence]
-    if not evidence:
-        raise SupervisionLogError("Direct-authority receipt requires exact evidence")
+    source_record = str(source_event["source_record"])
+    source_sha256 = str(source_event["source_sha256"])
     receipts = policy.setdefault("direct_authority_receipts", [])
     if any(
         item.get("source_record") == source_record
@@ -4231,18 +4464,26 @@ def cmd_implementation_authority_receipt(args: argparse.Namespace) -> None:
         "source_class": "direct-user",
         "source_record": source_record,
         "source_sha256": source_sha256,
-        "reviewer_id": reviewer_id,
+        "reviewer_id": source_event["verifier_id"],
+        "source_event_record_id": source_event["record_id"],
+        "source_event_sha256": source_event["record_sha256"],
+        "source_task_id": source_event["source_task_id"],
+        "source_item_id": source_event["source_item_id"],
+        "source_policy_sha256": source_event["policy_sha256"],
         "accepted": True,
         "accepted_policy_version": int(policy["policy_version"]) + 1,
-        "evidence": evidence,
+        "evidence": source_event["evidence"],
     }
     receipts.append(receipt)
     write_policy_version(
         directory,
         policy,
         kind="implementation-range-authority-receipt",
-        reason="Accepted a reviewed direct-user range-authority source.",
-        evidence_values=evidence,
+        reason="Resolved a separately ingested canonical direct-user authority event.",
+        evidence_values=[
+            str(source_event["record_id"]),
+            str(source_event["record_sha256"]),
+        ],
     )
     print(json.dumps({"duplicate": False, "receipt": receipt}, sort_keys=True))
 
@@ -4290,6 +4531,10 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
     source_sha256 = exact_sha256(
         args.authority_source_sha256, label="range authority source SHA-256"
     )
+    if hashlib.sha256(args.request_text.encode("utf-8")).hexdigest() != source_sha256:
+        raise SupervisionLogError(
+            "Implementation request text does not match its canonical direct source"
+        )
     if not eligible_direct_authority(policy, source_record, source_sha256):
         raise SupervisionLogError(
             "Implementation range source is not canonical eligible direct authority"
@@ -4391,6 +4636,10 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
         ):
             raise SupervisionLogError(
                 "Range contraction lacks a newer canonical direct-user authority event"
+            )
+        if hashlib.sha256(args.request_text.encode("utf-8")).hexdigest() != source_sha256:
+            raise SupervisionLogError(
+                "Range contraction text does not match its canonical direct source"
             )
         matching_receipt = next(
             (
@@ -4651,6 +4900,10 @@ def validate_successor_transition(
             record.get("correction_authority_source_class")
             not in DIRECT_AUTHORITY_SOURCE_CLASSES
             or not record.get("correction_authority_source_record")
+            or SHA256.fullmatch(
+                str(record.get("correction_authority_source_sha256", ""))
+            )
+            is None
         ):
             raise SupervisionLogError(
                 "A transition disposition requires current direct authority"
@@ -4827,6 +5080,19 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
         args.governing_authority_source_record,
         label="governing authority source record",
     )
+    authority_source_sha256 = exact_sha256(
+        args.governing_authority_source_sha256,
+        label="governing authority source SHA-256",
+    )
+    if not canonical_authority_source(
+        policy,
+        source_class=authority_source_class,
+        source_record=authority_source_record,
+        source_sha256=authority_source_sha256,
+    ):
+        raise SupervisionLogError(
+            "Successor transition governing authority is not canonical"
+        )
     tracker_source_record = clean(
         args.tracker_source_record,
         label="tracker source record",
@@ -4910,6 +5176,16 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
         label="correction authority source record",
         maximum=128,
     )
+    correction_authority_source_sha256 = clean(
+        args.correction_authority_source_sha256,
+        label="correction authority source SHA-256",
+        maximum=64,
+    )
+    if correction_authority_source_sha256:
+        correction_authority_source_sha256 = exact_sha256(
+            correction_authority_source_sha256,
+            label="correction authority source SHA-256",
+        )
     replacement_transition_id = clean(
         args.replacement_transition,
         label="replacement transition ID",
@@ -4942,6 +5218,7 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
         ),
         "governing_authority_source_class": authority_source_class,
         "governing_authority_source_record": authority_source_record,
+        "governing_authority_source_sha256": authority_source_sha256,
         "topology_posture": topology_posture,
         "topology_basis": topology_basis,
         "topology_rationale": topology_rationale,
@@ -4968,11 +5245,23 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
         "correction_authority_source_record": (
             correction_authority_source_record
         ),
+        "correction_authority_source_sha256": (
+            correction_authority_source_sha256
+        ),
         "replacement_transition_id": replacement_transition_id,
         "governing_outcome_effect": args.governing_outcome_effect or "",
         "evidence": evidence_values,
         "policy_sha256": policy["policy_sha256"],
     }
+    if record["phase"] in SUCCESSOR_TRANSITION_TERMINAL_PHASES and not canonical_authority_source(
+        policy,
+        source_class=str(record["correction_authority_source_class"]),
+        source_record=str(record["correction_authority_source_record"]),
+        source_sha256=str(record["correction_authority_source_sha256"]),
+    ):
+        raise SupervisionLogError(
+            "Successor transition correction authority is not canonical"
+        )
     with append_lock(directory):
         all_events = events(directory / "events.jsonl")
         records = successor_transition_events(all_events, transition_id)
@@ -4987,6 +5276,10 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
                     else ""
                 )
         else:
+            prior.setdefault(
+                "governing_authority_source_sha256",
+                record["governing_authority_source_sha256"],
+            )
             prior.setdefault("topology_posture", "distinct-task")
             prior.setdefault("topology_basis", "legacy-linear")
             prior.setdefault(
@@ -5029,6 +5322,7 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
                 "disposition_reason",
                 "correction_authority_source_class",
                 "correction_authority_source_record",
+                "correction_authority_source_sha256",
                 "replacement_transition_id",
                 "governing_outcome_effect",
                 "state_fingerprint",
@@ -8644,10 +8938,7 @@ def parser() -> argparse.ArgumentParser:
         "implementation-range-authority-receipt"
     )
     range_authority.add_argument("--target-thread", required=True)
-    range_authority.add_argument("--authority-source-record", required=True)
-    range_authority.add_argument("--authority-source-sha256", required=True)
-    range_authority.add_argument("--reviewer-id", required=True)
-    range_authority.add_argument("--evidence", action="append", required=True)
+    range_authority.add_argument("--authority-event-record", required=True)
     range_authority.set_defaults(func=cmd_implementation_authority_receipt)
 
     range_bind = subparsers.add_parser("implementation-range-bind")
@@ -8697,6 +8988,9 @@ def parser() -> argparse.ArgumentParser:
         "--governing-authority-source-record", required=True
     )
     successor_record.add_argument(
+        "--governing-authority-source-sha256", required=True
+    )
+    successor_record.add_argument(
         "--topology-posture", choices=sorted(SUCCESSOR_TOPOLOGY_POSTURES), default=""
     )
     successor_record.add_argument(
@@ -8719,6 +9013,9 @@ def parser() -> argparse.ArgumentParser:
     )
     successor_record.add_argument(
         "--correction-authority-source-record", default=""
+    )
+    successor_record.add_argument(
+        "--correction-authority-source-sha256", default=""
     )
     successor_record.add_argument("--replacement-transition", default="")
     successor_record.add_argument(
