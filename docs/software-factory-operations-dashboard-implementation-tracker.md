@@ -1202,8 +1202,36 @@ per refresh and widen parsing only for a reproduced supported tracker form.
   and mission root
   `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
   No new mission, successor task, routed authority, or manual resume was used.
-- Candidate, validation, exact review, checkpoint, and acceptance evidence:
-  pending.
+- Candidate preparation: added a closed read-only Python tracker/Git adapter,
+  deterministic list/detail identities and `/api/v1/trackers` routes, strict
+  Zod list/detail contracts, exact source ranges/raw-open metadata, and
+  source-local partial failure. The adapter reuses the maintained verifier,
+  batches Git HEAD/index/tree/status/history/upstream inspection by repository,
+  and caches analysis only by tracker content, verifier content, and profile.
+- Exact profile posture: newly authored trackers fail closed to `full`; the
+  inherited evolution and tracker-authoring trackers receive `core` only at
+  the exact Block-0-approved path and SHA-256 roots. Full/core, invalid, dirty,
+  staged, untracked, stale-bound, completed-with-open-items, and unavailable
+  cases remain distinct. Invalid verifier output gates derived eligibility,
+  and no percentage, synthetic green summary, or duplicate truth owner was
+  added.
+- Source validation: 17 Python tests passed with `ResourceWarning` promoted to
+  errors; 18 TypeScript/Vitest tests and the production build passed; and 18
+  Playwright cases passed across desktop, tablet, and mobile. The live 8787
+  server projected all four registered repository trackers through the exact
+  Zod contracts and reproduced the maintained verifier commands/results as
+  full 14 Blocks, inherited core 7 Blocks, full 26 Blocks, and inherited core
+  5 Blocks. For every live tracker the raw and committed content hashes matched
+  and Git posture was current.
+- UI abstraction correction: shared unavailable-page narration is optional,
+  stale “tracker not connected” wording was removed, and the Trackers route
+  remains a sparse unavailable workspace rather than prematurely rendering a
+  tracker page. The existing single compact route `h1` contract remains intact.
+- Authority and Stop posture: tracker Markdown and Git remain the writers;
+  this slice performs no tracker edit, status transition, Block acceptance,
+  task start, tracker-page construction, supervision read, or mutation.
+- Exact candidate commit, full verifier/link/diff proof, independent review,
+  acceptance checkpoint, and durability evidence: pending.
 
 ### Stop
 

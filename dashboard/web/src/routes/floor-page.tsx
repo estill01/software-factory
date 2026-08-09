@@ -102,8 +102,8 @@ export function Component() {
               <Factory />
             </div>
             <div>
-              <h3>Implementation data unavailable</h3>
-              <p>Tracker and task sources are not connected.</p>
+              <h3>Implementation lanes unavailable</h3>
+              <p>Task and supervision sources are not connected.</p>
             </div>
           </div>
         </section>

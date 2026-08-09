@@ -7,9 +7,8 @@ export function Component() {
     <div className="page-stack trackers-page">
       <PageState
         icon={ListChecks}
-        title="Tracker source unavailable"
-        description="No tracker has been parsed for a registered project."
-        status="Not connected"
+        title="Tracker workspace unavailable"
+        status="Read source connected"
       />
     </div>
   )

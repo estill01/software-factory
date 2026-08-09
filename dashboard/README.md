@@ -2,9 +2,10 @@
 
 The dashboard is a local, single-operator control room. It currently provides
 the loopback runtime, typed transport, accessible application shell, and a
-bounded multi-project catalog. Tracker contents, Codex tasks, supervision,
-reports, and lifecycle truth remain visibly unavailable until their owning
-tracker Blocks are accepted.
+bounded multi-project catalog plus read-only implementation-tracker and Git
+currentness APIs. Codex tasks, supervision, reports, lifecycle truth, and the
+operator-facing tracker workspace remain unavailable until their owning tracker
+Blocks are accepted.
 
 ## Prerequisites
 
@@ -46,7 +47,7 @@ uv run --project dashboard/server software-factory-dashboard --port 8787
 Open `http://127.0.0.1:8787`. Choose another free port with `--port`; the
 service rejects non-loopback hosts. The production server serves the Vite build,
 SPA routes, `/api/v1/health`, security headers, and per-launch mutation-nonce
-plumbing.
+plumbing. Read-only project and tracker APIs are served from the same origin.
 
 ## Register projects
 
@@ -83,9 +84,39 @@ removes a project from normal dashboard views; it never deletes files, changes
 the repository, stops work, or changes source truth.
 
 Discovery is bounded to registered roots and reports Git revision/branch plus
-tracker candidate paths. Candidate contents are not read yet. Each project has
-its own observed time, coverage, limitations, and exact discovery errors, so a
-missing repository does not hide healthy projects.
+tracker candidate paths. Each project has its own observed time, coverage,
+limitations, and exact discovery errors, so a missing repository does not hide
+healthy projects.
+
+## Inspect tracker truth
+
+Tracker reads stay behind the loopback service:
+
+```text
+GET /api/v1/trackers
+GET /api/v1/trackers/{tracker-id}
+```
+
+The adapter reads only discovered Markdown files inside active registered
+roots, invokes the maintained `author-implementation-trackers` verifier with
+the exact full profile or the two Block-0-approved inherited core path/content
+roots, and
+projects source-linked header/frame/map/Block sections. It derives exact status
+and evidence-posture counts, dependency eligibility, verifier diagnostics, and
+Git HEAD/index/worktree/blob/history/upstream currentness. It does not calculate
+a progress percentage or treat `completed-with-open-items` as accepted.
+
+Tracker identity is deterministic from project ID and relative path. Raw-file
+metadata includes the exact local path and line/anchor ranges for local opening;
+Markdown remains the sole writer. Dirty, untracked, invalid, stale-bound, and
+source-unavailable trackers remain distinct. One tracker or project failure is
+returned locally and does not erase healthy projections.
+
+Unchanged analysis is cached only by tracker content hash, verifier hash, and
+profile. Git reads are batched per repository for list refreshes. The React
+client validates list/detail responses with closed Zod schemas but does not yet
+render a tracker workspace; that interface begins in Block 8. No endpoint in
+this slice edits a tracker, accepts a Block, changes status, or starts work.
 
 ## Browser tests
 
@@ -98,5 +129,5 @@ SOFTWARE_FACTORY_DASHBOARD_URL=http://127.0.0.1:8787 \
 
 The server never performs broad filesystem discovery and never exposes
 arbitrary commands, authentication, remote binding, filesystem deletion, or
-background work. Catalog readiness does not imply that tracker, task,
-supervision, report, or lifecycle sources are connected.
+background work. Tracker read readiness does not imply that task, supervision,
+report, lifecycle, or mutation owners are connected.

@@ -61,12 +61,12 @@ test("factory shell exposes honest state and working navigation", async ({ page 
   await expect(page.getByRole("heading", { name: "Factory Floor", level: 1 })).toBeVisible()
   await expect(page.locator("h1")).toHaveCount(1)
   await expect(page.getByRole("status", { name: /Local runtime online/ })).toBeVisible()
-  await expect(page.getByRole("heading", { name: "Implementation data unavailable" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Implementation lanes unavailable" })).toBeVisible()
 
   await page.getByRole("link", { name: "Trackers", exact: true }).click()
   await expect(page.getByRole("heading", { name: "Trackers", level: 1 })).toBeVisible()
   await expect(page.locator("h1")).toHaveCount(1)
-  await expect(page.getByRole("heading", { name: "Tracker source unavailable" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Tracker workspace unavailable" })).toBeVisible()
   await expect(page).toHaveURL(/\/trackers$/)
 
   const themeToggle = page.getByRole("button", { name: /Switch to (light|dark) mode/ })

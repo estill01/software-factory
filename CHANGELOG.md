@@ -62,6 +62,18 @@ the completed program materially changes Software Factory.
   operational state, traversal, symlink escape, stale writes, and any wording
   or behavior implying that archive deletes files or stops work. Implementation
   scope is Block 2 of the operations-dashboard tracker.
+- **Read-only tracker truth and Git-currentness API.** Added closed Python and
+  Zod list/detail contracts that project discovered tracker header, capability
+  frames, owner/source maps, Blocks, exact status and evidence-posture counts,
+  dependency eligibility, source anchors, maintained-verifier diagnostics, and
+  Git HEAD/index/worktree/blob/history/upstream currentness. Full-profile and
+  explicitly approved inherited core trackers remain distinct; malformed,
+  dirty, untracked, stale-bound, and unavailable sources retain exact local
+  diagnostics without hiding healthy trackers. Unchanged analysis is keyed by
+  tracker content, verifier content, and profile, while Git reads are batched by
+  repository. This slice is read-only: it adds no tracker workspace, status
+  mutation, acceptance, task start, or synthetic progress percentage.
+  Implementation scope is Block 3 of the operations-dashboard tracker.
 - **Successor-transition continuity and structured failure-mode records.** A
   requested implementation that must cross into a distinct task now remains an
   open append-only transition through `required`, task creation, isolated

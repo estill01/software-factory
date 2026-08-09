@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import json
 import mimetypes
 from pathlib import Path, PurePosixPath
+import re
 import secrets
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -14,6 +15,7 @@ from urllib.parse import unquote, urlsplit
 from .catalog import (
     CatalogError,
     CatalogStore,
+    ProjectRecord,
     default_catalog_path,
     discover_catalog,
     discover_project,
@@ -21,6 +23,12 @@ from .catalog import (
     validate_project_id,
 )
 from .contract import API_VERSION, PACKAGE_VERSION, envelope
+from .tracker import (
+    TrackerProjectionError,
+    TrackerProjectionService,
+    tracker_identity,
+    unavailable_tracker,
+)
 
 
 MAX_BODY_BYTES = 64 * 1024
@@ -78,6 +86,7 @@ class DashboardHTTPServer(ThreadingHTTPServer):
         self.config = config.validated()
         self.mutation_nonce = nonce or secrets.token_urlsafe(32)
         self.catalog_store = CatalogStore(self.config.catalog_path)
+        self.tracker_service = TrackerProjectionService()
         super().__init__((self.config.host, self.config.port), DashboardRequestHandler)
 
 
@@ -192,11 +201,22 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         else:
             catalog_available = True
             catalog_reason = None
+        tracker_owner: dict[str, Any] | None = None
+        try:
+            tracker_owner = self.server.tracker_service.verifier_revision()
+        except TrackerProjectionError as error:
+            tracker_available = False
+            tracker_reason = str(error)
+        else:
+            tracker_available = catalog_available
+            tracker_reason = catalog_reason
         missing = ["codex-app-server"]
         if not frontend_available:
             missing.insert(0, "frontend-build")
         if not catalog_available:
             missing.insert(0, "project-catalog")
+        if not tracker_available:
+            missing.insert(0, "tracker-projection")
         data = {
             "status": "ok",
             "service": {"name": "software-factory-dashboard", "version": PACKAGE_VERSION},
@@ -210,6 +230,10 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 "project_sources": {
                     "status": "available" if catalog_available else "unavailable",
                     "reason": catalog_reason,
+                },
+                "tracker_sources": {
+                    "status": "available" if tracker_available else "unavailable",
+                    "reason": tracker_reason,
                 },
                 "codex_app_server": {
                     "status": "unavailable",
@@ -232,11 +256,15 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                         ["runtime"]
                         + (["frontend-build"] if frontend_available else [])
                         + (["project-catalog"] if catalog_available else [])
+                        + (["maintained-tracker-verifier"] if tracker_available else [])
                     ),
                     "missing": missing,
                 },
                 limitations=[
-                    "Project catalog readiness does not include tracker, supervision, or task truth."
+                    "Tracker adapter readiness does not establish per-tracker validity or connect supervision and task truth.",
+                    f"Maintained tracker verifier revision: {tracker_owner['sha256']}."
+                    if tracker_available and tracker_owner is not None
+                    else "Maintained tracker verifier is unavailable.",
                 ],
             ),
         )
@@ -250,7 +278,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             if project["discovery"]["status"] == "unavailable"
         ]
         limitations = [
-            "Tracker paths are candidates only; content parsing begins in Block 3.",
+            "This project endpoint returns tracker candidates only; use /api/v1/trackers for read-only content projection.",
             "Supervision and Codex task sources remain unavailable until Blocks 4 and 5.",
         ]
         if loaded.recovered_from_previous:
@@ -273,7 +301,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             coverage={
                 "status": "partial",
                 "observed": ["catalog", "registered-git-roots", "tracker-candidate-paths"],
-                "missing": ["tracker-content", "supervision", "codex-app-server"],
+                "missing": ["supervision", "codex-app-server"],
             },
             limitations=limitations,
         )
@@ -325,6 +353,187 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 limitations=projection["discovery"]["limitations"],
             )
         except CatalogError as error:
+            self._error(
+                HTTPStatus(error.status),
+                error.code,
+                str(error),
+                retryable=error.retryable,
+            )
+            return
+        self._write_json(HTTPStatus.OK, payload)
+
+    def _tracker_candidates(
+        self,
+    ) -> tuple[list[tuple[ProjectRecord, str]], list[dict[str, Any]], str, bool]:
+        loaded = self.server.catalog_store.load()
+        candidates: list[tuple[ProjectRecord, str]] = []
+        projects: list[dict[str, Any]] = []
+        for project in loaded.state.projects:
+            if project.archived:
+                continue
+            projection = discover_project(project)
+            discovery = projection["discovery"]
+            project_state = {
+                "project_id": project.id,
+                "status": discovery["status"],
+                "observed_at": projection["observed_at"],
+                "errors": discovery["errors"],
+                "tracker_candidates": len(discovery["trackers"]["candidates"]),
+            }
+            projects.append(project_state)
+            if discovery["status"] != "available":
+                continue
+            for relative_path in discovery["trackers"]["candidates"]:
+                candidates.append((project, relative_path))
+        return candidates, projects, loaded.fingerprint, loaded.recovered_from_previous
+
+    def _tracker_list_payload(self) -> dict[str, Any]:
+        candidates, projects, catalog_fingerprint, recovered = self._tracker_candidates()
+        trackers: list[dict[str, Any]] = []
+        paths_by_project: dict[str, tuple[ProjectRecord, list[str]]] = {}
+        for project, relative_path in candidates:
+            entry = paths_by_project.setdefault(project.id, (project, []))
+            entry[1].append(relative_path)
+        refresh_analysis_cache: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for project, relative_paths in paths_by_project.values():
+            outcomes = self.server.tracker_service.project_many(
+                project,
+                relative_paths,
+                refresh_analysis_cache=refresh_analysis_cache,
+            )
+            for relative_path in relative_paths:
+                outcome = outcomes[relative_path]
+                if isinstance(outcome, TrackerProjectionError):
+                    trackers.append(unavailable_tracker(project, relative_path, outcome))
+                else:
+                    trackers.append(self.server.tracker_service.summary(outcome))
+        trackers.sort(key=lambda tracker: (tracker["project_id"], tracker["relative_path"]))
+        unavailable_projects = [project["project_id"] for project in projects if project["status"] != "available"]
+        unavailable_trackers = [tracker["id"] for tracker in trackers if tracker["status"] != "available"]
+        git_observed = any(
+            tracker["status"] == "available" and tracker["git"]["status"] == "available"
+            for tracker in trackers
+        )
+        git_partial = any(
+            tracker["status"] != "available" or tracker["git"]["status"] != "available"
+            for tracker in trackers
+        )
+        limitations = [
+            "Tracker Markdown, maintained verifier output, and Git remain authoritative.",
+            "Run-bound tracker hash comparison remains unavailable until Block 4 composition.",
+            "This Block exposes read APIs only; tracker workspace UI begins in Block 8.",
+        ]
+        if recovered:
+            limitations.append("The valid prior catalog is projected read-only.")
+        if unavailable_projects:
+            limitations.append(
+                f"Project discovery is unavailable for: {', '.join(unavailable_projects)}."
+            )
+        if unavailable_trackers:
+            limitations.append(
+                f"Tracker projection is unavailable for {len(unavailable_trackers)} candidate(s)."
+            )
+        try:
+            verifier_revision = self.server.tracker_service.verifier_revision()
+            source_revision = verifier_revision["sha256"]
+        except TrackerProjectionError as error:
+            verifier_revision = {
+                "path": None,
+                "sha256": None,
+                "owning_revision": None,
+                "error": {"code": error.code, "message": str(error)},
+            }
+            source_revision = "unavailable"
+        missing = ["run-bound-tracker-hash"]
+        if not candidates:
+            missing.append("registered-tracker-candidates")
+        if unavailable_projects:
+            missing.append("project-discovery")
+        if unavailable_trackers or verifier_revision["sha256"] is None:
+            missing.append("tracker-projection")
+        if candidates and (git_partial or not git_observed):
+            missing.append("git-currentness")
+        observed = ["project-catalog", "tracker-candidate-paths"]
+        if verifier_revision["sha256"]:
+            observed.append("maintained-verifier")
+        if git_observed:
+            observed.append("git-currentness")
+        return envelope(
+            data={
+                "catalog_fingerprint": catalog_fingerprint,
+                "recovered_from_previous": recovered,
+                "verifier_owner": verifier_revision,
+                "projects": projects,
+                "trackers": trackers,
+            },
+            source={
+                "kind": "tracker-projection",
+                "identity": "software-factory-dashboard/trackers",
+                "revision": source_revision,
+            },
+            coverage={
+                "status": "partial",
+                "observed": observed,
+                "missing": sorted(set(missing)),
+            },
+            limitations=limitations,
+        )
+
+    def _write_trackers(self) -> None:
+        try:
+            payload = self._tracker_list_payload()
+        except (CatalogError, TrackerProjectionError) as error:
+            self._error(
+                HTTPStatus(error.status),
+                error.code,
+                str(error),
+                retryable=error.retryable,
+            )
+            return
+        self._write_json(HTTPStatus.OK, payload)
+
+    def _write_tracker(self, tracker_id: str) -> None:
+        if not re.fullmatch(r"[0-9a-f]{64}", tracker_id):
+            self._error(HTTPStatus.BAD_REQUEST, "invalid_tracker_id", "Tracker ID is invalid.")
+            return
+        try:
+            candidates, _, catalog_fingerprint, recovered = self._tracker_candidates()
+            selected = next(
+                (
+                    (project, relative_path)
+                    for project, relative_path in candidates
+                    if tracker_identity(project.id, relative_path) == tracker_id
+                ),
+                None,
+            )
+            if selected is None:
+                raise TrackerProjectionError(
+                    "tracker_not_found",
+                    "Tracker is not discoverable in an active registered project.",
+                    status=404,
+                )
+            detail = self.server.tracker_service.project(*selected)
+            payload = envelope(
+                data={
+                    "catalog_fingerprint": catalog_fingerprint,
+                    "recovered_from_previous": recovered,
+                    "tracker": detail,
+                },
+                source={
+                    "kind": "tracker-projection",
+                    "identity": f"software-factory-dashboard/trackers/{tracker_id}",
+                    "revision": detail["fingerprint"],
+                },
+                coverage={
+                    "status": "partial",
+                    "observed": detail["coverage"]["observed"],
+                    "missing": sorted(
+                        set(detail["coverage"]["missing"] + ["run-bound-tracker-hash"])
+                    ),
+                },
+                limitations=detail["limitations"],
+            )
+        except (CatalogError, TrackerProjectionError) as error:
             self._error(
                 HTTPStatus(error.status),
                 error.code,
@@ -545,6 +754,24 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             return
         if decoded_path == f"/api/{API_VERSION}/health":
             self._health()
+            return
+        if decoded_path == f"/api/{API_VERSION}/trackers":
+            if urlsplit(self.path).query:
+                self._error(
+                    HTTPStatus.BAD_REQUEST,
+                    "invalid_query",
+                    "Trackers does not accept query parameters in this Block.",
+                )
+            else:
+                self._write_trackers()
+            return
+        tracker_prefix = f"/api/{API_VERSION}/trackers/"
+        if decoded_path.startswith(tracker_prefix):
+            tracker_id = decoded_path[len(tracker_prefix) :]
+            if not tracker_id or "/" in tracker_id or urlsplit(self.path).query:
+                self._error(HTTPStatus.BAD_REQUEST, "invalid_tracker_id", "Tracker ID is invalid.")
+            else:
+                self._write_tracker(tracker_id)
             return
         if decoded_path == f"/api/{API_VERSION}/projects":
             query = urlsplit(self.path).query

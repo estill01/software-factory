@@ -13,6 +13,7 @@ const healthPayload = {
     integrations: {
       frontend: { status: "available", reason: null },
       project_sources: { status: "unavailable", reason: "Block 2" },
+      tracker_sources: { status: "unavailable", reason: "Block 3" },
       codex_app_server: { status: "unavailable", reason: "Block 5" },
     },
   },

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
+from hashlib import sha256
 import json
 from pathlib import Path
 import re
@@ -12,6 +13,8 @@ from typing import Iterator
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 import unittest
+
+from test_tracker import FULL_TRACKER
 
 from software_factory_dashboard.server import (
     DashboardConfigurationError,
@@ -127,6 +130,7 @@ class DashboardServerTests(unittest.TestCase):
         self.assertEqual(payload["data"]["status"], "ok")
         self.assertEqual(payload["data"]["integrations"]["frontend"]["status"], "available")
         self.assertEqual(payload["data"]["integrations"]["project_sources"]["status"], "available")
+        self.assertEqual(payload["data"]["integrations"]["tracker_sources"]["status"], "available")
         self.assertIn("project-catalog", payload["coverage"]["observed"])
         self.assertEqual(payload["coverage"]["status"], "partial")
         self.assertRegex(payload["fingerprint"], r"^[0-9a-f]{64}$")
@@ -325,6 +329,88 @@ class DashboardServerTests(unittest.TestCase):
                 json.loads(invalid_fingerprint.body)["error"]["code"],
                 "invalid_catalog_fingerprint",
             )
+
+    def test_tracker_list_and_detail_match_registered_file_git_and_maintained_verifier(self) -> None:
+        root = self.make_repo("tracker-api")
+        tracker_path = root / "docs" / "demo-implementation-tracker.md"
+        tracker_path.parent.mkdir()
+        tracker_path.write_text(FULL_TRACKER, encoding="utf-8")
+        malformed_path = root / "docs" / "malformed-implementation-tracker.md"
+        malformed_path.write_text("# Malformed tracker\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(root), "add", "docs"], check=True)
+        subprocess.run(["git", "-C", str(root), "commit", "-qm", "trackers"], check=True)
+        expected_head = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        expected_content_sha = sha256(tracker_path.read_bytes()).hexdigest()
+
+        with running_server(self.static_dir) as origin:
+            initial = json.loads(response(f"{origin}/api/v1/projects?include_archived=true").body)
+            created = self.catalog_request(
+                origin,
+                "/api/v1/projects",
+                {
+                    "source_fingerprint": initial["data"]["catalog_fingerprint"],
+                    "project": {
+                        "id": "tracker-api",
+                        "label": "Tracker API",
+                        "root": str(root),
+                        "tracker_patterns": [],
+                        "description": None,
+                    },
+                },
+            )
+            self.assertEqual(created.status, 201)
+
+            listed_response = response(f"{origin}/api/v1/trackers")
+            listed = json.loads(listed_response.body)
+            self.assertEqual(listed_response.status, 200)
+            self.assertEqual(len(listed["data"]["trackers"]), 2)
+            summaries = {
+                tracker["relative_path"]: tracker for tracker in listed["data"]["trackers"]
+            }
+            healthy = summaries["docs/demo-implementation-tracker.md"]
+            malformed = summaries["docs/malformed-implementation-tracker.md"]
+            self.assertTrue(healthy["verifier"]["valid"])
+            self.assertFalse(malformed["verifier"]["valid"])
+            self.assertTrue(malformed["verifier"]["errors"])
+            self.assertEqual(healthy["raw_file"]["content_sha256"], expected_content_sha)
+            self.assertEqual(healthy["git"]["repository_head"], expected_head)
+            self.assertTrue(healthy["git"]["content_matches_head"])
+            self.assertEqual(healthy["progress_posture"], "current")
+
+            detail_response = response(f"{origin}/api/v1/trackers/{healthy['id']}")
+            detail_payload = json.loads(detail_response.body)
+            self.assertEqual(detail_response.status, 200)
+            detail = detail_payload["data"]["tracker"]
+            self.assertEqual(detail["raw_file"]["path"], str(tracker_path))
+            self.assertEqual(detail["counts"]["by_status"], {"accepted": 1, "not-started": 1})
+            self.assertEqual(detail["eligible_blocks"], [1])
+            self.assertIn("unrecognized operator note", {
+                section["normalized_title"]
+                for section in detail["blocks"][0]["sections"]
+            })
+
+            verifier = detail["verifier"]
+            direct = subprocess.run(
+                verifier["command"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            direct_payload = json.loads(direct.stdout)
+            self.assertEqual(direct.returncode, verifier["exit_status"])
+            self.assertEqual(direct_payload["blocks"], verifier["blocks"])
+            self.assertEqual(direct_payload["errors"], verifier["errors"])
+            self.assertEqual(direct_payload["warnings"], verifier["warnings"])
+            self.assertRegex(verifier["owner"]["owning_revision"], r"^[0-9a-f]{40}$")
+
+            invalid_id = response(f"{origin}/api/v1/trackers/not-a-tracker")
+            self.assertEqual(invalid_id.status, 400)
+            self.assertEqual(json.loads(invalid_id.body)["error"]["code"], "invalid_tracker_id")
 
 
 if __name__ == "__main__":

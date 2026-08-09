@@ -711,7 +711,7 @@ def discover_project(project: ProjectRecord) -> dict[str, Any]:
                 },
                 "coverage": "partial",
                 "limitations": [
-                    "Tracker candidates are discovered by path only; content parsing begins in Block 3.",
+                    "Project discovery returns tracker paths only; read-only content projection is available from /api/v1/trackers.",
                     "Supervision and Codex task sources are not connected yet.",
                 ],
                 "errors": [],

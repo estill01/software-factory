@@ -8,7 +8,6 @@ export function Component() {
       <PageState
         icon={FileChartColumn}
         title="Report source unavailable"
-        description="No verified report history is connected."
         status="Not connected"
       />
     </div>

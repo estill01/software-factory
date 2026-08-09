@@ -130,12 +130,14 @@ $supervise-tracker-runs {session ID}
 ### 5. Preview the local operations dashboard
 
 The operations dashboard currently provides its loopback runtime, responsive
-application shell, and bounded multi-project catalog. Register exact local Git
-roots in Admin to see per-project discovery health, current revision, branch,
-and tracker candidate counts. The catalog never scans the workstation or copies
-operational status; tracker contents, task, supervision, and report sources
-remain visibly unavailable until their owning implementation Blocks are
-accepted.
+application shell, bounded multi-project catalog, and read-only tracker/Git
+truth APIs. Register exact local Git roots in Admin to expose per-project
+discovery health and source-local tracker projections. The adapter invokes the
+maintained tracker verifier, keeps exact Block status/evidence/dependency and
+Git dirty/untracked/stale postures distinct, and never edits Markdown or invents
+a progress percentage. The operator-facing tracker workspace, task,
+supervision, and report sources remain unavailable until their owning
+implementation Blocks are accepted.
 
 ```bash
 npm --prefix dashboard/web ci
