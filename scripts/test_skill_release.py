@@ -467,6 +467,8 @@ class SkillReleaseTests(unittest.TestCase):
             (self.repo / name / "VERSION").write_text("candidate\n", encoding="utf-8")
         second_commit = self.commit("candidate for replay")
         second = self.stage(second_commit)
+        state_path = skill_release.release_state_path(self.release_root.resolve())
+        authentic_prior_state = state_path.read_bytes()
         first_to_second = self.activate_args(
             str(second["release_id"]),
             operation="activate",
@@ -484,6 +486,7 @@ class SkillReleaseTests(unittest.TestCase):
         history_path = self.release_root / skill_release.HISTORY_NAME
         first_record = history_path.read_bytes().splitlines(keepends=True)[0]
         history_path.write_bytes(first_record)
+        state_path.write_bytes(authentic_prior_state)
         with self.assertRaisesRegex(skill_release.ReleaseError, "external release head"):
             skill_release.activate_release(first_to_second)
         self.assertEqual(
@@ -637,6 +640,18 @@ class SkillReleaseTests(unittest.TestCase):
         commit = self.commit("invalid skill metadata")
         with self.assertRaisesRegex(skill_release.ReleaseError, "validation failed"):
             self.stage(commit)
+
+    def test_validator_runtime_identity_is_hashed_once_per_candidate(self) -> None:
+        commit = self.git("rev-parse", "HEAD")
+        with mock.patch.object(
+            skill_release,
+            "trusted_validator_python",
+            wraps=skill_release.trusted_validator_python,
+        ) as runtime:
+            skill_release.review_request(
+                argparse.Namespace(repo=str(self.repo), source_commit=commit)
+            )
+        self.assertEqual(runtime.call_count, 1)
 
     def test_releases_directory_symlink_is_rejected(self) -> None:
         outside = self.root / "outside-releases"

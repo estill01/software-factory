@@ -30,6 +30,7 @@ The default release root is
 
 ~/.codex/.software-factory-release-keys/
 ├── <release-root-hash>.key
+├── <release-root-hash>.state.key
 └── <release-root-hash>.state.json
 
 ~/.codex/skills/
@@ -48,8 +49,11 @@ HMAC-authenticated acceptance ledger is keyed outside the release root, so a
 rewritten manifest cannot authorize itself. The same key authenticates the
 semantic activation history used for rollback eligibility.
 The external state head binds both ledger counts/heads and the active-release
-identity. A valid HMAC prefix cannot be substituted to erase a consumed
-quiescent record or make a former rollback state current.
+identity. Its private freshness key rotates on every accepted state advance,
+so a formerly authentic state snapshot no longer verifies after the next
+stage/cutover. A valid HMAC prefix plus its old state file therefore cannot be
+substituted to erase a consumed quiescent record or make a former rollback
+state current.
 Manifest and evidence JSON must use exact canonical bytes and remain within
 small pre-read limits; acceptance/history ledgers are likewise bounded,
 canonical JSONL. Whitespace padding, suffix data, oversized files, and
@@ -238,8 +242,9 @@ removing only `signature_base64` and running `openssl pkeyutl -verify -pubin`
 against the pinned public key and base64-decoded signature; the release command
 performs the same check again.
 
-Recovery fails closed: never delete/re-root the external key or state-head
-files and never regenerate a private key under an existing role ID. If a
+Recovery fails closed: never delete/re-root the external ledger key,
+forward-rotating freshness key, or state-head files and never regenerate a
+private key under an existing role ID. If a
 private key is lost, retain its public key for old-release verification, add a
 new versioned role ID/public key only in a newly reviewed release-helper source
 revision, and generate new evidence. If the pinned Python, YAML, validator, or

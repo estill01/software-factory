@@ -192,13 +192,59 @@ def release_state_path(release_root: Path) -> Path:
     return release_key_path(release_root).with_suffix(".state.json")
 
 
+def release_state_key_path(release_root: Path) -> Path:
+    return release_key_path(release_root).with_suffix(".state.key")
+
+
+def atomic_secret(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if path.parent.is_symlink():
+        raise ReleaseError("External release authority directory is symlinked")
+    path.parent.chmod(0o700)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(6)}")
+    descriptor = os.open(
+        temporary,
+        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+        0o400,
+    )
+    try:
+        os.write(descriptor, payload)
+        os.fsync(descriptor)
+        os.fchmod(descriptor, 0o400)
+    finally:
+        os.close(descriptor)
+    os.replace(temporary, path)
+    fsync_directory(path.parent)
+
+
+def release_state_key(release_root: Path) -> bytes:
+    path = release_state_key_path(release_root)
+    if path.is_symlink() or not path.is_file():
+        raise ReleaseError("External release freshness key is missing or symlinked")
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        metadata = os.fstat(descriptor)
+        key = os.read(descriptor, 33)
+    finally:
+        os.close(descriptor)
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_size != 32
+        or len(key) != 32
+        or stat.S_IMODE(metadata.st_mode) & 0o077
+    ):
+        raise ReleaseError("External release freshness key is invalid")
+    return key
+
+
 def release_key(release_root: Path, *, allow_create: bool) -> bytes:
     path = release_key_path(release_root)
     protected_state_exists = any(
         (release_root / name).exists() for name in (ACCEPTANCE_NAME, HISTORY_NAME)
-    ) or release_state_path(release_root).exists() or release_state_path(
-        release_root
-    ).is_symlink()
+    ) or any(
+        path.exists() or path.is_symlink()
+        for path in (release_state_path(release_root), release_state_key_path(release_root))
+    )
     if not path.exists():
         if protected_state_exists or not allow_create:
             raise ReleaseError("External release authority key is missing")
@@ -277,7 +323,7 @@ def validate_release_external_state(
         return
     if path.is_symlink() or not path.is_file():
         raise ReleaseError("Canonical external release head is missing or symlinked")
-    key = release_key(release_root, allow_create=False)
+    key = release_state_key(release_root)
     value = load_bounded_json(path, label="External release head", maximum=16384)
     expected = release_external_state(release_root, key, acceptances, activations)
     if value != expected:
@@ -291,11 +337,12 @@ def write_release_external_state(
     acceptances: Sequence[Mapping[str, Any]],
     activations: Sequence[Mapping[str, Any]],
 ) -> None:
-    key = release_key(release_root, allow_create=False)
+    key = secrets.token_bytes(32)
     atomic_json(
         release_state_path(release_root),
         release_external_state(release_root, key, acceptances, activations),
     )
+    atomic_secret(release_state_key_path(release_root), key)
 
 
 def load_bounded_json(path: Path, *, label: str, maximum: int = 65536) -> dict[str, Any]:
@@ -818,9 +865,12 @@ def canonical_validator() -> tuple[Path, dict[str, str]]:
 
 
 def run_validator(
-    validator: Path, validator_identity: Mapping[str, str], skill: Path
+    validator: Path,
+    validator_identity: Mapping[str, str],
+    validator_runtime: tuple[Path, Path],
+    skill: Path,
 ) -> dict[str, Any]:
-    python, yaml_parent = trusted_validator_python()
+    python, yaml_parent = validator_runtime
     wrapper = (
         "import runpy,sys;"
         "sys.path.insert(0,sys.argv[1]);"
@@ -1125,12 +1175,13 @@ def verified_source(repo: Path, source_commit: str) -> None:
 
 def build_candidate(repo: Path, source_commit: str, destination: Path) -> dict[str, Any]:
     validator, validator_identity = canonical_validator()
+    validator_runtime = trusted_validator_python()
     materialize_commit(repo, source_commit, destination)
     skills: dict[str, Any] = {}
     validation: dict[str, Any] = {}
     for name in SKILLS:
         validation[name] = run_validator(
-            validator, validator_identity, destination / name
+            validator, validator_identity, validator_runtime, destination / name
         )
         root, count = tree_projection(destination / name)
         skills[name] = {"content_root_sha256": root, "file_count": count}
