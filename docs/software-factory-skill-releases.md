@@ -29,9 +29,11 @@ The default release root is
 └── .release.lock
 
 ~/.codex/.software-factory-release-keys/
-├── <release-root-hash>.key
-├── <release-root-hash>.state.key
-└── <release-root-hash>.state.json
+└── <release-root-hash>.key
+
+~/.codex/software-factory-release-authority/operators/
+├── software-factory-release-operator-v1.pem
+└── software-factory-release-operator-v1.ledger.jsonl
 
 ~/.codex/skills/
 ├── author-implementation-trackers -> .../current/author-implementation-trackers
@@ -48,12 +50,10 @@ directory is rehashed before every activation and rollback. A separate
 HMAC-authenticated acceptance ledger is keyed outside the release root, so a
 rewritten manifest cannot authorize itself. The same key authenticates the
 semantic activation history used for rollback eligibility.
-The external state head binds both ledger counts/heads and the active-release
-identity. Its private freshness key rotates on every accepted state advance,
-so a formerly authentic state snapshot no longer verifies after the next
-stage/cutover. A valid HMAC prefix plus its old state file therefore cannot be
-substituted to erase a consumed quiescent record or make a former rollback
-state current.
+Quiescent permits are also hash-chained in a signed, read-only operator ledger
+under the separate authority root. A cutover accepts only the exact current
+ledger head. The activation caller does not own or rewrite that ledger, so a
+locally restored activation-history prefix cannot make an older permit current.
 Manifest and evidence JSON must use exact canonical bytes and remain within
 small pre-read limits; acceptance/history ledgers are likewise bounded,
 canonical JSONL. Whitespace padding, suffix data, oversized files, and
@@ -147,6 +147,8 @@ Quiescent-boundary shape (root and signature coverage follow the same rule):
   "kind": "software-factory-quiescent-boundary",
   "record_id": "cutover-boundary-1234",
   "operator_id": "software-factory-release-operator-v1",
+  "authority_sequence": 2,
+  "previous_authority_record_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
   "operation": "activate",
   "release_id": "0123456789ab-0123456789ab",
   "previous_active_release_id": "fedcba987654-fedcba987654",
@@ -237,14 +239,39 @@ PY
 The reviewer independently compares `review-request` output with the exact
 source commit before signing. The operator creates quiescent evidence only
 after observing the named current release and no concurrent skill resolution;
-its timestamp must still be current at cutover. Verify a final record by
+its timestamp must still be current at cutover. Before rooting it, set
+`authority_sequence` to the current operator-ledger length plus one and
+`previous_authority_record_sha256` to the prior head's
+`evidence_root_sha256` (or `null` for genesis). After signing, the operator—not
+the activation caller—appends the exact canonical final JSON as one line and
+reseals the ledger:
+
+```bash
+OPERATOR_LEDGER="$AUTHORITY_ROOT/operators/software-factory-release-operator-v1.ledger.jsonl"
+chmod 755 "$AUTHORITY_ROOT/operators"
+test ! -e "$OPERATOR_LEDGER" || chmod 644 "$OPERATOR_LEDGER"
+/usr/bin/python3 - "$FINAL_JSON" "$OPERATOR_LEDGER" <<'PY'
+import json, pathlib, sys
+source, ledger = map(pathlib.Path, sys.argv[1:])
+value = json.loads(source.read_bytes())
+line = json.dumps(
+    value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+).encode("utf-8") + b"\n"
+with ledger.open("ab") as destination:
+    destination.write(line)
+PY
+chmod 444 "$OPERATOR_LEDGER"
+chmod 555 "$AUTHORITY_ROOT/operators"
+```
+
+Verify a final record by
 removing only `signature_base64` and running `openssl pkeyutl -verify -pubin`
 against the pinned public key and base64-decoded signature; the release command
 performs the same check again.
 
-Recovery fails closed: never delete/re-root the external ledger key,
-forward-rotating freshness key, or state-head files and never regenerate a
-private key under an existing role ID. If a
+Recovery fails closed: never delete/re-root the external HMAC key, operator
+authority ledger, or authority public keys, and never regenerate a private key
+under an existing role ID. If a
 private key is lost, retain its public key for old-release verification, add a
 new versioned role ID/public key only in a newly reviewed release-helper source
 revision, and generate new evidence. If the pinned Python, YAML, validator, or

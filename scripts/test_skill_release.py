@@ -197,11 +197,24 @@ class SkillReleaseTests(unittest.TestCase):
     ) -> argparse.Namespace:
         self.evidence_counter += 1
         evidence_path = self.root / f"quiescent-{self.evidence_counter}.json"
+        operator_id = skill_release.TRUSTED_AUTHORITY_IDS["operators"][0]
+        ledger_path = (
+            self.authority_root / "operators" / f"{operator_id}.ledger.jsonl"
+        )
+        prior_records = (
+            [json.loads(line) for line in ledger_path.read_bytes().splitlines()]
+            if ledger_path.exists()
+            else []
+        )
         material = {
             "schema_version": skill_release.SCHEMA_VERSION,
             "kind": "software-factory-quiescent-boundary",
             "record_id": f"quiescent-boundary-{self.evidence_counter}-1234",
-            "operator_id": skill_release.TRUSTED_AUTHORITY_IDS["operators"][0],
+            "operator_id": operator_id,
+            "authority_sequence": len(prior_records) + 1,
+            "previous_authority_record_sha256": (
+                prior_records[-1]["evidence_root_sha256"] if prior_records else None
+            ),
             "operation": operation,
             "release_id": release_id,
             "previous_active_release_id": previous_release_id,
@@ -213,6 +226,14 @@ class SkillReleaseTests(unittest.TestCase):
         material["evidence_root_sha256"] = skill_release.digest(material)
         material["signature_base64"] = self.sign(material, self.operator_private)
         evidence_path.write_bytes(skill_release.canonical(material) + b"\n")
+        operator_root = ledger_path.parent
+        operator_root.chmod(0o755)
+        if ledger_path.exists():
+            ledger_path.chmod(0o644)
+        with ledger_path.open("ab") as destination:
+            destination.write(skill_release.canonical(material) + b"\n")
+        ledger_path.chmod(0o444)
+        operator_root.chmod(0o555)
         return argparse.Namespace(
             release_root=str(self.release_root),
             install_root=str(self.install_root),
@@ -467,8 +488,6 @@ class SkillReleaseTests(unittest.TestCase):
             (self.repo / name / "VERSION").write_text("candidate\n", encoding="utf-8")
         second_commit = self.commit("candidate for replay")
         second = self.stage(second_commit)
-        state_path = skill_release.release_state_path(self.release_root.resolve())
-        authentic_prior_state = state_path.read_bytes()
         first_to_second = self.activate_args(
             str(second["release_id"]),
             operation="activate",
@@ -481,13 +500,12 @@ class SkillReleaseTests(unittest.TestCase):
             previous_release_id=str(second["release_id"]),
         )
         skill_release.rollback_release(back_to_first)
-        with self.assertRaisesRegex(skill_release.ReleaseError, "already consumed"):
+        with self.assertRaisesRegex(skill_release.ReleaseError, "authority head"):
             skill_release.activate_release(first_to_second)
         history_path = self.release_root / skill_release.HISTORY_NAME
         first_record = history_path.read_bytes().splitlines(keepends=True)[0]
         history_path.write_bytes(first_record)
-        state_path.write_bytes(authentic_prior_state)
-        with self.assertRaisesRegex(skill_release.ReleaseError, "external release head"):
+        with self.assertRaisesRegex(skill_release.ReleaseError, "authority head"):
             skill_release.activate_release(first_to_second)
         self.assertEqual(
             skill_release.current_release_id(self.release_root.resolve()),

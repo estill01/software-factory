@@ -188,62 +188,10 @@ def release_key_path(release_root: Path) -> Path:
     return key_directory / key_name
 
 
-def release_state_path(release_root: Path) -> Path:
-    return release_key_path(release_root).with_suffix(".state.json")
-
-
-def release_state_key_path(release_root: Path) -> Path:
-    return release_key_path(release_root).with_suffix(".state.key")
-
-
-def atomic_secret(path: Path, payload: bytes) -> None:
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if path.parent.is_symlink():
-        raise ReleaseError("External release authority directory is symlinked")
-    path.parent.chmod(0o700)
-    temporary = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(6)}")
-    descriptor = os.open(
-        temporary,
-        os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
-        0o400,
-    )
-    try:
-        os.write(descriptor, payload)
-        os.fsync(descriptor)
-        os.fchmod(descriptor, 0o400)
-    finally:
-        os.close(descriptor)
-    os.replace(temporary, path)
-    fsync_directory(path.parent)
-
-
-def release_state_key(release_root: Path) -> bytes:
-    path = release_state_key_path(release_root)
-    if path.is_symlink() or not path.is_file():
-        raise ReleaseError("External release freshness key is missing or symlinked")
-    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
-    try:
-        metadata = os.fstat(descriptor)
-        key = os.read(descriptor, 33)
-    finally:
-        os.close(descriptor)
-    if (
-        not stat.S_ISREG(metadata.st_mode)
-        or metadata.st_size != 32
-        or len(key) != 32
-        or stat.S_IMODE(metadata.st_mode) & 0o077
-    ):
-        raise ReleaseError("External release freshness key is invalid")
-    return key
-
-
 def release_key(release_root: Path, *, allow_create: bool) -> bytes:
     path = release_key_path(release_root)
     protected_state_exists = any(
         (release_root / name).exists() for name in (ACCEPTANCE_NAME, HISTORY_NAME)
-    ) or any(
-        path.exists() or path.is_symlink()
-        for path in (release_state_path(release_root), release_state_key_path(release_root))
     )
     if not path.exists():
         if protected_state_exists or not allow_create:
@@ -283,66 +231,6 @@ def release_key(release_root: Path, *, allow_create: bool) -> bytes:
 
 def record_hmac(key: bytes, material: Mapping[str, Any]) -> str:
     return hmac.new(key, canonical(material), hashlib.sha256).hexdigest()
-
-
-def release_external_state(
-    release_root: Path,
-    key: bytes,
-    acceptances: Sequence[Mapping[str, Any]],
-    activations: Sequence[Mapping[str, Any]],
-) -> dict[str, Any]:
-    material: dict[str, Any] = {
-        "schema_version": SCHEMA_VERSION,
-        "kind": "software-factory-release-external-head",
-        "release_root_sha256": hashlib.sha256(
-            str(release_root).encode("utf-8")
-        ).hexdigest(),
-        "acceptance_count": len(acceptances),
-        "acceptance_head_hmac_sha256": (
-            acceptances[-1].get("record_hmac_sha256") if acceptances else None
-        ),
-        "activation_count": len(activations),
-        "activation_head_hmac_sha256": (
-            activations[-1].get("record_hmac_sha256") if activations else None
-        ),
-        "active_release_id": (
-            activations[-1].get("release_id") if activations else None
-        ),
-    }
-    material["state_hmac_sha256"] = record_hmac(key, material)
-    return material
-
-
-def validate_release_external_state(
-    release_root: Path,
-    acceptances: Sequence[Mapping[str, Any]],
-    activations: Sequence[Mapping[str, Any]],
-) -> None:
-    path = release_state_path(release_root)
-    if not acceptances and not activations and not (path.exists() or path.is_symlink()):
-        return
-    if path.is_symlink() or not path.is_file():
-        raise ReleaseError("Canonical external release head is missing or symlinked")
-    key = release_state_key(release_root)
-    value = load_bounded_json(path, label="External release head", maximum=16384)
-    expected = release_external_state(release_root, key, acceptances, activations)
-    if value != expected:
-        raise ReleaseError(
-            "Canonical external release head rejects truncation or replacement"
-        )
-
-
-def write_release_external_state(
-    release_root: Path,
-    acceptances: Sequence[Mapping[str, Any]],
-    activations: Sequence[Mapping[str, Any]],
-) -> None:
-    key = secrets.token_bytes(32)
-    atomic_json(
-        release_state_path(release_root),
-        release_external_state(release_root, key, acceptances, activations),
-    )
-    atomic_secret(release_state_key_path(release_root), key)
 
 
 def load_bounded_json(path: Path, *, label: str, maximum: int = 65536) -> dict[str, Any]:
@@ -527,6 +415,82 @@ def verify_trusted_signature(
         raise ReleaseError("Release authority signature verification failed")
 
 
+def operator_authority_ledger_path(operator_id: str) -> Path:
+    principal = authority_id(operator_id, label="quiescent-boundary operator")
+    if principal not in TRUSTED_AUTHORITY_IDS["operators"]:
+        raise ReleaseError("Release authority ID is not the pinned trusted role")
+    return AUTHORITY_ROOT / "operators" / f"{principal}.ledger.jsonl"
+
+
+def validate_operator_authority_ledger(evidence: Mapping[str, Any]) -> None:
+    operator_id = str(evidence.get("operator_id", ""))
+    path = operator_authority_ledger_path(operator_id)
+    if (
+        path.is_symlink()
+        or not path.is_file()
+        or path.stat().st_mode & 0o222
+        or path.stat().st_size > 1024 * 1024
+    ):
+        raise ReleaseError(
+            "Canonical operator authority ledger is missing, mutable, or oversized"
+        )
+    with path.open("rb") as source:
+        raw = source.read(1024 * 1024 + 1)
+    if len(raw) > 1024 * 1024:
+        raise ReleaseError("Canonical operator authority ledger is oversized")
+    records: list[dict[str, Any]] = []
+    previous: str | None = None
+    exact_keys = {
+        "schema_version",
+        "kind",
+        "record_id",
+        "operator_id",
+        "authority_sequence",
+        "previous_authority_record_sha256",
+        "operation",
+        "release_id",
+        "previous_active_release_id",
+        "observed_at",
+        "no_concurrent_skill_resolutions",
+        "evidence",
+        "authority_key_sha256",
+        "evidence_root_sha256",
+        "signature_base64",
+    }
+    for line in raw.splitlines():
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise ReleaseError("Canonical operator authority ledger is invalid JSON") from exc
+        if not isinstance(record, dict) or line != canonical(record):
+            raise ReleaseError("Canonical operator authority ledger is noncanonical")
+        root_material = {
+            item: member
+            for item, member in record.items()
+            if item not in {"evidence_root_sha256", "signature_base64"}
+        }
+        if (
+            set(record) != exact_keys
+            or record.get("schema_version") != SCHEMA_VERSION
+            or record.get("kind") != "software-factory-quiescent-boundary"
+            or record.get("operator_id") != operator_id
+            or record.get("authority_sequence") != len(records) + 1
+            or record.get("previous_authority_record_sha256") != previous
+            or record.get("evidence_root_sha256") != digest(root_material)
+        ):
+            raise ReleaseError("Canonical operator authority ledger chain is invalid")
+        previous = str(record["evidence_root_sha256"])
+        records.append(record)
+        if len(records) > 4096:
+            raise ReleaseError("Canonical operator authority ledger has too many records")
+    if not records or raw != b"".join(canonical(item) + b"\n" for item in records):
+        raise ReleaseError("Canonical operator authority ledger is empty or noncanonical")
+    if records[-1] != dict(evidence):
+        raise ReleaseError(
+            "Quiescent-boundary evidence is not the current external authority head"
+        )
+
+
 def append_jsonl(path: Path, record: Mapping[str, Any]) -> None:
     flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(path, flags, 0o600)
@@ -539,10 +503,7 @@ def append_jsonl(path: Path, record: Mapping[str, Any]) -> None:
 
 
 def append_history(release_root: Path, record: Mapping[str, Any]) -> None:
-    acceptances = acceptance_records(release_root)
-    records = history(release_root)
     append_jsonl(release_root / HISTORY_NAME, record)
-    write_release_external_state(release_root, acceptances, [*records, record])
 
 
 def jsonl_records(path: Path, *, label: str) -> list[dict[str, Any]]:
@@ -636,7 +597,6 @@ def append_acceptance(
     release_root: Path, manifest: Mapping[str, Any]
 ) -> dict[str, Any]:
     records = acceptance_records(release_root)
-    activations = history(release_root)
     existing = [
         item for item in records if item["release_id"] == manifest["release_id"]
     ]
@@ -674,7 +634,6 @@ def append_acceptance(
     }
     material["record_hmac_sha256"] = record_hmac(key, material)
     append_jsonl(release_root / ACCEPTANCE_NAME, material)
-    write_release_external_state(release_root, [*records, material], activations)
     return material
 
 
@@ -682,7 +641,6 @@ def history(release_root: Path) -> list[dict[str, Any]]:
     records = jsonl_records(release_root / HISTORY_NAME, label="Activation history")
     acceptances = acceptance_records(release_root)
     if not records:
-        validate_release_external_state(release_root, acceptances, [])
         return []
     key = release_key(release_root, allow_create=False)
     previous: str | None = None
@@ -742,7 +700,6 @@ def history(release_root: Path) -> list[dict[str, Any]]:
             seen_active.add(active)
         active = release_id
         previous = str(value["record_hmac_sha256"])
-    validate_release_external_state(release_root, acceptances, records)
     return records
 
 
@@ -1511,6 +1468,8 @@ def validate_quiescent_evidence(
         "kind",
         "record_id",
         "operator_id",
+        "authority_sequence",
+        "previous_authority_record_sha256",
         "operation",
         "release_id",
         "previous_active_release_id",
@@ -1544,6 +1503,15 @@ def validate_quiescent_evidence(
     operator_id = authority_id(
         str(value.get("operator_id", "")), label="quiescent-boundary operator"
     )
+    if not isinstance(value.get("authority_sequence"), int) or int(
+        value["authority_sequence"]
+    ) < 1:
+        raise ReleaseError("Quiescent-boundary authority sequence is invalid")
+    previous_authority = value.get("previous_authority_record_sha256")
+    if previous_authority is not None:
+        exact_sha256(
+            str(previous_authority), label="previous quiescent authority record"
+        )
     evidence = value.get("evidence")
     try:
         observed_at = dt.datetime.fromisoformat(str(value.get("observed_at", "")))
@@ -1567,6 +1535,7 @@ def validate_quiescent_evidence(
         signed_material=signed_material,
         signature_base64=str(value.get("signature_base64", "")),
     )
+    validate_operator_authority_ledger(value)
     for record in history(release_root):
         if (
             record["quiescent_boundary_record"] == value["record_id"]
