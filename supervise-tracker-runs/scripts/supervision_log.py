@@ -1290,6 +1290,27 @@ def append_raw_locked(path: Path, value: dict[str, Any]) -> None:
         os.close(descriptor)
 
 
+def append_raw_locked_at(
+    directory_fd: int,
+    name: str,
+    value: dict[str, Any],
+    *,
+    previous_record_sha256: str | None,
+) -> str:
+    material = dict(value)
+    material["previous_record_sha256"] = previous_record_sha256
+    record_sha256 = digest(material)
+    material["record_sha256"] = record_sha256
+    flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(name, flags, 0o600, dir_fd=directory_fd)
+    try:
+        os.write(descriptor, canonical(material) + b"\n")
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    return record_sha256
+
+
 def append_raw(path: Path, value: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with append_lock(path.parent):
@@ -2869,7 +2890,73 @@ def cmd_record(args: argparse.Namespace) -> None:
             review_record = dict(record)
             review_record["incident_id"] = review_id
 
-        append_raw_locked(directory / "events.jsonl", record)
+        if (
+            args.kind == "lifecycle"
+            and record["status"] == "completed"
+            and directory_snapshot is not None
+        ):
+            try:
+                (
+                    _write_directory,
+                    write_directory_fd,
+                    write_directory_snapshot,
+                ) = open_member_directory(root_from(args), args.target_thread)
+            except SupervisionLogError as exc:
+                raise SupervisionLogError(
+                    "Completed lifecycle rejected by governing-outcome control: "
+                    "retry-control-currentness"
+                ) from exc
+            try:
+                if write_directory_snapshot != directory_snapshot:
+                    raise SupervisionLogError(
+                        "Completed lifecycle rejected by governing-outcome control: "
+                        "retry-control-currentness"
+                    )
+                if path_snapshot_at(write_directory_fd, "events.jsonl") != event_snapshot:
+                    raise SupervisionLogError(
+                        "Completed lifecycle rejected by governing-outcome control: "
+                        "retry-control-currentness"
+                    )
+                prior_hash = (
+                    current_events[-1].get("record_sha256")
+                    if current_events
+                    else None
+                )
+                appended_hash = append_raw_locked_at(
+                    write_directory_fd,
+                    "events.jsonl",
+                    record,
+                    previous_record_sha256=(
+                        str(prior_hash) if prior_hash is not None else None
+                    ),
+                )
+            finally:
+                os.close(write_directory_fd)
+            try:
+                (
+                    _verified_directory,
+                    verified_directory_fd,
+                    verified_directory_snapshot,
+                ) = open_member_directory(root_from(args), args.target_thread)
+            except SupervisionLogError as exc:
+                raise SupervisionLogError(
+                    "Completed lifecycle append lost canonical currentness"
+                ) from exc
+            try:
+                if (
+                    verified_directory_snapshot != directory_snapshot
+                    or event_head_hash(
+                        Path("events.jsonl"), directory_fd=verified_directory_fd
+                    )
+                    != appended_hash
+                ):
+                    raise SupervisionLogError(
+                        "Completed lifecycle append lost canonical currentness"
+                    )
+            finally:
+                os.close(verified_directory_fd)
+        else:
+            append_raw_locked(directory / "events.jsonl", record)
         if incident_path is not None:
             append_markdown(incident_path, record, create=args.kind == "incident")
         if review_path is not None and review_record is not None:

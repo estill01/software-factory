@@ -1690,6 +1690,90 @@ class ControlPostureReducerTests(unittest.TestCase):
         ):
             args.func(args)
 
+    def test_completed_lifecycle_append_rejects_owner_directory_replacement(self) -> None:
+        directory, policy = self.create_target(self.owner, self.owner_mission)
+        self.append(
+            directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "check",
+                "category": supervision_log.OUTCOME_COMPLETION_CATEGORY,
+                "status": "verified",
+                "state_fingerprint": "state-1234",
+                "mission_root": self.owner_mission,
+                "model": "gpt-5.6-sol",
+                "reasoning": "xhigh",
+                "evidence": ["behavior-proof-1234"],
+                **{
+                    field: "d" * 64
+                    for field in supervision_log.OUTCOME_COMPLETION_HASH_FIELDS
+                },
+                "capability_reconciliation_reviewer_id": f"base-{self.owner}",
+                "capability_reconciliation_implementation_owner_id": self.owner,
+                "capability_reconciliation_revision": "e" * 40,
+                "capability_reconciliation_posture": "verified",
+                "capability_reconciliation_gap_count": 0,
+            },
+        )
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "record",
+                "--target-thread",
+                self.owner,
+                "--kind",
+                "lifecycle",
+                "--status",
+                "completed",
+                "--state-fingerprint",
+                "state-1234",
+                "--summary",
+                "Attempted completion during owner replacement.",
+            ]
+        )
+        external = tempfile.TemporaryDirectory()
+        self.addCleanup(external.cleanup)
+        external_directory = Path(external.name)
+        supervision_log.atomic_json(external_directory / "policy.json", policy)
+        original_reduce = supervision_log.reduce_control_posture
+        replaced = False
+
+        def reduce_then_replace(**values: object):
+            nonlocal replaced
+            result = original_reduce(**values)
+            preserved = self.root / f"{self.owner}-preserved-after-reduce"
+            directory.rename(preserved)
+            directory.symlink_to(external_directory, target_is_directory=True)
+            replaced = True
+            return result
+
+        with (
+            mock.patch.object(
+                supervision_log,
+                "reduce_control_posture",
+                side_effect=reduce_then_replace,
+            ),
+            self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "governing-outcome control: retry-control-currentness",
+            ),
+        ):
+            args.func(args)
+
+        self.assertTrue(replaced)
+        self.assertEqual(
+            supervision_log.events(external_directory / "events.jsonl"), []
+        )
+        preserved_events = supervision_log.events(
+            self.root
+            / f"{self.owner}-preserved-after-reduce"
+            / "events.jsonl"
+        )
+        self.assertFalse(
+            any(item.get("status") == "completed" for item in preserved_events)
+        )
+
     def test_completion_requires_current_observable_outcome_binding(self) -> None:
         directory, policy = self.create_target(self.owner, self.owner_mission)
         completion = {
