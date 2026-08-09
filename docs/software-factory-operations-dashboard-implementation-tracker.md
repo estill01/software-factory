@@ -1256,10 +1256,14 @@ per refresh and widen parsing only for a reproduced supported tracker form.
 - Post-block audit: `accepted`; all Block 3 acceptance and negative conditions
   were demonstrated on the exact reviewed revision, including selective cache
   invalidation and preserved invalid/dirty/stale/partial distinctions.
-- Git durability: exact acceptance-evidence checkpoint and tracker blob are
-  recorded by the immediate evidence-finalization successor before Block 4
-  implementation begins; the accepted candidate was already non-force pushed
-  with local and remote at `0 0` divergence.
+- Git durability: a non-force push advanced `origin/codex/evolution-mvp`
+  through acceptance-evidence checkpoint
+  `3516af68e34584a1b87bf41c48c209e6b92d3710`, tree
+  `2f74b5389f22c8e9dc8c734b3a49b4a9792c461c`, whose tracker blob is
+  `4a29c457ec45e03c090a7440644cdc61182c2ef0`; local and remote matched at
+  `0 0` divergence. This evidence-finalization successor records that durable
+  checkpoint and is included in the immediate non-force push before Block 4
+  implementation changes begin.
 
 ### Stop
 
@@ -1447,8 +1451,10 @@ or explicit manual refresh.
   `796de4ff6835f6bc9cd2ae4fef74bf077439c3f0` under direct-user item 44 and
   mission root
   `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
-  The exact Block 3 acceptance checkpoint is recorded by the immediate
-  evidence-finalization successor before implementation changes begin. No new
+  Exact Block 3 acceptance-evidence checkpoint
+  `3516af68e34584a1b87bf41c48c209e6b92d3710` and tracker blob
+  `4a29c457ec45e03c090a7440644cdc61182c2ef0` were non-force pushed with local
+  and remote at `0 0` divergence before implementation changes began. No new
   mission, successor task, routed authority, or manual resume was used.
 - Candidate implementation, validation, exact review, and acceptance evidence:
   pending.
