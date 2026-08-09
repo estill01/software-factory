@@ -471,9 +471,11 @@ def validate_operator_authority_ledger(evidence: Mapping[str, Any]) -> None:
         }
         if (
             set(record) != exact_keys
+            or type(record.get("schema_version")) is not int
             or record.get("schema_version") != SCHEMA_VERSION
             or record.get("kind") != "software-factory-quiescent-boundary"
             or record.get("operator_id") != operator_id
+            or type(record.get("authority_sequence")) is not int
             or record.get("authority_sequence") != len(records) + 1
             or record.get("previous_authority_record_sha256") != previous
             or record.get("evidence_root_sha256") != digest(root_material)
@@ -562,6 +564,7 @@ def acceptance_records(release_root: Path) -> list[dict[str, Any]]:
         }
         if (
             set(value) != exact_keys
+            or type(value.get("schema_version")) is not int
             or value.get("schema_version") != SCHEMA_VERSION
             or value.get("kind") != "software-factory-release-acceptance"
             or value.get("record_id") != f"RELEASE-ACCEPTANCE-{index}"
@@ -668,6 +671,7 @@ def history(release_root: Path) -> list[dict[str, Any]]:
         release_id = str(value.get("release_id", ""))
         if (
             set(value) != exact_keys
+            or type(value.get("schema_version")) is not int
             or value.get("schema_version") != SCHEMA_VERSION
             or value.get("kind") != "software-factory-release-activation"
             or value.get("record_id") != f"ACTIVATION-{index}"
@@ -915,6 +919,7 @@ def validate_review_object(
     )
     if (
         set(value) != exact_keys
+        or type(value.get("schema_version")) is not int
         or value.get("schema_version") != SCHEMA_VERSION
         or value.get("kind") != "software-factory-skill-release-review"
         or value.get("disposition") != "accepted"
@@ -1036,6 +1041,7 @@ def read_manifest(
     material = {key: value for key, value in manifest.items() if key != "manifest_sha256"}
     if (
         set(manifest) != exact_keys
+        or type(manifest.get("schema_version")) is not int
         or manifest.get("schema_version") != SCHEMA_VERSION
         or manifest.get("kind") != "software-factory-skill-release"
         or manifest.get("release_id") != release_id
@@ -1490,6 +1496,7 @@ def validate_quiescent_evidence(
     }
     if (
         set(value) != exact_keys
+        or type(value.get("schema_version")) is not int
         or value.get("schema_version") != SCHEMA_VERSION
         or value.get("kind") != "software-factory-quiescent-boundary"
         or value.get("operation") != operation
@@ -1503,9 +1510,9 @@ def validate_quiescent_evidence(
     operator_id = authority_id(
         str(value.get("operator_id", "")), label="quiescent-boundary operator"
     )
-    if not isinstance(value.get("authority_sequence"), int) or int(
-        value["authority_sequence"]
-    ) < 1:
+    if type(value.get("authority_sequence")) is not int or value[
+        "authority_sequence"
+    ] < 1:
         raise ReleaseError("Quiescent-boundary authority sequence is invalid")
     previous_authority = value.get("previous_authority_record_sha256")
     if previous_authority is not None:

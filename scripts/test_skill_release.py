@@ -242,6 +242,25 @@ class SkillReleaseTests(unittest.TestCase):
             legacy_source_root=str(self.repo),
         )
 
+    def resign_authority_record(
+        self,
+        record: dict[str, object],
+        *,
+        root_field: str,
+        private_key: Path,
+    ) -> dict[str, object]:
+        root_material = {
+            key: value
+            for key, value in record.items()
+            if key not in {root_field, "signature_base64"}
+        }
+        record[root_field] = skill_release.digest(root_material)
+        signed_material = {
+            key: value for key, value in record.items() if key != "signature_base64"
+        }
+        record["signature_base64"] = self.sign(signed_material, private_key)
+        return record
+
     def stage(self, commit: str) -> dict[str, object]:
         return skill_release.stage_release(self.stage_args(commit))
 
@@ -522,6 +541,73 @@ class SkillReleaseTests(unittest.TestCase):
             skill_release.stage_release(
                 self.stage_args(commit, review_evidence=review_path)
             )
+
+    def test_numeric_schema_fields_require_exact_integers(self) -> None:
+        commit = self.git("rev-parse", "HEAD")
+        review_path = self.review_evidence(commit)
+        original_review = json.loads(review_path.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as raw:
+            candidate = skill_release.build_candidate(
+                self.repo, commit, Path(raw)
+            )
+        for invalid in (True, 1.0, "1"):
+            with self.subTest(record="review", value=invalid):
+                review = dict(original_review)
+                review["schema_version"] = invalid
+                self.resign_authority_record(
+                    review,
+                    root_field="review_root_sha256",
+                    private_key=self.reviewer_private,
+                )
+                with self.assertRaisesRegex(skill_release.ReleaseError, "review"):
+                    skill_release.validate_review_object(
+                        review,
+                        implementer_id="implementation-owner-1234",
+                        candidate=candidate,
+                    )
+
+        quiescent_args = self.activate_args("release-id-1234")
+        quiescent_path = Path(quiescent_args.quiescent_evidence)
+        original_quiescent = json.loads(
+            quiescent_path.read_text(encoding="utf-8")
+        )
+        operator_id = skill_release.TRUSTED_AUTHORITY_IDS["operators"][0]
+        ledger_path = (
+            self.authority_root / "operators" / f"{operator_id}.ledger.jsonl"
+        )
+        for field in ("schema_version", "authority_sequence"):
+            for invalid in (True, 1.0, "1"):
+                with self.subTest(record="quiescent", field=field, value=invalid):
+                    quiescent = dict(original_quiescent)
+                    quiescent[field] = invalid
+                    self.resign_authority_record(
+                        quiescent,
+                        root_field="evidence_root_sha256",
+                        private_key=self.operator_private,
+                    )
+                    quiescent_path.write_bytes(
+                        skill_release.canonical(quiescent) + b"\n"
+                    )
+                    ledger_path.chmod(0o644)
+                    ledger_path.write_bytes(
+                        skill_release.canonical(quiescent) + b"\n"
+                    )
+                    ledger_path.chmod(0o444)
+                    with self.assertRaisesRegex(
+                        skill_release.ReleaseError,
+                        "schema|sequence|stale|chain",
+                    ):
+                        skill_release.validate_quiescent_evidence(
+                            quiescent_path,
+                            release_root=self.release_root,
+                            operation="bootstrap",
+                            release_id="release-id-1234",
+                            previous_release_id=None,
+                        )
+                    with self.assertRaisesRegex(
+                        skill_release.ReleaseError, "ledger chain"
+                    ):
+                        skill_release.validate_operator_authority_ledger(quiescent)
 
     def test_path_substitution_cannot_replace_signature_or_validator_tools(self) -> None:
         commit = self.git("rev-parse", "HEAD")
