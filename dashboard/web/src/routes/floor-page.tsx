@@ -48,6 +48,18 @@ export function Component() {
           label: "Ready",
           ready: true,
         }
+  const taskReadiness = runtimeHealth.isPending
+    ? { detail: "Checking the local adapter", label: "Checking", ready: false }
+    : runtimeHealth.isError
+      ? { detail: "Integration health is unknown", label: "Unavailable", ready: false }
+      : runtimeHealth.data.data.integrations.codex_app_server.status === "available"
+        ? { detail: "Version and schema matched", label: "Ready", ready: true }
+        : {
+            detail:
+              runtimeHealth.data.data.integrations.codex_app_server.reason ?? "Adapter unavailable",
+            label: "Unavailable",
+            ready: false,
+          }
   const summaryCards = [
     {
       label: "Registered projects",
@@ -59,7 +71,7 @@ export function Component() {
           : "Visible catalog records",
       tone: projects.isSuccess ? "green" : "neutral",
     },
-    { label: "Active implementations", value: "—", detail: "Task source unavailable", tone: "neutral" },
+    { label: "Active implementations", value: "—", detail: "Not computed in this view", tone: "neutral" },
     { label: "Supervisor groups", value: "—", detail: "Bindings unavailable", tone: "neutral" },
     { label: "Action required", value: "—", detail: "Cannot be determined", tone: "neutral" },
   ] as const
@@ -134,9 +146,13 @@ export function Component() {
               </span>
             </li>
             <li>
-              <span className="readiness-icon"><Factory aria-hidden="true" /></span>
-              <div><strong>Codex tasks</strong><span>Available after Block 5</span></div>
-              <span className="readiness-state">Unavailable</span>
+              <span className={`readiness-icon ${taskReadiness.ready ? "readiness-ready" : ""}`}>
+                <Factory aria-hidden="true" />
+              </span>
+              <div><strong>Codex tasks</strong><span>{taskReadiness.detail}</span></div>
+              <span className={`readiness-state ${taskReadiness.ready ? "state-ready" : ""}`}>
+                {taskReadiness.label}
+              </span>
             </li>
           </ul>
         </aside>

@@ -54,7 +54,7 @@ function CatalogStatus({
   const archived = catalog.data.projects.filter((project) => project.archived).length
   return (
     <div className="catalog-summary">
-      <div className="catalog-status" aria-label="Catalog status">
+      <div className="catalog-status" role="group" aria-label="Catalog status">
         <div><span>Registered</span><strong>{catalog.data.projects.length}</strong></div>
         <div><span>Visible</span><strong>{catalog.data.projects.length - archived}</strong></div>
         <div><span>Archived</span><strong>{archived}</strong></div>

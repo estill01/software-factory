@@ -706,13 +706,13 @@ def discover_project(project: ProjectRecord) -> dict[str, Any]:
                 "git": {"status": "available", "revision": revision, "branch": branch},
                 "trackers": {"status": "available", "candidates": trackers},
                 "source_families": {
-                    "supervision": {"status": "unavailable", "reason": "Available after Block 4."},
-                    "codex_tasks": {"status": "unavailable", "reason": "Available after Block 5."},
+                    "supervision": {"status": "unavailable", "reason": "Use the source-owning run API."},
+                    "codex_tasks": {"status": "unavailable", "reason": "Use the source-owning task API."},
                 },
                 "coverage": "partial",
                 "limitations": [
                     "Project discovery returns tracker paths only; read-only content projection is available from /api/v1/trackers.",
-                    "Supervision and Codex task sources are not connected yet.",
+                    "Catalog discovery does not copy supervision or Codex task state.",
                 ],
                 "errors": [],
             },
@@ -727,8 +727,8 @@ def discover_project(project: ProjectRecord) -> dict[str, Any]:
                 "git": {"status": "unavailable", "revision": None, "branch": None},
                 "trackers": {"status": "unavailable", "candidates": []},
                 "source_families": {
-                    "supervision": {"status": "unavailable", "reason": "Available after Block 4."},
-                    "codex_tasks": {"status": "unavailable", "reason": "Available after Block 5."},
+                    "supervision": {"status": "unavailable", "reason": "Use the source-owning run API."},
+                    "codex_tasks": {"status": "unavailable", "reason": "Use the source-owning task API."},
                 },
                 "coverage": "unavailable",
                 "limitations": ["This project could not be refreshed; other projects remain independent."],

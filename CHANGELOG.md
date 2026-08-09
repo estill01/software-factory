@@ -86,6 +86,22 @@ the completed program materially changes Software Factory.
   slice is read-only and neither inspects automation prompts nor mutates runs,
   lifecycle, supervision, or reports. Implementation scope is Block 4 of the
   operations-dashboard tracker.
+- **Version-gated Codex task adapter.** Added one long-lived stdio App Server
+  child behind the loopback Python service. Startup requires exact
+  `codex-cli 0.145.0` and reproduces the frozen 273-file non-experimental schema
+  root before enabling typed task list/read/start/resume, turn start/steer/
+  interrupt, approval/input response, and ephemeral same-origin event-stream
+  capabilities. Task cwd binds only to canonical registered projects; stale
+  request fingerprints, unknown methods, schema drift, malformed or duplicate
+  responses, mismatched IDs, timeouts, and child failure disable mutations
+  without suppressing file-backed monitoring. Validated protocol errors retain
+  explicit not-found, provider-error, terminal, and bounded reconnect truth.
+  Admin exposes compact integration health and an adapter-only restart. Task/
+  turn mutations remain internal typed capabilities until owner-mediated
+  workflows register them; generic prompts, raw protocol, general tool/model
+  settings, remote transport, task forking, and permission-profile mutation
+  remain unavailable.
+  Implementation scope is Block 5 of the operations-dashboard tracker.
 - **Successor-transition continuity and structured failure-mode records.** A
   requested implementation that must cross into a distinct task now remains an
   open append-only transition through `required`, task creation, isolated

@@ -26,8 +26,8 @@ function project(id: string, status: "available" | "unavailable", archived = fal
         candidates: available ? [`docs/${id}-implementation-tracker.md`] : [],
       },
       source_families: {
-        supervision: { status: "unavailable", reason: "Available after Block 4." },
-        codex_tasks: { status: "unavailable", reason: "Available after Block 5." },
+        supervision: { status: "unavailable", reason: "Use the source-owning run API." },
+        codex_tasks: { status: "unavailable", reason: "Use the source-owning task API." },
       },
       coverage: available ? "partial" : "unavailable",
       limitations: ["Tracker paths only."],
@@ -129,9 +129,20 @@ test("catalog views preserve bounded discovery, failures, and archive consequenc
 
   await page.goto("/admin")
   await expect(page.getByRole("heading", { name: "Admin", level: 1 })).toBeVisible()
+  await expect(page.locator("h1")).toHaveCount(1)
+  const integrationPanel = page.locator("section.integration-panel")
+  await expect(integrationPanel.getByText("Connected", { exact: true })).toBeVisible()
+  await expect(integrationPanel.getByText("codex-cli 0.145.0")).toBeVisible()
+  await expect(
+    integrationPanel.getByRole("listitem").filter({ hasText: "Raw Protocol" }),
+  ).toContainText("Unavailable")
+  await expect(integrationPanel.getByRole("alert")).toHaveCount(0)
+  await expect(page.getByText(/dashboard (lets|allows|helps) you/i)).toHaveCount(0)
   await expect(page.getByRole("heading", { name: "Register a repository" })).toBeVisible()
   await expect(page.getByText("Registered project root is missing.")).toBeVisible()
-  await expect(page.getByText("3", { exact: true })).toBeVisible()
+  await expect(
+    page.getByRole("group", { name: "Catalog status" }).getByText("3", { exact: true }),
+  ).toBeVisible()
   await page.getByRole("button", { name: "Archive from dashboard" }).first().click()
   const confirmation = page.getByRole("group", { name: "Archive Alpha" })
   await expect(confirmation).toContainText(
@@ -143,6 +154,11 @@ test("catalog views preserve bounded discovery, failures, and archive consequenc
   expect(
     adminAxe.violations.filter(({ impact }) => impact === "serious" || impact === "critical"),
   ).toEqual([])
+  const adminDimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(adminDimensions.scrollWidth).toBeLessThanOrEqual(adminDimensions.clientWidth + 1)
 
   await page.goto("/projects")
   await expect(page.getByRole("heading", { name: "Projects", level: 1 })).toBeVisible()

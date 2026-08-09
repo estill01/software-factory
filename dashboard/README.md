@@ -3,9 +3,9 @@
 The dashboard is a local, single-operator control room. It currently provides
 the loopback runtime, typed transport, accessible application shell, a bounded
 multi-project catalog, and read-only APIs for implementation trackers, Git
-currentness, supervision, reports, and owner-produced metrics. Codex task
-control and the operator-facing workspaces remain unavailable until their
-owning tracker Blocks are accepted.
+currentness, supervision, reports, owner-produced metrics, and a version-gated
+Codex task adapter. The composed Factory Floor and task workspaces remain in
+their later tracker Blocks.
 
 ## Prerequisites
 
@@ -151,6 +151,58 @@ otherwise mutate supervised work. It also does not generate reports. Each
 target and report fails locally so one damaged source cannot erase healthy
 operations data.
 
+## Inspect and control Codex tasks
+
+At process start the server resolves the configured `codex` executable,
+requires exact `codex-cli 0.145.0`, generates the non-experimental App Server
+JSON schemas into a temporary directory, and verifies all 273 files against the
+frozen semantic manifest root
+`757aa191b6d452c6e6d05f6c1f1cb093b9f673da2d185a29ee8d5d96feae67a8`.
+Only then does it start one long-lived stdio child and perform the required
+initialize/initialized handshake. A version, schema, handshake, transport, or
+message failure disables every task mutation without affecting file-backed
+project, tracker, supervision, report, or metric reads.
+
+Selected request parameters, success results, notifications, callbacks, and
+JSON-RPC errors are all validated against that generated bundle. Response IDs
+must match exactly. Timeout, disconnect, malformed/oversized message, duplicate
+response, and compatibility failures terminate the child, expose a capped
+reconnect delay, and never synthesize task state.
+
+The narrowed read surface is:
+
+```text
+GET /api/v1/task-integration
+GET /api/v1/tasks?limit=50&cursor=<opaque>
+GET /api/v1/tasks/{task-id}?include_turns=true
+GET /api/v1/task-events
+```
+
+Task list/detail responses include exact IDs, cwd, registered-project binding,
+status, timestamps, turns/items, truncation, pending approval/input requests,
+source revision, coverage, and limitations. The event route is a bounded,
+ephemeral same-origin Server-Sent Event stream authenticated with the
+per-launch nonce; it is an invalidation channel, not a durable event ledger.
+Browsers authenticate the GET with exact loopback Host, launch nonce, and
+same-origin fetch metadata when Chromium omits `Origin`; nonce-only and
+cross-site requests are rejected. Replay is sequence-based and limited to the
+current in-memory window.
+
+The adapter implements typed task start/resume, turn start/steer/interrupt, and
+current approval/input response capabilities for later registered owner
+workflows. Block 5 does not expose those as generic HTTP or UI controls; their
+operation previews, currentness gates, and bounded prompt builders belong to
+the operation-framework Blocks. The only mutation exposed here is the exact
+same-origin, nonce-gated adapter-child restart. Admin shows the resolved CLI
+version, protocol/schema posture, capability matrix, last error, pending request
+count, and restart action. Raw protocol methods, arbitrary prompts or payloads,
+model settings, general tools, remote transports, task forking, and permission-
+profile grants are not exposed.
+
+The compatibility artifact and deterministic regeneration metadata are in
+`server/src/software_factory_dashboard/app_server_compatibility.json`. Override
+only the executable path, not protocol arguments, with `--codex-binary`.
+
 ## Browser tests
 
 With the production service running on port 8787:
@@ -160,7 +212,7 @@ SOFTWARE_FACTORY_DASHBOARD_URL=http://127.0.0.1:8787 \
   npm --prefix dashboard/web run test:e2e
 ```
 
-The server never performs broad filesystem discovery and never exposes
-arbitrary commands, authentication, remote binding, filesystem deletion, or
-background work. Read readiness does not imply that task or lifecycle mutation
-owners are connected.
+The server never performs broad filesystem discovery and never exposes a raw
+command/protocol console, remote binding, filesystem deletion, or a second task
+store. Read readiness does not imply tracker acceptance, supervision lifecycle,
+or implementation completion.

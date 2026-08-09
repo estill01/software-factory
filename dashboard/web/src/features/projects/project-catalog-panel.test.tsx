@@ -41,8 +41,8 @@ function projection(archived = false): ProjectProjection {
       git: { status: "available", revision: "c".repeat(40), branch: "main" },
       trackers: { status: "available", candidates: [] },
       source_families: {
-        supervision: { status: "unavailable", reason: "Available after Block 4." },
-        codex_tasks: { status: "unavailable", reason: "Available after Block 5." },
+        supervision: { status: "unavailable", reason: "Use the source-owning run API." },
+        codex_tasks: { status: "unavailable", reason: "Use the source-owning task API." },
       },
       coverage: "partial",
       limitations: ["Tracker paths only."],

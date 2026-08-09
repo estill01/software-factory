@@ -799,7 +799,7 @@ class OperationsProjectionService:
             "project_id": None,
             "evidence": [],
             "limitations": [
-                "No canonical policy or supervision record currently binds this target to a registered project; task cwd association begins in Block 5."
+                "No canonical policy or active supervision record currently binds this target; task cwd remains independently available from /api/v1/tasks."
             ],
         }
 
@@ -979,7 +979,7 @@ class OperationsProjectionService:
                     "binding_status": binding,
                     "task_state": {
                         "status": "unavailable",
-                        "reason": "Live Codex task state begins in Block 5.",
+                        "reason": "Live task state is not joined into this source-specific projection; use /api/v1/tasks.",
                     },
                     "automation": automation,
                     "last_activity": None,
@@ -1103,7 +1103,7 @@ class OperationsProjectionService:
                     "codex-task-state-unavailable",
                     "amber",
                     None,
-                    "Codex task/turn state remains unavailable until Block 5; task terminality or activity is not inferred.",
+                    "Codex task/turn state is not joined into this source-specific projection; task terminality or activity is not inferred.",
                 )
         red = any(fact["severity"] == "red" for fact in facts)
         amber = any(fact["severity"] == "amber" for fact in facts)
@@ -1679,7 +1679,7 @@ class OperationsProjectionService:
             "implementation": {
                 "thread_id": evidence.target_thread_id,
                 "status": "unavailable",
-                "reason": "Codex App Server task state begins in Block 5.",
+                "reason": "Use the version-gated task API; composed topology begins in the Factory Floor.",
             },
             "project_binding": project_binding,
             "tracker_binding": {
@@ -1931,7 +1931,7 @@ class OperationsProjectionService:
                 "project_label": project.label,
                 "root": project.root,
                 "status": "unmonitored",
-                "reason": "No canonical supervision source currently binds this registered project; task-level implementation discovery begins in Block 5.",
+                "reason": "No canonical supervision source currently binds this registered project; use the task API for independent cwd-bound work.",
             }
             for project in projects
             if project.id not in bound_project_ids
@@ -2023,7 +2023,7 @@ class OperationsProjectionService:
         missing = ["codex-app-server-task-state", "automation-wake-receipts", "billing-telemetry"]
         limitations = [
             "Every target and source family is isolated; unavailable input is never converted to zero, inactive, healthy, or complete.",
-            "Task state and canonical cwd enter through the version-gated App Server adapter in Block 5.",
+            "Task state and canonical cwd remain in the version-gated task API until the composed Factory Floor.",
         ]
         if automation_inventory_available:
             observed.append("automations")

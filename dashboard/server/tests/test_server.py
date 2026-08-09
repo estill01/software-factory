@@ -16,6 +16,7 @@ from urllib.request import Request, urlopen
 import unittest
 
 from test_tracker import FULL_TRACKER
+from dashboard.server.tests.fake_app_server import write_contract
 
 from software_factory_dashboard.server import (
     DashboardConfigurationError,
@@ -24,6 +25,10 @@ from software_factory_dashboard.server import (
     create_server,
 )
 from software_factory_dashboard.operations import DEFAULT_SUPERVISION_OWNER
+from software_factory_dashboard.app_server import COMPATIBILITY_PATH
+
+
+FAKE_APP_SERVER = Path(__file__).with_name("fake_app_server.py")
 
 
 @contextmanager
@@ -33,6 +38,8 @@ def running_server(
     catalog_path: Path | None = None,
     supervision_root: Path | None = None,
     automations_root: Path | None = None,
+    codex_command: tuple[str, ...] = (),
+    codex_compatibility_path: Path | None = None,
 ) -> Iterator[str]:
     server = create_server(
         ServerConfig(
@@ -42,6 +49,12 @@ def running_server(
             catalog_path=catalog_path or static_dir / ".catalog" / "projects.json",
             supervision_root=supervision_root or static_dir / ".supervision",
             automations_root=automations_root or static_dir / ".automations",
+            codex_command=codex_command,
+            codex_compatibility_path=(
+                codex_compatibility_path
+                if codex_compatibility_path is not None
+                else COMPATIBILITY_PATH
+            ),
             quiet=True,
         ),
         nonce="test-launch-nonce",
@@ -146,6 +159,184 @@ class DashboardServerTests(unittest.TestCase):
         self.assertEqual(payload["coverage"]["status"], "partial")
         self.assertRegex(payload["fingerprint"], r"^[0-9a-f]{64}$")
         self.assertNotIn(self.temporary.name, json.dumps(payload))
+
+    def test_task_api_uses_exact_fake_protocol_and_registered_cwd(self) -> None:
+        root = self.make_repo("task-api")
+        compatibility = self.static_dir / "fake-app-server-compatibility.json"
+        write_contract(compatibility)
+        command = (
+            sys.executable,
+            str(FAKE_APP_SERVER),
+            "--cwd",
+            str(root),
+        )
+        with running_server(
+            self.static_dir,
+            codex_command=command,
+            codex_compatibility_path=compatibility,
+        ) as origin:
+            initial_catalog = json.loads(
+                response(f"{origin}/api/v1/projects?include_archived=true").body
+            )
+            created = self.catalog_request(
+                origin,
+                "/api/v1/projects",
+                {
+                    "source_fingerprint": initial_catalog["data"]["catalog_fingerprint"],
+                    "project": {
+                        "id": "task-api",
+                        "label": "Task API",
+                        "root": str(root),
+                        "tracker_patterns": [],
+                        "description": None,
+                    },
+                },
+            )
+            health = json.loads(response(f"{origin}/api/v1/health").body)
+            integration = json.loads(response(f"{origin}/api/v1/task-integration").body)
+            tasks = json.loads(response(f"{origin}/api/v1/tasks?limit=10").body)
+            detail = json.loads(
+                response(f"{origin}/api/v1/tasks/task-fake-001?include_turns=true").body
+            )
+            unavailable_start = self.catalog_request(
+                origin,
+                "/api/v1/tasks",
+                {"project_id": "task-api", "ephemeral": False},
+            )
+            restarted = self.catalog_request(
+                origin,
+                "/api/v1/task-integration/restart",
+                {"confirmation": "restart-codex-adapter"},
+            )
+
+        self.assertEqual(created.status, 201)
+        self.assertEqual(health["data"]["integrations"]["codex_app_server"]["status"], "available")
+        self.assertIn("codex-app-server", health["coverage"]["observed"])
+        self.assertEqual(integration["data"]["integration"]["protocol_status"], "compatible")
+        self.assertEqual(tasks["data"]["tasks"][0]["project_binding"]["project_id"], "task-api")
+        self.assertEqual(detail["data"]["task"]["id"], "task-fake-001")
+        self.assertEqual(unavailable_start.status, 404)
+        self.assertEqual(
+            json.loads(unavailable_start.body)["error"]["code"],
+            "mutation_unavailable",
+        )
+        self.assertEqual(
+            json.loads(restarted.body)["data"]["integration"]["restart_count"],
+            1,
+        )
+
+    def test_task_events_and_mutations_require_same_origin_launch_nonce(self) -> None:
+        with running_server(self.static_dir) as origin:
+            event_without_origin = response(f"{origin}/api/v1/task-events")
+            event_with_nonce_only = response(
+                Request(
+                    f"{origin}/api/v1/task-events",
+                    headers={"X-Software-Factory-Nonce": "test-launch-nonce"},
+                )
+            )
+            cross_site_event = response(
+                Request(
+                    f"{origin}/api/v1/task-events",
+                    headers={
+                        "Sec-Fetch-Dest": "empty",
+                        "Sec-Fetch-Mode": "cors",
+                        "Sec-Fetch-Site": "cross-site",
+                        "X-Software-Factory-Nonce": "test-launch-nonce",
+                    },
+                )
+            )
+            event_stream = urlopen(
+                Request(
+                    f"{origin}/api/v1/task-events",
+                    headers={
+                        "Sec-Fetch-Dest": "empty",
+                        "Sec-Fetch-Mode": "cors",
+                        "Sec-Fetch-Site": "same-origin",
+                        "X-Software-Factory-Nonce": "test-launch-nonce",
+                    },
+                ),
+                timeout=3,
+            )
+            try:
+                event_stream_status = event_stream.status
+                event_stream_type = event_stream.headers["Content-Type"]
+                ready_record = event_stream.readline() + event_stream.readline()
+            finally:
+                event_stream.close()
+            restart_without_nonce = response(
+                Request(
+                    f"{origin}/api/v1/task-integration/restart",
+                    data=b'{"confirmation":"restart-codex-adapter"}',
+                    method="POST",
+                    headers={"Content-Type": "application/json", "Origin": origin},
+                )
+            )
+
+        self.assertEqual(event_without_origin.status, 403)
+        self.assertEqual(json.loads(event_without_origin.body)["error"]["code"], "origin_rejected")
+        self.assertEqual(event_with_nonce_only.status, 403)
+        self.assertEqual(cross_site_event.status, 403)
+        self.assertEqual(event_stream_status, 200)
+        self.assertEqual(event_stream_type, "text/event-stream; charset=utf-8")
+        self.assertIn(b"event: ready", ready_record)
+        self.assertEqual(restart_without_nonce.status, 403)
+        self.assertEqual(json.loads(restart_without_nonce.body)["error"]["code"], "nonce_rejected")
+
+    def test_task_request_is_visible_without_premature_response_control(self) -> None:
+        root = self.make_repo("approval-api")
+        compatibility = self.static_dir / "fake-approval-compatibility.json"
+        write_contract(compatibility)
+        command = (
+            sys.executable,
+            str(FAKE_APP_SERVER),
+            "--mode",
+            "approval",
+            "--cwd",
+            str(root),
+        )
+        with running_server(
+            self.static_dir,
+            codex_command=command,
+            codex_compatibility_path=compatibility,
+        ) as origin:
+            tasks = json.loads(response(f"{origin}/api/v1/tasks").body)
+            request_record = tasks["data"]["pending_requests"][0]
+            payload = {
+                "source_fingerprint": request_record["source_fingerprint"],
+                "response": {"decision": "decline"},
+            }
+            unavailable_response = self.catalog_request(
+                origin,
+                f"/api/v1/task-requests/{request_record['id']}/response",
+                payload,
+            )
+
+        self.assertEqual(unavailable_response.status, 404)
+        self.assertEqual(
+            json.loads(unavailable_response.body)["error"]["code"],
+            "mutation_unavailable",
+        )
+
+    def test_app_server_failure_does_not_suppress_file_backed_health(self) -> None:
+        compatibility = self.static_dir / "fake-malformed-compatibility.json"
+        write_contract(compatibility)
+        command = (
+            sys.executable,
+            str(FAKE_APP_SERVER),
+            "--mode",
+            "malformed",
+        )
+        with running_server(
+            self.static_dir,
+            codex_command=command,
+            codex_compatibility_path=compatibility,
+        ) as origin:
+            health = json.loads(response(f"{origin}/api/v1/health").body)
+            projects = response(f"{origin}/api/v1/projects")
+
+        self.assertEqual(health["data"]["integrations"]["codex_app_server"]["status"], "unavailable")
+        self.assertEqual(health["data"]["integrations"]["project_sources"]["status"], "available")
+        self.assertEqual(projects.status, 200)
 
     def test_index_injects_nonce_and_spa_fallback(self) -> None:
         with running_server(self.static_dir) as origin:

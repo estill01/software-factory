@@ -2,15 +2,19 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from datetime import UTC, datetime
 import json
 import mimetypes
 from pathlib import Path, PurePosixPath
 import re
 import secrets
+import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Sequence
-from urllib.parse import unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
+
+from .app_server import COMPATIBILITY_PATH, AppServerError, CodexAppServerClient
 
 from .catalog import (
     CatalogError,
@@ -54,6 +58,9 @@ class ServerConfig:
     catalog_path: Path | None = None
     supervision_root: Path = DEFAULT_SUPERVISION_ROOT
     automations_root: Path = DEFAULT_AUTOMATIONS_ROOT
+    codex_command: tuple[str, ...] | None = None
+    codex_compatibility_path: Path = COMPATIBILITY_PATH
+    codex_auto_start: bool = True
     quiet: bool = False
 
     def validated(self) -> "ServerConfig":
@@ -75,6 +82,9 @@ class ServerConfig:
             catalog_path=catalog_path,
             supervision_root=self.supervision_root.expanduser().resolve(),
             automations_root=self.automations_root.expanduser().resolve(),
+            codex_command=self.codex_command,
+            codex_compatibility_path=self.codex_compatibility_path.expanduser().resolve(),
+            codex_auto_start=self.codex_auto_start,
             quiet=self.quiet,
         )
 
@@ -102,6 +112,20 @@ class DashboardHTTPServer(ThreadingHTTPServer):
             automations_root=self.config.automations_root,
         )
         super().__init__((self.config.host, self.config.port), DashboardRequestHandler)
+        self.app_server_client = CodexAppServerClient(
+            command=self.config.codex_command,
+            compatibility_path=self.config.codex_compatibility_path,
+            auto_start=self.config.codex_auto_start,
+        )
+
+    def server_close(self) -> None:
+        self.app_server_client.close()
+        super().server_close()
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        if isinstance(sys.exc_info()[1], (BrokenPipeError, ConnectionResetError)):
+            return
+        super().handle_error(request, client_address)
 
 
 class DashboardRequestHandler(BaseHTTPRequestHandler):
@@ -135,14 +159,17 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         content_type: str,
         cache_control: str = "no-store",
     ) -> None:
-        self.send_response(status.value)
-        self._send_security_headers()
-        self.send_header("Cache-Control", cache_control)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        if self.command != "HEAD":
-            self.wfile.write(body)
+        try:
+            self.send_response(status.value)
+            self._send_security_headers()
+            self.send_header("Cache-Control", cache_control)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            self.close_connection = True
 
     def _write_json(self, status: HTTPStatus, payload: dict[str, Any]) -> None:
         self._write(
@@ -204,6 +231,17 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             and parsed.netloc.lower() == host_header.lower()
         )
 
+    def _event_stream_source_is_valid(self) -> bool:
+        if self._origin_matches_request():
+            return True
+        return (
+            not self.headers.get("Origin")
+            and self._request_host_is_valid()
+            and self.headers.get("Sec-Fetch-Site") == "same-origin"
+            and self.headers.get("Sec-Fetch-Mode") == "cors"
+            and self.headers.get("Sec-Fetch-Dest") == "empty"
+        )
+
     def _health(self) -> None:
         static_dir = self.server.config.static_dir
         frontend_available = bool(static_dir and (static_dir / "index.html").is_file())
@@ -233,7 +271,18 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         else:
             supervision_available = catalog_available
             supervision_reason = catalog_reason
-        missing = ["codex-app-server"]
+        app_server_state = self.server.app_server_client.integration_state()
+        app_server_available = app_server_state["status"] == "available"
+        app_server_reason = (
+            None
+            if app_server_available
+            else (
+                app_server_state["last_error"]["message"]
+                if app_server_state["last_error"] is not None
+                else "Codex App Server is not connected."
+            )
+        )
+        missing = [] if app_server_available else ["codex-app-server"]
         if not frontend_available:
             missing.insert(0, "frontend-build")
         if not catalog_available:
@@ -265,8 +314,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                     "reason": supervision_reason,
                 },
                 "codex_app_server": {
-                    "status": "unavailable",
-                    "reason": "Codex task integration begins in tracker Block 5.",
+                    "status": "available" if app_server_available else "unavailable",
+                    "reason": app_server_reason,
                 },
             },
         }
@@ -287,6 +336,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                         + (["project-catalog"] if catalog_available else [])
                         + (["maintained-tracker-verifier"] if tracker_available else [])
                         + (["maintained-supervision-owners"] if supervision_available else [])
+                        + (["codex-app-server"] if app_server_available else [])
                     ),
                     "missing": missing,
                 },
@@ -300,6 +350,12 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                         f"{supervision_owner['revision']}."
                         if supervision_available and supervision_owner is not None
                         else "Maintained supervision/report owners are unavailable."
+                    ),
+                    (
+                        "Codex App Server compatibility root: "
+                        f"{app_server_state['schema']['semantic_manifest_sha256']}."
+                        if app_server_available
+                        else "Codex App Server task controls are unavailable and file-backed monitoring remains independent."
                     ),
                 ],
             ),
@@ -315,7 +371,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         ]
         limitations = [
             "This project endpoint returns tracker candidates only; use /api/v1/trackers for read-only content projection.",
-            "Use /api/v1/runs for supervision truth; Codex task state remains unavailable until Block 5.",
+            "Use /api/v1/runs for supervision truth and /api/v1/tasks for Codex task state.",
         ]
         if loaded.recovered_from_previous:
             limitations.append("The current catalog was invalid; a valid prior file was projected read-only.")
@@ -456,8 +512,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         )
         limitations = [
             "Tracker Markdown, maintained verifier output, and Git remain authoritative.",
-            "Run-bound tracker hash comparison remains unavailable until Block 4 composition.",
-            "This Block exposes read APIs only; tracker workspace UI begins in Block 8.",
+            "Run binding remains in the run API; this tracker projection does not infer it.",
+            "Tracker reads are immutable; workspace controls are not exposed by this endpoint.",
         ]
         if recovered:
             limitations.append("The valid prior catalog is projected read-only.")
@@ -713,13 +769,234 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             return
         self._write_json(HTTPStatus.OK, payload)
 
+    def _active_projects(self) -> tuple[ProjectRecord, ...]:
+        loaded = self.server.catalog_store.load()
+        return tuple(project for project in loaded.state.projects if not project.archived)
+
+    def _task_envelope(
+        self,
+        *,
+        identity: str,
+        data: dict[str, Any],
+        limitations: list[str] | None = None,
+    ) -> dict[str, Any]:
+        state = self.server.app_server_client.integration_state()
+        available = state["status"] == "available"
+        return envelope(
+            data=data,
+            source={
+                "kind": "codex-app-server",
+                "identity": identity,
+                "revision": state["revision"],
+            },
+            coverage={
+                "status": "complete" if available else "partial",
+                "observed": ["codex-app-server"] if available else [],
+                "missing": [] if available else ["codex-app-server"],
+            },
+            limitations=(limitations or [])
+            + [
+                "Task state comes from the exact version-gated Codex App Server and is not a dashboard ledger.",
+                "Project binding uses canonical task cwd only; absent or ambiguous bindings are never guessed.",
+            ],
+        )
+
+    def _write_task_integration(self) -> None:
+        state = self.server.app_server_client.integration_state()
+        self._write_json(
+            HTTPStatus.OK,
+            self._task_envelope(
+                identity="software-factory-dashboard/task-integration",
+                data={"integration": state},
+                limitations=[
+                    "Restart affects only the dashboard-owned App Server child process.",
+                    "Unavailable mutation features do not disable file-backed project, tracker, or supervision reads.",
+                ],
+            ),
+        )
+
+    def _write_tasks(self, query: str) -> None:
+        try:
+            parsed = parse_qs(query, keep_blank_values=True, strict_parsing=True) if query else {}
+            if set(parsed) - {"cursor", "limit"} or any(len(values) != 1 for values in parsed.values()):
+                raise AppServerError(
+                    "invalid_task_query",
+                    "Tasks accepts at most one cursor and one limit.",
+                    status=400,
+                )
+            cursor = parsed.get("cursor", [None])[0]
+            raw_limit = parsed.get("limit", ["50"])[0]
+            try:
+                limit = int(raw_limit)
+            except (TypeError, ValueError) as exc:
+                raise AppServerError(
+                    "invalid_task_page_limit",
+                    "Task page limit must be an integer.",
+                    status=400,
+                ) from exc
+            data = self.server.app_server_client.list_tasks(
+                self._active_projects(), cursor=cursor, limit=limit
+            )
+            payload = self._task_envelope(
+                identity="software-factory-dashboard/tasks",
+                data=data,
+                limitations=["Task list pages are bounded to 100 records and use opaque owner cursors."],
+            )
+        except (CatalogError, AppServerError, ValueError) as error:
+            if isinstance(error, (CatalogError, AppServerError)):
+                self._error(
+                    HTTPStatus(error.status),
+                    error.code,
+                    str(error),
+                    retryable=error.retryable,
+                )
+            else:
+                self._error(HTTPStatus.BAD_REQUEST, "invalid_task_query", "Task query is invalid.")
+            return
+        self._write_json(HTTPStatus.OK, payload)
+
+    def _write_task(self, task_id: str, query: str) -> None:
+        try:
+            if query not in {"", "include_turns=true", "include_turns=false"}:
+                raise AppServerError(
+                    "invalid_task_query",
+                    "Task detail accepts only include_turns=true or false.",
+                    status=400,
+                )
+            data = self.server.app_server_client.read_task(
+                self._active_projects(),
+                task_id,
+                include_turns=query != "include_turns=false",
+            )
+            payload = self._task_envelope(
+                identity=f"software-factory-dashboard/tasks/{task_id}",
+                data=data,
+                limitations=[
+                    "Turns and items are bounded; truncation is reported on the affected task or turn."
+                ],
+            )
+        except (CatalogError, AppServerError) as error:
+            self._error(
+                HTTPStatus(error.status),
+                error.code,
+                str(error),
+                retryable=error.retryable,
+            )
+            return
+        self._write_json(HTTPStatus.OK, payload)
+
+    def _write_task_events(self, query: str) -> None:
+        if self.command != "GET":
+            self._error(HTTPStatus.METHOD_NOT_ALLOWED, "method_not_allowed", "Task events require GET.")
+            return
+        if not self._event_stream_source_is_valid():
+            self._error(HTTPStatus.FORBIDDEN, "origin_rejected", "Event-stream origin did not match.")
+            return
+        supplied_nonce = self.headers.get("X-Software-Factory-Nonce", "")
+        if not secrets.compare_digest(supplied_nonce, self.server.mutation_nonce):
+            self._error(HTTPStatus.FORBIDDEN, "nonce_rejected", "Event-stream nonce did not match.")
+            return
+        try:
+            parsed = parse_qs(query, keep_blank_values=True, strict_parsing=True) if query else {}
+            if set(parsed) - {"after"} or any(len(values) != 1 for values in parsed.values()):
+                raise ValueError
+            sequence = int(parsed.get("after", ["0"])[0])
+            if sequence < 0:
+                raise ValueError
+        except ValueError:
+            self._error(HTTPStatus.BAD_REQUEST, "invalid_event_cursor", "Event cursor is invalid.")
+            return
+        self.send_response(HTTPStatus.OK.value)
+        self._send_security_headers()
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+        try:
+            ready = json.dumps(
+                {
+                    "sequence": sequence,
+                    "type": "ready",
+                    "observed_at": datetime.now(UTC)
+                    .isoformat(timespec="milliseconds")
+                    .replace("+00:00", "Z"),
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            self.wfile.write(f"event: ready\ndata: {ready}\n\n".encode("utf-8"))
+            self.wfile.flush()
+            while True:
+                events = self.server.app_server_client.events.after(sequence, timeout=15.0)
+                if not events:
+                    self.wfile.write(b": keep-alive\n\n")
+                    self.wfile.flush()
+                    continue
+                for event in events:
+                    sequence = int(event["sequence"])
+                    body = json.dumps(event, separators=(",", ":"), sort_keys=True)
+                    self.wfile.write(
+                        f"id: {sequence}\nevent: {event['type']}\ndata: {body}\n\n".encode(
+                            "utf-8"
+                        )
+                    )
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            return
+
+    def _write_task_operation(
+        self,
+        identity: str,
+        data: dict[str, Any],
+        *,
+        status: HTTPStatus = HTTPStatus.OK,
+    ) -> None:
+        self._write_json(
+            status,
+            self._task_envelope(
+                identity=identity,
+                data=data,
+                limitations=[
+                    "An applied task operation is not tracker acceptance, supervision lifecycle, or implementation completion."
+                ],
+            ),
+        )
+
+    def _handle_task_mutation(self, decoded_path: str) -> bool:
+        try:
+            if self.command == "POST" and decoded_path == f"/api/{API_VERSION}/task-integration/restart":
+                payload = self._read_json_body()
+                if payload is None:
+                    return True
+                if payload != {"confirmation": "restart-codex-adapter"}:
+                    raise AppServerError(
+                        "restart_confirmation_required",
+                        "Restart requires the exact adapter confirmation.",
+                        status=400,
+                    )
+                state = self.server.app_server_client.restart()
+                self._write_task_operation(
+                    "software-factory-dashboard/task-integration/restart",
+                    {"integration": state, "operation": "adapter_restarted"},
+                )
+                return True
+            return False
+        except (CatalogError, AppServerError) as error:
+            self._error(
+                HTTPStatus(error.status),
+                error.code,
+                str(error),
+                retryable=error.retryable,
+            )
+            return True
+
     def _read_json_body(self) -> dict[str, Any] | None:
         content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
         if content_type != "application/json":
             self._error(
                 HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
                 "json_required",
-                "Catalog mutations require application/json.",
+                "Dashboard mutations require application/json.",
             )
             return None
         body = self._read_bounded_body()
@@ -925,6 +1202,30 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         if decoded_path == f"/api/{API_VERSION}/health":
             self._health()
             return
+        if decoded_path == f"/api/{API_VERSION}/task-integration":
+            if urlsplit(self.path).query:
+                self._error(
+                    HTTPStatus.BAD_REQUEST,
+                    "invalid_query",
+                    "Task integration does not accept query parameters.",
+                )
+            else:
+                self._write_task_integration()
+            return
+        if decoded_path == f"/api/{API_VERSION}/task-events":
+            self._write_task_events(urlsplit(self.path).query)
+            return
+        if decoded_path == f"/api/{API_VERSION}/tasks":
+            self._write_tasks(urlsplit(self.path).query)
+            return
+        task_prefix = f"/api/{API_VERSION}/tasks/"
+        if decoded_path.startswith(task_prefix):
+            task_id = decoded_path[len(task_prefix) :]
+            if not task_id or "/" in task_id:
+                self._error(HTTPStatus.BAD_REQUEST, "invalid_task_id", "Task ID is invalid.")
+            else:
+                self._write_task(task_id, urlsplit(self.path).query)
+            return
         if decoded_path == f"/api/{API_VERSION}/runs":
             if urlsplit(self.path).query:
                 self._error(HTTPStatus.BAD_REQUEST, "invalid_query", "Runs does not accept query parameters.")
@@ -1006,6 +1307,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         if decoded_path is None:
             self._error(HTTPStatus.BAD_REQUEST, "invalid_path", "Request path is invalid.")
             return
+        if self._handle_task_mutation(decoded_path):
+            return
         if self._handle_catalog_mutation(decoded_path):
             return
         if self._read_bounded_body() is None:
@@ -1054,6 +1357,7 @@ def parser() -> argparse.ArgumentParser:
     command.add_argument("--catalog-path", type=Path, default=default_catalog_path())
     command.add_argument("--supervision-root", type=Path, default=DEFAULT_SUPERVISION_ROOT)
     command.add_argument("--automations-root", type=Path, default=DEFAULT_AUTOMATIONS_ROOT)
+    command.add_argument("--codex-binary", type=Path)
     command.add_argument("--quiet", action="store_true")
     return command
 
@@ -1069,6 +1373,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 catalog_path=args.catalog_path,
                 supervision_root=args.supervision_root,
                 automations_root=args.automations_root,
+                codex_command=(str(args.codex_binary),) if args.codex_binary else None,
                 quiet=args.quiet,
             )
         )

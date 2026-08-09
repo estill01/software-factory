@@ -1150,7 +1150,7 @@ class TrackerProjectionService:
             frozenset(),
         )
         if tracker.content_sha256 in allowed_hashes:
-            return "core", "inherited core path and content root frozen by Block 0 source contract"
+            return "core", "inherited core path and content root frozen by the compatibility contract"
         if re.search(
             r"^#{2,6}\s+Target-product capability frame\s*$",
             tracker.text,
@@ -1367,7 +1367,7 @@ class TrackerProjectionService:
             },
             "limitations": list(cached_view["parser_limitations"])
             + (
-                ["No canonical run-bound tracker hash is available until Block 4 composition."]
+                ["No canonical run-bound tracker hash is present in this tracker source."]
                 if bound_content_sha256 is None
                 else []
             ),
