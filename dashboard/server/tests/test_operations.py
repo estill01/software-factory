@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 import importlib.util
 import json
@@ -340,6 +341,81 @@ class OperationsProjectionTests(unittest.TestCase):
         serialized = json.dumps(snapshot)
         self.assertNotIn("PRIVATE PROMPT", serialized)
         self.assertNotIn('"prompt"', serialized)
+
+    def test_current_project_binding_ignores_predecessor_mission_paths(self) -> None:
+        old_root = self.root / "old-project"
+        old_root.mkdir()
+        projects = (
+            *self.projects,
+            ProjectRecord(id="old", label="Old", root=str(old_root)),
+        )
+        evidence, _ = self.service._load_target(self.supervision_root / TARGET)
+        predecessor = dict(evidence.events[0])
+        predecessor["cwd"] = str(old_root)
+        current = dict(evidence.active_events[0])
+        current["cwd"] = str(self.project_root)
+        events = tuple(
+            predecessor if item is evidence.events[0] else item
+            for item in evidence.events
+        )
+        active_events = tuple(
+            current if item is evidence.active_events[0] else item
+            for item in evidence.active_events
+        )
+        moved = replace(evidence, events=events, active_events=active_events)
+
+        binding = self.service._project_binding(moved, projects)
+
+        self.assertEqual(binding["status"], "bound")
+        self.assertEqual(binding["project_id"], "demo")
+        self.assertNotIn(
+            str(old_root),
+            [item["value"] for item in binding["evidence"]],
+        )
+
+        unbound = replace(
+            moved,
+            policy={
+                key: value
+                for key, value in moved.policy.items()
+                if key != "project_root"
+            },
+            active_events=tuple(
+                {
+                    key: value
+                    for key, value in item.items()
+                    if key != "cwd"
+                }
+                for item in moved.active_events
+            ),
+        )
+        binding = self.service._project_binding(unbound, projects)
+
+        self.assertEqual(binding["status"], "unassigned")
+        self.assertIsNone(binding["project_id"])
+        self.assertEqual(binding["evidence"], [])
+
+    def test_only_dispositive_decision_phases_are_semantic_conclusions(self) -> None:
+        phases = {
+            "decision-ready": False,
+            "user-responded": False,
+            "attempt-started": False,
+            "attempt-unresolved": False,
+            "resolved": True,
+            "safe-deferred": True,
+            "handoff-sent": False,
+            "target-acknowledged": False,
+        }
+
+        for phase, expected in phases.items():
+            with self.subTest(phase=phase):
+                self.assertEqual(
+                    self.service._is_conclusion(
+                        {"kind": "decision", "phase": phase},
+                        self.owner,
+                    ),
+                    expected,
+                )
 
     def test_broken_chain_and_partial_report_remain_source_local(self) -> None:
         snapshot = self.service.snapshot(self.projects)

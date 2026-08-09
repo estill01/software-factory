@@ -76,8 +76,8 @@ SEMANTIC_KINDS = {
     "checkpoint-review",
     "meta-review",
     "resolution",
-    "decision",
 }
+DECISION_CONCLUSION_PHASES = {"resolved", "safe-deferred"}
 ACTIVITY_KINDS = {
     "check",
     "escalation",
@@ -758,7 +758,7 @@ class OperationsProjectionService:
         sources: list[tuple[str, str, str]] = []
         for key, value in self._path_binding_values(evidence.policy):
             sources.append(("policy", key, value))
-        for event in evidence.events:
+        for event in evidence.active_events:
             record_id = str(event.get("record_id", "unknown"))
             for key, value in self._path_binding_values(event):
                 sources.append((record_id, key, value))
@@ -893,6 +893,8 @@ class OperationsProjectionService:
         kind = item.get("kind")
         if kind in SEMANTIC_KINDS:
             return True
+        if kind == "decision":
+            return item.get("phase") in DECISION_CONCLUSION_PHASES
         if kind == "incident" and item.get("incident_id"):
             return owner.is_terminal_incident_record(item, str(item["incident_id"]))
         if kind == "check" and item.get("category") == owner.OUTCOME_COMPLETION_CATEGORY:
