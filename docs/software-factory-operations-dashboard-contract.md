@@ -13,11 +13,16 @@
 
 ## 1. Activation and observable-outcome contract
 
-Block 0 began from the routed implementation instruction in Codex source task
-`019fe54b-bbe7-78c3-869d-323c19938bdf`: use
-`implement-tracker-blocks` on tracker commit `2b73de1`, start Block 0, and
-continue in dependency order. The routed packet is execution provenance, not a
-replacement for the direct product request recorded in the tracker.
+Implementation authority is direct-user item 44 in this target task, which
+explicitly invoked `implement-tracker-blocks` for the implementation tracker,
+bound to mission root
+`45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+Routed item 79 from Codex source task
+`019fe54b-bbe7-78c3-869d-323c19938bdf` resumed that already-authorized mission,
+selected tracker commit `2b73de1` and Block 0, and required dependency-ordered
+continuation. It is resume/start-routing evidence only, not implementation or
+product authority. This provenance distinction was corrected by supervision
+incident `INC-20260809-081917-D3A17C`, event `EVT-000028`.
 
 Current supervised-start evidence is independently visible in target
 `019fe547-e054-7ca0-9940-ec4aa146df78`:
