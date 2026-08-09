@@ -941,11 +941,14 @@ def path_snapshot(path: Path) -> tuple[int, int, int, int] | None:
 
 
 def read_text_snapshot(
-    path: Path, *, missing_ok: bool = False
+    path: Path,
+    *,
+    missing_ok: bool = False,
+    directory_fd: int | None = None,
 ) -> tuple[str, tuple[int, int, int, int] | None]:
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
-        descriptor = os.open(path, flags)
+        descriptor = os.open(path, flags, dir_fd=directory_fd)
     except FileNotFoundError:
         if missing_ok:
             return "", None
@@ -965,9 +968,11 @@ def read_text_snapshot(
     return text, after
 
 
-def read_json_snapshot(path: Path) -> tuple[dict[str, Any], tuple[int, int, int, int]]:
+def read_json_snapshot(
+    path: Path, *, directory_fd: int | None = None
+) -> tuple[dict[str, Any], tuple[int, int, int, int]]:
     try:
-        raw, snapshot = read_text_snapshot(path)
+        raw, snapshot = read_text_snapshot(path, directory_fd=directory_fd)
         value = json.loads(raw)
     except (OSError, json.JSONDecodeError) as exc:
         raise SupervisionLogError(f"Cannot read supervision state: {path.name}") from exc
@@ -1335,10 +1340,12 @@ def events(path: Path) -> list[dict[str, Any]]:
 
 
 def events_snapshot(
-    path: Path,
+    path: Path, *, directory_fd: int | None = None
 ) -> tuple[list[dict[str, Any]], tuple[int, int, int, int] | None]:
     try:
-        text, snapshot = read_text_snapshot(path, missing_ok=True)
+        text, snapshot = read_text_snapshot(
+            path, missing_ok=True, directory_fd=directory_fd
+        )
     except OSError as exc:
         raise SupervisionLogError(f"Cannot read supervision state: {path.name}") from exc
     return parse_events(text, ledger_name=path.name), snapshot
@@ -3724,10 +3731,10 @@ def latest_active_block(all_events: list[dict[str, Any]]) -> dict[str, Any] | No
     return None
 
 
-def event_head_hash(path: Path) -> str | None:
+def event_head_hash(path: Path, *, directory_fd: int | None = None) -> str | None:
     flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
-        descriptor = os.open(path, flags)
+        descriptor = os.open(path, flags, dir_fd=directory_fd)
     except FileNotFoundError:
         return None
     with os.fdopen(descriptor, "rb") as handle:
@@ -3762,12 +3769,47 @@ def event_head_hash(path: Path) -> str | None:
 
 def member_directory(root: Path, target_thread_id: str) -> Path:
     target = safe_id(target_thread_id, label="governing outcome member target")
-    directory = (root / target).resolve()
+    directory = root / target
     if directory.parent != root:
         raise SupervisionLogError(
             "Governing outcome member escaped the supervision root"
         )
     return directory
+
+
+def open_member_directory(
+    root: Path, target_thread_id: str
+) -> tuple[Path, int, tuple[int, int, int, int]]:
+    directory = member_directory(root, target_thread_id)
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    try:
+        descriptor = os.open(directory, flags)
+        snapshot = file_snapshot(os.fstat(descriptor))
+    except OSError as exc:
+        raise SupervisionLogError(
+            "Governing outcome member directory is unavailable or unsafe"
+        ) from exc
+    if path_snapshot(directory) != snapshot:
+        os.close(descriptor)
+        raise SupervisionLogError(
+            "Governing outcome member directory changed during open"
+        )
+    return directory, descriptor, snapshot
+
+
+def path_snapshot_at(
+    directory_fd: int, name: str
+) -> tuple[int, int, int, int] | None:
+    try:
+        return file_snapshot(
+            os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+        )
+    except OSError:
+        return None
 
 
 def active_successor_edges(
@@ -3802,6 +3844,7 @@ def load_governing_outcome_members(
             dict[str, Any] | None,
             tuple[int, int, int, int] | None,
             tuple[int, int, int, int] | None,
+            tuple[int, int, int, int] | None,
         ]
     ] = [
         (
@@ -3812,6 +3855,7 @@ def load_governing_outcome_members(
             None,
             owner_policy_snapshot,
             owner_event_snapshot,
+            None,
         )
     ]
     queued = {owner_target}
@@ -3820,6 +3864,8 @@ def load_governing_outcome_members(
     snapshots: dict[
         str,
         tuple[
+            Path,
+            tuple[int, int, int, int] | None,
             Path,
             str | None,
             tuple[int, int, int, int] | None,
@@ -3837,6 +3883,7 @@ def load_governing_outcome_members(
             edge,
             policy_snapshot,
             event_snapshot,
+            directory_snapshot,
         ) = queue.pop(0)
         event_path = directory / "events.jsonl"
         policy_path = directory / "policy.json"
@@ -3848,6 +3895,8 @@ def load_governing_outcome_members(
         if policy_snapshot is None:
             policy_snapshot = path_snapshot(policy_path)
         snapshots[target] = (
+            directory,
+            directory_snapshot,
             event_path,
             event_head if isinstance(event_head, str) else None,
             event_snapshot,
@@ -3931,18 +3980,26 @@ def load_governing_outcome_members(
                 continue
             queued.add(successor_target)
             try:
-                successor_directory = member_directory(root, successor_target)
-                successor_policy, successor_policy_snapshot = read_json_snapshot(
-                    successor_directory / "policy.json"
-                )
-                validate_policy(successor_policy)
-                if successor_policy.get("target_thread_id") != successor_target:
-                    raise SupervisionLogError(
-                        "Member policy belongs to a different target"
+                (
+                    successor_directory,
+                    successor_directory_fd,
+                    successor_directory_snapshot,
+                ) = open_member_directory(root, successor_target)
+                try:
+                    successor_policy, successor_policy_snapshot = read_json_snapshot(
+                        Path("policy.json"), directory_fd=successor_directory_fd
                     )
-                successor_events, successor_event_snapshot = events_snapshot(
-                    successor_directory / "events.jsonl"
-                )
+                    validate_policy(successor_policy)
+                    if successor_policy.get("target_thread_id") != successor_target:
+                        raise SupervisionLogError(
+                            "Member policy belongs to a different target"
+                        )
+                    successor_events, successor_event_snapshot = events_snapshot(
+                        Path("events.jsonl"),
+                        directory_fd=successor_directory_fd,
+                    )
+                finally:
+                    os.close(successor_directory_fd)
             except SupervisionLogError:
                 issues.append(
                     {
@@ -3960,6 +4017,7 @@ def load_governing_outcome_members(
                     successor,
                     successor_policy_snapshot,
                     successor_event_snapshot,
+                    successor_directory_snapshot,
                 )
             )
 
@@ -3973,14 +4031,40 @@ def load_governing_outcome_members(
     ]
     stable = True
     for target, (
+        directory_path,
+        recorded_directory_snapshot,
         path,
         recorded_head,
         recorded_event_snapshot,
         policy_path,
         recorded_policy_snapshot,
     ) in snapshots.items():
+        recheck_directory_fd: int | None = None
+        if recorded_directory_snapshot is not None:
+            try:
+                (
+                    _recheck_directory,
+                    recheck_directory_fd,
+                    current_directory_snapshot,
+                ) = open_member_directory(root, target)
+            except SupervisionLogError:
+                current_directory_snapshot = None
+            if current_directory_snapshot != recorded_directory_snapshot:
+                stable = False
+                issues.append(
+                    {
+                        "kind": "member-directory-changed-during-read",
+                        "target_thread_id": target,
+                    }
+                )
+                if recheck_directory_fd is not None:
+                    os.close(recheck_directory_fd)
+                continue
         try:
-            current_head = event_head_hash(path)
+            current_head = event_head_hash(
+                Path("events.jsonl") if recheck_directory_fd is not None else path,
+                directory_fd=recheck_directory_fd,
+            )
         except (OSError, SupervisionLogError):
             current_head = None
             stable = False
@@ -3998,7 +4082,12 @@ def load_governing_outcome_members(
                     "target_thread_id": target,
                 }
             )
-        if path_snapshot(path) != recorded_event_snapshot:
+        current_event_snapshot = (
+            path_snapshot_at(recheck_directory_fd, "events.jsonl")
+            if recheck_directory_fd is not None
+            else path_snapshot(path)
+        )
+        if current_event_snapshot != recorded_event_snapshot:
             stable = False
             issues.append(
                 {
@@ -4006,7 +4095,11 @@ def load_governing_outcome_members(
                     "target_thread_id": target,
                 }
             )
-        current_policy_snapshot = path_snapshot(policy_path)
+        current_policy_snapshot = (
+            path_snapshot_at(recheck_directory_fd, "policy.json")
+            if recheck_directory_fd is not None
+            else path_snapshot(policy_path)
+        )
         if current_policy_snapshot != recorded_policy_snapshot:
             stable = False
             issues.append(
@@ -4015,6 +4108,8 @@ def load_governing_outcome_members(
                     "target_thread_id": target,
                 }
             )
+        if recheck_directory_fd is not None:
+            os.close(recheck_directory_fd)
     return members, issues, digest(currentness_material), stable
 
 

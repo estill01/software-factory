@@ -1402,6 +1402,60 @@ class ControlPostureReducerTests(unittest.TestCase):
             {item["kind"] for item in result["issues"]},
         )
 
+    def test_member_directory_link_replacement_cannot_redirect_canonical_reads(self) -> None:
+        owner_directory, owner_policy = self.create_target(
+            self.owner, self.owner_mission
+        )
+        child_directory, child_policy = self.create_target(
+            self.child, self.child_mission
+        )
+        self.append(
+            owner_directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "successor-transition",
+                "transition_id": "TRANSITION-DIRECTORY-RACE-1234",
+                "phase": "work-started",
+                "tracker_sha256": "c" * 64,
+                "successor_thread_id": self.child,
+                "successor_mission_root": self.child_mission,
+                "successor_group_id": child_policy["supervision_group_id"],
+            },
+        )
+        external = tempfile.TemporaryDirectory()
+        self.addCleanup(external.cleanup)
+        external_directory = Path(external.name)
+        supervision_log.atomic_json(
+            external_directory / "policy.json", child_policy
+        )
+        original_open = supervision_log.open_member_directory
+        replaced = False
+
+        def open_then_replace(root: Path, target: str):
+            nonlocal replaced
+            result = original_open(root, target)
+            if target == self.child and not replaced:
+                preserved = self.root / f"{self.child}-preserved"
+                child_directory.rename(preserved)
+                child_directory.symlink_to(external_directory, target_is_directory=True)
+                replaced = True
+            return result
+
+        with mock.patch.object(
+            supervision_log,
+            "open_member_directory",
+            side_effect=open_then_replace,
+        ):
+            result = self.reduce(owner_directory, owner_policy)
+
+        self.assertTrue(replaced)
+        self.assertEqual(result["required_target_posture"], "in-progress")
+        self.assertFalse(result["snapshot_stable"])
+        self.assertIn(
+            "member-directory-changed-during-read",
+            {item["kind"] for item in result["issues"]},
+        )
+
     def test_changed_member_head_returns_retry_currentness(self) -> None:
         directory, policy = self.create_target(self.owner, self.owner_mission)
         self.append(
