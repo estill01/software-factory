@@ -1,6 +1,6 @@
 # Software Factory Operations Dashboard Implementation Tracker
 
-- Tracker status: `planning`
+- Tracker status: `in-progress`
 - Tracker sequence: Blocks 0–25
 - Repository: `https://github.com/estill01/software-factory.git`
 - Governing objective: direct user request in Codex task
@@ -487,7 +487,7 @@ the relevant authority and evidence contract.
 
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
-| 0 | Product contract and live-owner baseline | — | `not-started` |
+| 0 | Product contract and live-owner baseline | — | `accepted` |
 | 1 | Loopback runtime and reference frontend scaffold | 0 | `not-started` |
 | 2 | Project catalog and bounded discovery | 1 | `not-started` |
 | 3 | Tracker truth and Git-currentness projection | 2 | `not-started` |
@@ -548,7 +548,7 @@ diagnostic rather than current completion proof.
 
 ## Block 0 — Product contract and live-owner baseline
 
-Status: `not-started`
+Status: `accepted`
 
 ### Objective
 
@@ -652,7 +652,75 @@ review before freezing the baseline.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: accepted contract candidate
+  `ee0837d58f62b3d1e359dffc81a2f58c8b1868d5`; maintained supervision-owner
+  input settled separately at
+  `08b4f983749b6018eb7169f3a509ea2d43f5c6ed`.
+- External/domain revision or root: reference frontend task worktree
+  `f924555752cb0efc4acde86cf3d515782939ce05`, Patent Studio selected-file
+  revision `640b80f1400fb1a2af0a5971052065812e8cf9c2`, Codex App Server 0.145.0
+  semantic schema root
+  `757aa191b6d452c6e6d05f6c1f1cb093b9f673da2d185a29ee8d5d96feae67a8`,
+  active mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`,
+  and bounded supervision prefix through `EVT-000030` root
+  `af5f70d81a0398682e3a1bf1ec168c146be8386b26a5882dc1bc7ed18b173e77`.
+- Inputs: tracker authoring revision `2b73de1`, tracker blob
+  `7c9d758bb535687e6a85091b083f4fa2fbb6ddce`, tracker SHA-256
+  `dab97d29851453058955cd7b3545ebd8bf96945ee686ce72706e33d18159eed7`,
+  capability-frame SHA-256
+  `26664146d46f0880752bad3252c562232fa8d6a2a19adb7804908d2ee1b562ec`,
+  direct-user authority item 44, routed start item 79, policy version 4, and the
+  exact owner/source hashes recorded in the contract.
+- Outputs:
+  `docs/software-factory-operations-dashboard-contract.md`, Git blob
+  `17e04c1be7364562934d943ee88ebb73fa83ba7d`, SHA-256
+  `4f9a55ef0f0f2b8eb12973d9a2eb393cf0148e99caf18fffa4e7dc12fcf0dfc0`.
+- Focused validation: all named repository/reference file hashes matched;
+  `git diff --check` passed; the first 30 ledger records reproduced the
+  `EVT-000030` prefix and policy/history roots; one fresh and the frozen
+  0.145.0 App Server generations each contained 273 files and matched the
+  recorded `jq 1.8.1 -S -c` semantic root; current `bind`/`lifecycle-gate` and
+  activation behavior were inspected; 137 supervision-helper tests passed.
+- Mapped validation: full tracker verifier passed 26 Blocks with 0 errors and
+  0 warnings; 30 verifier tests passed; the adaptive tracker passed full with
+  14 Blocks, and the evolution and tracker-authoring trackers passed their
+  maintained core profiles with 7 and 5 Blocks.
+- Candidate freeze: initial contract `fffc853`; provenance successor
+  `241469d` rejected; remediated `8929dfa` rejected; exact final candidate
+  `ee0837d58f62b3d1e359dffc81a2f58c8b1868d5` remained unchanged after the
+  accepting review.
+- Remediation closure: first review findings mapped target/tracker repair to
+  unavailable, split resume from supported pause, refreshed the bounded event
+  sample, and added a reproducible schema algorithm; second review findings
+  replaced raw-byte schema hashing with the cross-generation semantic root and
+  stopped successor binding at `pending` while making first-work closure
+  unavailable. Exact review then accepted both affected slices.
+- Resource posture: one bounded valid live sample per available artifact family,
+  no copied fixtures, one remediation schema generation, and no runtime or
+  dependency manifest. Diagnostic command defects were preserved but not used
+  as proof: a zsh variable shadowed command lookup, an escaped `awk` wrapper
+  failed before hashing, three external reference paths were corrected, a
+  nonexistent expanded commit SHA was rejected, and an append changed the live
+  whole-ledger hash before the prefix algorithm was adopted.
+- Independent review: `tracker_exact_review` accepted exact commit
+  `ee0837d58f62b3d1e359dffc81a2f58c8b1868d5`; it reproduced the 273-file
+  semantic root, accepted the supported-binding/unavailable-closure split,
+  confirmed the diff was limited to the two cited findings, and reported no
+  material remaining issue.
+- Retained open work: before executing Blocks 15, 18, or 19, narrowly amend
+  those future slices for unavailable target/tracker repair, unavailable
+  semantic resume, and evidence-insufficient first-work closure. These are
+  explicit descendant gates, not accepted capabilities or Block 0 defects.
+- Decision/continuation posture: no current blocked scope; Blocks 1–14 and
+  every dependency-safe descendant remain the safe frontier. Continue with
+  Block 1 without a new mission, successor task, manual resume, or broad
+  reinspection.
+- Post-block audit: `accepted`; the contract is source-bound, planned features
+  remain planned/unavailable where required, and the Block 0 Stop was honored.
+- Git durability: candidate `ee0837d` is committed locally; this acceptance
+  checkpoint must be pushed non-force before Block 1 implementation begins,
+  with remote ancestry verified immediately after the push.
 
 ### Stop
 
