@@ -36,27 +36,53 @@ export const healthDataSchema = z.object({
   }),
 })
 
-export const healthEnvelopeSchema = z.object({
-  data: healthDataSchema,
+const envelopeMetadataShape = {
   source: sourceSchema,
   observed_at: z.iso.datetime({ offset: true }),
   fingerprint: z.string().regex(/^[0-9a-f]{64}$/),
   coverage: coverageSchema,
   limitations: z.array(z.string()),
+}
+
+export const healthEnvelopeSchema = z.object({
+  data: healthDataSchema,
+  ...envelopeMetadataShape,
   error: z.null(),
 })
 
+export const apiErrorEnvelopeSchema = z.object({
+  data: z.null(),
+  ...envelopeMetadataShape,
+  error: errorSchema,
+})
+
 export type HealthEnvelope = z.infer<typeof healthEnvelopeSchema>
+export type ApiErrorEnvelope = z.infer<typeof apiErrorEnvelopeSchema>
+
+export class DashboardApiError extends Error {
+  readonly code: string
+  readonly retryable: boolean
+  readonly status: number
+
+  constructor(status: number, envelope: ApiErrorEnvelope) {
+    super(envelope.error.message)
+    this.name = "DashboardApiError"
+    this.code = envelope.error.code
+    this.retryable = envelope.error.retryable
+    this.status = status
+  }
+}
 
 export async function fetchHealth(signal?: AbortSignal): Promise<HealthEnvelope> {
   const response = await fetch("/api/v1/health", {
     headers: { Accept: "application/json" },
     signal,
   })
+  const payload: unknown = await response.json()
   if (!response.ok) {
-    throw new Error(`Runtime health failed with HTTP ${response.status}`)
+    throw new DashboardApiError(response.status, apiErrorEnvelopeSchema.parse(payload))
   }
-  return healthEnvelopeSchema.parse(await response.json())
+  return healthEnvelopeSchema.parse(payload)
 }
 
 export function mutationNonce(): string | null {

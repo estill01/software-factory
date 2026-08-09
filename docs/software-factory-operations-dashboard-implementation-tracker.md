@@ -844,7 +844,19 @@ and Block 0 contract amendment.
   `6ef84c767c7a145fd4283c4d86769c4dabb88085` and durability successor
   `c0bb5d188fbf3083aae07576c0719b4fbf5bc84a`, without a new mission or
   successor-task requirement.
-- Candidate, validation, review, checkpoint, and acceptance evidence: pending.
+- Candidate history: exact initial candidate
+  `9153dcb7dd5ab9ac3e65e07cf46a3887100596c9` was rejected by independent
+  review because a failed health check left a contradictory ready claim on the
+  floor and the frontend did not parse the server's structured error envelope.
+  The rejected revision remains preserved as diagnostic history.
+- Focused remediation: runtime readiness now derives from the shared health
+  query, non-success responses pass through a Zod-validated error envelope,
+  and regression coverage aborts health at unit and browser boundaries.
+  Focused Vitest passed 5 tests; the full frontend check passed 7 tests across
+  3 files; the production build passed; and Playwright passed 15 desktop,
+  tablet, and mobile cases including the failed-health posture.
+- Successor candidate, fresh review, checkpoint, and acceptance evidence:
+  pending.
 
 ### Stop
 

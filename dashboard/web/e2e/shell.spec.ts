@@ -45,3 +45,13 @@ test("unknown client routes render the bounded not-found state", async ({ page }
   await expect(page.getByRole("heading", { name: "That factory workspace does not exist." })).toBeVisible()
   await expect(page.getByText("No operation was attempted.")).toBeVisible()
 })
+
+test("failed runtime health never leaves a ready claim behind", async ({ page }) => {
+  await page.route("**/api/v1/health", (route) => route.abort())
+  await page.goto("/")
+
+  await expect(page.getByRole("status", { name: "Runtime unavailable" })).toBeVisible()
+  await expect(page.getByText("Health check failed; readiness is unknown")).toBeVisible()
+  await expect(page.getByText("Connected and locally constrained")).toHaveCount(0)
+  await expect(page.getByText("Ready", { exact: true })).toHaveCount(0)
+})

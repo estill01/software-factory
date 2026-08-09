@@ -1,6 +1,15 @@
-import { ArrowDownRight, CircleDashed, Factory, ShieldCheck, Workflow } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
+import {
+  ArrowDownRight,
+  CircleAlert,
+  CircleDashed,
+  Factory,
+  ShieldCheck,
+  Workflow,
+} from "lucide-react"
 
 import { ChartPlaceholder } from "@/components/chart-placeholder"
+import { fetchHealth } from "@/lib/api"
 
 const summaryCards = [
   { label: "Registered projects", value: "—", detail: "Catalog unavailable", tone: "neutral" },
@@ -10,6 +19,29 @@ const summaryCards = [
 ] as const
 
 export function Component() {
+  const runtimeHealth = useQuery({
+    queryKey: ["runtime-health"],
+    queryFn: ({ signal }) => fetchHealth(signal),
+    retry: 1,
+  })
+  const runtimeReadiness = runtimeHealth.isPending
+    ? {
+        detail: "Awaiting the runtime health response",
+        label: "Checking",
+        ready: false,
+      }
+    : runtimeHealth.isError
+      ? {
+          detail: "Health check failed; readiness is unknown",
+          label: "Unavailable",
+          ready: false,
+        }
+      : {
+          detail: "Connected and locally constrained",
+          label: "Ready",
+          ready: true,
+        }
+
   return (
     <div className="page-stack floor-page">
       <header className="page-heading">
@@ -84,17 +116,23 @@ export function Component() {
           </div>
           <ul className="readiness-list">
             <li>
-              <span className="readiness-icon readiness-ready"><ShieldCheck /></span>
-              <div><strong>Loopback runtime</strong><span>Connected and locally constrained</span></div>
-              <span className="readiness-state state-ready">Ready</span>
+              <span className={`readiness-icon ${runtimeReadiness.ready ? "readiness-ready" : ""}`}>
+                {runtimeReadiness.ready
+                  ? <ShieldCheck aria-hidden="true" />
+                  : <CircleAlert aria-hidden="true" />}
+              </span>
+              <div><strong>Loopback runtime</strong><span>{runtimeReadiness.detail}</span></div>
+              <span className={`readiness-state ${runtimeReadiness.ready ? "state-ready" : ""}`}>
+                {runtimeReadiness.label}
+              </span>
             </li>
             <li>
-              <span className="readiness-icon"><Workflow /></span>
+              <span className="readiness-icon"><Workflow aria-hidden="true" /></span>
               <div><strong>Project sources</strong><span>Available after Block 2</span></div>
               <span className="readiness-state">Unavailable</span>
             </li>
             <li>
-              <span className="readiness-icon"><Factory /></span>
+              <span className="readiness-icon"><Factory aria-hidden="true" /></span>
               <div><strong>Codex tasks</strong><span>Available after Block 5</span></div>
               <span className="readiness-state">Unavailable</span>
             </li>

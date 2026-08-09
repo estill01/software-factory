@@ -1,6 +1,11 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
-import { healthEnvelopeSchema } from "@/lib/api"
+import {
+  apiErrorEnvelopeSchema,
+  DashboardApiError,
+  fetchHealth,
+  healthEnvelopeSchema,
+} from "@/lib/api"
 
 const validHealth = {
   data: {
@@ -28,6 +33,20 @@ const validHealth = {
   error: null,
 } as const
 
+const errorEnvelope = {
+  data: null,
+  source: {
+    kind: "runtime",
+    identity: "software-factory-dashboard/http",
+    revision: "0.1.0",
+  },
+  observed_at: "2026-08-09T08:00:00.000Z",
+  fingerprint: "b".repeat(64),
+  coverage: { status: "partial", observed: ["runtime"], missing: [] },
+  limitations: [],
+  error: { code: "not_found", message: "API route was not found.", retryable: false },
+} as const
+
 describe("healthEnvelopeSchema", () => {
   it("accepts the shared Block 1 API envelope", () => {
     expect(healthEnvelopeSchema.parse(validHealth).data.status).toBe("ok")
@@ -40,5 +59,29 @@ describe("healthEnvelopeSchema", () => {
       coverage: { status: "complete", observed: [] },
     }
     expect(() => healthEnvelopeSchema.parse(malformed)).toThrow()
+  })
+
+  it("validates the server's structured error envelope", () => {
+    expect(apiErrorEnvelopeSchema.parse(errorEnvelope).error.code).toBe("not_found")
+  })
+
+  it("parses a non-success response before surfacing its structured error", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        json: async () => errorEnvelope,
+      }),
+    )
+
+    const request = fetchHealth()
+    await expect(request).rejects.toBeInstanceOf(DashboardApiError)
+    await expect(request).rejects.toMatchObject({
+      name: "DashboardApiError",
+      code: "not_found",
+      retryable: false,
+      status: 404,
+    })
   })
 })
