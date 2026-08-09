@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "kind": "software-factory-inline-correction-cases",
+  "cases": [
+    {
+      "case_id": "wrong-owner",
+      "trigger": "wrong-owner",
+      "block_contract_changed": false,
+      "implementation_evidence_required": false,
+      "expected_disposition": "correct-inline",
+      "expected_selected_path": "architectural-owner",
+      "expected_continue": true
+    },
+    {
+      "case_id": "lower-power-shortcut",
+      "trigger": "lower-power-shortcut",
+      "block_contract_changed": false,
+      "implementation_evidence_required": false,
+      "expected_disposition": "correct-inline",
+      "expected_selected_path": "bounded-general",
+      "expected_continue": true
+    },
+    {
+      "case_id": "unnecessary-abstraction",
+      "trigger": "unnecessary-abstraction",
+      "block_contract_changed": false,
+      "implementation_evidence_required": false,
+      "expected_disposition": "correct-inline",
+      "expected_selected_path": "local",
+      "expected_continue": true
+    },
+    {
+      "case_id": "blind-retry",
+      "trigger": "blind-retry",
+      "block_contract_changed": false,
+      "implementation_evidence_required": false,
+      "expected_disposition": "correct-inline",
+      "expected_selected_path": "architectural-owner",
+      "expected_continue": true
+    },
+    {
+      "case_id": "overbroad-validation",
+      "trigger": "invalid-validation",
+      "block_contract_changed": false,
+      "implementation_evidence_required": false,
+      "expected_disposition": "correct-inline",
+      "expected_selected_path": "local",
+      "expected_continue": true
+    },
+    {
+      "case_id": "protected-capability-regression",
+      "trigger": "protected-capability-regression",
+      "block_contract_changed": false,
+      "implementation_evidence_required": false,
+      "expected_disposition": "correct-inline",
+      "expected_selected_path": "bounded-general",
+      "expected_continue": true
+    },
+    {
+      "case_id": "justified-incumbent",
+      "trigger": "none",
+      "block_contract_changed": false,
+      "implementation_evidence_required": false,
+      "expected_disposition": "continue-unchanged",
+      "expected_selected_path": "incumbent",
+      "expected_continue": true
+    },
+    {
+      "case_id": "unchanged-repeat",
+      "trigger": "equivalent-fingerprint",
+      "block_contract_changed": false,
+      "implementation_evidence_required": false,
+      "expected_disposition": "continue-unchanged",
+      "expected_selected_path": "incumbent",
+      "expected_continue": true
+    },
+    {
+      "case_id": "requires-candidate",
+      "trigger": "material-better-path",
+      "block_contract_changed": false,
+      "implementation_evidence_required": true,
+      "expected_disposition": "compare-candidate",
+      "expected_selected_path": null,
+      "expected_continue": true
+    },
+    {
+      "case_id": "requires-structural-amendment",
+      "trigger": "block-contract-invalidated",
+      "block_contract_changed": true,
+      "implementation_evidence_required": false,
+      "expected_disposition": "amend-structure",
+      "expected_selected_path": null,
+      "expected_continue": true
+    }
+  ]
+}

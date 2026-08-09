@@ -152,6 +152,61 @@ reference is a contract, not an activated runtime controller: do not create a
 candidate lane, mutate a tracker, change supervision policy, or add a model or
 review cycle merely because the contract exists.
 
+## Correct a bad implementation path inline
+
+Apply this loop inside the active Block whenever current source, repository,
+test, or observable-outcome evidence exposes a materially bad implementation
+decision. This is the normal adaptive path; it is part of ordinary execution,
+not a new task, authoring pass, supervisor lifecycle, or approval gate.
+
+1. Compute the Block 4 decision fingerprint and currentness root from the
+   already-loaded execution brief. If both equal an accepted unchanged or
+   resolved decision, return from this check to the next ordinary implementation
+   action with zero model, reviewer, candidate, or authoring work. Never convert
+   `continue-unchanged` into a user-facing return, lifecycle stop, or skipped
+   remainder of the requested Block range.
+2. Require one concrete trigger: wrong/circumvented owner, lower-power
+   substitution, unnecessary abstraction, repeated blind retry, overbroad or
+   invalid validation, scope widening, or protected-capability regression. A
+   style preference, transient failure, local difficulty, optional refactor,
+   or unproven reuse remains `continue-unchanged`.
+3. Before changing the path, freeze the smallest safe checkpoint and classify
+   each affected reference as reusable valid work or stale proof. Preserve
+   coherent code, tests, artifacts, commits, accepted evidence, and unrelated
+   dirty-tree state. Stop only the causal bad process or write owner.
+4. Compare exactly the smallest local correction, the smallest
+   bounded-general path supported by a named current or accepted near-term
+   consumer, and the available architectural owner. Compare capability,
+   protected capability, correctness, maintainability, performance,
+   compatibility, reversibility, implementation/review cost, and writable
+   scope without an opaque score. Select the lowest-complexity path that
+   supplies the complete source-backed capability. Record why the bad shortcut
+   and any unsupported generalized layer lost.
+5. Select `correct-inline` only while the original objective, dependencies,
+   acceptance, and Stop remain unchanged and the existing authoritative owner
+   can make the correction. If implementation behavior is required to choose
+   safely, route to `compare-candidate`; if the Block contract or later graph
+   must change, package `amend-structure`. Do not use either escalation merely
+   because the correction is difficult.
+6. Implement through the selected existing owner. Run the smallest focused
+   proof first, replace only proof invalidated by the correction, populate the
+   Block 4 common decision record through `selected`, `implementing`,
+   `validated`, and `closed`, and keep the same fingerprint for process-only
+   currentness refreshes. Store it in the existing implementation/supervision
+   evidence owner; do not create a correction registry or second ledger.
+7. Re-run the affected capability/protected-capability check, audit the active
+   Block, and immediately continue its remaining dependency-safe work. No
+   tracker edit, authoring thread, separate supervision lifecycle, human prompt,
+   or manual Resume is eligible for an ordinary inline correction. The Block's
+   Stop remains the mutation/audit boundary and, for a multi-Block/full-tracker
+   request, remains an internal checkpoint under the range gate.
+
+Equivalent fingerprints are deduplicated. A rejected or selected path is not
+reconsidered without new concrete adjudicating evidence. Read the capability
+frame and affected owner once, permit at most one named widening fact, and run
+focused proof before any mapped suite. If a valid incumbent remains the
+lowest-complexity complete path, retain it without manufacturing a correction.
+
 For a materially expensive read-only proof or audit with a separate reporter or
 helper, cheaply preflight the maintained reporting interface and its invocation
 binding before starting the expensive computation. If valid proof output
