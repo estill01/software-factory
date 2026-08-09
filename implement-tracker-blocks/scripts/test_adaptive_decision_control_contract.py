@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import unittest
 from pathlib import Path
 
@@ -23,6 +24,13 @@ SPEC_TEXT = REFERENCE.split("<!-- contract-spec-v1 -->", 1)[1].split("```json", 
 SPEC = json.loads(SPEC_TEXT)
 
 
+def canonical_test_root(value: object) -> str:
+    raw = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(raw).hexdigest()
+
+
 class AdaptiveDecisionControlContractTests(unittest.TestCase):
     def test_embedded_v1_spec_is_closed_and_machine_readable(self) -> None:
         self.assertEqual(SPEC["schema_version"], 1)
@@ -37,6 +45,9 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
                 "common_fields",
                 "candidate_fields",
                 "structural_fields",
+                "evidence_reference_rules",
+                "identity_evidence_rules",
+                "stage_rules",
                 "array_order",
                 "fingerprint_projection",
                 "candidate_fingerprint_projection",
@@ -59,6 +70,7 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
             "currentness_refresh_of": "id",
             "mission_root": "sha256",
             "authority_effect": "enum:authority-effect",
+            "authority_claim_id": "id",
             "authority_evidence_refs": "array:id",
             "prior_mission_root": "sha256",
             "proposed_mission_root": "sha256",
@@ -74,6 +86,9 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
             "capability_frame_root": "sha256",
             "protected_capability_results": "array:protected-result",
             "evidence_refs": "array:evidence-ref",
+            "adjudicating_evidence_ref_ids": "array:id",
+            "adjudicating_evidence_root": "sha256",
+            "evidence_manifest_root": "sha256",
             "decision_fingerprint": "sha256",
             "compared_paths": "array:path-comparison",
             "selected_path": "id",
@@ -103,6 +118,7 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
             {
                 "predecessor_decision_id",
                 "currentness_refresh_of",
+                "authority_claim_id",
                 "proposed_mission_root",
                 "selected_path",
                 "proposer_author_id",
@@ -152,9 +168,13 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
         self.assertEqual(
             enums["mission-authority-source-class"], ["direct-user", "system"]
         )
+        self.assertIn("independent-evaluation", enums["evidence-source-class"])
 
     def test_root_projections_and_successor_links_are_exact(self) -> None:
         self.assertEqual(SPEC["array_order"]["evidence_refs"], "ref_id-ascending")
+        self.assertEqual(
+            SPEC["array_order"]["adjudicating_evidence_ref_ids"], "id-ascending"
+        )
         self.assertEqual(
             SPEC["array_order"]["compared_paths"], "path-kind-enum-order"
         )
@@ -175,6 +195,7 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
                 "schema_version",
                 "mission_root",
                 "authority_effect",
+                "authority_claim_id",
                 "authority_evidence_refs",
                 "prior_mission_root",
                 "proposed_mission_root",
@@ -188,7 +209,8 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
                 "capability_statement",
                 "capability_frame_root",
                 "protected_capability_results",
-                "evidence_refs",
+                "adjudicating_evidence_ref_ids",
+                "adjudicating_evidence_root",
                 "compared_paths",
                 "affected_scope",
                 "safe_frontier",
@@ -202,6 +224,8 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
             SPEC["currentness_projection"],
             [
                 "decision_fingerprint",
+                "decision_stage",
+                "evidence_manifest_root",
                 "policy_root",
                 "event_head_root",
                 "target_revision",
@@ -234,6 +258,99 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
         self.assertIn("floats, non-finite numbers", REFERENCE)
         self.assertIn("submitted noncanonical order is rejected", REFERENCE)
 
+    def test_process_evidence_changes_currentness_not_decision_identity(self) -> None:
+        source = {
+            "ref_id": "source-1",
+            "source_class": "repository",
+            "root_sha256": "a" * 64,
+            "claim_ids": ["claim-source"],
+        }
+        validation = {
+            "ref_id": "validation-1",
+            "source_class": "validation",
+            "root_sha256": "b" * 64,
+            "claim_ids": ["claim-validation"],
+        }
+        common_projection = {
+            key: f"value:{key}" for key in SPEC["fingerprint_projection"]
+        }
+        common_projection["schema_version"] = 1
+        common_projection["adjudicating_evidence_ref_ids"] = ["source-1"]
+        common_projection["adjudicating_evidence_root"] = canonical_test_root([source])
+        fingerprint_before = canonical_test_root(common_projection)
+
+        complete_before = canonical_test_root([source])
+        complete_after = canonical_test_root([source, validation])
+        self.assertNotEqual(complete_before, complete_after)
+        self.assertEqual(fingerprint_before, canonical_test_root(common_projection))
+
+        current_fields = [field.rstrip("?") for field in SPEC["currentness_projection"]]
+        current_before = {field: f"value:{field}" for field in current_fields}
+        current_before["decision_fingerprint"] = fingerprint_before
+        current_before["evidence_manifest_root"] = complete_before
+        current_after = {**current_before, "evidence_manifest_root": complete_after}
+        self.assertNotEqual(
+            canonical_test_root(current_before), canonical_test_root(current_after)
+        )
+        validated_stage = {**current_after, "decision_stage": "validated"}
+        reviewed_stage = {**validated_stage, "decision_stage": "reviewed"}
+        self.assertNotEqual(
+            canonical_test_root(validated_stage), canonical_test_root(reviewed_stage)
+        )
+        self.assertEqual(
+            validated_stage["decision_fingerprint"], reviewed_stage["decision_fingerprint"]
+        )
+
+        second_source = {
+            "ref_id": "source-2",
+            "source_class": "canonical-event",
+            "root_sha256": "c" * 64,
+            "claim_ids": ["claim-second"],
+        }
+        successor_projection = {
+            **common_projection,
+            "adjudicating_evidence_ref_ids": ["source-1", "source-2"],
+            "adjudicating_evidence_root": canonical_test_root([source, second_source]),
+        }
+        self.assertNotEqual(
+            fingerprint_before, canonical_test_root(successor_projection)
+        )
+        self.assertIn("requires non-null\n  `predecessor_decision_id`", REFERENCE)
+
+    def test_stage_transitions_and_evidence_are_exact(self) -> None:
+        stages = SPEC["stage_rules"]
+        self.assertEqual(
+            stages["allowed_transitions"],
+            {
+                "selected": ["implementing", "validated", "closed"],
+                "implementing": ["validated", "closed"],
+                "validated": ["reviewed", "cutover-eligible", "closed"],
+                "reviewed": ["cutover-eligible", "closed"],
+                "cutover-eligible": ["closed"],
+                "closed": [],
+            },
+        )
+        self.assertEqual(
+            stages["required_evidence_source_classes"]["reviewed"],
+            ["validation", "independent-review"],
+        )
+        self.assertEqual(
+            stages["required_evidence_source_classes"]["cutover-eligible"],
+            ["validation", "independent-review", "observed-outcome"],
+        )
+        self.assertEqual(
+            stages["software-factory-additional-evidence"]["source_classes"],
+            ["independent-review", "independent-evaluation"],
+        )
+        self.assertEqual(
+            stages["cutover-eligible"]["equals"],
+            [
+                ["review_disposition", "accepted"],
+                ["retirement_posture", "eligible-cutover"],
+            ],
+        )
+        self.assertIn("transition from `closed` is\n  rejected", REFERENCE)
+
     def test_cross_field_rules_cover_authority_and_disposition_shapes(self) -> None:
         self.assertEqual(
             set(SPEC["cross_field_rule_ids"]),
@@ -241,6 +358,13 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
                 "exact-three-paths",
                 "selected-path-membership",
                 "rejected-path-membership",
+                "evidence-reference-integrity",
+                "evidence-claim-binding",
+                "identity-evidence-binding",
+                "adjudicating-evidence-subset",
+                "evidence-manifest-root",
+                "stage-transition",
+                "stage-evidence",
                 "fresh-decision-link",
                 "currentness-refresh-link",
                 "links-mutually-exclusive",
@@ -257,6 +381,21 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
         self.assertIn("proposed_mission_root != mission_root", REFERENCE)
         self.assertIn("adaptive disposition may authorize mutation", REFERENCE)
         self.assertIn("posture is exactly `reserved-external`", REFERENCE)
+        self.assertIn("complete ordered `evidence_refs` array", REFERENCE)
+        self.assertIn("Later implementation, validation, review, or outcome evidence", REFERENCE)
+        self.assertEqual(
+            SPEC["identity_evidence_rules"],
+            {
+                "reviewer_id": {
+                    "when_nonnull_source_class": "independent-review",
+                    "claim_id_field": "reviewer_id",
+                },
+                "evaluator_id": {
+                    "when_nonnull_source_class": "independent-evaluation",
+                    "claim_id_field": "evaluator_id",
+                },
+            },
+        )
 
     def test_role_rules_are_exact_per_target_and_disposition(self) -> None:
         roles = SPEC["role_rules"]
@@ -271,11 +410,28 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
         self.assertEqual(set(roles["software-factory"]), dispositions)
         self.assertEqual(
             roles["target-repository"]["compare-candidate"]["equal"],
-            [["reviewer_id", "independent_reviewer_id"]],
+            [
+                ["reviewer_id", "independent_reviewer_id"],
+                ["implementation_owner_id", "production_authority_owner_id"],
+            ],
+        )
+        self.assertEqual(
+            roles["target-repository"]["compare-candidate"]["not_equal"],
+            [
+                ["reviewer_id", "implementation_owner_id"],
+                ["reviewer_id", "cutover_owner_id"],
+            ],
         )
         self.assertEqual(
             roles["target-repository"]["amend-structure"]["equal"],
             [["reviewer_id", "authoring_reviewer_id"]],
+        )
+        self.assertEqual(
+            roles["target-repository"]["amend-structure"]["not_equal"],
+            [
+                ["reviewer_id", "author_owner_id"],
+                ["reviewer_id", "implementation_owner_id"],
+            ],
         )
         self.assertEqual(
             roles["software-factory"]["correct-inline"]["distinct"],
@@ -361,6 +517,57 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
             {"path_id", "kind", "posture", "rationale", "evidence_ref_ids"},
         )
         self.assertEqual(path_fields["evidence_ref_ids"]["min_items"], 1)
+
+        external_fields = SPEC["named_types"]["external-boundary"]["fields"]
+        self.assertIn("boundary_id", external_fields)
+        rules = SPEC["evidence_reference_rules"]
+        self.assertEqual(
+            rules["claim_bindings"],
+            [
+                {"refs": "authority_evidence_refs", "claim": "authority_claim_id"},
+                {
+                    "refs": "protected_capability_results[].evidence_ref_ids",
+                    "claim": "protected_capability_results[].capability_id",
+                },
+                {
+                    "refs": "compared_paths[].evidence_ref_ids",
+                    "claim": "compared_paths[].path_id",
+                },
+                {
+                    "refs": "external_boundary.evidence_ref_ids?",
+                    "claim": "external_boundary.boundary_id?",
+                },
+            ],
+        )
+
+    def test_dangling_or_mismatched_evidence_claims_are_rejected(self) -> None:
+        evidence = [
+            {"ref_id": "ev-authority", "claim_ids": ["claim-authority"]},
+            {"ref_id": "ev-capability", "claim_ids": ["capability-safe"]},
+            {"ref_id": "ev-path", "claim_ids": ["path-local"]},
+            {"ref_id": "ev-boundary", "claim_ids": ["boundary-release"]},
+        ]
+
+        def valid(bindings: list[tuple[list[str], str]]) -> bool:
+            refs = [item["ref_id"] for item in evidence]
+            if len(refs) != len(set(refs)):
+                return False
+            by_id = {item["ref_id"]: item for item in evidence}
+            for ref_ids, claim_id in bindings:
+                for ref_id in ref_ids:
+                    if ref_id not in by_id or claim_id not in by_id[ref_id]["claim_ids"]:
+                        return False
+            return True
+
+        accepted = [
+            (["ev-authority"], "claim-authority"),
+            (["ev-capability"], "capability-safe"),
+            (["ev-path"], "path-local"),
+            (["ev-boundary"], "boundary-release"),
+        ]
+        self.assertTrue(valid(accepted))
+        self.assertFalse(valid([*accepted, (["missing-evidence"], "path-local")]))
+        self.assertFalse(valid([*accepted, (["ev-path"], "path-general")]))
 
     def test_four_dispositions_form_the_smallest_sufficient_ladder(self) -> None:
         for disposition in (

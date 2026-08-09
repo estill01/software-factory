@@ -126,13 +126,15 @@ normative; this prose is an operator index. Common fields are:
 - `predecessor_decision_id` and `currentness_refresh_of`;
 - `mission_root`, `tracker_path`, `tracker_sha256`, `block_number`, and
   `block_contract_root`;
-- `authority_effect`, `authority_evidence_refs`, `prior_mission_root`, and
-  `proposed_mission_root`;
+- `authority_effect`, nullable `authority_claim_id`, `authority_evidence_refs`,
+  `prior_mission_root`, and `proposed_mission_root`;
 - `target_class`, `target_repository_root`, `target_revision`, and
   `target_state_root`;
 - `capability_statement`, `capability_frame_root`, and
   `protected_capability_results`;
-- `evidence_refs` and `decision_fingerprint`;
+- `evidence_refs`, `adjudicating_evidence_ref_ids`,
+  `adjudicating_evidence_root`, `evidence_manifest_root`, and
+  `decision_fingerprint`;
 - `compared_paths`, `selected_path`, and `rejected_paths`;
 - `affected_scope`, `valid_work_refs`, `stale_proof_refs`, and
   `safe_frontier`;
@@ -145,6 +147,10 @@ normative; this prose is an operator index. Common fields are:
 
 `evidence_refs` attach exact source or observable-effect references to the
 claims they support; a free-text evidence list does not establish behavior.
+`adjudicating_evidence_ref_ids` selects only the evidence that determines the
+disposition. Later implementation, validation, review, or outcome evidence may
+extend `evidence_refs` and `evidence_manifest_root` without fabricating a new
+decision fingerprint.
 `compared_paths` records the smallest local, bounded-general, and existing-owner
 options or states why one is unavailable. `rejected_paths` preserves the
 reason a lower-power shortcut or speculative generalization lost.
@@ -210,6 +216,7 @@ IDs or roots, and obey `min_items`. Objects reject unknown keys. `id` and
     "external-boundary": {
       "kind": "object",
       "fields": {
+        "boundary_id": {"type": "id", "required": true, "nullable": false},
         "posture": {"type": "string", "required": true, "nullable": false, "const": "reserved-external"},
         "boundary_class": {"type": "enum:external-boundary-class", "required": true, "nullable": false},
         "evidence_ref_ids": {"type": "array:id", "required": true, "nullable": false, "min_items": 1},
@@ -227,7 +234,7 @@ IDs or roots, and obey `min_items`. Objects reject unknown keys. `id` and
     "external-boundary-class": ["unavailable-credential", "spend-authority", "destructive-permission", "external-communication", "external-release", "direct-goal-change"],
     "adaptive-decision-mode": ["fixed", "recommend", "reviewed-autonomous", "full-autonomous"],
     "mission-authority-source-class": ["direct-user", "system"],
-    "evidence-source-class": ["direct-user", "system", "repository", "tracker", "canonical-event", "observed-outcome", "validation", "independent-review"],
+    "evidence-source-class": ["direct-user", "system", "repository", "tracker", "canonical-event", "observed-outcome", "validation", "independent-review", "independent-evaluation"],
     "protected-result": ["preserved", "regressed", "reopened"],
     "path-kind": ["local", "bounded-general", "architectural-owner"],
     "path-posture": ["selected", "rejected", "unavailable"],
@@ -247,6 +254,7 @@ IDs or roots, and obey `min_items`. Objects reject unknown keys. `id` and
     "currentness_refresh_of": {"type": "id", "required": true, "nullable": true},
     "mission_root": {"type": "sha256", "required": true, "nullable": false},
     "authority_effect": {"type": "enum:authority-effect", "required": true, "nullable": false},
+    "authority_claim_id": {"type": "id", "required": true, "nullable": true},
     "authority_evidence_refs": {"type": "array:id", "required": true, "nullable": false, "min_items": 0},
     "prior_mission_root": {"type": "sha256", "required": true, "nullable": false},
     "proposed_mission_root": {"type": "sha256", "required": true, "nullable": true},
@@ -262,6 +270,9 @@ IDs or roots, and obey `min_items`. Objects reject unknown keys. `id` and
     "capability_frame_root": {"type": "sha256", "required": true, "nullable": false},
     "protected_capability_results": {"type": "array:protected-result", "required": true, "nullable": false, "min_items": 1},
     "evidence_refs": {"type": "array:evidence-ref", "required": true, "nullable": false, "min_items": 1},
+    "adjudicating_evidence_ref_ids": {"type": "array:id", "required": true, "nullable": false, "min_items": 1},
+    "adjudicating_evidence_root": {"type": "sha256", "required": true, "nullable": false},
+    "evidence_manifest_root": {"type": "sha256", "required": true, "nullable": false},
     "decision_fingerprint": {"type": "sha256", "required": true, "nullable": false},
     "compared_paths": {"type": "array:path-comparison", "required": true, "nullable": false, "min_items": 3, "max_items": 3},
     "selected_path": {"type": "id", "required": true, "nullable": true},
@@ -322,10 +333,45 @@ IDs or roots, and obey `min_items`. Objects reject unknown keys. `id` and
     "authoring_reviewer_id": {"type": "id", "required": true, "nullable": false},
     "authoring_review_disposition": {"type": "enum:authoring-review-disposition", "required": true, "nullable": false}
   },
+  "evidence_reference_rules": {
+    "unique_fields": ["evidence_refs.ref_id", "evidence_refs[].claim_ids"],
+    "resolve_fields": ["authority_evidence_refs", "adjudicating_evidence_ref_ids", "protected_capability_results[].evidence_ref_ids", "compared_paths[].evidence_ref_ids", "external_boundary.evidence_ref_ids?", "valid_work_refs", "stale_proof_refs", "invalidated_evidence_refs?", "preserved_evidence_refs?"],
+    "claim_bindings": [
+      {"refs": "authority_evidence_refs", "claim": "authority_claim_id"},
+      {"refs": "protected_capability_results[].evidence_ref_ids", "claim": "protected_capability_results[].capability_id"},
+      {"refs": "compared_paths[].evidence_ref_ids", "claim": "compared_paths[].path_id"},
+      {"refs": "external_boundary.evidence_ref_ids?", "claim": "external_boundary.boundary_id?"}
+    ]
+  },
+  "identity_evidence_rules": {
+    "reviewer_id": {"when_nonnull_source_class": "independent-review", "claim_id_field": "reviewer_id"},
+    "evaluator_id": {"when_nonnull_source_class": "independent-evaluation", "claim_id_field": "evaluator_id"}
+  },
+  "stage_rules": {
+    "allowed_transitions": {
+      "selected": ["implementing", "validated", "closed"],
+      "implementing": ["validated", "closed"],
+      "validated": ["reviewed", "cutover-eligible", "closed"],
+      "reviewed": ["cutover-eligible", "closed"],
+      "cutover-eligible": ["closed"],
+      "closed": []
+    },
+    "required_evidence_source_classes": {
+      "selected": [],
+      "implementing": [],
+      "validated": ["validation"],
+      "reviewed": ["validation", "independent-review"],
+      "cutover-eligible": ["validation", "independent-review", "observed-outcome"],
+      "closed": ["validation", "observed-outcome"]
+    },
+    "cutover-eligible": {"disposition": "compare-candidate", "nonnull": ["candidate_root", "review_root", "review_disposition"], "equals": [["review_disposition", "accepted"], ["retirement_posture", "eligible-cutover"]]},
+    "software-factory-additional-evidence": {"stages": ["reviewed", "cutover-eligible", "closed"], "source_classes": ["independent-review", "independent-evaluation"]}
+  },
   "array_order": {
     "authority_evidence_refs": "id-ascending",
     "protected_capability_results": "capability_id-ascending",
     "evidence_refs": "ref_id-ascending",
+    "adjudicating_evidence_ref_ids": "id-ascending",
     "evidence-ref.claim_ids": "id-ascending",
     "protected-result.evidence_ref_ids": "id-ascending",
     "compared_paths": "path-kind-enum-order",
@@ -351,16 +397,16 @@ IDs or roots, and obey `min_items`. Objects reject unknown keys. `id` and
     "invalidated_evidence_refs": "id-ascending",
     "preserved_evidence_refs": "id-ascending"
   },
-  "fingerprint_projection": ["schema_version", "mission_root", "authority_effect", "authority_evidence_refs", "prior_mission_root", "proposed_mission_root", "tracker_path", "tracker_sha256", "block_number", "block_contract_root", "target_class", "target_repository_root", "target_state_root", "capability_statement", "capability_frame_root", "protected_capability_results", "evidence_refs", "compared_paths", "affected_scope", "safe_frontier", "adaptive_decision_mode", "implementation_owner_id", "stop_boundary", "external_boundary"],
+  "fingerprint_projection": ["schema_version", "mission_root", "authority_effect", "authority_claim_id", "authority_evidence_refs", "prior_mission_root", "proposed_mission_root", "tracker_path", "tracker_sha256", "block_number", "block_contract_root", "target_class", "target_repository_root", "target_state_root", "capability_statement", "capability_frame_root", "protected_capability_results", "adjudicating_evidence_ref_ids", "adjudicating_evidence_root", "compared_paths", "affected_scope", "safe_frontier", "adaptive_decision_mode", "implementation_owner_id", "stop_boundary", "external_boundary"],
   "candidate_fingerprint_projection": ["hypothesis", "hypothesis_scope", "incumbent_root", "isolation_kind", "isolated_writable_scope", "shared_resource_exclusions", "resource_ceiling", "time_ceiling", "stop_condition", "production_authority_owner_id", "focused_validation", "mapped_validation", "validation_order", "comparison_dimensions", "independent_reviewer_id", "cutover_owner_id", "cutover_preconditions"],
   "structural_fingerprint_projection": ["structural_reason", "proposed_mutations", "old_to_new_block_map", "dependency_closure", "accepted_history_boundary", "invalidated_evidence_refs", "preserved_evidence_refs", "resume_point", "author_owner_id", "authoring_reviewer_id"],
-  "currentness_projection": ["decision_fingerprint", "policy_root", "event_head_root", "target_revision", "accepted_decision_head", "accepted_revision_head", "candidate_root?", "review_root?", "review_disposition?", "retirement_posture?", "proposed_tracker_root?", "authoring_review_disposition?"],
+  "currentness_projection": ["decision_fingerprint", "decision_stage", "evidence_manifest_root", "policy_root", "event_head_root", "target_revision", "accepted_decision_head", "accepted_revision_head", "candidate_root?", "review_root?", "review_disposition?", "retirement_posture?", "proposed_tracker_root?", "authoring_review_disposition?"],
   "role_rules": {
     "target-repository": {
       "continue-unchanged": {"must_be_null": ["proposer_author_id", "reviewer_id", "evaluator_id"]},
       "correct-inline": {"must_be_null": ["proposer_author_id", "reviewer_id", "evaluator_id"]},
-      "compare-candidate": {"must_be_nonnull": ["reviewer_id"], "must_be_null": ["proposer_author_id", "evaluator_id"], "equal": [["reviewer_id", "independent_reviewer_id"]]},
-      "amend-structure": {"must_be_nonnull": ["reviewer_id"], "must_be_null": ["proposer_author_id", "evaluator_id"], "equal": [["reviewer_id", "authoring_reviewer_id"]]}
+      "compare-candidate": {"must_be_nonnull": ["reviewer_id"], "must_be_null": ["proposer_author_id", "evaluator_id"], "equal": [["reviewer_id", "independent_reviewer_id"], ["implementation_owner_id", "production_authority_owner_id"]], "not_equal": [["reviewer_id", "implementation_owner_id"], ["reviewer_id", "cutover_owner_id"]]},
+      "amend-structure": {"must_be_nonnull": ["reviewer_id"], "must_be_null": ["proposer_author_id", "evaluator_id"], "equal": [["reviewer_id", "authoring_reviewer_id"]], "not_equal": [["reviewer_id", "author_owner_id"], ["reviewer_id", "implementation_owner_id"]]}
     },
     "software-factory": {
       "continue-unchanged": {"must_be_null": ["proposer_author_id", "reviewer_id", "evaluator_id"]},
@@ -369,7 +415,7 @@ IDs or roots, and obey `min_items`. Objects reject unknown keys. `id` and
       "amend-structure": {"must_be_nonnull": ["proposer_author_id", "reviewer_id", "evaluator_id"], "equal": [["proposer_author_id", "author_owner_id"], ["reviewer_id", "authoring_reviewer_id"]], "distinct": ["proposer_author_id", "implementation_owner_id", "reviewer_id", "evaluator_id"]}
     }
   },
-  "cross_field_rule_ids": ["exact-three-paths", "selected-path-membership", "rejected-path-membership", "fresh-decision-link", "currentness-refresh-link", "links-mutually-exclusive", "authority-none", "mission-preserving-clarification", "direct-goal-change-reject", "reserved-external-bounded", "candidate-fields-by-disposition", "structural-fields-by-disposition", "software-factory-role-separation"]
+  "cross_field_rule_ids": ["exact-three-paths", "selected-path-membership", "rejected-path-membership", "evidence-reference-integrity", "evidence-claim-binding", "identity-evidence-binding", "adjudicating-evidence-subset", "evidence-manifest-root", "stage-transition", "stage-evidence", "fresh-decision-link", "currentness-refresh-link", "links-mutually-exclusive", "authority-none", "mission-preserving-clarification", "direct-goal-change-reject", "reserved-external-bounded", "candidate-fields-by-disposition", "structural-fields-by-disposition", "software-factory-role-separation"]
 }
 ```
 
@@ -395,20 +441,55 @@ The cross-field rules are:
   candidate/structural selection; otherwise it names the sole `selected` path.
 - `rejected-path-membership`: `rejected_paths` equals the ordered IDs of every
   `rejected` comparison and no other path.
+- `evidence-reference-integrity`: `evidence_refs.ref_id` values are unique;
+  every `claim_ids` list is unique; and every ID named by a
+  `evidence_reference_rules.resolve_fields` path resolves exactly once in
+  `evidence_refs`. Optional `?` paths are skipped only when their owning
+  disposition/object is absent.
+- `evidence-claim-binding`: for every `claim_bindings` entry, every resolved
+  evidence object contains the paired claim value in its `claim_ids`. A dangling
+  reference or evidence for a different claim rejects the record.
+- `identity-evidence-binding`: every non-null identity named in
+  `identity_evidence_rules` has at least one complete evidence object with the
+  exact required `source_class` and that identity in `claim_ids`. A role label
+  without attributable evidence does not establish independent participation.
+- `adjudicating-evidence-subset`: every
+  `adjudicating_evidence_ref_ids` value resolves exactly once in
+  `evidence_refs`; `adjudicating_evidence_root` is SHA-256 of canonical bytes
+  for those complete evidence objects in ID order. Later non-adjudicating
+  evidence cannot alter the set or root without creating a successor decision.
+- `evidence-manifest-root`: `evidence_manifest_root` is SHA-256 of canonical
+  bytes for the complete ordered `evidence_refs` array.
+- `stage-transition`: decision records are immutable. A changed
+  `decision_stage` appends a new record linked by `currentness_refresh_of`, keeps
+  the same `decision_fingerprint`, follows `stage_rules.allowed_transitions`,
+  and changes `currentness_root`. Regression or transition from `closed` is
+  rejected.
+- `stage-evidence`: the complete evidence catalog contains every source class
+  required for the current stage. `cutover-eligible` also satisfies its exact
+  disposition, non-null, review-disposition, and retirement-posture rules.
+  `software-factory` stages listed in
+  `software-factory-additional-evidence` additionally contain both an
+  independent-review and independent-evaluation reference bound to the current
+  record.
 - `fresh-decision-link`: new adjudicating evidence requires non-null
   `predecessor_decision_id` and null `currentness_refresh_of`.
-- `currentness-refresh-link`: context-only refresh requires non-null
-  `currentness_refresh_of`, null `predecessor_decision_id`, and the same
-  `decision_fingerprint`.
+- `currentness-refresh-link`: context-, stage-, validation-, review-, or
+  outcome-only refresh requires non-null `currentness_refresh_of`, null
+  `predecessor_decision_id`, and the same `decision_fingerprint`; its changed
+  `evidence_manifest_root` and currentness outputs are retained in the new
+  immutable record.
 - `links-mutually-exclusive`: both linkage fields cannot be non-null.
-- `authority-none`: `authority_evidence_refs` is empty,
-  `prior_mission_root == mission_root`, and `proposed_mission_root` is null.
+- `authority-none`: `authority_claim_id` is null,
+  `authority_evidence_refs` is empty, `prior_mission_root == mission_root`, and
+  `proposed_mission_root` is null.
 - `mission-preserving-clarification`: at least one exact eligible direct
   authority reference is present, each resolves to an `evidence_ref` whose
-  `source_class` is in `mission-authority-source-class`, and
+  `source_class` is in `mission-authority-source-class`, non-null
+  `authority_claim_id` is bound through `evidence-claim-binding`, and
   `prior_mission_root == proposed_mission_root == mission_root`.
 - `direct-goal-change-reject`: at least one exact eligible direct authority
-  reference meeting the same source-class rule and a non-null
+  reference meeting the same source-class and claim-binding rules and a non-null
   `proposed_mission_root != mission_root` classify a direct goal change. No
   adaptive disposition may authorize mutation; fail
   closed to the separate mission-binding owner. Routed, review, supervisor, or
@@ -426,8 +507,10 @@ The cross-field rules are:
 - `structural-fields-by-disposition`: structural fields are present only and
   all present for `amend-structure`.
 - `software-factory-role-separation`: apply the exact `role_rules` entry for the
-  target class and disposition. `must_be_nonnull`, `must_be_null`, `equal`, and
-  `distinct` are exhaustive; null never proves equality or separation.
+  target class and disposition. `must_be_nonnull`, `must_be_null`, `equal`,
+  `not_equal`, and `distinct` are exhaustive; `distinct` means every listed
+  identity is pairwise unequal, while `not_equal` applies only to its named
+  pairs. Null never proves equality or separation.
 
 ## Bounded candidate additions
 
