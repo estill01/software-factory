@@ -29,14 +29,7 @@ class SkillReleaseTests(unittest.TestCase):
         self.install_root = self.root / "installed"
         self.repo.mkdir()
         self.install_root.mkdir()
-        self.validator = self.root / "validator.py"
-        self.validator.write_text(
-            "#!/usr/bin/env python3\n"
-            "import pathlib, sys\n"
-            "raise SystemExit(0 if (pathlib.Path(sys.argv[1]) / 'SKILL.md').is_file() else 1)\n",
-            encoding="utf-8",
-        )
-        self.validator.chmod(0o755)
+        self.evidence_counter = 0
         self.git("init")
         self.git("config", "user.email", "factory@example.test")
         self.git("config", "user.name", "Factory Test")
@@ -77,34 +70,69 @@ class SkillReleaseTests(unittest.TestCase):
         self.git("commit", "-m", message)
         return self.git("rev-parse", "HEAD")
 
-    def stage_args(self, commit: str, **overrides: str) -> argparse.Namespace:
+    def review_evidence(self, commit: str) -> Path:
+        request = skill_release.review_request(
+            argparse.Namespace(repo=str(self.repo), source_commit=commit)
+        )
+        self.evidence_counter += 1
+        path = self.root / f"review-{self.evidence_counter}.json"
+        material = {
+            "schema_version": skill_release.SCHEMA_VERSION,
+            "kind": "software-factory-skill-release-review",
+            "record_id": f"independent-review-{self.evidence_counter}-1234",
+            "reviewer_id": "independent-reviewer-1234",
+            "implementer_id": "implementation-owner-1234",
+            "disposition": "accepted",
+            "source_commit": commit,
+            "candidate_root_sha256": request["candidate_root_sha256"],
+            "reviewed_at": "2026-08-09T12:00:00+00:00",
+            "evidence": [f"exact-commit:{commit}", "isolated-review:no-findings"],
+        }
+        material["review_root_sha256"] = skill_release.digest(material)
+        path.write_bytes(skill_release.canonical(material) + b"\n")
+        return path
+
+    def stage_args(
+        self, commit: str, *, review_evidence: Path | None = None
+    ) -> argparse.Namespace:
         values = {
             "repo": str(self.repo),
             "release_root": str(self.release_root),
             "install_root": str(self.install_root),
             "source_commit": commit,
-            "reviewer_id": "independent-reviewer-1234",
-            "review_record": f"review-{commit[:12]}",
-            "review_root": hashlib.sha256(
-                f"independent-review:{commit}".encode("utf-8")
-            ).hexdigest(),
-            "validator": str(self.validator),
+            "implementer_id": "implementation-owner-1234",
+            "review_evidence": str(review_evidence or self.review_evidence(commit)),
         }
-        values.update(overrides)
         return argparse.Namespace(**values)
 
     def activate_args(
         self,
         release_id: str,
+        *,
+        operation: str = "bootstrap",
+        previous_release_id: str | None = None,
     ) -> argparse.Namespace:
+        self.evidence_counter += 1
+        evidence_path = self.root / f"quiescent-{self.evidence_counter}.json"
+        material = {
+            "schema_version": skill_release.SCHEMA_VERSION,
+            "kind": "software-factory-quiescent-boundary",
+            "record_id": f"quiescent-boundary-{self.evidence_counter}-1234",
+            "operator_id": "release-operator-1234",
+            "operation": operation,
+            "release_id": release_id,
+            "previous_active_release_id": previous_release_id,
+            "observed_at": "2026-08-09T12:01:00+00:00",
+            "no_concurrent_skill_resolutions": True,
+            "evidence": ["isolated-test-boundary", "no-concurrent-resolution"],
+        }
+        material["evidence_root_sha256"] = skill_release.digest(material)
+        evidence_path.write_bytes(skill_release.canonical(material) + b"\n")
         return argparse.Namespace(
             release_root=str(self.release_root),
             install_root=str(self.install_root),
             release_id=release_id,
-            quiescent_boundary_record="quiescent-boundary-1234",
-            quiescent_boundary_root=hashlib.sha256(
-                b"no concurrent skill resolution during cutover"
-            ).hexdigest(),
+            quiescent_evidence=str(evidence_path),
             legacy_source_root=str(self.repo),
         )
 
@@ -117,9 +145,14 @@ class SkillReleaseTests(unittest.TestCase):
             name: os.readlink(self.install_root / name)
             for name in skill_release.SKILLS
         }
-        first = self.stage(first_commit)
+        first_review = self.review_evidence(first_commit)
+        first = skill_release.stage_release(
+            self.stage_args(first_commit, review_evidence=first_review)
+        )
         self.assertEqual(first["stage"], "created")
-        repeated = self.stage(first_commit)
+        repeated = skill_release.stage_release(
+            self.stage_args(first_commit, review_evidence=first_review)
+        )
         self.assertEqual(repeated["stage"], "existing")
         self.assertEqual(repeated["manifest_sha256"], first["manifest_sha256"])
         self.assertEqual(
@@ -152,7 +185,11 @@ class SkillReleaseTests(unittest.TestCase):
         second_commit = self.commit("second skills")
         second = self.stage(second_commit)
         activated = skill_release.activate_release(
-            self.activate_args(str(second["release_id"]))
+            self.activate_args(
+                str(second["release_id"]),
+                operation="activate",
+                previous_release_id=str(first["release_id"]),
+            )
         )
         self.assertEqual(activated["previous_release_id"], first["release_id"])
         self.assertEqual(
@@ -164,8 +201,11 @@ class SkillReleaseTests(unittest.TestCase):
             "normal activation must mutate only the current pointer",
         )
 
-        rollback_args = self.activate_args("unused")
-        rollback_args.release_id = None
+        rollback_args = self.activate_args(
+            str(first["release_id"]),
+            operation="rollback",
+            previous_release_id=str(second["release_id"]),
+        )
         rolled_back = skill_release.rollback_release(rollback_args)
         self.assertEqual(rolled_back["active_release_id"], first["release_id"])
         status = skill_release.status(
@@ -185,8 +225,14 @@ class SkillReleaseTests(unittest.TestCase):
             self.stage(commit)
         (self.repo / "dirty.txt").unlink()
 
-        with self.assertRaisesRegex(skill_release.ReleaseError, "review root"):
-            skill_release.stage_release(self.stage_args(commit, review_root=""))
+        review_path = self.review_evidence(commit)
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["review_root_sha256"] = "0" * 64
+        review_path.write_bytes(skill_release.canonical(review) + b"\n")
+        with self.assertRaisesRegex(skill_release.ReleaseError, "review"):
+            skill_release.stage_release(
+                self.stage_args(commit, review_evidence=review_path)
+            )
 
         missing = self.repo / skill_release.SKILLS[-1]
         shutil.rmtree(missing)
@@ -205,8 +251,12 @@ class SkillReleaseTests(unittest.TestCase):
         staged = self.stage(commit)
         release_id = str(staged["release_id"])
         args = self.activate_args(release_id)
-        args.quiescent_boundary_root = ""
-        with self.assertRaisesRegex(skill_release.ReleaseError, "quiescent-boundary root"):
+        quiescent = json.loads(Path(args.quiescent_evidence).read_text(encoding="utf-8"))
+        quiescent["evidence_root_sha256"] = "0" * 64
+        Path(args.quiescent_evidence).write_bytes(
+            skill_release.canonical(quiescent) + b"\n"
+        )
+        with self.assertRaisesRegex(skill_release.ReleaseError, "Quiescent-boundary"):
             skill_release.activate_release(args)
         self.assertIsNone(skill_release.current_release_id(self.release_root.resolve()))
 
@@ -219,7 +269,9 @@ class SkillReleaseTests(unittest.TestCase):
         )
         skill_file.chmod(0o644)
         skill_file.write_text(skill_file.read_text(encoding="utf-8") + "drift\n")
-        with self.assertRaisesRegex(skill_release.ReleaseError, "content drifted"):
+        with self.assertRaisesRegex(
+            skill_release.ReleaseError, "identity or digest|content drifted"
+        ):
             skill_release.activate_release(self.activate_args(release_id))
         self.assertIsNone(skill_release.current_release_id(self.release_root.resolve()))
 
@@ -244,6 +296,41 @@ class SkillReleaseTests(unittest.TestCase):
         )
         self.assertIsNone(skill_release.current_release_id(self.release_root.resolve()))
 
+    def test_restore_error_is_retried_after_pointer_is_removed(self) -> None:
+        commit = self.git("rev-parse", "HEAD")
+        staged = self.stage(commit)
+        original_targets = {
+            name: os.readlink(self.install_root / name)
+            for name in skill_release.SKILLS
+        }
+        original_replace = skill_release.replace_link
+        failed_once = False
+
+        def flaky_restore(path: Path, target: str) -> None:
+            nonlocal failed_once
+            if target in original_targets.values() and not failed_once:
+                failed_once = True
+                raise OSError("one restore write failed")
+            original_replace(path, target)
+
+        with (
+            mock.patch.object(skill_release, "replace_link", side_effect=flaky_restore),
+            self.assertRaisesRegex(skill_release.ReleaseError, "interruption"),
+        ):
+            skill_release.bootstrap_release(
+                self.activate_args(str(staged["release_id"])),
+                fail_after_bootstrap_links=1,
+            )
+        self.assertTrue(failed_once)
+        self.assertIsNone(skill_release.current_release_id(self.release_root.resolve()))
+        self.assertEqual(
+            original_targets,
+            {
+                name: os.readlink(self.install_root / name)
+                for name in skill_release.SKILLS
+            },
+        )
+
     def test_failed_post_swap_reload_restores_prior_pointer(self) -> None:
         first_commit = self.git("rev-parse", "HEAD")
         first = self.stage(first_commit)
@@ -261,7 +348,11 @@ class SkillReleaseTests(unittest.TestCase):
             self.assertRaisesRegex(skill_release.ReleaseError, "reload unavailable"),
         ):
             skill_release.activate_release(
-                self.activate_args(str(second["release_id"]))
+                self.activate_args(
+                    str(second["release_id"]),
+                    operation="activate",
+                    previous_release_id=str(first["release_id"]),
+                )
             )
         self.assertEqual(
             skill_release.current_release_id(self.release_root.resolve()),
@@ -308,9 +399,48 @@ class SkillReleaseTests(unittest.TestCase):
         with self.assertRaises(skill_release.ReleaseError):
             skill_release.activate_release(self.activate_args(release_id))
 
-        rollback_args = self.activate_args("unknown-release")
+        rollback_args = self.activate_args(
+            "unknown-release", operation="rollback", previous_release_id=None
+        )
         with self.assertRaisesRegex(skill_release.ReleaseError, "prior accepted"):
             skill_release.rollback_release(rollback_args)
+
+    def test_forged_history_cannot_make_never_active_release_rollback_eligible(self) -> None:
+        first_commit = self.git("rev-parse", "HEAD")
+        first = self.stage(first_commit)
+        skill_release.bootstrap_release(self.activate_args(str(first["release_id"])))
+        for name in skill_release.SKILLS:
+            (self.repo / name / "NEVER_ACTIVE").write_text("candidate\n", encoding="utf-8")
+        second_commit = self.commit("never active candidate")
+        second = self.stage(second_commit)
+        forged = {
+            "record_id": "ACTIVATION-2",
+            "release_id": second["release_id"],
+            "previous_record_sha256": skill_release.history(
+                self.release_root.resolve()
+            )[-1]["record_hmac_sha256"],
+        }
+        forged["record_sha256"] = skill_release.digest(forged)
+        skill_release.append_jsonl(
+            self.release_root / skill_release.HISTORY_NAME, forged
+        )
+        args = self.activate_args(
+            str(second["release_id"]),
+            operation="rollback",
+            previous_release_id=str(first["release_id"]),
+        )
+        with self.assertRaisesRegex(skill_release.ReleaseError, "forged"):
+            skill_release.rollback_release(args)
+
+    def test_canonical_validator_rejects_invalid_skill_metadata(self) -> None:
+        name = skill_release.SKILLS[0]
+        (self.repo / name / "SKILL.md").write_text(
+            f"---\nname: {name}\n---\n\n# Missing description\n",
+            encoding="utf-8",
+        )
+        commit = self.commit("invalid skill metadata")
+        with self.assertRaisesRegex(skill_release.ReleaseError, "validation failed"):
+            self.stage(commit)
 
     def test_releases_directory_symlink_is_rejected(self) -> None:
         outside = self.root / "outside-releases"

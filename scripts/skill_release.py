@@ -8,6 +8,7 @@ import contextlib
 import datetime as dt
 import fcntl
 import hashlib
+import hmac
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 from typing import Any, Iterator, Mapping, Sequence
 
 
@@ -27,7 +29,9 @@ SKILLS = (
 )
 MANIFEST_NAME = "release-manifest.json"
 HISTORY_NAME = "activation-history.jsonl"
+ACCEPTANCE_NAME = "accepted-releases.jsonl"
 LOCK_NAME = ".release.lock"
+KEY_DIRECTORY = ".software-factory-release-keys"
 SCHEMA_VERSION = 1
 
 
@@ -154,8 +158,77 @@ def release_lock(release_root: Path) -> Iterator[None]:
         os.close(descriptor)
 
 
-def append_history(release_root: Path, record: Mapping[str, Any]) -> None:
-    path = release_root / HISTORY_NAME
+def release_key_path(release_root: Path) -> Path:
+    key_directory = release_root.parent / KEY_DIRECTORY
+    key_name = hashlib.sha256(str(release_root).encode("utf-8")).hexdigest() + ".key"
+    return key_directory / key_name
+
+
+def release_key(release_root: Path, *, allow_create: bool) -> bytes:
+    path = release_key_path(release_root)
+    protected_state_exists = any(
+        (release_root / name).exists() for name in (ACCEPTANCE_NAME, HISTORY_NAME)
+    )
+    if not path.exists():
+        if protected_state_exists or not allow_create:
+            raise ReleaseError("External release authority key is missing")
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if path.parent.is_symlink():
+            raise ReleaseError("External release authority directory is symlinked")
+        path.parent.chmod(0o700)
+        descriptor = os.open(
+            path,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+            0o400,
+        )
+        try:
+            os.write(descriptor, secrets.token_bytes(32))
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        fsync_directory(path.parent)
+    if path.is_symlink():
+        raise ReleaseError("External release authority key is symlinked")
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    try:
+        metadata = os.fstat(descriptor)
+        key = os.read(descriptor, 33)
+    finally:
+        os.close(descriptor)
+    if (
+        not stat.S_ISREG(metadata.st_mode)
+        or metadata.st_size != 32
+        or len(key) != 32
+        or stat.S_IMODE(metadata.st_mode) & 0o077
+    ):
+        raise ReleaseError("External release authority key is invalid")
+    return key
+
+
+def record_hmac(key: bytes, material: Mapping[str, Any]) -> str:
+    return hmac.new(key, canonical(material), hashlib.sha256).hexdigest()
+
+
+def load_bounded_json(path: Path, *, label: str, maximum: int = 65536) -> dict[str, Any]:
+    if path.is_symlink() or not path.is_file():
+        raise ReleaseError(f"{label} must be a real regular file")
+    metadata = path.stat()
+    if metadata.st_size > maximum:
+        raise ReleaseError(f"{label} exceeds its size limit")
+    with path.open("rb") as source:
+        raw = source.read(maximum + 1)
+    if len(raw) > maximum:
+        raise ReleaseError(f"{label} exceeds its size limit")
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ReleaseError(f"{label} is invalid JSON") from exc
+    if not isinstance(value, dict):
+        raise ReleaseError(f"{label} must be a JSON object")
+    return value
+
+
+def append_jsonl(path: Path, record: Mapping[str, Any]) -> None:
     flags = os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
     descriptor = os.open(path, flags, 0o600)
     try:
@@ -163,33 +236,194 @@ def append_history(release_root: Path, record: Mapping[str, Any]) -> None:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
-    fsync_directory(release_root)
+    fsync_directory(path.parent)
 
 
-def history(release_root: Path) -> list[dict[str, Any]]:
-    path = release_root / HISTORY_NAME
+def append_history(release_root: Path, record: Mapping[str, Any]) -> None:
+    append_jsonl(release_root / HISTORY_NAME, record)
+
+
+def jsonl_records(path: Path, *, label: str) -> list[dict[str, Any]]:
     if not path.exists():
         return []
     if path.is_symlink() or not path.is_file():
-        raise ReleaseError("Activation history is not a canonical regular file")
+        raise ReleaseError(f"{label} is not a canonical regular file")
     records: list[dict[str, Any]] = []
-    previous: str | None = None
-    for index, line in enumerate(path.read_bytes().splitlines(), start=1):
+    for line in path.read_bytes().splitlines():
         try:
             value = json.loads(line)
         except json.JSONDecodeError as exc:
-            raise ReleaseError("Activation history is invalid JSON") from exc
+            raise ReleaseError(f"{label} is invalid JSON") from exc
         if not isinstance(value, dict):
-            raise ReleaseError("Activation history record must be an object")
-        material = {key: item for key, item in value.items() if key != "record_sha256"}
-        if (
-            value.get("record_id") != f"ACTIVATION-{index}"
-            or value.get("previous_record_sha256") != previous
-            or value.get("record_sha256") != digest(material)
-        ):
-            raise ReleaseError("Activation history was rewritten or reordered")
-        previous = value["record_sha256"]
+            raise ReleaseError(f"{label} record must be an object")
         records.append(value)
+    return records
+
+
+def acceptance_records(release_root: Path) -> list[dict[str, Any]]:
+    values = jsonl_records(
+        release_root / ACCEPTANCE_NAME, label="Release acceptance history"
+    )
+    if not values:
+        return []
+    key = release_key(release_root, allow_create=False)
+    previous: str | None = None
+    exact_keys = {
+        "schema_version",
+        "kind",
+        "record_id",
+        "release_id",
+        "source_commit",
+        "manifest_sha256",
+        "candidate_root_sha256",
+        "review_record_id",
+        "review_root_sha256",
+        "previous_record_hmac_sha256",
+        "record_hmac_sha256",
+    }
+    for index, value in enumerate(values, start=1):
+        material = {
+            item: member for item, member in value.items() if item != "record_hmac_sha256"
+        }
+        if (
+            set(value) != exact_keys
+            or value.get("schema_version") != SCHEMA_VERSION
+            or value.get("kind") != "software-factory-release-acceptance"
+            or value.get("record_id") != f"RELEASE-ACCEPTANCE-{index}"
+            or value.get("previous_record_hmac_sha256") != previous
+            or value.get("record_hmac_sha256") != record_hmac(key, material)
+        ):
+            raise ReleaseError("Release acceptance history was forged or reordered")
+        bounded_id(str(value["release_id"]), label="accepted release ID")
+        exact_git_commit(str(value["source_commit"]))
+        for label, field in (
+            ("accepted manifest", "manifest_sha256"),
+            ("accepted candidate", "candidate_root_sha256"),
+            ("accepted review", "review_root_sha256"),
+        ):
+            exact_sha256(str(value[field]), label=label)
+        bounded_id(str(value["review_record_id"]), label="accepted review record")
+        previous = str(value["record_hmac_sha256"])
+    return values
+
+
+def accepted_release_record(
+    release_root: Path, release_id: str
+) -> dict[str, Any] | None:
+    matches = [
+        item for item in acceptance_records(release_root) if item["release_id"] == release_id
+    ]
+    if len(matches) > 1:
+        raise ReleaseError("Release acceptance identity is duplicated")
+    return matches[0] if matches else None
+
+
+def append_acceptance(
+    release_root: Path, manifest: Mapping[str, Any]
+) -> dict[str, Any]:
+    records = acceptance_records(release_root)
+    existing = [
+        item for item in records if item["release_id"] == manifest["release_id"]
+    ]
+    if existing:
+        if len(existing) != 1:
+            raise ReleaseError("Release acceptance identity is duplicated")
+        review = manifest["independent_review"]
+        if any(
+            existing[0].get(field) != expected
+            for field, expected in (
+                ("source_commit", manifest["source_commit"]),
+                ("manifest_sha256", manifest["manifest_sha256"]),
+                ("candidate_root_sha256", manifest["candidate_root_sha256"]),
+                ("review_record_id", review["record_id"]),
+                ("review_root_sha256", review["review_root_sha256"]),
+            )
+        ):
+            raise ReleaseError("Existing release acceptance differs from its manifest")
+        return existing[0]
+    key = release_key(release_root, allow_create=True)
+    review = manifest["independent_review"]
+    material: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "kind": "software-factory-release-acceptance",
+        "record_id": f"RELEASE-ACCEPTANCE-{len(records) + 1}",
+        "release_id": manifest["release_id"],
+        "source_commit": manifest["source_commit"],
+        "manifest_sha256": manifest["manifest_sha256"],
+        "candidate_root_sha256": manifest["candidate_root_sha256"],
+        "review_record_id": review["record_id"],
+        "review_root_sha256": review["review_root_sha256"],
+        "previous_record_hmac_sha256": (
+            records[-1]["record_hmac_sha256"] if records else None
+        ),
+    }
+    material["record_hmac_sha256"] = record_hmac(key, material)
+    append_jsonl(release_root / ACCEPTANCE_NAME, material)
+    return material
+
+
+def history(release_root: Path) -> list[dict[str, Any]]:
+    records = jsonl_records(release_root / HISTORY_NAME, label="Activation history")
+    if not records:
+        return []
+    key = release_key(release_root, allow_create=False)
+    previous: str | None = None
+    active: str | None = None
+    seen_active: set[str] = set()
+    exact_keys = {
+        "schema_version",
+        "kind",
+        "record_id",
+        "timestamp",
+        "action",
+        "release_id",
+        "previous_release_id",
+        "quiescent_boundary_record",
+        "quiescent_boundary_root_sha256",
+        "post_swap_reload_root_sha256",
+        "previous_record_hmac_sha256",
+        "record_hmac_sha256",
+    }
+    for index, value in enumerate(records, start=1):
+        material = {
+            item: member for item, member in value.items() if item != "record_hmac_sha256"
+        }
+        action = value.get("action")
+        release_id = str(value.get("release_id", ""))
+        if (
+            set(value) != exact_keys
+            or value.get("schema_version") != SCHEMA_VERSION
+            or value.get("kind") != "software-factory-release-activation"
+            or value.get("record_id") != f"ACTIVATION-{index}"
+            or value.get("previous_record_hmac_sha256") != previous
+            or value.get("record_hmac_sha256") != record_hmac(key, material)
+            or action not in {"bootstrap", "activate", "rollback"}
+            or value.get("previous_release_id") != active
+            or (index == 1 and action != "bootstrap")
+            or (index > 1 and action == "bootstrap")
+            or (action == "rollback" and release_id not in seen_active)
+            or release_id == active
+        ):
+            raise ReleaseError("Activation history was forged or is semantically invalid")
+        bounded_id(release_id, label="activation release ID")
+        bounded_id(
+            str(value["quiescent_boundary_record"]),
+            label="activation quiescent record",
+        )
+        exact_sha256(
+            str(value["quiescent_boundary_root_sha256"]),
+            label="activation quiescent root",
+        )
+        exact_sha256(
+            str(value["post_swap_reload_root_sha256"]),
+            label="activation reload root",
+        )
+        if accepted_release_record(release_root, release_id) is None:
+            raise ReleaseError("Activation history names an unaccepted release")
+        if active:
+            seen_active.add(active)
+        active = release_id
+        previous = str(value["record_hmac_sha256"])
     return records
 
 
@@ -206,6 +440,7 @@ def make_history_record(
     records = history(release_root)
     material: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
+        "kind": "software-factory-release-activation",
         "record_id": f"ACTIVATION-{len(records) + 1}",
         "timestamp": utc_now(),
         "action": action,
@@ -214,11 +449,13 @@ def make_history_record(
         "quiescent_boundary_record": quiescent_record,
         "quiescent_boundary_root_sha256": quiescent_root,
         "post_swap_reload_root_sha256": reload_root,
-        "previous_record_sha256": (
-            records[-1]["record_sha256"] if records else None
+        "previous_record_hmac_sha256": (
+            records[-1]["record_hmac_sha256"] if records else None
         ),
     }
-    material["record_sha256"] = digest(material)
+    material["record_hmac_sha256"] = record_hmac(
+        release_key(release_root, allow_create=False), material
+    )
     return material
 
 
@@ -297,9 +534,23 @@ def materialize_commit(repo: Path, commit: str, destination: Path) -> None:
             os.close(descriptor)
 
 
-def run_validator(validator: Path, skill: Path) -> dict[str, Any]:
+def canonical_validator() -> tuple[Path, dict[str, str]]:
+    validator = (
+        Path.home()
+        / ".codex/skills/.system/skill-creator/scripts/quick_validate.py"
+    )
     if validator.is_symlink() or not validator.is_file():
-        raise ReleaseError("Skill validator must be a real regular file")
+        raise ReleaseError("Canonical Skill Creator validator is missing or symlinked")
+    payload = validator.read_bytes()
+    return validator.resolve(strict=True), {
+        "path": str(validator.resolve(strict=True)),
+        "sha256": hashlib.sha256(payload).hexdigest(),
+    }
+
+
+def run_validator(
+    validator: Path, validator_identity: Mapping[str, str], skill: Path
+) -> dict[str, Any]:
     command = [str(validator), str(skill)]
     if not os.access(validator, os.X_OK):
         python = shutil.which("python3")
@@ -312,9 +563,78 @@ def run_validator(validator: Path, skill: Path) -> dict[str, Any]:
         raise ReleaseError(f"Skill validation failed for {skill.name}")
     return {
         "status": "passed",
-        "validator": validator.name,
+        "validator_path": validator_identity["path"],
+        "validator_sha256": validator_identity["sha256"],
         "output_sha256": hashlib.sha256(output).hexdigest(),
     }
+
+
+def candidate_material(
+    source_commit: str,
+    skills: Mapping[str, Any],
+    validation: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "kind": "software-factory-skill-release-candidate",
+        "source_commit": source_commit,
+        "skill_names": list(SKILLS),
+        "skills": dict(skills),
+        "validation": dict(validation),
+    }
+
+
+def validate_review_evidence(
+    path: Path,
+    *,
+    implementer_id: str,
+    candidate: Mapping[str, Any],
+) -> dict[str, Any]:
+    value = load_bounded_json(path, label="Independent review evidence")
+    exact_keys = {
+        "schema_version",
+        "kind",
+        "record_id",
+        "reviewer_id",
+        "implementer_id",
+        "disposition",
+        "source_commit",
+        "candidate_root_sha256",
+        "reviewed_at",
+        "evidence",
+        "review_root_sha256",
+    }
+    material = {
+        item: member for item, member in value.items() if item != "review_root_sha256"
+    }
+    reviewer_id = bounded_id(str(value.get("reviewer_id", "")), label="reviewer ID")
+    if (
+        set(value) != exact_keys
+        or value.get("schema_version") != SCHEMA_VERSION
+        or value.get("kind") != "software-factory-skill-release-review"
+        or value.get("disposition") != "accepted"
+        or value.get("source_commit") != candidate["source_commit"]
+        or value.get("candidate_root_sha256") != digest(candidate)
+        or value.get("implementer_id") != implementer_id
+        or reviewer_id == implementer_id
+        or value.get("review_root_sha256") != digest(material)
+    ):
+        raise ReleaseError("Independent review does not bind the exact release candidate")
+    bounded_id(str(value.get("record_id", "")), label="review record ID")
+    exact_sha256(
+        str(value.get("candidate_root_sha256", "")), label="review candidate root"
+    )
+    evidence = value.get("evidence")
+    if (
+        not isinstance(value.get("reviewed_at"), str)
+        or not value["reviewed_at"]
+        or not isinstance(evidence, list)
+        or not evidence
+        or len(evidence) > 16
+        or not all(isinstance(item, str) and 0 < len(item) <= 200 for item in evidence)
+    ):
+        raise ReleaseError("Independent review evidence is incomplete")
+    return value
 
 
 def current_release_id(release_root: Path) -> str | None:
@@ -335,7 +655,25 @@ def current_release_id(release_root: Path) -> str | None:
     return release_id
 
 
-def read_manifest(release_root: Path, release_id: str) -> dict[str, Any]:
+def release_tree_is_sealed(release: Path) -> bool:
+    for base, directory_names, file_names in os.walk(release, followlinks=False):
+        base_path = Path(base)
+        if base_path.stat().st_mode & 0o222:
+            return False
+        for name in directory_names:
+            child = base_path / name
+            if child.is_symlink() or child.stat().st_mode & 0o222:
+                return False
+        for name in file_names:
+            child = base_path / name
+            if child.is_symlink() or child.stat().st_mode & 0o222:
+                return False
+    return True
+
+
+def read_manifest(
+    release_root: Path, release_id: str, *, require_acceptance: bool = True
+) -> dict[str, Any]:
     bounded_id(release_id, label="release ID")
     releases = release_root / "releases"
     if releases.is_symlink() or not releases.is_dir():
@@ -355,41 +693,135 @@ def read_manifest(release_root: Path, release_id: str) -> dict[str, Any]:
         raise ReleaseError("Release manifest is invalid JSON") from exc
     if not isinstance(manifest, dict):
         raise ReleaseError("Release manifest must be an object")
+    exact_keys = {
+        "schema_version",
+        "kind",
+        "release_id",
+        "created_at",
+        "source_commit",
+        "candidate_root_sha256",
+        "skill_names",
+        "skills",
+        "validation",
+        "independent_review",
+        "previous_active_release_id",
+        "manifest_sha256",
+    }
     material = {key: value for key, value in manifest.items() if key != "manifest_sha256"}
     if (
-        manifest.get("schema_version") != SCHEMA_VERSION
+        set(manifest) != exact_keys
+        or manifest.get("schema_version") != SCHEMA_VERSION
         or manifest.get("kind") != "software-factory-skill-release"
         or manifest.get("release_id") != release_id
         or manifest.get("manifest_sha256") != digest(material)
         or list(manifest.get("skill_names", [])) != list(SKILLS)
+        or not release_tree_is_sealed(release)
     ):
         raise ReleaseError("Release manifest identity or digest is invalid")
+    source_commit = exact_git_commit(str(manifest.get("source_commit", "")))
     review = manifest.get("independent_review")
     if not isinstance(review, dict):
         raise ReleaseError("Release has no independent review evidence")
+    review_material = {
+        item: member for item, member in review.items() if item != "review_root_sha256"
+    }
+    if review.get("review_root_sha256") != digest(review_material):
+        raise ReleaseError("Release review evidence root is invalid")
     bounded_id(str(review.get("reviewer_id", "")), label="reviewer ID")
+    bounded_id(str(review.get("implementer_id", "")), label="implementer ID")
     bounded_id(str(review.get("record_id", "")), label="review record ID")
-    exact_sha256(str(review.get("root_sha256", "")), label="review root")
+    exact_sha256(str(review.get("review_root_sha256", "")), label="review root")
     skills = manifest.get("skills")
     if not isinstance(skills, dict) or set(skills) != set(SKILLS):
         raise ReleaseError("Release manifest does not describe exactly three skills")
+    validation = manifest.get("validation")
+    if not isinstance(validation, dict) or set(validation) != set(SKILLS):
+        raise ReleaseError("Release manifest has no exact validator evidence")
     for name in SKILLS:
         root, count = tree_projection(release / name)
         if skills[name] != {"content_root_sha256": root, "file_count": count}:
             raise ReleaseError(f"Release skill content drifted: {name}")
+        validator_record = validation[name]
+        if (
+            not isinstance(validator_record, dict)
+            or set(validator_record)
+            != {"status", "validator_path", "validator_sha256", "output_sha256"}
+            or validator_record.get("status") != "passed"
+        ):
+            raise ReleaseError("Release validator evidence is invalid")
+        exact_sha256(
+            str(validator_record.get("validator_sha256", "")),
+            label="validator content root",
+        )
+        exact_sha256(
+            str(validator_record.get("output_sha256", "")),
+            label="validator output root",
+        )
+    candidate = candidate_material(source_commit, skills, validation)
+    candidate_root = digest(candidate)
+    if (
+        manifest.get("candidate_root_sha256") != candidate_root
+        or review.get("source_commit") != source_commit
+        or review.get("candidate_root_sha256") != candidate_root
+    ):
+        raise ReleaseError("Release candidate and review binding differ")
+    expected_release_id = (
+        f"{source_commit[:12]}-"
+        f"{digest({'candidate_root_sha256': candidate_root, 'review_root_sha256': review['review_root_sha256']})[:12]}"
+    )
+    if release_id != expected_release_id:
+        raise ReleaseError("Release ID does not match its accepted content projection")
+    if require_acceptance:
+        accepted = accepted_release_record(release_root, release_id)
+        if (
+            accepted is None
+            or accepted["source_commit"] != source_commit
+            or accepted["manifest_sha256"] != manifest["manifest_sha256"]
+            or accepted["candidate_root_sha256"] != candidate_root
+            or accepted["review_record_id"] != review["record_id"]
+            or accepted["review_root_sha256"] != review["review_root_sha256"]
+        ):
+            raise ReleaseError("Release is not bound to canonical external acceptance")
     return manifest
 
 
-def default_validator() -> Path:
-    return Path(
-        os.environ.get(
-            "SOFTWARE_FACTORY_SKILL_VALIDATOR",
-            str(
-                Path.home()
-                / ".codex/skills/.system/skill-creator/scripts/quick_validate.py"
-            ),
+def verified_source(repo: Path, source_commit: str) -> None:
+    resolved = run_git(repo, "rev-parse", "--verify", f"{source_commit}^{{commit}}")
+    if resolved != source_commit:
+        raise ReleaseError("Source commit does not resolve exactly")
+    if run_git(repo, "status", "--porcelain=v1", "--untracked-files=all"):
+        raise ReleaseError("Source repository is dirty")
+
+
+def build_candidate(repo: Path, source_commit: str, destination: Path) -> dict[str, Any]:
+    validator, validator_identity = canonical_validator()
+    materialize_commit(repo, source_commit, destination)
+    skills: dict[str, Any] = {}
+    validation: dict[str, Any] = {}
+    for name in SKILLS:
+        validation[name] = run_validator(
+            validator, validator_identity, destination / name
         )
-    )
+        root, count = tree_projection(destination / name)
+        skills[name] = {"content_root_sha256": root, "file_count": count}
+    return candidate_material(source_commit, skills, validation)
+
+
+def path_is_within(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def review_request(args: argparse.Namespace) -> dict[str, Any]:
+    repo = ensure_directory(Path(args.repo), label="source repository", create=False)
+    source_commit = exact_git_commit(args.source_commit)
+    verified_source(repo, source_commit)
+    with tempfile.TemporaryDirectory(prefix="software-factory-review-request-") as raw:
+        candidate = build_candidate(repo, source_commit, Path(raw))
+    return {**candidate, "candidate_root_sha256": digest(candidate)}
 
 
 def stage_release(args: argparse.Namespace) -> dict[str, Any]:
@@ -397,36 +829,26 @@ def stage_release(args: argparse.Namespace) -> dict[str, Any]:
     release_root = ensure_directory(Path(args.release_root), label="release root")
     releases = ensure_directory(release_root / "releases", label="release directory")
     source_commit = exact_git_commit(args.source_commit)
-    resolved = run_git(repo, "rev-parse", "--verify", f"{source_commit}^{{commit}}")
-    if resolved != source_commit:
-        raise ReleaseError("Source commit does not resolve exactly")
-    if run_git(repo, "status", "--porcelain=v1", "--untracked-files=all"):
-        raise ReleaseError("Source repository is dirty")
-    reviewer_id = bounded_id(args.reviewer_id, label="reviewer ID")
-    review_record = bounded_id(args.review_record, label="review record ID")
-    review_root = exact_sha256(args.review_root, label="review root")
-    validator = Path(args.validator).resolve(strict=True)
+    verified_source(repo, source_commit)
+    implementer_id = bounded_id(args.implementer_id, label="implementer ID")
+    review_path = Path(args.review_evidence).resolve(strict=True)
+    if path_is_within(review_path, repo) or path_is_within(review_path, release_root):
+        raise ReleaseError("Independent review evidence must remain externally owned")
     temporary = releases / f".stage-{os.getpid()}-{secrets.token_hex(6)}"
     with release_lock(release_root):
         try:
             temporary.mkdir(mode=0o700)
-            materialize_commit(repo, source_commit, temporary)
-            skills: dict[str, Any] = {}
-            validation: dict[str, Any] = {}
-            for name in SKILLS:
-                validation[name] = run_validator(validator, temporary / name)
-                root, count = tree_projection(temporary / name)
-                skills[name] = {"content_root_sha256": root, "file_count": count}
-            release_material = {
-                "source_commit": source_commit,
-                "skills": skills,
-                "independent_review": {
-                    "reviewer_id": reviewer_id,
-                    "record_id": review_record,
-                    "root_sha256": review_root,
-                },
-            }
-            release_id = f"{source_commit[:12]}-{digest(release_material)[:12]}"
+            candidate = build_candidate(repo, source_commit, temporary)
+            review = validate_review_evidence(
+                review_path,
+                implementer_id=implementer_id,
+                candidate=candidate,
+            )
+            candidate_root = digest(candidate)
+            release_id = (
+                f"{source_commit[:12]}-"
+                f"{digest({'candidate_root_sha256': candidate_root, 'review_root_sha256': review['review_root_sha256']})[:12]}"
+            )
             destination = releases / release_id
             manifest: dict[str, Any] = {
                 "schema_version": SCHEMA_VERSION,
@@ -434,17 +856,20 @@ def stage_release(args: argparse.Namespace) -> dict[str, Any]:
                 "release_id": release_id,
                 "created_at": utc_now(),
                 "source_commit": source_commit,
+                "candidate_root_sha256": candidate_root,
                 "skill_names": list(SKILLS),
-                "skills": skills,
-                "validation": validation,
-                "independent_review": release_material["independent_review"],
+                "skills": candidate["skills"],
+                "validation": candidate["validation"],
+                "independent_review": review,
                 "previous_active_release_id": current_release_id(release_root),
             }
             manifest["manifest_sha256"] = digest(manifest)
             atomic_json(temporary / MANIFEST_NAME, manifest)
             fsync_tree_directories(temporary)
             if destination.exists():
-                existing = read_manifest(release_root, release_id)
+                existing = read_manifest(
+                    release_root, release_id, require_acceptance=False
+                )
                 if any(
                     existing.get(key) != manifest.get(key)
                     for key in (
@@ -456,11 +881,14 @@ def stage_release(args: argparse.Namespace) -> dict[str, Any]:
                 ):
                     raise ReleaseError("Existing release ID has different content")
                 shutil.rmtree(temporary)
+                append_acceptance(release_root, existing)
                 return {"stage": "existing", **existing}
             seal_release_tree(temporary)
             fsync_tree_directories(temporary)
             os.replace(temporary, destination)
             fsync_directory(releases)
+            read_manifest(release_root, release_id, require_acceptance=False)
+            append_acceptance(release_root, manifest)
             return {"stage": "created", **manifest}
         except Exception:
             if temporary.exists():
@@ -557,14 +985,33 @@ def replace_link(path: Path, target: str) -> None:
 
 
 def restore_links(install_root: Path, originals: Sequence[str | None]) -> None:
+    failures: list[str] = []
     for name, target in zip(SKILLS, originals):
         path = install_root / name
-        if target is None:
-            if path.exists() or path.is_symlink():
-                path.unlink()
-                fsync_directory(install_root)
-        else:
-            replace_link(path, target)
+        restored = False
+        for _attempt in range(3):
+            try:
+                if target is None:
+                    if path.exists() or path.is_symlink():
+                        path.unlink()
+                        fsync_directory(install_root)
+                else:
+                    replace_link(path, target)
+                restored = (
+                    (target is None and not (path.exists() or path.is_symlink()))
+                    or (target is not None and path.is_symlink() and os.readlink(path) == target)
+                )
+                if restored:
+                    break
+            except OSError:
+                continue
+        if not restored:
+            failures.append(name)
+    if failures:
+        raise ReleaseError(
+            "Bootstrap recovery could not restore discovery links: "
+            + ", ".join(failures)
+        )
 
 
 def bootstrap_links(
@@ -574,14 +1021,10 @@ def bootstrap_links(
     *,
     fail_after: int | None = None,
 ) -> None:
-    try:
-        for index, name in enumerate(SKILLS, start=1):
-            replace_link(install_root / name, desired_link(release_root, name))
-            if fail_after == index:
-                raise ReleaseError("Injected bootstrap interruption")
-    except Exception:
-        restore_links(install_root, originals)
-        raise
+    for index, name in enumerate(SKILLS, start=1):
+        replace_link(install_root / name, desired_link(release_root, name))
+        if fail_after == index:
+            raise ReleaseError("Injected bootstrap interruption")
 
 
 def verify_installed(
@@ -646,6 +1089,60 @@ def child_reload_verify(
     return value
 
 
+def validate_quiescent_evidence(
+    path: Path,
+    *,
+    release_root: Path,
+    operation: str,
+    release_id: str,
+    previous_release_id: str | None,
+) -> dict[str, Any]:
+    resolved = path.resolve(strict=True)
+    if path_is_within(resolved, release_root):
+        raise ReleaseError("Quiescent-boundary evidence must remain externally owned")
+    value = load_bounded_json(resolved, label="Quiescent-boundary evidence", maximum=16384)
+    exact_keys = {
+        "schema_version",
+        "kind",
+        "record_id",
+        "operator_id",
+        "operation",
+        "release_id",
+        "previous_active_release_id",
+        "observed_at",
+        "no_concurrent_skill_resolutions",
+        "evidence",
+        "evidence_root_sha256",
+    }
+    material = {
+        item: member for item, member in value.items() if item != "evidence_root_sha256"
+    }
+    if (
+        set(value) != exact_keys
+        or value.get("schema_version") != SCHEMA_VERSION
+        or value.get("kind") != "software-factory-quiescent-boundary"
+        or value.get("operation") != operation
+        or value.get("release_id") != release_id
+        or value.get("previous_active_release_id") != previous_release_id
+        or value.get("no_concurrent_skill_resolutions") is not True
+        or value.get("evidence_root_sha256") != digest(material)
+    ):
+        raise ReleaseError("Quiescent-boundary evidence is stale or does not bind cutover")
+    bounded_id(str(value.get("record_id", "")), label="quiescent-boundary record")
+    bounded_id(str(value.get("operator_id", "")), label="quiescent-boundary operator")
+    evidence = value.get("evidence")
+    if (
+        not isinstance(value.get("observed_at"), str)
+        or not value["observed_at"]
+        or not isinstance(evidence, list)
+        or not evidence
+        or len(evidence) > 12
+        or not all(isinstance(item, str) and 0 < len(item) <= 200 for item in evidence)
+    ):
+        raise ReleaseError("Quiescent-boundary evidence is incomplete")
+    return value
+
+
 def activate_release(
     args: argparse.Namespace,
     *,
@@ -654,15 +1151,22 @@ def activate_release(
     release_root = ensure_directory(Path(args.release_root), label="release root")
     install_root = ensure_directory(Path(args.install_root), label="skill install root")
     release_id = bounded_id(args.release_id, label="release ID")
-    quiescent_record = bounded_id(
-        args.quiescent_boundary_record, label="quiescent-boundary record"
-    )
-    quiescent_root = exact_sha256(
-        args.quiescent_boundary_root, label="quiescent-boundary root"
-    )
     with release_lock(release_root):
         read_manifest(release_root, release_id)
         prior = current_release_id(release_root)
+        prior_history = history(release_root)
+        history_active = (
+            str(prior_history[-1]["release_id"]) if prior_history else None
+        )
+        if history_active != prior:
+            raise ReleaseError("Current pointer and activation history differ")
+        quiescent = validate_quiescent_evidence(
+            Path(args.quiescent_evidence),
+            release_root=release_root,
+            operation=action,
+            release_id=release_id,
+            previous_release_id=prior,
+        )
         if prior == release_id:
             raise ReleaseError("Requested release is already active")
         prior_links = installed_link_state(install_root, release_root)
@@ -684,8 +1188,8 @@ def activate_release(
                 action=action,
                 release_id=release_id,
                 previous_release_id=prior,
-                quiescent_record=quiescent_record,
-                quiescent_root=quiescent_root,
+                quiescent_record=quiescent["record_id"],
+                quiescent_root=quiescent["evidence_root_sha256"],
                 reload_root=reload_evidence["verification_root_sha256"],
             )
             append_history(release_root, record)
@@ -710,17 +1214,20 @@ def bootstrap_release(
     release_root = ensure_directory(Path(args.release_root), label="release root")
     install_root = ensure_directory(Path(args.install_root), label="skill install root")
     release_id = bounded_id(args.release_id, label="release ID")
-    quiescent_record = bounded_id(
-        args.quiescent_boundary_record, label="quiescent-boundary record"
-    )
-    quiescent_root = exact_sha256(
-        args.quiescent_boundary_root, label="quiescent-boundary root"
-    )
     source_root = Path(args.legacy_source_root) if args.legacy_source_root else None
     with release_lock(release_root):
         manifest = read_manifest(release_root, release_id)
         if current_release_id(release_root) is not None:
             raise ReleaseError("Release owner is already bootstrapped")
+        if history(release_root):
+            raise ReleaseError("Activation history exists without a current release")
+        quiescent = validate_quiescent_evidence(
+            Path(args.quiescent_evidence),
+            release_root=release_root,
+            operation="bootstrap",
+            release_id=release_id,
+            previous_release_id=None,
+        )
         links = installed_link_state(install_root, release_root)
         if any(item["stable"] for item in links.values()):
             raise ReleaseError("Installed stable discovery link set is partial")
@@ -744,8 +1251,8 @@ def bootstrap_release(
                 action="bootstrap",
                 release_id=release_id,
                 previous_release_id=None,
-                quiescent_record=quiescent_record,
-                quiescent_root=quiescent_root,
+                quiescent_record=quiescent["record_id"],
+                quiescent_root=quiescent["evidence_root_sha256"],
                 reload_root=reload_evidence["verification_root_sha256"],
             )
             append_history(release_root, record)
@@ -757,9 +1264,20 @@ def bootstrap_release(
                 "activation_record": record,
             }
         except Exception:
-            restore_links(install_root, originals)
+            recovery_errors: list[str] = []
             if pointer_swapped:
-                swap_pointer(release_root, None)
+                try:
+                    swap_pointer(release_root, None)
+                except Exception as exc:
+                    recovery_errors.append(f"pointer: {exc}")
+            try:
+                restore_links(install_root, originals)
+            except Exception as exc:
+                recovery_errors.append(f"links: {exc}")
+            if recovery_errors:
+                raise ReleaseError(
+                    "Bootstrap recovery was incomplete: " + "; ".join(recovery_errors)
+                )
             raise
 
 
@@ -790,6 +1308,10 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
     with release_lock(release_root):
         active = current_release_id(release_root)
         manifest = read_manifest(release_root, active) if active else None
+        records = history(release_root)
+        history_active = str(records[-1]["release_id"]) if records else None
+        if history_active != active:
+            raise ReleaseError("Current pointer and activation history differ")
         installed = installed_link_state(install_root, release_root)
         result: dict[str, Any] = {
             "active_release_id": active,
@@ -798,7 +1320,7 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
             "installed_links": installed,
             "installed_complete": bool(active)
             and all(item["stable"] for item in installed.values()),
-            "activation_history_records": len(history(release_root)),
+            "activation_history_records": len(records),
         }
         if active and result["installed_complete"]:
             result["current_verification"] = verify_installed(
@@ -818,34 +1340,36 @@ def parser() -> argparse.ArgumentParser:
     )
     subcommands = value.add_subparsers(dest="command", required=True)
 
+    request = subcommands.add_parser(
+        "review-request", help="build the exact read-only release review projection"
+    )
+    request.add_argument("--repo", required=True)
+    request.add_argument("--source-commit", required=True)
+    request.set_defaults(func=review_request)
+
     stage = subcommands.add_parser("stage", help="stage one exact reviewed commit")
     stage.add_argument("--repo", required=True)
     stage.add_argument("--source-commit", required=True)
-    stage.add_argument("--reviewer-id", required=True)
-    stage.add_argument("--review-record", required=True)
-    stage.add_argument("--review-root", required=True)
-    stage.add_argument("--validator", default=str(default_validator()))
+    stage.add_argument("--implementer-id", required=True)
+    stage.add_argument("--review-evidence", required=True)
     stage.set_defaults(func=stage_release)
 
     activate = subcommands.add_parser("activate", help="activate one staged release")
     activate.add_argument("release_id")
-    activate.add_argument("--quiescent-boundary-record", required=True)
-    activate.add_argument("--quiescent-boundary-root", required=True)
+    activate.add_argument("--quiescent-evidence", required=True)
     activate.set_defaults(func=activate_release)
 
     bootstrap = subcommands.add_parser(
         "bootstrap", help="install stable links for one content-identical baseline"
     )
     bootstrap.add_argument("release_id")
-    bootstrap.add_argument("--quiescent-boundary-record", required=True)
-    bootstrap.add_argument("--quiescent-boundary-root", required=True)
+    bootstrap.add_argument("--quiescent-evidence", required=True)
     bootstrap.add_argument("--legacy-source-root")
     bootstrap.set_defaults(func=bootstrap_release)
 
     rollback = subcommands.add_parser("rollback", help="restore a prior accepted release")
     rollback.add_argument("release_id", nargs="?")
-    rollback.add_argument("--quiescent-boundary-record", required=True)
-    rollback.add_argument("--quiescent-boundary-root", required=True)
+    rollback.add_argument("--quiescent-evidence", required=True)
     rollback.set_defaults(func=rollback_release)
 
     inspect = subcommands.add_parser("status", help="report exact active roots")

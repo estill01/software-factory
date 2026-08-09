@@ -59,16 +59,20 @@ cd software-factory
 python3 scripts/skill_release.py --help
 ```
 
-Freeze a clean commit and obtain an independent exact-revision review. Then
-stage it with the reviewer's identity, record, and SHA-256 root:
+Freeze a clean commit, generate its read-only candidate projection, and obtain
+an independent exact-revision review. The reviewer returns an externally owned
+review JSON record bound to the projection root; then stage it:
 
 ```bash
+python3 scripts/skill_release.py review-request \
+  --repo "$PWD" \
+  --source-commit "$ACCEPTED_COMMIT" > /tmp/software-factory-review-request.json
+
 python3 scripts/skill_release.py stage \
   --repo "$PWD" \
   --source-commit "$ACCEPTED_COMMIT" \
-  --reviewer-id "$REVIEWER_ID" \
-  --review-record "$REVIEW_RECORD" \
-  --review-root "$REVIEW_ROOT_SHA256"
+  --implementer-id "$IMPLEMENTER_ID" \
+  --review-evidence "$EXTERNAL_REVIEW_JSON"
 ```
 
 For a new installation, establish the three stable discovery links through the
@@ -79,8 +83,7 @@ rolls every link back if setup is interrupted.
 
 ```bash
 python3 scripts/skill_release.py bootstrap "$RELEASE_ID" \
-  --quiescent-boundary-record "$QUIESCENT_RECORD" \
-  --quiescent-boundary-root "$QUIESCENT_ROOT_SHA256"
+  --quiescent-evidence "$QUIESCENT_EVIDENCE_JSON"
 ```
 
 Subsequent accepted cutovers never rewrite the three discovery links. They
@@ -89,13 +92,11 @@ fresh-process resolution check, and restore the prior pointer on failure:
 
 ```bash
 python3 scripts/skill_release.py activate "$RELEASE_ID" \
-  --quiescent-boundary-record "$QUIESCENT_RECORD" \
-  --quiescent-boundary-root "$QUIESCENT_ROOT_SHA256"
+  --quiescent-evidence "$QUIESCENT_EVIDENCE_JSON"
 
 python3 scripts/skill_release.py status
 python3 scripts/skill_release.py rollback \
-  --quiescent-boundary-record "$QUIESCENT_RECORD" \
-  --quiescent-boundary-root "$QUIESCENT_ROOT_SHA256"
+  --quiescent-evidence "$QUIESCENT_EVIDENCE_JSON"
 ```
 
 An already-loaded Codex task continues with the instructions it loaded before

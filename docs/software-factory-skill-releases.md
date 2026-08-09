@@ -24,6 +24,7 @@ The default release root is
 │   ├── implement-tracker-blocks/
 │   └── supervise-tracker-runs/
 ├── current -> releases/<release-id>
+├── accepted-releases.jsonl
 ├── activation-history.jsonl
 └── .release.lock
 
@@ -34,16 +35,23 @@ The default release root is
 ```
 
 Each manifest binds the exact clean Git commit, all three names, per-skill
-content root and file count, validator result roots, creation time, prior active
-release, and an externally supplied independent-review identity/record/root.
-The content-addressed version directory is rehashed before every activation and
-rollback. A manifest cannot authorize itself.
+content root and file count, the fixed Skill Creator validator's path/content/
+result roots, creation time, prior active release, and an externally supplied
+independent-review record that names the implementer and exact candidate root.
+The release ID is recomputed from that candidate and review; the sealed version
+directory is rehashed before every activation and rollback. A separate
+HMAC-authenticated acceptance ledger is keyed outside the release root, so a
+rewritten manifest cannot authorize itself. The same key authenticates the
+semantic activation history used for rollback eligibility.
 
 ## Commands and boundaries
 
-`stage` reads the three trees from an exact 40-character Git commit rather than
-the worktree. It rejects a dirty repository, a missing skill, any Git symlink or
-unsupported entry, a failed validator, and absent or malformed independent
+`review-request` reads the three trees from an exact 40-character clean Git
+commit, runs the fixed installed Skill Creator validator, and emits the exact
+candidate projection/root without writing release state. `stage` independently
+rebuilds the same projection from Git. It rejects a dirty repository, a missing
+skill, any Git symlink or unsupported entry, a failed or substituted validator,
+and absent, malformed, same-implementer, stale, repository-owned, or unbound
 review evidence. Staging never changes installed discovery paths or `current`.
 
 `bootstrap` is the one-time installation/migration boundary. It requires exact
@@ -62,11 +70,66 @@ rehashes all three installed trees after the swap. Any failure restores the old
 pointer and removes uncommitted temporary pointers.
 
 `rollback` may select only a release that appears as a prior active release in
-the validated activation history and whose manifest and skill roots still
-validate. It uses the same one-pointer cutover and fresh-process verification as
-activation. `status` reports the source commit, manifest roots, exact discovery
-targets, current resolved roots, and history length without scanning unrelated
-skills or repositories.
+the HMAC-authenticated, schema- and transition-validated activation history and
+whose external acceptance, manifest, and skill roots still validate. It uses
+the same one-pointer cutover and fresh-process verification as activation.
+`status` reports the source commit, manifest roots, exact discovery targets,
+current resolved roots, and history length without scanning unrelated skills
+or repositories.
+
+## Evidence records
+
+The external review JSON has kind
+`software-factory-skill-release-review`, disposition `accepted`, distinct
+`reviewer_id` and `implementer_id`, the exact source commit and candidate root,
+a timestamp, bounded exact evidence references, and `review_root_sha256` over
+every other field. It must live outside both the source repository and release
+root.
+
+Every bootstrap, activation, and rollback similarly consumes an external JSON
+record of kind `software-factory-quiescent-boundary`. It binds the operation,
+candidate and previous release IDs, operator, observation time, explicit
+`no_concurrent_skill_resolutions: true`, bounded evidence references, and an
+exact `evidence_root_sha256`. Caller-supplied record/root strings are not an
+accepted substitute for either evidence object.
+
+Review evidence shape (the root is SHA-256 over the canonical object without
+`review_root_sha256`):
+
+```json
+{
+  "schema_version": 1,
+  "kind": "software-factory-skill-release-review",
+  "record_id": "block2-review-a62d8e7",
+  "reviewer_id": "independent-reviewer-1234",
+  "implementer_id": "implementation-owner-1234",
+  "disposition": "accepted",
+  "source_commit": "0123456789abcdef0123456789abcdef01234567",
+  "candidate_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "reviewed_at": "2026-08-09T12:00:00+00:00",
+  "evidence": ["exact-commit review", "focused adversarial validation"],
+  "review_root_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}
+```
+
+Quiescent-boundary shape (the root is SHA-256 over the canonical object without
+`evidence_root_sha256`):
+
+```json
+{
+  "schema_version": 1,
+  "kind": "software-factory-quiescent-boundary",
+  "record_id": "cutover-boundary-1234",
+  "operator_id": "release-operator-1234",
+  "operation": "activate",
+  "release_id": "0123456789ab-0123456789ab",
+  "previous_active_release_id": "fedcba987654-fedcba987654",
+  "observed_at": "2026-08-09T12:05:00+00:00",
+  "no_concurrent_skill_resolutions": true,
+  "evidence": ["quiescent task boundary", "new resolution allowed after swap"],
+  "evidence_root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+}
+```
 
 ## Reader semantics
 
