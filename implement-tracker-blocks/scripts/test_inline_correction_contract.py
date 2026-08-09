@@ -47,7 +47,7 @@ TARGET_ROOT = "/software-factory-inline-correction-target"
 TRACKER_RECORD_PATH = f"{TARGET_ROOT}/{TRACKER_PATH.relative_to(REPO_ROOT).as_posix()}"
 EXPECTED_EXERCISE_ROOT = "46fc23e6a1f09e543f40a4a4ada967fc9e3c36a645adc6b14aa17cfca285cf2b"
 EXPECTED_ACCEPTED_SNAPSHOT_ROOT = (
-    "033064ac71bafdc55450f9df525246d0e174d760e8a6155a087442afc6d0ac5e"
+    "73f6019fa40ea8f45dc5e602a625c2a183e538ac32d7a3f3334d77e604300727"
 )
 
 
@@ -129,6 +129,7 @@ def validate_accepted_snapshot() -> dict[str, object]:
         or ACCEPTED_SNAPSHOT["kind"] != "software-factory-accepted-inline-decision"
         or ACCEPTED_SNAPSHOT["block_number"] != 5
         or ACCEPTED_SNAPSHOT["tracker_sha256"] != tracker_sha256()
+        or not re.fullmatch(r"[0-9a-f]{40}", str(ACCEPTED_SNAPSHOT["source_revision"]))
     ):
         raise ValueError("accepted decision identity differs")
     for field in (

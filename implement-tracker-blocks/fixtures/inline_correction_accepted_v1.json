@@ -2,7 +2,7 @@
   "schema_version": 1,
   "kind": "software-factory-accepted-inline-decision",
   "record_id": "inline-unchanged-repeat-accepted-v1",
-  "source_revision": "fixture-genesis-v1",
+  "source_revision": "d0788eafb47cbdf7fdad270c610d939cc8ce91a7",
   "case_id": "unchanged-repeat",
   "case_source_root": "1cabcc0d56e086d6af58e8e60ec4211221fecba96080a3798f904abd2182ffff",
   "tracker_sha256": "4e677d5e6d0cc4a116110c5891f0df3f9b789f52dad9c490709066781629a318",
