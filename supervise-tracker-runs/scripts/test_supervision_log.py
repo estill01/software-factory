@@ -1617,8 +1617,8 @@ class ControlPostureReducerTests(unittest.TestCase):
             {item["kind"] for item in result["issues"]},
         )
 
-    def test_completed_lifecycle_writer_rejects_policy_replacement(self) -> None:
-        directory, _policy = self.create_target(self.owner, self.owner_mission)
+    def test_completed_lifecycle_writer_rejects_post_reducer_policy_mutation(self) -> None:
+        directory, policy = self.create_target(self.owner, self.owner_mission)
         self.append(
             directory,
             {
@@ -1659,30 +1659,29 @@ class ControlPostureReducerTests(unittest.TestCase):
                 "Attempted completion during policy replacement.",
             ]
         )
-        original_loader = supervision_log.load_policy_directory_snapshot
+        original_reduce = supervision_log.reduce_control_posture
 
-        def load_then_replace(arguments: argparse.Namespace):
-            (
-                loaded_directory,
-                loaded_policy,
-                snapshot,
-                directory_snapshot,
-            ) = original_loader(arguments)
-            replacement = dict(loaded_policy)
-            replacement["updated_at"] = "2026-08-09T01:00:00+00:00"
+        def reduce_then_mutate(**values: object):
+            result = original_reduce(**values)
+            replacement = dict(policy)
+            replacement["mission_binding"] = supervision_log.mission_binding_contract(
+                "f" * 64, "replacement-mission-source-1234"
+            )
             replacement["policy_sha256"] = supervision_log.digest(
                 supervision_log.policy_material(replacement)
             )
-            supervision_log.atomic_json(
-                loaded_directory / "policy.json", replacement
+            (directory / "policy.json").write_text(
+                json.dumps(replacement, ensure_ascii=False, sort_keys=True, indent=2)
+                + "\n",
+                encoding="utf-8",
             )
-            return loaded_directory, loaded_policy, snapshot, directory_snapshot
+            return result
 
         with (
             mock.patch.object(
                 supervision_log,
-                "load_policy_directory_snapshot",
-                side_effect=load_then_replace,
+                "reduce_control_posture",
+                side_effect=reduce_then_mutate,
             ),
             self.assertRaisesRegex(
                 supervision_log.SupervisionLogError,
@@ -1690,6 +1689,12 @@ class ControlPostureReducerTests(unittest.TestCase):
             ),
         ):
             args.func(args)
+        self.assertFalse(
+            any(
+                item.get("status") == "completed"
+                for item in supervision_log.events(directory / "events.jsonl")
+            )
+        )
 
     def test_completed_lifecycle_append_rejects_owner_directory_replacement(self) -> None:
         directory, policy = self.create_target(self.owner, self.owner_mission)

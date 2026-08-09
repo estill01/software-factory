@@ -2962,6 +2962,14 @@ def cmd_record(args: argparse.Namespace) -> None:
                         "Completed lifecycle rejected by governing-outcome control: "
                         "retry-control-currentness"
                     )
+                if (
+                    path_snapshot_at(terminal_directory_fd, "policy.json")
+                    != policy_snapshot
+                ):
+                    raise SupervisionLogError(
+                        "Completed lifecycle rejected by governing-outcome control: "
+                        "retry-control-currentness"
+                    )
                 prior_hash = (
                     current_events[-1].get("record_sha256")
                     if current_events
@@ -2989,8 +2997,14 @@ def cmd_record(args: argparse.Namespace) -> None:
                     "Completed lifecycle append lost canonical currentness"
                 ) from exc
             try:
+                verified_policy, verified_policy_snapshot = read_json_snapshot(
+                    Path("policy.json"), directory_fd=verified_directory_fd
+                )
                 if (
                     verified_directory_snapshot != directory_snapshot
+                    or verified_policy_snapshot != policy_snapshot
+                    or verified_policy.get("policy_sha256")
+                    != policy.get("policy_sha256")
                     or event_head_hash(
                         Path("events.jsonl"), directory_fd=verified_directory_fd
                     )
