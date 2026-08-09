@@ -629,7 +629,7 @@ continuous cognition the price of ordinary execution.
 
 | Block | Scope | Depends on | Status |
 |---:|---|---|---|
-| 0 | Separate governing outcome identity and derive one canonical posture | — | `not-started` |
+| 0 | Separate governing outcome identity and derive one canonical posture | — | `completed` |
 | 1 | Correct, supersede, cancel, or expire invalid execution transitions | 0 | `not-started` |
 | 2 | Stage, pin, activate, and roll back one accepted three-skill release | 1 | `not-started` |
 | 3 | Replay observed failures and prove control-plane convergence | 0, 1, 2 | `not-started` |
@@ -680,7 +680,7 @@ manufacturing an authoring cycle.
 
 ## Block 0 — Separate governing outcome identity and derive one canonical posture
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -795,7 +795,50 @@ replay. Review remains read-only.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: `8acf1d861ddf2bcc216f7477053454047d93fd6a` on
+  pushed branch `codex/control-plane-foundation`.
+- Inputs: accepted prerequisite tracker amendment
+  `b7e19860b7f7304ad755121532430d8f8ac4284b`, preserved rejected candidate
+  `e2b7064a7a226409518a883ecec88661469309b8`, and the exact recurring
+  task/outcome/transition failure family cited by this Block.
+- Outputs: `control-posture-gate`, bounded exact successor-ledger joining, six
+  distinct identities, deterministic terminal precedence, owner-only outcome
+  completion, direct-current valid stop, policy/group compatibility, and
+  canonical owner/policy/event/lock containment in
+  `supervise-tracker-runs/scripts/supervision_log.py`; mapped contract updates
+  in both execution and supervision skills plus supervision policy; focused
+  regressions in `test_supervision_log.py`.
+- Focused validation: all 30 `ControlPostureReducerTests` passed, including
+  direct-stop, subordinate-completion, conflicting-transition, legacy-group,
+  bounded-membership, symlink/path replacement, stale-policy, final-file, and
+  maintained-policy-writer concurrency cases.
+- Mapped validation: all 206 supervision tests, all 30 tracker-authoring tests,
+  and all 7 implementation capability-contract tests passed; `py_compile`,
+  `git diff --check`, and Skill Creator validation for all three live skill
+  directories passed.
+- Candidate freeze: implementation revision
+  `8acf1d861ddf2bcc216f7477053454047d93fd6a`; rejected/remediated predecessors
+  `4a46937`, `64bd2fd`, `4447b7f`, `9ab53fd`, `7c04304`, `9af9596`,
+  `1963a93`, `54c99b8`, `5de892d`, `636f184`, and `76ad69e` remain in Git
+  history rather than being rewritten.
+- Compatibility: existing implementation-run defaults and legacy policies
+  remain readable; specialized lifecycle, decision, successor-transition, and
+  status gates now consume the canonical reducer without losing their bounded
+  diagnostics.
+- Resource posture: one canonical owner plus at most seven exact active
+  successor members, no root scan or model call, linear ledger reduction, and
+  explicit retry-currentness on state drift.
+- Independent review: Huygens (`/root/block0_review`) reviewed exact
+  `8acf1d861ddf2bcc216f7477053454047d93fd6a` read-only after the complete
+  remediation chain and returned no findings; 30 focused reducer tests, all
+  156 direct `test_supervision_log.py` cases, four adversarial remediations,
+  compilation, and exact diff check passed in its isolated archive.
+- Retained open work: Blocks 1–17 remain open; no later Block was implemented
+  or activated.
+- Post-block audit: `accepted`; every review finding is closed at the exact
+  accepted implementation revision.
+- Git durability: all implementation and remediation checkpoints are pushed to
+  `origin/codex/control-plane-foundation`.
 
 ### Stop
 
