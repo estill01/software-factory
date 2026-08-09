@@ -39,6 +39,17 @@ the completed program materially changes Software Factory.
 
 ### Implemented
 
+- **Loopback operations-dashboard foundation.** Added an installable Python
+  runtime and a responsive React/TypeScript/Vite shell for the planned Factory
+  Floor, Projects, Trackers, Reports, and Admin workspaces. The service binds
+  only to loopback, serves a versioned health envelope and production SPA,
+  rejects non-loopback startup and wrong-origin or wrong-nonce mutation
+  requests, and deliberately exposes no mutation endpoint. The shell uses the
+  frozen reference stack, preserves keyboard, dark-mode, responsive, loading,
+  error, empty, and unavailable states, and labels all operational sources as
+  disconnected until their owning Blocks are accepted. Developer commands and
+  boundaries are documented in [`dashboard/README.md`](dashboard/README.md);
+  implementation scope is Block 1 of the operations-dashboard tracker.
 - **Successor-transition continuity and structured failure-mode records.** A
   requested implementation that must cross into a distinct task now remains an
   open append-only transition through `required`, task creation, isolated

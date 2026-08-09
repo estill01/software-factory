@@ -488,7 +488,7 @@ the relevant authority and evidence contract.
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
 | 0 | Product contract and live-owner baseline | — | `accepted` |
-| 1 | Loopback runtime and reference frontend scaffold | 0 | `not-started` |
+| 1 | Loopback runtime and reference frontend scaffold | 0 | `in-progress` |
 | 2 | Project catalog and bounded discovery | 1 | `not-started` |
 | 3 | Tracker truth and Git-currentness projection | 2 | `not-started` |
 | 4 | Supervision, automation, report, and metrics projection | 2 | `not-started` |
@@ -732,7 +732,7 @@ Stop before creating the dashboard runtime or dependency manifests.
 
 ## Block 1 — Loopback runtime and reference frontend scaffold
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -837,7 +837,14 @@ and Block 0 contract amendment.
 
 ### Completion evidence
 
-Pending.
+- Activation authority: direct-user item 44 under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`;
+  routed item 79 supplied resume/start-routing evidence only. Work began from
+  accepted Block 0 checkpoint
+  `6ef84c767c7a145fd4283c4d86769c4dabb88085` and durability successor
+  `c0bb5d188fbf3083aae07576c0719b4fbf5bc84a`, without a new mission or
+  successor-task requirement.
+- Candidate, validation, review, checkpoint, and acceptance evidence: pending.
 
 ### Stop
 

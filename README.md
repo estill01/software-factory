@@ -127,6 +127,24 @@ Run in a dedicated Task:
 $supervise-tracker-runs {session ID}
 ```
 
+### 5. Preview the local dashboard shell
+
+The operations dashboard currently provides its loopback runtime and
+responsive application shell. Project, task, supervision, and report sources
+remain visibly unavailable until their owning implementation Blocks are
+accepted; the shell does not fabricate factory status.
+
+```bash
+npm --prefix dashboard/web ci
+npm --prefix dashboard/web run build
+uv sync --project dashboard/server
+uv run --project dashboard/server software-factory-dashboard --port 8787
+```
+
+Open `http://127.0.0.1:8787`. The port is selectable and the runtime refuses a
+non-loopback bind. See the [dashboard developer guide](dashboard/README.md) for
+development, validation, and browser-test commands.
+
 ## Architecture
 
 ```mermaid
