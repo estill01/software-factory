@@ -164,7 +164,7 @@ revision. Push currentness is recorded separately from source validity.
 | `implement-tracker-blocks/SKILL.md` | `f8bebb5b3ade941c291216929b7b1124785c968fda79167c862aa48301490b05` | `e2b7064a7a226409518a883ecec88661469309b8` | Block/range execution owner. |
 | `supervise-tracker-runs/SKILL.md` | `a8d4b1518288c9aa5956ed192b6d1830c5326454566a887ed2ef2d3e690c0eb9` | `08b4f983749b6018eb7169f3a509ea2d43f5c6ed` | Supervision operating owner, including the first-work activation obligation. |
 | `supervise-tracker-runs/references/supervision-policy.md` | `f393c2990670f67a42bbe74ff490096cbe4e3fd7a44ddd379f0d6ed50d79f2cf` | `08b4f983749b6018eb7169f3a509ea2d43f5c6ed` | Roles, routes, lifecycle, reporting, mission, and activation contract. |
-| `supervise-tracker-runs/scripts/supervision_log.py` | `ad752ad5839aa00cfa10a0979eb89236710e9596c45f54866017637c5bbfc191` | `08b4f983749b6018eb7169f3a509ea2d43f5c6ed` | Sole public supervision filesystem writer/validator; succession creates and validates mission activation. |
+| `supervise-tracker-runs/scripts/supervision_log.py` | `ad752ad5839aa00cfa10a0979eb89236710e9596c45f54866017637c5bbfc191` | `08b4f983749b6018eb7169f3a509ea2d43f5c6ed` | Sole public supervision filesystem writer/validator; succession creates structural activation records, but current work-start closure is not evidence-tight. |
 | `supervise-tracker-runs/scripts/weekly_report.py` | `e469bebe4fe46aa3c0ff47a7273151441bcac30f49984bdbaeaff3d67c2e3d65` | `75c9c27383efd1f245ab413e22de03b2f72ae4d0` | Weekly report computation/render/verify owner. |
 | `supervise-tracker-runs/scripts/terminal_report.py` | `800c2ff04bc3dcefaf124aa57d37ad85b42b5732db6825b8225cbf11a437c138` | `ee4302d450073ccefa54cd0fb41a764716f56951` | Terminal packet/report/manifest owner. |
 | `supervise-tracker-runs/scripts/factory_evolution.py` | `c731ed0d03424f9e32d7689038affd8005b8f8f4a9ba97290e204efcf3cdf8b6` | `d773307b4d45f028d50a55f2a2e15aa7d8b5c7a8` | Derived evolution artifact validator; no implementation/adoption writes. |
@@ -238,8 +238,8 @@ backend framework.
 - Local default transport: `stdio://`.
 - Stable schema generation command:
   `codex app-server generate-json-schema --out <temporary-directory>`.
-- Generated stable bundle: 273 JSON files; normalized manifest SHA-256
-  `13ae5bed8befa519232271a5acf50c32f68bf88895eb80333472b8611f6dfe61`.
+- Generated stable bundle: 273 JSON files; semantic manifest SHA-256
+  `757aa191b6d452c6e6d05f6c1f1cb093b9f673da2d185a29ee8d5d96feae67a8`.
 - No `--experimental` fields were included.
 - Official contract observed 2026-08-09:
   `https://learn.chatgpt.com/docs/app-server`.
@@ -252,9 +252,12 @@ runtime compatibility authority. Experimental fields remain unavailable unless
 a later explicit compatibility decision enables them.
 
 The bundle root is reproducible from the generated directory with this exact
-byte manifest. File paths are relative, slash-separated paths emitted by
-`find`; `LC_ALL=C` defines ordering; each line is lowercase file SHA-256, two
-ASCII spaces, relative path, and LF; the final SHA-256 covers all 273 lines:
+semantic manifest. `jq 1.8.1 -S -c` recursively sorts object keys before each
+file is hashed, avoiding the generated combined schema's nondeterministic
+definition order. File paths are relative, slash-separated paths emitted by
+`find`; `LC_ALL=C` defines path ordering; each manifest line is lowercase
+semantic SHA-256, two ASCII spaces, relative path, and LF; the final SHA-256
+covers all 273 lines:
 
 ```sh
 (
@@ -262,14 +265,17 @@ ASCII spaces, relative path, and LF; the final SHA-256 covers all 273 lines:
   find . -type f -name '*.json' -print \
     | LC_ALL=C sort \
     | while IFS= read -r source_file; do
-        file_sha="$(shasum -a 256 "$source_file" | cut -d ' ' -f 1)"
-        printf '%s  %s\n' "$file_sha" "${source_file#./}"
+        semantic_sha="$(jq -S -c . "$source_file" \
+          | shasum -a 256 | cut -d ' ' -f 1)"
+        printf '%s  %s\n' "$semantic_sha" "${source_file#./}"
       done
 ) | shasum -a 256
 ```
 
-Observed toolchain only; Block 1 may refresh within its contract:
-Python `3.14.4`, uv `0.11.9`, Node `24.15.0`, npm `11.12.1`, Git `2.54.0`.
+The root matched across the frozen generation and one fresh 0.145.0 generation;
+both contained 273 files. Observed toolchain only; Block 1 may refresh within
+its contract: Python `3.14.4`, uv `0.11.9`, Node `24.15.0`, npm `11.12.1`, Git
+`2.54.0`, jq `1.8.1`.
 
 ### Content-minimized live schema samples
 
@@ -316,7 +322,8 @@ all dashboard surfaces remain planned until their Blocks are accepted.
 | Automation binding repair | `supported` | Automation and policy owners can establish both actual schedule state and canonical group-role binding. | No exact automation/group-role mismatch or one owner unavailable. |
 | Pause supervision | `supported` | `paused` lifecycle gating plus actual bound-automation pause provide two current postconditions. | Missing lifecycle/automation gate or unsatisfied terminal/report prerequisites. |
 | Resume supervision | `unavailable` | Automations can be re-enabled, but the maintained helper exposes no canonical `resumed` lifecycle state or resume gate/postcondition. | A maintained resume lifecycle owner is implemented, then Block 18 is narrowly amended before execution. |
-| Same-target mission succession | `supported` | `mission-successor` exists for materially different direct authority, creates one pending first-work activation, and `mission-activation-start` closes it from exact work evidence. | Open head/activation, unchanged intent, absent direct authority, or missing exact first eligible work. |
+| Create same-target successor mission binding | `supported` | `mission-successor` accepts materially different direct authority and exact first eligible work, then creates the new policy binding and one pending activation. | Open head/activation, unchanged intent, absent direct authority, or missing exact first eligible work. |
+| Close or verify successor first-work activation | `unavailable` | Current `mission-activation-start` accepts an arbitrary later same-target/current-mission record and repeated caller evidence; it does not prove that the named first work began. | The maintained owner must bind an eligible canonical work-start source and postcondition to the exact first-work identity. |
 | Successor-task continuity | `supported` | Transition helper and App Server task owner exist; source stop waits for current `work-started`. | Missing direct task-creation authority or incomplete phase. |
 | Weekly report generation/verification | `supported` | Maintained stages and one live verified bundle exist; delivery may be separately unavailable. | Report/helper hash or source-root change. |
 | Terminal report/shutdown owner | `supported` | Maintained helper stages and gates exist. The current target action is unavailable because outcome/report/delivery/incident gates are not satisfied. | Exact terminal prerequisites become current. |
@@ -350,7 +357,8 @@ message delivery, generated file, or stopped task never proves application.
 | Repair automation binding | Automation + policy owner | One exact automation/group-role mismatch; consequential confirmation | Actual automation and canonical policy binding both match with no duplicate role. | No direct TOML fallback. |
 | Pause supervision | Automation + lifecycle owners | Exact group and consequence preview; typed lifecycle confirmation | Canonical `paused` lifecycle plus actual paused state for every bound automation. | Turn state or one-owner-only change is insufficient. |
 | Resume supervision | No complete current owner | Disabled; explain missing canonical resumed lifecycle/gate | None; automation re-enable alone cannot establish semantic resume. | Amend Block 18 only after a maintained lifecycle owner exists. |
-| Begin successor mission | `mission-successor` policy owner | Direct new-mission authority, predecessor/closed-head proof, and exact first eligible work; typed confirmation | New policy history has the sole active root, predecessor history is preserved, and one matching activation is `pending`; later exact work evidence advances it to `work-started`. | Do not use `bind`, create a parallel root, or render pending activation as completed continuation. |
+| Begin successor mission binding | `mission-successor` policy owner | Direct new-mission authority, predecessor/closed-head proof, and exact first eligible work; typed confirmation | New policy history has the sole active root, predecessor history is preserved, and one matching activation is `pending`. | Do not use `bind`, create a parallel root, or render pending activation as completed continuation. |
+| Close or verify successor first work | No evidence-tight current owner | Disabled; explain the weak source/evidence check | None; a structural `work-started` record from the current helper cannot establish that the named work began. | Do not invoke or trust closure until the maintained owner binds an eligible canonical source to the exact first-work identity. |
 | Advance successor-task transition | Transition helper + App Server/task owners | Direct task authority and exact phase; confirmation per phase | Exact next canonical phase; source stop only after gate proves `work-started`. | Missing authority/phase stays open; no invented ID. |
 | Generate weekly report | Weekly report + semantic reviewer + optional delivery owner | Exact period/sources/roles; consequential confirmation | Current verified manifest/Markdown/PDF/JSON; delivery is a separate named postcondition. | Reuse valid earlier stages; do not regenerate for display/delivery failure. |
 | Run Factory evolution | Evolution artifact owner + independent proposer/evaluator | Exact sources/roles/revisions; consequential confirmation | Immutable artifact set verifies with one current disposition. | No implementation, adoption, deployment, or outcome action. |
@@ -410,9 +418,10 @@ message delivery, generated file, or stopped task never proves application.
    future Block before execution unless a maintained resume lifecycle owner and
    postcondition exist; earlier dependency-safe Blocks remain available.
 10. Planned Block 19 predates the durable first-work activation obligation in
-    source revision `08b4f98`. Before executing that future Block, amend its
-    preview, acceptance, recovery, and Stop to cover exact first eligible work,
-    `pending`, and `work-started` without treating mission binding as work.
+    source revision `08b4f98`, whose current closure is not evidence-tight.
+    Before executing that future Block, amend its preview, acceptance,
+    recovery, and Stop to end at the verified `pending` binding and expose
+    first-work closure as unavailable unless the maintained owner is hardened.
 
 ## 9. Revalidation triggers
 
