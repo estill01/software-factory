@@ -74,6 +74,18 @@ the completed program materially changes Software Factory.
   repository. This slice is read-only: it adds no tracker workspace, status
   mutation, acceptance, task start, or synthetic progress percentage.
   Implementation scope is Block 3 of the operations-dashboard tracker.
+- **Read-only supervision, report, and metrics projection.** Added closed
+  Python and Zod contracts for current and predecessor mission history,
+  supervisor topology, exact role/task/automation bindings, lifecycle and
+  successor continuity, incidents, decisions, activity, semantic conclusions,
+  verified weekly/terminal/evolution report bundles, and maintained-owner
+  metrics. Transparent attention reasons and red/amber/green/neutral rules keep
+  source-local failures and unmonitored projects visible without letting one
+  damaged target erase healthy data. Cross-run totals aggregate only additive
+  dimensions; API-equivalent cost remains an explicitly labeled estimate. This
+  slice is read-only and neither inspects automation prompts nor mutates runs,
+  lifecycle, supervision, or reports. Implementation scope is Block 4 of the
+  operations-dashboard tracker.
 - **Successor-transition continuity and structured failure-mode records.** A
   requested implementation that must cross into a distinct task now remains an
   open append-only transition through `required`, task creation, isolated

@@ -23,6 +23,12 @@ from .catalog import (
     validate_project_id,
 )
 from .contract import API_VERSION, PACKAGE_VERSION, envelope
+from .operations import (
+    DEFAULT_AUTOMATIONS_ROOT,
+    DEFAULT_SUPERVISION_ROOT,
+    OperationsProjectionError,
+    OperationsProjectionService,
+)
 from .tracker import (
     TrackerProjectionError,
     TrackerProjectionService,
@@ -46,6 +52,8 @@ class ServerConfig:
     port: int = 8787
     static_dir: Path | None = None
     catalog_path: Path | None = None
+    supervision_root: Path = DEFAULT_SUPERVISION_ROOT
+    automations_root: Path = DEFAULT_AUTOMATIONS_ROOT
     quiet: bool = False
 
     def validated(self) -> "ServerConfig":
@@ -65,6 +73,8 @@ class ServerConfig:
             port=self.port,
             static_dir=static_dir,
             catalog_path=catalog_path,
+            supervision_root=self.supervision_root.expanduser().resolve(),
+            automations_root=self.automations_root.expanduser().resolve(),
             quiet=self.quiet,
         )
 
@@ -87,6 +97,10 @@ class DashboardHTTPServer(ThreadingHTTPServer):
         self.mutation_nonce = nonce or secrets.token_urlsafe(32)
         self.catalog_store = CatalogStore(self.config.catalog_path)
         self.tracker_service = TrackerProjectionService()
+        self.operations_service = OperationsProjectionService(
+            supervision_root=self.config.supervision_root,
+            automations_root=self.config.automations_root,
+        )
         super().__init__((self.config.host, self.config.port), DashboardRequestHandler)
 
 
@@ -210,6 +224,15 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         else:
             tracker_available = catalog_available
             tracker_reason = catalog_reason
+        supervision_owner: dict[str, Any] | None = None
+        try:
+            supervision_owner = self.server.operations_service.readiness()
+        except OperationsProjectionError as error:
+            supervision_available = False
+            supervision_reason = str(error)
+        else:
+            supervision_available = catalog_available
+            supervision_reason = catalog_reason
         missing = ["codex-app-server"]
         if not frontend_available:
             missing.insert(0, "frontend-build")
@@ -217,6 +240,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             missing.insert(0, "project-catalog")
         if not tracker_available:
             missing.insert(0, "tracker-projection")
+        if not supervision_available:
+            missing.insert(0, "supervision-projection")
         data = {
             "status": "ok",
             "service": {"name": "software-factory-dashboard", "version": PACKAGE_VERSION},
@@ -234,6 +259,10 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 "tracker_sources": {
                     "status": "available" if tracker_available else "unavailable",
                     "reason": tracker_reason,
+                },
+                "supervision_sources": {
+                    "status": "available" if supervision_available else "unavailable",
+                    "reason": supervision_reason,
                 },
                 "codex_app_server": {
                     "status": "unavailable",
@@ -257,6 +286,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                         + (["frontend-build"] if frontend_available else [])
                         + (["project-catalog"] if catalog_available else [])
                         + (["maintained-tracker-verifier"] if tracker_available else [])
+                        + (["maintained-supervision-owners"] if supervision_available else [])
                     ),
                     "missing": missing,
                 },
@@ -265,6 +295,12 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                     f"Maintained tracker verifier revision: {tracker_owner['sha256']}."
                     if tracker_available and tracker_owner is not None
                     else "Maintained tracker verifier is unavailable.",
+                    (
+                        "Maintained supervision/report owner bundle: "
+                        f"{supervision_owner['revision']}."
+                        if supervision_available and supervision_owner is not None
+                        else "Maintained supervision/report owners are unavailable."
+                    ),
                 ],
             ),
         )
@@ -279,7 +315,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         ]
         limitations = [
             "This project endpoint returns tracker candidates only; use /api/v1/trackers for read-only content projection.",
-            "Supervision and Codex task sources remain unavailable until Blocks 4 and 5.",
+            "Use /api/v1/runs for supervision truth; Codex task state remains unavailable until Block 5.",
         ]
         if loaded.recovered_from_previous:
             limitations.append("The current catalog was invalid; a valid prior file was projected read-only.")
@@ -301,7 +337,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             coverage={
                 "status": "partial",
                 "observed": ["catalog", "registered-git-roots", "tracker-candidate-paths"],
-                "missing": ["supervision", "codex-app-server"],
+                "missing": ["composed-supervision-project-binding", "codex-app-server"],
             },
             limitations=limitations,
         )
@@ -348,7 +384,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 coverage={
                     "status": "partial",
                     "observed": ["catalog", "registered-git-root", "tracker-candidate-paths"],
-                    "missing": ["tracker-content", "supervision", "codex-app-server"],
+                    "missing": ["tracker-content", "composed-supervision-project-binding", "codex-app-server"],
                 },
                 limitations=projection["discovery"]["limitations"],
             )
@@ -534,6 +570,140 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 limitations=detail["limitations"],
             )
         except (CatalogError, TrackerProjectionError) as error:
+            self._error(
+                HTTPStatus(error.status),
+                error.code,
+                str(error),
+                retryable=error.retryable,
+            )
+            return
+        self._write_json(HTTPStatus.OK, payload)
+
+    def _operations_snapshot(self) -> tuple[dict[str, Any], str, bool]:
+        loaded = self.server.catalog_store.load()
+        projects = tuple(project for project in loaded.state.projects if not project.archived)
+        snapshot = self.server.operations_service.snapshot(projects)
+        return snapshot, loaded.fingerprint, loaded.recovered_from_previous
+
+    def _operations_envelope(
+        self,
+        *,
+        identity: str,
+        revision: str,
+        data: dict[str, Any],
+        coverage: dict[str, Any],
+        limitations: list[str],
+    ) -> dict[str, Any]:
+        return envelope(
+            data=data,
+            source={
+                "kind": "operations-projection",
+                "identity": identity,
+                "revision": revision,
+            },
+            coverage=coverage,
+            limitations=limitations,
+        )
+
+    def _write_runs(self) -> None:
+        try:
+            snapshot, catalog_fingerprint, recovered = self._operations_snapshot()
+            payload = self._operations_envelope(
+                identity="software-factory-dashboard/runs",
+                revision=snapshot["fingerprint"],
+                data={
+                    "catalog_fingerprint": catalog_fingerprint,
+                    "recovered_from_previous": recovered,
+                    "owners": snapshot["owners"],
+                    "runs": snapshot["run_summaries"],
+                    "attention": snapshot["attention"],
+                    "orphan_automations": snapshot["orphan_automations"],
+                    "unmonitored_projects": snapshot["unmonitored_projects"],
+                },
+                coverage=snapshot["coverage"],
+                limitations=snapshot["limitations"],
+            )
+        except (CatalogError, OperationsProjectionError) as error:
+            self._error(
+                HTTPStatus(error.status),
+                error.code,
+                str(error),
+                retryable=error.retryable,
+            )
+            return
+        self._write_json(HTTPStatus.OK, payload)
+
+    def _write_run(self, target_thread_id: str) -> None:
+        try:
+            loaded = self.server.catalog_store.load()
+            projects = tuple(project for project in loaded.state.projects if not project.archived)
+            snapshot = self.server.operations_service.run(projects, target_thread_id)
+            payload = self._operations_envelope(
+                identity=f"software-factory-dashboard/runs/{target_thread_id}",
+                revision=snapshot["fingerprint"],
+                data={
+                    "catalog_fingerprint": loaded.fingerprint,
+                    "recovered_from_previous": loaded.recovered_from_previous,
+                    "owners": snapshot["owners"],
+                    "run": snapshot["selected_run"],
+                },
+                coverage=snapshot["selected_run"]["coverage"],
+                limitations=snapshot["selected_run"]["limitations"],
+            )
+        except (CatalogError, OperationsProjectionError) as error:
+            self._error(
+                HTTPStatus(error.status),
+                error.code,
+                str(error),
+                retryable=error.retryable,
+            )
+            return
+        self._write_json(HTTPStatus.OK, payload)
+
+    def _write_reports(self) -> None:
+        try:
+            snapshot, catalog_fingerprint, recovered = self._operations_snapshot()
+            payload = self._operations_envelope(
+                identity="software-factory-dashboard/reports",
+                revision=snapshot["fingerprint"],
+                data={
+                    "catalog_fingerprint": catalog_fingerprint,
+                    "recovered_from_previous": recovered,
+                    "owners": snapshot["owners"],
+                    "reports": snapshot["reports"],
+                },
+                coverage=snapshot["coverage"],
+                limitations=snapshot["limitations"]
+                + ["Report availability or verification never establishes implementation completion."],
+            )
+        except (CatalogError, OperationsProjectionError) as error:
+            self._error(
+                HTTPStatus(error.status),
+                error.code,
+                str(error),
+                retryable=error.retryable,
+            )
+            return
+        self._write_json(HTTPStatus.OK, payload)
+
+    def _write_metrics(self) -> None:
+        try:
+            snapshot, catalog_fingerprint, recovered = self._operations_snapshot()
+            payload = self._operations_envelope(
+                identity="software-factory-dashboard/metrics",
+                revision=snapshot["fingerprint"],
+                data={
+                    "catalog_fingerprint": catalog_fingerprint,
+                    "recovered_from_previous": recovered,
+                    "owners": snapshot["owners"],
+                    "aggregate": snapshot["metrics"]["aggregate"],
+                    "per_run": snapshot["metrics"]["per_run"],
+                },
+                coverage=snapshot["coverage"],
+                limitations=snapshot["limitations"]
+                + ["Cost fields are API-equivalent estimates, not actual spend."],
+            )
+        except (CatalogError, OperationsProjectionError) as error:
             self._error(
                 HTTPStatus(error.status),
                 error.code,
@@ -755,6 +925,32 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         if decoded_path == f"/api/{API_VERSION}/health":
             self._health()
             return
+        if decoded_path == f"/api/{API_VERSION}/runs":
+            if urlsplit(self.path).query:
+                self._error(HTTPStatus.BAD_REQUEST, "invalid_query", "Runs does not accept query parameters.")
+            else:
+                self._write_runs()
+            return
+        run_prefix = f"/api/{API_VERSION}/runs/"
+        if decoded_path.startswith(run_prefix):
+            target_thread_id = decoded_path[len(run_prefix) :]
+            if not target_thread_id or "/" in target_thread_id or urlsplit(self.path).query:
+                self._error(HTTPStatus.BAD_REQUEST, "invalid_run_id", "Run target ID is invalid.")
+            else:
+                self._write_run(target_thread_id)
+            return
+        if decoded_path == f"/api/{API_VERSION}/reports":
+            if urlsplit(self.path).query:
+                self._error(HTTPStatus.BAD_REQUEST, "invalid_query", "Reports does not accept query parameters.")
+            else:
+                self._write_reports()
+            return
+        if decoded_path == f"/api/{API_VERSION}/metrics":
+            if urlsplit(self.path).query:
+                self._error(HTTPStatus.BAD_REQUEST, "invalid_query", "Metrics does not accept query parameters.")
+            else:
+                self._write_metrics()
+            return
         if decoded_path == f"/api/{API_VERSION}/trackers":
             if urlsplit(self.path).query:
                 self._error(
@@ -856,6 +1052,8 @@ def parser() -> argparse.ArgumentParser:
     command.add_argument("--port", type=_port, default=8787)
     command.add_argument("--static-dir", type=Path, default=default_static_dir())
     command.add_argument("--catalog-path", type=Path, default=default_catalog_path())
+    command.add_argument("--supervision-root", type=Path, default=DEFAULT_SUPERVISION_ROOT)
+    command.add_argument("--automations-root", type=Path, default=DEFAULT_AUTOMATIONS_ROOT)
     command.add_argument("--quiet", action="store_true")
     return command
 
@@ -869,6 +1067,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 port=args.port,
                 static_dir=args.static_dir,
                 catalog_path=args.catalog_path,
+                supervision_root=args.supervision_root,
+                automations_root=args.automations_root,
                 quiet=args.quiet,
             )
         )

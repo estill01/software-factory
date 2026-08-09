@@ -37,7 +37,7 @@ export function ConnectionStatus() {
         <Tooltip.Portal>
           <Tooltip.Content className="tooltip-content" sideOffset={8}>
             {health.data
-              ? `Runtime ${health.data.data.service.version}; catalog ${health.data.data.integrations.project_sources.status}; trackers ${health.data.data.integrations.tracker_sources.status}; Codex tasks ${health.data.data.integrations.codex_app_server.status}.`
+              ? `Runtime ${health.data.data.service.version}; catalog ${health.data.data.integrations.project_sources.status}; trackers ${health.data.data.integrations.tracker_sources.status}; supervision ${health.data.data.integrations.supervision_sources.status}; Codex tasks ${health.data.data.integrations.codex_app_server.status}.`
               : "The shell keeps source availability separate from visual readiness."}
             <Tooltip.Arrow className="tooltip-arrow" />
           </Tooltip.Content>

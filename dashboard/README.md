@@ -1,11 +1,11 @@
 # Software Factory Operations Dashboard
 
 The dashboard is a local, single-operator control room. It currently provides
-the loopback runtime, typed transport, accessible application shell, and a
-bounded multi-project catalog plus read-only implementation-tracker and Git
-currentness APIs. Codex tasks, supervision, reports, lifecycle truth, and the
-operator-facing tracker workspace remain unavailable until their owning tracker
-Blocks are accepted.
+the loopback runtime, typed transport, accessible application shell, a bounded
+multi-project catalog, and read-only APIs for implementation trackers, Git
+currentness, supervision, reports, and owner-produced metrics. Codex task
+control and the operator-facing workspaces remain unavailable until their
+owning tracker Blocks are accepted.
 
 ## Prerequisites
 
@@ -47,7 +47,8 @@ uv run --project dashboard/server software-factory-dashboard --port 8787
 Open `http://127.0.0.1:8787`. Choose another free port with `--port`; the
 service rejects non-loopback hosts. The production server serves the Vite build,
 SPA routes, `/api/v1/health`, security headers, and per-launch mutation-nonce
-plumbing. Read-only project and tracker APIs are served from the same origin.
+plumbing. Read-only project, tracker, supervision, report, and metrics APIs are
+served from the same origin.
 
 ## Register projects
 
@@ -118,6 +119,38 @@ client validates list/detail responses with closed Zod schemas but does not yet
 render a tracker workspace; that interface begins in Block 8. No endpoint in
 this slice edits a tracker, accepts a Block, changes status, or starts work.
 
+## Inspect supervision, reports, and metrics
+
+The operations adapter exposes maintained owner truth through four read-only
+routes:
+
+```text
+GET /api/v1/runs
+GET /api/v1/runs/{target-thread-id}
+GET /api/v1/reports
+GET /api/v1/metrics
+```
+
+Run projections keep current-mission and predecessor history distinct, show the
+supervisor topology and exact role, task, and automation bindings, and separate
+mechanical activity from semantic conclusions. Incidents, decisions, lifecycle
+transitions, successor continuity, attention reasons, and source-local failures
+retain exact source references. Registered projects with no canonical run
+binding are returned explicitly as unmonitored rather than silently omitted.
+
+Weekly, terminal, and Factory-evolution reports are included only with their
+maintained verification result, manifest members, content hashes, and derived
+disposition. Metrics come from the maintained supervision owner for the active
+mission only. Cross-run totals aggregate additive dimensions but never
+synthesize percentiles, and API-equivalent cost is always labeled as an
+estimate with its assumptions.
+
+The service reads canonical supervision and automation roots, does not inspect
+automation prompt bodies, and does not create, repair, pause, resume, stop, or
+otherwise mutate supervised work. It also does not generate reports. Each
+target and report fails locally so one damaged source cannot erase healthy
+operations data.
+
 ## Browser tests
 
 With the production service running on port 8787:
@@ -129,5 +162,5 @@ SOFTWARE_FACTORY_DASHBOARD_URL=http://127.0.0.1:8787 \
 
 The server never performs broad filesystem discovery and never exposes
 arbitrary commands, authentication, remote binding, filesystem deletion, or
-background work. Tracker read readiness does not imply that task, supervision,
-report, lifecycle, or mutation owners are connected.
+background work. Read readiness does not imply that task or lifecycle mutation
+owners are connected.

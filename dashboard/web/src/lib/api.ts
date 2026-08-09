@@ -33,6 +33,7 @@ export const healthDataSchema = z.object({
     frontend: availabilitySchema,
     project_sources: availabilitySchema,
     tracker_sources: availabilitySchema,
+    supervision_sources: availabilitySchema,
     codex_app_server: availabilitySchema,
   }),
 })

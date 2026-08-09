@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import re
 import subprocess
+import sys
 from tempfile import TemporaryDirectory
 from threading import Thread
 from typing import Iterator
@@ -22,16 +23,25 @@ from software_factory_dashboard.server import (
     ServerConfig,
     create_server,
 )
+from software_factory_dashboard.operations import DEFAULT_SUPERVISION_OWNER
 
 
 @contextmanager
-def running_server(static_dir: Path, *, catalog_path: Path | None = None) -> Iterator[str]:
+def running_server(
+    static_dir: Path,
+    *,
+    catalog_path: Path | None = None,
+    supervision_root: Path | None = None,
+    automations_root: Path | None = None,
+) -> Iterator[str]:
     server = create_server(
         ServerConfig(
             host="127.0.0.1",
             port=0,
             static_dir=static_dir,
             catalog_path=catalog_path or static_dir / ".catalog" / "projects.json",
+            supervision_root=supervision_root or static_dir / ".supervision",
+            automations_root=automations_root or static_dir / ".automations",
             quiet=True,
         ),
         nonce="test-launch-nonce",
@@ -131,6 +141,7 @@ class DashboardServerTests(unittest.TestCase):
         self.assertEqual(payload["data"]["integrations"]["frontend"]["status"], "available")
         self.assertEqual(payload["data"]["integrations"]["project_sources"]["status"], "available")
         self.assertEqual(payload["data"]["integrations"]["tracker_sources"]["status"], "available")
+        self.assertEqual(payload["data"]["integrations"]["supervision_sources"]["status"], "available")
         self.assertIn("project-catalog", payload["coverage"]["observed"])
         self.assertEqual(payload["coverage"]["status"], "partial")
         self.assertRegex(payload["fingerprint"], r"^[0-9a-f]{64}$")
@@ -411,6 +422,110 @@ class DashboardServerTests(unittest.TestCase):
             invalid_id = response(f"{origin}/api/v1/trackers/not-a-tracker")
             self.assertEqual(invalid_id.status, 400)
             self.assertEqual(json.loads(invalid_id.body)["error"]["code"], "invalid_tracker_id")
+
+    def test_run_report_and_metric_apis_use_live_supervision_owner(self) -> None:
+        root = self.make_repo("operations-api")
+        supervision_root = self.static_dir / "supervision"
+        automations_root = self.static_dir / "automations"
+        target = "operations-target-0001"
+        init = subprocess.run(
+            [
+                sys.executable,
+                str(DEFAULT_SUPERVISION_OWNER),
+                "--root",
+                str(supervision_root),
+                "init",
+                "--target-thread",
+                target,
+                "--target-label",
+                "Operations target",
+                "--watcher-thread",
+                "operations-watcher-01",
+                "--reviewer-thread",
+                "operations-reviewer-1",
+                "--mission-root",
+                "c" * 64,
+                "--mission-source-record",
+                "direct-item-44",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(init.returncode, 0, init.stdout)
+        recorded = subprocess.run(
+            [
+                sys.executable,
+                str(DEFAULT_SUPERVISION_OWNER),
+                "--root",
+                str(supervision_root),
+                "record",
+                "--target-thread",
+                target,
+                "--kind",
+                "check",
+                "--model",
+                "gpt-5.6-terra",
+                "--reasoning",
+                "max",
+                "--status",
+                "no-intervention",
+                "--category",
+                "changed-state-review",
+                "--summary",
+                "Exact live owner check.",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(recorded.returncode, 0, recorded.stdout)
+
+        with running_server(
+            self.static_dir,
+            supervision_root=supervision_root,
+            automations_root=automations_root,
+        ) as origin:
+            initial = json.loads(response(f"{origin}/api/v1/projects?include_archived=true").body)
+            created = self.catalog_request(
+                origin,
+                "/api/v1/projects",
+                {
+                    "source_fingerprint": initial["data"]["catalog_fingerprint"],
+                    "project": {
+                        "id": "operations-api",
+                        "label": "Operations API",
+                        "root": str(root),
+                        "tracker_patterns": [],
+                        "description": None,
+                    },
+                },
+            )
+            self.assertEqual(created.status, 201)
+
+            listed = json.loads(response(f"{origin}/api/v1/runs").body)
+            detail = json.loads(response(f"{origin}/api/v1/runs/{target}").body)
+            reports = json.loads(response(f"{origin}/api/v1/reports").body)
+            metrics = json.loads(response(f"{origin}/api/v1/metrics").body)
+            missing = response(f"{origin}/api/v1/runs/missing-target-0000")
+
+        self.assertEqual(len(listed["data"]["runs"]), 1)
+        self.assertEqual(listed["data"]["runs"][0]["current_event_count"], 1)
+        self.assertEqual(detail["data"]["run"]["target_thread_id"], target)
+        self.assertEqual(detail["data"]["run"]["metrics"]["status"], "available")
+        self.assertEqual(reports["data"]["reports"], [])
+        self.assertEqual(metrics["data"]["aggregate"]["headline"]["recorded_events"], 1)
+        self.assertEqual(
+            metrics["data"]["aggregate"]["api_equivalent_estimate"]["label"],
+            "API-equivalent estimate",
+        )
+        self.assertEqual(metrics["data"]["per_run"][0]["status"], "available")
+        self.assertEqual(
+            metrics["data"]["per_run"][0]["cost_label"],
+            "API-equivalent estimate",
+        )
+        self.assertEqual(missing.status, 404)
+        self.assertEqual(json.loads(missing.body)["error"]["code"], "run_not_found")
 
 
 if __name__ == "__main__":
