@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
 import importlib.util
 import json
@@ -30,6 +31,27 @@ class SkillReleaseTests(unittest.TestCase):
         self.repo.mkdir()
         self.install_root.mkdir()
         self.evidence_counter = 0
+        self.authority_root = self.root / "authority"
+        (self.authority_root / "reviewers").mkdir(parents=True)
+        (self.authority_root / "operators").mkdir()
+        self.authority_patcher = mock.patch.object(
+            skill_release, "AUTHORITY_ROOT", self.authority_root
+        )
+        self.authority_patcher.start()
+        (
+            self.reviewer_private,
+            self.reviewer_key_sha256,
+        ) = self.create_authority("reviewers", "independent-reviewer-1234")
+        (
+            self.operator_private,
+            self.operator_key_sha256,
+        ) = self.create_authority("operators", "release-operator-1234")
+        for directory in (
+            self.authority_root,
+            self.authority_root / "reviewers",
+            self.authority_root / "operators",
+        ):
+            directory.chmod(0o555)
         self.git("init")
         self.git("config", "user.email", "factory@example.test")
         self.git("config", "user.name", "Factory Test")
@@ -44,6 +66,7 @@ class SkillReleaseTests(unittest.TestCase):
         self.commit("initial skills")
 
     def tearDown(self) -> None:
+        self.authority_patcher.stop()
         for base, directory_names, file_names in os.walk(self.root):
             Path(base).chmod(0o755)
             for name in directory_names:
@@ -55,6 +78,53 @@ class SkillReleaseTests(unittest.TestCase):
                 if not child.is_symlink():
                     child.chmod(0o644)
         self.temporary.cleanup()
+
+    def create_authority(self, role: str, principal: str) -> tuple[Path, str]:
+        private = self.root / f"{principal}.private.pem"
+        public = self.authority_root / role / f"{principal}.pem"
+        subprocess.run(
+            ["openssl", "genpkey", "-algorithm", "Ed25519", "-out", str(private)],
+            check=True,
+            capture_output=True,
+        )
+        subprocess.run(
+            [
+                "openssl",
+                "pkey",
+                "-in",
+                str(private),
+                "-pubout",
+                "-out",
+                str(public),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        public.chmod(0o444)
+        return private, hashlib.sha256(public.read_bytes()).hexdigest()
+
+    def sign(self, material: dict[str, object], private: Path) -> str:
+        self.evidence_counter += 1
+        material_path = self.root / f"signed-material-{self.evidence_counter}.json"
+        signature_path = self.root / f"signature-{self.evidence_counter}.bin"
+        material_path.write_bytes(skill_release.canonical(material))
+        subprocess.run(
+            [
+                "openssl",
+                "pkeyutl",
+                "-sign",
+                "-inkey",
+                str(private),
+                "-rawin",
+                "-in",
+                str(material_path),
+                "-out",
+                str(signature_path),
+            ],
+            check=True,
+            capture_output=True,
+        )
+        return base64.b64encode(signature_path.read_bytes()).decode("ascii")
 
     def git(self, *arguments: str) -> str:
         result = subprocess.run(
@@ -87,8 +157,10 @@ class SkillReleaseTests(unittest.TestCase):
             "candidate_root_sha256": request["candidate_root_sha256"],
             "reviewed_at": "2026-08-09T12:00:00+00:00",
             "evidence": [f"exact-commit:{commit}", "isolated-review:no-findings"],
+            "authority_key_sha256": self.reviewer_key_sha256,
         }
         material["review_root_sha256"] = skill_release.digest(material)
+        material["signature_base64"] = self.sign(material, self.reviewer_private)
         path.write_bytes(skill_release.canonical(material) + b"\n")
         return path
 
@@ -122,11 +194,13 @@ class SkillReleaseTests(unittest.TestCase):
             "operation": operation,
             "release_id": release_id,
             "previous_active_release_id": previous_release_id,
-            "observed_at": "2026-08-09T12:01:00+00:00",
+            "observed_at": skill_release.utc_now(),
             "no_concurrent_skill_resolutions": True,
             "evidence": ["isolated-test-boundary", "no-concurrent-resolution"],
+            "authority_key_sha256": self.operator_key_sha256,
         }
         material["evidence_root_sha256"] = skill_release.digest(material)
+        material["signature_base64"] = self.sign(material, self.operator_private)
         evidence_path.write_bytes(skill_release.canonical(material) + b"\n")
         return argparse.Namespace(
             release_root=str(self.release_root),
@@ -339,11 +413,24 @@ class SkillReleaseTests(unittest.TestCase):
             (self.repo / name / "VERSION").write_text("candidate\n", encoding="utf-8")
         second_commit = self.commit("candidate")
         second = self.stage(second_commit)
+        original_swap = skill_release.swap_pointer
+        restore_failed_once = False
+
+        def flaky_prior_restore(release_root: Path, release_id: str | None) -> None:
+            nonlocal restore_failed_once
+            if release_id == first["release_id"] and not restore_failed_once:
+                restore_failed_once = True
+                raise OSError("one prior-pointer restore failed")
+            original_swap(release_root, release_id)
+
         with (
             mock.patch.object(
                 skill_release,
                 "child_reload_verify",
                 side_effect=skill_release.ReleaseError("reload unavailable"),
+            ),
+            mock.patch.object(
+                skill_release, "swap_pointer", side_effect=flaky_prior_restore
             ),
             self.assertRaisesRegex(skill_release.ReleaseError, "reload unavailable"),
         ):
@@ -358,7 +445,46 @@ class SkillReleaseTests(unittest.TestCase):
             skill_release.current_release_id(self.release_root.resolve()),
             first["release_id"],
         )
+        self.assertTrue(restore_failed_once)
         self.assertEqual(len(skill_release.history(self.release_root.resolve())), 1)
+
+    def test_signed_quiescent_boundary_is_single_use(self) -> None:
+        first_commit = self.git("rev-parse", "HEAD")
+        first = self.stage(first_commit)
+        skill_release.bootstrap_release(self.activate_args(str(first["release_id"])))
+        for name in skill_release.SKILLS:
+            (self.repo / name / "VERSION").write_text("candidate\n", encoding="utf-8")
+        second_commit = self.commit("candidate for replay")
+        second = self.stage(second_commit)
+        first_to_second = self.activate_args(
+            str(second["release_id"]),
+            operation="activate",
+            previous_release_id=str(first["release_id"]),
+        )
+        skill_release.activate_release(first_to_second)
+        back_to_first = self.activate_args(
+            str(first["release_id"]),
+            operation="rollback",
+            previous_release_id=str(second["release_id"]),
+        )
+        skill_release.rollback_release(back_to_first)
+        with self.assertRaisesRegex(skill_release.ReleaseError, "already consumed"):
+            skill_release.activate_release(first_to_second)
+        self.assertEqual(
+            skill_release.current_release_id(self.release_root.resolve()),
+            first["release_id"],
+        )
+
+    def test_self_hashed_unsigned_authority_records_are_rejected(self) -> None:
+        commit = self.git("rev-parse", "HEAD")
+        review_path = self.review_evidence(commit)
+        review = json.loads(review_path.read_text(encoding="utf-8"))
+        review["signature_base64"] = base64.b64encode(b"fabricated").decode("ascii")
+        review_path.write_bytes(skill_release.canonical(review) + b"\n")
+        with self.assertRaisesRegex(skill_release.ReleaseError, "signature"):
+            skill_release.stage_release(
+                self.stage_args(commit, review_evidence=review_path)
+            )
 
     def test_mixed_or_escaping_legacy_install_is_rejected(self) -> None:
         commit = self.git("rev-parse", "HEAD")
@@ -404,6 +530,27 @@ class SkillReleaseTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(skill_release.ReleaseError, "prior accepted"):
             skill_release.rollback_release(rollback_args)
+
+    def test_oversized_or_noncanonical_manifest_is_rejected_before_cutover(self) -> None:
+        commit = self.git("rev-parse", "HEAD")
+        staged = self.stage(commit)
+        release_id = str(staged["release_id"])
+        manifest_path = (
+            self.release_root / "releases" / release_id / skill_release.MANIFEST_NAME
+        )
+        manifest_path.chmod(0o644)
+        with manifest_path.open("ab") as destination:
+            destination.write(b" ")
+        manifest_path.chmod(0o444)
+        with self.assertRaisesRegex(skill_release.ReleaseError, "canonical JSON"):
+            skill_release.bootstrap_release(self.activate_args(release_id))
+        manifest_path.chmod(0o644)
+        with manifest_path.open("ab") as destination:
+            destination.write(b" " * (1024 * 1024))
+        manifest_path.chmod(0o444)
+        with self.assertRaisesRegex(skill_release.ReleaseError, "size limit"):
+            skill_release.bootstrap_release(self.activate_args(release_id))
+        self.assertIsNone(skill_release.current_release_id(self.release_root.resolve()))
 
     def test_forged_history_cannot_make_never_active_release_rollback_eligible(self) -> None:
         first_commit = self.git("rev-parse", "HEAD")

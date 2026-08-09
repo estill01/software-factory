@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import contextlib
 import datetime as dt
 import fcntl
@@ -33,6 +34,7 @@ ACCEPTANCE_NAME = "accepted-releases.jsonl"
 LOCK_NAME = ".release.lock"
 KEY_DIRECTORY = ".software-factory-release-keys"
 SCHEMA_VERSION = 1
+AUTHORITY_ROOT = Path.home() / ".codex/software-factory-release-authority"
 
 
 class ReleaseError(RuntimeError):
@@ -225,7 +227,88 @@ def load_bounded_json(path: Path, *, label: str, maximum: int = 65536) -> dict[s
         raise ReleaseError(f"{label} is invalid JSON") from exc
     if not isinstance(value, dict):
         raise ReleaseError(f"{label} must be a JSON object")
+    if raw != canonical(value) + b"\n":
+        raise ReleaseError(f"{label} is not exact canonical JSON")
     return value
+
+
+def authority_id(value: str, *, label: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{2,79}", value or ""):
+        raise ReleaseError(f"{label} is invalid")
+    return value
+
+
+def trusted_public_key(role: str, principal_id: str) -> tuple[Path, str]:
+    if role not in {"reviewers", "operators"}:
+        raise ReleaseError("Release authority role is invalid")
+    principal = authority_id(principal_id, label="release authority ID")
+    root = AUTHORITY_ROOT
+    role_root = root / role
+    key_path = role_root / f"{principal}.pem"
+    for path, label in (
+        (root, "release authority root"),
+        (role_root, "release authority role directory"),
+    ):
+        if path.is_symlink() or not path.is_dir() or path.stat().st_mode & 0o222:
+            raise ReleaseError(f"Canonical {label} is missing, symlinked, or writable")
+    if (
+        key_path.is_symlink()
+        or not key_path.is_file()
+        or key_path.stat().st_mode & 0o222
+        or key_path.stat().st_size > 8192
+    ):
+        raise ReleaseError("Trusted release authority public key is invalid")
+    payload = key_path.read_bytes()
+    return key_path, hashlib.sha256(payload).hexdigest()
+
+
+def verify_trusted_signature(
+    *,
+    role: str,
+    principal_id: str,
+    expected_key_sha256: str,
+    signed_material: Mapping[str, Any],
+    signature_base64: str,
+) -> None:
+    key_path, key_sha256 = trusted_public_key(role, principal_id)
+    if key_sha256 != exact_sha256(
+        expected_key_sha256, label="release authority public-key root"
+    ):
+        raise ReleaseError("Release authority public key differs from signed evidence")
+    try:
+        signature = base64.b64decode(signature_base64, validate=True)
+    except (ValueError, TypeError) as exc:
+        raise ReleaseError("Release authority signature is invalid base64") from exc
+    if not signature or len(signature) > 8192:
+        raise ReleaseError("Release authority signature has an invalid size")
+    openssl = shutil.which("openssl")
+    if not openssl:
+        raise ReleaseError("OpenSSL is required to verify release authority")
+    with tempfile.TemporaryDirectory(prefix="software-factory-signature-") as raw:
+        temporary = Path(raw)
+        material_path = temporary / "material.json"
+        signature_path = temporary / "signature.bin"
+        material_path.write_bytes(canonical(signed_material))
+        signature_path.write_bytes(signature)
+        result = subprocess.run(
+            [
+                openssl,
+                "pkeyutl",
+                "-verify",
+                "-pubin",
+                "-inkey",
+                str(key_path),
+                "-rawin",
+                "-in",
+                str(material_path),
+                "-sigfile",
+                str(signature_path),
+            ],
+            check=False,
+            capture_output=True,
+        )
+    if result.returncode:
+        raise ReleaseError("Release authority signature verification failed")
 
 
 def append_jsonl(path: Path, record: Mapping[str, Any]) -> None:
@@ -248,15 +331,27 @@ def jsonl_records(path: Path, *, label: str) -> list[dict[str, Any]]:
         return []
     if path.is_symlink() or not path.is_file():
         raise ReleaseError(f"{label} is not a canonical regular file")
+    maximum = 1024 * 1024
+    metadata = path.stat()
+    if metadata.st_size > maximum:
+        raise ReleaseError(f"{label} exceeds its size limit")
+    with path.open("rb") as source:
+        raw = source.read(maximum + 1)
+    if len(raw) > maximum:
+        raise ReleaseError(f"{label} exceeds its size limit")
     records: list[dict[str, Any]] = []
-    for line in path.read_bytes().splitlines():
+    for line in raw.splitlines():
         try:
             value = json.loads(line)
         except json.JSONDecodeError as exc:
             raise ReleaseError(f"{label} is invalid JSON") from exc
         if not isinstance(value, dict):
             raise ReleaseError(f"{label} record must be an object")
+        if line != canonical(value):
+            raise ReleaseError(f"{label} contains noncanonical record bytes")
         records.append(value)
+        if len(records) > 4096:
+            raise ReleaseError(f"{label} contains too many records")
     return records
 
 
@@ -584,13 +679,14 @@ def candidate_material(
     }
 
 
-def validate_review_evidence(
-    path: Path,
+def validate_review_object(
+    value: Mapping[str, Any],
     *,
     implementer_id: str,
     candidate: Mapping[str, Any],
+    verify_authority: bool = True,
 ) -> dict[str, Any]:
-    value = load_bounded_json(path, label="Independent review evidence")
+    implementer_id = bounded_id(implementer_id, label="implementer ID")
     exact_keys = {
         "schema_version",
         "kind",
@@ -602,12 +698,21 @@ def validate_review_evidence(
         "candidate_root_sha256",
         "reviewed_at",
         "evidence",
+        "authority_key_sha256",
         "review_root_sha256",
+        "signature_base64",
     }
-    material = {
-        item: member for item, member in value.items() if item != "review_root_sha256"
+    root_material = {
+        item: member
+        for item, member in value.items()
+        if item not in {"review_root_sha256", "signature_base64"}
     }
-    reviewer_id = bounded_id(str(value.get("reviewer_id", "")), label="reviewer ID")
+    signed_material = {
+        item: member for item, member in value.items() if item != "signature_base64"
+    }
+    reviewer_id = authority_id(
+        str(value.get("reviewer_id", "")), label="reviewer ID"
+    )
     if (
         set(value) != exact_keys
         or value.get("schema_version") != SCHEMA_VERSION
@@ -617,7 +722,7 @@ def validate_review_evidence(
         or value.get("candidate_root_sha256") != digest(candidate)
         or value.get("implementer_id") != implementer_id
         or reviewer_id == implementer_id
-        or value.get("review_root_sha256") != digest(material)
+        or value.get("review_root_sha256") != digest(root_material)
     ):
         raise ReleaseError("Independent review does not bind the exact release candidate")
     bounded_id(str(value.get("record_id", "")), label="review record ID")
@@ -634,7 +739,27 @@ def validate_review_evidence(
         or not all(isinstance(item, str) and 0 < len(item) <= 200 for item in evidence)
     ):
         raise ReleaseError("Independent review evidence is incomplete")
-    return value
+    if verify_authority:
+        verify_trusted_signature(
+            role="reviewers",
+            principal_id=reviewer_id,
+            expected_key_sha256=str(value.get("authority_key_sha256", "")),
+            signed_material=signed_material,
+            signature_base64=str(value.get("signature_base64", "")),
+        )
+    return dict(value)
+
+
+def validate_review_evidence(
+    path: Path,
+    *,
+    implementer_id: str,
+    candidate: Mapping[str, Any],
+) -> dict[str, Any]:
+    value = load_bounded_json(path, label="Independent review evidence")
+    return validate_review_object(
+        value, implementer_id=implementer_id, candidate=candidate
+    )
 
 
 def current_release_id(release_root: Path) -> str | None:
@@ -672,7 +797,11 @@ def release_tree_is_sealed(release: Path) -> bool:
 
 
 def read_manifest(
-    release_root: Path, release_id: str, *, require_acceptance: bool = True
+    release_root: Path,
+    release_id: str,
+    *,
+    require_acceptance: bool = True,
+    verify_review_authority: bool = True,
 ) -> dict[str, Any]:
     bounded_id(release_id, label="release ID")
     releases = release_root / "releases"
@@ -687,12 +816,9 @@ def read_manifest(
     manifest_path = release / MANIFEST_NAME
     if manifest_path.is_symlink() or not manifest_path.is_file():
         raise ReleaseError("Release manifest is missing or symlinked")
-    try:
-        manifest = json.loads(manifest_path.read_bytes())
-    except json.JSONDecodeError as exc:
-        raise ReleaseError("Release manifest is invalid JSON") from exc
-    if not isinstance(manifest, dict):
-        raise ReleaseError("Release manifest must be an object")
+    manifest = load_bounded_json(
+        manifest_path, label="Release manifest", maximum=65536
+    )
     exact_keys = {
         "schema_version",
         "kind",
@@ -722,15 +848,6 @@ def read_manifest(
     review = manifest.get("independent_review")
     if not isinstance(review, dict):
         raise ReleaseError("Release has no independent review evidence")
-    review_material = {
-        item: member for item, member in review.items() if item != "review_root_sha256"
-    }
-    if review.get("review_root_sha256") != digest(review_material):
-        raise ReleaseError("Release review evidence root is invalid")
-    bounded_id(str(review.get("reviewer_id", "")), label="reviewer ID")
-    bounded_id(str(review.get("implementer_id", "")), label="implementer ID")
-    bounded_id(str(review.get("record_id", "")), label="review record ID")
-    exact_sha256(str(review.get("review_root_sha256", "")), label="review root")
     skills = manifest.get("skills")
     if not isinstance(skills, dict) or set(skills) != set(SKILLS):
         raise ReleaseError("Release manifest does not describe exactly three skills")
@@ -759,6 +876,12 @@ def read_manifest(
         )
     candidate = candidate_material(source_commit, skills, validation)
     candidate_root = digest(candidate)
+    review = validate_review_object(
+        review,
+        implementer_id=str(review.get("implementer_id", "")),
+        candidate=candidate,
+        verify_authority=verify_review_authority,
+    )
     if (
         manifest.get("candidate_root_sha256") != candidate_root
         or review.get("source_commit") != source_commit
@@ -933,6 +1056,22 @@ def swap_pointer(release_root: Path, release_id: str | None) -> None:
             temporary.unlink()
 
 
+def restore_pointer(release_root: Path, release_id: str | None) -> None:
+    failures: list[str] = []
+    for _attempt in range(3):
+        try:
+            swap_pointer(release_root, release_id)
+            if current_release_id(release_root) == release_id:
+                return
+            failures.append("restored pointer did not resolve to the prior release")
+        except Exception as exc:
+            failures.append(str(exc))
+    raise ReleaseError(
+        "Current-pointer recovery failed after three attempts: "
+        + "; ".join(failures)
+    )
+
+
 def verify_bootstrap_source(
     install_root: Path,
     bootstrap_source_root: Path | None,
@@ -1028,9 +1167,17 @@ def bootstrap_links(
 
 
 def verify_installed(
-    release_root: Path, install_root: Path, expected_release: str
+    release_root: Path,
+    install_root: Path,
+    expected_release: str,
+    *,
+    verify_review_authority: bool = True,
 ) -> dict[str, Any]:
-    manifest = read_manifest(release_root, expected_release)
+    manifest = read_manifest(
+        release_root,
+        expected_release,
+        verify_review_authority=verify_review_authority,
+    )
     if current_release_id(release_root) != expected_release:
         raise ReleaseError("Current pointer differs from expected release")
     resolved_roots: dict[str, str] = {}
@@ -1112,10 +1259,17 @@ def validate_quiescent_evidence(
         "observed_at",
         "no_concurrent_skill_resolutions",
         "evidence",
+        "authority_key_sha256",
         "evidence_root_sha256",
+        "signature_base64",
     }
-    material = {
-        item: member for item, member in value.items() if item != "evidence_root_sha256"
+    root_material = {
+        item: member
+        for item, member in value.items()
+        if item not in {"evidence_root_sha256", "signature_base64"}
+    }
+    signed_material = {
+        item: member for item, member in value.items() if item != "signature_base64"
     }
     if (
         set(value) != exact_keys
@@ -1125,21 +1279,43 @@ def validate_quiescent_evidence(
         or value.get("release_id") != release_id
         or value.get("previous_active_release_id") != previous_release_id
         or value.get("no_concurrent_skill_resolutions") is not True
-        or value.get("evidence_root_sha256") != digest(material)
+        or value.get("evidence_root_sha256") != digest(root_material)
     ):
         raise ReleaseError("Quiescent-boundary evidence is stale or does not bind cutover")
     bounded_id(str(value.get("record_id", "")), label="quiescent-boundary record")
-    bounded_id(str(value.get("operator_id", "")), label="quiescent-boundary operator")
+    operator_id = authority_id(
+        str(value.get("operator_id", "")), label="quiescent-boundary operator"
+    )
     evidence = value.get("evidence")
+    try:
+        observed_at = dt.datetime.fromisoformat(str(value.get("observed_at", "")))
+    except ValueError as exc:
+        raise ReleaseError("Quiescent-boundary observation time is invalid") from exc
+    now = dt.datetime.now(dt.timezone.utc)
     if (
-        not isinstance(value.get("observed_at"), str)
-        or not value["observed_at"]
+        observed_at.tzinfo is None
+        or observed_at < now - dt.timedelta(minutes=10)
+        or observed_at > now + dt.timedelta(minutes=1)
         or not isinstance(evidence, list)
         or not evidence
         or len(evidence) > 12
         or not all(isinstance(item, str) and 0 < len(item) <= 200 for item in evidence)
     ):
         raise ReleaseError("Quiescent-boundary evidence is incomplete")
+    verify_trusted_signature(
+        role="operators",
+        principal_id=operator_id,
+        expected_key_sha256=str(value.get("authority_key_sha256", "")),
+        signed_material=signed_material,
+        signature_base64=str(value.get("signature_base64", "")),
+    )
+    for record in history(release_root):
+        if (
+            record["quiescent_boundary_record"] == value["record_id"]
+            or record["quiescent_boundary_root_sha256"]
+            == value["evidence_root_sha256"]
+        ):
+            raise ReleaseError("Quiescent-boundary evidence was already consumed")
     return value
 
 
@@ -1202,7 +1378,12 @@ def activate_release(
             }
         except Exception:
             if pointer_swapped:
-                swap_pointer(release_root, prior)
+                try:
+                    restore_pointer(release_root, prior)
+                except Exception as exc:
+                    raise ReleaseError(
+                        f"{action.capitalize()} recovery was incomplete: {exc}"
+                    )
             raise
 
 
@@ -1267,7 +1448,7 @@ def bootstrap_release(
             recovery_errors: list[str] = []
             if pointer_swapped:
                 try:
-                    swap_pointer(release_root, None)
+                    restore_pointer(release_root, None)
                 except Exception as exc:
                     recovery_errors.append(f"pointer: {exc}")
             try:
@@ -1384,6 +1565,7 @@ def parser() -> argparse.ArgumentParser:
             ensure_directory(Path(args.release_root), label="release root"),
             ensure_directory(Path(args.install_root), label="skill install root"),
             args.expected_release,
+            verify_review_authority=False,
         )
     )
     return value

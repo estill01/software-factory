@@ -43,6 +43,10 @@ directory is rehashed before every activation and rollback. A separate
 HMAC-authenticated acceptance ledger is keyed outside the release root, so a
 rewritten manifest cannot authorize itself. The same key authenticates the
 semantic activation history used for rollback eligibility.
+Manifest and evidence JSON must use exact canonical bytes and remain within
+small pre-read limits; acceptance/history ledgers are likewise bounded,
+canonical JSONL. Whitespace padding, suffix data, oversized files, and
+self-rehashed semantic substitutions reject before cutover.
 
 ## Commands and boundaries
 
@@ -83,18 +87,28 @@ The external review JSON has kind
 `software-factory-skill-release-review`, disposition `accepted`, distinct
 `reviewer_id` and `implementer_id`, the exact source commit and candidate root,
 a timestamp, bounded exact evidence references, and `review_root_sha256` over
-every other field. It must live outside both the source repository and release
-root.
+every substantive field before the root/signature are attached. It must live
+outside both the source repository and release root. The independent reviewer
+signs the complete record (including that root)
+with a private Ed25519 key. Staging resolves the corresponding sealed public
+key only from the non-CLI-configurable
+`~/.codex/software-factory-release-authority/reviewers/<reviewer-id>.pem`
+trust root and verifies its content root and detached signature.
 
 Every bootstrap, activation, and rollback similarly consumes an external JSON
 record of kind `software-factory-quiescent-boundary`. It binds the operation,
 candidate and previous release IDs, operator, observation time, explicit
 `no_concurrent_skill_resolutions: true`, bounded evidence references, and an
 exact `evidence_root_sha256`. Caller-supplied record/root strings are not an
-accepted substitute for either evidence object.
+accepted substitute for either evidence object. A separately trusted release
+operator signs this record through the sealed `operators/` public-key root.
+The observation must be current (no more than ten minutes old or one minute in
+the future) and its record/root is single-use in the authenticated activation
+history, so a prior A-to-B boundary cannot be replayed after rollback.
 
-Review evidence shape (the root is SHA-256 over the canonical object without
-`review_root_sha256`):
+Review evidence shape (the root excludes `review_root_sha256` and
+`signature_base64`; the signature covers the canonical object including the
+root and excluding only `signature_base64`):
 
 ```json
 {
@@ -108,12 +122,13 @@ Review evidence shape (the root is SHA-256 over the canonical object without
   "candidate_root_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "reviewed_at": "2026-08-09T12:00:00+00:00",
   "evidence": ["exact-commit review", "focused adversarial validation"],
-  "review_root_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  "authority_key_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "review_root_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "signature_base64": "<detached Ed25519 signature>"
 }
 ```
 
-Quiescent-boundary shape (the root is SHA-256 over the canonical object without
-`evidence_root_sha256`):
+Quiescent-boundary shape (root and signature coverage follow the same rule):
 
 ```json
 {
@@ -127,7 +142,9 @@ Quiescent-boundary shape (the root is SHA-256 over the canonical object without
   "observed_at": "2026-08-09T12:05:00+00:00",
   "no_concurrent_skill_resolutions": true,
   "evidence": ["quiescent task boundary", "new resolution allowed after swap"],
-  "evidence_root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  "authority_key_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+  "evidence_root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "signature_base64": "<detached Ed25519 signature>"
 }
 ```
 
