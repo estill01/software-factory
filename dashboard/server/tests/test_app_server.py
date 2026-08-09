@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from pathlib import Path
 import sys
@@ -184,6 +185,22 @@ class CodexAppServerClientTests(unittest.TestCase):
         self.assertEqual(malformed_state["last_error"]["code"], "app_server_malformed_json")
 
     def test_duplicate_response_and_schema_drift_disable_all_mutations(self) -> None:
+        invalid_response = self.client("invalid-list-schema")
+        with self.assertRaises(AppServerError) as invalid_error:
+            invalid_response.list_tasks((self.project,))
+        self.assertEqual(invalid_error.exception.code, "app_server_message_invalid")
+        invalid_state = invalid_response.integration_state()
+        self.assertEqual(invalid_state["status"], "unavailable")
+        self.assertTrue(
+            all(item["status"] == "unavailable" for item in invalid_state["features"])
+        )
+
+        invalid_error_response = self.client("invalid-error-schema")
+        with self.assertRaises(AppServerError) as protocol_error:
+            invalid_error_response.list_tasks((self.project,))
+        self.assertEqual(protocol_error.exception.code, "app_server_message_invalid")
+        self.assertEqual(invalid_error_response.integration_state()["status"], "unavailable")
+
         duplicate = self.client("duplicate-response")
         duplicate.list_tasks((self.project,))
         self.wait_for(lambda: duplicate.integration_state()["status"] == "unavailable")
@@ -200,6 +217,25 @@ class CodexAppServerClientTests(unittest.TestCase):
 
         self.assertEqual(state["protocol_status"], "incompatible")
         self.assertTrue(all(item["status"] == "unavailable" for item in state["features"]))
+
+    def test_capability_schema_gates_are_independent_after_handshake(self) -> None:
+        client = self.client()
+        compatibility = client._compatibility
+        self.assertIsNotNone(compatibility)
+        assert compatibility is not None
+        validators = dict(compatibility.validators)
+        validators.pop("client:task_start:response")
+        client._compatibility = replace(compatibility, validators=validators)
+
+        features = {
+            item["capability"]: item for item in client.integration_state()["features"]
+        }
+        self.assertEqual(features["task_list"]["status"], "supported")
+        self.assertEqual(features["task_start"]["status"], "unavailable")
+        self.assertEqual(
+            features["task_start"]["reason"],
+            "The exact capability schema is unavailable.",
+        )
 
     def test_child_death_does_not_require_or_mutate_file_backed_sources(self) -> None:
         client = self.client()
@@ -267,11 +303,23 @@ class CodexAppServerClientTests(unittest.TestCase):
             events.publish("task_status", {"index": index})
         retained = events.after(0, timeout=0)
         resumed = events.after(events.sequence - 1, timeout=0)
+        truncated_replay = events.replay_state(0)
+        current_replay = events.replay_state(events.sequence - 1)
 
         self.assertEqual(len(retained), MAX_EVENTS)
         self.assertEqual(retained[0]["sequence"], 10)
         self.assertEqual(len(resumed), 1)
         self.assertEqual(resumed[0]["sequence"], events.sequence)
+        self.assertEqual(
+            truncated_replay,
+            {
+                "requested_after": 0,
+                "oldest_available": 10,
+                "latest_available": MAX_EVENTS + 9,
+                "truncated": True,
+            },
+        )
+        self.assertFalse(current_replay["truncated"])
 
     def test_task_error_event_is_narrowed_and_redacted(self) -> None:
         client = self.client()
@@ -297,6 +345,42 @@ class CodexAppServerClientTests(unittest.TestCase):
         self.assertIn("<home>", event["data"]["message"])
         self.assertIn("<url>", event["data"]["message"])
         self.assertNotIn(str(Path.home()), event["data"]["message"])
+
+    def test_answered_callback_records_are_evicted_before_new_requests(self) -> None:
+        client = self.client()
+
+        for index in range(105):
+            client._receive_server_request(
+                {
+                    "id": f"callback-{index:03d}",
+                    "method": "item/commandExecution/requestApproval",
+                    "params": {
+                        "threadId": "task-fake-001",
+                        "turnId": "turn-active-001",
+                        "itemId": f"item-command-{index:03d}",
+                        "startedAtMs": 1786279000000 + index,
+                        "command": "printf safe",
+                        "cwd": str(self.project_root),
+                        "reason": "Capacity proof",
+                    },
+                }
+            )
+            pending = client.pending_requests()
+            self.assertEqual(len(pending), 1)
+            client.respond_to_server_request(
+                pending[0]["id"],
+                pending[0]["source_fingerprint"],
+                {"decision": "decline"},
+            )
+
+        self.assertEqual(client.pending_requests(), [])
+        self.assertEqual(len(client._server_requests), 100)
+        self.assertTrue(
+            any(
+                record.raw_id == "callback-104"
+                for record in client._server_requests.values()
+            )
+        )
 
 
 if __name__ == "__main__":

@@ -260,7 +260,8 @@ class DashboardServerTests(unittest.TestCase):
             try:
                 event_stream_status = event_stream.status
                 event_stream_type = event_stream.headers["Content-Type"]
-                ready_record = event_stream.readline() + event_stream.readline()
+                ready_event = event_stream.readline()
+                ready_data = event_stream.readline()
             finally:
                 event_stream.close()
             restart_without_nonce = response(
@@ -278,7 +279,18 @@ class DashboardServerTests(unittest.TestCase):
         self.assertEqual(cross_site_event.status, 403)
         self.assertEqual(event_stream_status, 200)
         self.assertEqual(event_stream_type, "text/event-stream; charset=utf-8")
-        self.assertIn(b"event: ready", ready_record)
+        self.assertEqual(ready_event, b"event: ready\n")
+        ready_payload = json.loads(ready_data.removeprefix(b"data: "))
+        self.assertEqual(ready_payload["type"], "ready")
+        self.assertEqual(
+            ready_payload["replay"],
+            {
+                "latest_available": ready_payload["replay"]["latest_available"],
+                "oldest_available": 1,
+                "requested_after": 0,
+                "truncated": False,
+            },
+        )
         self.assertEqual(restart_without_nonce.status, 403)
         self.assertEqual(json.loads(restart_without_nonce.body)["error"]["code"], "nonce_rejected")
 

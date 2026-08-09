@@ -50,6 +50,16 @@ export function CodexIntegrationPanel() {
         }
       },
       controller.signal,
+      0,
+      (state) => {
+        if (state.status === "connected") setStreamError(null)
+        if (state.replay_truncated) {
+          void Promise.all([
+            queryClient.invalidateQueries({ queryKey: integrationQueryKey }),
+            queryClient.invalidateQueries({ queryKey: ["tasks"] }),
+          ])
+        }
+      },
     ).catch((error: unknown) => {
       if (!controller.signal.aborted) setStreamError(message(error))
     })

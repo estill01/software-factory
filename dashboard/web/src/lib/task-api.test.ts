@@ -174,7 +174,7 @@ describe("task API contracts", () => {
       start(controller) {
         controller.enqueue(
           new TextEncoder().encode(
-            `event: ready\ndata: {"sequence":1,"type":"ready"}\n\nid: 2\nevent: task_status\ndata: ${JSON.stringify(event)}\n\n`,
+            `event: ready\ndata: {"sequence":0,"type":"ready","observed_at":"2026-08-09T12:00:00.000Z","replay":{"requested_after":0,"oldest_available":1,"latest_available":2,"truncated":false}}\n\nid: 2\nevent: task_status\ndata: ${JSON.stringify(event)}\n\n`,
           ),
         )
         controller.close()
@@ -185,11 +185,88 @@ describe("task API contracts", () => {
       vi.fn().mockResolvedValue({ ok: true, status: 200, body: stream }),
     )
     const received: unknown[] = []
+    const states: unknown[] = []
+    const controller = new AbortController()
 
-    await streamTaskEvents((value) => received.push(value), new AbortController().signal)
+    await streamTaskEvents(
+      (value) => {
+        received.push(value)
+        controller.abort()
+      },
+      controller.signal,
+      0,
+      (state) => states.push(state),
+    )
 
     expect(received).toEqual([event])
+    expect(states).toContainEqual(
+      expect.objectContaining({ status: "connected", cursor: 0, replay_truncated: false }),
+    )
     expect(JSON.stringify(received)).not.toContain("thread/status/changed")
+  })
+
+  it("reconnects from the last consumed cursor and reports replay truncation", async () => {
+    const nonce = document.createElement("meta")
+    nonce.name = "software-factory-mutation-nonce"
+    nonce.content = "launch-nonce"
+    document.head.append(nonce)
+    const event = (sequence: number) => ({
+      sequence,
+      type: "task_status" as const,
+      observed_at: `2026-08-09T12:00:0${sequence}.000Z`,
+      data: { task_id: "task-fake-001", status: { type: "idle", active_flags: [] } },
+    })
+    const first = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(
+            `event: ready\ndata: {"sequence":0,"type":"ready","observed_at":"2026-08-09T12:00:00.000Z","replay":{"requested_after":0,"oldest_available":1,"latest_available":2,"truncated":false}}\n\nid: 2\nevent: task_status\ndata: ${JSON.stringify(event(2))}\n\n`,
+          ),
+        )
+        controller.close()
+      },
+    })
+    const second = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(
+            `event: ready\ndata: {"sequence":2,"type":"ready","observed_at":"2026-08-09T12:00:03.000Z","replay":{"requested_after":2,"oldest_available":5,"latest_available":5,"truncated":true}}\n\nid: 5\nevent: task_status\ndata: ${JSON.stringify(event(5))}\n\n`,
+          ),
+        )
+        controller.close()
+      },
+    })
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, status: 200, body: first })
+      .mockResolvedValueOnce({ ok: true, status: 200, body: second })
+    vi.stubGlobal("fetch", fetchMock)
+    const received: number[] = []
+    const states: unknown[] = []
+    const controller = new AbortController()
+
+    await streamTaskEvents(
+      (value) => {
+        received.push(value.sequence)
+        if (value.sequence === 5) controller.abort()
+      },
+      controller.signal,
+      0,
+      (state) => states.push(state),
+    )
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/task-events?after=2",
+      expect.objectContaining({ signal: controller.signal }),
+    )
+    expect(received).toEqual([2, 5])
+    expect(states).toContainEqual(
+      expect.objectContaining({ status: "reconnecting", cursor: 2, reconnect_attempt: 1 }),
+    )
+    expect(states).toContainEqual(
+      expect.objectContaining({ status: "connected", cursor: 2, replay_truncated: true }),
+    )
   })
 
   it("parses structured task errors before rejecting", async () => {

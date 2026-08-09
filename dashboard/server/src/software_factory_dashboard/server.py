@@ -913,6 +913,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Connection", "keep-alive")
         self.end_headers()
         try:
+            replay = self.server.app_server_client.events.replay_state(sequence)
             ready = json.dumps(
                 {
                     "sequence": sequence,
@@ -920,18 +921,44 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                     "observed_at": datetime.now(UTC)
                     .isoformat(timespec="milliseconds")
                     .replace("+00:00", "Z"),
+                    "replay": replay,
                 },
                 separators=(",", ":"),
                 sort_keys=True,
             )
             self.wfile.write(f"event: ready\ndata: {ready}\n\n".encode("utf-8"))
             self.wfile.flush()
+            reported_gap = (
+                (replay["oldest_available"], replay["latest_available"])
+                if replay["truncated"]
+                else None
+            )
             while True:
-                events = self.server.app_server_client.events.after(sequence, timeout=15.0)
+                replay, events = self.server.app_server_client.events.replay_after(
+                    sequence, timeout=15.0
+                )
                 if not events:
                     self.wfile.write(b": keep-alive\n\n")
                     self.wfile.flush()
                     continue
+                gap = (replay["oldest_available"], replay["latest_available"])
+                if replay["truncated"] and gap != reported_gap:
+                    replay_gap = json.dumps(
+                        {
+                            "sequence": sequence,
+                            "type": "replay_gap",
+                            "observed_at": datetime.now(UTC)
+                            .isoformat(timespec="milliseconds")
+                            .replace("+00:00", "Z"),
+                            "replay": replay,
+                        },
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    )
+                    self.wfile.write(
+                        f"event: replay_gap\ndata: {replay_gap}\n\n".encode("utf-8")
+                    )
+                reported_gap = gap if replay["truncated"] else None
                 for event in events:
                     sequence = int(event["sequence"])
                     body = json.dumps(event, separators=(",", ":"), sort_keys=True)

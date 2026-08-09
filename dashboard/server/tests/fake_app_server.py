@@ -364,6 +364,14 @@ def run_server(mode: str, cwd: str) -> int:
         elif method == "thread/list":
             if mode == "timeout":
                 continue
+            if mode == "invalid-error-schema":
+                emit(
+                    {
+                        "id": message["id"],
+                        "error": {"code": "not-an-integer", "message": 42},
+                    }
+                )
+                continue
             response = {
                 "id": message["id"] + 100 if mode == "mismatched-response" else message["id"],
                 "result": {
@@ -379,6 +387,8 @@ def run_server(mode: str, cwd: str) -> int:
                     "backwardsCursor": None,
                 },
             }
+            if mode == "invalid-list-schema":
+                response["result"].pop("data")
             emit(response)
             if mode == "duplicate-response":
                 emit(response)

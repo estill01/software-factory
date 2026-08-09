@@ -96,6 +96,10 @@ the completed program materially changes Software Factory.
   responses, mismatched IDs, timeouts, and child failure disable mutations
   without suppressing file-backed monitoring. Validated protocol errors retain
   explicit not-found, provider-error, terminal, and bounded reconnect truth.
+  The event stream resumes from its last consumed cursor, signals replay-window
+  gaps before invalidating durable projections, and caps reconnect backoff;
+  completed callback records are evicted before live approval/input capacity is
+  refused.
   Admin exposes compact integration health and an adapter-only restart. Task/
   turn mutations remain internal typed capabilities until owner-mediated
   workflows register them; generic prompts, raw protocol, general tool/model

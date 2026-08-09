@@ -299,11 +299,69 @@ export const taskEventSchema = z
   })
   .strict()
 
+export const taskReplaySchema = z
+  .object({
+    requested_after: z.number().int().nonnegative(),
+    oldest_available: z.number().int().positive(),
+    latest_available: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+  })
+  .strict()
+  .superRefine((replay, context) => {
+    if (replay.oldest_available > replay.latest_available + 1) {
+      context.addIssue({
+        code: "custom",
+        path: ["oldest_available"],
+        message: "Replay bounds are inconsistent.",
+      })
+    }
+    if (replay.truncated !== (replay.requested_after < replay.oldest_available - 1)) {
+      context.addIssue({
+        code: "custom",
+        path: ["truncated"],
+        message: "Replay truncation does not match the retained window.",
+      })
+    }
+  })
+
+export const taskStreamControlSchema = z
+  .object({
+    sequence: z.number().int().nonnegative(),
+    type: z.enum(["ready", "replay_gap"]),
+    observed_at: z.iso.datetime({ offset: true }),
+    replay: taskReplaySchema,
+  })
+  .strict()
+  .superRefine((control, context) => {
+    if (control.sequence !== control.replay.requested_after) {
+      context.addIssue({
+        code: "custom",
+        path: ["sequence"],
+        message: "Stream control cursor does not match the replay request.",
+      })
+    }
+    if (control.type === "replay_gap" && !control.replay.truncated) {
+      context.addIssue({
+        code: "custom",
+        path: ["type"],
+        message: "A replay-gap record must identify a truncated replay window.",
+      })
+    }
+  })
+
 export type TaskIntegrationEnvelope = z.infer<typeof taskIntegrationEnvelopeSchema>
 export type TaskListEnvelope = z.infer<typeof taskListEnvelopeSchema>
 export type TaskDetailEnvelope = z.infer<typeof taskDetailEnvelopeSchema>
 export type TaskOperationEnvelope = z.infer<typeof taskOperationEnvelopeSchema>
 export type TaskEvent = z.infer<typeof taskEventSchema>
+export type TaskReplay = z.infer<typeof taskReplaySchema>
+export type TaskStreamState = {
+  status: "connected" | "reconnecting"
+  cursor: number
+  replay: TaskReplay | null
+  replay_truncated: boolean
+  reconnect_attempt: number
+}
 
 async function parsedResponse<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
   const payload: unknown = await response.json()
@@ -367,49 +425,117 @@ export function restartTaskIntegration(): Promise<TaskOperationEnvelope> {
   })
 }
 
+function reconnectDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) {
+      resolve()
+      return
+    }
+    const complete = () => {
+      clearTimeout(timeout)
+      signal.removeEventListener("abort", complete)
+      resolve()
+    }
+    const timeout = setTimeout(complete, milliseconds)
+    signal.addEventListener("abort", complete, { once: true })
+  })
+}
+
+function retryableStreamError(error: unknown): boolean {
+  return (
+    error instanceof TypeError ||
+    (error instanceof DOMException && error.name !== "AbortError")
+  )
+}
+
 export async function streamTaskEvents(
   onEvent: (event: TaskEvent) => void,
   signal: AbortSignal,
   after = 0,
+  onState: (state: TaskStreamState) => void = () => undefined,
 ): Promise<void> {
   const nonce = mutationNonce()
   if (!nonce) throw new Error("The per-launch event-stream nonce is unavailable; reload the dashboard.")
-  const response = await fetch(`/api/v1/task-events?after=${after}`, {
-    headers: {
-      Accept: "text/event-stream",
-      "X-Software-Factory-Nonce": nonce,
-    },
-    signal,
-  })
-  if (!response.ok) {
-    throw new DashboardApiError(
-      response.status,
-      apiErrorEnvelopeSchema.parse(await response.json()),
-    )
-  }
-  if (!response.body) throw new Error("The task event stream has no readable body.")
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ""
+  let cursor = after
+  let reconnectAttempt = 0
   while (!signal.aborted) {
-    const { done, value } = await reader.read()
-    if (done) return
-    buffer += decoder.decode(value, { stream: true }).replaceAll("\r\n", "\n")
-    let boundary = buffer.indexOf("\n\n")
-    while (boundary >= 0) {
-      const record = buffer.slice(0, boundary)
-      buffer = buffer.slice(boundary + 2)
-      const eventName = record
-        .split("\n")
-        .find((line) => line.startsWith("event: "))
-        ?.slice(7)
-      const data = record
-        .split("\n")
-        .filter((line) => line.startsWith("data: "))
-        .map((line) => line.slice(6))
-        .join("\n")
-      if (eventName !== "ready" && data) onEvent(taskEventSchema.parse(JSON.parse(data)))
-      boundary = buffer.indexOf("\n\n")
+    let reader: ReadableStreamDefaultReader<Uint8Array> | null = null
+    try {
+      const response = await fetch(`/api/v1/task-events?after=${cursor}`, {
+        headers: {
+          Accept: "text/event-stream",
+          "X-Software-Factory-Nonce": nonce,
+        },
+        signal,
+      })
+      if (!response.ok) {
+        throw new DashboardApiError(
+          response.status,
+          apiErrorEnvelopeSchema.parse(await response.json()),
+        )
+      }
+      if (!response.body) throw new Error("The task event stream has no readable body.")
+      reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+      while (!signal.aborted) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true }).replaceAll("\r\n", "\n")
+        let boundary = buffer.indexOf("\n\n")
+        while (boundary >= 0) {
+          const record = buffer.slice(0, boundary)
+          buffer = buffer.slice(boundary + 2)
+          const eventName = record
+            .split("\n")
+            .find((line) => line.startsWith("event: "))
+            ?.slice(7)
+          const data = record
+            .split("\n")
+            .filter((line) => line.startsWith("data: "))
+            .map((line) => line.slice(6))
+            .join("\n")
+          if ((eventName === "ready" || eventName === "replay_gap") && data) {
+            const control = taskStreamControlSchema.parse(JSON.parse(data))
+            if (control.replay.requested_after !== cursor) {
+              throw new Error("The task event stream resumed from an unexpected cursor.")
+            }
+            onState({
+              status: "connected",
+              cursor,
+              replay: control.replay,
+              replay_truncated: control.replay.truncated,
+              reconnect_attempt: reconnectAttempt,
+            })
+          } else if (data) {
+            const event = taskEventSchema.parse(JSON.parse(data))
+            if (event.sequence > cursor) {
+              cursor = event.sequence
+              reconnectAttempt = 0
+              onEvent(event)
+            }
+          }
+          boundary = buffer.indexOf("\n\n")
+        }
+      }
+    } catch (error) {
+      if (signal.aborted) return
+      if (!retryableStreamError(error)) throw error
+    } finally {
+      reader?.releaseLock()
     }
+    if (signal.aborted) return
+    reconnectAttempt += 1
+    onState({
+      status: "reconnecting",
+      cursor,
+      replay: null,
+      replay_truncated: false,
+      reconnect_attempt: reconnectAttempt,
+    })
+    await reconnectDelay(
+      Math.min(250 * 2 ** Math.min(reconnectAttempt - 1, 5), 5_000),
+      signal,
+    )
   }
 }

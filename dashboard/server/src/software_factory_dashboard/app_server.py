@@ -57,6 +57,20 @@ SERVER_REQUEST_METHODS = {
     "item/fileChange/requestApproval": "file_approval",
     "item/tool/requestUserInput": "user_input",
 }
+FEATURE_SCHEMA_KEYS = {
+    **{
+        family: (f"client:{family}:params", f"client:{family}:response")
+        for family in CLIENT_METHODS
+    },
+    **{
+        family: (f"server:{family}:params", f"server:{family}:response")
+        for family in SERVER_REQUEST_METHODS.values()
+    },
+    "event_stream": tuple(
+        f"notification:{schema_family}"
+        for _, schema_family in NOTIFICATION_METHODS.values()
+    ),
+}
 APPROVAL_DECISIONS = {"accept", "acceptForSession", "decline", "cancel"}
 
 
@@ -330,10 +344,39 @@ class TaskEventBuffer:
             return event
 
     def after(self, sequence: int, timeout: float = 15.0) -> list[dict[str, Any]]:
+        _, events = self.replay_after(sequence, timeout)
+        return events
+
+    def replay_state(self, requested_after: int) -> dict[str, int | bool]:
         with self._condition:
-            if self._sequence <= sequence:
+            return self._replay_state_locked(requested_after)
+
+    def replay_after(
+        self, requested_after: int, timeout: float = 15.0
+    ) -> tuple[dict[str, int | bool], list[dict[str, Any]]]:
+        with self._condition:
+            if self._sequence <= requested_after:
                 self._condition.wait(timeout)
-            return [dict(item) for item in self._events if item["sequence"] > sequence]
+            replay = self._replay_state_locked(requested_after)
+            events = [
+                dict(item)
+                for item in self._events
+                if item["sequence"] > requested_after
+            ]
+            return replay, events
+
+    def _replay_state_locked(self, requested_after: int) -> dict[str, int | bool]:
+        oldest_available = (
+            int(self._events[0]["sequence"])
+            if self._events
+            else self._sequence + 1
+        )
+        return {
+            "requested_after": requested_after,
+            "oldest_available": oldest_available,
+            "latest_available": self._sequence,
+            "truncated": requested_after < oldest_available - 1,
+        }
 
     @property
     def sequence(self) -> int:
@@ -652,8 +695,14 @@ class CodexAppServerClient:
             self._set_failure(error)
             raise error
         if pending.error is not None:
+            if pending.error.code not in {"app_server_remote_error", "task_not_found"}:
+                self._set_failure(pending.error)
             raise pending.error
-        compatibility.validate(f"client:{family}:response", pending.result)
+        try:
+            compatibility.validate(f"client:{family}:response", pending.result)
+        except AppServerError as error:
+            self._set_failure(error)
+            raise
         return pending.result
 
     def _read_stdout(self, process: subprocess.Popen[str], generation: int) -> None:
@@ -860,19 +909,27 @@ class CodexAppServerClient:
         )
         with self._state_lock:
             if len(self._server_requests) >= MAX_PENDING_SERVER_REQUESTS:
-                oldest_key, oldest = self._server_requests.popitem(last=False)
-                oldest.status = "stale"
-                self._server_requests[oldest_key] = oldest
-                self._write_message(
-                    {
-                        "id": raw_id,
-                        "error": {
-                            "code": -32000,
-                            "message": "Dashboard callback buffer is full.",
-                        },
-                    }
+                evictable = next(
+                    (
+                        key
+                        for key, candidate in self._server_requests.items()
+                        if candidate.status != "pending"
+                    ),
+                    None,
                 )
-                return
+                if evictable is not None:
+                    self._server_requests.pop(evictable)
+                else:
+                    self._write_message(
+                        {
+                            "id": raw_id,
+                            "error": {
+                                "code": -32000,
+                                "message": "Dashboard callback buffer is full.",
+                            },
+                        }
+                    )
+                    return
             self._server_requests[request_id] = record
         self.events.publish("request", self._server_request_projection(record))
 
@@ -1082,19 +1139,7 @@ class CodexAppServerClient:
     def feature_matrix(self) -> list[dict[str, Any]]:
         with self._state_lock:
             available = self._status == "available" and self._protocol_status == "compatible"
-        supported = (
-            "task_list",
-            "task_read",
-            "task_start",
-            "task_resume",
-            "turn_start",
-            "turn_steer",
-            "turn_interrupt",
-            "command_approval",
-            "file_approval",
-            "user_input",
-            "event_stream",
-        )
+            compatibility = self._compatibility
         owner_gated = {
             "task_start",
             "task_resume",
@@ -1105,21 +1150,28 @@ class CodexAppServerClient:
             "file_approval",
             "user_input",
         }
-        rows = [
-            {
-                "capability": capability,
-                "status": "supported" if available else "unavailable",
-                "exposure": "owner-gated" if capability in owner_gated else "read",
-                "reason": (
-                    "The adapter supports this method; dashboard controls require a registered owner workflow."
-                    if available and capability in owner_gated
-                    else None
-                    if available
-                    else "The exact App Server compatibility gate is not available."
-                ),
-            }
-            for capability in supported
-        ]
+        rows: list[dict[str, Any]] = []
+        for capability, required_schemas in FEATURE_SCHEMA_KEYS.items():
+            schema_ready = compatibility is not None and all(
+                key in compatibility.validators for key in required_schemas
+            )
+            capability_available = available and schema_ready
+            rows.append(
+                {
+                    "capability": capability,
+                    "status": "supported" if capability_available else "unavailable",
+                    "exposure": "owner-gated" if capability in owner_gated else "read",
+                    "reason": (
+                        "The adapter supports this method; dashboard controls require a registered owner workflow."
+                        if capability_available and capability in owner_gated
+                        else None
+                        if capability_available
+                        else "The exact capability schema is unavailable."
+                        if available
+                        else "The exact App Server compatibility gate is not available."
+                    ),
+                }
+            )
         rows.extend(
             [
                 {

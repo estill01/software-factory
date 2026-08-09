@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, waitFor } from "@testing-library/react"
+import { act, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -148,5 +148,37 @@ describe("CodexIntegrationPanel", () => {
     expect((await screen.findAllByText("Disconnected")).length).toBeGreaterThanOrEqual(1)
     expect(screen.getByRole("alert")).toHaveTextContent("The adapter disconnected.")
     expect(screen.getByRole("button", { name: "Restart adapter" })).toBeEnabled()
+  })
+
+  it("refreshes projections when the stream reports a replay gap", async () => {
+    let reportState: Parameters<typeof taskApi.streamTaskEvents>[3]
+    vi.mocked(taskApi.fetchTaskIntegration).mockResolvedValue(envelope())
+    vi.mocked(taskApi.streamTaskEvents).mockImplementation(
+      (_onEvent, signal, _after, onState) => {
+        reportState = onState
+        return new Promise((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true })
+        })
+      },
+    )
+    renderPanel()
+
+    expect(await screen.findByText("Connected")).toBeVisible()
+    await act(async () => {
+      reportState?.({
+        status: "connected",
+        cursor: 12,
+        replay: {
+          requested_after: 12,
+          oldest_available: 20,
+          latest_available: 24,
+          truncated: true,
+        },
+        replay_truncated: true,
+        reconnect_attempt: 1,
+      })
+    })
+
+    await waitFor(() => expect(taskApi.fetchTaskIntegration).toHaveBeenCalledTimes(2))
   })
 })
