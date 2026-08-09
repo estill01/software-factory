@@ -56,6 +56,22 @@ the completed program materially changes Software Factory.
 
 ### Planned
 
+- **Local Software Factory operations dashboard and factory floor.** A
+  fourteen-Block implementation program plans a local React/TypeScript/Vite
+  command center that monitors current and historical work across registered
+  projects; pairs every discoverable implementation with its supervisor group,
+  target, roles, automations, current Block/checkpoint, issues, actions, and
+  conclusions; and exposes transparent red/amber/green/neutral operating states
+  with exact reasons and source history. It also plans implementation-tracker
+  review, verified cross-project metrics and reports, version-gated Codex App
+  Server task control, and owner-gated author/implement/supervise/report/
+  evolution/lifecycle operations. Tracker Markdown, Git, Codex tasks,
+  supervision ledgers, automations, and reports remain their own authorities;
+  the dashboard stores only project discovery metadata and never treats a green
+  light, task terminality, test, commit, or report as completion. This is
+  planning, not implemented functionality. Planning baseline:
+  `c7d4efce3e3bf5fb3a8dbc4d9ab0db0ef2cd89bd`; tracker:
+  [`docs/software-factory-operations-dashboard-implementation-tracker.md`](docs/software-factory-operations-dashboard-implementation-tracker.md).
 - **Adaptive implementation decision control and autonomous Factory
   evolution.** A fourteen-Block program plans a
   near-zero-overhead unchanged path, inline correction of bad implementation
