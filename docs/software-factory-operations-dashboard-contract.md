@@ -1,8 +1,13 @@
 # Software Factory Operations Dashboard Contract
 
 - Contract status: `Block 0 frozen candidate`
-- Observed at: `2026-08-09T08:12:20Z`
-- Repository revision: `2b73de1f5b706eab4de26785a7489cf52fe586c4`
+- Initial source observation: `2026-08-09T08:12:20Z`
+- Authority/live-sample refresh: `2026-08-09T08:22:08Z`, through
+  `EVT-000030`
+- Repository source revision:
+  `08b4f983749b6018eb7169f3a509ea2d43f5c6ed`
+- Tracker authoring revision:
+  `2b73de1f5b706eab4de26785a7489cf52fe586c4`
 - Repository branch: `codex/evolution-mvp`
 - Tracker Git blob: `7c9d758bb535687e6a85091b083f4fa2fbb6ddce`
 - Tracker SHA-256: `dab97d29851453058955cd7b3545ebd8bf96945ee686ce72706e33d18159eed7`
@@ -21,8 +26,9 @@ Routed item 79 from Codex source task
 `019fe54b-bbe7-78c3-869d-323c19938bdf` resumed that already-authorized mission,
 selected tracker commit `2b73de1` and Block 0, and required dependency-ordered
 continuation. It is resume/start-routing evidence only, not implementation or
-product authority. This provenance distinction was corrected by supervision
-incident `INC-20260809-081917-D3A17C`, event `EVT-000028`.
+product authority. This provenance distinction was detected by supervision
+incident `INC-20260809-081917-D3A17C`, event `EVT-000028`, and recorded as
+corrected in `EVT-000030`.
 
 Current supervised-start evidence is independently visible in target
 `019fe547-e054-7ca0-9940-ec4aa146df78`:
@@ -143,8 +149,11 @@ Green is never completion proof.
 
 ### Repository and maintained owners
 
-The working tree was clean and matched
-`origin/codex/evolution-mvp` at the baseline revision.
+The initial working tree was clean and matched
+`origin/codex/evolution-mvp` at tracker revision `2b73de1`. During Block 0,
+the maintained supervision owner settled at source revision `08b4f98`; every
+named source outside this contract's focused remediation is clean at that
+revision. Push currentness is recorded separately from source validity.
 
 | Source | File SHA-256 | Last owning Git revision | Treatment |
 |---|---|---|---|
@@ -153,9 +162,9 @@ The working tree was clean and matched
 | `author-implementation-trackers/SKILL.md` | `8154687040df4afbae6dc187cd373761c784609b4f9dbec00eb3a80ce21f3ac3` | `d57f8a64f932655acc4373fe947a2cca36269d5c` | Tracker author/reviewer owner. |
 | `author-implementation-trackers/scripts/verify_tracker.py` | `f0f5f18de4ebd52682df6634cc1bcf3121e18a67a72d7f300d9fae45ce33995c` | `c777c9c9b97787ad49d6dace328ca5b5041961b7` | Full/core structural diagnostics owner. |
 | `implement-tracker-blocks/SKILL.md` | `f8bebb5b3ade941c291216929b7b1124785c968fda79167c862aa48301490b05` | `e2b7064a7a226409518a883ecec88661469309b8` | Block/range execution owner. |
-| `supervise-tracker-runs/SKILL.md` | `cfd0a4dac9916c3729b934a12dd556a9e5a631c04e1b6b15121a8d1aad11c4c9` | `c7d4efce3e3bf5fb3a8dbc4d9ab0db0ef2cd89bd` | Supervision operating owner. |
-| `supervise-tracker-runs/references/supervision-policy.md` | `315b6a27773ba2bdf7885748800f982fe8b09f801216ac6e66f9b9e250179895` | `c7d4efce3e3bf5fb3a8dbc4d9ab0db0ef2cd89bd` | Roles, routes, lifecycle, reporting, and mission contract. |
-| `supervise-tracker-runs/scripts/supervision_log.py` | `8ed937da1cf4bc85e2af51719dd5092ad59ebc2a49ff779c9c0bd9126443a2e0` | `c7d4efce3e3bf5fb3a8dbc4d9ab0db0ef2cd89bd` | Sole public supervision filesystem writer/validator. |
+| `supervise-tracker-runs/SKILL.md` | `a8d4b1518288c9aa5956ed192b6d1830c5326454566a887ed2ef2d3e690c0eb9` | `08b4f983749b6018eb7169f3a509ea2d43f5c6ed` | Supervision operating owner, including the first-work activation obligation. |
+| `supervise-tracker-runs/references/supervision-policy.md` | `f393c2990670f67a42bbe74ff490096cbe4e3fd7a44ddd379f0d6ed50d79f2cf` | `08b4f983749b6018eb7169f3a509ea2d43f5c6ed` | Roles, routes, lifecycle, reporting, mission, and activation contract. |
+| `supervise-tracker-runs/scripts/supervision_log.py` | `ad752ad5839aa00cfa10a0979eb89236710e9596c45f54866017637c5bbfc191` | `08b4f983749b6018eb7169f3a509ea2d43f5c6ed` | Sole public supervision filesystem writer/validator; succession creates and validates mission activation. |
 | `supervise-tracker-runs/scripts/weekly_report.py` | `e469bebe4fe46aa3c0ff47a7273151441bcac30f49984bdbaeaff3d67c2e3d65` | `75c9c27383efd1f245ab413e22de03b2f72ae4d0` | Weekly report computation/render/verify owner. |
 | `supervise-tracker-runs/scripts/terminal_report.py` | `800c2ff04bc3dcefaf124aa57d37ad85b42b5732db6825b8225cbf11a437c138` | `ee4302d450073ccefa54cd0fb41a764716f56951` | Terminal packet/report/manifest owner. |
 | `supervise-tracker-runs/scripts/factory_evolution.py` | `c731ed0d03424f9e32d7689038affd8005b8f8f4a9ba97290e204efcf3cdf8b6` | `d773307b4d45f028d50a55f2a2e15aa7d8b5c7a8` | Derived evolution artifact validator; no implementation/adoption writes. |
@@ -242,6 +251,23 @@ thread/turn/item events, server-initiated approvals/input, and
 runtime compatibility authority. Experimental fields remain unavailable unless
 a later explicit compatibility decision enables them.
 
+The bundle root is reproducible from the generated directory with this exact
+byte manifest. File paths are relative, slash-separated paths emitted by
+`find`; `LC_ALL=C` defines ordering; each line is lowercase file SHA-256, two
+ASCII spaces, relative path, and LF; the final SHA-256 covers all 273 lines:
+
+```sh
+(
+  cd "$SCHEMA_DIRECTORY"
+  find . -type f -name '*.json' -print \
+    | LC_ALL=C sort \
+    | while IFS= read -r source_file; do
+        file_sha="$(shasum -a 256 "$source_file" | cut -d ' ' -f 1)"
+        printf '%s  %s\n' "$file_sha" "${source_file#./}"
+      done
+) | shasum -a 256
+```
+
 Observed toolchain only; Block 1 may refresh within its contract:
 Python `3.14.4`, uv `0.11.9`, Node `24.15.0`, npm `11.12.1`, Git `2.54.0`.
 
@@ -252,7 +278,7 @@ No live artifacts are copied into the repository.
 | Family | Exact sample/currentness | Observed contract |
 |---|---|---|
 | Supervision policy | target `019fe547-e054-7ca0-9940-ec4aa146df78`; file SHA-256 `05ffa0c3671c790294adac9c5a582834644d0ffd3e1956929a9870a41ef81003`; validated status policy SHA-256 `02c573…12be6d5` | Schema version, mission, roles, routes, schedules, reports, permissions, lifecycle/outcome contracts. |
-| Supervision events | same target; SHA-256 `68dafdc20fec512cf4faa6969652503d8b85e020c8c8aa7218e0d5c6023dc17c` | Append-only record/hash chain with target, mission/policy, fingerprint, checkpoint, issue/action/conclusion fields. |
+| Supervision events | same target; as-of sample through `EVT-000030` at `2026-08-09T08:22:08Z`; SHA-256 `af5f70d81a0398682e3a1bf1ec168c146be8386b26a5882dc1bc7ed18b173e77` over the first 30 LF-terminated JSONL records | Append-only record/hash chain with target, mission/policy, fingerprint, checkpoint, issue/action/conclusion fields. Reproduce with `head -n 30 events.jsonl \| shasum -a 256`; later appended records do not stale this bounded schema sample. |
 | Policy history | same target; SHA-256 `3697358bfcd449aa3cbb4dc5ef7b013b98f72dd50d59ecb9de453aefbbe17b6b` | Versioned preserved policy/mission history. |
 | Automation projection | `tracker-watcher-sf-dashboard-plan`; TOML SHA-256 `1749080bbcdb5060b7d84a1c219d45328351eb6b35d23d8b03b5c365f2d425e5` | Keys: version, id, kind, name, prompt, status, rrule, target thread, created/updated time. Values stay owner-private until needed. |
 | Verified weekly report | report `weekly-20260801T001853Z-20260803T234400Z-62f881d083b0`; manifest file SHA-256 `500ea0737d9b92ca0aaad2b0db8e3fb1efd4893e8b689773aec531188abc1c8d`; verified manifest root `8046f7ae7223f19c348c9e4205375208bfcf4944905183273272b160c2a9a227` | Verification returned `valid: true`, eight PDF pages, exact report/review/source/PDF roots. |
@@ -284,9 +310,13 @@ all dashboard surfaces remain planned until their Blocks are accepted.
 | Mechanical `Check now` | `supported` | Watcher/automation and canonical event postcondition exist when one exact target binding is current. | Missing/duplicate watcher or route denial. |
 | Semantic checkpoint/meta/issue review | `supported` | Bound reviewer roles and route/conclusion contracts exist conditionally per group. | No eligible role, route, or current candidate root. |
 | Policy/cadence adjustment | `supported` | `adjust` plus automation owner can establish policy and actual schedule postconditions. | Unsupported field or unavailable automation owner. |
-| Binding repair | `supported` | Mission/target-tracker, role-task, and automation repairs are separate conditional owner workflows. | No reproduced mismatch or no exact current owner. |
-| Pause/resume supervision | `supported` | Requires matching lifecycle and actual automation state; distinct from turn interrupt. | Missing lifecycle/automation gate. |
-| Same-target mission succession | `supported` | `mission-successor` exists for a materially different directly authorized mission after closed heads. | Open head, unchanged intent, or absent direct authority. |
+| Mission-source binding repair | `supported` | `bind` owns mission root/source fields for one exact target and policy history supplies the postcondition. | No reproduced compatible mismatch, materially new intent, or unavailable bind/policy owner. |
+| Target/tracker association repair | `unavailable` | Current `bind` and policy schemas have no tracker path/root/association field or canonical repair postcondition. | A maintained owner and postcondition are implemented, then Block 15 is narrowly amended before execution. |
+| Role-task binding repair | `supported` | Task and policy owners can establish both the live eligible task and canonical role binding. | No exact eligible role/task or one owner unavailable. |
+| Automation binding repair | `supported` | Automation and policy owners can establish both actual schedule state and canonical group-role binding. | No exact automation/group-role mismatch or one owner unavailable. |
+| Pause supervision | `supported` | `paused` lifecycle gating plus actual bound-automation pause provide two current postconditions. | Missing lifecycle/automation gate or unsatisfied terminal/report prerequisites. |
+| Resume supervision | `unavailable` | Automations can be re-enabled, but the maintained helper exposes no canonical `resumed` lifecycle state or resume gate/postcondition. | A maintained resume lifecycle owner is implemented, then Block 18 is narrowly amended before execution. |
+| Same-target mission succession | `supported` | `mission-successor` exists for materially different direct authority, creates one pending first-work activation, and `mission-activation-start` closes it from exact work evidence. | Open head/activation, unchanged intent, absent direct authority, or missing exact first eligible work. |
 | Successor-task continuity | `supported` | Transition helper and App Server task owner exist; source stop waits for current `work-started`. | Missing direct task-creation authority or incomplete phase. |
 | Weekly report generation/verification | `supported` | Maintained stages and one live verified bundle exist; delivery may be separately unavailable. | Report/helper hash or source-root change. |
 | Terminal report/shutdown owner | `supported` | Maintained helper stages and gates exist. The current target action is unavailable because outcome/report/delivery/incident gates are not satisfied. | Exact terminal prerequisites become current. |
@@ -314,11 +344,13 @@ message delivery, generated file, or stopped task never proves application.
 | Check now | Bound watcher/automation | Route gate, exact target/purpose, no duplicate; consequential confirmation | Newer matching canonical check record. | Wake/task success without record remains unverified. |
 | Request semantic review | Bound reviewer/supervisor | Route gate, exact candidate/evidence/purpose; consequential confirmation | Newer eligible matching canonical conclusion. | Request and no/stale/superseded conclusion remain separate. |
 | Adjust supervision | Supervision `adjust` + automation owner | Exact before/after supported fields; consequential confirmation | Next policy history version and every affected actual automation agree. | Partial reconciliation remains attention. |
-| Repair mission/target/tracker tuple | Bind/policy owner | Reproduced compatible mismatch; consequential confirmation | Exact active tuple and no duplicate group in next policy history. | Materially new intent routes to mission succession. |
+| Repair mission-source binding | Bind/policy owner | Reproduced compatible mission-field mismatch; consequential confirmation | Exact mission root/source fields for the selected target and no duplicate group in next policy history. | Materially new intent routes to mission succession. |
+| Repair target/tracker association | No current canonical owner | Disabled; explain missing owner and postcondition | None until an implemented owner writes and verifies canonical tracker association. | Never send tracker path/root fields through `bind`; amend Block 15 before execution. |
 | Repair role task | Task + policy owner | One exact role/task eligibility and route; consequential confirmation | Live eligible task and canonical role binding both match. | Task-only or policy-only result remains partial. |
 | Repair automation binding | Automation + policy owner | One exact automation/group-role mismatch; consequential confirmation | Actual automation and canonical policy binding both match with no duplicate role. | No direct TOML fallback. |
-| Pause/resume supervision | Automation + lifecycle owners | Exact group and consequence preview; typed lifecycle confirmation | Matching canonical lifecycle plus actual bound automation state. | Turn state or one-owner-only change is insufficient. |
-| Begin successor mission | `mission-successor` policy owner | Direct new-mission authority, predecessor and closed-head proof; typed confirmation | New policy history version has sole active new mission root; predecessor preserved. | Do not use `bind` or create parallel root. |
+| Pause supervision | Automation + lifecycle owners | Exact group and consequence preview; typed lifecycle confirmation | Canonical `paused` lifecycle plus actual paused state for every bound automation. | Turn state or one-owner-only change is insufficient. |
+| Resume supervision | No complete current owner | Disabled; explain missing canonical resumed lifecycle/gate | None; automation re-enable alone cannot establish semantic resume. | Amend Block 18 only after a maintained lifecycle owner exists. |
+| Begin successor mission | `mission-successor` policy owner | Direct new-mission authority, predecessor/closed-head proof, and exact first eligible work; typed confirmation | New policy history has the sole active root, predecessor history is preserved, and one matching activation is `pending`; later exact work evidence advances it to `work-started`. | Do not use `bind`, create a parallel root, or render pending activation as completed continuation. |
 | Advance successor-task transition | Transition helper + App Server/task owners | Direct task authority and exact phase; confirmation per phase | Exact next canonical phase; source stop only after gate proves `work-started`. | Missing authority/phase stays open; no invented ID. |
 | Generate weekly report | Weekly report + semantic reviewer + optional delivery owner | Exact period/sources/roles; consequential confirmation | Current verified manifest/Markdown/PDF/JSON; delivery is a separate named postcondition. | Reuse valid earlier stages; do not regenerate for display/delivery failure. |
 | Run Factory evolution | Evolution artifact owner + independent proposer/evaluator | Exact sources/roles/revisions; consequential confirmation | Immutable artifact set verifies with one current disposition. | No implementation, adoption, deployment, or outcome action. |
@@ -368,6 +400,19 @@ message delivery, generated file, or stopped task never proves application.
    generated stable schema-bundle root is the compatibility freeze.
 7. Tracker/run association can be incomplete. Show an unbound anomaly; never
    join by filename, label, or task title alone.
+8. Planned Block 15 currently combines supported mission-source repair with
+   unavailable target/tracker association repair. Preserve the requested
+   product scope, but amend that future Block at its owner/acceptance boundary
+   before executing or accepting it; earlier dependency-safe Blocks remain
+   available.
+9. Planned Block 18 currently combines supported pause with unavailable resume.
+   Preserve the requested resume scope as an explicit gap, but amend that
+   future Block before execution unless a maintained resume lifecycle owner and
+   postcondition exist; earlier dependency-safe Blocks remain available.
+10. Planned Block 19 predates the durable first-work activation obligation in
+    source revision `08b4f98`. Before executing that future Block, amend its
+    preview, acceptance, recovery, and Stop to cover exact first eligible work,
+    `pending`, and `work-started` without treating mission binding as work.
 
 ## 9. Revalidation triggers
 
@@ -380,6 +425,9 @@ Re-run only the affected baseline slice when:
 - the HTTP reference file hashes change before Block 1 adapts them;
 - verifier output/profile behavior changes;
 - supervision policy/helper schema or mission root changes;
+- a maintained tracker-association or resumed-lifecycle owner becomes
+  available, or execution reaches the required Block 15/18/19 plan-amendment
+  gate;
 - an automation projection schema or callable owner changes;
 - a report/evolution/terminal helper or manifest schema changes;
 - a planned capability gains accepted implementation evidence; or
