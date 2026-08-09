@@ -497,7 +497,7 @@ the relevant authority and evidence contract.
 |---:|---|---:|---|
 | 0 | Product contract and live-owner baseline | — | `accepted` |
 | 1 | Loopback runtime and reference frontend scaffold | 0 | `accepted` |
-| 2 | Project catalog and bounded discovery | 1 | `in-progress` |
+| 2 | Project catalog and bounded discovery | 1 | `accepted` |
 | 3 | Tracker truth and Git-currentness projection | 2 | `not-started` |
 | 4 | Supervision, automation, report, and metrics projection | 2 | `not-started` |
 | 5 | Codex task and App Server adapter | 1 | `not-started` |
@@ -923,7 +923,7 @@ Stop before creating the project catalog or reading any project source.
 
 ## Block 2 — Project catalog and bounded discovery
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -1026,7 +1026,59 @@ pattern; never scan `$HOME` or follow symlinks outside the registered root.
   checkpoint `90f5eaf2f37296e3d7c4d8ef2e5dad19e1326f60` under the same direct-user
   implementation authority and mission root; no new mission, routed authority,
   or manual resume was introduced.
-- Candidate, validation, review, checkpoint, and acceptance evidence: pending.
+- Accepted candidate: exact pushed commit
+  `dba8274f3f06bbd48fbf9c7703f87ce0baa40448`, tree
+  `264c3ce1d05409041c4b84a794ec83f64224d3ad`, parent
+  `f1c3e5702db4fd1048e4cf4bc25fe75b2b449b8e`; the 28-file focused diff
+  remained unchanged during exact-revision review. Authoritative candidate
+  blobs were tracker `6d950479b8f13cb2747e56632884412472f30091`,
+  changelog `f3d692605fd17b6897060431cfa976cd66870d1e`, catalog adapter
+  `2f401cc149ca298144d5f4d00e81fc6c60acac46`, and Admin catalog UI
+  `8a4f6d02e9215a38b3230a654913e9c4db32b8b1`.
+- Delivered behavior: the Python loopback service exposes versioned project
+  list/detail/register/update/archive/unarchive APIs over an atomically written
+  schema-version-1 catalog. The catalog admits only ID, label, canonical Git
+  root, tracker patterns, description, and archived posture; enforces owner-only
+  current/previous files and directory, deterministic ordering, optimistic
+  fingerprints, recovery-read-only posture, canonical/non-overlapping roots,
+  bounded tracker-path candidates, and per-project partial failure. React/Zod
+  Admin and Projects views expose the same typed boundary and never parse
+  tracker content or copy run, task, supervision, report, or completion truth.
+- UI abstraction correction: one compact route-specific `h1` now lives in the
+  persistent application chrome. Route marketing heroes, explanatory page
+  subheaders, and redundant sidebar narration were removed; only functional
+  section and state labels remain. Tests enforce one `h1`, keyboard/accessibility
+  behavior, and no maintained-viewport horizontal overflow.
+- Validation: Python passed 12 tests with `ResourceWarning` promoted to errors;
+  TypeScript/Vitest passed 13 tests across 5 files; the production build passed;
+  and Playwright passed 18 cases across desktop, tablet, and mobile. The full
+  tracker verifier passed Blocks 0–25 with 0 errors and 0 warnings, all 30
+  verifier tests passed, 22 implementer-checked local Markdown targets resolved,
+  and exact candidate `git diff --check` passed.
+- Live outcome proof: an isolated exact-server exercise registered three
+  canonical Git repositories, hid one from Projects by archiving it, restored
+  it, then retained two healthy projects while one missing root remained visibly
+  unavailable. Current and previous catalog files were `0600` in a `0700`
+  directory. A deliberately pre-created `0755` catalog directory failed before
+  mutation with structured `unsafe_catalog_permissions` rather than weakening
+  the storage boundary.
+- Independent review: `tracker_exact_review` accepted exact `dba8274` with no
+  material findings after reproducing Python 12/12, frontend 13/13, build,
+  Playwright 18/18, full-profile tracker verification, 20 relative-link checks,
+  diff checks, and the live three-repository/partial-failure workflow. It also
+  accepted the requested future data-backing amendment: browser to loopback
+  `/api/v1` to closed typed adapter to maintained owner, with no duplicate
+  generic backend Block or overall-completion claim.
+- Resource and Stop posture: discovery remains confined to registered roots,
+  configured bounded globs, and Git metadata. No tracker content was parsed and
+  no supervision, task, report, metric, or lifecycle state was aggregated.
+- Post-block audit: `accepted`; all Block 2 acceptance and negative conditions
+  were demonstrated on the reviewed revision.
+- Git durability: the accepted candidate was non-force pushed to
+  `origin/codex/evolution-mvp` and local/remote matched before review. This
+  acceptance-evidence checkpoint is non-force pushed immediately; its exact
+  revision is recorded by the evidence-finalization successor before Block 3
+  implementation changes begin.
 
 ### Stop
 
