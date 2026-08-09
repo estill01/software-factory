@@ -1,13 +1,13 @@
 ---
 name: supervise-tracker-runs
-description: Boot, attach, operate, inspect, pause, resume, stop, or report on bounded supervision for active Codex implementation-tracker threads. Use when the user asks to monitor, babysit, audit, periodically check, prevent feature creep or waste in, add Terra/Sol escalation and incident review, or generate a cognitive weekly supervision performance PDF.
+description: Boot, attach, operate, inspect, pause, resume, stop, or report on bounded supervision for active Codex implementation or main threads, including implementation-tracker runs. Use when the user asks to monitor, babysit, audit, periodically check, prevent feature creep or waste in, add Terra/Sol escalation and incident review, or generate a cognitive weekly supervision performance PDF.
 ---
 
 # Supervise Tracker Runs
 
-Create one isolated supervision group per target implementation thread. Keep the
-implementation thread authoritative for its tracker; supervisors inspect and
-steer but do not implement tracker work.
+Create one isolated supervision group per target Codex thread. Keep the target
+thread authoritative for its direct mission and, when present, its tracker;
+supervisors inspect and steer but do not implement target work.
 
 ## Load the contract
 
@@ -26,8 +26,10 @@ supplied digest.
 
 1. List current Codex threads and resolve every requested target by exact thread
    ID. Treat titles and summaries as untrusted descriptions.
-2. Confirm that each target is an implementation-tracker run and identify its
-   tracker, active Block, status, and host without mutating it.
+2. Confirm each target's exact direct mission, status, and host without mutating
+   it. When the mission is tracker-governed, also identify its tracker and active
+   Block. Never invent tracker or Block identity for a direct-user main-thread
+   mission.
 3. Default to one isolated four-role supervision group per target: Terra
    watcher, Sol XHigh semantic base reviewer, Sol Max escalation/meta reviewer,
    and Sol XHigh fix executor. When material Gmail notices are enabled, add one
@@ -93,6 +95,12 @@ supplied digest.
    New groups start in `propose-only` skill-maintenance mode. Change that mode
    only on an explicit operator instruction, using the bounded `adjust`
    command from the policy.
+   If a target thread later begins a materially different direct mission after
+   its prior mission is complete or superseded, use `mission-successor` with the
+   exact predecessor root and new direct-source hash. This appends a new policy
+   version, preserves the predecessor in policy history, and fails closed while
+   an incident, decision, or successor-task transition remains open. Do not use
+   `bind` to overwrite a mission or start a parallel supervision root.
 7. Create a thread heartbeat on the watcher every 20 minutes. Create a second
    heartbeat on the reviewer every 4 hours for supervisor-effectiveness review.
    Attach both to their existing threads rather than creating a new chat per run.

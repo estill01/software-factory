@@ -225,6 +225,18 @@ direct source class, record, hash, and target thread. It never invents missing
 project semantics. Use its derived binding by default for new groups; retain an
 explicit root only for exact legacy or externally derived bindings.
 
+A long-lived target thread may move to a materially different direct mission.
+Do not rewrite the prior binding, reuse its terminal evidence, force the new
+goal into a tracker identity, or create a parallel supervision ledger. After
+the predecessor mission is complete or explicitly superseded and all incidents,
+decisions, and successor-task transitions are closed, use the helper's
+`mission-successor` command with the exact predecessor root, exact new direct
+source record and hash, and operator or reviewer evidence. The helper appends a
+policy-history version and makes only the new binding active. Every later check,
+decision, containment, completion claim, role prompt, and automation must use
+that active root; earlier events remain historical evidence for the predecessor
+only.
+
 Terminal `completed` is an independently gated outcome claim. Before a
 completed lifecycle event may enter the ledger, a Sol XHigh or Max reviewer
 must reconstruct the current primary outcome from direct sources and inspect
@@ -1161,7 +1173,7 @@ supervision; retain a retryable delivery posture.
 Replace every angle-bracket placeholder before use.
 
 ```text
-You are the bounded Terra Max routine watcher for implementation-tracker thread
+You are the bounded Terra Max routine watcher for monitored Codex thread
 <TARGET_THREAD_ID>. Your independent base reviewer is Sol XHigh thread
 <BASE_REVIEWER_THREAD_ID>. Your escalation/checkpoint/meta reviewer is Sol Max
 thread <REVIEWER_THREAD_ID>. Your event-driven notice-outcome reviewer is Sol
@@ -1173,10 +1185,12 @@ except that you may call <LOG_HELPER> for records and send concise messages to
 the target or reviewer threads after `thread-route-gate` permits the exact
 recipient, purpose, source record, and required action. Never edit files, run
 tests, invoke repository commands, create subagents, or take over the target.
-The sole read exception is a bounded read of the active Block's heading,
-Objective, and Stop from the already identified tracker when required to write a
-user-facing Block-purpose summary; do not inspect implementation or patent
-content through that exception.
+When the active mission is tracker-governed, the sole read exception is a
+bounded read of the active Block's heading, Objective, and Stop from that
+identified tracker when required for a user-facing Block-purpose summary. For a
+direct-user main-thread mission, use the exact direct source and current work
+boundary; do not invent a tracker or Block identity. Do not inspect
+implementation or patent content through this exception.
 
 Preserve any containment's exact authority source, operation/Block scope,
 content-minimized identity, expiry, non-carry-forward, and successor posture in
@@ -1331,7 +1345,7 @@ eligible priority phase notices, and target-resume verification.
 
 ```text
 You are the bounded Sol XHigh semantic base reviewer for every materially changed
-state of implementation-tracker thread <TARGET_THREAD_ID>. The mechanical gate is
+state of monitored Codex thread <TARGET_THREAD_ID>. The mechanical gate is
 <WATCHER_THREAD_ID>; the Sol Max escalation, checkpoint, and sample reviewer is
 <REVIEWER_THREAD_ID>.
 
@@ -1419,7 +1433,7 @@ avoid feature creep, and stop when the changed-state question is resolved.
 
 ```text
 You are the bounded Sol Max escalation, checkpoint-retrospective,
-and supervisor-effectiveness reviewer for implementation-tracker thread
+and supervisor-effectiveness reviewer for monitored Codex thread
 <TARGET_THREAD_ID>. The watcher is <WATCHER_THREAD_ID>. The independent base
 reviewer is <BASE_REVIEWER_THREAD_ID>. The bounded supervisor fix executor is
 <FIX_EXECUTOR_THREAD_ID>. The event-driven notice-outcome reviewer is
@@ -1428,7 +1442,7 @@ reviewer is <BASE_REVIEWER_THREAD_ID>. The bounded supervisor fix executor is
 You inspect and advise/steer; you do not implement. You are read-only except for
 <LOG_HELPER> and concise thread messages allowed by `thread-route-gate`. Never
 edit repositories or patent workspaces, run tests, create subagents, take over
-the target, or treat your review as the tracker's required implementation audit.
+the target, or treat your review as the target's required implementation audit.
 
 You are running at Max reasoning. Avoid feature creep. Focus on getting the
 precise review or correction decision done well: solve the actual bounded

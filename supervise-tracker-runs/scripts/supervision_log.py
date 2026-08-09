@@ -629,6 +629,38 @@ def bound_mission(policy: dict[str, Any]) -> dict[str, Any] | None:
     return binding
 
 
+def policy_mission_roots(directory: Path) -> dict[str, str]:
+    """Resolve policy hashes to the mission that was active for that version."""
+
+    roots: dict[str, str] = {}
+    for record in events(directory / "policy-history.jsonl"):
+        snapshot = record.get("policy")
+        if not isinstance(snapshot, dict):
+            continue
+        policy_sha256 = snapshot.get("policy_sha256")
+        binding = bound_mission(snapshot)
+        if isinstance(policy_sha256, str) and binding is not None:
+            roots[policy_sha256] = str(binding["mission_root"])
+    return roots
+
+
+def mission_scoped_events(
+    directory: Path,
+    policy: dict[str, Any],
+    all_events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    binding = bound_mission(policy)
+    if binding is None:
+        return all_events
+    active_root = str(binding["mission_root"])
+    roots = policy_mission_roots(directory)
+    return [
+        item
+        for item in all_events
+        if roots.get(str(item.get("policy_sha256", ""))) == active_root
+    ]
+
+
 def legacy_single_role_cross_thread_routing_contract() -> dict[str, Any]:
     """Exact predecessor accepted only so `bind` can add role refresh."""
     contract = cross_thread_routing_contract()
@@ -1228,6 +1260,21 @@ def append_raw(path: Path, value: dict[str, Any]) -> None:
         append_raw_locked(path, value)
 
 
+def append_event_locked(
+    args: argparse.Namespace, directory: Path, record: dict[str, Any]
+) -> None:
+    """Append only when the event still cites the current policy snapshot."""
+
+    current_directory, current = load_policy(args)
+    if current_directory.resolve() != directory.resolve():
+        raise SupervisionLogError("Event append resolved a different supervision root")
+    if record.get("policy_sha256") != current.get("policy_sha256"):
+        raise SupervisionLogError(
+            "Supervision policy changed concurrently; rebuild the event before appending"
+        )
+    append_raw_locked(directory / "events.jsonl", record)
+
+
 def events(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -1395,7 +1442,7 @@ def load_policy(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
     return directory, policy
 
 
-def write_policy_version(
+def write_policy_version_locked(
     directory: Path,
     policy: dict[str, Any],
     *,
@@ -1407,7 +1454,7 @@ def write_policy_version(
     policy["updated_at"] = utc_now()
     policy["policy_sha256"] = digest(policy_material(policy))
     atomic_json(directory / "policy.json", policy)
-    append_raw(
+    append_raw_locked(
         directory / "policy-history.jsonl",
         {
             "schema_version": 1,
@@ -1419,6 +1466,30 @@ def write_policy_version(
             "policy": policy,
         },
     )
+
+
+def write_policy_version(
+    directory: Path,
+    policy: dict[str, Any],
+    *,
+    kind: str,
+    reason: str,
+    evidence_values: list[str],
+) -> None:
+    with append_lock(directory):
+        current = read_json(directory / "policy.json")
+        validate_policy(current)
+        if current.get("policy_sha256") != policy.get("policy_sha256"):
+            raise SupervisionLogError(
+                "Supervision policy changed concurrently; reload before writing"
+            )
+        write_policy_version_locked(
+            directory,
+            policy,
+            kind=kind,
+            reason=reason,
+            evidence_values=evidence_values,
+        )
 
 
 def cmd_bind(args: argparse.Namespace) -> None:
@@ -1719,6 +1790,109 @@ def cmd_bind(args: argparse.Namespace) -> None:
     print(json.dumps({"changed": changed, "policy": policy}, sort_keys=True))
 
 
+def cmd_mission_successor(args: argparse.Namespace) -> None:
+    """Replace a completed or superseded mission without rewriting its history."""
+
+    directory, _ = load_policy(args)
+    from_root = clean(
+        args.from_mission_root, label="predecessor mission root", maximum=128
+    )
+    safe_id(from_root, label="predecessor mission root")
+    evidence_values = [
+        clean(value, label="mission succession evidence", maximum=256)
+        for value in args.evidence
+        if value.strip()
+    ]
+    if not evidence_values:
+        raise SupervisionLogError("Mission succession requires exact evidence")
+    requested = mission_binding_from_args(args, required=True)
+    assert requested is not None
+    disposition = str(args.predecessor_disposition)
+    reason = clean(args.reason, label="mission succession reason", maximum=480)
+
+    with append_lock(directory):
+        policy = read_json(directory / "policy.json")
+        validate_policy(policy)
+        if policy.get("target_thread_id") != args.target_thread:
+            raise SupervisionLogError("Policy belongs to a different target")
+        current = bound_mission(policy)
+        if current is None:
+            raise SupervisionLogError(
+                "Mission succession requires an existing exact mission binding"
+            )
+        if current["mission_root"] != from_root:
+            raise SupervisionLogError("Predecessor mission root differs")
+        if mission_binding_identity(current) == mission_binding_identity(requested):
+            raise SupervisionLogError("Successor mission is unchanged")
+
+        all_events = events(directory / "events.jsonl")
+        incident_heads: dict[str, dict[str, Any]] = {}
+        decision_heads: dict[str, dict[str, Any]] = {}
+        for item in all_events:
+            incident_id = item.get("incident_id")
+            if incident_id and is_substantive_incident_record(
+                item, str(incident_id)
+            ):
+                incident_heads[str(incident_id)] = item
+            if item.get("kind") == "decision" and item.get("decision_id"):
+                decision_heads[str(item["decision_id"])] = item
+        open_incidents = [
+            item
+            for incident_id, item in incident_heads.items()
+            if not is_terminal_incident_record(item, incident_id)
+        ]
+        open_decisions = [
+            item
+            for item in decision_heads.values()
+            if item.get("phase") != "target-acknowledged"
+        ]
+        open_transitions = successor_transition_heads(all_events, open_only=True)
+        if open_incidents or open_decisions or open_transitions:
+            raise SupervisionLogError(
+                "Mission succession requires closed incidents, decisions, and successor transitions"
+            )
+        if disposition == "completed":
+            scoped = mission_scoped_events(directory, policy, all_events)
+            lifecycle = [item for item in scoped if item.get("kind") == "lifecycle"]
+            if not lifecycle or lifecycle[-1].get("status") != "completed":
+                raise SupervisionLogError(
+                    "Completed mission succession requires an exact predecessor lifecycle"
+                )
+            lifecycle_record = safe_id(
+                str(lifecycle[-1].get("record_id", "")),
+                label="completed lifecycle record ID",
+            )
+            evidence_values.append(lifecycle_record)
+
+        previous = {
+            "mission_root": current["mission_root"],
+            "mission_source_record": current["mission_source_record"],
+        }
+        policy["mission_binding"] = requested
+        write_policy_version_locked(
+            directory,
+            policy,
+            kind="policy-mission-successor",
+            reason=f"{disposition}: {reason}",
+            evidence_values=evidence_values,
+        )
+    print(
+        json.dumps(
+            {
+                "changed": True,
+                "predecessor_disposition": disposition,
+                "predecessor": previous,
+                "successor": {
+                    "mission_root": requested["mission_root"],
+                    "mission_source_record": requested["mission_source_record"],
+                },
+                "policy": policy,
+            },
+            sort_keys=True,
+        )
+    )
+
+
 def yes_no_value(raw: str | None, *, label: str) -> bool:
     if raw not in {"yes", "no"}:
         raise SupervisionLogError(f"{label} requires yes or no")
@@ -2000,7 +2174,8 @@ def gate_fingerprint(args: argparse.Namespace) -> str:
 def cmd_gate(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     fingerprint = gate_fingerprint(args)
-    prior = last_check(events(directory / "events.jsonl"))
+    all_events = events(directory / "events.jsonl")
+    prior = last_check(mission_scoped_events(directory, policy, all_events))
     changed = prior is None or prior.get("state_fingerprint") != fingerprint
     routing = policy["routing"]
     denominator = int(
@@ -2527,7 +2702,7 @@ def cmd_completion_record(args: argparse.Namespace) -> None:
             )
             return
         record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
-        append_raw_locked(directory / "events.jsonl", record)
+        append_event_locked(args, directory, record)
     print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
 
 
@@ -2667,7 +2842,7 @@ def cmd_record(args: argparse.Namespace) -> None:
             review_record = dict(record)
             review_record["incident_id"] = review_id
 
-        append_raw_locked(directory / "events.jsonl", record)
+        append_event_locked(args, directory, record)
         if incident_path is not None:
             append_markdown(incident_path, record, create=args.kind == "incident")
         if review_path is not None and review_record is not None:
@@ -3478,7 +3653,7 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
             return
         validate_successor_transition(prior, record)
         record["record_id"] = f"EVT-{len(all_events) + 1:06d}"
-        append_raw_locked(directory / "events.jsonl", record)
+        append_event_locked(args, directory, record)
     print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
 
 
@@ -3829,7 +4004,7 @@ def cmd_decision_record(args: argparse.Namespace) -> None:
             "policy_sha256": policy["policy_sha256"],
             **mission_impact,
         }
-        append_raw_locked(directory / "events.jsonl", record)
+        append_event_locked(args, directory, record)
     print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
 
 
@@ -5444,6 +5619,7 @@ def validate_terminal_gmail_readback(
 
 def append_terminal_delivery(
     *,
+    args: argparse.Namespace,
     directory: Path,
     policy: Mapping[str, Any],
     verified: Mapping[str, Any],
@@ -5507,7 +5683,7 @@ def append_terminal_delivery(
             "gmail_readback": dict(readback),
             "policy_sha256": policy["policy_sha256"],
         }
-        append_raw_locked(directory / "events.jsonl", record)
+        append_event_locked(args, directory, record)
     return record
 
 
@@ -5520,6 +5696,7 @@ def cmd_terminal_report_delivery(args: argparse.Namespace) -> None:
         verified=verified,
     )
     record = append_terminal_delivery(
+        args=args,
         directory=directory,
         policy=policy,
         verified=verified,
@@ -5699,7 +5876,7 @@ def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
             "automation_state_root": digest(states),
             "policy_sha256": policy["policy_sha256"],
         }
-        append_raw_locked(directory / "events.jsonl", record)
+        append_event_locked(args, directory, record)
     print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
 
 
@@ -5857,9 +6034,10 @@ def cmd_gmail_cadence(args: argparse.Namespace) -> None:
 def cmd_status(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     all_events = events(directory / "events.jsonl")
-    incident_events = [item for item in all_events if item.get("kind") == "incident"]
+    active_events = mission_scoped_events(directory, policy, all_events)
+    incident_events = [item for item in active_events if item.get("kind") == "incident"]
     incident_heads: dict[str, dict[str, Any]] = {}
-    for item in all_events:
+    for item in active_events:
         current_incident_id = item.get("incident_id")
         # Delivery receipts are projections of an incident outcome, not a
         # lifecycle transition. Keep the latest substantive incident record as
@@ -5875,38 +6053,38 @@ def cmd_status(args: argparse.Namespace) -> None:
         if not is_terminal_incident_record(item, str(item["incident_id"]))
     ]
     open_incident_ids = [item["incident_id"] for item in open_incidents]
-    last = last_check(all_events)
-    meta_reviews = [item for item in all_events if item.get("kind") == "meta-review"]
+    last = last_check(active_events)
+    meta_reviews = [item for item in active_events if item.get("kind") == "meta-review"]
     notification_events = [
-        item for item in all_events if item.get("kind") == "notification"
+        item for item in active_events if item.get("kind") == "notification"
     ]
     inbound_events = [
-        item for item in all_events if item.get("kind") == "inbound-message"
+        item for item in active_events if item.get("kind") == "inbound-message"
     ]
-    roundup_events = [item for item in all_events if item.get("kind") == "roundup"]
+    roundup_events = [item for item in active_events if item.get("kind") == "roundup"]
     lifecycle_events = [
-        item for item in all_events if item.get("kind") == "lifecycle"
+        item for item in active_events if item.get("kind") == "lifecycle"
     ]
     outcome_completion_events = [
         item
-        for item in all_events
+        for item in active_events
         if item.get("kind") == "check"
         and item.get("category") == OUTCOME_COMPLETION_CATEGORY
     ]
     terminal_report_deliveries = [
         item
-        for item in all_events
+        for item in active_events
         if item.get("kind") == "notification"
         and item.get("category") == TERMINAL_REPORT_DELIVERY_CATEGORY
     ]
     terminal_shutdown_events = [
         item
-        for item in all_events
+        for item in active_events
         if item.get("kind") == "check"
         and item.get("category") == TERMINAL_SHUTDOWN_CATEGORY
     ]
     decision_heads: dict[str, dict[str, Any]] = {}
-    for item in all_events:
+    for item in active_events:
         if item.get("kind") == "decision" and item.get("decision_id"):
             decision_heads[str(item["decision_id"])] = item
     open_decisions = [
@@ -5914,8 +6092,8 @@ def cmd_status(args: argparse.Namespace) -> None:
         for item in decision_heads.values()
         if item.get("phase") != "target-acknowledged"
     ]
-    transition_heads = successor_transition_heads(all_events)
-    open_transitions = successor_transition_heads(all_events, open_only=True)
+    transition_heads = successor_transition_heads(active_events)
+    open_transitions = successor_transition_heads(active_events, open_only=True)
     print(
         json.dumps(
             {
@@ -6028,6 +6206,25 @@ def parser() -> argparse.ArgumentParser:
     )
     bind.add_argument("--mission-source-sha256")
     bind.set_defaults(func=cmd_bind)
+
+    mission_successor = subparsers.add_parser("mission-successor")
+    mission_successor.add_argument("--target-thread", required=True)
+    mission_successor.add_argument("--from-mission-root", required=True)
+    mission_successor.add_argument(
+        "--mission-source-class",
+        choices=sorted(DIRECT_AUTHORITY_SOURCE_CLASSES),
+        required=True,
+    )
+    mission_successor.add_argument("--mission-source-record", required=True)
+    mission_successor.add_argument("--mission-source-sha256", required=True)
+    mission_successor.add_argument(
+        "--predecessor-disposition",
+        choices=("completed", "superseded"),
+        required=True,
+    )
+    mission_successor.add_argument("--reason", required=True)
+    mission_successor.add_argument("--evidence", action="append", default=[])
+    mission_successor.set_defaults(func=cmd_mission_successor)
 
     gate = subparsers.add_parser("gate")
     gate.add_argument("--target-thread", required=True)
