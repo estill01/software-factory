@@ -10,6 +10,7 @@ service, scheduler, policy mutation, or authority grant.
 - [Decision ladder](#decision-ladder)
 - [Triggers and non-triggers](#triggers-and-non-triggers)
 - [Common decision record](#common-decision-record)
+- [Canonical record grammar](#canonical-record-grammar)
 - [Bounded candidate additions](#bounded-candidate-additions)
 - [Structural amendment additions](#structural-amendment-additions)
 - [Currentness and conflict rules](#currentness-and-conflict-rules)
@@ -117,11 +118,16 @@ amendment:
 ## Common decision record
 
 Every non-unchanged disposition records one bounded object in the existing
-implementation/supervision evidence owner. Exact fields are:
+implementation/supervision evidence owner. The embedded v1 grammar below is
+normative; this prose is an operator index. Common fields are:
 
-- `decision_id`, `schema_version`, `disposition`, and `recorded_at`;
+- `decision_id`, `schema_version`, `decision_stage`, `disposition`, and
+  `recorded_at`;
+- `predecessor_decision_id` and `currentness_refresh_of`;
 - `mission_root`, `tracker_path`, `tracker_sha256`, `block_number`, and
   `block_contract_root`;
+- `authority_effect`, `authority_evidence_refs`, `prior_mission_root`, and
+  `proposed_mission_root`;
 - `target_class`, `target_repository_root`, `target_revision`, and
   `target_state_root`;
 - `capability_statement`, `capability_frame_root`, and
@@ -130,9 +136,12 @@ implementation/supervision evidence owner. Exact fields are:
 - `compared_paths`, `selected_path`, and `rejected_paths`;
 - `affected_scope`, `valid_work_refs`, `stale_proof_refs`, and
   `safe_frontier`;
-- `adaptive_decision_mode`, `implementation_owner_id`, `reviewer_id`, and
-  `evaluator_id` where applicable;
-- `stop_boundary`, `currentness_root`, and `revisit_trigger`.
+- `adaptive_decision_mode`, `proposer_author_id`, `implementation_owner_id`,
+  `reviewer_id`, and `evaluator_id` where applicable;
+- nullable `external_boundary` for one exact `reserved-external` condition;
+- `stop_boundary`, `policy_root`, `event_head_root`,
+  `accepted_decision_head`, `accepted_revision_head`, `currentness_root`, and
+  `revisit_trigger`.
 
 `evidence_refs` attach exact source or observable-effect references to the
 claims they support; a free-text evidence list does not establish behavior.
@@ -143,6 +152,282 @@ reason a lower-power shortcut or speculative generalization lost.
 `continue-unchanged` normally emits no new object. When a durable trace is
 required, it may reference the accepted `decision_id`, fingerprint, and
 currentness root without copying the complete record.
+
+## Canonical record grammar
+
+The following JSON object is the exact v1 interchange specification. `required`
+means the key is always present. `nullable` means its value may be JSON `null`;
+absence is never a substitute for null. Arrays are ordered, contain no duplicate
+IDs or roots, and obey `min_items`. Objects reject unknown keys. `id` and
+`sha256` values obey the named regular expressions. A `timestamp` is UTC RFC
+3339 with exactly six fractional digits and a terminal `Z`.
+
+<!-- contract-spec-v1 -->
+```json
+{
+  "schema_version": 1,
+  "closed_objects": true,
+  "named_types": {
+    "id": {"kind": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$"},
+    "sha256": {"kind": "string", "pattern": "^[0-9a-f]{64}$"},
+    "repo-path": {"kind": "string", "absolute": true, "contained": true},
+    "timestamp": {"kind": "string", "format": "YYYY-MM-DDTHH:MM:SS.ffffffZ"},
+    "evidence-ref": {
+      "kind": "object",
+      "fields": {
+        "ref_id": {"type": "id", "required": true, "nullable": false},
+        "source_class": {"type": "enum:evidence-source-class", "required": true, "nullable": false},
+        "root_sha256": {"type": "sha256", "required": true, "nullable": false},
+        "claim_ids": {"type": "array:id", "required": true, "nullable": false, "min_items": 1}
+      }
+    },
+    "protected-result": {
+      "kind": "object",
+      "fields": {
+        "capability_id": {"type": "id", "required": true, "nullable": false},
+        "result": {"type": "enum:protected-result", "required": true, "nullable": false},
+        "evidence_ref_ids": {"type": "array:id", "required": true, "nullable": false, "min_items": 1}
+      }
+    },
+    "path-comparison": {
+      "kind": "object",
+      "fields": {
+        "path_id": {"type": "id", "required": true, "nullable": false},
+        "kind": {"type": "enum:path-kind", "required": true, "nullable": false},
+        "posture": {"type": "enum:path-posture", "required": true, "nullable": false},
+        "rationale": {"type": "string", "required": true, "nullable": false, "min_length": 1},
+        "evidence_ref_ids": {"type": "array:id", "required": true, "nullable": false, "min_items": 1}
+      }
+    },
+    "scope-ref": {
+      "kind": "object",
+      "fields": {
+        "owner_id": {"type": "id", "required": true, "nullable": false},
+        "path": {"type": "repo-path", "required": true, "nullable": false},
+        "content_root": {"type": "sha256", "required": true, "nullable": false}
+      }
+    },
+    "external-boundary": {
+      "kind": "object",
+      "fields": {
+        "posture": {"type": "string", "required": true, "nullable": false, "const": "reserved-external"},
+        "boundary_class": {"type": "enum:external-boundary-class", "required": true, "nullable": false},
+        "evidence_ref_ids": {"type": "array:id", "required": true, "nullable": false, "min_items": 1},
+        "blocked_scope": {"type": "array:scope-ref", "required": true, "nullable": false, "min_items": 1},
+        "safe_frontier": {"type": "array:scope-ref", "required": true, "nullable": false, "min_items": 0},
+        "revisit_trigger": {"type": "string", "required": true, "nullable": false, "min_length": 1}
+      }
+    }
+  },
+  "enums": {
+    "disposition": ["continue-unchanged", "correct-inline", "compare-candidate", "amend-structure"],
+    "decision-stage": ["selected", "implementing", "validated", "reviewed", "cutover-eligible", "closed"],
+    "target-class": ["target-repository", "software-factory"],
+    "authority-effect": ["none", "mission-preserving-clarification", "direct-goal-change"],
+    "external-boundary-class": ["unavailable-credential", "spend-authority", "destructive-permission", "external-communication", "external-release", "direct-goal-change"],
+    "adaptive-decision-mode": ["fixed", "recommend", "reviewed-autonomous", "full-autonomous"],
+    "mission-authority-source-class": ["direct-user", "system"],
+    "evidence-source-class": ["direct-user", "system", "repository", "tracker", "canonical-event", "observed-outcome", "validation", "independent-review"],
+    "protected-result": ["preserved", "regressed", "reopened"],
+    "path-kind": ["local", "bounded-general", "architectural-owner"],
+    "path-posture": ["selected", "rejected", "unavailable"],
+    "isolation-kind": ["git-branch", "git-worktree", "temporary-repository", "equivalent-isolated-lane"],
+    "review-disposition": ["accepted", "revise", "rejected", "inconclusive"],
+    "retirement-posture": ["active-isolated", "eligible-cutover", "retired-loser", "retired-inconclusive", "cut-over"],
+    "authoring-review-disposition": ["pending", "accepted", "revise", "rejected"],
+    "comparison-dimension": ["observable-outcome", "implementation-cost", "maintenance-cost", "reversibility", "compatibility", "protected-capability"]
+  },
+  "common_fields": {
+    "schema_version": {"type": "integer", "required": true, "nullable": false, "const": 1},
+    "decision_id": {"type": "id", "required": true, "nullable": false},
+    "decision_stage": {"type": "enum:decision-stage", "required": true, "nullable": false},
+    "disposition": {"type": "enum:disposition", "required": true, "nullable": false},
+    "recorded_at": {"type": "timestamp", "required": true, "nullable": false},
+    "predecessor_decision_id": {"type": "id", "required": true, "nullable": true},
+    "currentness_refresh_of": {"type": "id", "required": true, "nullable": true},
+    "mission_root": {"type": "sha256", "required": true, "nullable": false},
+    "authority_effect": {"type": "enum:authority-effect", "required": true, "nullable": false},
+    "authority_evidence_refs": {"type": "array:id", "required": true, "nullable": false, "min_items": 0},
+    "prior_mission_root": {"type": "sha256", "required": true, "nullable": false},
+    "proposed_mission_root": {"type": "sha256", "required": true, "nullable": true},
+    "tracker_path": {"type": "repo-path", "required": true, "nullable": false},
+    "tracker_sha256": {"type": "sha256", "required": true, "nullable": false},
+    "block_number": {"type": "integer", "required": true, "nullable": false, "minimum": 0},
+    "block_contract_root": {"type": "sha256", "required": true, "nullable": false},
+    "target_class": {"type": "enum:target-class", "required": true, "nullable": false},
+    "target_repository_root": {"type": "repo-path", "required": true, "nullable": false},
+    "target_revision": {"type": "string", "required": true, "nullable": false, "min_length": 1},
+    "target_state_root": {"type": "sha256", "required": true, "nullable": false},
+    "capability_statement": {"type": "string", "required": true, "nullable": false, "min_length": 1},
+    "capability_frame_root": {"type": "sha256", "required": true, "nullable": false},
+    "protected_capability_results": {"type": "array:protected-result", "required": true, "nullable": false, "min_items": 1},
+    "evidence_refs": {"type": "array:evidence-ref", "required": true, "nullable": false, "min_items": 1},
+    "decision_fingerprint": {"type": "sha256", "required": true, "nullable": false},
+    "compared_paths": {"type": "array:path-comparison", "required": true, "nullable": false, "min_items": 3, "max_items": 3},
+    "selected_path": {"type": "id", "required": true, "nullable": true},
+    "rejected_paths": {"type": "array:id", "required": true, "nullable": false, "min_items": 0},
+    "affected_scope": {"type": "array:scope-ref", "required": true, "nullable": false, "min_items": 0},
+    "valid_work_refs": {"type": "array:id", "required": true, "nullable": false, "min_items": 0},
+    "stale_proof_refs": {"type": "array:id", "required": true, "nullable": false, "min_items": 0},
+    "safe_frontier": {"type": "array:scope-ref", "required": true, "nullable": false, "min_items": 0},
+    "adaptive_decision_mode": {"type": "enum:adaptive-decision-mode", "required": true, "nullable": false},
+    "proposer_author_id": {"type": "id", "required": true, "nullable": true},
+    "implementation_owner_id": {"type": "id", "required": true, "nullable": false},
+    "reviewer_id": {"type": "id", "required": true, "nullable": true},
+    "evaluator_id": {"type": "id", "required": true, "nullable": true},
+    "stop_boundary": {"type": "string", "required": true, "nullable": false, "min_length": 1},
+    "policy_root": {"type": "sha256", "required": true, "nullable": false},
+    "event_head_root": {"type": "sha256", "required": true, "nullable": false},
+    "accepted_decision_head": {"type": "sha256", "required": true, "nullable": true},
+    "accepted_revision_head": {"type": "sha256", "required": true, "nullable": true},
+    "currentness_root": {"type": "sha256", "required": true, "nullable": false},
+    "revisit_trigger": {"type": "string", "required": true, "nullable": true},
+    "external_boundary": {"type": "external-boundary", "required": true, "nullable": true}
+  },
+  "candidate_fields": {
+    "hypothesis": {"type": "string", "required": true, "nullable": false, "min_length": 1},
+    "hypothesis_scope": {"type": "array:scope-ref", "required": true, "nullable": false, "min_items": 1},
+    "incumbent_root": {"type": "sha256", "required": true, "nullable": false},
+    "candidate_root": {"type": "sha256", "required": true, "nullable": true},
+    "isolation_kind": {"type": "enum:isolation-kind", "required": true, "nullable": false},
+    "isolated_writable_scope": {"type": "array:scope-ref", "required": true, "nullable": false, "min_items": 1},
+    "shared_resource_exclusions": {"type": "array:scope-ref", "required": true, "nullable": false, "min_items": 0},
+    "resource_ceiling": {"type": "string", "required": true, "nullable": false, "min_length": 1},
+    "time_ceiling": {"type": "string", "required": true, "nullable": false, "min_length": 1},
+    "stop_condition": {"type": "string", "required": true, "nullable": false, "min_length": 1},
+    "production_authority_owner_id": {"type": "id", "required": true, "nullable": false},
+    "focused_validation": {"type": "array:id", "required": true, "nullable": false, "min_items": 1},
+    "mapped_validation": {"type": "array:id", "required": true, "nullable": false, "min_items": 0},
+    "validation_order": {"type": "string", "required": true, "nullable": false, "const": "focused-then-mapped"},
+    "comparison_dimensions": {"type": "array:enum:comparison-dimension", "required": true, "nullable": false, "min_items": 6, "max_items": 6},
+    "independent_reviewer_id": {"type": "id", "required": true, "nullable": false},
+    "review_root": {"type": "sha256", "required": true, "nullable": true},
+    "review_disposition": {"type": "enum:review-disposition", "required": true, "nullable": true},
+    "cutover_owner_id": {"type": "id", "required": true, "nullable": false},
+    "cutover_preconditions": {"type": "array:id", "required": true, "nullable": false, "min_items": 1},
+    "retirement_posture": {"type": "enum:retirement-posture", "required": true, "nullable": false}
+  },
+  "structural_fields": {
+    "revision_id": {"type": "id", "required": true, "nullable": false},
+    "structural_reason": {"type": "string", "required": true, "nullable": false, "min_length": 1},
+    "proposed_mutations": {"type": "array:id", "required": true, "nullable": false, "min_items": 1},
+    "old_to_new_block_map": {"type": "object:string-to-array:integer", "required": true, "nullable": false},
+    "dependency_closure": {"type": "array:integer", "required": true, "nullable": false, "min_items": 1},
+    "accepted_history_boundary": {"type": "sha256", "required": true, "nullable": false},
+    "proposed_tracker_root": {"type": "sha256", "required": true, "nullable": true},
+    "invalidated_evidence_refs": {"type": "array:id", "required": true, "nullable": false, "min_items": 0},
+    "preserved_evidence_refs": {"type": "array:id", "required": true, "nullable": false, "min_items": 1},
+    "resume_point": {"type": "integer", "required": true, "nullable": false, "minimum": 0},
+    "author_owner_id": {"type": "id", "required": true, "nullable": false},
+    "authoring_reviewer_id": {"type": "id", "required": true, "nullable": false},
+    "authoring_review_disposition": {"type": "enum:authoring-review-disposition", "required": true, "nullable": false}
+  },
+  "array_order": {
+    "authority_evidence_refs": "id-ascending",
+    "protected_capability_results": "capability_id-ascending",
+    "evidence_refs": "ref_id-ascending",
+    "evidence-ref.claim_ids": "id-ascending",
+    "protected-result.evidence_ref_ids": "id-ascending",
+    "compared_paths": "path-kind-enum-order",
+    "path-comparison.evidence_ref_ids": "id-ascending",
+    "rejected_paths": "compared-path-order",
+    "affected_scope": "owner_id,path,content_root-ascending",
+    "valid_work_refs": "id-ascending",
+    "stale_proof_refs": "id-ascending",
+    "safe_frontier": "owner_id,path,content_root-ascending",
+    "external-boundary.evidence_ref_ids": "id-ascending",
+    "external-boundary.blocked_scope": "owner_id,path,content_root-ascending",
+    "external-boundary.safe_frontier": "owner_id,path,content_root-ascending",
+    "hypothesis_scope": "owner_id,path,content_root-ascending",
+    "isolated_writable_scope": "owner_id,path,content_root-ascending",
+    "shared_resource_exclusions": "owner_id,path,content_root-ascending",
+    "focused_validation": "id-ascending",
+    "mapped_validation": "id-ascending",
+    "comparison_dimensions": "comparison-dimension-enum-order",
+    "cutover_preconditions": "id-ascending",
+    "proposed_mutations": "id-ascending",
+    "old_to_new_block_map.values": "integer-ascending",
+    "dependency_closure": "integer-ascending",
+    "invalidated_evidence_refs": "id-ascending",
+    "preserved_evidence_refs": "id-ascending"
+  },
+  "fingerprint_projection": ["schema_version", "mission_root", "authority_effect", "authority_evidence_refs", "prior_mission_root", "proposed_mission_root", "tracker_path", "tracker_sha256", "block_number", "block_contract_root", "target_class", "target_repository_root", "target_state_root", "capability_statement", "capability_frame_root", "protected_capability_results", "evidence_refs", "compared_paths", "affected_scope", "safe_frontier", "adaptive_decision_mode", "implementation_owner_id", "stop_boundary", "external_boundary"],
+  "candidate_fingerprint_projection": ["hypothesis", "hypothesis_scope", "incumbent_root", "isolation_kind", "isolated_writable_scope", "shared_resource_exclusions", "resource_ceiling", "time_ceiling", "stop_condition", "production_authority_owner_id", "focused_validation", "mapped_validation", "validation_order", "comparison_dimensions", "independent_reviewer_id", "cutover_owner_id", "cutover_preconditions"],
+  "structural_fingerprint_projection": ["structural_reason", "proposed_mutations", "old_to_new_block_map", "dependency_closure", "accepted_history_boundary", "invalidated_evidence_refs", "preserved_evidence_refs", "resume_point", "author_owner_id", "authoring_reviewer_id"],
+  "currentness_projection": ["decision_fingerprint", "policy_root", "event_head_root", "target_revision", "accepted_decision_head", "accepted_revision_head", "candidate_root?", "review_root?", "review_disposition?", "retirement_posture?", "proposed_tracker_root?", "authoring_review_disposition?"],
+  "role_rules": {
+    "target-repository": {
+      "continue-unchanged": {"must_be_null": ["proposer_author_id", "reviewer_id", "evaluator_id"]},
+      "correct-inline": {"must_be_null": ["proposer_author_id", "reviewer_id", "evaluator_id"]},
+      "compare-candidate": {"must_be_nonnull": ["reviewer_id"], "must_be_null": ["proposer_author_id", "evaluator_id"], "equal": [["reviewer_id", "independent_reviewer_id"]]},
+      "amend-structure": {"must_be_nonnull": ["reviewer_id"], "must_be_null": ["proposer_author_id", "evaluator_id"], "equal": [["reviewer_id", "authoring_reviewer_id"]]}
+    },
+    "software-factory": {
+      "continue-unchanged": {"must_be_null": ["proposer_author_id", "reviewer_id", "evaluator_id"]},
+      "correct-inline": {"must_be_nonnull": ["proposer_author_id", "reviewer_id", "evaluator_id"], "distinct": ["proposer_author_id", "implementation_owner_id", "reviewer_id", "evaluator_id"]},
+      "compare-candidate": {"must_be_nonnull": ["proposer_author_id", "reviewer_id", "evaluator_id"], "equal": [["reviewer_id", "independent_reviewer_id"]], "distinct": ["proposer_author_id", "implementation_owner_id", "reviewer_id", "evaluator_id", "cutover_owner_id"]},
+      "amend-structure": {"must_be_nonnull": ["proposer_author_id", "reviewer_id", "evaluator_id"], "equal": [["proposer_author_id", "author_owner_id"], ["reviewer_id", "authoring_reviewer_id"]], "distinct": ["proposer_author_id", "implementation_owner_id", "reviewer_id", "evaluator_id"]}
+    }
+  },
+  "cross_field_rule_ids": ["exact-three-paths", "selected-path-membership", "rejected-path-membership", "fresh-decision-link", "currentness-refresh-link", "links-mutually-exclusive", "authority-none", "mission-preserving-clarification", "direct-goal-change-reject", "reserved-external-bounded", "candidate-fields-by-disposition", "structural-fields-by-disposition", "software-factory-role-separation"]
+}
+```
+
+Canonical bytes use the JSON Canonicalization Scheme (RFC 8785), encoded as
+UTF-8 with no BOM or trailing newline. Inputs first reject duplicate keys,
+floats, non-finite numbers, strings outside Unicode NFC, unknown object keys,
+and values that fail the embedded grammar. Every array is sorted by its exact
+`array_order` rule before hashing; a submitted noncanonical order is rejected.
+`decision_fingerprint` is SHA-256 of canonical bytes for exactly the common
+`fingerprint_projection`, plus a `candidate` object containing exactly the
+`candidate_fingerprint_projection` for `compare-candidate` or a `structural`
+object containing exactly the `structural_fingerprint_projection` for
+`amend-structure`. `currentness_root` is SHA-256 of canonical bytes for exactly
+the `currentness_projection`; `?` fields are included, with null retained, only
+for their owning disposition. Roots are lowercase hexadecimal.
+
+The cross-field rules are:
+
+- `exact-three-paths`: `compared_paths` has exactly one `local`, one
+  `bounded-general`, and one `architectural-owner`, ordered as shown in the
+  enum.
+- `selected-path-membership`: `selected_path` is null only for unresolved
+  candidate/structural selection; otherwise it names the sole `selected` path.
+- `rejected-path-membership`: `rejected_paths` equals the ordered IDs of every
+  `rejected` comparison and no other path.
+- `fresh-decision-link`: new adjudicating evidence requires non-null
+  `predecessor_decision_id` and null `currentness_refresh_of`.
+- `currentness-refresh-link`: context-only refresh requires non-null
+  `currentness_refresh_of`, null `predecessor_decision_id`, and the same
+  `decision_fingerprint`.
+- `links-mutually-exclusive`: both linkage fields cannot be non-null.
+- `authority-none`: `authority_evidence_refs` is empty,
+  `prior_mission_root == mission_root`, and `proposed_mission_root` is null.
+- `mission-preserving-clarification`: at least one exact eligible direct
+  authority reference is present, each resolves to an `evidence_ref` whose
+  `source_class` is in `mission-authority-source-class`, and
+  `prior_mission_root == proposed_mission_root == mission_root`.
+- `direct-goal-change-reject`: at least one exact eligible direct authority
+  reference meeting the same source-class rule and a non-null
+  `proposed_mission_root != mission_root` classify a direct goal change. No
+  adaptive disposition may authorize mutation; fail
+  closed to the separate mission-binding owner. Routed, review, supervisor, or
+  Factory preference never proves this rule.
+- `reserved-external-bounded`: `external_boundary` is null unless an exact
+  current boundary in `external-boundary-class` is proven. When non-null, its
+  posture is exactly `reserved-external`; the record binds evidence, the
+  smallest blocked scope, continuing safe frontier, and revisit trigger. It
+  cannot authorize the blocked action, stop unaffected work, or create a
+  repeated human request. `direct-goal-change` requires both this boundary and
+  `authority_effect == direct-goal-change`; all other classes require
+  `authority_effect != direct-goal-change`.
+- `candidate-fields-by-disposition`: candidate fields are present only and all
+  present for `compare-candidate`.
+- `structural-fields-by-disposition`: structural fields are present only and
+  all present for `amend-structure`.
+- `software-factory-role-separation`: apply the exact `role_rules` entry for the
+  target class and disposition. `must_be_nonnull`, `must_be_null`, `equal`, and
+  `distinct` are exhaustive; null never proves equality or separation.
 
 ## Bounded candidate additions
 
