@@ -850,6 +850,61 @@ class ReusableLaneDispositionTests(unittest.TestCase):
         ):
             self.run_record(self.closure_arguments(incident_id))
 
+    def test_observing_resolution_defers_reusable_lane_until_effectiveness(self) -> None:
+        incident_id = self.open_failure_mode(category="runtime-invocation")
+        observing = self.run_record(
+            [
+                "--kind",
+                "resolution",
+                "--incident-id",
+                incident_id,
+                "--status",
+                "observing",
+                "--notice-disposition",
+                "correction-issued",
+                "--summary",
+                "The current-run correction awaits effectiveness evidence.",
+            ]
+        )
+
+        self.assertEqual(observing["record"]["status"], "observing")
+        self.assertNotIn("reusable_lane", observing["record"])
+
+        effective_arguments = [
+            "--kind",
+            "resolution",
+            "--incident-id",
+            incident_id,
+            "--status",
+            "effective",
+            "--notice-disposition",
+            "correction-issued",
+            "--summary",
+            "The current-run correction is now effective.",
+        ]
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "requires an explicit reusable lane disposition",
+        ):
+            self.run_record(effective_arguments)
+
+        effective = self.run_record(
+            [
+                *effective_arguments,
+                "--reusable-lane-disposition",
+                "existing-owner-sufficient",
+                "--reusable-lane-owner",
+                "implement-tracker-blocks",
+                "--reusable-lane-evidence",
+                "EVT-001182",
+            ]
+        )
+        self.assertEqual(effective["record"]["status"], "effective")
+        self.assertEqual(
+            effective["record"]["reusable_lane"]["disposition"],
+            "existing-owner-sufficient",
+        )
+
     def test_effectiveness_finding_also_requires_the_disposition(self) -> None:
         incident_id = self.open_failure_mode(failure_mode_id="FM-OTHER-EXECUTION")
         arguments = [

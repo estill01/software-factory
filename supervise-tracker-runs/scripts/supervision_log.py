@@ -2198,9 +2198,7 @@ def requires_reusable_lane_disposition(
     incident_id_value = record.get("incident_id")
     if not isinstance(incident_id_value, str) or not incident_id_value:
         return False
-    if record.get("kind") == "resolution":
-        effectiveness_or_closure = True
-    elif record.get("kind") == "meta-review":
+    if record.get("kind") in {"resolution", "meta-review"}:
         effectiveness_or_closure = (
             record.get("status") in REUSABLE_LANE_EFFECTIVENESS_STATUSES
             or record.get("notice_disposition") == "terminal"
