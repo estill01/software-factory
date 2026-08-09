@@ -1,7 +1,7 @@
 # Software Factory Operations Dashboard Implementation Tracker
 
 - Tracker status: `planning`
-- Tracker sequence: Blocks 0–13
+- Tracker sequence: Blocks 0–23
 - Repository: `https://github.com/estill01/software-factory.git`
 - Governing objective: direct user request in Codex task
   `019fe547-e054-7ca0-9940-ec4aa146df78`, 2026-08-08: provide a dashboard
@@ -359,7 +359,7 @@ an explicit compatibility change in Block 1:
 | Current reports/evolution | repository revision `c7d4efce3e3bf5fb3a8dbc4d9ab0db0ef2cd89bd` plus live artifacts | reuse | 4, 9 | project verified metrics, history, manifests, and limitations |
 | Existing trackers in `docs/` | live hashes frozen per project scan | reuse | 3, 8 | support new full-profile and inherited core-profile truth without rewriting them |
 | Official Codex App Server protocol | installed CLI `codex-cli 0.145.0` observed during planning; regenerate in Block 5 | adapt | 5 | handshake, schema generation, task/turn streaming, approvals/input, and fail-closed compatibility |
-| Adaptive decision/evolution tracker | plan current at implementation time | not-adopted as live capability | 0, 12 | show planned/unavailable until independently accepted implementation exists |
+| Adaptive decision/evolution tracker | plan current at implementation time | not-adopted as live capability | 0, 20 | show planned/unavailable until independently accepted implementation exists |
 | Tracker-authoring supervision tracker | plan current at implementation time | not-adopted as live capability | 0, 11 | do not expose a working control until implementation is proven |
 
 ## 5. Scope, non-goals, and proportionality
@@ -418,7 +418,7 @@ the relevant authority and evidence contract.
 
 ## 6. Block execution contract
 
-1. Execute Blocks 0–13 in dependency order. Parallel work is allowed only
+1. Execute Blocks 0–23 in dependency order. Parallel work is allowed only
    where the status table has no unmet dependency and each worker has disjoint
    files and one declared integration owner.
 2. Re-read the selected Block and inspect the live repository, external
@@ -499,23 +499,46 @@ the relevant authority and evidence contract.
 | 9 | Metrics and report history workspace | 4, 6 | `not-started` |
 | 10 | Gated administrative operation framework | 2, 4, 5 | `not-started` |
 | 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `not-started` |
-| 12 | Supervision, report, evolution, and lifecycle operations | 7, 9, 10, 11 | `not-started` |
-| 13 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12 | `not-started` |
+| 12 | On-demand mechanical supervision checks | 7, 10, 11 | `not-started` |
+| 13 | Semantic supervision review requests | 7, 10, 11 | `not-started` |
+| 14 | Supervision policy and cadence administration | 7, 10, 11 | `not-started` |
+| 15 | Supervision binding repair | 7, 10, 11 | `not-started` |
+| 16 | Supervision pause and resume | 7, 10, 11 | `not-started` |
+| 17 | Same-target mission succession | 7, 10, 11 | `not-started` |
+| 18 | Successor-task continuity | 7, 10, 11 | `not-started` |
+| 19 | Weekly supervision report workflow | 9, 10, 11, 13 | `not-started` |
+| 20 | Factory evolution workflow | 9, 10, 11, 13 | `not-started` |
+| 21 | Terminal report workflow | 9, 10, 11, 13, 19 | `not-started` |
+| 22 | Request-stop and terminal shutdown | 7, 9, 10, 11, 21 | `not-started` |
+| 23 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22 | `not-started` |
 
 Required order:
 
 ```text
-0 → 1 → 2 → 3 ─┐
-          │     └→ 4 ─┼→ 6 → 7 ─┐
-          └→ 5 ───┘   ├→ 8 ─┤
-                 │       └→ 9 ─┤
-                 └→ 10 → 11 ─┤
-                          └→ 12 ─┤
-                                  └→ 13
+0 → 1 → 2 → {3, 4}
+    └───────→ 5
+{3, 4, 5} → 6 → 7
+{3, 6} → 8
+{4, 6} → 9
+{2, 4, 5} → 10
+{8, 10} → 11
+{7, 10, 11} → {12, 13, 14, 15, 16, 17, 18}
+{9, 10, 11, 13} → {19, 20}
+{9, 10, 11, 13, 19} → 21
+{7, 9, 10, 11, 21} → 22
+{6–22} → 23
 ```
 
-Blocks 3, 4, and 5 may proceed concurrently after their direct dependencies;
-all other order is governed by the dependency table, not diagram layout.
+Blocks with satisfied direct dependencies may proceed concurrently; exact order
+is governed by the dependency table, not diagram layout.
+
+Renumbering note: commit `0fe280cc1deac763b906755265c7d0e53307ff0c`
+is preserved as the rejected predecessor for incident
+`INC-20260809-073305-B81DCB`. Its old Block 12 was split into current Blocks
+12–22 at independent owner, acceptance, recovery, and Stop boundaries; its old
+Block 13 moved mechanically to Block 23. Blocks 0–11 remain substantively
+unchanged, and prior structural verification/review of the predecessor is
+diagnostic rather than current completion proof.
 
 ## Block 0 — Product contract and live-owner baseline
 
@@ -2096,41 +2119,37 @@ administration, or semantic lifecycle controls.
 
 ---
 
-## Block 12 — Supervision, report, evolution, and lifecycle operations
+## Block 12 — On-demand mechanical supervision checks
 
 Status: `not-started`
 
 ### Objective
 
-Expose the supported advanced operating controls for supervision policy,
-automations, reports, Factory evolution, successor continuity, and lifecycle
-without bypassing their multi-stage owners or reserved gates.
+Let the operator request one immediate mechanical supervision check and verify
+the resulting canonical check without duplicating active work or granting the
+watcher semantic authority.
 
 ### Target-product capability delta
 
 - Posture: `consequential`.
-- Intended capability gain: let the operator administer and carry a supervised
-  Factory run through adjustment, evidence/report review, safe continuation, and
-  terminal handling from the same source-grounded workspace.
-- Potential capability loss or regression: one-click policy/lifecycle/report/
-  adoption controls could desynchronize automations, bypass cognitive review,
-  strand a successor, violate Gmail/single-writer rules, or call process
-  terminality an outcome.
-- Protected-capability effect: preserves supervisor ownership, policy history,
-  automation reconciliation, decision gates, successor continuity, report and
-  evolution stage boundaries, Gmail ownership, terminal outcome proof, and
-  fail-closed blocking/stop rules.
-- Architecture and operating-model effect: registers explicit staged operations
-  that ask the maintained supervisor/report/evolution/automation/task owners to
-  act and verifies each owner-specific postcondition; no new supervisor or
-  scheduler is added.
-- Tradeoff and source evidence: advanced operations take multiple confirmations
-  and may remain pending across tasks, but this is the cost of real consequences
-  that honor the repository's established supervision contracts.
+- Intended capability gain: provide a consequence-bearing `Check now` control
+  whose result is one exact new watcher check for the selected target.
+- Potential capability loss or regression: duplicate wakes, wrong-target
+  routing, or treating a task wake as a completed check could distort cadence
+  and supervisor health.
+- Protected-capability effect: preserves the watcher as mechanical gate,
+  current route-gate evidence, exact target binding, cadence ownership, and the
+  separation between mechanical activity and semantic conclusion.
+- Architecture and operating-model effect: registers one watcher-owned
+  operation and postcondition in the existing Block 10 framework; it adds no
+  scheduler or alternative check ledger.
+- Tradeoff and source evidence: an on-demand check may consume one extra bounded
+  wake, so duplicate/active checks fail closed; the direct Factory-floor request
+  and maintained watcher contract justify this narrow operator action.
 
 ### Inputs and dependencies
 
-- Accepted Block 7 run/task workspaces and Block 9 report/evolution workspace.
+- Accepted Block 7 run/task workspaces.
 - Accepted Blocks 10 and 11 operation/task owners.
 - Current supported/unavailable feature matrix from Block 0.
 
@@ -2141,137 +2160,1168 @@ without bypassing their multi-stage owners or reserved gates.
   active check. Preview target, watcher role, maintained purpose, cadence/last
   check, route gate, and expected new check record; a task wake/turn alone is not
   a completed check.
-- Register semantic `Request checkpoint review`, `Request meta-review`, and
-  `Request issue follow-up` operations only to their maintained reviewer/
-  supervisor owners with exact candidate/source root, delta or incident/
-  decision scope, required conclusion contract, and route gate. Display the
-  request separately from the eventual conclusion and preserve a no-conclusion,
-  rejected, superseded, or stale conclusion honestly.
-- Register `Adjust supervision` as an explicit policy-diff request to the
-  current supervisor owner. Preview old/new exact fields, roles/schedules,
-  affected automations, preserved fields, authority, and rollback/compensation
-  posture. Verify the next valid policy version/history and actual automation
-  reconciliation separately; partial reconciliation remains attention.
-- Register supported binding/repair operations only for reproduced mismatches:
-  mission/target/tracker/role/automation binding with the current smallest owner
-  action and exact postcondition. Do not expose a generic `repair all`.
-- Register `Begin successor mission on this target` through the settled
-  `mission-successor` owner, distinctly from creating a successor task. Preview
-  the exact predecessor mission root, new direct source class/record/hash,
-  reason/evidence, preserved target/group/automations, and prohibiting open
-  incidents, decisions, or successor-task transitions. Require predecessor
-  `completed` lifecycle or explicit supersession evidence, direct operator
-  authority for the materially different mission, and exact confirmation.
-  Verify the next policy version/history, active new mission binding, preserved
-  predecessor history, and mission-scoped empty/current state; never use `bind`
-  to overwrite a mission or create a parallel supervision root.
-- Register semantic `Pause supervision` and `Resume supervision` through the
-  automation/supervision owners, lifecycle gate, exact target/scope, and
-  required preserved state. Keep them distinct from App Server turn interrupt/
-  continuation and verify both automation and lifecycle postconditions.
-- Register `Request stop` and terminal shutdown only when current terminal-
-  outcome, successor-transition, incident/decision, lifecycle, report, and
-  owner gates permit it. Preview what remains running, what will stop, whether
-  a successor is required, recovery/resume posture, and Gmail ownership. Never
-  provide a generic red Stop button.
-- Support successor administration through existing records and task owner:
-  for a successor-task transition, inspect the current transition, start/
-  identify the exact successor only under direct authority, bind/handoff/
-  acknowledge/work-start through maintained owners, and prohibit source stop/
-  completion until the transition gate proves current `work-started` evidence.
-  Label this separately from same-target mission succession everywhere.
-- Register `Generate weekly report` and `Prepare terminal report` as staged
-  workflows: deterministic prepare, source/currentness review, bounded cognitive
-  review by the required independent role, finalize, verify manifest/artifacts,
-  and then display. A generated file or reviewer task alone is not `verified`.
-- Register `Run Factory evolution` only when current implementation, eligibility,
-  authority, inputs, and independent evaluation owners are proven. Preserve
-  prepare/review/evaluate/disposition/adoption/outcome-feedback stages;
-  `promote` is not automatic adoption. Disable autonomous/adaptive controls that
-  remain merely planned.
-- Project Gmail primary/priority/roundup/reply-gate ownership status where
-  present, but do not read or send Gmail from the dashboard. Any owner-mediated
-  Gmail workflow remains advanced, content-minimized, and subject to its exact
-  gates; absence is not a reason to install a mailbox integration.
-- Add operation-specific panels to run/report/Admin views with availability,
-  prerequisites, exact preview, progress/stage, source proof, partial failure,
-  resume/recovery, and resulting attention items.
+- Display requested, awakened, check-recorded, duplicate-active, denied,
+  timed-out, and unverified states separately in the run/floor inspector.
+- After the wake, re-read only the selected target's canonical ledger and mark
+  the operation applied only when a newer check record matches the target,
+  route purpose, and preview fingerprint.
 
 ### Scope and non-goals
 
-- In scope: current proven supervisor check/review/follow-up requests,
-  supervision administration, binding repair, semantic pause/resume/request-
-  stop, successor continuity, report/evolution stages, and terminal handling.
-- Not in scope: new supervision/evolution doctrine, autonomous background
-  scheduling beyond existing owners, direct JSON/JSONL/TOML edits, Gmail body
-  access/send, automatic `promote` adoption, or operations still only planned.
-- Do not equate policy update with automation reconciliation or report generation
-  with review/verification/outcome acceptance.
+- In scope: one current watcher check request and its exact postcondition.
+- Not in scope: semantic review, policy/cadence change, binding repair,
+  pause/resume, reports, evolution, continuity, or terminal lifecycle.
+- Do not infer a no-intervention conclusion or target health from wake/task
+  success alone.
 
 ### Deliverables and recorded state
 
-- Advanced operation registry entries, policy/lifecycle/report/evolution/
-  successor previews and postcondition verifiers, run/report/Admin controls,
-  staged-progress UI, recovery paths, and focused integration tests.
+- `Check now` operation entry, preview/postcondition contract, floor/run control,
+  progress states, and focused integration tests.
 
 ### Resource and economy contract
 
-Each advanced operation touches one target/run and one exact owner workflow.
-Reuse current reports, reviews, decisions, and transition records by fingerprint;
-do not regenerate or repeat cognitive review on unchanged candidates. Poll only
-named postconditions at bounded cadence, respect the maintained retry/decision
-ceilings, and stop at `unverified` rather than repeating a mutation.
+Touch one target and one watcher only. Reuse the current last-check fingerprint,
+issue at most one wake per confirmed operation, never retry automatically, and
+poll only for the named newer check until the bounded timeout. Stop at
+`unverified` rather than waking again.
 
 ### QA and independent review
 
-- Test policy diff/preserved fields, automation partial reconciliation, role/
-  binding mismatch, route/lifecycle/decision gate deny, pause/resume versus turn
-  control, incident/open-decision stop denial, successor incomplete/complete,
-  report stage failure/currentness, evolution ineligible/evaluate/reject/promote-
-  not-adopted, Gmail unavailability, terminal outcome gap, owner timeout, and
-  recovery after restart.
-- Test same-target mission succession versus successor-task transition,
-  completed/superseded predecessor evidence, changed/unchanged new mission,
-  wrong predecessor root, open incident/decision/transition denial, direct-
-  authority absence, preserved policy history, and active-root event isolation.
-- Test duplicate/active `Check now`, watcher wake without check record,
-  checkpoint/meta-review routed to the wrong role, request without a current
-  candidate/delta, semantic request with no conclusion, and conclusion that
-  becomes stale or superseded.
+- Test duplicate/active `Check now`, wrong target/watcher/purpose, route denial,
+  stale preview, missing watcher/automation, wake without check record, timeout,
+  restart, and newer unrelated event.
 - Run live non-destructive status and preview checks on a current supervised run;
   run mutation end to end only in the disposable validation run or with exact
   direct authority for a real target.
-- Independent semantic/authority review checks every enabled control against
-  the current owner contract and exact postcondition after all corrections.
+- Independent authority review checks the control against the current watcher
+  and route-gate contract and verifies that no semantic claim is manufactured.
 
 ### Acceptance
 
-- Every control shown enabled is proven available in the live environment,
-  reaches its maintained owner, and reports requested/partial/applied state from
-  exact canonical postconditions.
-- The operator can request an immediate supported check or semantic review from
-  a supervisor row, follow the exact task/action, and see the resulting check
-  and conclusion appear separately in current state and history.
-- A long-lived target can move to a directly authorized new mission through the
-  current `mission-successor` gate without overwriting predecessor evidence or
-  confusing that operation with a successor task.
-- Pause/resume/request-stop/terminal actions cannot bypass lifecycle, decision,
-  successor, outcome, automation, or report gates and remain distinct from turn
-  controls.
-- Report and evolution workflows preserve their deterministic/cognitive/
-  evaluation/verification/adoption stages and planned capabilities stay visibly
-  unavailable.
-- No dashboard code directly mutates supervision artifacts, automation TOML,
-  tracker/Git state, report artifacts, or Gmail.
+- From one supervisor row the operator can preview and request an available
+  immediate check, follow its exact watcher activity, and see a matching newer
+  canonical check appear in current state/history.
+- A missing, duplicate, denied, timed-out, or unmatched check remains disabled,
+  failed, or unverified with its exact reason.
+- The dashboard never writes the supervision ledger or labels the watcher wake
+  itself as a semantic conclusion.
 
 ### Negative tests
 
-- Reject `policy adjusted` when only policy JSON changed but required automation
-  reconciliation did not, or `paused` when only a turn was interrupted.
-- Reject shutdown with an incomplete required successor, unresolved terminal
-  outcome gap, open gate-prohibiting state, or unverified terminal report.
-- Reject report verification from file existence alone and evolution adoption
-  from `promote` disposition alone.
+- Reject `check applied` when only a task turn/wake exists, the check predates
+  the preview, or its target/purpose differs.
+- Reject a mechanical check rendered as semantic approval, implementation
+  acceptance, or green outcome completion.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before registering semantic review or any policy, binding, lifecycle,
+continuity, report, or evolution operation.
+
+---
+
+## Block 13 — Semantic supervision review requests
+
+Status: `not-started`
+
+### Objective
+
+Let the operator request one evidence-bound checkpoint, meta, or issue review
+from the exact semantic owner and distinguish the request from its eventual
+current conclusion.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: provide targeted semantic review requests and make
+  their evidence, owner, progress, conclusion, and currentness visible.
+- Potential capability loss or regression: routing a request to the wrong role,
+  omitting the candidate/delta, or equating request delivery with a conclusion
+  could bypass independent review and misstate Factory state.
+- Protected-capability effect: preserves mechanical-versus-semantic separation,
+  reviewer role ownership, route gates, exact candidate/source binding,
+  superseded history, and conclusion currentness.
+- Architecture and operating-model effect: adds three closed reviewer-owned
+  operation variants to Block 10 and reuses the existing conclusion projection;
+  it adds no review ledger or generalized prompt surface.
+- Tradeoff and source evidence: explicit candidate/evidence packets make the
+  interaction slower than a generic message box but are required by the
+  maintained checkpoint, meta-review, incident, and route contracts.
+
+### Inputs and dependencies
+
+- Accepted Block 7 run/supervisor workspaces.
+- Accepted Blocks 10 and 11 operation/task owners.
+- Current reviewer roles and supported conclusion contract from Blocks 0 and 4.
+
+### Required work
+
+- Register `Request checkpoint review`, `Request meta-review`, and `Request
+  issue follow-up` as separate typed variants routed only to their maintained
+  reviewer/supervisor owner.
+- Require the exact target, candidate or state fingerprint, source/delta or
+  incident/decision scope, maintained purpose, expected conclusion fields,
+  route gate, and currentness basis in each preview.
+- Display requested, routed, active, awaiting conclusion, concluded, rejected,
+  stale, superseded, denied, and unverified states without treating a delivered
+  task message as review completion.
+- Verify a conclusion only from a newer canonical reviewer record bound to the
+  exact target, purpose, evidence/candidate root, and eligible reviewer role.
+- Link the request and conclusion separately into supervisor action and
+  conclusion history; keep no-conclusion and later-superseded outcomes visible.
+
+### Scope and non-goals
+
+- In scope: explicit checkpoint, meta-review, and issue-follow-up requests and
+  their current semantic conclusions.
+- Not in scope: mechanical checks, policy/cadence changes, binding repair,
+  implementation acceptance by the dashboard, reports, evolution, or lifecycle
+  mutation.
+- Do not expose a generic reviewer prompt or let a mechanical watcher produce a
+  semantic conclusion.
+
+### Deliverables and recorded state
+
+- Three semantic-review operation contracts, route/currentness verifiers,
+  request/conclusion UI states, history links, and focused tests.
+
+### Resource and economy contract
+
+Send one bounded evidence packet to one exact role per confirmed request. Reuse
+an unchanged active review rather than duplicating it; never auto-retry. Poll
+only its named conclusion source until the bounded timeout, then retain
+`awaiting conclusion` or `unverified` without widening.
+
+### QA and independent review
+
+- Test wrong role/purpose/target, absent candidate or delta, stale source,
+  route denial, duplicate active review, no conclusion, ineligible author,
+  conclusion for another root, later supersession, timeout, and restart.
+- Run non-mutating previews against current checkpoint, meta-review, and open-
+  issue examples; use the disposable validation run for an end-to-end request.
+- Independent authority review confirms role separation, evidence binding, and
+  honest request-versus-conclusion language.
+
+### Acceptance
+
+- The operator can request each supported review from the relevant run/issue,
+  follow its exact reviewer task/action, and see a matching current conclusion
+  appear separately from the request.
+- Wrong-owner, stale, denied, duplicate, missing, rejected, and superseded
+  reviews retain exact reasons and never become current conclusions.
+- No reviewer operation edits target work or accepts implementation on the
+  dashboard's own authority.
+
+### Negative tests
+
+- Reject `review concluded` from message delivery, terminal reviewer task, or a
+  conclusion bound to another target/candidate/evidence root.
+- Reject a checkpoint/meta/issue request routed to the watcher, fix executor, or
+  unrelated task.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before policy/cadence administration, binding repair, lifecycle mutation,
+reporting, or Factory evolution.
+
+---
+
+## Block 14 — Supervision policy and cadence administration
+
+Status: `not-started`
+
+### Objective
+
+Let the operator preview and apply one bounded supervision policy or cadence
+change while proving both versioned policy history and required automation
+reconciliation.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: make supported supervision configuration changes
+  operable from the dashboard with preserved fields and actual schedule effects.
+- Potential capability loss or regression: an overbroad diff, direct TOML edit,
+  or policy-only success claim could desynchronize the supervisor and its
+  automations.
+- Protected-capability effect: preserves policy version/history ownership,
+  explicit field authority, automation single-writer boundaries, unchanged
+  fields, rollback/compensation posture, and partial-reconciliation attention.
+- Architecture and operating-model effect: adds one policy-diff operation and
+  owner-specific dual postcondition to the operation framework; it does not add
+  a settings database or scheduler.
+- Tradeoff and source evidence: staged policy plus automation verification takes
+  longer than direct configuration editing but is required by the maintained
+  `adjust` and automation-owner contracts.
+
+### Inputs and dependencies
+
+- Accepted Block 7 policy/role/automation projections.
+- Accepted Blocks 10 and 11 operation/task owners.
+- Current supported policy fields, automations, and authority matrix from Block
+  0.
+
+### Required work
+
+- Register `Adjust supervision` as an explicit before/after policy-field diff to
+  the current supervisor owner; allow only fields the live owner proves
+  adjustable.
+- Preview target/group, old/new exact values, preserved fields, affected roles
+  and automations, authority, expected policy version, reconciliation steps,
+  compensation posture, and unsupported fields.
+- Request the change through the maintained owner, never by directly editing
+  policy JSON/history or automation TOML.
+- Verify the next valid policy version/history and each affected automation's
+  actual enabled/schedule/binding state as separate postconditions.
+- Render policy-applied/automation-pending, partially reconciled, failed,
+  unverified, and fully reconciled states with exact attention and recovery.
+- Continue to project Gmail lane ownership/configuration read-only where
+  present; this operation may not read messages, send mail, or install a mailbox
+  integration.
+
+### Scope and non-goals
+
+- In scope: one bounded supported policy/cadence diff and its automation
+  reconciliation.
+- Not in scope: binding repair, pause/resume semantics, mission succession,
+  arbitrary policy JSON, Gmail body operations, or a generic scheduler UI.
+- Do not label policy update alone as a reconciled configuration change.
+
+### Deliverables and recorded state
+
+- Policy-diff schema, preview, owner request, policy/automation postcondition
+  verifier, Admin/run UI, recovery state, and focused integration tests.
+
+### Resource and economy contract
+
+Resolve one target/group and only the fields/automations in the submitted diff.
+Reuse current policy and automation fingerprints, request once, and poll each
+named postcondition to its bounded timeout. Do not scan or reconcile unrelated
+automations.
+
+### QA and independent review
+
+- Test unsupported/extra fields, stale policy, preserved-field drift, authority
+  denial, direct-file path input, policy success with automation failure,
+  partial multi-automation reconciliation, restart, and compensation display.
+- Exercise live preview/status read-only on a current group and mutate only the
+  disposable validation group or an exactly authorized real target.
+- Independent owner review verifies the accepted diff and both postconditions
+  against current policy and automation contracts.
+
+### Acceptance
+
+- The operator can preview one supported exact diff, see every affected owner,
+  apply it through the maintained owner, and verify the next policy version plus
+  actual automation state.
+- Partial or failed reconciliation remains attention and exposes an exact safe
+  recovery; no unchanged field or unrelated automation is modified.
+- Dashboard code never writes policy/history JSON or automation TOML directly.
+
+### Negative tests
+
+- Reject `adjusted` when only the policy version changed but an affected
+  automation did not reconcile.
+- Reject unknown fields, broad reset/default operations, stale previews, or a
+  path/payload that could select arbitrary configuration.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before repairing bindings or performing pause/resume, mission, continuity,
+report, evolution, or terminal operations.
+
+---
+
+## Block 15 — Supervision binding repair
+
+Status: `not-started`
+
+### Objective
+
+Repair one reproduced mission, target, tracker, role, or automation binding
+mismatch through its smallest maintained owner and prove the exact corrected
+relationship.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: let the operator recover a specific broken
+  supervision topology instead of leaving the implementation unmonitored or
+  ambiguously owned.
+- Potential capability loss or regression: generic repair, label-based joining,
+  or overwriting a mission could bind the wrong target, duplicate authority, or
+  destroy policy history.
+- Protected-capability effect: preserves exact IDs, mission roots, target/
+  tracker identity, role separation, automation ownership, active versus
+  historical bindings, and no parallel supervision root.
+- Architecture and operating-model effect: adds typed repair variants only for
+  reproduced mismatches already modeled by existing binding owners; there is no
+  generic reconciliation engine.
+- Tradeoff and source evidence: one mismatch at a time is less convenient than
+  `repair all` but keeps consequences reviewable under current bind, policy,
+  role, and automation contracts.
+
+### Inputs and dependencies
+
+- Accepted Block 7 topology/source inspectors.
+- Accepted Blocks 10 and 11 operation/task owners.
+- Exact binding anomaly and current owner matrix from Blocks 0 and 4.
+
+### Required work
+
+- Register separate supported repair variants for mission, target/tracker,
+  role-task, and automation binding; expose a variant only when the projection
+  reproduces its exact mismatch.
+- Preview current and expected IDs/roots, governing source, mismatch evidence,
+  smallest owner action, preserved bindings/history, prohibited effects, and
+  exact postcondition.
+- Route the repair through the maintained bind/policy/task/automation owner and
+  prohibit direct JSON/JSONL/TOML mutation, label-only matching, broad reset, or
+  implicit creation of a second supervision group.
+- Verify the corrected canonical relation and absence of duplicate active owner;
+  retain failed, partial, stale, or still-ambiguous repairs as attention.
+- Keep `mission-successor` out of repair: a materially new mission is Block 17,
+  never a `bind` overwrite.
+
+### Scope and non-goals
+
+- In scope: one exact reproduced binding mismatch and its narrow repair.
+- Not in scope: speculative health repair, generic `repair all`, policy tuning,
+  pause/resume, mission succession, successor task creation, or lifecycle
+  completion.
+- Do not repair a healthy relationship or infer identity from labels alone.
+
+### Deliverables and recorded state
+
+- Typed repair registry entries, mismatch-specific previews/postconditions,
+  run/Admin controls, topology refresh, and focused tests.
+
+### Resource and economy contract
+
+Read one target/group topology, reuse its current fingerprints, and touch only
+the named owner relationship. Execute once and re-read that relation plus
+duplicate-owner check; do not perform whole-root reconciliation.
+
+### QA and independent review
+
+- Test healthy/no-op, stale anomaly, wrong mission root/thread/tracker/role/
+  automation, label collision, duplicate active owner, direct-file input,
+  partial repair, mission overwrite attempt, and restart.
+- Use a disposable malformed group fixture for each variant; inspect live groups
+  read-only unless exact repair authority is provided.
+- Independent authority review confirms that every variant uses the smallest
+  existing owner and preserves unaffected bindings/history.
+
+### Acceptance
+
+- A reproduced supported mismatch can be repaired from its topology detail and
+  the exact canonical relationship becomes current without duplicate ownership.
+- Healthy, ambiguous, stale, unsupported, and broad repair requests fail closed
+  with their exact reason.
+- New-mission and successor-task workflows remain unavailable from this control.
+
+### Negative tests
+
+- Reject `repair all`, label-only resolution, healthy-binding mutation, mission
+  overwrite, or a postcondition that checks only file existence.
+- Reject success when a second active owner or unmatched automation/role remains.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before pause/resume, same-target mission succession, successor-task
+continuity, reporting, evolution, or terminal lifecycle operations.
+
+---
+
+## Block 16 — Supervision pause and resume
+
+Status: `not-started`
+
+### Objective
+
+Pause or resume one supervision group through its automation and lifecycle
+owners while preserving exact target state and keeping turn interruption
+semantically separate.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: provide reversible operator control over scheduled
+  supervision without leaving automation and lifecycle state inconsistent.
+- Potential capability loss or regression: confusing turn interrupt with pause,
+  changing only automation, or broad pausing could silently remove monitoring
+  or misstate lifecycle.
+- Protected-capability effect: preserves automation single writers, lifecycle
+  gates, target/group scope, resume/recovery state, role bindings, and distinct
+  App Server turn semantics.
+- Architecture and operating-model effect: adds two specific lifecycle
+  operations with dual automation/lifecycle postconditions; it adds no generic
+  kill switch.
+- Tradeoff and source evidence: the dual-state transition is more deliberate
+  than toggling a schedule but is required by the maintained pause/resume and
+  lifecycle contracts.
+
+### Inputs and dependencies
+
+- Accepted Block 7 run/automation/lifecycle workspace.
+- Accepted Blocks 10 and 11 operation/task owners.
+- Current lifecycle and automation contracts from Block 0.
+
+### Required work
+
+- Register `Pause supervision` and `Resume supervision` as separate operations
+  through the exact automation/supervision owners and lifecycle gate.
+- Preview target/group, current lifecycle, affected automations, pending owner
+  work, preserved target/task state, expected postconditions, and recovery.
+- Verify both actual automation enabled/schedule state and the matching canonical
+  lifecycle record; expose partial transition and safe recovery without auto-
+  retry.
+- Keep task/turn `interrupt` and `continue` visibly separate in labels,
+  confirmation, history, and postconditions.
+- Scope pause/resume to the selected group; preserve Gmail/report ownership and
+  target implementation state unless the maintained owner explicitly changes
+  them.
+
+### Scope and non-goals
+
+- In scope: semantic pause and resume for one supervision group.
+- Not in scope: interrupting/continuing a turn, request-stop, terminal shutdown,
+  policy tuning, report generation, or mission/successor transition.
+- Do not expose a generic red Stop control or multi-group bulk toggle.
+
+### Deliverables and recorded state
+
+- Pause/resume operation contracts, lifecycle/automation previews and
+  postcondition verifiers, run controls, partial/recovery states, and tests.
+
+### Resource and economy contract
+
+Touch one group and only its bound automations. Request once, poll the two named
+owners to bounded timeout, and preserve partial state for operator recovery;
+never repeat or widen automatically.
+
+### QA and independent review
+
+- Test turn-interrupt confusion, stale lifecycle, gate denial, missing/partial
+  automation bindings, already paused/running, one owner changed only, wrong
+  group, restart, and recovery.
+- Exercise full pause/resume only on the disposable group unless exact current
+  authority names a real target.
+- Independent authority review verifies dual postconditions and preserved
+  target/group state.
+
+### Acceptance
+
+- The selected group reaches matching paused or resumed automation and lifecycle
+  state, with exact current records visible in the run/floor history.
+- Partial, denied, stale, already-satisfied, and failed transitions remain
+  truthful and recoverable.
+- A turn interruption can never render or verify semantic supervision pause.
+
+### Negative tests
+
+- Reject `paused` or `resumed` when only a turn or only one canonical owner
+  changed.
+- Reject bulk, wrong-group, stale-preview, or gate-bypassing pause/resume.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before same-target mission succession, successor-task continuity,
+reporting, evolution, request-stop, or terminal shutdown.
+
+---
+
+## Block 17 — Same-target mission succession
+
+Status: `not-started`
+
+### Objective
+
+Move one long-lived target to a materially different directly authorized
+mission through `mission-successor` while preserving the predecessor as scoped
+history.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: let a maintained target and supervision group begin
+  a new mission without creating a parallel ledger or contaminating new state
+  with predecessor evidence.
+- Potential capability loss or regression: using `bind`, accepting unchanged or
+  unauthorized intent, or ignoring open heads could overwrite history or carry
+  false completion/issues into the new mission.
+- Protected-capability effect: preserves direct mission authority, predecessor
+  completion/supersession evidence, policy history, closed incident/decision/
+  successor-transition gates, active-root event scoping, and one supervision
+  root.
+- Architecture and operating-model effect: exposes the settled
+  `mission-successor` owner as one explicit operation distinct from binding
+  repair and successor-task creation.
+- Tradeoff and source evidence: strict predecessor and direct-source gates make
+  mission reuse deliberate but are required by commit `c7d4efc` and the current
+  mission-binding policy.
+
+### Inputs and dependencies
+
+- Accepted Block 7 mission history/current-root workspace.
+- Accepted Blocks 10 and 11 operation/task owners.
+- Current `mission-successor` owner and active mission contract from Blocks 0
+  and 4.
+
+### Required work
+
+- Register `Begin successor mission on this target` through the maintained
+  `mission-successor` command, not `bind` or a new supervision group.
+- Preview target/group, predecessor mission root/source, new direct source
+  class/record/hash, reason/evidence, material difference, preserved roles/
+  automations, required predecessor completion or supersession, and all
+  prohibiting open heads.
+- Require direct operator authority for the new mission and exact confirmation;
+  reject routed supervisor language as direct mission authority.
+- Verify the next policy version/history, active new mission binding, unchanged
+  target/group/automations, preserved predecessor segment, and mission-scoped
+  current state with no predecessor-only leakage.
+- Label this operation and history distinctly from successor-task continuity.
+
+### Scope and non-goals
+
+- In scope: one same-target, same-group mission succession.
+- Not in scope: binding repair, creating a new task/group, successor-task
+  handoff, report generation, target stop, or implementation work for the new
+  mission.
+- Do not allow unchanged intent, parallel active roots, or old evidence to
+  establish new-mission status.
+
+### Deliverables and recorded state
+
+- Mission-succession operation contract, authority/closed-head preview,
+  policy/history/current-root postcondition verifier, mission-history UI, and
+  focused tests.
+
+### Resource and economy contract
+
+Read one target's current policy/history and open heads, issue one successor
+request, and re-read only the new policy/current mission plus predecessor
+segment. Do not scan unrelated groups or retry automatically.
+
+### QA and independent review
+
+- Test wrong predecessor, unchanged mission, absent direct authority, completed
+  and explicitly superseded predecessor, open incident/decision/successor-task
+  transition, stale policy, parallel root, history preservation, and cross-root
+  event/conclusion/metric isolation.
+- Execute only in a disposable long-lived target unless exact authority names a
+  real mission transition.
+- Independent mission/authority review verifies direct-source provenance,
+  preserved predecessor history, and new-root isolation.
+
+### Acceptance
+
+- A directly authorized materially new mission becomes the sole active binding
+  on the same target/group through a new policy-history version.
+- The predecessor remains separately inspectable, and its completion, issues,
+  conclusions, and metrics do not become current for the successor.
+- Open-head, authority, currentness, and unchanged-mission failures prevent the
+  operation with exact reasons.
+
+### Negative tests
+
+- Reject `bind` overwrite, a second active supervision root, unchanged mission,
+  routed-provenance-as-direct-authority, or succession with prohibited open
+  heads.
+- Reject any successor status or green light derived from predecessor-only
+  records.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before creating a successor task, generating reports, running Factory
+evolution, or changing terminal lifecycle.
+
+---
+
+## Block 18 — Successor-task continuity
+
+Status: `not-started`
+
+### Objective
+
+Carry one required cross-task implementation transition through a started,
+bound successor without allowing the source mission to stop prematurely.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: let the operator inspect and advance an authorized
+  successor-task transition through exact continuity phases from the dashboard.
+- Potential capability loss or regression: treating a handoff, created task, or
+  acknowledgement as completion could strand requested work and stop the source
+  before the successor begins.
+- Protected-capability effect: preserves direct task-creation authority,
+  tracker/mission/range identity, isolated successor binding, append-only phase
+  history, route gates, source activity, and current `work-started` proof.
+- Architecture and operating-model effect: exposes the maintained successor-
+  transition record/gate and Codex task owner as one staged operation distinct
+  from same-target mission succession.
+- Tradeoff and source evidence: the multi-phase transition is slower than a
+  one-click handoff but is required by the accepted successor-continuity owner
+  and prevents false source completion.
+
+### Inputs and dependencies
+
+- Accepted Block 7 run/task/transition workspace.
+- Accepted Blocks 10 and 11 operation/task owners.
+- Current successor-transition and task-creation contracts from Blocks 0 and 4.
+
+### Required work
+
+- Project the exact current transition and its phases: `required`, `successor-
+  created`, `successor-bound`, `handoff-sent`, `target-acknowledged`, and `work-
+  started`, including source mission/tracker/range, authority, IDs, records, and
+  missing next owner action.
+- Register operation-specific steps to start or identify the exact successor
+  only under direct task-creation authority, bind its isolated mission/group,
+  send the route-gated handoff, record acknowledgement, and verify first-
+  eligible-Block work start through maintained owners.
+- Re-preview current phase and sources before every step; never leap phases,
+  invent IDs, repeat a satisfied step, or relabel routed supervisor provenance
+  as direct authority.
+- Call the maintained successor transition gate and keep the source active until
+  `source_stop_permitted=true` from current `work-started` evidence.
+- Label successor-task continuity separately from Block 17 same-target mission
+  succession in controls, history, metrics, and attention.
+
+### Scope and non-goals
+
+- In scope: one already required or directly authorized successor-task
+  transition through verified work start.
+- Not in scope: same-target mission succession, generic task creation, source
+  terminal shutdown, implementation inside the successor, or a parallel
+  transition ledger.
+- Do not convert missing direct task-creation authority into an invented ID or
+  ordinary status request.
+
+### Deliverables and recorded state
+
+- Transition-detail UI, phase-specific operation contracts, route/authority/
+  postcondition verifiers, source-stop gate display, recovery states, and tests.
+
+### Resource and economy contract
+
+Read and mutate one transition head at a time. Reuse satisfied phase records,
+perform at most one owner action per confirmed step, and poll only the expected
+next record. Stop at missing authority or unverified phase without repeating or
+widening.
+
+### QA and independent review
+
+- Test missing/invalid authority, wrong source/tracker/range, out-of-order or
+  duplicate phase, stale head, mismatched successor ID/group, handoff without
+  acknowledgement, acknowledgement without work start, gate deny, restart, and
+  source-stop attempt before work start.
+- Execute a full transition only in the disposable validation topology or under
+  exact direct authority; use current live transitions for read-only preview.
+- Independent continuity review verifies phase evidence, source activity, and
+  the exact successor first-work postcondition.
+
+### Acceptance
+
+- The operator can follow one transition from requirement through successor
+  work start, and each phase resolves to its current canonical record and owner.
+- The source cannot render stoppable/complete before the maintained gate proves
+  current successor `work-started` evidence.
+- Missing authority, mismatch, stale phase, or partial transition remains open
+  with a precise next owner action and no invented state.
+
+### Negative tests
+
+- Reject source stop from successor-created, bound, handoff-sent, or
+  acknowledged state without current work-started proof.
+- Reject a same-target mission successor presented as a successor task, or a
+  supervisor packet relabeled as direct creation authority.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before weekly/terminal reporting, Factory evolution, source request-stop,
+or terminal shutdown.
+
+---
+
+## Block 19 — Weekly supervision report workflow
+
+Status: `not-started`
+
+### Objective
+
+Produce, independently review, verify, display, and when configured deliver one
+current weekly supervision report through the maintained report owners.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: let the operator initiate and follow a trustworthy
+  weekly Factory report from deterministic evidence through verified artifact
+  and configured delivery.
+- Potential capability loss or regression: regenerating unchanged work,
+  skipping cognitive review, or treating file existence/delivery as verification
+  could publish stale or misleading metrics.
+- Protected-capability effect: preserves report-as-derived-view semantics,
+  source/currentness roots, deterministic versus cognitive stages, independent
+  writer/reviewer roles, manifest/PDF verification, limitations, and Gmail lane
+  ownership.
+- Architecture and operating-model effect: exposes the maintained weekly report
+  workflow as one staged operation integrated with Block 9 report views; it adds
+  no report database or scheduler.
+- Tradeoff and source evidence: staged prepare/review/finalize/verify/deliver is
+  slower than generating a file, but the current report contract requires those
+  distinctions for evidence-bound conclusions.
+
+### Inputs and dependencies
+
+- Accepted Block 9 metrics/report workspace.
+- Accepted Blocks 10 and 11 operation/task owners.
+- Accepted Block 13 semantic-review request/conclusion handling.
+- Current weekly-report and delivery contracts from Block 0.
+
+### Required work
+
+- Register `Generate weekly report` with exact target/run, report period/time
+  zone, source roots, currentness fingerprint, writer/reviewer roles, configured
+  delivery lane, and expected bundle members.
+- Preserve explicit stages: deterministic prepare, source/currentness check,
+  bounded independent cognitive review, finalize, manifest/Markdown/PDF/JSON
+  verification, artifact display, and configured owner-mediated delivery.
+- Reuse an unchanged valid prepare/review/artifact by exact source/candidate
+  fingerprint; never rerun a valid producer only because display or delivery
+  failed.
+- Verify each stage through its maintained record/artifact/manifest/delivery
+  owner; a generated file, reviewer task, or email receipt alone is insufficient.
+- Project Gmail roundup ownership/configuration read-only. Never read message
+  bodies or send mail directly from dashboard code; missing Gmail leaves the
+  report verified but delivery unavailable/retryable as its owner specifies.
+- Show stage progress, limitations, partial failure, recovery, exact artifact
+  links, and resulting report/history attention in Reports and run detail.
+
+### Scope and non-goals
+
+- In scope: one weekly report workflow and its configured delivery.
+- Not in scope: terminal reporting, Factory evolution, new metrics, direct Gmail
+  operations, automatic scheduling, or outcome-completion claims.
+- Do not regenerate unchanged source work or equate report verification with
+  implementation acceptance.
+
+### Deliverables and recorded state
+
+- Weekly-report operation contract, stage/currentness/postcondition model,
+  Reports/run UI, artifact/delivery recovery, and focused integration tests.
+
+### Resource and economy contract
+
+Process one target/period and reuse stage outputs by exact roots. Prepare and
+cognitive review each run at most once per unchanged candidate; on later-stage
+failure rerun only that stage. Poll named records only and stop at the first
+unverified stage.
+
+### QA and independent review
+
+- Test stale/changed sources, invalid period, reused prepare/review, cognitive
+  rejection, missing bundle member, bad manifest/PDF, display failure, delivery
+  unavailable/failure, retry without regeneration, wrong role, and restart.
+- Run end to end only on a disposable/current authorized report target; compare
+  displayed metrics and limitations to exact artifacts.
+- Independent report review verifies source roots, cognitive disposition,
+  artifacts, limitations, and delivery semantics on the frozen candidate.
+
+### Acceptance
+
+- One report advances through every required stage and appears verified in
+  report history with exact sources, limitations, manifest, Markdown/PDF/JSON,
+  and configured delivery posture.
+- A failure at review, finalize, verify, display, or delivery retains valid prior
+  stages and offers only the appropriate bounded recovery.
+- No file, task, email, or passing validator alone is labeled a verified report
+  or implementation outcome.
+
+### Negative tests
+
+- Reject report verification from file existence, writer completion, email
+  receipt, or stale pre-correction review alone.
+- Reject rerunning deterministic generation/cognitive review solely for a
+  display or delivery failure when roots remain current.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before terminal reporting, Factory evolution, request-stop, or shutdown.
+
+---
+
+## Block 20 — Factory evolution workflow
+
+Status: `not-started`
+
+### Objective
+
+Run one currently supported Factory-evolution cycle from eligibility and
+evidence packet through independent evaluation, disposition, and any separately
+authorized adoption/outcome feedback.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: let the operator initiate and understand evidence-
+  grounded Factory learning without confusing a report hypothesis, favorable
+  evaluation, or `promote` disposition with adopted behavior.
+- Potential capability loss or regression: eager admission, stale evaluation,
+  automatic adoption, or exposing merely planned autonomous controls could
+  mutate Factory behavior without current authority and proof.
+- Protected-capability effect: preserves deterministic evidence inputs,
+  eligibility/currentness, existing implementation owner, isolated independent
+  comparison, disposition-versus-adoption separation, reversible policy gates,
+  outcome feedback, and planned-versus-implemented truth.
+- Architecture and operating-model effect: exposes the maintained evolution
+  workflow and owners through staged operations; it does not add an autonomous
+  evolution scheduler or let the dashboard edit skills.
+- Tradeoff and source evidence: a fully staged cycle takes longer than applying
+  a recommendation but is required by the accepted evolution MVP and current
+  adaptive-evolution availability boundaries.
+
+### Inputs and dependencies
+
+- Accepted Block 9 evolution/report workspace.
+- Accepted Blocks 10 and 11 operation/task owners.
+- Accepted Block 13 semantic evaluation handling.
+- Current Factory-evolution implementation/eligibility/authority matrix from
+  Block 0.
+
+### Required work
+
+- Expose `Run Factory evolution` only when the current installed implementation,
+  evidence inputs, eligibility, owner roles, policy/authority, and evaluation
+  capability are proven; disable merely planned autonomous/adaptive behavior
+  with exact prerequisites.
+- Preserve explicit stages: eligibility/currentness, deterministic packet,
+  candidate implementation through its existing owner, isolated independent
+  evaluation/comparison, `promote`/`advisory`/`revise`/`reject` disposition,
+  separately policy-gated reversible adoption when authorized, and later
+  outcome/rollback feedback.
+- Bind every stage to exact evidence/candidate/baseline/policy roots and eligible
+  roles; reuse unchanged artifacts and preserve losing/rejected history.
+- Never let report nomination, evaluator task completion, favorable comparison,
+  or `promote` directly edit a skill, tracker, policy, target, or adoption state.
+- Show current stage, disposition, adoption/non-adoption reason, rollback and
+  observation posture, source proof, limitations, and recovery in Reports/Admin.
+
+### Scope and non-goals
+
+- In scope: one on-demand currently supported Factory-evolution cycle and any
+  separately authorized existing-owner adoption/feedback stages.
+- Not in scope: weekly/terminal report generation, autonomous scheduling,
+  dashboard-authored candidates, direct skill edits, automatic adoption, or
+  planned adaptive controls without implementation evidence.
+- Do not treat `promote` as adoption or outcome success.
+
+### Deliverables and recorded state
+
+- Evolution operation/stage contracts, eligibility/currentness and evaluation/
+  adoption postcondition verifiers, Reports/Admin UI, recovery/rollback posture,
+  and focused tests.
+
+### Resource and economy contract
+
+Run one eligible cycle at a time. Reuse unchanged packet, candidate, baseline,
+evaluation, and disposition roots; do not repeat implementation or comparison
+for display/adoption-record failure. Respect existing resource ceilings and stop
+at the first unavailable owner or stale stage.
+
+### QA and independent review
+
+- Test ineligible/unchanged/stale input, missing owner/authority, invalid
+  candidate isolation, evaluator conflict, baseline/candidate drift,
+  reject/revise/advisory/promote-not-adopted, adoption denial/partial failure,
+  rollback trigger, outcome pending, planned capability unavailable, and restart.
+- Exercise end to end only in the disposable Factory-evolution fixture or under
+  exact authority for a current cycle.
+- Independent capability/authority review verifies the evaluation, disposition,
+  adoption boundary, protected behavior, and current observable effect.
+
+### Acceptance
+
+- An eligible cycle can reach a verified disposition with every source,
+  candidate, evaluation, tradeoff, limitation, and rejected path inspectable.
+- Adoption occurs only through a separately authorized maintained owner and is
+  displayed distinctly from `promote`; outcome/rollback remains open until
+  current behavior proves it.
+- Ineligible, stale, unavailable, rejected, advisory, and non-adopted states are
+  truthful and cannot mutate Factory capability.
+
+### Negative tests
+
+- Reject adoption from report nomination, evaluator completion, favorable
+  metrics, or `promote` disposition alone.
+- Reject an autonomous/adaptive control whose current implementation and owner
+  cannot be proven from Block 0's refreshed matrix.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before terminal reporting, request-stop, shutdown, or final acceptance.
+
+---
+
+## Block 21 — Terminal report workflow
+
+Status: `not-started`
+
+### Objective
+
+Prepare, independently review, verify, display, and deliver the required
+terminal supervision report without stopping or pausing the run.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: give the operator a current verified terminal
+  evidence package before any shutdown decision.
+- Potential capability loss or regression: conflating file generation,
+  cognitive review, delivery, or task terminality with outcome completion could
+  support premature shutdown.
+- Protected-capability effect: preserves observable-outcome reconciliation,
+  full-scope/delta report contracts, verified prior reports, current source
+  roots, independent review, PDF/manifest semantics, configured Gmail delivery,
+  and shutdown separation.
+- Architecture and operating-model effect: exposes the maintained terminal-
+  report owner as one staged operation dependent on report history; shutdown
+  remains Block 22.
+- Tradeoff and source evidence: required currentness, cognitive review,
+  verification, and delivery add latency but are mandated by the terminal report
+  and supervision lifecycle contracts.
+
+### Inputs and dependencies
+
+- Accepted Block 9 report/history workspace.
+- Accepted Blocks 10 and 11 operation/task owners.
+- Accepted Block 13 semantic-review handling and Block 19 verified prior-report
+  workflow.
+- Current terminal-report/outcome/delivery contract from Block 0.
+
+### Required work
+
+- Register `Prepare terminal report` with exact target/mission/completed
+  fingerprint, report type/full-scope/delta anchor, source roots, prior verified
+  reports, current completion reconciliation, writer/reviewer roles, required
+  bundle members, and delivery lane.
+- Preserve stages: deterministic prepare, currentness/outcome-source check,
+  bounded independent cognitive review, finalize, manifest/Markdown/PDF/JSON
+  and semantic-projection verification, artifact display, configured owner-
+  mediated attachment delivery, and required receipt/readback where current
+  policy demands it.
+- Reuse valid unchanged sources/stages and rerun only a failed later stage;
+  preserve diagnostic/pre-correction bundles without calling them current.
+- Verify every stage through its own maintained owner. Keep report readiness
+  separate from lifecycle/shutdown permission and expose missing prerequisites,
+  limitations, partial delivery, and exact recovery.
+- Project Gmail terminal lane ownership/configuration but never read or send
+  messages directly from dashboard code.
+
+### Scope and non-goals
+
+- In scope: one terminal report bundle and configured delivery/readback.
+- Not in scope: weekly reporting, Factory evolution, target completion decision,
+  request-stop, pause, shutdown, or direct Gmail operations.
+- Do not treat a verified terminal report as permission to stop.
+
+### Deliverables and recorded state
+
+- Terminal-report operation/stage contract, prerequisite/currentness/artifact/
+  delivery postcondition verifiers, Reports/run UI, recovery, and focused tests.
+
+### Resource and economy contract
+
+Process one target/completed fingerprint and reuse current prior reports and
+stage artifacts. Generate/review once per unchanged candidate, rerun only the
+failed later stage, and stop at the first missing current prerequisite or
+unverified output.
+
+### QA and independent review
+
+- Test missing/failed/stale outcome reconciliation, incomplete source scope,
+  stale prior reports, cognitive rejection, invalid/missing artifact or semantic
+  projection, delivery/readback failure, reuse after late-stage failure, wrong
+  role/lane, no shutdown side effect, and restart.
+- Execute full delivery only on a disposable/authorized target; validate current
+  live terminal prerequisites read-only elsewhere.
+- Independent terminal-report review verifies exact sources, outcome posture,
+  artifacts, limitations, delivery, and absence of lifecycle mutation.
+
+### Acceptance
+
+- One terminal report reaches current verified artifact and required delivery/
+  readback posture with every stage, source, limitation, and prior-report input
+  inspectable.
+- Partial or failed late stages preserve valid earlier work and offer only the
+  exact bounded recovery.
+- The run remains active/not-shutdown and report readiness is visibly separate
+  from stop permission.
+
+### Negative tests
+
+- Reject a terminal report from file existence, reviewer task completion,
+  delivery alone, stale completion evidence, or missing required prior reports.
+- Reject any terminal-report operation that pauses automations, changes
+  lifecycle, or reports source stop permitted.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before request-stop, automation pause, terminal shutdown, or final
+cross-project acceptance.
+
+---
+
+## Block 22 — Request-stop and terminal shutdown
+
+Status: `not-started`
+
+### Objective
+
+Request and verify terminal shutdown for one supervised run only after every
+current outcome, issue, decision, successor, report, lifecycle, automation, and
+owner gate permits source stop.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: give the operator an exact safe terminal control
+  that explains what stops, what remains, and how current outcome and continuity
+  permit shutdown.
+- Potential capability loss or regression: a generic Stop, stale gate, missing
+  successor, unverified report, or partial automation change could abandon work,
+  violate ownership, or misstate completion.
+- Protected-capability effect: preserves outcome-over-process completion,
+  incident/decision/successor gates, report/delivery proof, lifecycle and
+  automation postconditions, recovery/resume posture, Gmail ownership, and no
+  destructive broad target selection.
+- Architecture and operating-model effect: adds one terminal request/shutdown
+  workflow that composes current owners and gates; it remains distinct from
+  turn interrupt, pause/resume, and terminal report preparation.
+- Tradeoff and source evidence: terminal shutdown requires the most deliberate
+  preview and verification because the direct Factory request values reliable
+  continuation and the supervision contract prohibits false completion.
+
+### Inputs and dependencies
+
+- Accepted Block 7 run/lifecycle/continuity workspace and Block 9 report view.
+- Accepted Blocks 10 and 11 operation/task owners.
+- Accepted Block 21 verified terminal report workflow.
+- Current outcome, incident, decision, successor-transition, lifecycle,
+  automation, report/delivery, and stop-gate contracts from Blocks 0 and 4.
+
+### Required work
+
+- Register `Request stop and terminal shutdown` only when the current target/
+  mission fingerprint and every named gate can be previewed; provide no generic
+  red Stop button.
+- Preview current observable-outcome reconciliation, retained open items,
+  incidents/decisions, same-target mission and successor-task posture, terminal
+  report/delivery, lifecycle, automations/roles, Gmail ownership, what will stop,
+  what remains, and recovery/resume consequences.
+- Re-run every maintained gate at execute time. Deny on stale fingerprint,
+  supported outcome gap, prohibited open head, incomplete required successor,
+  unverified terminal report/delivery, missing owner, or lifecycle/automation
+  mismatch.
+- Request shutdown through the supervisor/automation/lifecycle owners and verify
+  the terminal lifecycle record, required shutdown receipt, and actual bound
+  automation state separately.
+- Preserve partial/failure state without automatic retry; expose only the exact
+  supported recovery or separately authorized compensating operation.
+- Keep turn interruption, Block 16 pause/resume, Block 21 terminal report, and
+  this terminal workflow visibly distinct in UI and history.
+
+### Scope and non-goals
+
+- In scope: one fully gated source stop and terminal supervision shutdown.
+- Not in scope: turn interrupt, ordinary pause, report generation, issue/
+  decision resolution, successor creation/work, or bulk/multi-project stop.
+- Do not infer stop permission from task terminality, tracker status, commit,
+  tests, report existence, or a green floor light.
+
+### Deliverables and recorded state
+
+- Terminal preview/gate packet, request and lifecycle/automation/receipt
+  postcondition verifiers, specific run control, partial/recovery UI, and tests.
+
+### Resource and economy contract
+
+Resolve one target/mission and reuse current exact gate/report/outcome roots.
+Execute once, poll only the named lifecycle/automation/receipt postconditions,
+and stop at denial, partial, or unverified state without retrying or widening.
+
+### QA and independent review
+
+- Test every gate denial individually and in combination: outcome gap, retained
+  incompatible work, open incident/decision, incomplete successor, stale/new
+  mission, missing/unverified terminal report or delivery, lifecycle mismatch,
+  automation partial failure, wrong target, stale preview, duplicate execute,
+  restart, and recovery.
+- Execute end to end only in the disposable terminal validation run or under
+  exact direct authority for the selected real target.
+- Independent terminal authority/outcome review verifies the complete gate
+  packet and each postcondition on the frozen candidate.
+
+### Acceptance
+
+- The operator sees why the selected run is or is not stoppable, with every
+  gating source and consequence inspectable before confirmation.
+- An eligible run reaches matching terminal lifecycle, shutdown receipt, and
+  bound automation state; a partial or denied run remains truthful/recoverable.
+- No other target/group/task stops and no process proxy is accepted as current
+  observable-outcome completion.
+
+### Negative tests
+
+- Reject shutdown with any current gate failure, stale source, incomplete
+  successor, unverified terminal report/delivery, or partial automation/
+  lifecycle postcondition.
+- Reject a generic/bulk Stop, turn interrupt, ordinary pause, green light, or
+  terminal task presented as this workflow.
 
 ### Completion evidence
 
@@ -2284,7 +3334,7 @@ that the dashboard is ready.
 
 ---
 
-## Block 13 — Integrated outcome validation and operator handoff
+## Block 23 — Integrated outcome validation and operator handoff
 
 Status: `not-started`
 
@@ -2298,12 +3348,12 @@ off a reproducible local operating workflow.
 
 - Posture: `routine`.
 - Routine or not-applicable justification: this Block validates, documents, and
-  hands off the capability selected and implemented in Blocks 0–12; it may fix
+  hands off the capability selected and implemented in Blocks 0–22; it may fix
   mapped defects but must not add a new product surface or operating model.
 
 ### Inputs and dependencies
 
-- Accepted Blocks 6–12 and all inherited accepted dependencies.
+- Accepted Blocks 6–22 and all inherited accepted dependencies.
 - One frozen release candidate commit, exact runtime/dependency lock, generated
   App Server compatibility root, and current source fixtures.
 - At least three authorized registered local projects with collectively: an
@@ -2437,7 +3487,13 @@ capabilities.
 | Codex task integration | fake App Server protocol suite | version-gated live list/read/disposable task smoke | task/turn/items/approval/input state and controls match the official live owner |
 | Factory Floor/UI | component/axe/topology/light/conclusion state tests | three-project, three-viewport, light/dark Playwright matrix | operator identifies each implementation/supervisor/target, operating reason, issues, actions, conclusions, history, and freshness and drills to exact sources |
 | Administrative safety | schema, nonce/origin, preview, replay, stale, route-gate, postcondition tests | disposable workflow operations and denied advanced paths | enabled action has intended owner consequence; denied/unavailable action fails closed |
-| Lifecycle/outcome | lifecycle/decision/successor/report stage tests | disposable/current run source checks | no interrupt/pause/stop/report/task state is mislabeled as outcome completion |
+| Supervision check and review actions | watcher/reviewer role, route, candidate, duplicate, and postcondition tests | disposable check plus checkpoint/meta/issue review requests | mechanical checks and semantic conclusions remain separately current and owner-bound |
+| Policy, binding, and pause/resume administration | policy/automation dual-state, mismatch-specific repair, and lifecycle tests | disposable policy diff, binding repair, and pause/resume cycles | each operation changes only its exact owner and proves every canonical postcondition |
+| Mission and task continuity | mission-root/history and successor-transition phase/gate tests | disposable same-target mission succession and successor-task transition | predecessor history is preserved, successor currentness is isolated, and source stop waits for work start |
+| Weekly reporting | prepare/review/finalize/verify/display/delivery stage tests | current authorized report bundle and late-stage recovery | verified weekly artifact, limitations, and delivery posture resolve to exact sources without regeneration waste |
+| Factory evolution | eligibility, comparison, disposition, adoption, rollback, and feedback tests | disposable eligible cycle with non-adopted and adopted paths | disposition remains distinct from adoption and current outcome proof |
+| Terminal reporting | outcome/currentness/prior-report/artifact/delivery tests | disposable terminal bundle with late-stage recovery | current verified delivered report exists without pausing or stopping the run |
+| Terminal lifecycle/outcome | outcome, incident, decision, successor, report, lifecycle, automation, and receipt gates | disposable allowed and denied shutdown runs | no interrupt/pause/report/task state is mislabeled as stop permission or outcome completion |
 | Release/currentness | full tracker verifier, all mapped suites, diff/build checks | independent exact-commit product/UI/authority reviews | zero supported gaps on frozen current candidate and documented local handoff |
 
 ## 9. Final completion definition
