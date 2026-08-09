@@ -493,8 +493,15 @@ class SuccessorTransitionContractTests(unittest.TestCase):
         with (
             mock.patch.object(
                 supervision_log,
-                "load_policy_snapshot",
-                return_value=(self.directory, self.policy, None),
+                "load_control_snapshot",
+                return_value=(
+                    self.directory,
+                    self.policy,
+                    None,
+                    supervision_log.events(self.directory / "events.jsonl"),
+                    None,
+                    None,
+                ),
             ),
             redirect_stdout(output),
         ):
@@ -627,8 +634,8 @@ class SuccessorTransitionContractTests(unittest.TestCase):
             with (
                 mock.patch.object(
                     supervision_log,
-                    "load_policy_snapshot",
-                    return_value=(self.directory, self.policy, None),
+                    "load_policy_directory_snapshot",
+                    return_value=(self.directory, self.policy, None, None),
                 ),
                 redirect_stdout(output),
             ):
@@ -665,8 +672,15 @@ class SuccessorTransitionContractTests(unittest.TestCase):
         )
         with mock.patch.object(
             supervision_log,
-            "load_policy_snapshot",
-            return_value=(self.directory, self.policy, None),
+            "load_control_snapshot",
+            return_value=(
+                self.directory,
+                self.policy,
+                None,
+                supervision_log.events(self.directory / "events.jsonl"),
+                None,
+                None,
+            ),
         ):
             lifecycle_output = io.StringIO()
             with redirect_stdout(lifecycle_output):
@@ -1456,6 +1470,94 @@ class ControlPostureReducerTests(unittest.TestCase):
             {item["kind"] for item in result["issues"]},
         )
 
+    def test_owner_directory_link_replacement_cannot_supply_terminal_outcome(self) -> None:
+        owner_directory, owner_policy = self.create_target(
+            self.owner, self.owner_mission
+        )
+        external = tempfile.TemporaryDirectory()
+        self.addCleanup(external.cleanup)
+        external_directory = Path(external.name)
+        supervision_log.atomic_json(
+            external_directory / "policy.json", owner_policy
+        )
+        self.append(
+            external_directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "check",
+                "category": supervision_log.OUTCOME_COMPLETION_CATEGORY,
+                "status": "verified",
+                "state_fingerprint": "external-state-1234",
+                "mission_root": self.owner_mission,
+                "model": "gpt-5.6-sol",
+                "reasoning": "xhigh",
+                "evidence": ["external-behavior-proof-1234"],
+                **{
+                    field: "d" * 64
+                    for field in supervision_log.OUTCOME_COMPLETION_HASH_FIELDS
+                },
+                "capability_reconciliation_reviewer_id": f"base-{self.owner}",
+                "capability_reconciliation_implementation_owner_id": self.owner,
+                "capability_reconciliation_revision": "e" * 40,
+                "capability_reconciliation_posture": "verified",
+                "capability_reconciliation_gap_count": 0,
+            },
+        )
+        self.append(
+            external_directory,
+            {
+                "record_id": "EVT-000002",
+                "kind": "lifecycle",
+                "status": "completed",
+                "state_fingerprint": "external-state-1234",
+                "outcome_completion_record_id": "EVT-000001",
+            },
+        )
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "control-posture-gate",
+                "--target-thread",
+                self.owner,
+            ]
+        )
+        original_open = supervision_log.open_member_directory
+        replaced = False
+
+        def open_then_replace(root: Path, target: str):
+            nonlocal replaced
+            result = original_open(root, target)
+            if target == self.owner and not replaced:
+                preserved = self.root / f"{self.owner}-preserved"
+                owner_directory.rename(preserved)
+                owner_directory.symlink_to(
+                    external_directory, target_is_directory=True
+                )
+                replaced = True
+            return result
+
+        output = io.StringIO()
+        with (
+            mock.patch.object(
+                supervision_log,
+                "open_member_directory",
+                side_effect=open_then_replace,
+            ),
+            redirect_stdout(output),
+        ):
+            args.func(args)
+
+        result = json.loads(output.getvalue())
+        self.assertTrue(replaced)
+        self.assertEqual(result["required_target_posture"], "in-progress")
+        self.assertFalse(result["snapshot_stable"])
+        self.assertEqual(result["completion_candidates"], [])
+        self.assertIn(
+            "member-directory-changed-during-read",
+            {item["kind"] for item in result["issues"]},
+        )
+
     def test_changed_member_head_returns_retry_currentness(self) -> None:
         directory, policy = self.create_target(self.owner, self.owner_mission)
         self.append(
@@ -1476,14 +1578,14 @@ class ControlPostureReducerTests(unittest.TestCase):
         directory, _policy = self.create_target(self.owner, self.owner_mission)
         original_reader = supervision_log.read_json_snapshot
 
-        def read_then_replace(path: Path):
-            value, snapshot = original_reader(path)
+        def read_then_replace(path: Path, *, directory_fd: int | None = None):
+            value, snapshot = original_reader(path, directory_fd=directory_fd)
             replacement = dict(value)
             replacement["updated_at"] = "2026-08-09T00:00:00+00:00"
             replacement["policy_sha256"] = supervision_log.digest(
                 supervision_log.policy_material(replacement)
             )
-            supervision_log.atomic_json(path, replacement)
+            supervision_log.atomic_json(directory / "policy.json", replacement)
             return value, snapshot
 
         args = supervision_log.parser().parse_args(
@@ -1510,7 +1612,7 @@ class ControlPostureReducerTests(unittest.TestCase):
         self.assertFalse(result["snapshot_stable"])
         self.assertEqual(result["next_action"], "retry-control-currentness")
         self.assertIn(
-            "member-policy-changed-during-read",
+            "member-directory-changed-during-read",
             {item["kind"] for item in result["issues"]},
         )
 
@@ -1556,10 +1658,15 @@ class ControlPostureReducerTests(unittest.TestCase):
                 "Attempted completion during policy replacement.",
             ]
         )
-        original_loader = supervision_log.load_policy_snapshot
+        original_loader = supervision_log.load_policy_directory_snapshot
 
         def load_then_replace(arguments: argparse.Namespace):
-            loaded_directory, loaded_policy, snapshot = original_loader(arguments)
+            (
+                loaded_directory,
+                loaded_policy,
+                snapshot,
+                directory_snapshot,
+            ) = original_loader(arguments)
             replacement = dict(loaded_policy)
             replacement["updated_at"] = "2026-08-09T01:00:00+00:00"
             replacement["policy_sha256"] = supervision_log.digest(
@@ -1568,12 +1675,12 @@ class ControlPostureReducerTests(unittest.TestCase):
             supervision_log.atomic_json(
                 loaded_directory / "policy.json", replacement
             )
-            return loaded_directory, loaded_policy, snapshot
+            return loaded_directory, loaded_policy, snapshot, directory_snapshot
 
         with (
             mock.patch.object(
                 supervision_log,
-                "load_policy_snapshot",
+                "load_policy_directory_snapshot",
                 side_effect=load_then_replace,
             ),
             self.assertRaisesRegex(
@@ -1963,17 +2070,15 @@ class NoticeGateCorrelationTests(unittest.TestCase):
         with (
             mock.patch.object(
                 supervision_log,
-                "load_policy_snapshot",
+                "load_control_snapshot",
                 return_value=(
                     Path("/tmp/test-supervision"),
                     {"policy_sha256": "test-policy"},
                     None,
+                    event_records,
+                    None,
+                    None,
                 ),
-            ),
-            mock.patch.object(
-                supervision_log,
-                "events_snapshot",
-                return_value=(event_records, None),
             ),
             redirect_stdout(output),
         ):
@@ -3728,8 +3833,8 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
             with (
                 mock.patch.object(
                     supervision_log,
-                    "load_policy_snapshot",
-                    return_value=(directory, policy, None),
+                    "load_policy_directory_snapshot",
+                    return_value=(directory, policy, None, None),
                 ),
                 redirect_stdout(output),
             ):
@@ -3896,8 +4001,8 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
             )
             with mock.patch.object(
                 supervision_log,
-                "load_policy_snapshot",
-                return_value=(directory, policy, None),
+                "load_policy_directory_snapshot",
+                return_value=(directory, policy, None, None),
             ):
                 with self.assertRaisesRegex(
                     supervision_log.SupervisionLogError,
@@ -4022,13 +4127,15 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
         with (
             mock.patch.object(
                 supervision_log,
-                "load_policy_snapshot",
-                return_value=(Path("/tmp/supervision-test"), policy, None),
-            ),
-            mock.patch.object(
-                supervision_log,
-                "events_snapshot",
-                return_value=([*event_records, source], None),
+                "load_control_snapshot",
+                return_value=(
+                    Path("/tmp/supervision-test"),
+                    policy,
+                    None,
+                    [*event_records, source],
+                    None,
+                    None,
+                ),
             ),
             redirect_stdout(output),
         ):
@@ -4463,8 +4570,15 @@ class DecisionResolutionTests(unittest.TestCase):
         with (
             mock.patch.object(
                 supervision_log,
-                "load_policy_snapshot",
-                return_value=(directory, policy, None),
+                "load_control_snapshot",
+                return_value=(
+                    directory,
+                    policy,
+                    None,
+                    supervision_log.events(directory / "events.jsonl"),
+                    None,
+                    None,
+                ),
             ),
             redirect_stdout(output),
         ):

@@ -1480,12 +1480,70 @@ def load_policy(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
 def load_policy_snapshot(
     args: argparse.Namespace,
 ) -> tuple[Path, dict[str, Any], tuple[int, int, int, int]]:
-    directory = target_dir(args)
-    policy, snapshot = read_json_snapshot(directory / "policy.json")
+    directory, policy, snapshot, _directory_snapshot = (
+        load_policy_directory_snapshot(args)
+    )
+    return directory, policy, snapshot
+
+
+def load_policy_directory_snapshot(
+    args: argparse.Namespace,
+) -> tuple[
+    Path,
+    dict[str, Any],
+    tuple[int, int, int, int],
+    tuple[int, int, int, int],
+]:
+    root = root_from(args)
+    directory, directory_fd, directory_snapshot = open_member_directory(
+        root, args.target_thread
+    )
+    try:
+        policy, snapshot = read_json_snapshot(
+            Path("policy.json"), directory_fd=directory_fd
+        )
+    finally:
+        os.close(directory_fd)
     validate_policy(policy)
     if policy.get("target_thread_id") != args.target_thread:
         raise SupervisionLogError("Policy belongs to a different target")
-    return directory, policy, snapshot
+    return directory, policy, snapshot, directory_snapshot
+
+
+def load_control_snapshot(
+    args: argparse.Namespace,
+) -> tuple[
+    Path,
+    dict[str, Any],
+    tuple[int, int, int, int],
+    list[dict[str, Any]],
+    tuple[int, int, int, int] | None,
+    tuple[int, int, int, int],
+]:
+    root = root_from(args)
+    directory, directory_fd, directory_snapshot = open_member_directory(
+        root, args.target_thread
+    )
+    try:
+        policy, policy_snapshot = read_json_snapshot(
+            Path("policy.json"), directory_fd=directory_fd
+        )
+        all_events, event_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+    finally:
+        os.close(directory_fd)
+    validate_policy(policy)
+    if policy.get("target_thread_id") != args.target_thread:
+        raise SupervisionLogError("Policy belongs to a different target")
+    return (
+        directory,
+        policy,
+        policy_snapshot,
+        all_events,
+        event_snapshot,
+        directory_snapshot,
+    )
 
 
 def write_policy_version(
@@ -2626,8 +2684,14 @@ def cmd_completion_record(args: argparse.Namespace) -> None:
 
 def cmd_record(args: argparse.Namespace) -> None:
     policy_snapshot: tuple[int, int, int, int] | None = None
+    directory_snapshot: tuple[int, int, int, int] | None = None
     if args.kind == "lifecycle" and args.status == "completed":
-        directory, policy, policy_snapshot = load_policy_snapshot(args)
+        (
+            directory,
+            policy,
+            policy_snapshot,
+            directory_snapshot,
+        ) = load_policy_directory_snapshot(args)
     else:
         directory, policy = load_policy(args)
     if args.kind not in KINDS:
@@ -2682,9 +2746,27 @@ def cmd_record(args: argparse.Namespace) -> None:
         record["failure_mode"] = failure_mode_envelope_from_args(args)
     with append_lock(directory):
         if args.kind == "lifecycle" and record["status"] == "completed":
-            current_events, event_snapshot = events_snapshot(
-                directory / "events.jsonl"
-            )
+            if directory_snapshot is None:
+                current_events, event_snapshot = events_snapshot(
+                    directory / "events.jsonl"
+                )
+            else:
+                (
+                    _current_directory,
+                    current_directory_fd,
+                    current_directory_snapshot,
+                ) = open_member_directory(root_from(args), args.target_thread)
+                try:
+                    if current_directory_snapshot != directory_snapshot:
+                        raise SupervisionLogError(
+                            "Completed lifecycle rejected by governing-outcome control: "
+                            "retry-control-currentness"
+                        )
+                    current_events, event_snapshot = events_snapshot(
+                        Path("events.jsonl"), directory_fd=current_directory_fd
+                    )
+                finally:
+                    os.close(current_directory_fd)
         else:
             current_events = events(directory / "events.jsonl")
             event_snapshot = None
@@ -2713,6 +2795,7 @@ def cmd_record(args: argparse.Namespace) -> None:
                 owner_events=current_events,
                 owner_policy_snapshot=policy_snapshot,
                 owner_event_snapshot=event_snapshot,
+                owner_directory_snapshot=directory_snapshot,
             )
             if (
                 control_posture["issues"]
@@ -3120,13 +3203,19 @@ def cmd_notice_gate(args: argparse.Namespace) -> None:
 
 
 def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
-    directory, policy, policy_snapshot = load_policy_snapshot(args)
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        all_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
     source_record = safe_id(args.source_record, label="source record ID")
     lifecycle_state = args.lifecycle_state
     state_fingerprint = clean(
         args.state_fingerprint, label="state fingerprint", maximum=128
     )
-    all_events, event_snapshot = events_snapshot(directory / "events.jsonl")
     source = next(
         (item for item in all_events if item.get("record_id") == source_record),
         None,
@@ -3278,6 +3367,7 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
         owner_events=all_events,
         owner_policy_snapshot=policy_snapshot,
         owner_event_snapshot=event_snapshot,
+        owner_directory_snapshot=directory_snapshot,
     )
     supervision_pause_permitted = bool(
         supervision_pause_permitted
@@ -3620,9 +3710,15 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
 
 
 def cmd_successor_transition_gate(args: argparse.Namespace) -> None:
-    directory, policy, policy_snapshot = load_policy_snapshot(args)
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        all_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
     transition_id = safe_id(args.transition_id, label="successor transition ID")
-    all_events, event_snapshot = events_snapshot(directory / "events.jsonl")
     records = successor_transition_events(all_events, transition_id)
     if not records:
         raise SupervisionLogError("Successor transition does not exist")
@@ -3651,6 +3747,7 @@ def cmd_successor_transition_gate(args: argparse.Namespace) -> None:
         owner_events=all_events,
         owner_policy_snapshot=policy_snapshot,
         owner_event_snapshot=event_snapshot,
+        owner_directory_snapshot=directory_snapshot,
     )
     print(
         json.dumps(
@@ -3830,6 +3927,7 @@ def load_governing_outcome_members(
     owner_events: list[dict[str, Any]],
     owner_policy_snapshot: tuple[int, int, int, int] | None = None,
     owner_event_snapshot: tuple[int, int, int, int] | None = None,
+    owner_directory_snapshot: tuple[int, int, int, int] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]], str, bool]:
     root = owner_directory.parent.resolve()
     owner_target = str(
@@ -3855,7 +3953,7 @@ def load_governing_outcome_members(
             None,
             owner_policy_snapshot,
             owner_event_snapshot,
-            None,
+            owner_directory_snapshot,
         )
     ]
     queued = {owner_target}
@@ -4204,6 +4302,7 @@ def reduce_control_posture(
     owner_events: list[dict[str, Any]],
     owner_policy_snapshot: tuple[int, int, int, int] | None = None,
     owner_event_snapshot: tuple[int, int, int, int] | None = None,
+    owner_directory_snapshot: tuple[int, int, int, int] | None = None,
 ) -> dict[str, Any]:
     members, issues, currentness_root, stable = load_governing_outcome_members(
         owner_directory=directory,
@@ -4211,6 +4310,7 @@ def reduce_control_posture(
         owner_events=owner_events,
         owner_policy_snapshot=owner_policy_snapshot,
         owner_event_snapshot=owner_event_snapshot,
+        owner_directory_snapshot=owner_directory_snapshot,
     )
     mission = bound_mission(policy)
     owner_target = str(policy.get("target_thread_id") or directory.name)
@@ -4409,14 +4509,21 @@ def reduce_control_posture(
 
 
 def cmd_control_posture_gate(args: argparse.Namespace) -> None:
-    directory, policy, policy_snapshot = load_policy_snapshot(args)
-    owner_events, event_snapshot = events_snapshot(directory / "events.jsonl")
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        owner_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
     result = reduce_control_posture(
         directory=directory,
         policy=policy,
         owner_events=owner_events,
         owner_policy_snapshot=policy_snapshot,
         owner_event_snapshot=event_snapshot,
+        owner_directory_snapshot=directory_snapshot,
     )
     print(json.dumps(result, sort_keys=True))
 
@@ -4784,9 +4891,15 @@ def decision_notification(
 
 
 def cmd_decision_gate(args: argparse.Namespace) -> None:
-    directory, policy, policy_snapshot = load_policy_snapshot(args)
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        all_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
     decision_id = safe_id(args.decision_id, label="decision ID")
-    all_events, event_snapshot = events_snapshot(directory / "events.jsonl")
     records = decision_events(all_events, decision_id)
     if not records:
         raise SupervisionLogError("Decision does not exist")
@@ -4881,6 +4994,7 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
         owner_events=all_events,
         owner_policy_snapshot=policy_snapshot,
         owner_event_snapshot=event_snapshot,
+        owner_directory_snapshot=directory_snapshot,
     )
     blocking_permitted = (
         control_posture["required_target_posture"] == "blocked"
@@ -6748,8 +6862,14 @@ def cmd_gmail_cadence(args: argparse.Namespace) -> None:
 
 
 def cmd_status(args: argparse.Namespace) -> None:
-    directory, policy, policy_snapshot = load_policy_snapshot(args)
-    all_events, event_snapshot = events_snapshot(directory / "events.jsonl")
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        all_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
     incident_events = [item for item in all_events if item.get("kind") == "incident"]
     incident_heads: dict[str, dict[str, Any]] = {}
     for item in all_events:
@@ -6815,6 +6935,7 @@ def cmd_status(args: argparse.Namespace) -> None:
         owner_events=all_events,
         owner_policy_snapshot=policy_snapshot,
         owner_event_snapshot=event_snapshot,
+        owner_directory_snapshot=directory_snapshot,
     )
     print(
         json.dumps(
