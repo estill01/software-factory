@@ -7,6 +7,7 @@
 - [Factory capability-evolution workflow](#factory-capability-evolution-workflow)
 - [Mission binding and authority provenance](#mission-binding-and-authority-provenance)
 - [Continuation-first decision resolution](#continuation-first-decision-resolution)
+- [Same-target mission activation](#same-target-mission-activation)
 - [Target-state fingerprint](#target-state-fingerprint)
 - [Cross-thread action routing](#cross-thread-action-routing)
 - [Gmail notification and closed-loop review](#gmail-notification-channel)
@@ -235,7 +236,11 @@ source record and hash, and operator or reviewer evidence. The helper appends a
 policy-history version and makes only the new binding active. Every later check,
 decision, containment, completion claim, role prompt, and automation must use
 that active root; earlier events remain historical evidence for the predecessor
-only.
+only. The call also requires the exact first eligible work identity and appends
+one derived pending same-target mission activation under the resulting policy
+SHA. This prospective obligation applies only to successful future
+`mission-successor` calls; initial bindings and already-current or completed
+missions are never retroactively blocked.
 
 Terminal `completed` is an independently gated outcome claim. Before a
 completed lifecycle event may enter the ledger, a Sol XHigh or Max reviewer
@@ -401,6 +406,34 @@ Keep decision timing, packet/scope/frontier hashes, attempts, disposition,
 handoff, and target acknowledgement in the existing content-minimized JSONL
 ledger. Substantive alternatives and rationale remain in the tracker/project's
 existing decision owners. Do not add a second decision ledger or status service.
+
+## Same-target mission activation
+
+A successful `mission-successor` changes the mission bound to the same target;
+it does not complete the handoff merely by updating policy. Under the same
+append lock, the helper derives one stable activation identity from the target,
+successor mission root and source, resulting policy SHA, and exact first eligible
+work identity, then appends phase `pending` to the canonical event ledger. The
+caller does not choose an activation or workflow ID.
+
+Immediately route the current target to that exact first work and keep its
+posture `in-progress`. After a later current-mission watcher/reviewer record
+contains the exact target evidence that work began, close the obligation with
+`mission-activation-start`, citing that post-binding source record and its exact
+evidence. The helper rejects stale mission or activation-policy identities,
+changed first-work identity, pre-binding source records, missing/dangling
+evidence, and a divergent second closure. Exact duplicate closure is
+idempotent.
+
+`status` exposes the current and open activation, required `in-progress`
+posture, and action `start-current-mission-first-eligible-work`.
+`lifecycle-gate` returns `source_stop_permitted=false` and that same action for
+`completed`, `paused`, or `stopped` while the activation remains pending.
+`failed` and `blocked` retain their existing decision/authority handling. Never
+create a successor task, parallel ledger, mission root, user scheduling step, or
+manual Resume requirement from this same-target activation. The distinct
+successor-task transition below remains the owner only when implementation must
+continue in a different task.
 
 ## Successor transition and failure-mode control
 
@@ -1205,7 +1238,13 @@ prefer the narrowest correction that gets the intended implementation outcome.
 
 At each scheduled wake:
 1. Read only the target's compact listing/status markers and call the helper's
-   gate command. Before stopping on unchanged state, reconcile any exact
+   gate command. Read helper status for an open same-target mission activation.
+   When one is pending, gate `target-action` and route the current target to its
+   exact `first_eligible_work` immediately, keeping posture `in-progress`.
+   Record `mission-activation-start` only after an exact later current-mission
+   source record contains the cited target work-start evidence. Never create a
+   successor task or request manual Resume for this obligation. Before stopping
+   on unchanged state, reconcile any exact
    `completed`, `paused`, `blocked`, `failed`, or explicit `stopped` compact status against the helper's last
    lifecycle record and notification ledger. If unchanged and no lifecycle
    repair is needed, record one compact no-intervention check and stop without
@@ -1682,6 +1721,14 @@ If `blocking_permitted=false`, require target posture `in-progress` and repair
 any target-emitted terminal block immediately. After acknowledgement, treat an
 old application `Goal blocked` card as stale and never request a manual Resume
 action.
+Inspect `open_mission_activations`. For each pending same-target activation,
+require the current target to remain `in-progress` and begin its exact first
+eligible work immediately. Accept `mission-activation-start` only from exact
+later target evidence bound by a post-activation current-mission source record.
+Repair a terminal `completed`, `paused`, or `stopped` posture through the
+helper's exact `start-current-mission-first-eligible-work` action. Do not create
+a successor task, reuse the distinct successor-transition workflow, or request
+manual Resume.
 Also reconcile the latest explicit target lifecycle posture against
 `last_lifecycle` and the outbound ledger. Immediately repair any missing
 completed/noncritical-paused primary status or blocked/failed/stopped priority
@@ -1746,6 +1793,28 @@ python3 <LOG_HELPER> bind --target-thread <TARGET> \
   --notice-reviewer-thread <NOTICE_REVIEWER> \
   --fix-executor-thread <FIX_EXECUTOR> \
   --routine-automation <AUTOMATION> --meta-automation <AUTOMATION>
+```
+
+Move the same target to a new mission and then bind exact later first-work
+evidence. Use the returned activation policy SHA and do not invent an activation
+ID:
+
+```bash
+python3 <LOG_HELPER> mission-successor --target-thread <TARGET> \
+  --from-mission-root <PREDECESSOR_ROOT> \
+  --mission-source-class <direct-user|system|repository|tracker> \
+  --mission-source-record <SUCCESSOR_SOURCE> \
+  --mission-source-sha256 <SUCCESSOR_SOURCE_SHA256> \
+  --predecessor-disposition <completed|superseded> \
+  --first-eligible-work <EXACT_FIRST_WORK_IDENTITY> \
+  --reason <EXACT_REASON> --evidence <EXACT_SUCCESSION_EVIDENCE>
+
+python3 <LOG_HELPER> mission-activation-start --target-thread <TARGET> \
+  --mission-root <SUCCESSOR_ROOT> \
+  --activation-policy-sha256 <RETURNED_ACTIVATION_POLICY_SHA256> \
+  --first-eligible-work <EXACT_FIRST_WORK_IDENTITY> \
+  --source-record <POST_BINDING_CURRENT_MISSION_RECORD> \
+  --evidence <EXACT_LATER_TARGET_WORK_START_EVIDENCE>
 ```
 
 Upgrade a readable legacy policy only with an exact mission binding:
@@ -2098,3 +2167,7 @@ terminal PDFs attached to that email, its exact delivery receipt, and
 bound automation with `terminal-shutdown`.
 Do not pause for an open decision. Continue the timed resolution state machine,
 priority phase delivery, safe-frontier verification, and target acknowledgement.
+Do not pause or accept `completed`, `paused`, or `stopped` while a prospective
+same-target mission activation is pending. Keep the target `in-progress`, start
+the exact current mission first work, and close the activation only from exact
+later target evidence. This never requires a successor task or manual Resume.

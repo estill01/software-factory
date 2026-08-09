@@ -170,6 +170,8 @@ SUCCESSOR_TRANSITION_IDENTITY_FIELDS = (
     "governing_authority_source_class",
     "governing_authority_source_record",
 )
+MISSION_ACTIVATION_PHASES = ("pending", "work-started")
+MISSION_ACTIVATION_START_ACTION = "start-current-mission-first-eligible-work"
 FAILURE_MODE_LAYERS = {
     "authority",
     "control-plane",
@@ -1805,10 +1807,21 @@ def cmd_mission_successor(args: argparse.Namespace) -> None:
     ]
     if not evidence_values:
         raise SupervisionLogError("Mission succession requires exact evidence")
+    if len(evidence_values) > 16:
+        raise SupervisionLogError("Too many mission succession evidence references")
     requested = mission_binding_from_args(args, required=True)
     assert requested is not None
     disposition = str(args.predecessor_disposition)
     reason = clean(args.reason, label="mission succession reason", maximum=480)
+    first_eligible_work = clean(
+        args.first_eligible_work,
+        label="successor first eligible work",
+        maximum=160,
+    )
+    if not first_eligible_work:
+        raise SupervisionLogError(
+            "Mission succession requires exact first eligible work"
+        )
 
     with append_lock(directory):
         policy = read_json(directory / "policy.json")
@@ -1847,9 +1860,13 @@ def cmd_mission_successor(args: argparse.Namespace) -> None:
             if item.get("phase") != "target-acknowledged"
         ]
         open_transitions = successor_transition_heads(all_events, open_only=True)
-        if open_incidents or open_decisions or open_transitions:
+        open_activations = mission_activation_heads(
+            mission_scoped_events(directory, policy, all_events), open_only=True
+        )
+        if open_incidents or open_decisions or open_transitions or open_activations:
             raise SupervisionLogError(
-                "Mission succession requires closed incidents, decisions, and successor transitions"
+                "Mission succession requires closed incidents, decisions, successor "
+                "transitions, and current mission activation"
             )
         if disposition == "completed":
             scoped = mission_scoped_events(directory, policy, all_events)
@@ -1863,6 +1880,8 @@ def cmd_mission_successor(args: argparse.Namespace) -> None:
                 label="completed lifecycle record ID",
             )
             evidence_values.append(lifecycle_record)
+        if len(evidence_values) > 16:
+            raise SupervisionLogError("Too many mission succession evidence references")
 
         previous = {
             "mission_root": current["mission_root"],
@@ -1876,6 +1895,15 @@ def cmd_mission_successor(args: argparse.Namespace) -> None:
             reason=f"{disposition}: {reason}",
             evidence_values=evidence_values,
         )
+        activation = mission_activation_pending_record(
+            target_thread=args.target_thread,
+            mission_binding=requested,
+            activation_policy_sha256=str(policy["policy_sha256"]),
+            first_eligible_work=first_eligible_work,
+            evidence=evidence_values,
+        )
+        activation["record_id"] = f"EVT-{len(all_events) + 1:06d}"
+        append_event_locked(args, directory, activation)
     print(
         json.dumps(
             {
@@ -1886,6 +1914,7 @@ def cmd_mission_successor(args: argparse.Namespace) -> None:
                     "mission_root": requested["mission_root"],
                     "mission_source_record": requested["mission_source_record"],
                 },
+                "mission_activation": activation,
                 "policy": policy,
             },
             sort_keys=True,
@@ -2766,6 +2795,12 @@ def cmd_record(args: argparse.Namespace) -> None:
                     "Completed lifecycle rejected: an open successor transition "
                     "has not reached work-started"
                 )
+            active_events = mission_scoped_events(directory, policy, current_events)
+            if mission_activation_heads(active_events, open_only=True):
+                raise SupervisionLogError(
+                    "Completed lifecycle rejected: current mission first work "
+                    "has not started"
+                )
             completion_record = latest_outcome_completion_record(
                 current_events, state_fingerprint=record["state_fingerprint"]
             )
@@ -3199,6 +3234,12 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
         open_transitions
         and lifecycle_state in {"completed", "paused", "stopped"}
     )
+    active_events = mission_scoped_events(directory, policy, all_events)
+    open_activations = mission_activation_heads(active_events, open_only=True)
+    activation_stop_conflict = bool(
+        open_activations
+        and lifecycle_state in {"completed", "paused", "stopped"}
+    )
 
     completion_permitted = True
     completion_record_id: str | None = None
@@ -3228,6 +3269,12 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
             completion_reason = (
                 "An open successor transition has not reached work-started; "
                 "handoff is not completion of the governing requested scope."
+            )
+        elif activation_stop_conflict:
+            completion_permitted = False
+            completion_reason = (
+                "The current mission has not reached exact first-work-start "
+                "evidence after its binding."
             )
 
     terminal_reporting = bool(
@@ -3338,7 +3385,9 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                     else "primary-status" if send_now else "none"
                 ),
                 "completion_action": (
-                    "resume-successor-transition"
+                    MISSION_ACTIVATION_START_ACTION
+                    if activation_stop_conflict
+                    else "resume-successor-transition"
                     if transition_stop_conflict
                     else "open-critical-false-completion-review"
                     if not completion_permitted
@@ -3372,8 +3421,11 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                 ),
                 "send_now": send_now,
                 "source_record": source_record,
-                "source_stop_permitted": not transition_stop_conflict,
+                "source_stop_permitted": not (
+                    transition_stop_conflict or activation_stop_conflict
+                ),
                 "state_fingerprint": source.get("state_fingerprint", ""),
+                "open_mission_activations": list(open_activations.values()),
                 "open_successor_transitions": list(open_transitions.values()),
                 "supervision_pause_permitted": supervision_pause_permitted,
                 "terminal_email_recipient": (
@@ -3398,6 +3450,253 @@ def decision_events(
         for item in all_events
         if item.get("kind") == "decision" and item.get("decision_id") == decision_id
     ]
+
+
+def mission_activation_identity(
+    *,
+    target_thread: str,
+    mission_root: str,
+    mission_source_record: str,
+    activation_policy_sha256: str,
+    first_eligible_work: str,
+) -> str:
+    material = {
+        "kind": "same-target-mission-activation",
+        "target_thread_id": target_thread,
+        "mission_root": mission_root,
+        "mission_source_record": mission_source_record,
+        "activation_policy_sha256": activation_policy_sha256,
+        "first_eligible_work": first_eligible_work,
+    }
+    return f"MACT-{digest(material)[:24].upper()}"
+
+
+def mission_activation_pending_record(
+    *,
+    target_thread: str,
+    mission_binding: Mapping[str, Any],
+    activation_policy_sha256: str,
+    first_eligible_work: str,
+    evidence: list[str],
+) -> dict[str, Any]:
+    mission_root = exact_sha256(
+        mission_binding.get("mission_root"), label="activation mission root"
+    )
+    mission_source_record = safe_id(
+        str(mission_binding.get("mission_source_record", "")),
+        label="activation mission source record",
+    )
+    policy_sha256 = exact_sha256(
+        activation_policy_sha256, label="activation policy SHA-256"
+    )
+    work_identity = clean(
+        first_eligible_work, label="first eligible work", maximum=160
+    )
+    if not work_identity:
+        raise SupervisionLogError("Mission activation requires first eligible work")
+    return {
+        "schema_version": 1,
+        "record_id": "",
+        "timestamp": utc_now(),
+        "target_thread_id": target_thread,
+        "kind": "mission-activation",
+        "activation_id": mission_activation_identity(
+            target_thread=target_thread,
+            mission_root=mission_root,
+            mission_source_record=mission_source_record,
+            activation_policy_sha256=policy_sha256,
+            first_eligible_work=work_identity,
+        ),
+        "phase": "pending",
+        "mission_root": mission_root,
+        "mission_source_record": mission_source_record,
+        "activation_policy_sha256": policy_sha256,
+        "first_eligible_work": work_identity,
+        "source_record": "",
+        "evidence": evidence,
+        "policy_sha256": policy_sha256,
+    }
+
+
+def mission_activation_events(
+    all_events: list[dict[str, Any]], activation_id: str
+) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in all_events
+        if item.get("kind") == "mission-activation"
+        and item.get("activation_id") == activation_id
+    ]
+
+
+def mission_activation_heads(
+    all_events: list[dict[str, Any]], *, open_only: bool = False
+) -> dict[str, dict[str, Any]]:
+    heads: dict[str, dict[str, Any]] = {}
+    for item in all_events:
+        activation_id = item.get("activation_id")
+        if item.get("kind") == "mission-activation" and isinstance(
+            activation_id, str
+        ):
+            heads[activation_id] = item
+    if not open_only:
+        return heads
+    return {
+        activation_id: item
+        for activation_id, item in heads.items()
+        if item.get("phase") != "work-started"
+    }
+
+
+def cmd_mission_activation_start(args: argparse.Namespace) -> None:
+    directory, _ = load_policy(args)
+    mission_root = exact_sha256(args.mission_root, label="activation mission root")
+    activation_policy_sha256 = exact_sha256(
+        args.activation_policy_sha256, label="activation policy SHA-256"
+    )
+    first_eligible_work = clean(
+        args.first_eligible_work, label="first eligible work", maximum=160
+    )
+    if not first_eligible_work:
+        raise SupervisionLogError("Mission activation requires first eligible work")
+    source_record = safe_id(
+        args.source_record, label="mission activation source record"
+    )
+    evidence_values = [
+        clean(item, label="mission activation evidence", maximum=160)
+        for item in args.evidence
+    ]
+    if not evidence_values or not all(evidence_values):
+        raise SupervisionLogError(
+            "Mission activation work-started requires exact nonempty evidence"
+        )
+    if len(evidence_values) > 16:
+        raise SupervisionLogError("Too many mission activation evidence references")
+
+    with append_lock(directory):
+        policy = read_json(directory / "policy.json")
+        validate_policy(policy)
+        if policy.get("target_thread_id") != args.target_thread:
+            raise SupervisionLogError("Policy belongs to a different target")
+        mission = bound_mission(policy)
+        if mission is None or mission.get("mission_root") != mission_root:
+            raise SupervisionLogError(
+                "Mission activation cites a stale or different mission root"
+            )
+        all_events = events(directory / "events.jsonl")
+        active_events = mission_scoped_events(directory, policy, all_events)
+        heads = mission_activation_heads(active_events)
+        candidates = [
+            item
+            for item in heads.values()
+            if item.get("mission_root") == mission_root
+            and item.get("mission_source_record")
+            == mission.get("mission_source_record")
+        ]
+        if len(candidates) != 1:
+            raise SupervisionLogError(
+                "Current mission has no unique activation obligation"
+            )
+        head = candidates[0]
+        if head.get("phase") not in MISSION_ACTIVATION_PHASES:
+            raise SupervisionLogError("Mission activation phase is invalid")
+        if head.get("activation_policy_sha256") != activation_policy_sha256:
+            raise SupervisionLogError("Mission activation policy identity differs")
+        if head.get("first_eligible_work") != first_eligible_work:
+            raise SupervisionLogError("Mission activation first work identity differs")
+
+        source_index = next(
+            (
+                index
+                for index, item in enumerate(all_events)
+                if item.get("record_id") == source_record
+            ),
+            None,
+        )
+        if source_index is None:
+            raise SupervisionLogError(
+                "Mission activation source record does not exist"
+            )
+        source = all_events[source_index]
+        records = mission_activation_events(
+            all_events, str(head["activation_id"])
+        )
+        pending = records[0] if records else None
+        if pending is None or pending.get("phase") != "pending":
+            raise SupervisionLogError("Mission activation lacks its pending binding")
+        pending_index = next(
+            index
+            for index, item in enumerate(all_events)
+            if item.get("record_id") == pending.get("record_id")
+        )
+        if source_index <= pending_index:
+            raise SupervisionLogError(
+                "Mission activation cannot use pre-binding evidence"
+            )
+        if source.get("target_thread_id") != args.target_thread:
+            raise SupervisionLogError(
+                "Mission activation source belongs to another target"
+            )
+        source_root = policy_mission_roots(directory).get(
+            str(source.get("policy_sha256", ""))
+        )
+        if source_root != mission_root:
+            raise SupervisionLogError(
+                "Mission activation source belongs to another mission"
+            )
+        source_evidence = source.get("evidence")
+        if (
+            not isinstance(source_evidence, list)
+            or not all(isinstance(item, str) for item in source_evidence)
+            or not set(evidence_values) <= set(source_evidence)
+        ):
+            raise SupervisionLogError(
+                "Mission activation evidence is not bound to its source record"
+            )
+
+        record = {
+            "schema_version": 1,
+            "record_id": "",
+            "timestamp": utc_now(),
+            "target_thread_id": args.target_thread,
+            "kind": "mission-activation",
+            "activation_id": head["activation_id"],
+            "phase": "work-started",
+            "mission_root": mission_root,
+            "mission_source_record": mission["mission_source_record"],
+            "activation_policy_sha256": activation_policy_sha256,
+            "first_eligible_work": first_eligible_work,
+            "source_record": source_record,
+            "evidence": evidence_values,
+            "policy_sha256": policy["policy_sha256"],
+        }
+        if head.get("phase") == "work-started":
+            if all(
+                head.get(field) == record.get(field)
+                for field in (
+                    "activation_id",
+                    "phase",
+                    "mission_root",
+                    "mission_source_record",
+                    "activation_policy_sha256",
+                    "first_eligible_work",
+                    "source_record",
+                    "evidence",
+                )
+            ):
+                print(
+                    json.dumps(
+                        {"duplicate": True, "record_id": head["record_id"]},
+                        sort_keys=True,
+                    )
+                )
+                return
+            raise SupervisionLogError(
+                "Mission activation already closed with different evidence"
+            )
+        record["record_id"] = f"EVT-{len(all_events) + 1:06d}"
+        append_event_locked(args, directory, record)
+    print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
 
 
 def successor_transition_events(
@@ -6092,6 +6391,11 @@ def cmd_status(args: argparse.Namespace) -> None:
         for item in decision_heads.values()
         if item.get("phase") != "target-acknowledged"
     ]
+    activation_heads = mission_activation_heads(active_events)
+    open_activations = mission_activation_heads(active_events, open_only=True)
+    current_activation = (
+        list(activation_heads.values())[-1] if activation_heads else None
+    )
     transition_heads = successor_transition_heads(active_events)
     open_transitions = successor_transition_heads(active_events, open_only=True)
     print(
@@ -6137,6 +6441,17 @@ def cmd_status(args: argparse.Namespace) -> None:
                 ),
                 "decision_count": len(decision_heads),
                 "open_decisions": open_decisions,
+                "mission_activation_count": len(activation_heads),
+                "current_mission_activation": current_activation,
+                "open_mission_activations": list(open_activations.values()),
+                "mission_activation_action": (
+                    MISSION_ACTIVATION_START_ACTION
+                    if open_activations
+                    else "none"
+                ),
+                "mission_activation_required_target_posture": (
+                    "in-progress" if open_activations else None
+                ),
                 "successor_transition_count": len(transition_heads),
                 "open_successor_transitions": list(open_transitions.values()),
             },
@@ -6222,9 +6537,23 @@ def parser() -> argparse.ArgumentParser:
         choices=("completed", "superseded"),
         required=True,
     )
+    mission_successor.add_argument("--first-eligible-work", required=True)
     mission_successor.add_argument("--reason", required=True)
     mission_successor.add_argument("--evidence", action="append", default=[])
     mission_successor.set_defaults(func=cmd_mission_successor)
+
+    mission_activation_start = subparsers.add_parser("mission-activation-start")
+    mission_activation_start.add_argument("--target-thread", required=True)
+    mission_activation_start.add_argument("--mission-root", required=True)
+    mission_activation_start.add_argument(
+        "--activation-policy-sha256", required=True
+    )
+    mission_activation_start.add_argument("--first-eligible-work", required=True)
+    mission_activation_start.add_argument("--source-record", required=True)
+    mission_activation_start.add_argument(
+        "--evidence", action="append", required=True
+    )
+    mission_activation_start.set_defaults(func=cmd_mission_activation_start)
 
     gate = subparsers.add_parser("gate")
     gate.add_argument("--target-thread", required=True)

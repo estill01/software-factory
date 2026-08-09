@@ -97,10 +97,15 @@ supplied digest.
    command from the policy.
    If a target thread later begins a materially different direct mission after
    its prior mission is complete or superseded, use `mission-successor` with the
-   exact predecessor root and new direct-source hash. This appends a new policy
-   version, preserves the predecessor in policy history, and fails closed while
-   an incident, decision, or successor-task transition remains open. Do not use
-   `bind` to overwrite a mission or start a parallel supervision root.
+   exact predecessor root, new direct-source hash, and exact first eligible work
+   identity. This appends a new policy version, preserves the predecessor in
+   policy history, and creates one derived pending mission activation in the
+   canonical event ledger. Immediately route the same target to that first work,
+   keep it `in-progress`, and use `mission-activation-start` only after a later
+   current-mission source record contains the exact work-start evidence. Do not
+   create a successor task, request a manual Resume, use `bind` to overwrite a
+   mission, or synthesize this obligation for initial or already-current
+   missions.
 7. Create a thread heartbeat on the watcher every 20 minutes. Create a second
    heartbeat on the reviewer every 4 hours for supervisor-effectiveness review.
    Attach both to their existing threads rather than creating a new chat per run.
@@ -189,6 +194,13 @@ Repeat independently for additional targets.
   `unavailable/open` while continuing ordinary observation and charter-based
   semantic review. Only absence of an authoritative mission charter prevents a
   consequential containment or decision.
+- After a same-target `mission-successor`, treat the helper's pending mission
+  activation as the immediate continuation boundary. Route the current target
+  to the exact first eligible work, and close the activation only from exact
+  later target evidence through `mission-activation-start`. While pending,
+  `completed`, `paused`, and `stopped` fail closed with target posture
+  `in-progress`. This is not the distinct successor-task transition workflow
+  and never creates a task or manual Resume requirement.
 - Apply the maintained generic completion meta-charter before project-specific
   review: observable outcome outranks process proxies; authorized ordinary
   effects needed for completion are expected; safe in-scope continuation is the
@@ -652,6 +664,12 @@ hidden reasoning into the review.
   authority is unavailable, preserve that boundary as an open transition—do
   not invent authority, manufacture a successor ID, falsely close the source,
   or turn the internal orchestration obligation into routine human scheduling.
+- Before accepting `completed`, `paused`, or `stopped` after a same-target
+  mission succession, require its derived mission activation to reach
+  `work-started`. Use only exact later target evidence bound to the active
+  mission and first-work identity; keep the current target `in-progress` while
+  pending. Do not substitute the separate successor-task transition, create a
+  new task, or request manual Resume.
 - Characterize a material recurrence with the record command's
   `--failure-mode` envelope: stable failure-mode ID, layer, mechanism, trigger,
   observed effect, detection rule, bounded correction, recurrence invariant,

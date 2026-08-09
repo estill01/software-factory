@@ -2188,6 +2188,8 @@ class MissionContainmentContractTests(unittest.TestCase):
                     "b" * 64,
                     "--predecessor-disposition",
                     "completed",
+                    "--first-eligible-work",
+                    "Block 0",
                     "--reason",
                     "The prior mission ended and the user supplied a new mission.",
                     "--evidence",
@@ -2202,6 +2204,14 @@ class MissionContainmentContractTests(unittest.TestCase):
             self.assertEqual(result["predecessor"]["mission_root"], old_root)
             self.assertNotEqual(result["successor"]["mission_root"], old_root)
             self.assertEqual(result["successor"]["mission_source_record"], "item-827")
+            self.assertEqual(result["mission_activation"]["phase"], "pending")
+            self.assertEqual(
+                result["mission_activation"]["first_eligible_work"], "Block 0"
+            )
+            self.assertEqual(
+                result["mission_activation"]["policy_sha256"],
+                result["policy"]["policy_sha256"],
+            )
             history = [
                 json.loads(line)
                 for line in Path(
@@ -2232,6 +2242,8 @@ class MissionContainmentContractTests(unittest.TestCase):
                 "b" * 64,
                 "--predecessor-disposition",
                 "superseded",
+                "--first-eligible-work",
+                "first-work-1234",
                 "--reason",
                 "New direct mission.",
                 "--evidence",
@@ -2267,6 +2279,8 @@ class MissionContainmentContractTests(unittest.TestCase):
                 "b" * 64,
                 "--predecessor-disposition",
                 "superseded",
+                "--first-eligible-work",
+                "first-work-1234",
                 "--reason",
                 "New direct mission.",
                 "--evidence",
@@ -2288,7 +2302,7 @@ class MissionContainmentContractTests(unittest.TestCase):
             mock.patch.object(supervision_log, "events", return_value=[open_decision]),
             self.assertRaisesRegex(
                 supervision_log.SupervisionLogError,
-                "requires closed incidents, decisions, and successor transitions",
+                "requires closed incidents, decisions, successor transitions, and current mission activation",
             ),
         ):
             supervision_log.cmd_mission_successor(current)
@@ -2349,6 +2363,8 @@ class MissionContainmentContractTests(unittest.TestCase):
                     "b" * 64,
                     "--predecessor-disposition",
                     "superseded",
+                    "--first-eligible-work",
+                    "Block 0",
                     "--reason",
                     "Mission B replaced mission A.",
                     "--evidence",
@@ -2362,6 +2378,44 @@ class MissionContainmentContractTests(unittest.TestCase):
                     encoding="utf-8"
                 )
             )
+            activation = supervision_log.mission_activation_heads(
+                supervision_log.events(
+                    Path(temporary, self.target, "events.jsonl")
+                )
+            )
+            activation_head = list(activation.values())[-1]
+            supervision_log.append_raw(
+                Path(temporary, self.target, "events.jsonl"),
+                {
+                    "record_id": "EVT-WORK-B",
+                    "target_thread_id": self.target,
+                    "kind": "escalation",
+                    "status": "changed-state-review",
+                    "evidence": ["item-work-b"],
+                    "policy_sha256": policy_b["policy_sha256"],
+                },
+            )
+            start = supervision_log.parser().parse_args(
+                [
+                    "--root",
+                    temporary,
+                    "mission-activation-start",
+                    "--target-thread",
+                    self.target,
+                    "--mission-root",
+                    policy_b["mission_binding"]["mission_root"],
+                    "--activation-policy-sha256",
+                    activation_head["activation_policy_sha256"],
+                    "--first-eligible-work",
+                    "Block 0",
+                    "--source-record",
+                    "EVT-WORK-B",
+                    "--evidence",
+                    "item-work-b",
+                ]
+            )
+            with redirect_stdout(io.StringIO()):
+                supervision_log.cmd_mission_activation_start(start)
             to_c = supervision_log.parser().parse_args(
                 [
                     "--root",
@@ -2379,6 +2433,8 @@ class MissionContainmentContractTests(unittest.TestCase):
                     "c" * 64,
                     "--predecessor-disposition",
                     "completed",
+                    "--first-eligible-work",
+                    "Block 0",
                     "--reason",
                     "Mission C follows mission B.",
                     "--evidence",
@@ -2450,6 +2506,8 @@ class MissionContainmentContractTests(unittest.TestCase):
                     "b" * 64,
                     "--predecessor-disposition",
                     "superseded",
+                    "--first-eligible-work",
+                    "Block 0",
                     "--reason",
                     "Mission B replaced mission A.",
                     "--evidence",
@@ -2785,6 +2843,402 @@ class MissionContainmentContractTests(unittest.TestCase):
             record = json.loads(output.getvalue())["record"]
             self.assertEqual(record["containment"]["expiry_event"], "EVENT-STOP-1234")
             self.assertFalse(record["containment"]["carry_forward"])
+
+
+class MissionActivationContractTests(unittest.TestCase):
+    target = "target-1234"
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.directory = self.root / self.target
+        init = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "init",
+                "--target-thread",
+                self.target,
+                "--target-label",
+                "target",
+                "--watcher-thread",
+                "watcher-1234",
+                "--reviewer-thread",
+                "reviewer-1234",
+                "--base-reviewer-thread",
+                "base-1234",
+                "--fix-executor-thread",
+                "fixer-1234",
+                "--mission-source-class",
+                "direct-user",
+                "--mission-source-record",
+                "MISSION-A",
+                "--mission-source-sha256",
+                "a" * 64,
+            ]
+        )
+        with redirect_stdout(io.StringIO()):
+            supervision_log.cmd_init(init)
+
+    def policy(self) -> dict[str, object]:
+        return json.loads(
+            (self.directory / "policy.json").read_text(encoding="utf-8")
+        )
+
+    def successor(self, *, first_work: str = "Block 0") -> dict[str, object]:
+        policy = self.policy()
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "mission-successor",
+                "--target-thread",
+                self.target,
+                "--from-mission-root",
+                policy["mission_binding"]["mission_root"],
+                "--mission-source-class",
+                "direct-user",
+                "--mission-source-record",
+                "MISSION-B",
+                "--mission-source-sha256",
+                "b" * 64,
+                "--predecessor-disposition",
+                "superseded",
+                "--first-eligible-work",
+                first_work,
+                "--reason",
+                "Mission B replaced mission A.",
+                "--evidence",
+                "item-mission-b",
+            ]
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            supervision_log.cmd_mission_successor(args)
+        return json.loads(output.getvalue())
+
+    def append_source(
+        self, record_id: str, evidence: str, *, policy: dict[str, object] | None = None
+    ) -> None:
+        current = policy or self.policy()
+        supervision_log.append_raw(
+            self.directory / "events.jsonl",
+            {
+                "record_id": record_id,
+                "target_thread_id": self.target,
+                "kind": "escalation",
+                "status": "changed-state-review",
+                "evidence": [evidence],
+                "policy_sha256": current["policy_sha256"],
+            },
+        )
+
+    def start_args(
+        self,
+        activation: dict[str, object],
+        *,
+        mission_root: str | None = None,
+        activation_policy_sha256: str | None = None,
+        first_work: str | None = None,
+        source_record: str = "EVT-WORK-B",
+        evidence: str = "item-work-b",
+    ) -> argparse.Namespace:
+        return supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "mission-activation-start",
+                "--target-thread",
+                self.target,
+                "--mission-root",
+                mission_root or str(activation["mission_root"]),
+                "--activation-policy-sha256",
+                activation_policy_sha256
+                or str(activation["activation_policy_sha256"]),
+                "--first-eligible-work",
+                first_work or str(activation["first_eligible_work"]),
+                "--source-record",
+                source_record,
+                "--evidence",
+                evidence,
+            ]
+        )
+
+    def start(
+        self, activation: dict[str, object], **overrides: object
+    ) -> dict[str, object]:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            supervision_log.cmd_mission_activation_start(
+                self.start_args(activation, **overrides)
+            )
+        return json.loads(output.getvalue())
+
+    def status(self) -> dict[str, object]:
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "status",
+                "--target-thread",
+                self.target,
+            ]
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            supervision_log.cmd_status(args)
+        return json.loads(output.getvalue())
+
+    def test_successor_creates_pending_activation_and_terminal_gate_fails_closed(
+        self,
+    ) -> None:
+        result = self.successor()
+        activation = result["mission_activation"]
+        status = self.status()
+
+        self.assertEqual(activation["phase"], "pending")
+        self.assertEqual(status["mission_activation_count"], 1)
+        self.assertEqual(len(status["open_mission_activations"]), 1)
+        self.assertEqual(
+            status["mission_activation_action"],
+            supervision_log.MISSION_ACTIVATION_START_ACTION,
+        )
+        self.assertEqual(
+            status["mission_activation_required_target_posture"], "in-progress"
+        )
+
+        for state in ("completed", "paused", "stopped"):
+            with self.subTest(state=state):
+                record_id = f"EVT-{state.upper()}-B"
+                supervision_log.append_raw(
+                    self.directory / "events.jsonl",
+                    {
+                        "record_id": record_id,
+                        "target_thread_id": self.target,
+                        "kind": "lifecycle",
+                        "status": state,
+                        "state_fingerprint": f"state-{state}-b",
+                        "user_action_required": "no",
+                        "policy_sha256": result["policy"]["policy_sha256"],
+                    },
+                )
+                gate = supervision_log.parser().parse_args(
+                    [
+                        "--root",
+                        str(self.root),
+                        "lifecycle-gate",
+                        "--target-thread",
+                        self.target,
+                        "--lifecycle-state",
+                        state,
+                        "--source-record",
+                        record_id,
+                    ]
+                )
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    supervision_log.cmd_lifecycle_gate(gate)
+                lifecycle = json.loads(output.getvalue())
+                self.assertFalse(lifecycle["source_stop_permitted"])
+                self.assertEqual(
+                    lifecycle["completion_action"],
+                    supervision_log.MISSION_ACTIVATION_START_ACTION,
+                )
+                self.assertEqual(len(lifecycle["open_mission_activations"]), 1)
+
+        completed = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "record",
+                "--target-thread",
+                self.target,
+                "--kind",
+                "lifecycle",
+                "--status",
+                "completed",
+                "--state-fingerprint",
+                "state-completed-b",
+                "--summary",
+                "Incorrectly claimed completion before first work.",
+            ]
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "current mission first work has not started",
+        ):
+            supervision_log.cmd_record(completed)
+
+    def test_pending_activation_does_not_change_failed_or_blocked_handling(
+        self,
+    ) -> None:
+        result = self.successor()
+        for state in ("failed", "blocked"):
+            with self.subTest(state=state):
+                record_id = f"EVT-{state.upper()}-B"
+                supervision_log.append_raw(
+                    self.directory / "events.jsonl",
+                    {
+                        "record_id": record_id,
+                        "target_thread_id": self.target,
+                        "kind": "lifecycle",
+                        "status": state,
+                        "state_fingerprint": f"state-{state}-b",
+                        "user_action_required": "no",
+                        "policy_sha256": result["policy"]["policy_sha256"],
+                    },
+                )
+                args = supervision_log.parser().parse_args(
+                    [
+                        "--root",
+                        str(self.root),
+                        "lifecycle-gate",
+                        "--target-thread",
+                        self.target,
+                        "--lifecycle-state",
+                        state,
+                        "--source-record",
+                        record_id,
+                    ]
+                )
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    supervision_log.cmd_lifecycle_gate(args)
+                lifecycle = json.loads(output.getvalue())
+                self.assertTrue(lifecycle["source_stop_permitted"])
+                self.assertNotEqual(
+                    lifecycle["completion_action"],
+                    supervision_log.MISSION_ACTIVATION_START_ACTION,
+                )
+
+    def test_exact_later_work_start_closes_activation_idempotently(self) -> None:
+        activation = self.successor()["mission_activation"]
+        self.append_source("EVT-WORK-B", "item-work-b")
+
+        result = self.start(activation)
+        duplicate = self.start(activation)
+        status = self.status()
+
+        self.assertEqual(result["record"]["phase"], "work-started")
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(status["open_mission_activations"], [])
+        self.assertEqual(status["mission_activation_action"], "none")
+        self.assertIsNone(status["mission_activation_required_target_posture"])
+
+    def test_start_rejects_stale_identity_prebinding_and_divergent_evidence(
+        self,
+    ) -> None:
+        policy_a = self.policy()
+        self.append_source("EVT-PRE-BIND", "item-pre-bind", policy=policy_a)
+        activation = self.successor()["mission_activation"]
+
+        for overrides, message in (
+            ({"mission_root": "f" * 64}, "different mission root"),
+            ({"activation_policy_sha256": "e" * 64}, "policy identity differs"),
+            ({"first_work": "Block 1"}, "first work identity differs"),
+            (
+                {
+                    "source_record": "EVT-PRE-BIND",
+                    "evidence": "item-pre-bind",
+                },
+                "pre-binding evidence",
+            ),
+        ):
+            with self.subTest(message=message), self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, message
+            ):
+                supervision_log.cmd_mission_activation_start(
+                    self.start_args(activation, **overrides)
+                )
+
+        self.append_source("EVT-WORK-B", "item-work-b")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "not bound to its source record",
+        ):
+            supervision_log.cmd_mission_activation_start(
+                self.start_args(activation, evidence="item-not-in-source")
+            )
+
+        self.start(activation)
+        self.append_source("EVT-WORK-B-2", "item-work-b-2")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "already closed with different evidence",
+        ):
+            supervision_log.cmd_mission_activation_start(
+                self.start_args(
+                    activation,
+                    source_record="EVT-WORK-B-2",
+                    evidence="item-work-b-2",
+                )
+            )
+
+    def test_initial_and_existing_current_missions_are_not_retroactively_blocked(
+        self,
+    ) -> None:
+        policy = self.policy()
+        status = self.status()
+        self.assertEqual(status["mission_activation_count"], 0)
+        self.assertEqual(status["open_mission_activations"], [])
+
+        supervision_log.append_raw(
+            self.directory / "events.jsonl",
+            {
+                "record_id": "EVT-COMPLETED-A",
+                "target_thread_id": self.target,
+                "kind": "lifecycle",
+                "status": "completed",
+                "state_fingerprint": "state-completed-a",
+                "user_action_required": "no",
+                "policy_sha256": policy["policy_sha256"],
+            },
+        )
+        gate = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "lifecycle-gate",
+                "--target-thread",
+                self.target,
+                "--lifecycle-state",
+                "completed",
+                "--source-record",
+                "EVT-COMPLETED-A",
+            ]
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            supervision_log.cmd_lifecycle_gate(gate)
+        lifecycle = json.loads(output.getvalue())
+        self.assertTrue(lifecycle["source_stop_permitted"])
+        self.assertEqual(lifecycle["open_mission_activations"], [])
+        self.assertNotEqual(
+            lifecycle["completion_action"],
+            supervision_log.MISSION_ACTIVATION_START_ACTION,
+        )
+
+    def test_same_target_activation_is_documented_without_task_or_resume_expansion(
+        self,
+    ) -> None:
+        skill = HELPER_PATH.parent.parent.joinpath("SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        policy = HELPER_PATH.parent.parent.joinpath(
+            "references", "supervision-policy.md"
+        ).read_text(encoding="utf-8")
+
+        for text in (skill, policy):
+            self.assertIn("mission-activation-start", text)
+            self.assertIn("first eligible work", text)
+            self.assertIn("in-progress", text)
+            self.assertIn("manual Resume", text)
+            self.assertIn("successor-task transition", text)
+        self.assertIn(
+            supervision_log.MISSION_ACTIVATION_START_ACTION,
+            policy,
+        )
 
 
 class OutcomeCompletionRecordTests(unittest.TestCase):
