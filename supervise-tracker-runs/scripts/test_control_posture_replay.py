@@ -357,6 +357,38 @@ class ControlPostureReplayTests(unittest.TestCase):
         self.assertEqual(decision_result["blocking_decision_records"], [])
         self.assertEqual(decision_result["open_decision_records"], ["EVT-000001"])
 
+        owner_blocking_decision = {
+            **subordinate_decision,
+            "record_id": "EVT-000002",
+            "decision_id": "DEC-OWNER-1234",
+            "state_fingerprint": "owner-state-1234",
+            "authority_source_record": "OWNER-DIRECT-1234",
+        }
+        self.append(owner_directory, owner_blocking_decision)
+        owner_blocking_result = supervision_log.reduce_control_posture(
+            directory=owner_directory,
+            policy=owner_policy,
+            owner_events=supervision_log.events(owner_directory / "events.jsonl"),
+        )
+        self.assertEqual(owner_blocking_result["required_target_posture"], "blocked")
+        self.assertEqual(
+            owner_blocking_result["next_action"],
+            "preserve-safe-deferral-and-revisit-on-authority-change",
+        )
+        self.assertEqual(owner_blocking_result["blocking_decision_records"], ["EVT-000002"])
+        self.assertEqual(
+            owner_blocking_result["open_decision_records"],
+            ["EVT-000002", "EVT-000001"],
+        )
+
+        self.append(
+            owner_directory,
+            {
+                **owner_blocking_decision,
+                "record_id": "EVT-000003",
+                "outcome": "user-supplied",
+            },
+        )
         stop_decision = {
             **subordinate_decision,
             "record_id": "EVT-000002",

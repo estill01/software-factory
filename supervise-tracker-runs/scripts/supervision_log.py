@@ -7615,10 +7615,15 @@ def reduce_control_posture(
         for head, member_policy, target in open_decisions
         if target == owner_target and decision_can_block(head, member_policy)
     ]
-    nonblocking_decisions = [
+    owner_nonblocking_decisions = [
         head
         for head, member_policy, target in open_decisions
-        if target != owner_target or not decision_can_block(head, member_policy)
+        if target == owner_target and not decision_can_block(head, member_policy)
+    ]
+    subordinate_decisions = [
+        head
+        for head, _member_policy, target in open_decisions
+        if target != owner_target
     ]
     if not stable:
         required_posture = "in-progress"
@@ -7632,12 +7637,15 @@ def reduce_control_posture(
     elif open_transitions:
         required_posture = "in-progress"
         next_action = "continue-open-successor-transition"
-    elif safe_work or nonblocking_decisions:
+    elif safe_work or owner_nonblocking_decisions:
         required_posture = "in-progress"
         next_action = "continue-safe-frontier-or-resolve-decision"
     elif blocking_decisions:
         required_posture = "blocked"
         next_action = "preserve-safe-deferral-and-revisit-on-authority-change"
+    elif subordinate_decisions:
+        required_posture = "in-progress"
+        next_action = "continue-safe-frontier-or-resolve-decision"
     elif completion_candidates:
         required_posture = "completed"
         next_action = "close-governing-outcome"
