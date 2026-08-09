@@ -488,7 +488,7 @@ the relevant authority and evidence contract.
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
 | 0 | Product contract and live-owner baseline | — | `accepted` |
-| 1 | Loopback runtime and reference frontend scaffold | 0 | `in-progress` |
+| 1 | Loopback runtime and reference frontend scaffold | 0 | `accepted` |
 | 2 | Project catalog and bounded discovery | 1 | `not-started` |
 | 3 | Tracker truth and Git-currentness projection | 2 | `not-started` |
 | 4 | Supervision, automation, report, and metrics projection | 2 | `not-started` |
@@ -732,7 +732,7 @@ Stop before creating the dashboard runtime or dependency manifests.
 
 ## Block 1 — Loopback runtime and reference frontend scaffold
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -855,8 +855,44 @@ and Block 0 contract amendment.
   Focused Vitest passed 5 tests; the full frontend check passed 7 tests across
   3 files; the production build passed; and Playwright passed 15 desktop,
   tablet, and mobile cases including the failed-health posture.
-- Successor candidate, fresh review, checkpoint, and acceptance evidence:
-  pending.
+- Accepted candidate: exact successor
+  `9d8654fc7f4c3543660df599f88cd9f777609503`, tree
+  `130a9ac76b6502093e4ff13eb5f4599877afff0d`; the candidate remained
+  unchanged after fresh review.
+- Delivered behavior: `dashboard/server/` provides the installable
+  standard-library loopback CLI, `/api/v1/health`, production SPA fallback,
+  shared envelope, security headers, per-launch nonce, same-origin guard, and
+  explicit absence of mutations. `dashboard/web/` provides the exact frozen
+  React/TypeScript/Vite stack, route-split five-workspace shell, theme,
+  loading/error/not-found/unknown states, responsive rails, and honest source
+  readiness. Root and dashboard developer documentation expose one local run
+  path on port `8787`, not `5173`.
+- Validation: Python passed 6 tests with `ResourceWarning` promoted to errors;
+  TypeScript and Vitest passed 7 tests across 3 files; the production build
+  passed with route-specific chunks; Playwright passed 15 cases across
+  desktop, tablet, and mobile, including axe, overflow, navigation, theme,
+  fallback, and failed-health truth checks. The full tracker verifier passed
+  26 Blocks with 0 errors and 0 warnings, its 30 verifier tests passed, local
+  Markdown links resolved, and `git diff --check` passed.
+- Live runtime proof at `127.0.0.1:8787`: health was `ok` with explicitly
+  partial coverage; the injected nonce was 43 characters; SPA fallback was
+  `200`; hashed assets were immutable; invalid Host and traversal were `400`;
+  wrong origin and nonce were `403`; a correctly guarded nonexistent mutation
+  remained `404`; and CSP, `DENY`, and `no-store` headers were present.
+- Independent review: `tracker_exact_review` rejected exact `9153dcb` on the
+  two preserved truth-boundary findings, then accepted exact `9d8654f` after
+  reproducing focused Vitest 5/5, full frontend 7/7, build, Playwright 15/15,
+  Python 6/6, the full tracker verifier, and the focused diff. It reported no
+  material finding and confirmed that no catalog, project-source read, or
+  later-Block operation was introduced.
+- Resource posture: one frozen dependency install and lockfile were reused;
+  no additional frontend family or browser engine was installed, and the
+  initial browser/accessibility diagnostics were retained as remediation
+  evidence rather than completion proof.
+- Post-block audit: `accepted`; the requested shell is runnable and truthful,
+  all real operational sources remain unavailable, and the Block 1 Stop was
+  honored before project catalog creation or source reads.
+- Git durability: acceptance checkpoint and non-force push pending.
 
 ### Stop
 
