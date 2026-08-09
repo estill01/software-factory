@@ -80,8 +80,10 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
             "block_contract_root": "sha256",
             "target_class": "enum:target-class",
             "target_repository_root": "repo-path",
+            "decision_target_state_root": "sha256",
             "target_revision": "string",
-            "target_state_root": "sha256",
+            "target_revision_root": "sha256",
+            "current_target_state_root": "sha256",
             "capability_statement": "string",
             "capability_frame_root": "sha256",
             "protected_capability_results": "array:protected-result",
@@ -169,6 +171,10 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
             enums["mission-authority-source-class"], ["direct-user", "system"]
         )
         self.assertIn("independent-evaluation", enums["evidence-source-class"])
+        self.assertEqual(
+            enums["evidence-posture"],
+            ["adjudicating", "process", "current-outcome"],
+        )
 
     def test_root_projections_and_successor_links_are_exact(self) -> None:
         self.assertEqual(SPEC["array_order"]["evidence_refs"], "ref_id-ascending")
@@ -200,12 +206,11 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
                 "prior_mission_root",
                 "proposed_mission_root",
                 "tracker_path",
-                "tracker_sha256",
                 "block_number",
                 "block_contract_root",
                 "target_class",
                 "target_repository_root",
-                "target_state_root",
+                "decision_target_state_root",
                 "capability_statement",
                 "capability_frame_root",
                 "protected_capability_results",
@@ -213,11 +218,8 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
                 "adjudicating_evidence_root",
                 "compared_paths",
                 "affected_scope",
-                "safe_frontier",
-                "adaptive_decision_mode",
                 "implementation_owner_id",
                 "stop_boundary",
-                "external_boundary",
             ],
         )
         self.assertEqual(
@@ -226,9 +228,15 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
                 "decision_fingerprint",
                 "decision_stage",
                 "evidence_manifest_root",
+                "tracker_sha256",
                 "policy_root",
                 "event_head_root",
                 "target_revision",
+                "target_revision_root",
+                "current_target_state_root",
+                "safe_frontier",
+                "adaptive_decision_mode",
+                "external_boundary",
                 "accepted_decision_head",
                 "accepted_revision_head",
                 "candidate_root?",
@@ -236,6 +244,7 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
                 "review_disposition?",
                 "retirement_posture?",
                 "proposed_tracker_root?",
+                "authoring_review_root?",
                 "authoring_review_disposition?",
             ],
         )
@@ -262,12 +271,14 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
         source = {
             "ref_id": "source-1",
             "source_class": "repository",
+            "adjudication_posture": "adjudicating",
             "root_sha256": "a" * 64,
             "claim_ids": ["claim-source"],
         }
         validation = {
             "ref_id": "validation-1",
             "source_class": "validation",
+            "adjudication_posture": "process",
             "root_sha256": "b" * 64,
             "claim_ids": ["claim-validation"],
         }
@@ -300,10 +311,27 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
         self.assertEqual(
             validated_stage["decision_fingerprint"], reviewed_stage["decision_fingerprint"]
         )
+        for field in (
+            "tracker_sha256",
+            "current_target_state_root",
+            "safe_frontier",
+            "adaptive_decision_mode",
+            "external_boundary",
+        ):
+            changed_context = {**current_before, field: f"changed:{field}"}
+            self.assertNotEqual(
+                canonical_test_root(current_before),
+                canonical_test_root(changed_context),
+            )
+            self.assertEqual(
+                current_before["decision_fingerprint"],
+                changed_context["decision_fingerprint"],
+            )
 
         second_source = {
             "ref_id": "source-2",
             "source_class": "canonical-event",
+            "adjudication_posture": "adjudicating",
             "root_sha256": "c" * 64,
             "claim_ids": ["claim-second"],
         }
@@ -339,6 +367,10 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
             ["validation", "independent-review", "observed-outcome"],
         )
         self.assertEqual(
+            stages["closed_required_by_disposition"]["compare-candidate"],
+            ["validation", "independent-review", "observed-outcome"],
+        )
+        self.assertEqual(
             stages["software-factory-additional-evidence"]["source_classes"],
             ["independent-review", "independent-evaluation"],
         )
@@ -348,6 +380,48 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
                 ["review_disposition", "accepted"],
                 ["retirement_posture", "eligible-cutover"],
             ],
+        )
+        self.assertEqual(
+            stages["candidate_closed_retirement"],
+            {
+                "accepted": ["cut-over", "retired-loser"],
+                "revise": ["retired-inconclusive"],
+                "rejected": ["retired-loser"],
+                "inconclusive": ["retired-inconclusive"],
+            },
+        )
+        self.assertNotIn(
+            "active-isolated",
+            {
+                posture
+                for postures in stages["candidate_closed_retirement"].values()
+                for posture in postures
+            },
+        )
+        self.assertNotIn(
+            "eligible-cutover",
+            {
+                posture
+                for postures in stages["candidate_closed_retirement"].values()
+                for posture in postures
+            },
+        )
+        self.assertEqual(
+            stages["candidate_review_binding"],
+            {
+                "source_class": "independent-review",
+                "root_field": "review_root",
+                "claim_fields": [
+                    "decision_id",
+                    "candidate_root",
+                    "reviewer_id",
+                    "review_disposition",
+                ],
+            },
+        )
+        self.assertEqual(
+            stages["observed_outcome_claim_fields"],
+            ["decision_id", "current_target_state_root", "target_revision_root"],
         )
         self.assertIn("transition from `closed` is\n  rejected", REFERENCE)
 
@@ -499,20 +573,27 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
                 "resume_point",
                 "author_owner_id",
                 "authoring_reviewer_id",
+                "authoring_review_root",
                 "authoring_review_disposition",
             },
         )
         self.assertTrue(all(field["required"] is True for field in structural.values()))
         self.assertEqual(
             {name for name, field in structural.items() if field["nullable"]},
-            {"proposed_tracker_root"},
+            {"proposed_tracker_root", "authoring_review_root"},
         )
 
     def test_evidence_and_path_records_bind_claims_and_exact_choices(self) -> None:
         evidence_fields = SPEC["named_types"]["evidence-ref"]["fields"]
         self.assertEqual(
             set(evidence_fields),
-            {"ref_id", "source_class", "root_sha256", "claim_ids"},
+            {
+                "ref_id",
+                "source_class",
+                "adjudication_posture",
+                "root_sha256",
+                "claim_ids",
+            },
         )
         self.assertEqual(evidence_fields["claim_ids"]["min_items"], 1)
         path_fields = SPEC["named_types"]["path-comparison"]["fields"]
@@ -573,6 +654,94 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
         self.assertFalse(valid([*accepted, (["missing-evidence"], "path-local")]))
         self.assertFalse(valid([*accepted, (["ev-path"], "path-general")]))
 
+    def test_adjudicating_union_rejects_omission_or_process_addition(self) -> None:
+        refs = [
+            {"ref_id": "authority", "adjudication_posture": "adjudicating"},
+            {"ref_id": "capability", "adjudication_posture": "adjudicating"},
+            {"ref_id": "path", "adjudication_posture": "adjudicating"},
+            {"ref_id": "validation", "adjudication_posture": "process"},
+            {"ref_id": "outcome", "adjudication_posture": "current-outcome"},
+        ]
+        exact = sorted(
+            item["ref_id"]
+            for item in refs
+            if item["adjudication_posture"] == "adjudicating"
+        )
+
+        def accepted(submitted: list[str]) -> bool:
+            return submitted == exact
+
+        self.assertTrue(accepted(["authority", "capability", "path"]))
+        self.assertFalse(accepted(["authority", "path"]))
+        self.assertFalse(
+            accepted(["authority", "capability", "path", "validation"])
+        )
+        self.assertIn("The set equals all and only refs used by authority", REFERENCE)
+        self.assertIn("Omission, addition, or posture mismatch\n  rejects", REFERENCE)
+
+    def test_candidate_closed_and_cutover_evidence_is_root_and_claim_bound(self) -> None:
+        stages = SPEC["stage_rules"]
+        candidate_root = "c" * 64
+        review_root = "d" * 64
+        target_state_root = "e" * 64
+        target_revision_root = "f" * 64
+        decision_id = "decision-candidate"
+        reviewer_id = "reviewer-candidate"
+        review_disposition = "accepted"
+        review = {
+            "source_class": "independent-review",
+            "adjudication_posture": "process",
+            "root_sha256": review_root,
+            "claim_ids": sorted([
+                candidate_root,
+                decision_id,
+                review_disposition,
+                reviewer_id,
+            ]),
+        }
+        outcome = {
+            "source_class": "observed-outcome",
+            "adjudication_posture": "current-outcome",
+            "root_sha256": "a" * 64,
+            "claim_ids": sorted([
+                candidate_root,
+                decision_id,
+                target_revision_root,
+                target_state_root,
+            ]),
+        }
+
+        def review_valid(item: dict[str, object]) -> bool:
+            binding = stages["candidate_review_binding"]
+            expected_claims = {decision_id, candidate_root, reviewer_id, review_disposition}
+            return (
+                item["source_class"] == binding["source_class"]
+                and item["root_sha256"] == review_root
+                and expected_claims.issubset(set(item["claim_ids"]))
+            )
+
+        def outcome_valid(item: dict[str, object]) -> bool:
+            expected_claims = {
+                decision_id,
+                target_state_root,
+                target_revision_root,
+                candidate_root,
+            }
+            return (
+                item["source_class"] == "observed-outcome"
+                and item["adjudication_posture"] == "current-outcome"
+                and expected_claims.issubset(set(item["claim_ids"]))
+            )
+
+        self.assertTrue(review_valid(review))
+        self.assertTrue(outcome_valid(outcome))
+        self.assertFalse(review_valid({**review, "root_sha256": "0" * 64}))
+        self.assertFalse(outcome_valid({**outcome, "claim_ids": [decision_id]}))
+        terminal = stages["candidate_closed_retirement"][review_disposition]
+        self.assertIn("cut-over", terminal)
+        self.assertNotIn("active-isolated", terminal)
+        self.assertNotIn("eligible-cutover", terminal)
+
     def test_four_dispositions_form_the_smallest_sufficient_ladder(self) -> None:
         for disposition in (
             "`continue-unchanged`",
@@ -619,7 +788,9 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
             "mission_root",
             "tracker_sha256",
             "block_contract_root",
-            "target_state_root",
+            "decision_target_state_root",
+            "target_revision_root",
+            "current_target_state_root",
             "capability_frame_root",
             "protected_capability_results",
             "evidence_refs",

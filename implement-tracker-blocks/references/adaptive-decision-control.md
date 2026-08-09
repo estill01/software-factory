@@ -128,8 +128,9 @@ normative; this prose is an operator index. Common fields are:
   `block_contract_root`;
 - `authority_effect`, nullable `authority_claim_id`, `authority_evidence_refs`,
   `prior_mission_root`, and `proposed_mission_root`;
-- `target_class`, `target_repository_root`, `target_revision`, and
-  `target_state_root`;
+- `target_class`, `target_repository_root`, frozen
+  `decision_target_state_root`, current `target_revision`,
+  `target_revision_root`, and `current_target_state_root`;
 - `capability_statement`, `capability_frame_root`, and
   `protected_capability_results`;
 - `evidence_refs`, `adjudicating_evidence_ref_ids`,
@@ -183,6 +184,7 @@ IDs or roots, and obey `min_items`. Objects reject unknown keys. `id` and
       "fields": {
         "ref_id": {"type": "id", "required": true, "nullable": false},
         "source_class": {"type": "enum:evidence-source-class", "required": true, "nullable": false},
+        "adjudication_posture": {"type": "enum:evidence-posture", "required": true, "nullable": false},
         "root_sha256": {"type": "sha256", "required": true, "nullable": false},
         "claim_ids": {"type": "array:id", "required": true, "nullable": false, "min_items": 1}
       }
@@ -235,6 +237,7 @@ IDs or roots, and obey `min_items`. Objects reject unknown keys. `id` and
     "adaptive-decision-mode": ["fixed", "recommend", "reviewed-autonomous", "full-autonomous"],
     "mission-authority-source-class": ["direct-user", "system"],
     "evidence-source-class": ["direct-user", "system", "repository", "tracker", "canonical-event", "observed-outcome", "validation", "independent-review", "independent-evaluation"],
+    "evidence-posture": ["adjudicating", "process", "current-outcome"],
     "protected-result": ["preserved", "regressed", "reopened"],
     "path-kind": ["local", "bounded-general", "architectural-owner"],
     "path-posture": ["selected", "rejected", "unavailable"],
@@ -264,8 +267,10 @@ IDs or roots, and obey `min_items`. Objects reject unknown keys. `id` and
     "block_contract_root": {"type": "sha256", "required": true, "nullable": false},
     "target_class": {"type": "enum:target-class", "required": true, "nullable": false},
     "target_repository_root": {"type": "repo-path", "required": true, "nullable": false},
+    "decision_target_state_root": {"type": "sha256", "required": true, "nullable": false},
     "target_revision": {"type": "string", "required": true, "nullable": false, "min_length": 1},
-    "target_state_root": {"type": "sha256", "required": true, "nullable": false},
+    "target_revision_root": {"type": "sha256", "required": true, "nullable": false},
+    "current_target_state_root": {"type": "sha256", "required": true, "nullable": false},
     "capability_statement": {"type": "string", "required": true, "nullable": false, "min_length": 1},
     "capability_frame_root": {"type": "sha256", "required": true, "nullable": false},
     "protected_capability_results": {"type": "array:protected-result", "required": true, "nullable": false, "min_items": 1},
@@ -331,6 +336,7 @@ IDs or roots, and obey `min_items`. Objects reject unknown keys. `id` and
     "resume_point": {"type": "integer", "required": true, "nullable": false, "minimum": 0},
     "author_owner_id": {"type": "id", "required": true, "nullable": false},
     "authoring_reviewer_id": {"type": "id", "required": true, "nullable": false},
+    "authoring_review_root": {"type": "sha256", "required": true, "nullable": true},
     "authoring_review_disposition": {"type": "enum:authoring-review-disposition", "required": true, "nullable": false}
   },
   "evidence_reference_rules": {
@@ -362,10 +368,39 @@ IDs or roots, and obey `min_items`. Objects reject unknown keys. `id` and
       "validated": ["validation"],
       "reviewed": ["validation", "independent-review"],
       "cutover-eligible": ["validation", "independent-review", "observed-outcome"],
-      "closed": ["validation", "observed-outcome"]
+      "closed": []
+    },
+    "closed_required_by_disposition": {
+      "continue-unchanged": ["observed-outcome"],
+      "correct-inline": ["validation", "observed-outcome"],
+      "compare-candidate": ["validation", "independent-review", "observed-outcome"],
+      "amend-structure": ["validation", "independent-review"]
     },
     "cutover-eligible": {"disposition": "compare-candidate", "nonnull": ["candidate_root", "review_root", "review_disposition"], "equals": [["review_disposition", "accepted"], ["retirement_posture", "eligible-cutover"]]},
-    "software-factory-additional-evidence": {"stages": ["reviewed", "cutover-eligible", "closed"], "source_classes": ["independent-review", "independent-evaluation"]}
+    "nonnull_by_disposition_stage": {
+      "compare-candidate.validated": ["candidate_root"],
+      "compare-candidate.reviewed": ["candidate_root", "review_root", "review_disposition"],
+      "compare-candidate.closed": ["candidate_root", "review_root", "review_disposition"],
+      "amend-structure.validated": ["proposed_tracker_root"],
+      "amend-structure.reviewed": ["proposed_tracker_root", "authoring_review_root"],
+      "amend-structure.closed": ["proposed_tracker_root", "authoring_review_root"]
+    },
+    "validation_claim_fields": {
+      "correct-inline": ["decision_id", "current_target_state_root"],
+      "compare-candidate": ["decision_id", "candidate_root"],
+      "amend-structure": ["decision_id", "proposed_tracker_root"]
+    },
+    "observed_outcome_claim_fields": ["decision_id", "current_target_state_root", "target_revision_root"],
+    "candidate_observed_outcome_additional_claim_fields": ["candidate_root"],
+    "candidate_review_binding": {"source_class": "independent-review", "root_field": "review_root", "claim_fields": ["decision_id", "candidate_root", "reviewer_id", "review_disposition"]},
+    "structural_review_binding": {"source_class": "independent-review", "root_field": "authoring_review_root", "claim_fields": ["decision_id", "proposed_tracker_root", "authoring_reviewer_id", "authoring_review_disposition"]},
+    "candidate_closed_retirement": {
+      "accepted": ["cut-over", "retired-loser"],
+      "revise": ["retired-inconclusive"],
+      "rejected": ["retired-loser"],
+      "inconclusive": ["retired-inconclusive"]
+    },
+    "software-factory-additional-evidence": {"stages": ["reviewed", "cutover-eligible", "closed"], "source_classes": ["independent-review", "independent-evaluation"], "claim_fields": ["decision_id", "reviewer_id", "evaluator_id"]}
   },
   "array_order": {
     "authority_evidence_refs": "id-ascending",
@@ -397,10 +432,10 @@ IDs or roots, and obey `min_items`. Objects reject unknown keys. `id` and
     "invalidated_evidence_refs": "id-ascending",
     "preserved_evidence_refs": "id-ascending"
   },
-  "fingerprint_projection": ["schema_version", "mission_root", "authority_effect", "authority_claim_id", "authority_evidence_refs", "prior_mission_root", "proposed_mission_root", "tracker_path", "tracker_sha256", "block_number", "block_contract_root", "target_class", "target_repository_root", "target_state_root", "capability_statement", "capability_frame_root", "protected_capability_results", "adjudicating_evidence_ref_ids", "adjudicating_evidence_root", "compared_paths", "affected_scope", "safe_frontier", "adaptive_decision_mode", "implementation_owner_id", "stop_boundary", "external_boundary"],
+  "fingerprint_projection": ["schema_version", "mission_root", "authority_effect", "authority_claim_id", "authority_evidence_refs", "prior_mission_root", "proposed_mission_root", "tracker_path", "block_number", "block_contract_root", "target_class", "target_repository_root", "decision_target_state_root", "capability_statement", "capability_frame_root", "protected_capability_results", "adjudicating_evidence_ref_ids", "adjudicating_evidence_root", "compared_paths", "affected_scope", "implementation_owner_id", "stop_boundary"],
   "candidate_fingerprint_projection": ["hypothesis", "hypothesis_scope", "incumbent_root", "isolation_kind", "isolated_writable_scope", "shared_resource_exclusions", "resource_ceiling", "time_ceiling", "stop_condition", "production_authority_owner_id", "focused_validation", "mapped_validation", "validation_order", "comparison_dimensions", "independent_reviewer_id", "cutover_owner_id", "cutover_preconditions"],
   "structural_fingerprint_projection": ["structural_reason", "proposed_mutations", "old_to_new_block_map", "dependency_closure", "accepted_history_boundary", "invalidated_evidence_refs", "preserved_evidence_refs", "resume_point", "author_owner_id", "authoring_reviewer_id"],
-  "currentness_projection": ["decision_fingerprint", "decision_stage", "evidence_manifest_root", "policy_root", "event_head_root", "target_revision", "accepted_decision_head", "accepted_revision_head", "candidate_root?", "review_root?", "review_disposition?", "retirement_posture?", "proposed_tracker_root?", "authoring_review_disposition?"],
+  "currentness_projection": ["decision_fingerprint", "decision_stage", "evidence_manifest_root", "tracker_sha256", "policy_root", "event_head_root", "target_revision", "target_revision_root", "current_target_state_root", "safe_frontier", "adaptive_decision_mode", "external_boundary", "accepted_decision_head", "accepted_revision_head", "candidate_root?", "review_root?", "review_disposition?", "retirement_posture?", "proposed_tracker_root?", "authoring_review_root?", "authoring_review_disposition?"],
   "role_rules": {
     "target-repository": {
       "continue-unchanged": {"must_be_null": ["proposer_author_id", "reviewer_id", "evaluator_id"]},
@@ -455,9 +490,14 @@ The cross-field rules are:
   without attributable evidence does not establish independent participation.
 - `adjudicating-evidence-subset`: every
   `adjudicating_evidence_ref_ids` value resolves exactly once in
-  `evidence_refs`; `adjudicating_evidence_root` is SHA-256 of canonical bytes
-  for those complete evidence objects in ID order. Later non-adjudicating
-  evidence cannot alter the set or root without creating a successor decision.
+  `evidence_refs`. The set equals all and only refs used by authority,
+  protected-capability, and compared-path claim bindings, plus external-boundary
+  refs only when `boundary_class == direct-goal-change`; every member has
+  `adjudication_posture == adjudicating`. Other external-boundary and
+  observed-outcome refs are `current-outcome`; every other nonmember is
+  `process`. `adjudicating_evidence_root` is SHA-256 of canonical bytes for the
+  complete member objects in ID order. Omission, addition, or posture mismatch
+  rejects the record; changing a member creates a successor decision.
 - `evidence-manifest-root`: `evidence_manifest_root` is SHA-256 of canonical
   bytes for the complete ordered `evidence_refs` array.
 - `stage-transition`: decision records are immutable. A changed
@@ -466,9 +506,15 @@ The cross-field rules are:
   and changes `currentness_root`. Regression or transition from `closed` is
   rejected.
 - `stage-evidence`: the complete evidence catalog contains every source class
-  required for the current stage. `cutover-eligible` also satisfies its exact
-  disposition, non-null, review-disposition, and retirement-posture rules.
-  `software-factory` stages listed in
+  required for the current stage, using `process` for validation/review and
+  `current-outcome` for observed outcomes. Each required validation and outcome
+  object contains the exact configured claim fields. Candidate and structural
+  review evidence additionally has `root_sha256` equal to its configured review
+  root and contains every configured claim. `cutover-eligible` satisfies its
+  exact disposition, non-null, accepted-review, and eligible-retirement rules.
+  A closed candidate satisfies `candidate_closed_retirement`; therefore
+  `active-isolated` and `eligible-cutover` are never terminal. `software-factory`
+  stages listed in
   `software-factory-additional-evidence` additionally contain both an
   independent-review and independent-evaluation reference bound to the current
   record.
@@ -543,7 +589,7 @@ An `amend-structure` packet adds:
 - `dependency_closure` and `accepted_history_boundary`;
 - `proposed_tracker_root` and `invalidated_evidence_refs`;
 - `preserved_evidence_refs` and `resume_point`;
-- `author_owner_id`, `authoring_reviewer_id`, and
+- `author_owner_id`, `authoring_reviewer_id`, `authoring_review_root`, and
   `authoring_review_disposition`.
 
 The packet is proposed evidence, not a tracker edit. It cannot change the
@@ -554,17 +600,21 @@ changed, then resumes from the earliest affected dependency-safe point.
 
 ## Currentness and conflict rules
 
-The `decision_fingerprint` is the canonical hash of the mission root, tracker
-and Block-contract roots, target-state root, capability/protected-capability
-projection, exact adjudicating evidence roots, and compared-path identities.
-The `currentness_root` additionally binds current policy, event head, target
-revision, incumbent/candidate roots when present, and the accepted decision or
-revision head.
+The `decision_fingerprint` freezes the mission and Block-contract identity,
+`decision_target_state_root`, capability/protected-capability projection, exact
+adjudicating evidence, compared paths, affected scope, implementation owner,
+and Stop. It intentionally excludes the mutable whole-tracker hash, current
+target state, safe frontier, policy mode, and external boundary. The
+`currentness_root` binds those mutable values plus stage, complete evidence
+manifest, current policy/event heads, target revision/root, current target-state
+root, candidate/review or structural-review outputs, and accepted decision or
+revision heads.
 
 - Equal fingerprint plus equal currentness is idempotent and is not
   reconsidered.
-- Changed context without new adjudicating evidence refreshes currentness but
-  does not reopen the decision.
+- Changed tracker status/evidence, implementation state, safe frontier, policy
+  mode, or external-boundary posture without new adjudicating evidence refreshes
+  currentness but does not reopen the decision.
 - Changed adjudicating evidence creates a successor decision linked by
   predecessor ID; it never rewrites the prior record.
 - A stale fingerprint, tracker root, Block root, policy head, target revision,
