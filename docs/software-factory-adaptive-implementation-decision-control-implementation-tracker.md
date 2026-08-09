@@ -630,7 +630,7 @@ continuous cognition the price of ordinary execution.
 | Block | Scope | Depends on | Status |
 |---:|---|---|---|
 | 0 | Separate governing outcome identity and derive one canonical posture | — | `completed` |
-| 1 | Correct, supersede, cancel, or expire invalid execution transitions | 0 | `not-started` |
+| 1 | Correct, supersede, cancel, or expire invalid execution transitions | 0 | `completed` |
 | 2 | Stage, pin, activate, and roll back one accepted three-skill release | 1 | `not-started` |
 | 3 | Replay observed failures and prove control-plane convergence | 0, 1, 2 | `not-started` |
 | 4 | Freeze the three-path adaptive decision-control contract | 3 | `not-started` |
@@ -849,7 +849,7 @@ or implementing the adaptive decision-control Blocks.
 
 ## Block 1 — Correct, supersede, cancel, or expire invalid execution transitions
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -1021,7 +1021,33 @@ retiring a control does not close the outcome.
 
 ### Completion evidence
 
-Pending.
+- Implemented append-only transition correction, canonical same-task/default
+  topology, exact distinct-task authority, canonical full-range continuation,
+  terminal lifecycle gating, and currentness/containment hardening across the
+  accepted candidate chain `359cee0` through
+  `10a931ecf803d805b06964d8f12b058b5c7eee2e`; rejected/remediated
+  predecessors remain preserved in Git history.
+- The recurrence root is recorded as unauthorized requested-range contraction
+  followed by false terminalization (`FM-UNAUTHORIZED-EARLY-RETURN`), with the
+  later routed-precedence conflict retained as a contributing mechanism rather
+  than substituted as the cause. The standing full-tracker range remains bound
+  through internal Stops and exact one-Block requests remain bounded.
+- Canonical authority and currentness now reject fabricated direct-source
+  receipts, caller-selected tracker replacement, structural amendment without
+  accepted provenance, conditional/optional/contradictory distinct-task prose,
+  symlinked or rewritten ledgers, coordinated owner-root re-rooting, authentic
+  prefix rollback, enforcement downgrade, and false legacy reset when an
+  external authenticated head survives.
+- Validation on exact `10a931ecf803d805b06964d8f12b058b5c7eee2e`:
+  234 supervision tests, 30 tracker-authoring tests, seven implementation-owner
+  tests, six focused adversarial tests, all three Skill Creator validators,
+  compilation, diff check, and the full-profile 18-Block tracker verifier pass.
+- Independent review: Herschel (`/root/block1_review`) reviewed exact
+  `10a931ecf803d805b06964d8f12b058b5c7eee2e` read-only and returned no
+  findings after confirming positive canonical operation, true legacy
+  migration, and every listed adversarial rejection.
+- Git durability: every implementation/remediation checkpoint through the
+  accepted revision is pushed to `origin/codex/control-plane-foundation`.
 
 ### Stop
 
