@@ -1,7 +1,7 @@
 # Software Factory Operations Dashboard Implementation Tracker
 
 - Tracker status: `planning`
-- Tracker sequence: Blocks 0–23
+- Tracker sequence: Blocks 0–25
 - Repository: `https://github.com/estill01/software-factory.git`
 - Governing objective: direct user request in Codex task
   `019fe547-e054-7ca0-9940-ec4aa146df78`, 2026-08-08: provide a dashboard
@@ -359,7 +359,7 @@ an explicit compatibility change in Block 1:
 | Current reports/evolution | repository revision `c7d4efce3e3bf5fb3a8dbc4d9ab0db0ef2cd89bd` plus live artifacts | reuse | 4, 9 | project verified metrics, history, manifests, and limitations |
 | Existing trackers in `docs/` | live hashes frozen per project scan | reuse | 3, 8 | support new full-profile and inherited core-profile truth without rewriting them |
 | Official Codex App Server protocol | installed CLI `codex-cli 0.145.0` observed during planning; regenerate in Block 5 | adapt | 5 | handshake, schema generation, task/turn streaming, approvals/input, and fail-closed compatibility |
-| Adaptive decision/evolution tracker | plan current at implementation time | not-adopted as live capability | 0, 20 | show planned/unavailable until independently accepted implementation exists |
+| Adaptive decision/evolution tracker | plan current at implementation time | not-adopted as live capability | 0, 22 | show planned/unavailable until independently accepted implementation exists |
 | Tracker-authoring supervision tracker | plan current at implementation time | not-adopted as live capability | 0, 11 | do not expose a working control until implementation is proven |
 
 ## 5. Scope, non-goals, and proportionality
@@ -418,7 +418,7 @@ the relevant authority and evidence contract.
 
 ## 6. Block execution contract
 
-1. Execute Blocks 0–23 in dependency order. Parallel work is allowed only
+1. Execute Blocks 0–25 in dependency order. Parallel work is allowed only
    where the status table has no unmet dependency and each worker has disjoint
    files and one declared integration owner.
 2. Re-read the selected Block and inspect the live repository, external
@@ -502,15 +502,17 @@ the relevant authority and evidence contract.
 | 12 | On-demand mechanical supervision checks | 7, 10, 11 | `not-started` |
 | 13 | Semantic supervision review requests | 7, 10, 11 | `not-started` |
 | 14 | Supervision policy and cadence administration | 7, 10, 11 | `not-started` |
-| 15 | Supervision binding repair | 7, 10, 11 | `not-started` |
-| 16 | Supervision pause and resume | 7, 10, 11 | `not-started` |
-| 17 | Same-target mission succession | 7, 10, 11 | `not-started` |
-| 18 | Successor-task continuity | 7, 10, 11 | `not-started` |
-| 19 | Weekly supervision report workflow | 9, 10, 11, 13 | `not-started` |
-| 20 | Factory evolution workflow | 9, 10, 11, 13 | `not-started` |
-| 21 | Terminal report workflow | 9, 10, 11, 13, 19 | `not-started` |
-| 22 | Request-stop and terminal shutdown | 7, 9, 10, 11, 21 | `not-started` |
-| 23 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22 | `not-started` |
+| 15 | Mission and target/tracker binding repair | 7, 10, 11 | `not-started` |
+| 16 | Role-task binding repair | 7, 10, 11 | `not-started` |
+| 17 | Automation binding repair | 7, 10, 11 | `not-started` |
+| 18 | Supervision pause and resume | 7, 10, 11 | `not-started` |
+| 19 | Same-target mission succession | 7, 10, 11 | `not-started` |
+| 20 | Successor-task continuity | 7, 10, 11 | `not-started` |
+| 21 | Weekly supervision report workflow | 9, 10, 11, 13 | `not-started` |
+| 22 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `not-started` |
+| 23 | Terminal report workflow | 9, 10, 11, 13, 21 | `not-started` |
+| 24 | Request-stop and terminal shutdown | 7, 9, 10, 11, 23 | `not-started` |
+| 25 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24 | `not-started` |
 
 Required order:
 
@@ -522,11 +524,11 @@ Required order:
 {4, 6} → 9
 {2, 4, 5} → 10
 {8, 10} → 11
-{7, 10, 11} → {12, 13, 14, 15, 16, 17, 18}
-{9, 10, 11, 13} → {19, 20}
-{9, 10, 11, 13, 19} → 21
-{7, 9, 10, 11, 21} → 22
-{6–22} → 23
+{7, 10, 11} → {12, 13, 14, 15, 16, 17, 18, 19, 20}
+{9, 10, 11, 13} → {21, 22}
+{9, 10, 11, 13, 21} → 23
+{7, 9, 10, 11, 23} → 24
+{6–24} → 25
 ```
 
 Blocks with satisfied direct dependencies may proceed concurrently; exact order
@@ -535,9 +537,13 @@ is governed by the dependency table, not diagram layout.
 Renumbering note: commit `0fe280cc1deac763b906755265c7d0e53307ff0c`
 is preserved as the rejected predecessor for incident
 `INC-20260809-073305-B81DCB`. Its old Block 12 was split into current Blocks
-12–22 at independent owner, acceptance, recovery, and Stop boundaries; its old
-Block 13 moved mechanically to Block 23. Blocks 0–11 remain substantively
-unchanged, and prior structural verification/review of the predecessor is
+12–24 at independent owner, acceptance, recovery, and Stop boundaries; its old
+Block 13 moved mechanically to Block 25. Blocks 0–11 remain substantively
+unchanged. Exact-review-rejected successor commit
+`cbe7c55cc2eae20d3c2bd70704cf5a5fc93546e4` is also preserved: its Block 15
+was split into current Blocks 15–17, its Blocks 16–19 moved to 18–21, its Block
+20 was narrowed to current Block 22's derived evaluation/disposition owner, and
+its Blocks 21–23 moved to 23–25. Prior structural verification/review remains
 diagnostic rather than current completion proof.
 
 ## Block 0 — Product contract and live-owner baseline
@@ -598,7 +604,7 @@ and truth-label contract before dashboard code adopts any changing owner.
 
 ### Scope and non-goals
 
-- In scope: the capability and owner baseline needed by Blocks 1–13.
+- In scope: the capability and owner baseline needed by Blocks 1–25.
 - Not in scope: server/frontend implementation or correction of any source
   owner.
 - Do not turn source inspection into a generalized audit or require unrelated
@@ -1920,7 +1926,7 @@ proves the resulting canonical postcondition.
 ### Scope and non-goals
 
 - In scope: generic safety/lifecycle infrastructure strictly needed by the
-  explicit operations in Blocks 11–12.
+  explicit operations in Blocks 11–24.
 - Not in scope: arbitrary operations, generic workflow DSL, durable job queue,
   user/role authorization system, shell console, implicit retry of mutations,
   or the domain workflows themselves.
@@ -2445,99 +2451,316 @@ report, evolution, or terminal operations.
 
 ---
 
-## Block 15 — Supervision binding repair
+## Block 15 — Mission and target/tracker binding repair
 
 Status: `not-started`
 
 ### Objective
 
-Repair one reproduced mission, target, tracker, role, or automation binding
-mismatch through its smallest maintained owner and prove the exact corrected
-relationship.
+Repair one reproduced canonical mission-to-target/tracker binding mismatch
+through the maintained supervision bind/policy owner without changing the
+mission or creating a parallel supervision root.
 
 ### Target-product capability delta
 
 - Posture: `consequential`.
-- Intended capability gain: let the operator recover a specific broken
-  supervision topology instead of leaving the implementation unmonitored or
-  ambiguously owned.
-- Potential capability loss or regression: generic repair, label-based joining,
-  or overwriting a mission could bind the wrong target, duplicate authority, or
-  destroy policy history.
-- Protected-capability effect: preserves exact IDs, mission roots, target/
-  tracker identity, role separation, automation ownership, active versus
-  historical bindings, and no parallel supervision root.
-- Architecture and operating-model effect: adds typed repair variants only for
-  reproduced mismatches already modeled by existing binding owners; there is no
-  generic reconciliation engine.
-- Tradeoff and source evidence: one mismatch at a time is less convenient than
-  `repair all` but keeps consequences reviewable under current bind, policy,
-  role, and automation contracts.
+- Intended capability gain: let the operator restore one exact target's
+  supervision identity when its active mission, target, and tracker tuple is
+  missing or inconsistent.
+- Potential capability loss or regression: label-based joining, a stale root,
+  or using `bind` to introduce different intent could attach the wrong tracker,
+  overwrite mission history, or create duplicate authority.
+- Protected-capability effect: preserves direct mission provenance, exact
+  target/tracker identity, versioned policy history, current-root scoping, and
+  the prohibition on parallel supervision ledgers.
+- Architecture and operating-model effect: adds one tuple-repair operation to
+  the existing operation registry and reuses the maintained bind/policy owner;
+  it adds no reconciliation database or generic repair engine.
+- Tradeoff and source evidence: the control can repair only a reproduced
+  compatible tuple and cannot reinterpret intent, matching the current bind,
+  mission-successor, and tracker-identity contracts.
 
 ### Inputs and dependencies
 
-- Accepted Block 7 topology/source inspectors.
+- Accepted Block 7 topology, mission-history, and tracker inspectors.
 - Accepted Blocks 10 and 11 operation/task owners.
-- Exact binding anomaly and current owner matrix from Blocks 0 and 4.
+- Exact tuple anomaly and current bind/policy owner map from Blocks 0 and 4.
 
 ### Required work
 
-- Register separate supported repair variants for mission, target/tracker,
-  role-task, and automation binding; expose a variant only when the projection
-  reproduces its exact mismatch.
-- Preview current and expected IDs/roots, governing source, mismatch evidence,
-  smallest owner action, preserved bindings/history, prohibited effects, and
-  exact postcondition.
-- Route the repair through the maintained bind/policy/task/automation owner and
-  prohibit direct JSON/JSONL/TOML mutation, label-only matching, broad reset, or
-  implicit creation of a second supervision group.
-- Verify the corrected canonical relation and absence of duplicate active owner;
-  retain failed, partial, stale, or still-ambiguous repairs as attention.
-- Keep `mission-successor` out of repair: a materially new mission is Block 17,
-  never a `bind` overwrite.
+- Register `Repair mission/target/tracker binding` only when the projection
+  reproduces one missing or incompatible field in the selected target's exact
+  active tuple and the maintained owner supports a compatible repair.
+- Preview current and expected mission root/source, target thread, tracker path
+  and content root, governing policy version, anomaly evidence, preserved
+  history, prohibited effects, and exact next-policy postcondition.
+- Route one repair through the maintained bind/policy owner. Prohibit direct
+  policy/ledger/catalog writes, label-only matching, arbitrary paths, broad
+  reset, or creation of another group.
+- Verify the next canonical policy/history record, exact active tuple, unchanged
+  mission semantics, and absence of another active group for that tuple.
+- Treat materially different mission intent as Block 19 mission succession,
+  never a repair or `bind` overwrite.
 
 ### Scope and non-goals
 
-- In scope: one exact reproduced binding mismatch and its narrow repair.
-- Not in scope: speculative health repair, generic `repair all`, policy tuning,
-  pause/resume, mission succession, successor task creation, or lifecycle
-  completion.
-- Do not repair a healthy relationship or infer identity from labels alone.
+- In scope: one exact mission/target/tracker identity tuple and its compatible
+  maintained-owner repair.
+- Not in scope: role-task or automation binding, policy tuning, tracker edits,
+  mission succession, task creation, or lifecycle change.
+- Do not repair a healthy, ambiguous, unsupported, or semantically different
+  tuple.
 
 ### Deliverables and recorded state
 
-- Typed repair registry entries, mismatch-specific previews/postconditions,
-  run/Admin controls, topology refresh, and focused tests.
+- Tuple-anomaly projection, one repair contract and preview/postcondition
+  verifier, run/Admin control, refreshed topology/history, and focused tests.
 
 ### Resource and economy contract
 
-Read one target/group topology, reuse its current fingerprints, and touch only
-the named owner relationship. Execute once and re-read that relation plus
-duplicate-owner check; do not perform whole-root reconciliation.
+Read one target/group policy and one declared tracker, reuse their fingerprints,
+issue one owner request, and re-read only the next policy/tuple plus duplicate-
+group check. Never scan or reconcile unrelated groups.
 
 ### QA and independent review
 
-- Test healthy/no-op, stale anomaly, wrong mission root/thread/tracker/role/
-  automation, label collision, duplicate active owner, direct-file input,
-  partial repair, mission overwrite attempt, and restart.
-- Use a disposable malformed group fixture for each variant; inspect live groups
-  read-only unless exact repair authority is provided.
-- Independent authority review confirms that every variant uses the smallest
-  existing owner and preserves unaffected bindings/history.
+- Test healthy/no-op, missing target or tracker, wrong mission/source/root,
+  tracker path/root drift, label collision, stale policy, duplicate group,
+  direct-file input, material-new-mission attempt, partial result, and restart.
+- Use a disposable malformed tuple fixture; inspect live targets read-only unless
+  exact repair authority is provided.
+- Independent mission/binding review confirms exact provenance, compatible
+  semantics, preserved history, and single active ownership.
 
 ### Acceptance
 
-- A reproduced supported mismatch can be repaired from its topology detail and
-  the exact canonical relationship becomes current without duplicate ownership.
-- Healthy, ambiguous, stale, unsupported, and broad repair requests fail closed
-  with their exact reason.
-- New-mission and successor-task workflows remain unavailable from this control.
+- One reproduced supported tuple mismatch becomes one exact current canonical
+  mission/target/tracker binding through the next valid policy history record.
+- No mission semantics, tracker content, historical binding, or unrelated group
+  changes, and no duplicate active group remains.
+- Healthy, ambiguous, stale, materially different, and unsupported tuples fail
+  closed with their exact reason.
 
 ### Negative tests
 
-- Reject `repair all`, label-only resolution, healthy-binding mutation, mission
-  overwrite, or a postcondition that checks only file existence.
-- Reject success when a second active owner or unmatched automation/role remains.
+- Reject label-only resolution, arbitrary tracker paths, healthy mutation,
+  mission overwrite, second-root creation, or file-existence-only proof.
+- Reject success when the active tuple or duplicate-group check does not match
+  the preview fingerprint.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before repairing role-task or automation bindings or performing policy,
+lifecycle, continuity, report, evolution, or terminal operations.
+
+---
+
+## Block 16 — Role-task binding repair
+
+Status: `not-started`
+
+### Objective
+
+Repair one reproduced supervisor-role-to-task binding mismatch through the
+maintained policy/task owner and prove one unambiguous eligible role assignment.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: let the operator restore the exact watcher,
+  reviewer, fix-executor, notice, Gmail-gate, or target task expected by one
+  supervision role.
+- Potential capability loss or regression: resolving by label, accepting a task
+  with the wrong purpose, or assigning one thread to ambiguous roles could route
+  consequential work or conclusions to the wrong authority.
+- Protected-capability effect: preserves exact thread IDs, role eligibility,
+  purpose-route contracts, task history, single-role routing, and independent
+  reviewer/executor separation.
+- Architecture and operating-model effect: adds one role-binding repair
+  operation through the existing policy/task owners; it does not create tasks
+  generically or add a role directory.
+- Tradeoff and source evidence: exact one-role repair requires a live task and
+  policy cross-check but is the smallest safe path under current routing and
+  role-refresh contracts.
+
+### Inputs and dependencies
+
+- Accepted Block 7 role/task/topology inspectors.
+- Accepted Blocks 10 and 11 operation/task owners.
+- Reproduced role mismatch and current role/purpose eligibility map from Blocks
+  0, 4, and 5.
+
+### Required work
+
+- Register `Repair role task binding` only for one exact configured role whose
+  missing, terminal-ineligible, wrong-purpose, or mismatched task is reproduced.
+- Preview group/mission, role, current and expected task IDs, task lifecycle,
+  eligible model/effort/purpose where governed, route-gate implications,
+  preserved roles, owner action, and exact policy/task postcondition.
+- Use the maintained task owner to identify or create a task only when direct
+  task-creation authority exists, then use the maintained policy/bind owner to
+  assign that exact task to the one role. Never infer identity from title.
+- Verify the live task identity/lifecycle and next canonical role binding as
+  separate postconditions; run the route gate for the role's maintained purpose
+  before calling the repair applied.
+- Retain denied, ambiguous, partial, stale, and task-created-but-unbound states
+  with their exact recovery; do not touch any automation binding.
+
+### Scope and non-goals
+
+- In scope: one exact configured supervision role and one eligible Codex task.
+- Not in scope: mission/target/tracker repair, automation repair, generic task
+  creation, role-policy redesign, implementation handoff, or lifecycle change.
+- Do not bind one thread to multiple incompatible roles or repurpose a task with
+  conflicting current work.
+
+### Deliverables and recorded state
+
+- Role-anomaly projection, one role-task repair contract, task/policy/route
+  postcondition verifier, run/Admin control, and focused tests.
+
+### Resource and economy contract
+
+Read one group, one role, and the exact candidate task. Perform at most one task
+owner action and one policy assignment, then re-read only those two sources and
+the named route gate. Never search or mutate unrelated roles.
+
+### QA and independent review
+
+- Test missing task, wrong role/purpose/model, terminal-ineligible task,
+  conflicting live work, ambiguous multi-role ID, absent creation authority,
+  route denial, stale policy/task, task-created-but-unbound, restart, and
+  preserved unrelated roles.
+- Exercise mutation only in a disposable group/task unless exact authority names
+  the live role; use real roles for read-only previews.
+- Independent role/route review verifies task eligibility, single-role scope,
+  exact owner sequence, and both postconditions.
+
+### Acceptance
+
+- One reproduced role mismatch resolves to one exact eligible current task in
+  canonical policy and its maintained route gate accepts the named purpose.
+- Task creation or policy change alone remains partial until both postconditions
+  match; unrelated roles and task work remain unchanged.
+- Missing authority, ambiguity, conflict, stale state, or unsupported role fails
+  closed with an exact next owner action.
+
+### Negative tests
+
+- Reject title/label matching, one thread in incompatible roles, wrong-purpose
+  routing, generic task creation, or success from only task or policy state.
+- Reject any repair that changes the mission tuple or an automation binding.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before automation binding repair, pause/resume, mission succession,
+successor-task continuity, reporting, evolution, or terminal lifecycle.
+
+---
+
+## Block 17 — Automation binding repair
+
+Status: `not-started`
+
+### Objective
+
+Repair one reproduced supervision-automation binding mismatch through the
+automation and policy owners and prove matching canonical schedule/binding state.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: let the operator restore one exact routine, meta,
+  Gmail, roundup, or report automation to its selected supervision group and
+  maintained role.
+- Potential capability loss or regression: direct TOML edits, wrong schedule or
+  target, or policy-only success could duplicate checks, disable supervision,
+  or send work through the wrong owner.
+- Protected-capability effect: preserves automation-tool single writing,
+  exact IDs/schedules/targets, policy history, maintained purpose/role, and the
+  distinction between configured and actually reconciled state.
+- Architecture and operating-model effect: adds one automation-binding repair
+  with dual automation/policy postconditions; it adds no scheduler or bulk
+  reconciler.
+- Tradeoff and source evidence: verifying two canonical owners is slower than a
+  configuration edit but is required by the existing automation and policy bind
+  contracts.
+
+### Inputs and dependencies
+
+- Accepted Block 7 automation/topology inspectors.
+- Accepted Blocks 10 and 11 operation/task owners.
+- Reproduced automation mismatch and current automation-role owner map from
+  Blocks 0 and 4.
+
+### Required work
+
+- Register `Repair automation binding` only for one exact automation whose ID,
+  group/target, role/purpose, enabled state, or schedule differs from the
+  canonical policy expectation.
+- Preview current/expected automation ID and projection, target/group/role,
+  schedule/time zone, policy version, mismatch evidence, preserved automations,
+  compensation posture, and both expected postconditions.
+- Apply the smallest supported change through the Codex automation owner and
+  maintained policy/bind owner; prohibit direct TOML/JSON writes, ID invention,
+  broad rebind, or implicit cadence redesign.
+- Verify the actual automation configuration and next canonical policy binding
+  separately, including no duplicate automation for the same maintained role.
+- Preserve automation-changed/policy-pending, policy-changed/automation-pending,
+  partial, denied, stale, and unverified states with exact bounded recovery.
+
+### Scope and non-goals
+
+- In scope: one existing or exactly authorized automation and one group-role
+  binding.
+- Not in scope: policy/cadence tuning, mission/target/tracker or role-task
+  repair, bulk reconciliation, pause/resume, Gmail body operations, or a new
+  scheduler.
+- Do not alter unrelated automation schedules or treat policy state alone as
+  reconciliation.
+
+### Deliverables and recorded state
+
+- Automation-anomaly projection, one repair contract, dual postcondition and
+  duplicate-role verifier, run/Admin control, recovery state, and focused tests.
+
+### Resource and economy contract
+
+Read one policy and one named automation projection, execute each required owner
+action at most once, and re-read only those sources plus the duplicate-role
+check. Never enumerate or reconcile unrelated automation families.
+
+### QA and independent review
+
+- Test missing/wrong ID, target, role, purpose, schedule, and time zone; direct-
+  file input; stale policy/config; duplicate role automation; one-owner-only
+  change; denial; restart; and preserved unrelated schedules.
+- Exercise end to end only on a disposable automation/group unless exact current
+  authority names a live repair.
+- Independent automation/policy review verifies smallest owner actions, both
+  canonical postconditions, compensation posture, and no schedule creep.
+
+### Acceptance
+
+- One reproduced automation mismatch reaches matching actual automation and
+  canonical policy binding state for the selected group-role.
+- Partial, stale, duplicate, denied, and unsupported repairs remain attention
+  with exact recovery; unrelated automations remain byte/state unchanged.
+- Dashboard code never writes automation TOML or supervision policy directly.
+
+### Negative tests
+
+- Reject direct configuration writes, invented IDs, broad rebind, implicit
+  cadence changes, or success from only automation or policy state.
+- Reject repair when another active automation still owns the same exact role.
 
 ### Completion evidence
 
@@ -2550,7 +2773,7 @@ continuity, reporting, evolution, or terminal lifecycle operations.
 
 ---
 
-## Block 16 — Supervision pause and resume
+## Block 18 — Supervision pause and resume
 
 Status: `not-started`
 
@@ -2652,7 +2875,7 @@ reporting, evolution, request-stop, or terminal shutdown.
 
 ---
 
-## Block 17 — Same-target mission succession
+## Block 19 — Same-target mission succession
 
 Status: `not-started`
 
@@ -2764,7 +2987,7 @@ evolution, or changing terminal lifecycle.
 
 ---
 
-## Block 18 — Successor-task continuity
+## Block 20 — Successor-task continuity
 
 Status: `not-started`
 
@@ -2812,7 +3035,7 @@ bound successor without allowing the source mission to stop prematurely.
   as direct authority.
 - Call the maintained successor transition gate and keep the source active until
   `source_stop_permitted=true` from current `work-started` evidence.
-- Label successor-task continuity separately from Block 17 same-target mission
+- Label successor-task continuity separately from Block 19 same-target mission
   succession in controls, history, metrics, and attention.
 
 ### Scope and non-goals
@@ -2875,7 +3098,7 @@ or terminal shutdown.
 
 ---
 
-## Block 19 — Weekly supervision report workflow
+## Block 21 — Weekly supervision report workflow
 
 Status: `not-started`
 
@@ -2987,35 +3210,35 @@ Stop before terminal reporting, Factory evolution, request-stop, or shutdown.
 
 ---
 
-## Block 20 — Factory evolution workflow
+## Block 22 — Factory evolution evaluation and disposition
 
 Status: `not-started`
 
 ### Objective
 
-Run one currently supported Factory-evolution cycle from eligibility and
-evidence packet through independent evaluation, disposition, and any separately
-authorized adoption/outcome feedback.
+Produce and verify one source-bound Factory-evolution disposition through the
+maintained derived-artifact owner, without implementing, adopting, deploying,
+or measuring the candidate on the dashboard's authority.
 
 ### Target-product capability delta
 
 - Posture: `consequential`.
-- Intended capability gain: let the operator initiate and understand evidence-
-  grounded Factory learning without confusing a report hypothesis, favorable
-  evaluation, or `promote` disposition with adopted behavior.
-- Potential capability loss or regression: eager admission, stale evaluation,
-  automatic adoption, or exposing merely planned autonomous controls could
-  mutate Factory behavior without current authority and proof.
+- Intended capability gain: let the operator prepare, review, evaluate, verify,
+  and inspect trustworthy Factory learning through one explicit `promote`,
+  `advisory`, `revise`, or `reject` disposition.
+- Potential capability loss or regression: stale sources, collapsed proposer/
+  implementer/evaluator roles, or presenting disposition as implementation or
+  adoption could create false authority and mutate Factory behavior indirectly.
 - Protected-capability effect: preserves deterministic evidence inputs,
-  eligibility/currentness, existing implementation owner, isolated independent
-  comparison, disposition-versus-adoption separation, reversible policy gates,
-  outcome feedback, and planned-versus-implemented truth.
-- Architecture and operating-model effect: exposes the maintained evolution
-  workflow and owners through staged operations; it does not add an autonomous
-  evolution scheduler or let the dashboard edit skills.
-- Tradeoff and source evidence: a fully staged cycle takes longer than applying
-  a recommendation but is required by the accepted evolution MVP and current
-  adaptive-evolution availability boundaries.
+  immutable derived artifacts, independent semantic/evaluation roles, exact
+  baseline/candidate revisions, rejected paths, and disposition-only authority.
+- Architecture and operating-model effect: exposes only the maintained
+  `factory-evolution prepare/finalize/evaluate/verify` owner in this Block;
+  candidate implementation remains Block 11 work and no adoption engine,
+  scheduler, or skill editor is added.
+- Tradeoff and source evidence: the cycle must pause for separately owned
+  candidate implementation and current evaluation evidence, but this is the
+  explicit boundary in the Factory-evolution contract.
 
 ### Inputs and dependencies
 
@@ -3027,71 +3250,83 @@ authorized adoption/outcome feedback.
 
 ### Required work
 
-- Expose `Run Factory evolution` only when the current installed implementation,
-  evidence inputs, eligibility, owner roles, policy/authority, and evaluation
-  capability are proven; disable merely planned autonomous/adaptive behavior
-  with exact prerequisites.
-- Preserve explicit stages: eligibility/currentness, deterministic packet,
-  candidate implementation through its existing owner, isolated independent
-  evaluation/comparison, `promote`/`advisory`/`revise`/`reject` disposition,
-  separately policy-gated reversible adoption when authorized, and later
-  outcome/rollback feedback.
-- Bind every stage to exact evidence/candidate/baseline/policy roots and eligible
-  roles; reuse unchanged artifacts and preserve losing/rejected history.
-- Never let report nomination, evaluator task completion, favorable comparison,
-  or `promote` directly edit a skill, tracker, policy, target, or adoption state.
-- Show current stage, disposition, adoption/non-adoption reason, rollback and
-  observation posture, source proof, limitations, and recovery in Reports/Admin.
+- Expose `Run Factory evolution` only when the installed derived-artifact
+  helper, explicit verified weekly report/event inputs, eligibility, target/
+  evolution identity, and eligible proposer/evaluator roles are proven. Keep
+  planned autonomous/adaptive controls unavailable with exact prerequisites.
+- Preserve the maintained artifact stages exactly: deterministic `prepare`,
+  one bounded independent cognitive `finalize`, revision-bound independent
+  `evaluate`, and deterministic `verify` of the immutable packet, review,
+  evaluation, reports, and manifest.
+- After `finalize` selects an experiment, show `awaiting candidate
+  implementation` until a separately governed Block 11 author/implement/
+  supervise workflow supplies exact baseline/candidate revisions and evidence.
+  This Block may link to that owner record but may not launch, accept, or write
+  the candidate as part of the evolution operation.
+- Bind every artifact stage to exact packet/review/experiment/candidate/
+  baseline/evaluation roots and eligible distinct roles; reuse byte-identical
+  artifacts and preserve advisory/revise/reject and contrary evidence history.
+- Verify only one disposition from the current evaluation set. A reviewer task,
+  implemented candidate, favorable comparison, or `promote` alone is not a
+  verified artifact set.
+- Display stage/currentness, external implementation prerequisite, comparison,
+  regressions, disposition, source proof, limitations, and bounded recovery in
+  Reports/Admin. Display adoption, installation, routing, scheduling,
+  deployment, and later outcome as `not performed by evolution` and link only
+  to a separately proven existing owner; otherwise mark them unavailable.
 
 ### Scope and non-goals
 
-- In scope: one on-demand currently supported Factory-evolution cycle and any
-  separately authorized existing-owner adoption/feedback stages.
-- Not in scope: weekly/terminal report generation, autonomous scheduling,
-  dashboard-authored candidates, direct skill edits, automatic adoption, or
-  planned adaptive controls without implementation evidence.
-- Do not treat `promote` as adoption or outcome success.
+- In scope: one on-demand derived Factory-evolution artifact set through a
+  verified independent disposition.
+- Not in scope: weekly/terminal report generation, candidate implementation,
+  skill maintenance, adoption, installation, routing, scheduling, deployment,
+  outcome/rollback control, direct skill edits, or autonomous evolution.
+- Do not treat a selected or implemented candidate, passing experiment, or
+  `promote` disposition as adopted capability or current outcome success.
 
 ### Deliverables and recorded state
 
-- Evolution operation/stage contracts, eligibility/currentness and evaluation/
-  adoption postcondition verifiers, Reports/Admin UI, recovery/rollback posture,
-  and focused tests.
+- Evolution artifact-stage operation contract, external-implementation wait
+  state, eligibility/currentness/evaluation/disposition verifiers,
+  Reports/Admin UI, recovery, and focused tests.
 
 ### Resource and economy contract
 
-Run one eligible cycle at a time. Reuse unchanged packet, candidate, baseline,
-evaluation, and disposition roots; do not repeat implementation or comparison
-for display/adoption-record failure. Respect existing resource ceilings and stop
-at the first unavailable owner or stale stage.
+Run one target/evolution ID at a time. Reuse byte-identical packet, review,
+baseline, candidate, evaluation, and manifest roots; never repeat an external
+implementation owner or producer for display failure. Respect maintained bounds
+and stop at the first unavailable, stale, rejected, or unverified stage.
 
 ### QA and independent review
 
-- Test ineligible/unchanged/stale input, missing owner/authority, invalid
-  candidate isolation, evaluator conflict, baseline/candidate drift,
-  reject/revise/advisory/promote-not-adopted, adoption denial/partial failure,
-  rollback trigger, outcome pending, planned capability unavailable, and restart.
-- Exercise end to end only in the disposable Factory-evolution fixture or under
-  exact authority for a current cycle.
-- Independent capability/authority review verifies the evaluation, disposition,
-  adoption boundary, protected behavior, and current observable effect.
+- Test ineligible, missing/changed report or event input, immutable-ID conflict,
+  proposer/implementer/evaluator alias, missing external implementation,
+  baseline/candidate drift, incomplete cases, synthetic-only promotion,
+  regression, invalid manifest, all four dispositions, stale review, restart,
+  and attempted adoption/deployment/skill write.
+- Exercise end to end only with disposable derived artifacts and separately
+  produced candidate evidence or under exact authority for a current cycle.
+- Independent evolution review verifies source roots, role separation,
+  comparison evidence, disposition, and the absence of implementation,
+  adoption, deployment, or outcome claims.
 
 ### Acceptance
 
 - An eligible cycle can reach a verified disposition with every source,
   candidate, evaluation, tradeoff, limitation, and rejected path inspectable.
-- Adoption occurs only through a separately authorized maintained owner and is
-  displayed distinctly from `promote`; outcome/rollback remains open until
-  current behavior proves it.
-- Ineligible, stale, unavailable, rejected, advisory, and non-adopted states are
-  truthful and cannot mutate Factory capability.
+- External candidate implementation is attributable to its independent Block
+  11 owner and is neither executed nor accepted by this evolution operation.
+- Ineligible, stale, unavailable, rejected, advisory, revise, and promote states
+  are truthful; none mutates Factory capability or asserts adoption/outcome.
 
 ### Negative tests
 
-- Reject adoption from report nomination, evaluator completion, favorable
-  metrics, or `promote` disposition alone.
-- Reject an autonomous/adaptive control whose current implementation and owner
-  cannot be proven from Block 0's refreshed matrix.
+- Reject disposition from report nomination, reviewer/evaluator task completion,
+  implemented-candidate existence, favorable metrics, stale roots, or a
+  non-independent evaluator.
+- Reject any implementation, adoption, installation, routing, scheduling,
+  deployment, rollback, or outcome mutation presented as part of this Block.
 
 ### Completion evidence
 
@@ -3099,11 +3334,14 @@ Pending.
 
 ### Stop
 
-Stop before terminal reporting, request-stop, shutdown, or final acceptance.
+Stop at the verified `promote`, `advisory`, `revise`, or `reject` disposition,
+before candidate implementation/maintenance, adoption, installation, routing,
+scheduling, deployment, outcome/rollback control, terminal reporting, or final
+acceptance.
 
 ---
 
-## Block 21 — Terminal report workflow
+## Block 23 — Terminal report workflow
 
 Status: `not-started`
 
@@ -3126,7 +3364,7 @@ terminal supervision report without stopping or pausing the run.
   and shutdown separation.
 - Architecture and operating-model effect: exposes the maintained terminal-
   report owner as one staged operation dependent on report history; shutdown
-  remains Block 22.
+  remains Block 24.
 - Tradeoff and source evidence: required currentness, cognitive review,
   verification, and delivery add latency but are mandated by the terminal report
   and supervision lifecycle contracts.
@@ -3135,7 +3373,7 @@ terminal supervision report without stopping or pausing the run.
 
 - Accepted Block 9 report/history workspace.
 - Accepted Blocks 10 and 11 operation/task owners.
-- Accepted Block 13 semantic-review handling and Block 19 verified prior-report
+- Accepted Block 13 semantic-review handling and Block 21 verified prior-report
   workflow.
 - Current terminal-report/outcome/delivery contract from Block 0.
 
@@ -3216,7 +3454,7 @@ cross-project acceptance.
 
 ---
 
-## Block 22 — Request-stop and terminal shutdown
+## Block 24 — Request-stop and terminal shutdown
 
 Status: `not-started`
 
@@ -3250,7 +3488,7 @@ owner gate permits source stop.
 
 - Accepted Block 7 run/lifecycle/continuity workspace and Block 9 report view.
 - Accepted Blocks 10 and 11 operation/task owners.
-- Accepted Block 21 verified terminal report workflow.
+- Accepted Block 23 verified terminal report workflow.
 - Current outcome, incident, decision, successor-transition, lifecycle,
   automation, report/delivery, and stop-gate contracts from Blocks 0 and 4.
 
@@ -3272,7 +3510,7 @@ owner gate permits source stop.
   automation state separately.
 - Preserve partial/failure state without automatic retry; expose only the exact
   supported recovery or separately authorized compensating operation.
-- Keep turn interruption, Block 16 pause/resume, Block 21 terminal report, and
+- Keep turn interruption, Block 18 pause/resume, Block 23 terminal report, and
   this terminal workflow visibly distinct in UI and history.
 
 ### Scope and non-goals
@@ -3334,7 +3572,7 @@ that the dashboard is ready.
 
 ---
 
-## Block 23 — Integrated outcome validation and operator handoff
+## Block 25 — Integrated outcome validation and operator handoff
 
 Status: `not-started`
 
@@ -3348,12 +3586,12 @@ off a reproducible local operating workflow.
 
 - Posture: `routine`.
 - Routine or not-applicable justification: this Block validates, documents, and
-  hands off the capability selected and implemented in Blocks 0–22; it may fix
+  hands off the capability selected and implemented in Blocks 0–24; it may fix
   mapped defects but must not add a new product surface or operating model.
 
 ### Inputs and dependencies
 
-- Accepted Blocks 6–22 and all inherited accepted dependencies.
+- Accepted Blocks 6–24 and all inherited accepted dependencies.
 - One frozen release candidate commit, exact runtime/dependency lock, generated
   App Server compatibility root, and current source fixtures.
 - At least three authorized registered local projects with collectively: an
@@ -3488,10 +3726,13 @@ capabilities.
 | Factory Floor/UI | component/axe/topology/light/conclusion state tests | three-project, three-viewport, light/dark Playwright matrix | operator identifies each implementation/supervisor/target, operating reason, issues, actions, conclusions, history, and freshness and drills to exact sources |
 | Administrative safety | schema, nonce/origin, preview, replay, stale, route-gate, postcondition tests | disposable workflow operations and denied advanced paths | enabled action has intended owner consequence; denied/unavailable action fails closed |
 | Supervision check and review actions | watcher/reviewer role, route, candidate, duplicate, and postcondition tests | disposable check plus checkpoint/meta/issue review requests | mechanical checks and semantic conclusions remain separately current and owner-bound |
-| Policy, binding, and pause/resume administration | policy/automation dual-state, mismatch-specific repair, and lifecycle tests | disposable policy diff, binding repair, and pause/resume cycles | each operation changes only its exact owner and proves every canonical postcondition |
+| Policy and pause/resume administration | policy/automation dual-state, lifecycle, stale-preview, and preserved-state tests | disposable policy diff and pause/resume cycles | policy/cadence and lifecycle operations remain separately owned and prove both canonical postconditions |
+| Mission and target/tracker binding repair | exact-root/path/tuple, policy-history, duplicate-group, and mission-overwrite tests | one disposable malformed mission/target/tracker tuple | one compatible tuple is repaired through bind/policy without changing intent or creating a second root |
+| Role-task binding repair | role eligibility, task lifecycle, route-purpose, ambiguity, and dual-postcondition tests | one disposable missing or mismatched role task | one role resolves to one exact eligible task without changing other roles or automations |
+| Automation binding repair | ID/target/role/schedule, policy/config dual-state, duplicate-role, and direct-write tests | one disposable mismatched automation binding | actual automation and canonical policy agree without cadence creep or unrelated reconciliation |
 | Mission and task continuity | mission-root/history and successor-transition phase/gate tests | disposable same-target mission succession and successor-task transition | predecessor history is preserved, successor currentness is isolated, and source stop waits for work start |
 | Weekly reporting | prepare/review/finalize/verify/display/delivery stage tests | current authorized report bundle and late-stage recovery | verified weekly artifact, limitations, and delivery posture resolve to exact sources without regeneration waste |
-| Factory evolution | eligibility, comparison, disposition, adoption, rollback, and feedback tests | disposable eligible cycle with non-adopted and adopted paths | disposition remains distinct from adoption and current outcome proof |
+| Factory evolution | eligibility, immutable artifact, role-separation, external-implementation, comparison, disposition, and verify tests | disposable eligible cycle through each disposition with separately supplied candidate evidence | verified disposition remains derived evidence and performs no implementation, adoption, deployment, rollback, or outcome mutation |
 | Terminal reporting | outcome/currentness/prior-report/artifact/delivery tests | disposable terminal bundle with late-stage recovery | current verified delivered report exists without pausing or stopping the run |
 | Terminal lifecycle/outcome | outcome, incident, decision, successor, report, lifecycle, automation, and receipt gates | disposable allowed and denied shutdown runs | no interrupt/pause/report/task state is mislabeled as stop permission or outcome completion |
 | Release/currentness | full tracker verifier, all mapped suites, diff/build checks | independent exact-commit product/UI/authority reviews | zero supported gaps on frozen current candidate and documented local handoff |
