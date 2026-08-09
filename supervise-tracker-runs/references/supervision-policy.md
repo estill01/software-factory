@@ -639,7 +639,9 @@ owner-root history binds both policy-history and event-ledger genesis, count,
 and current head. Each root is HMAC-bound by a private per-target key in the
 supervision root outside the mutable target directory; the key's existence
 forces enforcement even if policy is rewritten, and its path is not a caller
-input. Regenerating or re-rooting mutable sibling files cannot make a replaced
+input. An HMAC-authenticated external head file beside that key pins the latest
+root sequence and hash, so replaying an older authentic signed prefix also
+fails. Regenerating or re-rooting mutable sibling files cannot make a replaced
 ledger current. A true pre-key legacy transition receives one locked, lazy
 policy/root migration before it advances.
 

@@ -1758,6 +1758,48 @@ def owner_root_key_path_at(directory_fd: int) -> Path:
     return key_directory / key_name
 
 
+def owner_root_state_path_at(directory_fd: int) -> Path:
+    key_path = owner_root_key_path_at(directory_fd)
+    return key_path.with_suffix(".state.json")
+
+
+def owner_root_external_state(
+    key: bytes, roots: list[dict[str, Any]]
+) -> dict[str, Any]:
+    material: dict[str, Any] = {
+        "schema_version": 1,
+        "kind": "supervision-owner-root-external-head",
+        "sequence": len(roots),
+        "owner_root_head_sha256": (
+            roots[-1].get("record_sha256") if roots else None
+        ),
+    }
+    material["state_hmac_sha256"] = hmac.new(
+        key,
+        canonical(material),
+        hashlib.sha256,
+    ).hexdigest()
+    return material
+
+
+def validate_owner_root_external_state_at(
+    directory_fd: int,
+    key: bytes,
+    roots: list[dict[str, Any]],
+) -> None:
+    path = owner_root_state_path_at(directory_fd)
+    if not path.exists() or path.is_symlink():
+        raise SupervisionLogError(
+            "Canonical external owner-root head is missing or symlinked"
+        )
+    value = read_json(path)
+    expected = owner_root_external_state(key, roots)
+    if value != expected:
+        raise SupervisionLogError(
+            "Canonical external owner-root head rejects rollback or replacement"
+        )
+
+
 def owner_root_key_exists_at(directory_fd: int) -> bool:
     path = owner_root_key_path_at(directory_fd)
     return path.exists() and not path.is_symlink()
@@ -1888,6 +1930,7 @@ def validate_owner_root_history_at(
             raise SupervisionLogError(
                 "Canonical owner-root history lacks external authority"
             )
+    validate_owner_root_external_state_at(directory_fd, key, roots)
     expected = owner_root_material(policy_history, all_events)
     if any(roots[-1].get(field) != value for field, value in expected.items()):
         raise SupervisionLogError(
@@ -1938,6 +1981,10 @@ def append_owner_root_history_at(
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+    atomic_json(
+        owner_root_state_path_at(directory_fd),
+        owner_root_external_state(key, [*roots, material]),
+    )
 
 
 def ensure_owner_root_history_at(directory_fd: int) -> None:

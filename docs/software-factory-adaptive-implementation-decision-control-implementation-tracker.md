@@ -937,7 +937,9 @@ ordinary scheduling back to the human.
   replacement, re-rooting, suffix deletion, symlink substitution, and
   detached-owner writes fail closed. HMAC-bind that root through a private
   per-target key outside the mutable target directory, and treat key existence
-  as non-downgradeable enforcement. Migrate a true legacy unkeyed
+  as non-downgradeable enforcement. Pin the latest signed root sequence/head in
+  authenticated external state so an older once-valid prefix cannot be
+  replayed. Migrate a true legacy unkeyed
   transition once under the canonical lock and continue automatically.
 - Freeze canonical range identity at transition genesis. On later phases,
   preserve the frozen identity and verify that its exact range-history entry

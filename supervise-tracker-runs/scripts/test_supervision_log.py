@@ -1985,6 +1985,41 @@ class ImplementationRangeControlTests(unittest.TestCase):
         ):
             self.gate()
 
+    def test_authentic_owner_root_prefix_rollback_is_rejected_externally(self) -> None:
+        self.write_tracker(["completed", "not-started"])
+        self.bind()
+        directory = self.root / self.target
+        event_path = directory / "events.jsonl"
+        anchor_path = directory / supervision_log.EVENT_LEDGER_ANCHOR_NAME
+        roots_path = directory / supervision_log.OWNER_ROOT_HISTORY_NAME
+        preserved = {
+            event_path: event_path.read_bytes() if event_path.exists() else None,
+            anchor_path: anchor_path.read_bytes(),
+            roots_path: roots_path.read_bytes(),
+        }
+        current_events = supervision_log.events(event_path)
+        supervision_log.append_raw(
+            event_path,
+            {
+                "schema_version": 1,
+                "record_id": f"EVT-{len(current_events) + 1:06d}",
+                "timestamp": supervision_log.utc_now(),
+                "target_thread_id": self.target,
+                "kind": "check",
+                "status": "later-authentic-event",
+            },
+        )
+        for path, raw in preserved.items():
+            if raw is None:
+                path.unlink()
+            else:
+                path.write_bytes(raw)
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "external owner-root head rejects rollback",
+        ):
+            self.gate()
+
     def test_fabricated_terminal_roots_have_no_input_surface_and_cannot_close(self) -> None:
         self.write_tracker(["completed"])
         self.bind()

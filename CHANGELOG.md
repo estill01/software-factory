@@ -165,7 +165,8 @@ the completed program materially changes Software Factory.
   status-independent tracker structural root, exact distinct-task request-byte
   proof, canonical range-history provenance, lazy legacy-root migration, and an
   externally HMAC-bound append-only owner-root history that detects coordinated
-  policy/event/root replacement and cannot be disabled by policy rewrite.
+  policy/event/root replacement, pins its latest external sequence/head against
+  authentic-prefix rollback, and cannot be disabled by policy rewrite.
   Frozen transition identity now survives status/evidence-only tracker
   amendments while structural drift still fails closed.
 
