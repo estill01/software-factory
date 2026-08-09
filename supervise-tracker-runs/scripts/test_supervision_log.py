@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import importlib.util
 import io
@@ -426,7 +427,8 @@ class SuccessorTransitionContractTests(unittest.TestCase):
     tracker_sha256 = "a" * 64
     source_mission_root = "b" * 64
     successor_mission_root = "c" * 64
-    authority_sha256 = "f" * 64
+    authority_request = "Implement this tracker in a distinct successor task."
+    authority_sha256 = hashlib.sha256(authority_request.encode("utf-8")).hexdigest()
 
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
@@ -459,6 +461,20 @@ class SuccessorTransitionContractTests(unittest.TestCase):
         self.policy = supervision_log.read_json(self.directory / "policy.json")
 
     def transition_args(self, phase: str, *extra: str) -> argparse.Namespace:
+        topology = (
+            []
+            if "--topology-posture" in extra or "--topology-basis" in extra
+            else [
+                "--topology-posture",
+                "distinct-task",
+                "--topology-basis",
+                "direct-request",
+                "--topology-rationale",
+                "The direct request requires one isolated successor task.",
+                "--topology-request-text",
+                self.authority_request,
+            ]
+        )
         return supervision_log.parser().parse_args(
             [
                 "--root",
@@ -486,12 +502,7 @@ class SuccessorTransitionContractTests(unittest.TestCase):
                 "item-340",
                 "--governing-authority-source-sha256",
                 self.authority_sha256,
-                "--topology-posture",
-                "distinct-task",
-                "--topology-basis",
-                "direct-request",
-                "--topology-rationale",
-                "The direct request requires one isolated successor task.",
+                *topology,
                 "--state-fingerprint",
                 f"state-{phase}",
                 "--evidence",
@@ -747,6 +758,54 @@ class SuccessorTransitionContractTests(unittest.TestCase):
             result["record"]["topology_decision_event_record_id"], event_record
         )
 
+    def test_direct_request_topology_requires_exact_source_bytes_and_semantics(self) -> None:
+        generic_request = "Implement this tracker."
+        generic_sha = hashlib.sha256(generic_request.encode("utf-8")).hexdigest()
+        other_target = "generic-request-target-1234"
+        init = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "init",
+                "--target-thread",
+                other_target,
+                "--target-label",
+                "Generic request target",
+                "--watcher-thread",
+                "generic-watcher-1234",
+                "--reviewer-thread",
+                "generic-reviewer-1234",
+                "--mission-source-class",
+                "direct-user",
+                "--mission-source-record",
+                "generic-item-1234",
+                "--mission-source-sha256",
+                generic_sha,
+            ]
+        )
+        with redirect_stdout(io.StringIO()):
+            init.func(init)
+        args = self.transition_args("required")
+        args.target_thread = other_target
+        args.governing_authority_source_record = "generic-item-1234"
+        args.governing_authority_source_sha256 = generic_sha
+        args.topology_request_text = generic_request
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "does not explicitly require a distinct task",
+        ):
+            with redirect_stdout(io.StringIO()):
+                args.func(args)
+
+        args = self.transition_args("required")
+        args.topology_request_text = "Create a separate successor task."
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "does not match its canonical direct source",
+        ):
+            with redirect_stdout(io.StringIO()):
+                args.func(args)
+
     def test_transition_writer_rejects_event_ledger_symlink(self) -> None:
         outside = self.root / "outside-ledger.jsonl"
         outside.write_text("", encoding="utf-8")
@@ -762,6 +821,45 @@ class SuccessorTransitionContractTests(unittest.TestCase):
                 "",
             )
         self.assertEqual(outside.read_text(encoding="utf-8"), "")
+
+    def test_legacy_unanchored_transition_is_migrated_once_and_advanced(self) -> None:
+        required = self.record("required")["record"]
+        policy = supervision_log.read_json(self.directory / "policy.json")
+        policy.pop("owner_root_history_required", None)
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+        supervision_log.atomic_json(self.directory / "policy.json", policy)
+        history = supervision_log.events(self.directory / "policy-history.jsonl")
+        history[-1]["policy"] = policy
+        previous = None
+        rebuilt = []
+        for item in history:
+            material = {
+                key: value
+                for key, value in item.items()
+                if key not in {"previous_record_sha256", "record_sha256"}
+            }
+            material["previous_record_sha256"] = previous
+            material["record_sha256"] = supervision_log.digest(material)
+            previous = material["record_sha256"]
+            rebuilt.append(material)
+        (self.directory / "policy-history.jsonl").write_bytes(
+            b"".join(supervision_log.canonical(item) + b"\n" for item in rebuilt)
+        )
+        (self.directory / supervision_log.EVENT_LEDGER_ANCHOR_NAME).unlink()
+        (self.directory / supervision_log.OWNER_ROOT_HISTORY_NAME).unlink()
+
+        advanced = self.record(
+            "successor-created",
+            "--successor-thread",
+            "successor-1234",
+        )["record"]
+        self.assertEqual(advanced["phase"], "successor-created")
+        migrated = supervision_log.read_json(self.directory / "policy.json")
+        self.assertTrue(migrated["owner_root_history_required"])
+        self.assertGreater(migrated["policy_version"], policy["policy_version"])
+        self.assertEqual(required["transition_id"], advanced["transition_id"])
 
     def test_caller_strings_cannot_mint_governing_or_correction_authority(self) -> None:
         governing = self.transition_args("required")
@@ -1263,7 +1361,12 @@ class ImplementationRangeControlTests(unittest.TestCase):
         policy = supervision_log.read_json(directory / "policy.json")
         current_events = supervision_log.events(directory / "events.jsonl")
         event_record = f"EVT-{len(current_events) + 1:06d}"
-        tracker_path, tracker_sha256, blocks = supervision_log.implementation_tracker_snapshot(
+        (
+            tracker_path,
+            tracker_sha256,
+            tracker_structure_sha256,
+            blocks,
+        ) = supervision_log.implementation_tracker_snapshot(
             str(new_tracker or self.tracker)
         )
         old_blocks = list(old_contract["tracker_blocks"])
@@ -1279,9 +1382,13 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 "kind": supervision_log.TRACKER_AMENDMENT_EVENT_KIND,
                 "old_tracker_path": old_contract["tracker_path"],
                 "old_tracker_sha256": old_contract["tracker_sha256"],
+                "old_tracker_structure_sha256": old_contract[
+                    "tracker_structure_sha256"
+                ],
                 "old_blocks": old_blocks,
                 "new_tracker_path": str(tracker_path),
                 "new_tracker_sha256": tracker_sha256,
+                "new_tracker_structure_sha256": tracker_structure_sha256,
                 "new_blocks": new_blocks,
                 "block_number_map": mapping,
                 "verifier_id": self.reviewer,
@@ -1350,6 +1457,46 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.assertEqual(gate["requested_blocks"], [0, 1, 2])
         self.assertEqual(gate["remaining_blocks"], [1, 2])
 
+    def test_same_block_set_contract_change_requires_structural_amendment(self) -> None:
+        self.write_tracker(["completed", "not-started", "not-started"])
+        binding = self.bind()["binding"]
+        original = self.tracker.read_text(encoding="utf-8")
+        changed = original.replace(
+            "| 2 | Scope 2 | 1 | `not-started` |",
+            "| 2 | Changed scope | — | `not-started` |",
+        ).replace(
+            "## Block 2 — Scope 2",
+            "## Block 2 — Changed scope",
+        )
+        self.tracker.write_text(changed, encoding="utf-8")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "canonical tracker-amendment event record",
+        ):
+            self.call(
+                "implementation-range-amend",
+                "--target-thread",
+                self.target,
+                "--tracker",
+                str(self.tracker),
+            )
+        event_record = self.ingest_tracker_amendment_event(
+            old_contract=binding
+        )
+        result = self.call(
+            "implementation-range-amend",
+            "--target-thread",
+            self.target,
+            "--tracker",
+            str(self.tracker),
+            "--amendment-event-record",
+            event_record,
+        )
+        self.assertNotEqual(
+            result["binding"]["tracker_structure_sha256"],
+            binding["tracker_structure_sha256"],
+        )
+
     def test_incidental_block_mentions_cannot_contract_full_tracker_intent(self) -> None:
         blocks = {0, 1, 2}
         for request in (
@@ -1376,6 +1523,9 @@ class ImplementationRangeControlTests(unittest.TestCase):
             "Do not implement this tracker; implement only Block 1.",
             "Implement only Block 1; do not implement the full tracker.",
             "Implement Block 1 only.",
+            "[$implement-tracker-blocks](/repo/implement-tracker-blocks/SKILL.md) Implement Block 1 only.",
+            "$implement-tracker-blocks: implement only Block 1.",
+            "Use implement-tracker-blocks for Block 1.",
         ):
             intent, requested = supervision_log.classify_implementation_request(
                 request, blocks
@@ -1429,7 +1579,8 @@ class ImplementationRangeControlTests(unittest.TestCase):
                     "--tracker-sha256",
                     tracker_sha256,
                     "--tracker-source-record",
-                    "accepted-tracker-record-1234",
+                    "implementation-range-history:"
+                    + str(binding["history_head_sha256"]),
                     "--requested-block-range",
                     "Blocks 0-1",
                     "--first-eligible-block",
@@ -1457,6 +1608,14 @@ class ImplementationRangeControlTests(unittest.TestCase):
         ):
             with redirect_stdout(io.StringIO()):
                 transition_args("f" * 64).func(transition_args("f" * 64))
+        unbound_source = transition_args(str(binding["tracker_sha256"]))
+        unbound_source.tracker_source_record = "caller-selected-tracker-record"
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "canonical implementation range: tracker source record",
+        ):
+            with redirect_stdout(io.StringIO()):
+                unbound_source.func(unbound_source)
         valid = transition_args(str(binding["tracker_sha256"]))
         output = io.StringIO()
         with redirect_stdout(output):
@@ -1572,20 +1731,19 @@ class ImplementationRangeControlTests(unittest.TestCase):
         directory = self.root / self.target
         policy = supervision_log.read_json(directory / "policy.json")
         history_path = directory / "policy-history.jsonl"
-        history_path.unlink()
-        supervision_log.append_raw(
-            history_path,
-            {
-                "schema_version": 1,
-                "record_id": "POLICY-1",
-                "timestamp": supervision_log.utc_now(),
-                "kind": "rewritten-policy-history",
-                "policy": policy,
-            },
-        )
+        material = {
+            "schema_version": 1,
+            "record_id": "POLICY-1",
+            "timestamp": supervision_log.utc_now(),
+            "kind": "rewritten-policy-history",
+            "policy": policy,
+            "previous_record_sha256": None,
+        }
+        material["record_sha256"] = supervision_log.digest(material)
+        history_path.write_bytes(supervision_log.canonical(material) + b"\n")
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError,
-            "truncated or re-rooted",
+            "truncated or re-rooted|owner-root history differs",
         ):
             self.gate()
 
@@ -1619,9 +1777,47 @@ class ImplementationRangeControlTests(unittest.TestCase):
         )
         first = ledger.read_text(encoding="utf-8").splitlines()[0]
         ledger.write_text(first + "\n", encoding="utf-8")
+        truncated_events = supervision_log.events(ledger)
+        supervision_log.atomic_json(
+            directory / supervision_log.EVENT_LEDGER_ANCHOR_NAME,
+            supervision_log.event_ledger_anchor(truncated_events),
+        )
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError,
-            "event-ledger head is stale or replaced",
+            "owner-root history differs",
+        ):
+            self.gate()
+
+    def test_fabricated_valid_policy_history_is_rejected_by_owner_root(self) -> None:
+        self.write_tracker(["completed", "not-started"])
+        self.bind()
+        directory = self.root / self.target
+        current = supervision_log.read_json(directory / "policy.json")
+        fabricated_genesis = copy.deepcopy(current)
+        fabricated_genesis["policy_version"] = 1
+        fabricated_genesis["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(fabricated_genesis)
+        )
+        records = []
+        previous = None
+        for index, embedded in enumerate((fabricated_genesis, current), start=1):
+            material = {
+                "schema_version": 1,
+                "record_id": f"POLICY-{index}",
+                "timestamp": supervision_log.utc_now(),
+                "kind": "fabricated-policy-history",
+                "policy": embedded,
+                "previous_record_sha256": previous,
+            }
+            material["record_sha256"] = supervision_log.digest(material)
+            previous = material["record_sha256"]
+            records.append(material)
+        (directory / "policy-history.jsonl").write_bytes(
+            b"".join(supervision_log.canonical(item) + b"\n" for item in records)
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "owner-root history differs",
         ):
             self.gate()
 
@@ -1649,6 +1845,9 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 "authority": contract["history"][0]["authority"],
                 "request_text_sha256": contract["history"][0]["request_text_sha256"],
                 "initial_tracker_sha256": contract["history"][0]["tracker_sha256"],
+                "initial_tracker_structure_sha256": contract["history"][0][
+                    "tracker_structure_sha256"
+                ],
                 "initial_tracker_blocks": contract["history"][0]["tracker_blocks"],
                 "initial_range_intent": "explicit-blocks",
                 "initial_explicit_blocks": [0],
@@ -1786,6 +1985,39 @@ class ControlPostureReducerTests(unittest.TestCase):
         )
 
     def record_public_transition(self, phase: str, *extra: str) -> dict[str, object]:
+        directory = self.root / self.owner
+        topology_events = [
+            item
+            for item in supervision_log.events(directory / "events.jsonl")
+            if item.get("kind") == supervision_log.SUCCESSOR_TOPOLOGY_EVENT_KIND
+        ]
+        if not topology_events:
+            policy = supervision_log.read_json(directory / "policy.json")
+            current_events = supervision_log.events(directory / "events.jsonl")
+            topology_record = f"EVT-{len(current_events) + 1:06d}"
+            supervision_log.append_raw(
+                directory / "events.jsonl",
+                {
+                    "schema_version": 1,
+                    "record_id": topology_record,
+                    "timestamp": supervision_log.utc_now(),
+                    "target_thread_id": self.owner,
+                    "kind": supervision_log.SUCCESSOR_TOPOLOGY_EVENT_KIND,
+                    "transition_id": "TRANSITION-PUBLIC-1234",
+                    "topology_posture": "distinct-task",
+                    "topology_basis": "technical-isolation",
+                    "topology_rationale": "A separate target owner is required.",
+                    "governing_authority_source_class": "direct-user",
+                    "governing_authority_source_record": f"mission-{self.owner}",
+                    "governing_authority_source_sha256": self.owner_mission,
+                    "verifier_id": f"base-{self.owner}",
+                    "provenance_status": "accepted-before-entry",
+                    "policy_sha256": policy["policy_sha256"],
+                    "evidence": ["independent-public-transition-review"],
+                },
+            )
+        else:
+            topology_record = str(topology_events[0]["record_id"])
         args = supervision_log.parser().parse_args(
             [
                 "--root",
@@ -1816,9 +2048,11 @@ class ControlPostureReducerTests(unittest.TestCase):
                 "--topology-posture",
                 "distinct-task",
                 "--topology-basis",
-                "direct-request",
+                "technical-isolation",
                 "--topology-rationale",
-                "The direct request requires one isolated successor task.",
+                "A separate target owner is required.",
+                "--topology-decision-event-record",
+                topology_record,
                 "--state-fingerprint",
                 f"state-{phase}",
                 "--evidence",
@@ -2795,7 +3029,7 @@ class ControlPostureReducerTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(
                 supervision_log.SupervisionLogError,
-                "stale or replaced|changed before append",
+                "stale or replaced|changed before append|owner-root history differs",
             ):
                 supervision_log.append_raw_locked_at(
                     directory_fd,

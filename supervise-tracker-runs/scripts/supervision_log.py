@@ -195,6 +195,7 @@ DIRECT_AUTHORITY_EVENT_KIND = "direct-user-authority-source"
 TRACKER_AMENDMENT_EVENT_KIND = "implementation-tracker-amendment"
 SUCCESSOR_TOPOLOGY_EVENT_KIND = "successor-topology-decision"
 EVENT_LEDGER_ANCHOR_NAME = "events-head.json"
+OWNER_ROOT_HISTORY_NAME = "owner-root-history.jsonl"
 MAX_IMPLEMENTATION_TRACKER_BYTES = 2 * 1024 * 1024
 IMPLEMENTATION_BLOCK_HEADING = re.compile(r"^## Block (\d+)\b", re.MULTILINE)
 IMPLEMENTATION_TABLE_ROW = re.compile(r"^\|\s*(\d+)\s*\|(.+)$")
@@ -210,6 +211,7 @@ SUCCESSOR_TRANSITION_IDENTITY_FIELDS = (
     "topology_posture",
     "topology_basis",
     "topology_rationale",
+    "topology_request_sha256",
     "topology_decision_event_record_id",
     "topology_decision_event_sha256",
     "transition_expires_at",
@@ -1216,6 +1218,9 @@ def validate_policy(policy: dict[str, Any]) -> None:
         raise SupervisionLogError("Supervision policy hash is stale")
     if policy.get("schema_version") != 1:
         raise SupervisionLogError("Unsupported supervision policy schema")
+    owner_root_required = policy.get("owner_root_history_required")
+    if owner_root_required is not None and owner_root_required is not True:
+        raise SupervisionLogError("Canonical owner-root history posture is invalid")
     group_id = policy.get("supervision_group_id")
     if group_id is not None:
         if not isinstance(group_id, str):
@@ -1452,28 +1457,28 @@ def owner_append_lock(
 
 
 def append_raw_locked(path: Path, value: dict[str, Any]) -> None:
-    existing = events(path)
-    if path.name == "events.jsonl":
-        validate_event_ledger_anchor(
-            path.parent,
-            existing,
-            allow_missing=not existing,
-        )
-    previous = existing[-1].get("record_sha256") if existing else None
-    material = dict(value)
-    material["previous_record_sha256"] = previous
-    material["record_sha256"] = digest(material)
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    descriptor = os.open(path.parent, flags)
     try:
-        os.write(descriptor, canonical(material) + b"\n")
-        os.fsync(descriptor)
+        existing, snapshot = events_snapshot(
+            Path(path.name), directory_fd=descriptor
+        )
+        previous = existing[-1].get("record_sha256") if existing else None
+        append_raw_locked_at(
+            descriptor,
+            path.name,
+            value,
+            previous_record_sha256=(
+                str(previous) if previous is not None else None
+            ),
+            expected_file_snapshot=snapshot,
+        )
     finally:
         os.close(descriptor)
-    if path.name == "events.jsonl":
-        atomic_json(
-            path.parent / EVENT_LEDGER_ANCHOR_NAME,
-            event_ledger_anchor([*existing, material]),
-        )
 
 
 def append_raw_locked_at(
@@ -1483,7 +1488,27 @@ def append_raw_locked_at(
     *,
     previous_record_sha256: str | None,
     expected_file_snapshot: tuple[int, int, int, int] | None,
+    require_event_anchor: bool = False,
 ) -> str:
+    owner_policy_history: list[dict[str, Any]] = []
+    owner_events: list[dict[str, Any]] = []
+    if name in {"events.jsonl", "policy-history.jsonl"}:
+        owner_policy_history, _owner_policy_history_snapshot = events_snapshot(
+            Path("policy-history.jsonl"), directory_fd=directory_fd
+        )
+        owner_events, _owner_events_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        validate_owner_root_history_at(
+            directory_fd,
+            owner_policy_history,
+            owner_events,
+            allow_missing=owner_root_bootstrap_allowed_at(
+                directory_fd,
+                owner_policy_history,
+                owner_events,
+            ),
+        )
     if name == "events.jsonl":
         prior_events, _prior_snapshot = events_snapshot(
             Path(name), directory_fd=directory_fd
@@ -1491,7 +1516,7 @@ def append_raw_locked_at(
         validate_event_ledger_anchor_at(
             directory_fd,
             prior_events,
-            allow_missing=not prior_events,
+            allow_missing=not require_event_anchor and not prior_events,
         )
         actual_prior = (
             str(prior_events[-1].get("record_sha256")) if prior_events else None
@@ -1527,6 +1552,18 @@ def append_raw_locked_at(
             directory_fd,
             EVENT_LEDGER_ANCHOR_NAME,
             event_ledger_anchor(current_events),
+        )
+    if name in {"events.jsonl", "policy-history.jsonl"}:
+        current_policy_history, _current_policy_history_snapshot = events_snapshot(
+            Path("policy-history.jsonl"), directory_fd=directory_fd
+        )
+        current_owner_events, _current_owner_event_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        append_owner_root_history_at(
+            directory_fd,
+            current_policy_history,
+            current_owner_events,
         )
     return record_sha256
 
@@ -1653,6 +1690,146 @@ def ensure_event_ledger_anchor_at(directory_fd: int) -> None:
         return
     validate_event_ledger_anchor_at(
         directory_fd,
+        all_events,
+        allow_missing=False,
+    )
+
+
+def owner_root_material(
+    policy_history: list[dict[str, Any]], all_events: list[dict[str, Any]]
+) -> dict[str, Any]:
+    return {
+        "policy_history_count": len(policy_history),
+        "policy_history_genesis_sha256": (
+            policy_history[0].get("record_sha256") if policy_history else None
+        ),
+        "policy_history_head_sha256": (
+            policy_history[-1].get("record_sha256") if policy_history else None
+        ),
+        "event_count": len(all_events),
+        "event_genesis_sha256": (
+            all_events[0].get("record_sha256") if all_events else None
+        ),
+        "event_head_sha256": (
+            all_events[-1].get("record_sha256") if all_events else None
+        ),
+    }
+
+
+def owner_root_bootstrap_allowed_at(
+    directory_fd: int,
+    policy_history: list[dict[str, Any]],
+    all_events: list[dict[str, Any]],
+) -> bool:
+    if path_snapshot_at(directory_fd, OWNER_ROOT_HISTORY_NAME) is not None:
+        return False
+    try:
+        policy, _snapshot = read_json_snapshot(
+            Path("policy.json"), directory_fd=directory_fd
+        )
+        validate_policy(policy)
+    except (OSError, SupervisionLogError):
+        return not policy_history and not all_events
+    return (
+        policy.get("owner_root_history_required") is not True
+        or (not policy_history and not all_events)
+    )
+
+
+def validate_owner_root_history_at(
+    directory_fd: int,
+    policy_history: list[dict[str, Any]],
+    all_events: list[dict[str, Any]],
+    *,
+    allow_missing: bool,
+) -> None:
+    if path_snapshot_at(directory_fd, OWNER_ROOT_HISTORY_NAME) is None:
+        if allow_missing:
+            return
+        raise SupervisionLogError("Canonical owner-root history is missing")
+    roots, _snapshot = events_snapshot(
+        Path(OWNER_ROOT_HISTORY_NAME), directory_fd=directory_fd
+    )
+    if not roots:
+        raise SupervisionLogError("Canonical owner-root history is empty")
+    for index, record in enumerate(roots, start=1):
+        expected_fields = {
+            "schema_version",
+            "record_id",
+            "timestamp",
+            "kind",
+            "sequence",
+            *owner_root_material([], []).keys(),
+            "previous_record_sha256",
+            "record_sha256",
+        }
+        if (
+            set(record) != expected_fields
+            or record.get("schema_version") != 1
+            or record.get("kind") != "supervision-owner-root"
+            or record.get("sequence") != index
+            or record.get("record_id") != f"OWNER-ROOT-{index:06d}"
+        ):
+            raise SupervisionLogError("Canonical owner-root history shape differs")
+    expected = owner_root_material(policy_history, all_events)
+    if any(roots[-1].get(field) != value for field, value in expected.items()):
+        raise SupervisionLogError(
+            "Canonical owner-root history differs from policy or event state"
+        )
+
+
+def append_owner_root_history_at(
+    directory_fd: int,
+    policy_history: list[dict[str, Any]],
+    all_events: list[dict[str, Any]],
+) -> None:
+    roots, snapshot = events_snapshot(
+        Path(OWNER_ROOT_HISTORY_NAME), directory_fd=directory_fd
+    )
+    material: dict[str, Any] = {
+        "schema_version": 1,
+        "record_id": f"OWNER-ROOT-{len(roots) + 1:06d}",
+        "timestamp": utc_now(),
+        "kind": "supervision-owner-root",
+        "sequence": len(roots) + 1,
+        **owner_root_material(policy_history, all_events),
+        "previous_record_sha256": (
+            roots[-1].get("record_sha256") if roots else None
+        ),
+    }
+    material["record_sha256"] = digest(material)
+    flags = os.O_WRONLY | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0)
+    flags |= os.O_EXCL | os.O_CREAT if snapshot is None else 0
+    descriptor = os.open(
+        OWNER_ROOT_HISTORY_NAME,
+        flags,
+        0o600,
+        dir_fd=directory_fd,
+    )
+    try:
+        if snapshot is not None and file_snapshot(os.fstat(descriptor)) != snapshot:
+            raise SupervisionLogError(
+                "Canonical owner-root history changed before append"
+            )
+        os.write(descriptor, canonical(material) + b"\n")
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def ensure_owner_root_history_at(directory_fd: int) -> None:
+    policy_history, _history_snapshot = events_snapshot(
+        Path("policy-history.jsonl"), directory_fd=directory_fd
+    )
+    all_events, _event_snapshot = events_snapshot(
+        Path("events.jsonl"), directory_fd=directory_fd
+    )
+    if path_snapshot_at(directory_fd, OWNER_ROOT_HISTORY_NAME) is None:
+        append_owner_root_history_at(directory_fd, policy_history, all_events)
+        return
+    validate_owner_root_history_at(
+        directory_fd,
+        policy_history,
         all_events,
         allow_missing=False,
     )
@@ -1813,9 +1990,11 @@ def canonical_tracker_amendment_event(
         "kind",
         "old_tracker_path",
         "old_tracker_sha256",
+        "old_tracker_structure_sha256",
         "old_blocks",
         "new_tracker_path",
         "new_tracker_sha256",
+        "new_tracker_structure_sha256",
         "new_blocks",
         "block_number_map",
         "verifier_id",
@@ -1838,7 +2017,13 @@ def canonical_tracker_amendment_event(
         value = event.get(field)
         if not isinstance(value, str) or not Path(value).is_absolute():
             raise SupervisionLogError("Canonical tracker-amendment path is not exact")
-    for field in ("old_tracker_sha256", "new_tracker_sha256", "record_sha256"):
+    for field in (
+        "old_tracker_sha256",
+        "old_tracker_structure_sha256",
+        "new_tracker_sha256",
+        "new_tracker_structure_sha256",
+        "record_sha256",
+    ):
         exact_sha256(str(event.get(field, "")), label=field.replace("_", " "))
     old_blocks = event.get("old_blocks")
     new_blocks = event.get("new_blocks")
@@ -2164,6 +2349,10 @@ def cmd_init(args: argparse.Namespace) -> None:
             "policy": policy,
         },
     )
+    atomic_json(
+        directory / EVENT_LEDGER_ANCHOR_NAME,
+        event_ledger_anchor([]),
+    )
     print(json.dumps({"created": True, "policy": policy}, sort_keys=True))
 
 
@@ -2195,12 +2384,26 @@ def validate_policy_history_sequence(
             raise SupervisionLogError(
                 "Canonical policy history sequence or owner differs"
             )
+        try:
+            validate_policy(dict(embedded))
+        except SupervisionLogError as exc:
+            raise SupervisionLogError(
+                "Canonical policy history contains an invalid embedded policy"
+            ) from exc
+        if (
+            embedded.get("created_at") != policy.get("created_at")
+            or embedded.get("target_label") != policy.get("target_label")
+        ):
+            raise SupervisionLogError(
+                "Canonical policy history immutable owner identity differs"
+            )
 
 
 def validate_range_policy_history_at(
     directory_fd: int, policy: Mapping[str, Any]
 ) -> None:
-    if not range_policy_requires_history(policy):
+    owner_root_required = policy.get("owner_root_history_required") is True
+    if not range_policy_requires_history(policy) and not owner_root_required:
         return
     history, _snapshot = events_snapshot(
         Path("policy-history.jsonl"), directory_fd=directory_fd
@@ -2210,10 +2413,17 @@ def validate_range_policy_history_at(
         raise SupervisionLogError(
             "Canonical implementation-range policy history is stale or replaced"
         )
-    if policy.get("direct_authority_receipts") or policy.get("implementation_range"):
-        all_events, _event_snapshot = events_snapshot(
-            Path("events.jsonl"), directory_fd=directory_fd
+    all_events, _event_snapshot = events_snapshot(
+        Path("events.jsonl"), directory_fd=directory_fd
+    )
+    if owner_root_required:
+        validate_owner_root_history_at(
+            directory_fd,
+            history,
+            all_events,
+            allow_missing=False,
         )
+    if policy.get("direct_authority_receipts") or policy.get("implementation_range"):
         validate_event_ledger_anchor_at(
             directory_fd,
             all_events,
@@ -2233,32 +2443,16 @@ def validate_range_policy_history_at(
 
 
 def validate_range_policy_history(directory: Path, policy: Mapping[str, Any]) -> None:
-    if not range_policy_requires_history(policy):
-        return
-    history = events(directory / "policy-history.jsonl")
-    validate_policy_history_sequence(history, policy)
-    if not history or history[-1].get("policy") != policy:
-        raise SupervisionLogError(
-            "Canonical implementation-range policy history is stale or replaced"
-        )
-    if policy.get("direct_authority_receipts") or policy.get("implementation_range"):
-        all_events = events(directory / "events.jsonl")
-        validate_event_ledger_anchor(
-            directory,
-            all_events,
-            allow_missing=not all_events,
-        )
-        if policy.get("direct_authority_receipts"):
-            validate_direct_authority_receipts(
-                policy,
-                all_events=all_events,
-                policy_history=history,
-            )
-        validate_tracker_amendment_events(
-            policy,
-            all_events=all_events,
-            policy_history=history,
-        )
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    descriptor = os.open(directory, flags)
+    try:
+        validate_range_policy_history_at(descriptor, policy)
+    finally:
+        os.close(descriptor)
 
 
 def load_policy(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
@@ -2404,6 +2598,27 @@ def write_policy_version(
             )
             validate_policy(current_policy)
             validate_range_policy_history_at(directory_fd, current_policy)
+            legacy_history, legacy_history_snapshot = events_snapshot(
+                Path("policy-history.jsonl"), directory_fd=directory_fd
+            )
+            if (
+                kind == "owner-root-history-migration"
+                and not legacy_history
+                and current_policy.get("policy_version") == 1
+            ):
+                append_raw_locked_at(
+                    directory_fd,
+                    "policy-history.jsonl",
+                    {
+                        "schema_version": 1,
+                        "record_id": "POLICY-1",
+                        "timestamp": utc_now(),
+                        "kind": "legacy-policy-genesis-migration",
+                        "policy": current_policy,
+                    },
+                    previous_record_sha256=None,
+                    expected_file_snapshot=legacy_history_snapshot,
+                )
             if (
                 current_policy.get("policy_sha256") != expected_policy_sha256
                 or int(current_policy.get("policy_version", -1))
@@ -2414,6 +2629,14 @@ def write_policy_version(
                 raise SupervisionLogError(
                     "Policy changed after it was loaded; reload before mutation"
                 )
+            if (
+                policy.get("owner_root_history_required") is True
+                or policy.get("implementation_range") is not None
+                or policy.get("direct_authority_receipts")
+                or kind == "owner-root-history-migration"
+            ):
+                ensure_owner_root_history_at(directory_fd)
+                policy["owner_root_history_required"] = True
             policy["policy_version"] = expected_policy_version + 1
             policy["updated_at"] = utc_now()
             policy["policy_sha256"] = digest(policy_material(policy))
@@ -4519,7 +4742,7 @@ def transition_first_record(
 
 def implementation_tracker_snapshot(
     path_value: str,
-) -> tuple[Path, str, dict[int, dict[str, Any]]]:
+) -> tuple[Path, str, str, dict[int, dict[str, Any]]]:
     supplied = Path(path_value).expanduser()
     descriptor = -1
     try:
@@ -4579,7 +4802,44 @@ def implementation_tracker_snapshot(
         raise SupervisionLogError(
             "Implementation tracker status table is incomplete"
         )
-    return resolved, hashlib.sha256(raw).hexdigest(), rows
+    block_matches = list(IMPLEMENTATION_BLOCK_HEADING.finditer(text))
+    block_contract_roots: list[dict[str, Any]] = []
+    for index, match in enumerate(block_matches):
+        number = int(match.group(1))
+        end = block_matches[index + 1].start() if index + 1 < len(block_matches) else len(text)
+        section_lines = text[match.start():end].splitlines()
+        normalized_lines: list[str] = []
+        in_completion_evidence = False
+        for line in section_lines:
+            if re.match(r"^Status:\s*", line):
+                normalized_lines.append("Status: <runtime-state>")
+                continue
+            if line.strip() == "### Completion evidence":
+                in_completion_evidence = True
+                normalized_lines.append(line)
+                continue
+            if in_completion_evidence and re.match(r"^###\s+", line):
+                in_completion_evidence = False
+            if not in_completion_evidence:
+                normalized_lines.append(line.rstrip())
+        block_contract_roots.append(
+            {
+                "number": number,
+                "scope": rows[number]["scope"],
+                "dependencies": rows[number]["dependencies"],
+                "contract_sha256": hashlib.sha256(
+                    "\n".join(normalized_lines).strip().encode("utf-8")
+                ).hexdigest(),
+            }
+        )
+    structure_sha256 = digest(
+        {
+            "schema_version": 1,
+            "kind": "implementation-tracker-structure",
+            "blocks": block_contract_roots,
+        }
+    )
+    return resolved, hashlib.sha256(raw).hexdigest(), structure_sha256, rows
 
 
 def classify_implementation_request(
@@ -4615,6 +4875,27 @@ def classify_implementation_request(
     clauses = re.split(r"\s*;\s*|\s*,\s*but\s+", value)
     for raw_clause in clauses:
         clause = raw_clause.strip()
+        invocation_present = bool(
+            re.search(r"\$?implement-tracker-blocks\b", clause, re.I)
+        )
+        clause = re.sub(
+            r"\[\$?implement-tracker-blocks\]\([^)]*\)",
+            "",
+            clause,
+            flags=re.I,
+        )
+        clause = re.sub(
+            r"\$?implement-tracker-blocks\b\s*:?s*",
+            "",
+            clause,
+            count=1,
+            flags=re.I,
+        ).strip()
+        clause = re.sub(r"^use\s+", "", clause, flags=re.I)
+        clause = re.sub(r"^for\s+", "", clause, flags=re.I)
+        if not clause and invocation_present:
+            positive_full = True
+            continue
         normalized_clause = re.sub(r"^(?:please\s+)", "", clause, flags=re.I)
         if re.match(r"^(?:do\s+not|don't|never)\b", normalized_clause, re.I):
             continue
@@ -4638,7 +4919,6 @@ def classify_implementation_request(
         lowered_clause = normalized_clause.lower().strip(" .!")
         if (
             lowered_clause in {"all", "full"}
-            or "implement-tracker-blocks" in lowered_clause
             or re.fullmatch(
                 r"(?:implement|execute|continue|do)\s+all(?:\s+(?:blocks?|of\s+the\s+blocks?))?",
                 lowered_clause,
@@ -4678,6 +4958,38 @@ def classify_implementation_request(
     )
 
 
+def direct_request_requires_distinct_task(request_text: str) -> bool:
+    value = clean(
+        request_text,
+        label="distinct-task direct request text",
+        maximum=1200,
+    )
+    task_phrase = (
+        r"(?:distinct|separate|new)(?:\s+successor)?\s+"
+        r"(?:codex\s+)?(?:task|thread|chat|conversation)"
+        r"|successor\s+(?:codex\s+)?(?:task|thread|chat|conversation)"
+    )
+    if re.search(
+        rf"\b(?:do\s+not|don't|never)\b.{{0,100}}\b(?:{task_phrase})\b",
+        value,
+        re.I,
+    ):
+        return False
+    return bool(
+        re.search(
+            rf"\b(?:create|start|use|move|continue|implement|execute|run)\b"
+            rf".{{0,160}}\b(?:{task_phrase})\b",
+            value,
+            re.I,
+        )
+        or re.search(
+            rf"\b(?:in|within|through)\s+(?:a|one|the)\s+(?:{task_phrase})\b",
+            value,
+            re.I,
+        )
+    )
+
+
 def implementation_range_contract(policy: Mapping[str, Any]) -> dict[str, Any] | None:
     value = policy.get("implementation_range")
     return dict(value) if isinstance(value, Mapping) else None
@@ -4691,6 +5003,10 @@ def validate_implementation_range_contract(value: Mapping[str, Any]) -> None:
         raise SupervisionLogError("Implementation range intent is invalid")
     exact_sha256(str(value.get("genesis_sha256", "")), label="range genesis SHA-256")
     exact_sha256(str(value.get("tracker_sha256", "")), label="range tracker SHA-256")
+    exact_sha256(
+        str(value.get("tracker_structure_sha256", "")),
+        label="range tracker structure SHA-256",
+    )
     tracker_path = value.get("tracker_path")
     if not isinstance(tracker_path, str) or not Path(tracker_path).is_absolute():
         raise SupervisionLogError("Implementation range tracker path is not exact")
@@ -4726,6 +5042,10 @@ def validate_implementation_range_contract(value: Mapping[str, Any]) -> None:
         expected = digest(material)
         if item.get("entry_sha256") != expected:
             raise SupervisionLogError("Implementation range history entry hash is stale")
+        exact_sha256(
+            str(item.get("tracker_structure_sha256", "")),
+            label="range-history tracker structure SHA-256",
+        )
         authority_version = item.get("authority_policy_version")
         if not isinstance(authority_version, int) or authority_version <= 0:
             raise SupervisionLogError(
@@ -4742,6 +5062,7 @@ def validate_implementation_range_contract(value: Mapping[str, Any]) -> None:
     head = history[-1]
     for contract_field, history_field in (
         ("tracker_sha256", "tracker_sha256"),
+        ("tracker_structure_sha256", "tracker_structure_sha256"),
         ("tracker_path", "tracker_path"),
         ("range_intent", "range_intent"),
         ("explicit_blocks", "explicit_blocks"),
@@ -4758,6 +5079,9 @@ def validate_implementation_range_contract(value: Mapping[str, Any]) -> None:
         "authority": history[0].get("authority"),
         "request_text_sha256": history[0].get("request_text_sha256"),
         "initial_tracker_sha256": history[0].get("tracker_sha256"),
+        "initial_tracker_structure_sha256": history[0].get(
+            "tracker_structure_sha256"
+        ),
         "initial_tracker_blocks": history[0].get("tracker_blocks"),
         "initial_range_intent": history[0].get("range_intent"),
         "initial_explicit_blocks": history[0].get("explicit_blocks"),
@@ -4853,7 +5177,7 @@ def implementation_range_state(
     if contract is None:
         return None
     validate_implementation_range_contract(contract)
-    path, tracker_sha256, blocks = implementation_tracker_snapshot(
+    path, tracker_sha256, tracker_structure_sha256, blocks = implementation_tracker_snapshot(
         str(contract["tracker_path"])
     )
     if str(path) != contract["tracker_path"]:
@@ -4861,6 +5185,10 @@ def implementation_range_state(
     if require_tracker_hash and tracker_sha256 != contract["tracker_sha256"]:
         raise SupervisionLogError(
             "Implementation tracker changed without an accepted range amendment"
+        )
+    if tracker_structure_sha256 != contract["tracker_structure_sha256"]:
+        raise SupervisionLogError(
+            "Implementation tracker structure changed without an accepted amendment"
         )
     requested = implementation_range_requested_blocks(contract, set(blocks))
     completed_tracker_blocks = {
@@ -4883,6 +5211,7 @@ def implementation_range_state(
         "range_intent": contract["range_intent"],
         "tracker_path": str(path),
         "tracker_sha256": tracker_sha256,
+        "tracker_structure_sha256": tracker_structure_sha256,
         "requested_blocks": requested,
         "accepted_blocks": accepted,
         "completed_prerequisite_blocks": sorted(
@@ -4951,6 +5280,7 @@ def implementation_range_history_entry(
     operation: str,
     request_text: str,
     tracker_sha256: str,
+    tracker_structure_sha256: str,
     tracker_path: str,
     tracker_blocks: list[int],
     range_intent: str,
@@ -4967,6 +5297,7 @@ def implementation_range_history_entry(
         "operation": operation,
         "request_text_sha256": hashlib.sha256(request_text.encode("utf-8")).hexdigest(),
         "tracker_sha256": tracker_sha256,
+        "tracker_structure_sha256": tracker_structure_sha256,
         "tracker_path": tracker_path,
         "tracker_blocks": tracker_blocks,
         "range_intent": range_intent,
@@ -4985,7 +5316,12 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     if implementation_range_contract(policy) is not None:
         raise SupervisionLogError("Implementation range is already bound")
-    tracker_path, tracker_sha256, blocks = implementation_tracker_snapshot(args.tracker)
+    (
+        tracker_path,
+        tracker_sha256,
+        tracker_structure_sha256,
+        blocks,
+    ) = implementation_tracker_snapshot(args.tracker)
     intent, requested = classify_implementation_request(args.request_text, set(blocks))
     source_record = safe_id(
         args.authority_source_record, label="range authority source record"
@@ -5014,6 +5350,7 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
         operation="bound",
         request_text=args.request_text,
         tracker_sha256=tracker_sha256,
+        tracker_structure_sha256=tracker_structure_sha256,
         tracker_path=str(tracker_path),
         tracker_blocks=sorted(blocks),
         range_intent=intent,
@@ -5027,6 +5364,7 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
             "authority": authority,
             "request_text_sha256": entry["request_text_sha256"],
             "initial_tracker_sha256": tracker_sha256,
+            "initial_tracker_structure_sha256": tracker_structure_sha256,
             "initial_tracker_blocks": sorted(blocks),
             "initial_range_intent": intent,
             "initial_explicit_blocks": explicit,
@@ -5042,6 +5380,7 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
         "explicit_blocks": explicit,
         "tracker_path": str(tracker_path),
         "tracker_sha256": tracker_sha256,
+        "tracker_structure_sha256": tracker_structure_sha256,
         "tracker_blocks": sorted(blocks),
         "history": [entry],
         "history_head_sha256": entry["entry_sha256"],
@@ -5063,7 +5402,12 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
     if contract is None:
         raise SupervisionLogError("Implementation range is not bound")
     validate_implementation_range_contract(contract)
-    tracker_path, tracker_sha256, blocks = implementation_tracker_snapshot(args.tracker)
+    (
+        tracker_path,
+        tracker_sha256,
+        tracker_structure_sha256,
+        blocks,
+    ) = implementation_tracker_snapshot(args.tracker)
     old_intent = str(contract["range_intent"])
     old_explicit = list(contract["explicit_blocks"])
     old_blocks = list(contract["tracker_blocks"])
@@ -5071,6 +5415,7 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
     structural_change = bool(
         str(tracker_path) != contract["tracker_path"]
         or new_blocks != old_blocks
+        or tracker_structure_sha256 != contract["tracker_structure_sha256"]
     )
     amendment_event: dict[str, Any] | None = None
     block_number_map = {str(item): item for item in old_blocks}
@@ -5100,9 +5445,13 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
         comparisons = {
             "old_tracker_path": contract["tracker_path"],
             "old_tracker_sha256": contract["tracker_sha256"],
+            "old_tracker_structure_sha256": contract[
+                "tracker_structure_sha256"
+            ],
             "old_blocks": old_blocks,
             "new_tracker_path": str(tracker_path),
             "new_tracker_sha256": tracker_sha256,
+            "new_tracker_structure_sha256": tracker_structure_sha256,
             "new_blocks": new_blocks,
         }
         if any(amendment_event.get(field) != expected for field, expected in comparisons.items()):
@@ -5194,6 +5543,7 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
         operation="contracted" if contraction else "tracker-amended",
         request_text=args.request_text or "preserve-frozen-range-intent",
         tracker_sha256=tracker_sha256,
+        tracker_structure_sha256=tracker_structure_sha256,
         tracker_path=str(tracker_path),
         tracker_blocks=new_blocks,
         range_intent=new_intent,
@@ -5216,6 +5566,7 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
             "explicit_blocks": new_explicit,
             "tracker_path": str(tracker_path),
             "tracker_sha256": tracker_sha256,
+            "tracker_structure_sha256": tracker_structure_sha256,
             "tracker_blocks": new_blocks,
             "history": history,
             "history_head_sha256": entry["entry_sha256"],
@@ -5306,11 +5657,13 @@ def validate_successor_transition(
     topology_event_sha256 = str(
         record.get("topology_decision_event_sha256", "")
     )
+    topology_request_sha256 = str(record.get("topology_request_sha256", ""))
     if topology_posture not in SUCCESSOR_TOPOLOGY_POSTURES:
         raise SupervisionLogError("Successor transition topology is invalid")
     if topology_posture == "same-task-new-run":
         if (
             topology_basis != "same-task-default"
+            or topology_request_sha256
             or topology_event_record
             or topology_event_sha256
         ):
@@ -5321,6 +5674,8 @@ def validate_successor_transition(
         if (
             record.get("governing_authority_source_class") != "direct-user"
             or not topology_rationale
+            or topology_request_sha256
+            != record.get("governing_authority_source_sha256")
             or topology_event_record
             or topology_event_sha256
         ):
@@ -5328,7 +5683,12 @@ def validate_successor_transition(
                 "Distinct-task direct-request topology requires canonical direct-user authority"
             )
     elif topology_basis == "technical-isolation":
-        if not topology_rationale or not topology_event_record or not topology_event_sha256:
+        if (
+            not topology_rationale
+            or topology_request_sha256
+            or not topology_event_record
+            or not topology_event_sha256
+        ):
             raise SupervisionLogError(
                 "Technical-isolation topology requires a canonical decision event"
             )
@@ -5615,6 +5975,28 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
         loaded_event_snapshot,
         directory_snapshot,
     ) = load_control_snapshot(args)
+    if policy.get("owner_root_history_required") is not True:
+        policy["owner_root_history_required"] = True
+        write_policy_version(
+            directory,
+            policy,
+            kind="owner-root-history-migration",
+            reason=(
+                "Lazily bind a legacy supervision owner to canonical policy/event roots."
+            ),
+            evidence_values=[
+                "legacy-owner-root-migration",
+                str(policy["policy_sha256"]),
+            ],
+        )
+        (
+            directory,
+            policy,
+            policy_snapshot,
+            loaded_events,
+            loaded_event_snapshot,
+            directory_snapshot,
+        ) = load_control_snapshot(args)
     transition_id = safe_id(args.transition_id, label="successor transition ID")
     evidence_values = [
         clean(item, label="successor transition evidence", maximum=160)
@@ -5720,6 +6102,11 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
             topology_decision_event_record_id,
             label="topology decision event record",
         )
+    topology_request_text = clean(
+        args.topology_request_text,
+        label="topology direct request text",
+        maximum=1200,
+    )
     transition_expires_at = (
         parse_time(args.expires_at).isoformat() if args.expires_at else ""
     )
@@ -5787,6 +6174,7 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
         "topology_posture": topology_posture,
         "topology_basis": topology_basis,
         "topology_rationale": topology_rationale,
+        "topology_request_sha256": "",
         "topology_decision_event_record_id": topology_decision_event_record_id,
         "topology_decision_event_sha256": "",
         "transition_expires_at": transition_expires_at,
@@ -5834,6 +6222,10 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
             )
         canonical_identity = {
             "tracker_sha256": range_state["tracker_sha256"],
+            "tracker_source_record": (
+                "implementation-range-history:"
+                + str(range_state["range_history_head_sha256"])
+            ),
             "requested_block_range": format_implementation_block_set(
                 list(range_state["requested_blocks"])
             ),
@@ -5854,6 +6246,23 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
     ):
         raise SupervisionLogError(
             "Successor transition correction authority is not canonical"
+        )
+    if topology_basis == "direct-request":
+        request_sha256 = hashlib.sha256(
+            topology_request_text.encode("utf-8")
+        ).hexdigest()
+        if request_sha256 != authority_source_sha256:
+            raise SupervisionLogError(
+                "Distinct-task request text does not match its canonical direct source"
+            )
+        if not direct_request_requires_distinct_task(topology_request_text):
+            raise SupervisionLogError(
+                "Canonical direct request does not explicitly require a distinct task"
+            )
+        record["topology_request_sha256"] = request_sha256
+    elif topology_request_text:
+        raise SupervisionLogError(
+            "Topology request text is valid only for a direct-request basis"
         )
     with owner_append_lock(
         root_from(args), args.target_thread, directory_snapshot
@@ -5945,10 +6354,12 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
             prior.setdefault("replaces_transition_id", "")
             prior.setdefault("topology_decision_event_record_id", "")
             prior.setdefault("topology_decision_event_sha256", "")
+            prior.setdefault("topology_request_sha256", "")
             for field in (
                 "topology_posture",
                 "topology_basis",
                 "topology_rationale",
+                "topology_request_sha256",
                 "transition_expires_at",
                 "replaces_transition_id",
                 "topology_decision_event_record_id",
@@ -6007,6 +6418,7 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
             record,
             previous_record_sha256=prior_hash,
             expected_file_snapshot=current_event_snapshot,
+            require_event_anchor=True,
         )
         _current_directory, recheck_fd, recheck_snapshot = open_member_directory(
             root_from(args), args.target_thread
@@ -9682,6 +10094,7 @@ def parser() -> argparse.ArgumentParser:
         "--topology-basis", choices=sorted(SUCCESSOR_TOPOLOGY_BASES), default=""
     )
     successor_record.add_argument("--topology-rationale", default="")
+    successor_record.add_argument("--topology-request-text", default="")
     successor_record.add_argument("--topology-decision-event-record", default="")
     successor_record.add_argument("--expires-at", default="")
     successor_record.add_argument("--replaces-transition", default="")

@@ -241,13 +241,15 @@ routed supervisor packet as direct user authority, claim completion, or turn
 the handoff into an ordinary user scheduling request.
 
 Use `same-task-new-run` by default. Select `distinct-task/direct-request` only
-from the exact canonical direct-user governing source. Select
+when the exact request bytes hash to the canonical direct-user governing source
+and explicitly request a distinct task. Select
 `distinct-task/technical-isolation` only from a pre-existing, independently
 verified, hash-chained `successor-topology-decision` owner event; never mint the
 rationale from CLI prose. New `legacy-linear` transitions are forbidden. When
 the canonical implementation range exists, the transition genesis must match
-its tracker hash, complete requested Block set, first dependency-safe Block,
-and bound mission root. Append through the canonical owner-relative,
+its tracker hash, canonical range-history source record, complete requested
+Block set, first dependency-safe Block, and bound mission root. Append through
+the canonical owner-relative,
 no-follow/currentness-checked ledger writer.
 
 For a tracker run that spans skill maintenance, reread this skill at each Block
@@ -468,15 +470,19 @@ full-range intent persists automatically. A contraction additionally requires
 an independently reviewed canonical `implementation-range-authority-receipt`
 resolved from that pre-existing owner event. The receipt command cannot accept
 source, hash, reviewer, or evidence claims directly.
-Changing the pinned tracker path or Block-number set also requires one
-pre-existing canonical owner event that binds the old/new paths, content roots,
-complete Block sets, renumbering map, and independent authoring acceptance.
-Ordinary status/hash updates may preserve the same path and Block set without
-such a structural event.
+Changing the pinned tracker path, Block-number set, or status-independent
+structural root also requires one pre-existing canonical owner event that binds
+the old/new paths, content and structural roots, complete Block sets,
+renumbering map, and independent authoring acceptance. The structural root
+includes dependencies, scope, acceptance, Stop, and the remaining Block
+contract while excluding runtime status and completion-evidence content.
+Ordinary status/evidence updates may preserve the same path, Block set, and
+structural root without such an event.
 Policy history must remain version-contiguous, and the event ledger must match
 its canonical self-hashed head anchor. Reject truncation, re-rooting, stale
 suffixes, symlink/path substitution, or a detached owner before using range,
-transition, or terminal posture.
+transition, or terminal posture. Validate both against the separate append-only
+owner-root history; a rewritten mutable anchor does not confer currentness.
 The terminal lifecycle writer calls the same owner and rejects completion while
 the governing range is nonterminal.
 

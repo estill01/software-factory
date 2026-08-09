@@ -161,7 +161,11 @@ the completed program materially changes Software Factory.
   correction against polarity-blind range parsing, caller-selected replacement
   trackers, fabricated distinct-task topology, canonical range/mission drift,
   event-ledger symlink escape, policy/event history truncation, and correction
-  evidence attached before a terminal disposition.
+  evidence attached before a terminal disposition. The final hardening adds a
+  status-independent tracker structural root, exact distinct-task request-byte
+  proof, canonical range-history provenance, lazy legacy-root migration, and an
+  append-only owner-root history that detects coordinated policy/event sibling
+  replacement.
 
 - **Adaptive tracker provenance.** Corrected the planned adaptive-decision
   tracker so routed `codex_delegation` advice remains advisory rather than being

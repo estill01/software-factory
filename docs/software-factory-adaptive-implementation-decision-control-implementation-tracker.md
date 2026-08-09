@@ -892,7 +892,8 @@ ordinary scheduling back to the human.
   applicable, and governing-outcome effect.
 - Add topology posture for `same-task-new-run` versus `distinct-task`. Reuse the
   current task by default. A distinct task with `direct-request` basis requires
-  the exact canonical direct-user governing source; a `technical-isolation`
+  the exact request bytes whose SHA-256 is the canonical direct-user governing
+  source and whose content explicitly requests a distinct task; a `technical-isolation`
   basis requires a pre-existing hash-chained owner event binding the
   transition, rationale, authority, current policy-history root, independent
   verifier, and evidence. Keep `legacy-linear` migration-only and reject it for
@@ -919,15 +920,21 @@ ordinary scheduling back to the human.
   hash-chained owner event with independently verified task/item provenance,
   forbid the receipt resolver from minting source/reviewer/evidence claims, and
   require a pre-existing independently accepted owner event for any tracker
-  path or Block-set/renumbering change. Reject caller-selected replacement
+  path, Block-set/renumbering, dependency, scope, acceptance, Stop, or other
+  status-independent structural change. Store and compare a canonical
+  structural root that excludes only runtime status and completion evidence.
+  Reject caller-selected replacement
   trackers, binding files, map hashes, or terminal-evidence files.
 - Bind a new successor-transition genesis to the canonical implementation-range
-  tracker root, full requested Block set, first dependency-safe Block, and
-  bound mission root. Write transition events only through the held canonical
+  tracker root, range-history source record, full requested Block set, first
+  dependency-safe Block, and bound mission root. Write transition events only through the held canonical
   owner directory with no-follow event/lock handling and post-write currentness.
-  Require version-contiguous policy history and a current self-hashed event-head
-  anchor so truncation, re-rooting, suffix deletion, symlink substitution, and
-  detached-owner writes fail closed.
+  Require version-contiguous, fully valid policy history, a current self-hashed
+  event-head projection, and a separate append-only owner-root history binding
+  both ledgers' genesis/count/head so truncation, coordinated sibling-anchor
+  replacement, re-rooting, suffix deletion, symlink substitution, and
+  detached-owner writes fail closed. Migrate a true legacy unanchored
+  transition once under the canonical lock and continue automatically.
 - At every Block Stop derive accepted, remaining, and dependency-safe Blocks
   from the owner-pinned current tracker. Treat a nonterminal result as an
   immediate continuation action, integrate it into lifecycle completion, and

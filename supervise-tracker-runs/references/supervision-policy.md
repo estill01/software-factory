@@ -465,11 +465,14 @@ Every transition preserves prior identity and may advance only one phase. It
 cannot skip a phase, claim future evidence early, change the tracker or mission,
 or start at a different Block. When a canonical implementation range is bound,
 the initial transition derives and compares the exact tracker hash, requested
-Block set, first dependency-safe Block, and source mission root from that owner
-state; caller-shaped replacements fail closed. `same-task-new-run` is the
+Block set, first dependency-safe Block, canonical range-history source record,
+and source mission root from that owner state; caller-shaped replacements fail
+closed. `same-task-new-run` is the
 default topology and moves directly from `required` to `work-started` without
 task creation or human scheduling. `distinct-task` is exceptional: a
-`direct-request` basis must be the exact canonical direct-user governing source,
+`direct-request` basis must supply the exact request bytes whose SHA-256 is the
+canonical direct-user governing source and whose unambiguous text actually
+requests a distinct task,
 while `technical-isolation` must resolve a pre-existing hash-chained
 `successor-topology-decision` owner event binding the transition, rationale,
 authority, policy-history root, independent verifier, and evidence.
@@ -619,8 +622,10 @@ Initial binding and contraction also hash the exact request text bytes and
 require equality with the accepted direct source SHA-256; authentic authority
 metadata cannot be paired with fabricated scope text.
 
-Ordinary tracker status or content updates preserve the owner-pinned tracker
-path and exact Block-number set. Changing that path or set requires a
+Ordinary tracker status and completion-evidence updates preserve the
+owner-pinned tracker path, exact Block-number set, and canonical structural
+root. Changing the path, Block set, dependencies, scope, acceptance, Stop, or
+other Block-contract content requires a
 pre-existing, independently accepted `implementation-tracker-amendment` owner
 event binding the old and new paths, hashes, complete Block sets, and an
 injective renumbering map. The event must predate the range amendment and match
@@ -628,7 +633,11 @@ the current policy-history anchor; a caller-supplied map or replacement tracker
 is never amendment authority. Policy history is version-contiguous and the
 event ledger is pinned by a separately current, self-hashed head anchor, so
 truncation, re-rooting, stale suffixes, symlink substitution, and detached-owner
-writes fail closed before range or transition decisions.
+writes fail closed before range or transition decisions. A separate append-only
+owner-root history binds both policy-history and event-ledger genesis, count,
+and current head; regenerating a mutable sibling anchor cannot make a replaced
+ledger current. A true pre-root legacy transition receives one locked, lazy
+policy/root migration before it advances.
 
 ## Target-state fingerprint
 
