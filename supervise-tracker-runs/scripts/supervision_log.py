@@ -1276,6 +1276,43 @@ def append_lock(directory: Path) -> Iterator[None]:
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
+@contextmanager
+def append_lock_at(directory_fd: int) -> Iterator[None]:
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(".append.lock", flags, 0o600, dir_fd=directory_fd)
+    except OSError as exc:
+        raise SupervisionLogError("Cannot open supervision append lock safely") from exc
+    try:
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+@contextmanager
+def owner_append_lock(
+    root: Path,
+    target_thread_id: str,
+    expected_directory_snapshot: tuple[int, int, int, int],
+) -> Iterator[int]:
+    _directory, directory_fd, directory_snapshot = open_member_directory(
+        root, target_thread_id
+    )
+    try:
+        if directory_snapshot != expected_directory_snapshot:
+            raise SupervisionLogError(
+                "Completed lifecycle rejected by governing-outcome control: "
+                "retry-control-currentness"
+            )
+        with append_lock_at(directory_fd):
+            yield directory_fd
+    finally:
+        os.close(directory_fd)
+
+
 def append_raw_locked(path: Path, value: dict[str, Any]) -> None:
     existing = events(path)
     previous = existing[-1].get("record_sha256") if existing else None
@@ -2774,29 +2811,24 @@ def cmd_record(args: argparse.Namespace) -> None:
                 "A successor failure-mode record must reference its incident"
             )
         record["failure_mode"] = failure_mode_envelope_from_args(args)
-    with append_lock(directory):
+    terminal_record = args.kind == "lifecycle" and record["status"] == "completed"
+    lock_context = (
+        owner_append_lock(
+            root_from(args), args.target_thread, directory_snapshot
+        )
+        if terminal_record and directory_snapshot is not None
+        else append_lock(directory)
+    )
+    with lock_context as terminal_directory_fd:
         if args.kind == "lifecycle" and record["status"] == "completed":
-            if directory_snapshot is None:
+            if terminal_directory_fd is None:
                 current_events, event_snapshot = events_snapshot(
                     directory / "events.jsonl"
                 )
             else:
-                (
-                    _current_directory,
-                    current_directory_fd,
-                    current_directory_snapshot,
-                ) = open_member_directory(root_from(args), args.target_thread)
-                try:
-                    if current_directory_snapshot != directory_snapshot:
-                        raise SupervisionLogError(
-                            "Completed lifecycle rejected by governing-outcome control: "
-                            "retry-control-currentness"
-                        )
-                    current_events, event_snapshot = events_snapshot(
-                        Path("events.jsonl"), directory_fd=current_directory_fd
-                    )
-                finally:
-                    os.close(current_directory_fd)
+                current_events, event_snapshot = events_snapshot(
+                    Path("events.jsonl"), directory_fd=terminal_directory_fd
+                )
         else:
             current_events = events(directory / "events.jsonl")
             event_snapshot = None
@@ -2904,6 +2936,7 @@ def cmd_record(args: argparse.Namespace) -> None:
             and record["status"] == "completed"
             and directory_snapshot is not None
         ):
+            assert terminal_directory_fd is not None
             try:
                 (
                     _write_directory,
@@ -2921,7 +2954,10 @@ def cmd_record(args: argparse.Namespace) -> None:
                         "Completed lifecycle rejected by governing-outcome control: "
                         "retry-control-currentness"
                     )
-                if path_snapshot_at(write_directory_fd, "events.jsonl") != event_snapshot:
+                if (
+                    path_snapshot_at(terminal_directory_fd, "events.jsonl")
+                    != event_snapshot
+                ):
                     raise SupervisionLogError(
                         "Completed lifecycle rejected by governing-outcome control: "
                         "retry-control-currentness"
@@ -2932,7 +2968,7 @@ def cmd_record(args: argparse.Namespace) -> None:
                     else None
                 )
                 appended_hash = append_raw_locked_at(
-                    write_directory_fd,
+                    terminal_directory_fd,
                     "events.jsonl",
                     record,
                     previous_record_sha256=(

@@ -1766,6 +1766,7 @@ class ControlPostureReducerTests(unittest.TestCase):
         self.assertEqual(
             supervision_log.events(external_directory / "events.jsonl"), []
         )
+        self.assertFalse((external_directory / ".append.lock").exists())
         preserved_events = supervision_log.events(
             self.root
             / f"{self.owner}-preserved-after-reduce"
