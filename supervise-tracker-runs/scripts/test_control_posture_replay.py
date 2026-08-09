@@ -238,7 +238,17 @@ class ControlPostureReplayTests(unittest.TestCase):
         )
         target = "owner-1234"
         directory, _policy = self.create_target(target)
+        expected_effects = {
+            "replay-1": "keep the source outcome active",
+            "replay-2": "retain the open transition without asking the human to schedule it",
+            "replay-3": "reject handoff as outcome completion",
+            "replay-4": "resume the same task autonomously",
+            "replay-5": "permit completion only from current outcome proof",
+        }
         for step in self.fixture["sequence"]:
+            self.assertEqual(
+                step["expected_observable_effect"], expected_effects[step["step_id"]]
+            )
             for event in self.materialize(step["events"]):
                 self.append(directory, event)
             first = self.public_gate(target)
@@ -249,7 +259,131 @@ class ControlPostureReplayTests(unittest.TestCase):
             self.assertFalse(first["human_input_required"])
             self.assertFalse(first["manual_resume_required"])
             self.assertEqual(first["member_count"], 1)
+            if step["step_id"] in {"replay-1", "replay-2", "replay-3"}:
+                expected_transition_head = {
+                    "replay-1": "EVT-000001",
+                    "replay-2": "EVT-000001",
+                    "replay-3": "EVT-000003",
+                }
+                self.assertEqual(
+                    first["open_transition_records"],
+                    [expected_transition_head[step["step_id"]]],
+                )
+            elif step["step_id"] == "replay-4":
+                self.assertEqual(first["open_transition_records"], [])
+                self.assertEqual(first["open_decision_records"], [])
+            else:
+                self.assertEqual(
+                    first["completion_candidates"][0]["completion_record_id"],
+                    "EVT-000006",
+                )
         self.assertEqual(first["required_target_posture"], "completed")
+
+    def test_self_successor_and_subordinate_authority_cannot_override_owner(
+        self,
+    ) -> None:
+        self_target = "self-owner-1234"
+        self_directory, self_policy = self.create_target(self_target)
+        self.append(
+            self_directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "successor-transition",
+                "transition_id": "TRANSITION-SELF-1234",
+                "phase": "work-started",
+                "tracker_sha256": "c" * 64,
+                "successor_thread_id": self_target,
+                "successor_mission_root": self.mission_root,
+                "successor_group_id": self_policy["supervision_group_id"],
+            },
+        )
+        self_result = self.public_gate(self_target)
+        self.assertEqual(self_result["required_target_posture"], "in-progress")
+        self.assertEqual(
+            self_result["next_action"],
+            "reconcile-control-membership-or-evidence",
+        )
+        self.assertIn(
+            "successor-membership-cycle-or-duplicate",
+            {item["kind"] for item in self_result["issues"]},
+        )
+
+        owner = "governing-owner-1234"
+        child = "subordinate-1234"
+        owner_directory, owner_policy = self.create_target(owner)
+        child_directory, child_policy = self.create_target(child)
+        self.append(
+            owner_directory,
+            {
+                "record_id": "EVT-000001",
+                "kind": "successor-transition",
+                "transition_id": "TRANSITION-CHILD-1234",
+                "phase": "work-started",
+                "tracker_sha256": "c" * 64,
+                "successor_thread_id": child,
+                "successor_mission_root": self.mission_root,
+                "successor_group_id": child_policy["supervision_group_id"],
+            },
+        )
+        subordinate_decision = {
+            "record_id": "EVT-000001",
+            "kind": "decision",
+            "decision_id": "DEC-SUBORDINATE-1234",
+            "phase": "target-acknowledged",
+            "classification": "reserved-authority",
+            "outcome": "safe-deferred",
+            "safe_frontier": "empty",
+            "state_fingerprint": "subordinate-state-1234",
+            "mission_root": self.mission_root,
+            "authority_source_class": "direct-user",
+            "authority_source_record": "SUBORDINATE-DIRECT-1234",
+            "impact_class": "goal-blocking",
+            "ordinary_means_disabled": True,
+            "independent_mission_review": True,
+        }
+        self.append(child_directory, subordinate_decision)
+        decision_result = supervision_log.reduce_control_posture(
+            directory=owner_directory,
+            policy=owner_policy,
+            owner_events=supervision_log.events(owner_directory / "events.jsonl"),
+        )
+        self.assertEqual(decision_result["member_count"], 2)
+        self.assertEqual(decision_result["issues"], [])
+        self.assertEqual(decision_result["required_target_posture"], "in-progress")
+        self.assertEqual(
+            decision_result["next_action"],
+            "continue-safe-frontier-or-resolve-decision",
+        )
+        self.assertEqual(decision_result["blocking_decision_records"], [])
+        self.assertEqual(decision_result["open_decision_records"], ["EVT-000001"])
+
+        stop_decision = {
+            **subordinate_decision,
+            "record_id": "EVT-000002",
+            "outcome": "user-supplied",
+        }
+        self.append(child_directory, stop_decision)
+        self.append(
+            child_directory,
+            {
+                "record_id": "EVT-000003",
+                "kind": "lifecycle",
+                "status": "stopped",
+                "state_fingerprint": "subordinate-state-1234",
+                "evidence": ["EVT-000002"],
+            },
+        )
+        stop_result = supervision_log.reduce_control_posture(
+            directory=owner_directory,
+            policy=owner_policy,
+            owner_events=supervision_log.events(owner_directory / "events.jsonl"),
+        )
+        self.assertEqual(stop_result["required_target_posture"], "in-progress")
+        self.assertEqual(stop_result["next_action"], "continue-governing-outcome")
+        self.assertEqual(stop_result["direct_stop_candidates"], [])
+        self.assertEqual(stop_result["subordinate_stop_records"], ["EVT-000003"])
+        self.assertFalse(stop_result["human_input_required"])
+        self.assertFalse(stop_result["manual_resume_required"])
 
     def test_supported_control_state_matrix_has_one_deterministic_posture(self) -> None:
         domains = self.fixture["matrix_domains"]

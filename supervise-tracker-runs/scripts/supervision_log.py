@@ -7501,7 +7501,7 @@ def reduce_control_posture(
         )
 
     open_transitions: list[dict[str, Any]] = []
-    open_decisions: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    open_decisions: list[tuple[dict[str, Any], dict[str, Any], str]] = []
     completion_candidates: list[dict[str, Any]] = []
     subordinate_completion_candidates: list[dict[str, Any]] = []
     direct_stop_candidates: list[dict[str, Any]] = []
@@ -7521,7 +7521,9 @@ def reduce_control_posture(
                 heads[str(item["decision_id"])] = item
         for head in heads.values():
             if head.get("phase") != "target-acknowledged" or head.get("outcome") == "safe-deferred":
-                open_decisions.append((head, member_policy))
+                open_decisions.append(
+                    (head, member_policy, str(member["target_thread_id"]))
+                )
         lifecycle = next(
             (
                 item
@@ -7605,15 +7607,18 @@ def reduce_control_posture(
                 )
 
     safe_work = any(
-        head.get("safe_frontier") == "nonempty" for head, _ in open_decisions
+        head.get("safe_frontier") == "nonempty"
+        for head, _policy, _target in open_decisions
     )
     blocking_decisions = [
-        head for head, member_policy in open_decisions if decision_can_block(head, member_policy)
+        head
+        for head, member_policy, target in open_decisions
+        if target == owner_target and decision_can_block(head, member_policy)
     ]
     nonblocking_decisions = [
         head
-        for head, member_policy in open_decisions
-        if not decision_can_block(head, member_policy)
+        for head, member_policy, target in open_decisions
+        if target != owner_target or not decision_can_block(head, member_policy)
     ]
     if not stable:
         required_posture = "in-progress"
@@ -7654,7 +7659,9 @@ def reduce_control_posture(
         "open_transition_records": [
             item.get("record_id") for item in open_transitions
         ],
-        "open_decision_records": [item.get("record_id") for item, _ in open_decisions],
+        "open_decision_records": [
+            item.get("record_id") for item, _policy, _target in open_decisions
+        ],
         "blocking_decision_records": [
             item.get("record_id") for item in blocking_decisions
         ],
