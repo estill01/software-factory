@@ -17,7 +17,7 @@
     "overbroad-validation": "0839921493948a4057fb0d5bd0101c8c7d77aede4233b6e3a9e03d08b8119c0c",
     "protected-capability-regression": "6408d58be94ab98cc32f9c386b46be5f0834ca60737dd15210fcd6039c705417",
     "justified-incumbent": "29320717a0986f97785cc6adec8ac3a6bc9a796fd9f6f310f851e4d8c08c48b1",
-    "unchanged-repeat": "1cabcc0d56e086d6af58e8e60ec4211221fecba96080a3798f904abd2182ffff",
+    "unchanged-repeat": "e50eb8bad1e65848d6f31c27fb9deb2fdef5bb2345e95cb4d9f0786197de635d",
     "requires-candidate": "16b72bc037b63d3ab065ed93285ffeafe4163b2ad886b338fc70e2d6be8a5bb9",
     "requires-structural-amendment": "af84cbc4f581ddb826eac98eeacd92a0648ac215edd0a2cf144c5e02fc6e3c05"
   },
@@ -1053,7 +1053,7 @@
       "expected_decision_stages": [],
       "expected_continue_to": "block:5:remaining-work",
       "expected_extra_cycle": false,
-      "accepted_snapshot_case_id": "unchanged-repeat"
+      "accepted_snapshot_case_id": "inline-unchanged-repeat-accepted-v1"
     },
     {
       "case_id": "requires-candidate",

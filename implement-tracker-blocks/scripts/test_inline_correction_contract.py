@@ -22,6 +22,11 @@ EXERCISE = json.loads(
         encoding="utf-8"
     )
 )
+ACCEPTED_SNAPSHOT = json.loads(
+    (SKILL_ROOT / "fixtures" / "inline_correction_accepted_v1.json").read_text(
+        encoding="utf-8"
+    )
+)
 REFERENCE = (SKILL_ROOT / "references" / "adaptive-decision-control.md").read_text(
     encoding="utf-8"
 )
@@ -38,8 +43,12 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 MISSION_ROOT = "0" * 64
 POLICY_ROOT = "1" * 64
 EVENT_HEAD_ROOT = "2" * 64
-TARGET_ROOT = "/tmp/software-factory-inline-correction-target"
-TRACKER_RECORD_PATH = TRACKER_PATH.relative_to(REPO_ROOT).as_posix()
+TARGET_ROOT = "/software-factory-inline-correction-target"
+TRACKER_RECORD_PATH = f"{TARGET_ROOT}/{TRACKER_PATH.relative_to(REPO_ROOT).as_posix()}"
+EXPECTED_EXERCISE_ROOT = "46fc23e6a1f09e543f40a4a4ada967fc9e3c36a645adc6b14aa17cfca285cf2b"
+EXPECTED_ACCEPTED_SNAPSHOT_ROOT = (
+    "033064ac71bafdc55450f9df525246d0e174d760e8a6155a087442afc6d0ac5e"
+)
 
 
 def canonical_root(value: object) -> str:
@@ -60,7 +69,26 @@ def case_source_root(case: dict[str, object]) -> str:
     return canonical_root(case_source_material(case))
 
 
+def validate_exercise() -> None:
+    if canonical_root(EXERCISE) != EXPECTED_EXERCISE_ROOT:
+        raise ValueError("exercise source root differs")
+    if (
+        EXERCISE["schema_version"] != 2
+        or EXERCISE["kind"] != "software-factory-inline-correction-exercise"
+        or EXERCISE["current_block"] != 5
+        or EXERCISE["requested_blocks"] != [5, 6]
+    ):
+        raise ValueError("exercise control identity differs")
+    if EXERCISE["tracker_sha256"] != tracker_sha256():
+        raise ValueError("tracker source root is stale")
+    if EXERCISE["target_revision_root"] != canonical_root(
+        {"target_revision": EXERCISE["target_revision"]}
+    ):
+        raise ValueError("target revision root is stale")
+
+
 def canonical_case(case_id: str) -> dict[str, object]:
+    validate_exercise()
     matches = [case for case in EXERCISE["cases"] if case["case_id"] == case_id]
     if len(matches) != 1:
         raise ValueError("case identity is absent or duplicated")
@@ -75,6 +103,45 @@ def canonical_case(case_id: str) -> dict[str, object]:
 
 def tracker_sha256() -> str:
     return hashlib.sha256(TRACKER_PATH.read_bytes()).hexdigest()
+
+
+def validate_accepted_snapshot() -> dict[str, object]:
+    if canonical_root(ACCEPTED_SNAPSHOT) != EXPECTED_ACCEPTED_SNAPSHOT_ROOT:
+        raise ValueError("accepted decision record root differs")
+    exact_fields = {
+        "schema_version",
+        "kind",
+        "record_id",
+        "source_revision",
+        "case_id",
+        "case_source_root",
+        "tracker_sha256",
+        "block_number",
+        "target_revision_root",
+        "decision_fingerprint",
+        "currentness_root",
+        "closed_record_root",
+    }
+    if set(ACCEPTED_SNAPSHOT) != exact_fields:
+        raise ValueError("accepted decision record shape differs")
+    if (
+        ACCEPTED_SNAPSHOT["schema_version"] != 1
+        or ACCEPTED_SNAPSHOT["kind"] != "software-factory-accepted-inline-decision"
+        or ACCEPTED_SNAPSHOT["block_number"] != 5
+        or ACCEPTED_SNAPSHOT["tracker_sha256"] != tracker_sha256()
+    ):
+        raise ValueError("accepted decision identity differs")
+    for field in (
+        "case_source_root",
+        "tracker_sha256",
+        "target_revision_root",
+        "decision_fingerprint",
+        "currentness_root",
+        "closed_record_root",
+    ):
+        if not SHA256_RE.fullmatch(str(ACCEPTED_SNAPSHOT[field])):
+            raise ValueError("accepted decision contains an invalid root")
+    return copy.deepcopy(ACCEPTED_SNAPSHOT)
 
 
 def evidence_root(source_class: str, claim_ids: list[str]) -> str:
@@ -461,10 +528,9 @@ def closure_evidence_is_current(
 
 
 def _decide(case: dict[str, object], expected_source_root: str) -> dict[str, object]:
+    validate_exercise()
     if case_source_root(case) != expected_source_root:
         raise ValueError("case differs from repository-owned source root")
-    if EXERCISE["tracker_sha256"] != tracker_sha256():
-        raise ValueError("tracker source root is stale")
     disposition, selected = derive_selection(case)
     fingerprint = decision_fingerprint(case, selected)
     deduplicated = False
@@ -475,15 +541,21 @@ def _decide(case: dict[str, object], expected_source_root: str) -> dict[str, obj
         snapshot_id = case["accepted_snapshot_case_id"]
         if not isinstance(snapshot_id, str):
             raise ValueError("equivalent decision lacks an accepted snapshot")
-        accepted_case = canonical_case(snapshot_id)
-        accepted_disposition, accepted_selected = derive_selection(accepted_case)
-        if accepted_disposition != "continue-unchanged" or accepted_selected is None:
-            raise ValueError("accepted snapshot does not describe the incumbent")
-        expected_fingerprint, expected_currentness = accepted_snapshot_root(
-            accepted_case, accepted_selected
-        )
+        accepted = validate_accepted_snapshot()
+        if (
+            snapshot_id != accepted["record_id"]
+            or case["case_id"] != accepted["case_id"]
+            or accepted["tracker_sha256"] != EXERCISE["tracker_sha256"]
+            or accepted["target_revision_root"] != EXERCISE["target_revision_root"]
+        ):
+            raise ValueError("accepted decision does not bind current control identity")
         live_fingerprint, live_currentness = accepted_snapshot_root(case, selected)
-        if live_fingerprint != expected_fingerprint or live_currentness != expected_currentness:
+        live_closed = build_inline_stage_records(case, selected)[-1]
+        if (
+            live_fingerprint != accepted["decision_fingerprint"]
+            or live_currentness != accepted["currentness_root"]
+            or canonical_root(live_closed) != accepted["closed_record_root"]
+        ):
             raise ValueError("accepted fingerprint/currentness is stale")
         deduplicated = True
     elif disposition == "correct-inline":
@@ -718,6 +790,42 @@ class InlineCorrectionContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "repository-owned source root"):
             _decide(mutated, EXERCISE["case_source_roots"]["unchanged-repeat"])
 
+        saved_exercise = copy.deepcopy(EXERCISE)
+        try:
+            source = next(
+                item for item in EXERCISE["cases"]
+                if item["case_id"] == "unchanged-repeat"
+            )
+            source["canonical_owner_id"] = "invented-owner"
+            rewritten_root = case_source_root(source)
+            EXERCISE["case_source_roots"]["unchanged-repeat"] = rewritten_root
+            with self.assertRaisesRegex(ValueError, "exercise source root"):
+                decide("unchanged-repeat")
+        finally:
+            EXERCISE.clear()
+            EXERCISE.update(saved_exercise)
+
+        saved_accepted = copy.deepcopy(ACCEPTED_SNAPSHOT)
+        try:
+            ACCEPTED_SNAPSHOT["decision_fingerprint"] = "f" * 64
+            with self.assertRaisesRegex(ValueError, "accepted decision record root"):
+                decide("unchanged-repeat")
+        finally:
+            ACCEPTED_SNAPSHOT.clear()
+            ACCEPTED_SNAPSHOT.update(saved_accepted)
+
+    def test_top_level_control_identity_is_not_caller_rewritable(self) -> None:
+        saved = copy.deepcopy(EXERCISE)
+        try:
+            EXERCISE["current_block"] = 999
+            EXERCISE["target_revision"] = "invented-revision"
+            EXERCISE["target_revision_root"] = "f" * 64
+            with self.assertRaisesRegex(ValueError, "exercise source root"):
+                decide("lower-power-shortcut")
+        finally:
+            EXERCISE.clear()
+            EXERCISE.update(saved)
+
     def test_continuation_identity_is_canonical_and_not_caller_selected(self) -> None:
         result = decide("lower-power-shortcut")
         self.assertEqual(result["continue_to"], "block:5:remaining-work")
@@ -726,8 +834,9 @@ class InlineCorrectionContractTests(unittest.TestCase):
         )
         self.assertEqual(
             TRACKER_RECORD_PATH,
-            "docs/software-factory-adaptive-implementation-decision-control-implementation-tracker.md",
+            "/software-factory-inline-correction-target/docs/software-factory-adaptive-implementation-decision-control-implementation-tracker.md",
         )
+        self.assertTrue(TRACKER_RECORD_PATH.startswith(f"{TARGET_ROOT}/"))
         self.assertNotIn(str(REPO_ROOT), result["stage_records"][0]["tracker_path"])
         with self.assertRaises((TypeError, ValueError)):
             decide(999)  # type: ignore[arg-type]

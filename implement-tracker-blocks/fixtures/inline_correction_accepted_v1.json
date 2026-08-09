@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "kind": "software-factory-accepted-inline-decision",
+  "record_id": "inline-unchanged-repeat-accepted-v1",
+  "source_revision": "fixture-genesis-v1",
+  "case_id": "unchanged-repeat",
+  "case_source_root": "1cabcc0d56e086d6af58e8e60ec4211221fecba96080a3798f904abd2182ffff",
+  "tracker_sha256": "4e677d5e6d0cc4a116110c5891f0df3f9b789f52dad9c490709066781629a318",
+  "block_number": 5,
+  "target_revision_root": "60eed009637d2f85fe43c8f9cfa268620b8d05ec03df3d5a82b77a51df10d194",
+  "decision_fingerprint": "f2c3239d076870a52fe17b5f8d68ea5de4ba3b2f53e35e2ab31eab7715f550c2",
+  "currentness_root": "3126b4cc7cb08e4b9d01f8fef0c1c06ffbf6ba3b08dda5e8a2bb41b655a250f5",
+  "closed_record_root": "49db07f6e07550bd8bb6afbff7bba53eb83c7812e5d5e7bdf1e5fbe9e3403d2f"
+}
