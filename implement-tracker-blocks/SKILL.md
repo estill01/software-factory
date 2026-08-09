@@ -143,6 +143,15 @@ or affected owner. Bind the selected capability gain or preservation,
 rejected alternatives, protected-capability effects, and accepted tradeoffs to
 completion evidence at the frozen candidate revision.
 
+The maintained semantic boundary for adaptive implementation decisions is
+[references/adaptive-decision-control.md](references/adaptive-decision-control.md).
+It defines the exact no-change, inline-correction, bounded-candidate, and
+structural-amendment dispositions, their shared evidence record, and the
+authority/currentness invariants used by later implementation Blocks. The
+reference is a contract, not an activated runtime controller: do not create a
+candidate lane, mutate a tracker, change supervision policy, or add a model or
+review cycle merely because the contract exists.
+
 For a materially expensive read-only proof or audit with a separate reporter or
 helper, cheaply preflight the maintained reporting interface and its invocation
 binding before starting the expensive computation. If valid proof output

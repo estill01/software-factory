@@ -63,6 +63,17 @@ the completed program materially changes Software Factory.
   invalid terminal claims reconcile and ordinary continuation never asks the
   human to schedule it. This demonstrates the Blocks 0–3 control plane only;
   adaptive implementation and autonomous evolution remain later work.
+- **Adaptive implementation decision semantics.** The implementation owner now
+  maintains one exact four-disposition contract: reuse a sound unchanged path,
+  correct a bad approach inline inside the active Block, compare one isolated
+  bounded candidate only when behavior must decide, or package an exceptional
+  structural amendment when the Block contract or later graph is invalidated.
+  The contract fixes common evidence/currentness fields, candidate ceilings and
+  ownership, structural history preservation, four autonomy modes, and one
+  protocol for target repositories and Software Factory self-work with stricter
+  self-change role separation. This is the accepted Block 4 semantic boundary;
+  it does not yet activate correction, candidate execution, tracker mutation,
+  policy changes, or autonomous evolution owned by later Blocks.
 
 - **Successor-transition continuity and structured failure-mode records.** A
   requested implementation that must cross into a distinct task now remains an
