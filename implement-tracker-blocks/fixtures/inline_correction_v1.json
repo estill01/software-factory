@@ -1,96 +1,308 @@
 {
-  "schema_version": 1,
-  "kind": "software-factory-inline-correction-cases",
+  "schema_version": 2,
+  "kind": "software-factory-inline-correction-exercise",
+  "current_block": 5,
+  "requested_blocks": [5, 6],
+  "target_revision": "fixture-rev-1",
+  "target_revision_root": "60eed009637d2f85fe43c8f9cfa268620b8d05ec03df3d5a82b77a51df10d194",
   "cases": [
     {
       "case_id": "wrong-owner",
       "trigger": "wrong-owner",
-      "block_contract_changed": false,
-      "implementation_evidence_required": false,
+      "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "live_block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "decision_fingerprint": "1010101010101010101010101010101010101010101010101010101010101010",
+      "currentness_root": "1111111111111111111111111111111111111111111111111111111111111111",
+      "accepted_fingerprint": null,
+      "accepted_currentness_root": null,
+      "canonical_owner_id": "owner-canonical",
+      "incumbent_path_id": "local",
+      "evidence_refs": [
+        {"ref_id": "ev-trigger", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["trigger:wrong-owner"]},
+        {"ref_id": "ev-local", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:local"]},
+        {"ref_id": "ev-general", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:bounded-general"]},
+        {"ref_id": "ev-owner", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:architectural-owner", "owner:owner-canonical"]}
+      ],
+      "paths": [
+        {"path_id": "local", "kind": "local", "owner_id": "owner-wrong", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": ["consumer-current"], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-local"]},
+        {"path_id": "bounded-general", "kind": "bounded-general", "owner_id": "owner-wrong", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": ["consumer-current"], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-general"]},
+        {"path_id": "architectural-owner", "kind": "architectural-owner", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": ["consumer-current"], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-owner"]}
+      ],
+      "valid_work_refs": ["ev-general"],
+      "stale_proof_refs": ["ev-local"],
       "expected_disposition": "correct-inline",
       "expected_selected_path": "architectural-owner",
-      "expected_continue": true
+      "expected_decision_stages": ["selected", "implementing", "validated", "closed"],
+      "expected_continue_to": "block:5:remaining-work",
+      "expected_extra_cycle": true
     },
     {
       "case_id": "lower-power-shortcut",
       "trigger": "lower-power-shortcut",
-      "block_contract_changed": false,
-      "implementation_evidence_required": false,
+      "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "live_block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "decision_fingerprint": "2020202020202020202020202020202020202020202020202020202020202020",
+      "currentness_root": "2121212121212121212121212121212121212121212121212121212121212121",
+      "accepted_fingerprint": null,
+      "accepted_currentness_root": null,
+      "canonical_owner_id": "owner-canonical",
+      "incumbent_path_id": "local",
+      "evidence_refs": [
+        {"ref_id": "ev-trigger", "source_class": "tracker", "adjudication_posture": "adjudicating", "root_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "claim_ids": ["trigger:lower-power-shortcut"]},
+        {"ref_id": "ev-local", "source_class": "validation", "adjudication_posture": "adjudicating", "root_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "claim_ids": ["path:local", "capability:incomplete"]},
+        {"ref_id": "ev-general", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:bounded-general", "consumer:consumer-current", "owner:owner-canonical"]},
+        {"ref_id": "ev-owner", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:architectural-owner", "owner:owner-canonical"]}
+      ],
+      "paths": [
+        {"path_id": "local", "kind": "local", "owner_id": "owner-canonical", "capability_complete": false, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": [], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-local"]},
+        {"path_id": "bounded-general", "kind": "bounded-general", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": ["consumer-current"], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-general"]},
+        {"path_id": "architectural-owner", "kind": "architectural-owner", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": ["consumer-current"], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-owner"]}
+      ],
+      "valid_work_refs": ["ev-local"],
+      "stale_proof_refs": [],
       "expected_disposition": "correct-inline",
       "expected_selected_path": "bounded-general",
-      "expected_continue": true
+      "expected_decision_stages": ["selected", "implementing", "validated", "closed"],
+      "expected_continue_to": "block:5:remaining-work",
+      "expected_extra_cycle": true
     },
     {
       "case_id": "unnecessary-abstraction",
       "trigger": "unnecessary-abstraction",
-      "block_contract_changed": false,
-      "implementation_evidence_required": false,
+      "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "live_block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "decision_fingerprint": "3030303030303030303030303030303030303030303030303030303030303030",
+      "currentness_root": "3131313131313131313131313131313131313131313131313131313131313131",
+      "accepted_fingerprint": null,
+      "accepted_currentness_root": null,
+      "canonical_owner_id": "owner-canonical",
+      "incumbent_path_id": "architectural-owner",
+      "evidence_refs": [
+        {"ref_id": "ev-trigger", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["trigger:unnecessary-abstraction"]},
+        {"ref_id": "ev-local", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:local", "owner:owner-canonical"]},
+        {"ref_id": "ev-general", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:bounded-general"]},
+        {"ref_id": "ev-owner", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:architectural-owner"]}
+      ],
+      "paths": [
+        {"path_id": "local", "kind": "local", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": ["consumer-current"], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-local"]},
+        {"path_id": "bounded-general", "kind": "bounded-general", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": [], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-general"]},
+        {"path_id": "architectural-owner", "kind": "architectural-owner", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": [], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-owner"]}
+      ],
+      "valid_work_refs": ["ev-owner"],
+      "stale_proof_refs": [],
       "expected_disposition": "correct-inline",
       "expected_selected_path": "local",
-      "expected_continue": true
+      "expected_decision_stages": ["selected", "implementing", "validated", "closed"],
+      "expected_continue_to": "block:5:remaining-work",
+      "expected_extra_cycle": true
     },
     {
       "case_id": "blind-retry",
       "trigger": "blind-retry",
-      "block_contract_changed": false,
-      "implementation_evidence_required": false,
+      "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "live_block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "decision_fingerprint": "4040404040404040404040404040404040404040404040404040404040404040",
+      "currentness_root": "4141414141414141414141414141414141414141414141414141414141414141",
+      "accepted_fingerprint": null,
+      "accepted_currentness_root": null,
+      "canonical_owner_id": "owner-canonical",
+      "incumbent_path_id": "local",
+      "evidence_refs": [
+        {"ref_id": "ev-trigger", "source_class": "canonical-event", "adjudication_posture": "adjudicating", "root_sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "claim_ids": ["trigger:blind-retry"]},
+        {"ref_id": "ev-local", "source_class": "validation", "adjudication_posture": "adjudicating", "root_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "claim_ids": ["path:local", "validation:unsuitable"]},
+        {"ref_id": "ev-general", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:bounded-general"]},
+        {"ref_id": "ev-owner", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:architectural-owner", "owner:owner-canonical"]}
+      ],
+      "paths": [
+        {"path_id": "local", "kind": "local", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": false, "current_consumers": ["consumer-current"], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-local"]},
+        {"path_id": "bounded-general", "kind": "bounded-general", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": false, "current_consumers": ["consumer-current"], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-general"]},
+        {"path_id": "architectural-owner", "kind": "architectural-owner", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": ["consumer-current"], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-owner"]}
+      ],
+      "valid_work_refs": [],
+      "stale_proof_refs": ["ev-local"],
       "expected_disposition": "correct-inline",
       "expected_selected_path": "architectural-owner",
-      "expected_continue": true
+      "expected_decision_stages": ["selected", "implementing", "validated", "closed"],
+      "expected_continue_to": "block:5:remaining-work",
+      "expected_extra_cycle": true
     },
     {
       "case_id": "overbroad-validation",
       "trigger": "invalid-validation",
-      "block_contract_changed": false,
-      "implementation_evidence_required": false,
+      "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "live_block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "decision_fingerprint": "5050505050505050505050505050505050505050505050505050505050505050",
+      "currentness_root": "5151515151515151515151515151515151515151515151515151515151515151",
+      "accepted_fingerprint": null,
+      "accepted_currentness_root": null,
+      "canonical_owner_id": "owner-canonical",
+      "incumbent_path_id": "architectural-owner",
+      "evidence_refs": [
+        {"ref_id": "ev-trigger", "source_class": "validation", "adjudication_posture": "adjudicating", "root_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "claim_ids": ["trigger:invalid-validation"]},
+        {"ref_id": "ev-local", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:local", "validation:focused"]},
+        {"ref_id": "ev-general", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:bounded-general"]},
+        {"ref_id": "ev-owner", "source_class": "validation", "adjudication_posture": "adjudicating", "root_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "claim_ids": ["path:architectural-owner", "validation:overbroad"]}
+      ],
+      "paths": [
+        {"path_id": "local", "kind": "local", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": ["consumer-current"], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-local"]},
+        {"path_id": "bounded-general", "kind": "bounded-general", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": [], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-general"]},
+        {"path_id": "architectural-owner", "kind": "architectural-owner", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": false, "current_consumers": ["consumer-current"], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-owner"]}
+      ],
+      "valid_work_refs": ["ev-owner"],
+      "stale_proof_refs": [],
       "expected_disposition": "correct-inline",
       "expected_selected_path": "local",
-      "expected_continue": true
+      "expected_decision_stages": ["selected", "implementing", "validated", "closed"],
+      "expected_continue_to": "block:5:remaining-work",
+      "expected_extra_cycle": true
     },
     {
       "case_id": "protected-capability-regression",
       "trigger": "protected-capability-regression",
-      "block_contract_changed": false,
-      "implementation_evidence_required": false,
+      "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "live_block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "decision_fingerprint": "6060606060606060606060606060606060606060606060606060606060606060",
+      "currentness_root": "6161616161616161616161616161616161616161616161616161616161616161",
+      "accepted_fingerprint": null,
+      "accepted_currentness_root": null,
+      "canonical_owner_id": "owner-canonical",
+      "incumbent_path_id": "local",
+      "evidence_refs": [
+        {"ref_id": "ev-trigger", "source_class": "validation", "adjudication_posture": "adjudicating", "root_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "claim_ids": ["trigger:protected-capability-regression"]},
+        {"ref_id": "ev-local", "source_class": "validation", "adjudication_posture": "adjudicating", "root_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "claim_ids": ["path:local", "protected:regressed"]},
+        {"ref_id": "ev-general", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:bounded-general", "protected:preserved"]},
+        {"ref_id": "ev-owner", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:architectural-owner"]}
+      ],
+      "paths": [
+        {"path_id": "local", "kind": "local", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": false, "within_block": true, "validation_suitable": true, "current_consumers": ["consumer-current"], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-local"]},
+        {"path_id": "bounded-general", "kind": "bounded-general", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": ["consumer-current"], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-general"]},
+        {"path_id": "architectural-owner", "kind": "architectural-owner", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": [], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-owner"]}
+      ],
+      "valid_work_refs": ["ev-local"],
+      "stale_proof_refs": [],
       "expected_disposition": "correct-inline",
       "expected_selected_path": "bounded-general",
-      "expected_continue": true
+      "expected_decision_stages": ["selected", "implementing", "validated", "closed"],
+      "expected_continue_to": "block:5:remaining-work",
+      "expected_extra_cycle": true
     },
     {
       "case_id": "justified-incumbent",
       "trigger": "none",
-      "block_contract_changed": false,
-      "implementation_evidence_required": false,
+      "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "live_block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "decision_fingerprint": "7070707070707070707070707070707070707070707070707070707070707070",
+      "currentness_root": "7171717171717171717171717171717171717171717171717171717171717171",
+      "accepted_fingerprint": null,
+      "accepted_currentness_root": null,
+      "canonical_owner_id": "owner-canonical",
+      "incumbent_path_id": "local",
+      "evidence_refs": [
+        {"ref_id": "ev-local", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:local", "owner:owner-canonical"]},
+        {"ref_id": "ev-general", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:bounded-general"]},
+        {"ref_id": "ev-owner", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:architectural-owner"]}
+      ],
+      "paths": [
+        {"path_id": "local", "kind": "local", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": ["consumer-current"], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-local"]},
+        {"path_id": "bounded-general", "kind": "bounded-general", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": [], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-general"]},
+        {"path_id": "architectural-owner", "kind": "architectural-owner", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": [], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-owner"]}
+      ],
+      "valid_work_refs": ["ev-local"],
+      "stale_proof_refs": [],
       "expected_disposition": "continue-unchanged",
-      "expected_selected_path": "incumbent",
-      "expected_continue": true
+      "expected_selected_path": "local",
+      "expected_decision_stages": [],
+      "expected_continue_to": "block:5:remaining-work",
+      "expected_extra_cycle": false
     },
     {
       "case_id": "unchanged-repeat",
       "trigger": "equivalent-fingerprint",
-      "block_contract_changed": false,
-      "implementation_evidence_required": false,
+      "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "live_block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "decision_fingerprint": "8080808080808080808080808080808080808080808080808080808080808080",
+      "currentness_root": "8181818181818181818181818181818181818181818181818181818181818181",
+      "accepted_fingerprint": "8080808080808080808080808080808080808080808080808080808080808080",
+      "accepted_currentness_root": "8181818181818181818181818181818181818181818181818181818181818181",
+      "canonical_owner_id": "owner-canonical",
+      "incumbent_path_id": "local",
+      "evidence_refs": [
+        {"ref_id": "ev-local", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:local", "owner:owner-canonical"]},
+        {"ref_id": "ev-general", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:bounded-general"]},
+        {"ref_id": "ev-owner", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:architectural-owner"]}
+      ],
+      "paths": [
+        {"path_id": "local", "kind": "local", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": ["consumer-current"], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-local"]},
+        {"path_id": "bounded-general", "kind": "bounded-general", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": [], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-general"]},
+        {"path_id": "architectural-owner", "kind": "architectural-owner", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": [], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-owner"]}
+      ],
+      "valid_work_refs": ["ev-local"],
+      "stale_proof_refs": [],
       "expected_disposition": "continue-unchanged",
-      "expected_selected_path": "incumbent",
-      "expected_continue": true
+      "expected_selected_path": "local",
+      "expected_decision_stages": [],
+      "expected_continue_to": "block:5:remaining-work",
+      "expected_extra_cycle": false
     },
     {
       "case_id": "requires-candidate",
       "trigger": "material-better-path",
-      "block_contract_changed": false,
-      "implementation_evidence_required": true,
+      "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "live_block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "decision_fingerprint": "9090909090909090909090909090909090909090909090909090909090909090",
+      "currentness_root": "9191919191919191919191919191919191919191919191919191919191919191",
+      "accepted_fingerprint": null,
+      "accepted_currentness_root": null,
+      "canonical_owner_id": "owner-canonical",
+      "incumbent_path_id": "local",
+      "evidence_refs": [
+        {"ref_id": "ev-trigger", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["trigger:material-better-path"]},
+        {"ref_id": "ev-local", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:local"]},
+        {"ref_id": "ev-general", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:bounded-general", "consumer:consumer-current"]},
+        {"ref_id": "ev-owner", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:architectural-owner"]}
+      ],
+      "paths": [
+        {"path_id": "local", "kind": "local", "owner_id": "owner-canonical", "capability_complete": false, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": [], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-local"]},
+        {"path_id": "bounded-general", "kind": "bounded-general", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": ["consumer-current"], "requires_implementation_evidence": true, "evidence_ref_ids": ["ev-general"]},
+        {"path_id": "architectural-owner", "kind": "architectural-owner", "owner_id": "owner-canonical", "capability_complete": false, "protected_preserved": true, "within_block": true, "validation_suitable": true, "current_consumers": [], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-owner"]}
+      ],
+      "valid_work_refs": ["ev-local"],
+      "stale_proof_refs": [],
       "expected_disposition": "compare-candidate",
       "expected_selected_path": null,
-      "expected_continue": true
+      "expected_decision_stages": ["selected"],
+      "expected_continue_to": "block:5:safe-frontier",
+      "expected_extra_cycle": true
     },
     {
       "case_id": "requires-structural-amendment",
       "trigger": "block-contract-invalidated",
-      "block_contract_changed": true,
-      "implementation_evidence_required": false,
+      "block_contract_root": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "live_block_contract_root": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "decision_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "currentness_root": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "accepted_fingerprint": null,
+      "accepted_currentness_root": null,
+      "canonical_owner_id": "owner-canonical",
+      "incumbent_path_id": "local",
+      "evidence_refs": [
+        {"ref_id": "ev-trigger", "source_class": "tracker", "adjudication_posture": "adjudicating", "root_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "claim_ids": ["trigger:block-contract-invalidated"]},
+        {"ref_id": "ev-local", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:local"]},
+        {"ref_id": "ev-general", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:bounded-general"]},
+        {"ref_id": "ev-owner", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "claim_ids": ["path:architectural-owner"]}
+      ],
+      "paths": [
+        {"path_id": "local", "kind": "local", "owner_id": "owner-canonical", "capability_complete": false, "protected_preserved": true, "within_block": false, "validation_suitable": true, "current_consumers": [], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-local"]},
+        {"path_id": "bounded-general", "kind": "bounded-general", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": false, "validation_suitable": true, "current_consumers": ["consumer-current"], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-general"]},
+        {"path_id": "architectural-owner", "kind": "architectural-owner", "owner_id": "owner-canonical", "capability_complete": true, "protected_preserved": true, "within_block": false, "validation_suitable": true, "current_consumers": ["consumer-current"], "requires_implementation_evidence": false, "evidence_ref_ids": ["ev-owner"]}
+      ],
+      "valid_work_refs": ["ev-local"],
+      "stale_proof_refs": [],
       "expected_disposition": "amend-structure",
       "expected_selected_path": null,
-      "expected_continue": true
+      "expected_decision_stages": ["selected"],
+      "expected_continue_to": "block:5:safe-frontier",
+      "expected_extra_cycle": true
     }
   ]
 }
