@@ -651,8 +651,10 @@ hidden reasoning into the review.
   not invent authority, manufacture a successor ID, falsely close the source,
   or turn the internal orchestration obligation into routine human scheduling.
   Reuse the current task by default through `same-task-new-run`; require an
-  exact direct request or technical-isolation rationale for `distinct-task`,
-  and reject self-successors. If the premise changes, preserve history and
+  exact, unconditional direct request or an independently accepted
+  technical-isolation decision for `distinct-task`; conditional, optional,
+  contradictory, or merely caller-described topology prose is not authority.
+  Reject self-successors. If the premise changes, preserve history and
   append only `corrected`, `cancelled`, bounded `expired`, or `superseded` from
   reviewed direct authority. A replacement is inactive until its predecessor
   carries the exact supersession link, and no retired transition closes the

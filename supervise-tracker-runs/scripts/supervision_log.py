@@ -1805,9 +1805,18 @@ def owner_root_key_exists_at(directory_fd: int) -> bool:
     return path.exists() and not path.is_symlink()
 
 
+def owner_root_external_state_exists_at(directory_fd: int) -> bool:
+    path = owner_root_state_path_at(directory_fd)
+    return path.exists() or path.is_symlink()
+
+
 def owner_root_key_at(directory_fd: int, *, allow_create: bool) -> bytes:
     path = owner_root_key_path_at(directory_fd)
     if not path.exists():
+        if owner_root_external_state_exists_at(directory_fd):
+            raise SupervisionLogError(
+                "Canonical external owner-root head survives without its key"
+            )
         if not allow_create:
             raise SupervisionLogError("Canonical external owner-root key is missing")
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -1843,7 +1852,10 @@ def owner_root_key_at(directory_fd: int, *, allow_create: bool) -> bytes:
 def owner_root_enabled_at(directory_fd: int) -> bool:
     if path_snapshot_at(directory_fd, OWNER_ROOT_HISTORY_NAME) is not None:
         return True
-    if owner_root_key_exists_at(directory_fd):
+    if (
+        owner_root_key_exists_at(directory_fd)
+        or owner_root_external_state_exists_at(directory_fd)
+    ):
         return True
     try:
         policy, _snapshot = read_json_snapshot(
@@ -1862,7 +1874,10 @@ def owner_root_bootstrap_allowed_at(
 ) -> bool:
     if path_snapshot_at(directory_fd, OWNER_ROOT_HISTORY_NAME) is not None:
         return False
-    if owner_root_key_exists_at(directory_fd):
+    if (
+        owner_root_key_exists_at(directory_fd)
+        or owner_root_external_state_exists_at(directory_fd)
+    ):
         return False
     try:
         policy, _snapshot = read_json_snapshot(
@@ -2572,7 +2587,10 @@ def validate_policy_history_sequence(
 def validate_range_policy_history_at(
     directory_fd: int, policy: Mapping[str, Any]
 ) -> None:
-    external_owner_root = owner_root_key_exists_at(directory_fd)
+    external_owner_root = (
+        owner_root_key_exists_at(directory_fd)
+        or owner_root_external_state_exists_at(directory_fd)
+    )
     owner_root_required = (
         policy.get("owner_root_history_required") is True
         or external_owner_root
@@ -5154,7 +5172,10 @@ def direct_request_requires_distinct_task(request_text: str) -> bool:
         r"\b(?:do\s+not|don't|never|without|avoid|instead\s+of|"
         r"current\s+(?:task|thread|chat|conversation)|"
         r"same\s+(?:task|thread|chat|conversation)|"
-        r"if|unless|only\s+if|may|might|could|optional(?:ly)?)\b",
+        r"if|unless|only\s+if|when(?:ever)?|where|as\s+needed|"
+        r"necessary|needed|provided|depending|feasible|feasibility|"
+        r"subject\s+to|assuming|otherwise|or|may|might|could|"
+        r"optional(?:ly)?)\b",
         value,
         re.I,
     ):
@@ -5166,7 +5187,9 @@ def direct_request_requires_distinct_task(request_text: str) -> bool:
             continue
         if re.fullmatch(
             rf"(?:please\s+)?(?:create|start|use)\s+(?:a|one|the)\s+"
-            rf"(?:{task_phrase})(?:\s+for\s+.+)?",
+            rf"(?:{task_phrase})(?:\s+for\s+"
+            rf"(?:this(?:\s+(?:work|implementation|tracker))?|"
+            rf"the\s+(?:work|implementation|tracker)))?",
             clause,
             re.I,
         ) or re.fullmatch(

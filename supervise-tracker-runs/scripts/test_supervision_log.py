@@ -810,6 +810,10 @@ class SuccessorTransitionContractTests(unittest.TestCase):
             "Implement this tracker without a new task.",
             "Implement this tracker in the current task; avoid a separate thread.",
             "Implement this tracker; use a new task only if technically necessary.",
+            "Create a new task for this when technically necessary.",
+            "Create a new task for this provided it is feasible.",
+            "Create a new task for this depending on feasibility.",
+            "Create a new task for this, or stay here.",
         ):
             self.assertFalse(
                 supervision_log.direct_request_requires_distinct_task(forbidden)
@@ -819,6 +823,52 @@ class SuccessorTransitionContractTests(unittest.TestCase):
                 self.authority_request
             )
         )
+
+    def test_transition_writer_rejects_conditional_direct_task_sources(self) -> None:
+        forbidden_requests = (
+            "Create a new task for this when technically necessary.",
+            "Create a new task for this provided it is feasible.",
+            "Create a new task for this depending on feasibility.",
+            "Create a new task for this, or stay here.",
+        )
+        for index, request_text in enumerate(forbidden_requests, start=1):
+            source_sha256 = hashlib.sha256(request_text.encode("utf-8")).hexdigest()
+            target = f"conditional-target-{index}-1234"
+            source_record = f"conditional-item-{index}-1234"
+            init = supervision_log.parser().parse_args(
+                [
+                    "--root",
+                    str(self.root),
+                    "init",
+                    "--target-thread",
+                    target,
+                    "--target-label",
+                    "Conditional topology target",
+                    "--watcher-thread",
+                    f"conditional-watcher-{index}-1234",
+                    "--reviewer-thread",
+                    f"conditional-reviewer-{index}-1234",
+                    "--mission-source-class",
+                    "direct-user",
+                    "--mission-source-record",
+                    source_record,
+                    "--mission-source-sha256",
+                    source_sha256,
+                ]
+            )
+            with redirect_stdout(io.StringIO()):
+                init.func(init)
+            args = self.transition_args("required")
+            args.target_thread = target
+            args.governing_authority_source_record = source_record
+            args.governing_authority_source_sha256 = source_sha256
+            args.topology_request_text = request_text
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "does not explicitly require a distinct task",
+            ):
+                with redirect_stdout(io.StringIO()):
+                    args.func(args)
 
     def test_transition_writer_rejects_event_ledger_symlink(self) -> None:
         outside = self.root / "outside-ledger.jsonl"
@@ -869,6 +919,18 @@ class SuccessorTransitionContractTests(unittest.TestCase):
             / (hashlib.sha256(self.target.encode("utf-8")).hexdigest() + ".key")
         )
         key.unlink()
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "survives without its key|cannot be downgraded",
+        ):
+            self.record(
+                "successor-created",
+                "--successor-thread",
+                "successor-1234",
+            )
+
+        key.with_suffix(".state.json").unlink()
 
         advanced = self.record(
             "successor-created",

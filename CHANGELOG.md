@@ -167,6 +167,10 @@ the completed program materially changes Software Factory.
   externally HMAC-bound append-only owner-root history that detects coordinated
   policy/event/root replacement, pins its latest external sequence/head against
   authentic-prefix rollback, and cannot be disabled by policy rewrite.
+  A surviving external head now rejects key loss as tampering instead of being
+  overwritten through legacy migration, and direct-task topology accepts only
+  unconditional exact source semantics rather than feasibility-dependent or
+  contradictory prose.
   Frozen transition identity now survives status/evidence-only tracker
   amendments while structural drift still fails closed.
 
