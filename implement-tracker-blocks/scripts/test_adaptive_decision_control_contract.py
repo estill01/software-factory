@@ -47,6 +47,7 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
                 "structural_fields",
                 "evidence_reference_rules",
                 "identity_evidence_rules",
+                "root_derivation_rules",
                 "stage_rules",
                 "array_order",
                 "fingerprint_projection",
@@ -218,6 +219,7 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
                 "adjudicating_evidence_root",
                 "compared_paths",
                 "affected_scope",
+                "proposer_author_id",
                 "implementation_owner_id",
                 "stop_boundary",
             ],
@@ -234,11 +236,14 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
                 "target_revision",
                 "target_revision_root",
                 "current_target_state_root",
+                "valid_work_refs",
+                "stale_proof_refs",
                 "safe_frontier",
                 "adaptive_decision_mode",
                 "external_boundary",
                 "accepted_decision_head",
                 "accepted_revision_head",
+                "revisit_trigger",
                 "candidate_root?",
                 "review_root?",
                 "review_disposition?",
@@ -314,9 +319,12 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
         for field in (
             "tracker_sha256",
             "current_target_state_root",
+            "valid_work_refs",
+            "stale_proof_refs",
             "safe_frontier",
             "adaptive_decision_mode",
             "external_boundary",
+            "revisit_trigger",
         ):
             changed_context = {**current_before, field: f"changed:{field}"}
             self.assertNotEqual(
@@ -435,8 +443,10 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
                 "evidence-reference-integrity",
                 "evidence-claim-binding",
                 "identity-evidence-binding",
+                "target-revision-root",
                 "adjudicating-evidence-subset",
                 "evidence-manifest-root",
+                "work-proof-classification",
                 "stage-transition",
                 "stage-evidence",
                 "fresh-decision-link",
@@ -460,6 +470,10 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
         self.assertEqual(
             SPEC["identity_evidence_rules"],
             {
+                "proposer_author_id": {
+                    "when_nonnull_source_class": "canonical-event",
+                    "claim_id_field": "proposer_author_id",
+                },
                 "reviewer_id": {
                     "when_nonnull_source_class": "independent-review",
                     "claim_id_field": "reviewer_id",
@@ -469,6 +483,57 @@ class AdaptiveDecisionControlContractTests(unittest.TestCase):
                     "claim_id_field": "evaluator_id",
                 },
             },
+        )
+
+    def test_revision_root_and_recovery_classification_are_exact(self) -> None:
+        derivation = SPEC["root_derivation_rules"]["target_revision_root"]
+        self.assertEqual(
+            derivation,
+            {
+                "algorithm": "sha256",
+                "encoding": "rfc8785-utf8",
+                "projection": ["target_revision"],
+            },
+        )
+        revision = "deadbeef"
+        root = canonical_test_root({"target_revision": revision})
+        self.assertEqual(root, canonical_test_root({"target_revision": revision}))
+        self.assertNotEqual(root, canonical_test_root({"target_revision": "cafebabe"}))
+
+        def revision_evidence_valid(
+            submitted_revision: str,
+            submitted_root: str,
+            outcome_claim_ids: list[str],
+        ) -> bool:
+            expected = canonical_test_root({"target_revision": submitted_revision})
+            return submitted_root == expected and expected in outcome_claim_ids
+
+        self.assertTrue(revision_evidence_valid(revision, root, [root]))
+        self.assertFalse(revision_evidence_valid("cafebabe", root, [root]))
+        self.assertFalse(revision_evidence_valid(revision, root, ["unrelated-root"]))
+
+        def recovery_valid(valid: list[str], stale: list[str]) -> bool:
+            return not set(valid).intersection(stale)
+
+        self.assertTrue(recovery_valid(["proof-valid"], ["proof-stale"]))
+        self.assertFalse(recovery_valid(["proof-shared"], ["proof-shared"]))
+        self.assertIn("Changing the revision without\n  recomputing this root", REFERENCE)
+        self.assertIn("`valid_work_refs` and `stale_proof_refs` are\n  disjoint", REFERENCE)
+
+    def test_software_factory_proposer_is_frozen_and_evidence_bound(self) -> None:
+        self.assertIn("proposer_author_id", SPEC["fingerprint_projection"])
+        projection = {
+            field: f"value:{field}" for field in SPEC["fingerprint_projection"]
+        }
+        projection["schema_version"] = 1
+        first = canonical_test_root(projection)
+        changed = {**projection, "proposer_author_id": "different-proposer"}
+        self.assertNotEqual(first, canonical_test_root(changed))
+        self.assertEqual(
+            SPEC["identity_evidence_rules"]["proposer_author_id"][
+                "when_nonnull_source_class"
+            ],
+            "canonical-event",
         )
 
     def test_role_rules_are_exact_per_target_and_disposition(self) -> None:

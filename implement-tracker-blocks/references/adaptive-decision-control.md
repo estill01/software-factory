@@ -350,8 +350,12 @@ IDs or roots, and obey `min_items`. Objects reject unknown keys. `id` and
     ]
   },
   "identity_evidence_rules": {
+    "proposer_author_id": {"when_nonnull_source_class": "canonical-event", "claim_id_field": "proposer_author_id"},
     "reviewer_id": {"when_nonnull_source_class": "independent-review", "claim_id_field": "reviewer_id"},
     "evaluator_id": {"when_nonnull_source_class": "independent-evaluation", "claim_id_field": "evaluator_id"}
+  },
+  "root_derivation_rules": {
+    "target_revision_root": {"algorithm": "sha256", "encoding": "rfc8785-utf8", "projection": ["target_revision"]}
   },
   "stage_rules": {
     "allowed_transitions": {
@@ -432,10 +436,10 @@ IDs or roots, and obey `min_items`. Objects reject unknown keys. `id` and
     "invalidated_evidence_refs": "id-ascending",
     "preserved_evidence_refs": "id-ascending"
   },
-  "fingerprint_projection": ["schema_version", "mission_root", "authority_effect", "authority_claim_id", "authority_evidence_refs", "prior_mission_root", "proposed_mission_root", "tracker_path", "block_number", "block_contract_root", "target_class", "target_repository_root", "decision_target_state_root", "capability_statement", "capability_frame_root", "protected_capability_results", "adjudicating_evidence_ref_ids", "adjudicating_evidence_root", "compared_paths", "affected_scope", "implementation_owner_id", "stop_boundary"],
+  "fingerprint_projection": ["schema_version", "mission_root", "authority_effect", "authority_claim_id", "authority_evidence_refs", "prior_mission_root", "proposed_mission_root", "tracker_path", "block_number", "block_contract_root", "target_class", "target_repository_root", "decision_target_state_root", "capability_statement", "capability_frame_root", "protected_capability_results", "adjudicating_evidence_ref_ids", "adjudicating_evidence_root", "compared_paths", "affected_scope", "proposer_author_id", "implementation_owner_id", "stop_boundary"],
   "candidate_fingerprint_projection": ["hypothesis", "hypothesis_scope", "incumbent_root", "isolation_kind", "isolated_writable_scope", "shared_resource_exclusions", "resource_ceiling", "time_ceiling", "stop_condition", "production_authority_owner_id", "focused_validation", "mapped_validation", "validation_order", "comparison_dimensions", "independent_reviewer_id", "cutover_owner_id", "cutover_preconditions"],
   "structural_fingerprint_projection": ["structural_reason", "proposed_mutations", "old_to_new_block_map", "dependency_closure", "accepted_history_boundary", "invalidated_evidence_refs", "preserved_evidence_refs", "resume_point", "author_owner_id", "authoring_reviewer_id"],
-  "currentness_projection": ["decision_fingerprint", "decision_stage", "evidence_manifest_root", "tracker_sha256", "policy_root", "event_head_root", "target_revision", "target_revision_root", "current_target_state_root", "safe_frontier", "adaptive_decision_mode", "external_boundary", "accepted_decision_head", "accepted_revision_head", "candidate_root?", "review_root?", "review_disposition?", "retirement_posture?", "proposed_tracker_root?", "authoring_review_root?", "authoring_review_disposition?"],
+  "currentness_projection": ["decision_fingerprint", "decision_stage", "evidence_manifest_root", "tracker_sha256", "policy_root", "event_head_root", "target_revision", "target_revision_root", "current_target_state_root", "valid_work_refs", "stale_proof_refs", "safe_frontier", "adaptive_decision_mode", "external_boundary", "accepted_decision_head", "accepted_revision_head", "revisit_trigger", "candidate_root?", "review_root?", "review_disposition?", "retirement_posture?", "proposed_tracker_root?", "authoring_review_root?", "authoring_review_disposition?"],
   "role_rules": {
     "target-repository": {
       "continue-unchanged": {"must_be_null": ["proposer_author_id", "reviewer_id", "evaluator_id"]},
@@ -450,7 +454,7 @@ IDs or roots, and obey `min_items`. Objects reject unknown keys. `id` and
       "amend-structure": {"must_be_nonnull": ["proposer_author_id", "reviewer_id", "evaluator_id"], "equal": [["proposer_author_id", "author_owner_id"], ["reviewer_id", "authoring_reviewer_id"]], "distinct": ["proposer_author_id", "implementation_owner_id", "reviewer_id", "evaluator_id"]}
     }
   },
-  "cross_field_rule_ids": ["exact-three-paths", "selected-path-membership", "rejected-path-membership", "evidence-reference-integrity", "evidence-claim-binding", "identity-evidence-binding", "adjudicating-evidence-subset", "evidence-manifest-root", "stage-transition", "stage-evidence", "fresh-decision-link", "currentness-refresh-link", "links-mutually-exclusive", "authority-none", "mission-preserving-clarification", "direct-goal-change-reject", "reserved-external-bounded", "candidate-fields-by-disposition", "structural-fields-by-disposition", "software-factory-role-separation"]
+  "cross_field_rule_ids": ["exact-three-paths", "selected-path-membership", "rejected-path-membership", "evidence-reference-integrity", "evidence-claim-binding", "identity-evidence-binding", "target-revision-root", "adjudicating-evidence-subset", "evidence-manifest-root", "work-proof-classification", "stage-transition", "stage-evidence", "fresh-decision-link", "currentness-refresh-link", "links-mutually-exclusive", "authority-none", "mission-preserving-clarification", "direct-goal-change-reject", "reserved-external-bounded", "candidate-fields-by-disposition", "structural-fields-by-disposition", "software-factory-role-separation"]
 }
 ```
 
@@ -488,6 +492,10 @@ The cross-field rules are:
   `identity_evidence_rules` has at least one complete evidence object with the
   exact required `source_class` and that identity in `claim_ids`. A role label
   without attributable evidence does not establish independent participation.
+- `target-revision-root`: `target_revision_root` equals SHA-256 of RFC 8785
+  canonical UTF-8 bytes for the one-key object
+  `{\"target_revision\": target_revision}`. Changing the revision without
+  recomputing this root and rebinding current outcome evidence rejects.
 - `adjudicating-evidence-subset`: every
   `adjudicating_evidence_ref_ids` value resolves exactly once in
   `evidence_refs`. The set equals all and only refs used by authority,
@@ -500,6 +508,11 @@ The cross-field rules are:
   rejects the record; changing a member creates a successor decision.
 - `evidence-manifest-root`: `evidence_manifest_root` is SHA-256 of canonical
   bytes for the complete ordered `evidence_refs` array.
+- `work-proof-classification`: `valid_work_refs` and `stale_proof_refs` are
+  disjoint, each ID resolves through `evidence-reference-integrity`, and a
+  proof cannot be reused while simultaneously marked stale. Evidence that is
+  neither reusable work nor invalidated proof may remain in the complete
+  catalog for authority, adjudication, review, or outcome traceability.
 - `stage-transition`: decision records are immutable. A changed
   `decision_stage` appends a new record linked by `currentness_refresh_of`, keeps
   the same `decision_fingerprint`, follows `stage_rules.allowed_transitions`,
@@ -602,13 +615,13 @@ changed, then resumes from the earliest affected dependency-safe point.
 
 The `decision_fingerprint` freezes the mission and Block-contract identity,
 `decision_target_state_root`, capability/protected-capability projection, exact
-adjudicating evidence, compared paths, affected scope, implementation owner,
-and Stop. It intentionally excludes the mutable whole-tracker hash, current
+adjudicating evidence, compared paths, affected scope, proposer/author identity,
+implementation owner, and Stop. It intentionally excludes the mutable whole-tracker hash, current
 target state, safe frontier, policy mode, and external boundary. The
 `currentness_root` binds those mutable values plus stage, complete evidence
 manifest, current policy/event heads, target revision/root, current target-state
-root, candidate/review or structural-review outputs, and accepted decision or
-revision heads.
+root, valid-work/stale-proof classification, revisit trigger, candidate/review
+or structural-review outputs, and accepted decision or revision heads.
 
 - Equal fingerprint plus equal currentness is idempotent and is not
   reconsidered.
