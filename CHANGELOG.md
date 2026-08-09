@@ -39,6 +39,31 @@ the completed program materially changes Software Factory.
 
 ### Implemented
 
+- **Reviewed three-skill releases with one-pointer activation.** Mutable
+  repository work no longer changes installed Codex behavior by default. A
+  bounded local release owner rebuilds exactly three skills from a clean Git
+  commit, runs content-pinned validators, requires a separately signed exact
+  review, stages an immutable complete set, and accepts only a current signed
+  quiescent permit from a distinct external operator-ledger head. Bootstrap
+  migrated the prior content-identical direct links; activation changed one
+  `current` pointer and fresh-process verification accepted release
+  `b7269cc0d71f-eb1269660b3e` with exact author, implementation, and supervision
+  roots. The sealed baseline `dba8274f3f06-f17ebeafde01` remains the eligible
+  rollback target. Already-loaded tasks keep their loaded instructions; new
+  resolutions see the active set.
+- **Replay-certified control-posture convergence.** The repeated early-return
+  history is now represented by one content-minimized immutable fixture rather
+  than private narrative. The observed transition sequence replays through the
+  public control gate from stale distinct-task requirement, unavailable
+  authority and safe deferral, through handoff/acknowledgement, current direct
+  correction, autonomous same-task continuation, and exact observable
+  completion. A 60-case state matrix covers absent/open/retired transitions,
+  safe/nonblocking/blocking decisions, current/stale completion, and authorized/
+  unauthorized stop claims. Every case returns one deterministic posture;
+  invalid terminal claims reconcile and ordinary continuation never asks the
+  human to schedule it. This demonstrates the Blocks 0–3 control plane only;
+  adaptive implementation and autonomous evolution remain later work.
+
 - **Successor-transition continuity and structured failure-mode records.** A
   requested implementation that must cross into a distinct task now remains an
   open append-only transition through `required`, task creation, isolated
@@ -75,7 +100,7 @@ the completed program materially changes Software Factory.
 ### Planned
 
 - **Adaptive implementation decision control and autonomous Factory
-  evolution.** A fourteen-Block program plans a
+  evolution.** An eighteen-Block program plans a
   near-zero-overhead unchanged path, inline correction of bad implementation
   decisions, selective isolated candidate comparison, exceptional supervised
   tracker amendment, configurable full autonomy, single-authority cutover, and

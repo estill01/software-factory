@@ -457,6 +457,19 @@ operation or reviewer but cannot cancel a standing direct implementation
 range. Commit, push, review, handoff, task, run, group, and Block Stops are
 process evidence only and never imply requested-outcome completion.
 
+The installed control-plane baseline has one replay-certified posture owner.
+When successor, decision, lifecycle, valid-stop, or observable-completion state
+interacts, resolve it through `control-posture-gate`; do not combine local gate
+answers into a second terminal decision. The maintained
+`control_posture_replay_v1.json` sequence and finite state matrix demonstrate
+that partial handoff remains open, current direct correction resumes the same
+task, invalid terminal claims fail into actionable reconciliation, and current
+observable completion alone may close the outcome. Every supported result sets
+`manual_resume_required=false` and `human_input_required=false`; ordinary
+continuation executes immediately. This is a control-plane guarantee, not a
+claim that the adaptive implementation paths in later tracker Blocks already
+exist.
+
 Immediately before any final response, rerun the same canonical gate. It
 rehydrates the policy-pinned tracker, requested and accepted Block sets, policy
 and event heads, ordinary effects, and observable outcome through the governing

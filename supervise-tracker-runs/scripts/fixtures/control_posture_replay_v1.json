@@ -1,0 +1,162 @@
+{
+  "failure_mode_id": "FM-UNAUTHORIZED-EARLY-RETURN",
+  "kind": "software-factory-control-posture-replay",
+  "matrix_domains": {
+    "decision": ["absent", "safe-work", "nonblocking", "blocking"],
+    "lifecycle": ["absent", "completed-current", "completed-stale", "stopped-authorized", "stopped-unauthorized"],
+    "transition": ["absent", "open", "retired"]
+  },
+  "schema_version": 1,
+  "sequence": [
+    {
+      "causal_transition": "stale distinct-task requirement became current",
+      "events": [
+        {
+          "kind": "successor-transition",
+          "phase": "required",
+          "record_id": "EVT-000001",
+          "tracker_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "transition_id": "TRANSITION-REPLAY-1234"
+        }
+      ],
+      "expected_next_action": "continue-open-successor-transition",
+      "expected_observable_effect": "keep the source outcome active",
+      "expected_posture": "in-progress",
+      "identity": "TRANSITION-REPLAY-1234",
+      "provenance_class": "tracker",
+      "state": "stale-distinct-task-required",
+      "step_id": "replay-1"
+    },
+    {
+      "causal_transition": "task-creation authority remained unavailable after the safe frontier was exhausted",
+      "events": [
+        {
+          "authority_source_class": "direct-user",
+          "authority_source_record": "DIRECT-RANGE-REQUEST-1234",
+          "classification": "reserved-authority",
+          "decision_id": "DEC-REPLAY-1234",
+          "impact_class": "goal-blocking",
+          "independent_mission_review": true,
+          "kind": "decision",
+          "mission_root": "$MISSION_ROOT",
+          "ordinary_means_disabled": true,
+          "outcome": "safe-deferred",
+          "phase": "target-acknowledged",
+          "record_id": "EVT-000002",
+          "safe_frontier": "empty",
+          "state_fingerprint": "replay-authority-unavailable"
+        }
+      ],
+      "expected_next_action": "continue-open-successor-transition",
+      "expected_observable_effect": "retain the open transition without asking the human to schedule it",
+      "expected_posture": "in-progress",
+      "identity": "DEC-REPLAY-1234",
+      "provenance_class": "direct-user",
+      "state": "safe-deferral-with-open-transition",
+      "step_id": "replay-2"
+    },
+    {
+      "causal_transition": "handoff and acknowledgement existed without first-Block work",
+      "events": [
+        {
+          "acknowledgement_record": "ACK-REPLAY-1234",
+          "handoff_record": "HANDOFF-REPLAY-1234",
+          "kind": "successor-transition",
+          "phase": "target-acknowledged",
+          "prior_record_id": "EVT-000001",
+          "record_id": "EVT-000003",
+          "tracker_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "transition_id": "TRANSITION-REPLAY-1234"
+        }
+      ],
+      "expected_next_action": "continue-open-successor-transition",
+      "expected_observable_effect": "reject handoff as outcome completion",
+      "expected_posture": "in-progress",
+      "identity": "TRANSITION-REPLAY-1234",
+      "provenance_class": "process",
+      "state": "handoff-acknowledged-without-work",
+      "step_id": "replay-3"
+    },
+    {
+      "causal_transition": "current direct authority cancelled the invalid transition and resolved the deferral",
+      "events": [
+        {
+          "correction_authority_source_class": "direct-user",
+          "correction_authority_source_record": "DIRECT-CORRECTION-1234",
+          "kind": "successor-transition",
+          "phase": "cancelled",
+          "prior_record_id": "EVT-000003",
+          "record_id": "EVT-000004",
+          "tracker_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+          "transition_id": "TRANSITION-REPLAY-1234"
+        },
+        {
+          "authority_source_class": "direct-user",
+          "authority_source_record": "DIRECT-CORRECTION-1234",
+          "classification": "reserved-authority",
+          "decision_id": "DEC-REPLAY-1234",
+          "impact_class": "goal-blocking",
+          "independent_mission_review": true,
+          "kind": "decision",
+          "mission_root": "$MISSION_ROOT",
+          "ordinary_means_disabled": false,
+          "outcome": "selected",
+          "phase": "target-acknowledged",
+          "record_id": "EVT-000005",
+          "safe_frontier": "nonempty",
+          "state_fingerprint": "replay-same-task-continuation"
+        }
+      ],
+      "expected_next_action": "continue-governing-outcome",
+      "expected_observable_effect": "resume the same task autonomously",
+      "expected_posture": "in-progress",
+      "identity": "DIRECT-CORRECTION-1234",
+      "provenance_class": "direct-user",
+      "state": "direct-correction-same-task-continuation",
+      "step_id": "replay-4"
+    },
+    {
+      "causal_transition": "current observable completion and its exact lifecycle binding became available",
+      "events": [
+        {
+          "artifact_currentness_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "capability_reconciliation_gap_count": 0,
+          "capability_reconciliation_implementation_owner_id": "implementation-owner-1234",
+          "capability_reconciliation_posture": "verified",
+          "capability_reconciliation_reviewer_id": "base-owner-1234",
+          "capability_reconciliation_revision": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "capability_reconciliation_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "category": "observable-outcome-completion",
+          "effect_reconciliation_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "evidence": ["current-observable-effect-1234"],
+          "independent_challenge_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "kind": "check",
+          "mission_root": "$MISSION_ROOT",
+          "model": "gpt-5.6-sol",
+          "open_item_compatibility_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "outcome_manifest_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+          "reasoning": "xhigh",
+          "record_id": "EVT-000006",
+          "state_fingerprint": "replay-current-outcome",
+          "status": "verified"
+        },
+        {
+          "kind": "lifecycle",
+          "outcome_completion_record_id": "EVT-000006",
+          "record_id": "EVT-000007",
+          "state_fingerprint": "replay-current-outcome",
+          "status": "completed"
+        }
+      ],
+      "expected_next_action": "close-governing-outcome",
+      "expected_observable_effect": "permit completion only from current outcome proof",
+      "expected_posture": "completed",
+      "identity": "EVT-000006",
+      "provenance_class": "independent-review",
+      "state": "current-observable-completion",
+      "step_id": "replay-5"
+    }
+  ],
+  "source_event_span": ["EVT-000067", "EVT-000084"],
+  "source_rejection": "EVT-000081"
+}

@@ -674,6 +674,16 @@ hidden reasoning into the review.
   `FM-UNAUTHORIZED-EARLY-RETURN` failure, reject terminalization, and require
   its immediate dependency-safe `next_action`. A Block Stop inside a
   full-tracker request is an audit checkpoint, never a user-return boundary.
+- Treat the content-minimized `control_posture_replay_v1.json` fixture and its
+  finite state matrix as the demonstrated convergence baseline for this failure
+  family. Replay it through the public `control-posture-gate`: an open or
+  acknowledged transition remains active; routed authority cannot create a
+  stop; direct correction can retire the stale transition and resume same-task
+  work; invalid terminal claims reconcile; and only exact current direct-stop
+  or observable-completion proof becomes terminal. Preserve one posture, no
+  self-successor, no terminal handoff inference, and no human scheduling leak.
+  The fixture is regression evidence, not a second ledger, private incident
+  transcript, or proof that later adaptive/evolution Blocks are implemented.
 - Characterize a material recurrence with the record command's
   `--failure-mode` envelope: stable failure-mode ID, layer, mechanism, trigger,
   observed effect, detection rule, bounded correction, recurrence invariant,

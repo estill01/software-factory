@@ -277,6 +277,7 @@ When a narrow input is genuinely unresolved, the executor computes the affected 
 | **A Block boundary becomes a human scheduling gate.** | Requested scope and Block control scope are represented separately, so full-tracker runs advance automatically after each accepted Block. |
 | **A source task hands off to a successor and treats the handoff as completion.** | The append-only successor-transition state machine preserves tracker, mission, authority, task, binding, acknowledgement, and first-Block start identity; source stop remains prohibited until current `work-started` evidence exists. |
 | **An implementation owner stops after one internal Block despite a standing full-tracker request.** | The canonical implementation-range binding preserves the original direct scope across renumbering and task/run/group boundaries; every Block Stop recomputes the ready frontier, and lifecycle/final-answer gates classify an early return as critical until all requested Blocks and the current outcome reconcile. |
+| **Successor, decision, lifecycle, stop, and completion records imply conflicting terminal states.** | One governing-outcome reducer owns the posture. A content-minimized public-gate replay plus a 60-case finite state matrix proves deterministic precedence, actionable reconciliation for invalid terminal claims, same-task continuation after direct correction, and zero ordinary human scheduling. |
 | **The agent treats a task list as the architecture.** | Tracker authoring inspects the live repository, identifies authoritative owners, and splits work at real dependency, mutation, review, recovery, and stopping boundaries. |
 | **Scope expands into attractive but unnecessary infrastructure.** | Every Block has one primary outcome, explicit non-goals, a feature-creep test, and a stop clause. |
 | **Tests pass, so the project is declared complete.** | Tests, commits, hashes, audits, and ledgers remain process evidence; terminal closure separately inspects operator-visible deliverables and expected effects. |
@@ -289,6 +290,13 @@ When a narrow input is genuinely unresolved, the executor computes the affected 
 | **The human must read thousands of agent turns to understand the run.** | Canonical event state is converted into deterministic metrics, evidence-bound synthesis, and verified human-readable reports. |
 
 The result is **human-in-the-loop without requiring a human in every loop**: people retain mission, judgment, reserved authority, and final oversight while the machinery handles routine decomposition, execution control, changed-state review, incident follow-through, and reporting.
+
+The three installed Software Factory skills are pinned through one immutable
+accepted release set and one atomically replaced `current` pointer. The active
+local release `b7269cc0d71f-eb1269660b3e` resolves exact reviewed roots for all
+three skills; its content-identical baseline remains accepted for rollback.
+Already-loaded tasks retain the instructions they loaded before a swap, while
+new skill resolutions traverse the stable links into the active release.
 
 ## Human control and reporting
 
