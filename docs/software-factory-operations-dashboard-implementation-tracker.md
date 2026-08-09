@@ -1536,8 +1536,12 @@ or explicit manual refresh.
   retained as history and no overall implementation-completion claim.
 - Git durability: candidate and correction were non-force pushed to
   `origin/codex/evolution-mvp` with local and remote at `0 0` divergence. The
-  exact acceptance-evidence checkpoint is recorded by the immediate successor
-  before Block 5 implementation changes begin.
+  exact acceptance-evidence checkpoint is
+  `7fdbc5db3c83b6a1c3c9f5b25e4321d1ba00f9e0`, tree
+  `f9c0ec83869511fbd39275314d4a5515eb262ce3`, with tracker blob
+  `b7e9701f1a5d8c9e8d690372275b76a9a4f0c876`. This evidence-finalization
+  successor records that durable checkpoint and is included in the immediate
+  non-force push before Block 5 implementation changes begin.
 
 ### Stop
 
@@ -1674,9 +1678,12 @@ task/source identifiers. Never poll every historical task body.
   `afe3ed10de196bf7cff8f9e693368ba44d320886` under direct-user item 44 and
   mission root
   `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
-  Block 4's exact acceptance-evidence checkpoint is frozen and pushed before
-  implementation changes begin. No new mission, successor task, routed
-  authority, or manual resume is used.
+  Block 4's exact acceptance-evidence checkpoint
+  `7fdbc5db3c83b6a1c3c9f5b25e4321d1ba00f9e0` and tracker blob
+  `b7e9701f1a5d8c9e8d690372275b76a9a4f0c876` were frozen and non-force pushed
+  with local and remote at `0 0` divergence before implementation changes
+  began. No new mission, successor task, routed authority, or manual resume is
+  used.
 - Candidate implementation, validation, exact review, and acceptance evidence:
   pending.
 
