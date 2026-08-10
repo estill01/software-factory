@@ -94,7 +94,6 @@ ELIGIBILITY_FIELDS = {
     "reversibility_evidence_root",
     "isolation_safe",
 }
-PERFORMANCE_CACHE: dict[str, str] = {}
 
 
 def validate_canonical_value(value: object) -> None:
@@ -380,12 +379,10 @@ def performance_evidence(artifact: dict[str, object], candidate_root: str) -> di
     recorded_root = raw.pop("result_root")
     if recorded_root != root(raw):
         raise ValueError("performance evidence root differs")
-    cache_key = root({"candidate_root": candidate_root, "evidence_root": recorded_root})
-    if cache_key not in PERFORMANCE_CACHE:
-        fresh = benchmark_performance(artifact["files"], contained_by=EXERCISE["lane"]["root"])
-        PERFORMANCE_CACHE[cache_key] = fresh["performance_posture"]
-    if PERFORMANCE_CACHE[cache_key] != posture:
-        raise ValueError("current performance posture differs from retained evidence")
+    # Timing evidence is an immutable observation, not an instruction to rerun
+    # a noisy producer whenever a consumer validates its exact bytes. Runtime,
+    # protocol, candidate, samples, derivation, and result root establish its
+    # currentness; a later benchmark is new evidence for a successor decision.
     return value
 
 
@@ -1191,7 +1188,7 @@ def resource_usage_root(usage: dict[str, int]) -> str:
 def process_evidence(stage: str, decision_id: str, candidate_root: str, focused: dict[str, object], mapped: dict[str, object] | None, review: dict[str, object], current_state_root: str, target_root: str, usage: dict[str, int]) -> list[dict[str, object]]:
     evidence: list[dict[str, object]] = []
     if stage in {"validated", "reviewed", "cutover-eligible", "closed"}:
-        validation_root = root({"focused_result_root": focused["result_root"], "mapped_result_root": mapped["result_root"] if mapped else None})
+        validation_root = root({"focused_result_root": focused["result_root"], "mapped_result_root": mapped["result_root"] if mapped and stage != "validated" else None})
         evidence.append({"ref_id": f"validation-{stage}", "source_class": "validation", "adjudication_posture": "process", "root_sha256": validation_root, "claim_ids": sorted([decision_id, candidate_root])})
         evidence.append({"ref_id": f"resource-{stage}", "source_class": "validation", "adjudication_posture": "process", "root_sha256": resource_usage_root(usage), "claim_ids": sorted([decision_id, candidate_root, "resource-usage"])})
     if stage in {"reviewed", "cutover-eligible", "closed"}:
@@ -1266,7 +1263,7 @@ def stage_records(case: dict[str, object], eligible: dict[str, object], candidat
     focused_time = parse_time(focused["recorded_at"], "focused time")
     review_time = parse_time(review["recorded_at"], "review time")
     stages = ["selected", "implementing"]
-    if focused["exit_code"] == 0:
+    if focused["exit_code"] == 0 and focused["protected_result"] == "preserved":
         stages.append("validated")
     if review["comparison_disposition"] is not None:
         stages.append("reviewed")
@@ -1280,8 +1277,18 @@ def stage_records(case: dict[str, object], eligible: dict[str, object], candidat
     for stage in stages:
         decision_id = f"candidate-{case['case_id']}-{stage}"
         candidate_is_observed = stage in {"validated", "reviewed", "cutover-eligible", "closed"}
-        current_state = root({"target_revision_root": target_revision_root(), "incumbent_root": incumbent_root(), "candidate_root": candidate_root if candidate_is_observed else None, "stage": stage, "candidate_authoritative": False, "resource_usage_root": resource_usage_root(usage) if candidate_is_observed else None})
-        evidence = sorted([*copy.deepcopy(base_evidence), *process_evidence(stage, decision_id, candidate_root, focused, mapped, review, current_state, target_revision_root(), usage)], key=lambda item: item["ref_id"])
+        if stage == "validated":
+            stage_usage = {
+                "files": usage["files"],
+                "changed_lines": usage["changed_lines"],
+                "commands": 1,
+                "review_passes": 0,
+                "elapsed_minutes": max(1, math.ceil((focused_time - lane_started).total_seconds() / 60)),
+            }
+        else:
+            stage_usage = usage
+        current_state = root({"target_revision_root": target_revision_root(), "incumbent_root": incumbent_root(), "candidate_root": candidate_root if candidate_is_observed else None, "stage": stage, "candidate_authoritative": False, "resource_usage_root": resource_usage_root(stage_usage) if candidate_is_observed else None})
+        evidence = sorted([*copy.deepcopy(base_evidence), *process_evidence(stage, decision_id, candidate_root, focused, mapped, review, current_state, target_revision_root(), stage_usage)], key=lambda item: item["ref_id"])
         terminal = stage == terminal_stage
         retirement = review["retirement_posture"] if terminal else "active-isolated"
         fields = candidate_fields(candidate_root if candidate_is_observed else None, focused if candidate_is_observed else None, mapped if stage in {"reviewed", "cutover-eligible", "closed"} else None, review if stage in {"reviewed", "cutover-eligible", "closed"} else None, retirement)
@@ -1591,6 +1598,16 @@ class BoundedCandidateContractTests(unittest.TestCase):
             self.assertIsNone(winner["stage_records"][index]["candidate_root"])
             self.assertIsNone(loser["stage_records"][index]["candidate_root"])
             self.assertEqual(winner["stage_records"][index]["current_target_state_root"], loser["stage_records"][index]["current_target_state_root"])
+        validated = winner["stage_records"][2]
+        validated_index = {item["ref_id"]: item for item in validated["evidence_refs"]}
+        as_of_focused = {"files": 1, "changed_lines": 2, "commands": 1, "review_passes": 0, "elapsed_minutes": 1}
+        self.assertEqual(validated_index["resource-validated"]["root_sha256"], resource_usage_root(as_of_focused))
+        self.assertEqual(validated_index["validation-validated"]["root_sha256"], root({"focused_result_root": winner["focused_result"]["result_root"], "mapped_result_root": None}))
+        self.assertNotEqual(validated_index["resource-validated"]["root_sha256"], resource_usage_root(winner["resource_usage"]))
+        reviewed = winner["stage_records"][3]
+        reviewed_index = {item["ref_id"]: item for item in reviewed["evidence_refs"]}
+        self.assertEqual(reviewed_index["resource-reviewed"]["root_sha256"], resource_usage_root(winner["resource_usage"]))
+        self.assertEqual(reviewed_index["validation-reviewed"]["root_sha256"], root({"focused_result_root": winner["focused_result"]["result_root"], "mapped_result_root": winner["mapped_result"]["result_root"]}))
         for record in [*winner["stage_records"], *inconclusive["stage_records"]]:
             self.assertEqual(record["currentness_root"], root(currentness_projection(record)))
             self.assertEqual(set(record), set(SPEC["common_fields"]) | set(SPEC["candidate_fields"]))
@@ -1725,6 +1742,12 @@ class BoundedCandidateContractTests(unittest.TestCase):
         self.assertEqual(performance["incumbent_median_ns"], int(median(performance["incumbent_samples_ns"])))
         self.assertEqual(performance["candidate_median_ns"], int(median(performance["candidate_samples_ns"])))
         self.assertEqual(winning["blind_review_packet"]["performance_result_root"], performance["result_root"])
+        original_benchmark = globals()["benchmark_performance"]
+        globals()["benchmark_performance"] = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("retained evidence reran producer"))
+        try:
+            self.assertEqual(performance_evidence(EXERCISE["artifacts"]["candidate-winning"], winning["candidate_root"])["result_root"], performance["result_root"])
+        finally:
+            globals()["benchmark_performance"] = original_benchmark
         stale = copy.deepcopy(EXERCISE["artifacts"]["candidate-winning"])
         stale["mapped"]["performance_evidence"]["candidate_samples_ns"][0] += 1
         with self.assertRaisesRegex(ValueError, "performance (evidence|result) root"):

@@ -117,6 +117,10 @@ root, candidate root, timestamp, and result root. The runtime identity binds
 the resolved interpreter bytes, language and zlib versions, operating system,
 release, and machine. An unstable sample spread is `inconclusive`; a posture
 label without the retained measurements is never review evidence.
+Validating an unchanged retained result recomputes its sample statistics and
+content roots; it does not rerun the noisy timing producer merely for generic
+confidence. A later benchmark is new adjudicating evidence and follows the
+normal predecessor/currentness path.
 File count, changed lines, executed commands, reviewer passes, and elapsed time
 are likewise recomputed from retained files and the actual lane-start,
 implementation-start, focused, mapped, and review chronology and bound into
