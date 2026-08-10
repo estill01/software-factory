@@ -506,7 +506,7 @@ the relevant authority and evidence contract.
 | 8 | Tracker review and progress workspace | 3, 6 | `accepted` |
 | 9 | Metrics and report history workspace | 4, 6 | `accepted` |
 | 10 | Gated administrative operation framework | 2, 4, 5 | `accepted` |
-| 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `in-progress` |
+| 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `accepted` |
 | 12 | On-demand mechanical supervision checks | 7, 10, 11 | `not-started` |
 | 13 | Semantic supervision review requests | 7, 10, 11 | `not-started` |
 | 14 | Supervision policy and cadence administration | 7, 10, 11 | `not-started` |
@@ -3171,7 +3171,7 @@ Stop before registering tracker/task/supervision/report/lifecycle operations.
 
 ## Block 11 — Author, implement, supervise, and task-control workflows
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -3489,7 +3489,23 @@ not full reports/event histories; owners can fetch exact referenced sources.
   passed. Focused proof replaces the helper file immediately after the verified
   byte read and confirms the original bytes execute, and supplies conflicting
   preview/newer-turn mission markers to both backend and UI and confirms the
-  newer turn controls. Fresh exact review remains required before acceptance.
+  newer turn controls. This revision remained unaccepted pending fresh exact
+  review.
+- Accepted evidence revision: commit
+  `b56e74234515da200e8d1542f6bc76845e9e21f1`, tree
+  `b41de6c92c3ef2df76804d60e5c7bcaf3769a3e1`, parent/product
+  `945ad6f0dd692806493f4b5bb6fc5542421e911d`, was independently `ACCEPTED`
+  with no material product-correctness finding. The review confirmed the four
+  rejected owner/currentness rows and the two residual consistency probes are
+  closed at the exact revision. The accepted validation archive is Python
+  95/95 with `ResourceWarning` fatal, Ruff, all 18 Vitest files/73 tests,
+  production build, affected workflow browser 3/3, the complete 48-case
+  responsive browser result with the two unrelated timed-out cases replayed
+  serially at their exact viewports, full-profile tracker verification with 26
+  Blocks and 0 errors/warnings, all 30 verifier tests, and clean diff/remote
+  identity. Block 11 stops at maintained author/implement/supervise/task-control
+  workflows; it does not claim later supervision, report, continuity, or
+  lifecycle controls.
 
 ### Stop
 
