@@ -12,7 +12,12 @@ from test_server import FAKE_APP_SERVER, NONCE_PLACEHOLDER, response, running_se
 from test_tracker import FULL_TRACKER
 
 from dashboard.server.tests.fake_app_server import write_contract
-from software_factory_dashboard.admin_operations import RouteGateRequest
+from software_factory_dashboard.admin_operations import (
+    OperationError,
+    OperationTarget,
+    RouteGateRequest,
+)
+from software_factory_dashboard.catalog import ProjectRecord
 from software_factory_dashboard.factory_workflows import (
     FactoryWorkflowOwner,
     SupervisionRouteGate,
@@ -302,6 +307,8 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                     "block_end": 1,
                     "supervision": "none",
                     "expected_stop": block["stop"],
+                    "mission_root": "a" * 64,
+                    "mission_source_record": "direct-user-item-1",
                 },
             }
             implement_status, implement_preview = preview(origin, implement_request)
@@ -332,6 +339,67 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(tracker_after["blocks"][1]["status"], "not-started")
         self.assertFalse(implemented["data"]["operation"]["verification_evidence"]["block_accepted"])
 
+    def test_writer_gate_rejects_unbound_active_task_and_nonoverlapping_second_owner(self) -> None:
+        tracker_path = self.add_tracker()
+        with self.server("active") as origin:
+            self.register(origin)
+            tracker = json.loads(response(f"{origin}/api/v1/trackers").body)["data"][
+                "trackers"
+            ][0]
+            detail = json.loads(response(f"{origin}/api/v1/trackers/{tracker['id']}").body)[
+                "data"
+            ]["tracker"]
+            block = next(item for item in detail["blocks"] if item["number"] == 1)
+            status, result = preview(
+                origin,
+                {
+                    "operation_type": "factory.blocks-implement",
+                    "target": {
+                        "kind": "tracker",
+                        "id": tracker["id"],
+                        "project_id": "workflow",
+                    },
+                    "input": {
+                        "content_sha256": sha256(tracker_path.read_bytes()).hexdigest(),
+                        "repository_head": self.head(),
+                        "verifier_profile": detail["profile"],
+                        "block_start": 1,
+                        "block_end": 1,
+                        "supervision": "none",
+                        "expected_stop": block["stop"],
+                        "mission_root": "a" * 64,
+                        "mission_source_record": "direct-user-item-1",
+                    },
+                },
+            )
+        self.assertEqual(status, 409)
+        self.assertEqual(result["error"]["code"], "tracker_writer_identity_unavailable")
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner._task_listing = lambda _project: (  # type: ignore[method-assign]
+            {
+                "status": {"type": "active"},
+                "preview": "SOFTWARE_FACTORY_DASHBOARD_MISSION "
+                + json.dumps(
+                    {
+                        "kind": "implement-blocks",
+                        "tracker_id": tracker["id"],
+                        "block_start": 2,
+                        "block_end": 2,
+                    },
+                    separators=(",", ":"),
+                ),
+                "turns": [],
+            },
+        )
+        with self.assertRaises(OperationError) as context:
+            owner._assert_no_conflicting_tracker_writer(
+                project=ProjectRecord(id="workflow", label="Workflow", root=str(self.repository)),
+                tracker_id=tracker["id"],
+                purpose="implement",
+            )
+        self.assertEqual(context.exception.code, "implementation_owner_conflict")
+
     def test_stale_or_dirty_implementation_and_partial_turn_start_fail_closed(self) -> None:
         tracker_path = self.add_tracker()
         with self.server() as origin:
@@ -351,6 +419,8 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                 "block_end": 1,
                 "supervision": "none",
                 "expected_stop": block["stop"],
+                "mission_root": "a" * 64,
+                "mission_source_record": "direct-user-item-1",
             }
             tracker_path.write_text(FULL_TRACKER + "\n<!-- dirty -->\n", encoding="utf-8")
             dirty_status, dirty = preview(
@@ -452,7 +522,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             )
         )
 
-        with self.server("active") as origin:
+        with self.server() as origin:
             self.register(origin)
             tracker = json.loads(response(f"{origin}/api/v1/trackers").body)["data"][
                 "trackers"
@@ -460,6 +530,28 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             detail = json.loads(response(f"{origin}/api/v1/trackers/{tracker['id']}").body)[
                 "data"
             ]["tracker"]
+            block = next(item for item in detail["blocks"] if item["number"] == 1)
+            implementation_request = {
+                "operation_type": "factory.blocks-implement",
+                "target": {
+                    "kind": "tracker",
+                    "id": tracker["id"],
+                    "project_id": "workflow",
+                },
+                "input": {
+                    "content_sha256": sha256(tracker_path.read_bytes()).hexdigest(),
+                    "repository_head": self.head(),
+                    "verifier_profile": detail["profile"],
+                    "block_start": 1,
+                    "block_end": 1,
+                    "supervision": "none",
+                    "expected_stop": block["stop"],
+                    "mission_root": "a" * 64,
+                    "mission_source_record": "direct-user-item-1",
+                },
+            }
+            _, implementation_preview = preview(origin, implementation_request)
+            execute(origin, implementation_request, implementation_preview)
             attach_request = {
                 "operation_type": "factory.supervision-attach",
                 "target": {
@@ -472,7 +564,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                     "content_sha256": sha256(tracker_path.read_bytes()).hexdigest(),
                     "repository_head": self.head(),
                     "verifier_profile": detail["profile"],
-                    "block_start": 0,
+                    "block_start": 1,
                     "block_end": 1,
                     "mission_root": "a" * 64,
                     "mission_source_record": "direct-user-item-1",
@@ -510,15 +602,178 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             supervision_root=self.supervision_root,
             helper_path=link,
         )
+        route_request = RouteGateRequest(
+            recipient="task-1",
+            purpose="target-action",
+            source_record="EVT-1",
+            required_action="Do one exact action.",
+        )
         with self.assertRaisesRegex(RuntimeError, "unavailable"):
-            gate(
-                RouteGateRequest(
-                    recipient="task-1",
-                    purpose="target-action",
-                    source_record="EVT-1",
-                    required_action="Do one exact action.",
-                )
+            gate(route_request)
+
+        regular = self.root / "regular-helper.py"
+        regular.write_text("raise SystemExit(1)\n", encoding="utf-8")
+        replacement_gate = SupervisionRouteGate(
+            supervision_root=self.supervision_root,
+            helper_path=regular,
+        )
+        forged = self.root / "forged-helper.py"
+        forged.write_text("print('{}')\n", encoding="utf-8")
+        regular.unlink()
+        regular.symlink_to(forged)
+        with self.assertRaisesRegex(RuntimeError, "unavailable"):
+            replacement_gate(route_request)
+
+    def test_attachment_requires_exact_role_tasks_active_automations_and_cadence(self) -> None:
+        target = OperationTarget(
+            kind="task",
+            id="implementation-task-1",
+            project_id="workflow",
+        )
+        inputs = {
+            "tracker_id": "b" * 64,
+            "block_start": 1,
+            "block_end": 2,
+            "mission_root": "a" * 64,
+            "mission_source_record": "direct-user-item-1",
+        }
+        marker = {
+            "kind": "implement-blocks",
+            "source_fingerprint": "c" * 64,
+            "project_id": "workflow",
+            "tracker_id": inputs["tracker_id"],
+            "block_start": 1,
+            "block_end": 2,
+            "mission_root": inputs["mission_root"],
+            "mission_source_record": inputs["mission_source_record"],
+        }
+        tasks = {
+            target.id: {
+                "id": target.id,
+                "status": {"type": "idle"},
+                "project_binding": {
+                    "status": "bound",
+                    "project_id": "workflow",
+                    "candidates": ["workflow"],
+                },
+                "preview": "SOFTWARE_FACTORY_DASHBOARD_MISSION "
+                + json.dumps(marker, separators=(",", ":")),
+                "turns": [],
+            },
+        }
+
+        class AppServerStub:
+            def read_task(self, _projects, task_id, *, include_turns):
+                del include_turns
+                return {"task": tasks[task_id]}
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.app_server_client = AppServerStub()
+        policy_sha = "d" * 64
+        base_run = {
+            "status": "available",
+            "fingerprint": "e" * 64,
+            "current_mission": {
+                "root": inputs["mission_root"],
+                "source_record": inputs["mission_source_record"],
+            },
+            "lifecycle": {"status": None},
+            "policy": {
+                "version": 1,
+                "sha256": policy_sha,
+                "schedule": {"routine_minutes": 20, "meta_review_hours": 4},
+            },
+            "policy_history": [{"policy_sha256": policy_sha}],
+            "source": {"policy_head_sha256": policy_sha},
+            "topology": {
+                "project_binding": {"status": "bound", "project_id": "workflow"},
+                "binding_integrity": "valid",
+                "roles": [
+                    {
+                        "role": "watcher",
+                        "thread_id": "watcher-task-1",
+                        "binding_status": "bound",
+                        "automation": {
+                            "id": "watcher-automation-1",
+                            "status": "available",
+                            "owner_status": "ACTIVE",
+                            "kind": "heartbeat",
+                            "rrule": "RRULE:FREQ=MINUTELY;INTERVAL=20",
+                            "target_thread_id": "watcher-task-1",
+                        },
+                    }
+                ],
+            },
+        }
+        project = ProjectRecord(id="workflow", label="Workflow", root=str(self.repository))
+        partial = owner._supervision_attachment_evidence(
+            projects=(project,),
+            target=target,
+            inputs=inputs,
+            run=base_run,
+        )
+        self.assertFalse(partial["supervision_attached"])
+        self.assertFalse(partial["required_role_family_current"])
+
+        roles = []
+        role_ids = {
+            "watcher": "watcher-task-1",
+            "base_reviewer": "base-reviewer-task-1",
+            "reviewer": "reviewer-task-1",
+            "fix_executor": "fix-executor-task-1",
+        }
+        for role_name, task_id in role_ids.items():
+            tasks[task_id] = {
+                "id": task_id,
+                "status": {"type": "idle"},
+                "project_binding": {
+                    "status": "unregistered",
+                    "project_id": None,
+                    "candidates": [],
+                },
+                "preview": "Supervisor role",
+                "turns": [],
+            }
+            automation = None
+            if role_name == "watcher":
+                automation = {
+                    "id": "watcher-automation-1",
+                    "status": "available",
+                    "owner_status": "ACTIVE",
+                    "kind": "heartbeat",
+                    "rrule": "RRULE:FREQ=MINUTELY;INTERVAL=20",
+                    "target_thread_id": task_id,
+                }
+            elif role_name == "reviewer":
+                automation = {
+                    "id": "reviewer-automation-1",
+                    "status": "available",
+                    "owner_status": "ACTIVE",
+                    "kind": "heartbeat",
+                    "rrule": "RRULE:FREQ=HOURLY;INTERVAL=4",
+                    "target_thread_id": task_id,
+                }
+            roles.append(
+                {
+                    "role": role_name,
+                    "thread_id": task_id,
+                    "binding_status": "bound",
+                    "automation": automation,
+                }
             )
+        exact_run = {
+            **base_run,
+            "topology": {**base_run["topology"], "roles": roles},
+        }
+        exact = owner._supervision_attachment_evidence(
+            projects=(project,),
+            target=target,
+            inputs=inputs,
+            run=exact_run,
+        )
+        self.assertTrue(exact["supervision_attached"])
+        self.assertTrue(exact["role_tasks_current"])
+        self.assertTrue(exact["automation_current"])
 
     def test_routed_steer_interrupt_approval_and_input_use_exact_owner_records(self) -> None:
         self.init_supervision()

@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { AlertTriangle, X } from "lucide-react"
-import { type FormEvent, type ReactNode, useEffect, useMemo, useState } from "react"
+import { type FormEvent, type ReactNode, useMemo, useState } from "react"
 
 import { Button } from "@/components/ui/button"
 import { Identity, StatusMark } from "@/components/workspace-ui"
@@ -33,7 +33,56 @@ type InputQuestion = Extract<PendingRequest, { family: "user_input" }>["details"
 type ListedRun = { target_thread_id: string } | undefined
 type TrackerBlock = TrackerDetail["blocks"][number]
 
+type ImplementationBinding = {
+  kind: "implement-blocks"
+  source_fingerprint: string
+  project_id: string
+  tracker_id: string
+  block_start: number
+  block_end: number
+  mission_root: string
+  mission_source_record: string
+}
+
 const defaultReviewScope = "Full tracker contract, dependency order, acceptance, negative tests, Stops, source currentness, and implementation readiness."
+const missionMarkerPrefix = "SOFTWARE_FACTORY_DASHBOARD_MISSION "
+const fingerprintPattern = /^[0-9a-f]{64}$/
+const missionSourcePattern = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,239}$/
+
+function implementationBinding(task: Task): ImplementationBinding | null {
+  const candidates = [
+    task.preview,
+    ...task.turns.slice().reverse().flatMap((turn) => (
+      turn.items.slice().reverse().filter((item) => item.type === "userMessage").map((item) => item.summary)
+    )),
+  ]
+  for (const candidate of candidates) {
+    const firstLine = candidate?.split(/\r?\n/, 1)[0]
+    if (!firstLine?.startsWith(missionMarkerPrefix)) continue
+    try {
+      const value = JSON.parse(firstLine.slice(missionMarkerPrefix.length)) as Record<string, unknown>
+      if (
+        value.kind === "implement-blocks"
+        && typeof value.source_fingerprint === "string"
+        && fingerprintPattern.test(value.source_fingerprint)
+        && typeof value.project_id === "string"
+        && typeof value.tracker_id === "string"
+        && fingerprintPattern.test(value.tracker_id)
+        && Number.isInteger(value.block_start)
+        && Number.isInteger(value.block_end)
+        && (value.block_start as number) >= 0
+        && (value.block_end as number) >= (value.block_start as number)
+        && typeof value.mission_root === "string"
+        && fingerprintPattern.test(value.mission_root)
+        && typeof value.mission_source_record === "string"
+        && missionSourcePattern.test(value.mission_source_record)
+      ) return value as ImplementationBinding
+    } catch {
+      // A malformed marker is unavailable binding evidence, never a UI authority.
+    }
+  }
+  return null
+}
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : "The operation could not be prepared."
@@ -327,6 +376,8 @@ export function TrackerWorkflowActions({
   const [revisionScope, setRevisionScope] = useState("")
   const [endBlock, setEndBlock] = useState(selectedBlock?.number ?? 0)
   const [supervision, setSupervision] = useState<"none" | "already-attached">("none")
+  const [missionRoot, setMissionRoot] = useState("")
+  const [missionSource, setMissionSource] = useState("")
 
   const baseInput = useMemo(() => ({
     content_sha256: tracker.raw_file.content_sha256,
@@ -371,7 +422,12 @@ export function TrackerWorkflowActions({
 
   const submitImplementation = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!selectedBlock || !tracker.git.repository_head) return
+    if (
+      !selectedBlock
+      || !tracker.git.repository_head
+      || !fingerprintPattern.test(missionRoot)
+      || !missionSourcePattern.test(missionSource)
+    ) return
     const finalBlock = tracker.blocks.find((block) => block.number === endBlock)
     if (!finalBlock?.stop) return
     runner.launch({
@@ -384,11 +440,15 @@ export function TrackerWorkflowActions({
           block_end: endBlock,
           supervision,
           expected_stop: finalBlock.stop,
+          mission_root: missionRoot,
+          mission_source_record: missionSource,
         },
       },
       suppliedFacts: [
         ["Block range", selectedBlock.number === endBlock ? `Block ${endBlock}` : `Blocks ${selectedBlock.number}–${endBlock}`],
         ["Supervision", supervision],
+        ["Mission root", missionRoot],
+        ["Mission source", missionSource],
         ["Range Stop", finalBlock.stop],
       ],
     })
@@ -415,9 +475,11 @@ export function TrackerWorkflowActions({
         </InputDialog>
       )}
       {dialog === "implement" && selectedBlock && (
-        <InputDialog title="Implement Blocks" onClose={() => setDialog(null)} onSubmit={submitImplementation}>
+        <InputDialog title="Implement Blocks" submitDisabled={!fingerprintPattern.test(missionRoot) || !missionSourcePattern.test(missionSource)} onClose={() => setDialog(null)} onSubmit={submitImplementation}>
           <label className="workflow-input-field"><span>Range end</span><select value={endBlock} onChange={(event) => setEndBlock(Number(event.target.value))}>{selectableEnds.map((block) => <option key={block.number} value={block.number}>Block {block.number} · {block.status}</option>)}</select></label>
           <label className="workflow-input-field"><span>Supervision</span><select value={supervision} onChange={(event) => setSupervision(event.target.value as typeof supervision)}><option value="none">None</option><option value="already-attached">Already attached</option></select></label>
+          <TextField label="Mission root · SHA-256" value={missionRoot} onChange={setMissionRoot} />
+          <TextField label="Mission source record" value={missionSource} onChange={setMissionSource} />
           <div className="workflow-exact-fact"><span>Start</span><strong>Block {selectedBlock.number}</strong></div>
           <div className="workflow-exact-fact"><span>HEAD</span><Identity value={tracker.git.repository_head} /></div>
         </InputDialog>
@@ -439,7 +501,7 @@ export function TaskWorkflowActions({
   run: ListedRun
 }) {
   const runner = useOperationRunner()
-  const [dialog, setDialog] = useState<"continue" | "steer" | "attach" | "approval" | "input" | null>(null)
+  const [dialog, setDialog] = useState<"continue" | "steer" | "approval" | "input" | null>(null)
   const [text, setText] = useState("")
   const [selectedRequestId, setSelectedRequestId] = useState("")
   const [decision, setDecision] = useState("decline")
@@ -448,29 +510,19 @@ export function TaskWorkflowActions({
     () => trackers.filter((tracker) => tracker.status === "available"),
     [trackers],
   )
-  const [trackerId, setTrackerId] = useState(availableTrackers[0]?.id ?? "")
-  const initialBlock = availableTrackers[0]?.current_blocks[0]
-    ?? availableTrackers[0]?.eligible_blocks[0]
-    ?? 0
-  const [blockStart, setBlockStart] = useState(initialBlock)
-  const [blockEnd, setBlockEnd] = useState(initialBlock)
-  const [missionRoot, setMissionRoot] = useState("")
-  const [missionSource, setMissionSource] = useState("")
+  const boundImplementation = useMemo(() => implementationBinding(task), [task])
+  const boundTracker = boundImplementation
+    ? availableTrackers.find((tracker) => (
+      tracker.id === boundImplementation.tracker_id
+      && tracker.project_id === boundImplementation.project_id
+    ))
+    : undefined
   const activeTurn = task.turns.find((turn) => turn.status === "inProgress")
   const projectBound = task.project_binding.status === "bound"
     && Boolean(task.project_binding.project_id)
   const routeAvailable = Boolean(run)
   const approvalRequests = pending.filter((request) => request.family !== "user_input")
   const inputRequests = pending.filter((request) => request.family === "user_input")
-
-  useEffect(() => {
-    if (availableTrackers.some((tracker) => tracker.id === trackerId)) return
-    const next = availableTrackers[0]
-    const nextBlock = next?.current_blocks[0] ?? next?.eligible_blocks[0] ?? 0
-    setTrackerId(next?.id ?? "")
-    setBlockStart(nextBlock)
-    setBlockEnd(nextBlock)
-  }, [availableTrackers, trackerId])
 
   const launchContinueOrSteer = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -567,29 +619,25 @@ export function TaskWorkflowActions({
     setDialog(null)
   }
 
-  const submitAttach = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!projectBound) return
-    const tracker = availableTrackers.find((item) => item.id === trackerId)
-    if (!tracker || !tracker.git.repository_head || !missionRoot || !missionSource) return
+  const launchAttach = () => {
+    if (!projectBound || !boundImplementation || !boundTracker?.git.repository_head) return
     runner.launch({
       request: {
         operation_type: "factory.supervision-attach",
         target: { kind: "task", id: task.id, project_id: task.project_binding.project_id },
         input: {
-          tracker_id: tracker.id,
-          content_sha256: tracker.raw_file.content_sha256,
-          repository_head: tracker.git.repository_head,
-          verifier_profile: tracker.profile,
-          block_start: blockStart,
-          block_end: blockEnd,
-          mission_root: missionRoot,
-          mission_source_record: missionSource,
+          tracker_id: boundTracker.id,
+          content_sha256: boundTracker.raw_file.content_sha256,
+          repository_head: boundTracker.git.repository_head,
+          verifier_profile: boundTracker.profile,
+          block_start: boundImplementation.block_start,
+          block_end: boundImplementation.block_end,
+          mission_root: boundImplementation.mission_root,
+          mission_source_record: boundImplementation.mission_source_record,
         },
       },
-      suppliedFacts: [["Target", task.id], ["Tracker", tracker.relative_path], ["Blocks", `${blockStart}–${blockEnd}`], ["Mission root", missionRoot]],
+      suppliedFacts: [["Target", task.id], ["Tracker", boundTracker.relative_path], ["Blocks", `${boundImplementation.block_start}–${boundImplementation.block_end}`], ["Mission root", boundImplementation.mission_root], ["Mission source", boundImplementation.mission_source_record]],
     })
-    setDialog(null)
   }
 
   const selectedInputRequest = inputRequests.find((request) => request.id === selectedRequestId)
@@ -601,7 +649,7 @@ export function TaskWorkflowActions({
         {task.status.type === "idle" && <Button size="compact" variant="outline" disabled={!projectBound || runner.busy} onClick={() => setDialog("continue")}>Continue</Button>}
         {activeTurn && <Button size="compact" variant="outline" disabled={!projectBound || !routeAvailable || runner.busy} title={!routeAvailable ? "Canonical supervision route required" : undefined} onClick={() => setDialog("steer")}>Steer</Button>}
         {activeTurn && <Button size="compact" variant="outline" disabled={!projectBound || !routeAvailable || runner.busy} title={!routeAvailable ? "Canonical supervision route required" : undefined} onClick={launchInterrupt}>Interrupt</Button>}
-        {!run && availableTrackers.length > 0 && <Button size="compact" variant="outline" disabled={!projectBound || runner.busy} onClick={() => setDialog("attach")}>Attach supervision</Button>}
+        {!run && boundImplementation && boundTracker && <Button size="compact" variant="outline" disabled={!projectBound || runner.busy} onClick={launchAttach}>Attach supervision</Button>}
         {approvalRequests.length > 0 && <Button size="compact" variant="outline" disabled={!projectBound || !routeAvailable || runner.busy} onClick={() => {
           setSelectedRequestId(approvalRequests[0].id)
           setDialog("approval")
@@ -629,20 +677,6 @@ export function TaskWorkflowActions({
           {selectedInputRequest.details.questions.map((question) => question.id && (
             <InputQuestionControl key={question.id} question={question} value={answers[question.id] ?? ""} onChange={(value) => setAnswers((current) => ({ ...current, [question.id!]: value }))} />
           ))}
-        </InputDialog>
-      )}
-      {dialog === "attach" && (
-        <InputDialog title="Attach supervision" submitDisabled={!trackerId || !missionRoot.match(/^[0-9a-f]{64}$/) || !missionSource.trim() || blockEnd < blockStart} onClose={() => setDialog(null)} onSubmit={submitAttach}>
-          <label className="workflow-input-field"><span>Tracker</span><select value={trackerId} onChange={(event) => {
-            const next = availableTrackers.find((tracker) => tracker.id === event.target.value)
-            const nextBlock = next?.current_blocks[0] ?? next?.eligible_blocks[0] ?? 0
-            setTrackerId(event.target.value)
-            setBlockStart(nextBlock)
-            setBlockEnd(nextBlock)
-          }}>{availableTrackers.map((tracker) => <option key={tracker.id} value={tracker.id}>{tracker.title}</option>)}</select></label>
-          <div className="workflow-input-pair"><label className="workflow-input-field"><span>First Block</span><input type="number" min={0} value={blockStart} onChange={(event) => setBlockStart(Number(event.target.value))} /></label><label className="workflow-input-field"><span>Last Block</span><input type="number" min={blockStart} value={blockEnd} onChange={(event) => setBlockEnd(Number(event.target.value))} /></label></div>
-          <TextField label="Mission root · SHA-256" value={missionRoot} onChange={setMissionRoot} />
-          <TextField label="Mission source record" value={missionSource} onChange={setMissionSource} />
         </InputDialog>
       )}
       {runner.confirmation}

@@ -16,6 +16,7 @@ import sys
 from threading import RLock
 from types import ModuleType
 from typing import Any, Iterable, Mapping
+import unicodedata
 
 from .catalog import ProjectRecord
 
@@ -100,7 +101,7 @@ def _validate_relative_tracker_path(value: str) -> PurePosixPath:
     if (
         not value
         or len(value) > 500
-        or "\x00" in value
+        or any(unicodedata.category(character).startswith("C") for character in value)
         or "\\" in value
         or pure.is_absolute()
         or ".." in pure.parts

@@ -200,6 +200,8 @@ describe("Factory workflow action strips", () => {
 
     await user.click(screen.getByRole("button", { name: "Implement" }))
     expect(screen.getByRole("dialog", { name: "Implement Blocks" })).toBeVisible()
+    await user.type(screen.getByLabelText("Mission root · SHA-256"), hash)
+    await user.type(screen.getByLabelText("Mission source record"), "direct-user-item-1")
     await user.click(screen.getByRole("button", { name: "Preview" }))
 
     await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
@@ -214,6 +216,8 @@ describe("Factory workflow action strips", () => {
         block_end: 1,
         supervision: "none",
         expected_stop: "Stop before Block 2.",
+        mission_root: hash,
+        mission_source_record: "direct-user-item-1",
       },
     })
     expect(await screen.findByText("Block 1")).toBeVisible()
@@ -255,7 +259,7 @@ describe("Factory workflow action strips", () => {
     expect(screen.getByRole("button", { name: "Interrupt" })).toBeDisabled()
   })
 
-  it("selects the current eligible supervision range when trackers arrive", async () => {
+  it("offers attachment only from the task's exact implementation binding", async () => {
     const user = userEvent.setup()
     const idleTask = {
       ...task,
@@ -280,9 +284,48 @@ describe("Factory workflow action strips", () => {
         />
       </QueryClientProvider>,
     )
+    expect(screen.queryByRole("button", { name: "Attach supervision" })).not.toBeInTheDocument()
+
+    const marker = {
+      kind: "implement-blocks",
+      source_fingerprint: hash,
+      project_id: "demo",
+      tracker_id: hash,
+      block_start: 1,
+      block_end: 1,
+      mission_root: hash,
+      mission_source_record: "direct-user-item-1",
+    }
+    const boundTask = {
+      ...idleTask,
+      preview: `SOFTWARE_FACTORY_DASHBOARD_MISSION ${JSON.stringify(marker)}`,
+    } as unknown as typeof task
+    rerender(
+      <QueryClientProvider client={client}>
+        <TaskWorkflowActions
+          task={boundTask}
+          pending={[]}
+          trackers={[tracker as unknown as TrackerSummary]}
+          run={undefined}
+        />
+      </QueryClientProvider>,
+    )
     await user.click(await screen.findByRole("button", { name: "Attach supervision" }))
-    expect(screen.getByLabelText("First Block")).toHaveValue(1)
-    expect(screen.getByLabelText("Last Block")).toHaveValue(1)
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.supervision-attach",
+      target: { kind: "task", id: "task-demo", project_id: "demo" },
+      input: {
+        tracker_id: hash,
+        content_sha256: hash,
+        repository_head: head,
+        verifier_profile: "full",
+        block_start: 1,
+        block_end: 1,
+        mission_root: hash,
+        mission_source_record: "direct-user-item-1",
+      },
+    })
   })
 
   it("offers exact pending response families without treating them as lifecycle controls", async () => {
