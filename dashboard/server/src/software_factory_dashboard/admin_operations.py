@@ -10,7 +10,6 @@ import secrets
 from threading import RLock
 from time import monotonic, sleep
 from typing import Any, Callable, Mapping
-from urllib.parse import urlsplit
 
 from jsonschema import Draft202012Validator
 
@@ -33,6 +32,9 @@ TERMINAL_STATES = {"applied", "failed", "unverified", "cancelled"}
 OPERATION_TYPE_PATTERN = re.compile(r"[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*\Z")
 IDENTITY_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}\Z")
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
+INTERNAL_LINK_PATTERN = re.compile(
+    r"/(?:[A-Za-z0-9._~:@-]+(?:/[A-Za-z0-9._~:@-]+)*)?\Z"
+)
 SENSITIVE_KEY_PATTERN = re.compile(
     r"(?:api[_-]?key|authorization|body|content|cookie|credential|password|"
     r"private[_-]?key|prompt|secret|session|token)",
@@ -111,10 +113,21 @@ def _redact(value: Any, *, key: str = "") -> Any:
     if SENSITIVE_KEY_PATTERN.search(key):
         return "[redacted]"
     if isinstance(value, Mapping):
-        return {
-            str(item_key): _redact(item_value, key=str(item_key))
-            for item_key, item_value in value.items()
-        }
+        redacted: dict[str, Any] = {}
+        string_keys = {item_key for item_key in value if isinstance(item_key, str)}
+        unsupported_key_index = 0
+        for item_key, item_value in value.items():
+            if isinstance(item_key, str):
+                public_key = item_key
+                redacted[public_key] = _redact(item_value, key=public_key)
+            else:
+                while True:
+                    public_key = f"[unsupported-key-{unsupported_key_index}]"
+                    unsupported_key_index += 1
+                    if public_key not in redacted and public_key not in string_keys:
+                        break
+                redacted[public_key] = "[unsupported]"
+        return redacted
     if isinstance(value, list | tuple):
         return [_redact(item) for item in value[:100]]
     if isinstance(value, str):
@@ -123,7 +136,7 @@ def _redact(value: Any, *, key: str = "") -> Any:
         return value if len(value) <= 500 else f"{value[:497]}..."
     if value is None or isinstance(value, bool | int | float):
         return value
-    return f"[{type(value).__name__}]"
+    return "[unsupported]"
 
 
 def _owner_failure_message(state: str) -> str:
@@ -1038,16 +1051,14 @@ class OperationCoordinator:
         unique: list[OperationLink] = []
         seen: set[tuple[str, str]] = set()
         for link in links:
-            parsed = urlsplit(link.href)
             if (
                 not link.label.strip()
                 or not link.href.startswith("/")
                 or link.href.startswith("//")
-                or parsed.scheme
-                or parsed.netloc
                 or "?" in link.href
                 or "#" in link.href
-                or ".." in parsed.path.split("/")
+                or not INTERNAL_LINK_PATTERN.fullmatch(link.href)
+                or any(segment in {".", ".."} for segment in link.href.split("/"))
                 or _redact(link.label) != link.label
             ):
                 raise OperationOwnerError(

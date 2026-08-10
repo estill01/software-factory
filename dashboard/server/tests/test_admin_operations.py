@@ -40,6 +40,16 @@ class FakeClock:
         self.value += max(seconds, 0.001)
 
 
+class SecretStringKey:
+    def __str__(self) -> str:
+        return "Bearer key-string-secret"
+
+
+class SecretStringValue:
+    def __str__(self) -> str:
+        return "Bearer value-string-secret"
+
+
 class DeterministicOwner:
     def __init__(self) -> None:
         self.value = "initial"
@@ -149,7 +159,7 @@ class DeterministicOwner:
                 evidence={"request_id": f"request-{self.dispatches}"},
                 links=(OperationLink("Unsafe", "/admin?token=link-secret#result"),),
             )
-        evidence: dict[str, Any] = {
+        evidence: dict[Any, Any] = {
             "request_id": f"request-{self.dispatches}",
             "access_token": "hidden",
         }
@@ -162,6 +172,8 @@ class DeterministicOwner:
                     "cookie": "session=secret-cookie",
                     "private_key": "private-secret",
                     "innocent_label": "Bearer value-secret",
+                    SecretStringKey(): "safe-key-value",
+                    "unsupported_value": SecretStringValue(),
                 }
             )
         return DispatchResult(
@@ -443,6 +455,10 @@ class AdministrativeOperationTests(unittest.TestCase):
         for key in ("api_key", "authorization", "credential", "cookie", "private_key"):
             self.assertEqual(evidence[key], "[redacted]")
         self.assertEqual(evidence["innocent_label"], "[redacted]")
+        self.assertEqual(evidence["[unsupported-key-0]"], "[unsupported]")
+        self.assertEqual(evidence["unsupported_value"], "[unsupported]")
+        self.assertNotIn("key-string-secret", str(evidence))
+        self.assertNotIn("value-string-secret", str(evidence))
 
         failure_request = preview_payload("failed", "failed")
         failure_preview = self.coordinator.preview(failure_request)
@@ -460,6 +476,25 @@ class AdministrativeOperationTests(unittest.TestCase):
         self.assertEqual(link_result["failure"]["code"], "invalid_owner_link")
         self.assertEqual(link_result["links"], [])
         self.assertNotIn("link-secret", str(link_result))
+
+        unsafe_links = (
+            OperationLink("Source", "/%2e%2e/admin"),
+            OperationLink("Source", "/%2E%2E/admin"),
+            OperationLink("Source", "/safe%2f..%2fadmin"),
+            OperationLink("Source", "/safe\\..\\admin"),
+            OperationLink("Authorization: Bearer label-secret", "/admin"),
+        )
+        for unsafe_link in unsafe_links:
+            with self.subTest(href=unsafe_link.href, label=unsafe_link.label):
+                with self.assertRaises(OperationOwnerError) as rejected:
+                    OperationCoordinator._validated_links((unsafe_link,))
+                self.assertEqual(rejected.exception.code, "invalid_owner_link")
+        self.assertEqual(
+            OperationCoordinator._validated_links(
+                (OperationLink("Canonical source", "/projects/project-1/trackers/abc:def"),)
+            ),
+            (OperationLink("Canonical source", "/projects/project-1/trackers/abc:def"),),
+        )
 
         crash_request = preview_payload("owner-crash", "crash")
         crash_preview = self.coordinator.preview(crash_request)
