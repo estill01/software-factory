@@ -353,6 +353,7 @@ ceilings without changing code:
 python3 scripts/supervision_log.py adjust \
   --target-thread <target-thread-id> \
   --adaptive-decision-mode <fixed|recommend|reviewed-autonomous|full-autonomous> \
+  --adaptive-target-class <target-repository|software-factory> \
   --candidate-max-active-lanes 1 \
   --candidate-max-files <n> \
   --candidate-max-changed-lines <n> \
@@ -364,18 +365,26 @@ python3 scripts/supervision_log.py adjust \
 ```
 
 Before applying or exposing an adaptive choice, call
-`adaptive-decision-gate` with the exact decision fingerprint, disposition,
-judgment/consequence class, target/effect class, reversibility, mission
-preservation, safe frontier, and any reserved subjects/revisit trigger. The
-effect class derives every required permission; a caller cannot substitute a
-weaker permission. Candidate dispositions also require one bounded canonical
+`adaptive-decision-gate --decision-evidence` with one bounded canonical source
+packet. The helper recomputes the decision fingerprint and currentness from its
+mission/Block, target revision/state, adjudicating evidence, owner/scope,
+protected capability, Stop, safe-frontier, and revisit fields plus the current
+policy and governing event head. It derives target class from policy and effect
+class from target plus disposition; callers cannot supply a fingerprint or
+substitute a weaker target/effect permission. Candidate dispositions also
+require one bounded canonical
 `--candidate-evidence` JSON object that binds owner, source revision, candidate,
 usage, protected-capability, validation, comparison, and currentness roots.
 Never replace it with caller flags or counts. The gate records the decision in
 the existing event ledger. When it returns `automated-independent-review-required`,
-the bound independent reviewer records exactly one disposition through
-`adaptive-decision-review`; rerun the gate with that canonical record ID.
-Neither a boolean nor reviewer prose proves review. In `full-autonomous`, the
+the external reviewer signs the complete source-decision identity, fingerprint,
+currentness, semantics, candidate/owner, disposition, policy, and evidence
+result with the sealed reviewer authority. Import it exactly once through
+`adaptive-decision-review --review-json`, then rerun the gate with that canonical
+event ID. Software Factory mutations, including inline correction, additionally
+require a distinct accepted evaluator identity/result in that signed object.
+Neither a boolean, caller ID, self-hash, nor reviewer prose proves review. In
+`full-autonomous`, the
 adaptive gate and the existing decision/notification owner both reject or
 suppress every human-request attempt: resolve
 ordinary judgment from current sources, choose the safest reversible supported

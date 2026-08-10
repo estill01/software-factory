@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import binascii
 import datetime as dt
 import fcntl
 import hashlib
@@ -12,15 +13,21 @@ import os
 import re
 import secrets
 import stat
+import subprocess
 import sys
 import tempfile
-import tomllib
+import unicodedata
 from contextlib import contextmanager
 from email import policy as email_policy
 from email.parser import BytesParser
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any, Iterator, Mapping
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.9 maintained host runtime.
+    import tomli as tomllib
 
 
 DEFAULT_ROOT = Path.home() / ".codex" / "supervision" / "tracker-runs"
@@ -87,6 +94,23 @@ CAPABILITY_RECONCILIATION_KIND = (
 CAPABILITY_RECONCILIATION_POSTURES = {"verified", "reopen-narrow-owner"}
 MAX_CAPABILITY_RECONCILIATION_BYTES = 64 * 1024
 MAX_ADAPTIVE_CANDIDATE_EVIDENCE_BYTES = 64 * 1024
+MAX_ADAPTIVE_DECISION_EVIDENCE_BYTES = 64 * 1024
+MAX_ADAPTIVE_REVIEW_EVIDENCE_BYTES = 64 * 1024
+ADAPTIVE_REVIEWER_ID = "software-factory-release-reviewer-v1"
+ADAPTIVE_EVALUATOR_ID = "software-factory-adaptive-evaluator-v1"
+ADAPTIVE_REVIEW_PUBLIC_KEY_PATH = Path(
+    "/Users/ethanstillman/.codex/software-factory-release-authority/"
+    "reviewers/software-factory-release-reviewer-v1.pem"
+)
+ADAPTIVE_REVIEW_OPENSSL_PATH = Path(
+    "/opt/homebrew/Cellar/openssl@3/3.6.2/bin/openssl"
+)
+ADAPTIVE_REVIEW_OPENSSL_SHA256 = (
+    "bf63843e6856e1994ca71092ff3b46834236eb2144dd9b6ceb85d511128b836e"
+)
+ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256 = (
+    "e6ace9dfbbf97ec65800d1da146c4b59b20a2aef86ad706b174b9837bcb41a02"
+)
 TERMINAL_REPORT_DELIVERY_CATEGORY = "gmail-terminal-completion"
 TERMINAL_SHUTDOWN_CATEGORY = "terminal-supervision-shutdown"
 GMAIL_CONVERSATION_NOTIFICATION_CATEGORIES = {
@@ -201,6 +225,20 @@ ADAPTIVE_EFFECT_PERMISSIONS = {
     "credential-access": ["credential_access"],
     "external-action": ["external_action"],
 }
+
+
+def adaptive_effect_class(target_class: str, disposition: str) -> str:
+    if target_class not in ADAPTIVE_TARGET_CLASSES or disposition not in ADAPTIVE_DISPOSITIONS:
+        raise SupervisionLogError("Adaptive target or disposition is unsupported")
+    if disposition == "continue-unchanged":
+        return "no-mutation"
+    if disposition == "compare-candidate":
+        return "candidate-isolated-write"
+    if disposition == "amend-structure":
+        return "tracker-amendment"
+    if disposition == "correct-inline":
+        return "skill-maintenance" if target_class == "software-factory" else "implementation-write"
+    return "skill-release-cutover" if target_class == "software-factory" else "production-cutover"
 FACTORY_EVOLUTION_ARTIFACT_NAMES = {
     "learning-packet.json",
     "prepare-manifest.json",
@@ -490,17 +528,22 @@ def adaptive_decision_control_contract(
     mode: str = "full-autonomous",
     *,
     candidate_budget: Mapping[str, Any] | None = None,
+    target_class: str = "target-repository",
 ) -> dict[str, Any]:
     if mode not in ADAPTIVE_DECISION_MODES:
         raise SupervisionLogError("Unsupported adaptive-decision mode")
+    if target_class not in ADAPTIVE_TARGET_CLASSES:
+        raise SupervisionLogError("Unsupported adaptive target class")
     budget = dict(candidate_budget or adaptive_candidate_budget_contract())
     return {
         "schema_version": 1,
         "adaptive_decision_mode": mode,
+        "target_class": target_class,
         "candidate_budget": budget,
         "unchanged_fast_path": "fingerprint-currentness-only",
         "permission_posture": "never-expand-non-adaptive-permissions",
         "required_independent_review": sorted(ADAPTIVE_REVIEWED_DISPOSITIONS),
+        "software_factory_mutation_independent_review": True,
         "input_avoidance": {
             "enabled": mode == "full-autonomous",
             "ordinary_human_request_limit": 0 if mode == "full-autonomous" else 1,
@@ -517,10 +560,12 @@ def validate_adaptive_decision_control(value: Mapping[str, Any]) -> None:
     expected_keys = {
         "schema_version",
         "adaptive_decision_mode",
+        "target_class",
         "candidate_budget",
         "unchanged_fast_path",
         "permission_posture",
         "required_independent_review",
+        "software_factory_mutation_independent_review",
         "input_avoidance",
     }
     mode = value.get("adaptive_decision_mode")
@@ -529,11 +574,13 @@ def validate_adaptive_decision_control(value: Mapping[str, Any]) -> None:
         or type(value.get("schema_version")) is not int
         or value.get("schema_version") != 1
         or mode not in ADAPTIVE_DECISION_MODES
+        or value.get("target_class") not in ADAPTIVE_TARGET_CLASSES
         or value.get("unchanged_fast_path") != "fingerprint-currentness-only"
         or value.get("permission_posture")
         != "never-expand-non-adaptive-permissions"
         or value.get("required_independent_review")
         != sorted(ADAPTIVE_REVIEWED_DISPOSITIONS)
+        or value.get("software_factory_mutation_independent_review") is not True
     ):
         raise SupervisionLogError("Adaptive-decision control contract differs")
     budget = value.get("candidate_budget")
@@ -8492,6 +8539,7 @@ def cmd_adjust(args: argparse.Namespace) -> None:
         "gmail_active_window_minutes": args.gmail_active_window_minutes,
         "skill_maintenance_mode": args.skill_maintenance_mode,
         "adaptive_decision_mode": getattr(args, "adaptive_decision_mode", None),
+        "adaptive_target_class": getattr(args, "adaptive_target_class", None),
         "candidate_max_active_lanes": getattr(args, "candidate_max_active_lanes", None),
         "candidate_max_files": getattr(args, "candidate_max_files", None),
         "candidate_max_changed_lines": getattr(args, "candidate_max_changed_lines", None),
@@ -8586,6 +8634,7 @@ def cmd_adjust(args: argparse.Namespace) -> None:
         requested[key] is not None
         for key in (
             "adaptive_decision_mode",
+            "adaptive_target_class",
             "candidate_max_active_lanes",
             "candidate_max_files",
             "candidate_max_changed_lines",
@@ -8599,6 +8648,11 @@ def cmd_adjust(args: argparse.Namespace) -> None:
         adaptive = dict(policy["adaptive_decision_control"])
         budget = dict(adaptive["candidate_budget"])
         mode = requested["adaptive_decision_mode"] or adaptive["adaptive_decision_mode"]
+        target_class = requested["adaptive_target_class"] or adaptive["target_class"]
+        if requested["adaptive_target_class"] is not None and not evidence_values:
+            raise SupervisionLogError(
+                "An adaptive target-class change requires exact operator or review evidence"
+            )
         budget_updates = {
             "max_active_lanes_per_decision": requested["candidate_max_active_lanes"],
             "max_active_lanes_per_target": requested["candidate_max_active_lanes"],
@@ -8613,7 +8667,7 @@ def cmd_adjust(args: argparse.Namespace) -> None:
             if value is not None:
                 budget[key] = int(value)
         replacement = adaptive_decision_control_contract(
-            str(mode), candidate_budget=budget
+            str(mode), candidate_budget=budget, target_class=str(target_class)
         )
         validate_adaptive_decision_control(replacement)
         if replacement != policy["adaptive_decision_control"]:
@@ -8654,23 +8708,346 @@ def validate_adaptive_candidate_usage(value: Any) -> dict[str, int]:
     return result
 
 
-def validate_adaptive_candidate_evidence(
-    value: Any,
-    *,
-    decision_id: str,
-    state_fingerprint: str,
-    target_class: str,
-    effect_class: str,
+def reject_duplicate_json_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise SupervisionLogError(f"Duplicate JSON key is not allowed: {key}")
+        result[key] = value
+    return result
+
+
+def validate_exact_json_value(value: Any) -> None:
+    if value is None or type(value) in {bool, int}:
+        return
+    if type(value) is str:
+        if unicodedata.normalize("NFC", value) != value:
+            raise SupervisionLogError("Canonical JSON contains a non-NFC string")
+        return
+    if isinstance(value, list):
+        for item in value:
+            validate_exact_json_value(item)
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if type(key) is not str or unicodedata.normalize("NFC", key) != key:
+                raise SupervisionLogError("Canonical JSON contains a non-NFC key")
+            validate_exact_json_value(item)
+        return
+    raise SupervisionLogError("Canonical JSON permits only null, booleans, integers, strings, arrays, and objects")
+
+
+def load_bounded_canonical_json(
+    path_value: str, *, label: str, maximum_bytes: int
+) -> dict[str, Any]:
+    source = Path(path_value).expanduser()
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = -1
+    try:
+        before_path = source.lstat()
+        if not stat.S_ISREG(before_path.st_mode):
+            raise SupervisionLogError(f"{label.title()} must be a regular file")
+        if before_path.st_size > maximum_bytes:
+            raise SupervisionLogError(f"{label.title()} exceeds its byte bound")
+        descriptor = os.open(source, flags)
+        before = file_snapshot(os.fstat(descriptor))
+        with os.fdopen(descriptor, "rb") as handle:
+            descriptor = -1
+            raw = handle.read(maximum_bytes + 1)
+            after = file_snapshot(os.fstat(handle.fileno()))
+        if before != after or path_snapshot(source) != before:
+            raise SupervisionLogError(f"{label.title()} changed while reading")
+    except OSError as exc:
+        raise SupervisionLogError(f"{label.title()} cannot be read safely") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if len(raw) > maximum_bytes:
+        raise SupervisionLogError(f"{label.title()} exceeds its byte bound")
+    try:
+        value = json.loads(raw, object_pairs_hook=reject_duplicate_json_pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SupervisionLogError(f"{label.title()} is not valid JSON") from exc
+    if not isinstance(value, dict):
+        raise SupervisionLogError(f"{label.title()} must be a JSON object")
+    validate_exact_json_value(value)
+    if raw != canonical(value) + b"\n":
+        raise SupervisionLogError(f"{label.title()} is not exact canonical JSON")
+    return value
+
+
+ADAPTIVE_DECISION_SOURCE_CLASSES = {
+    "direct-user",
+    "system",
+    "repository",
+    "tracker",
+    "observed-outcome",
+    "validation",
+    "independent-review",
+    "independent-evaluation",
+}
+
+
+def adaptive_scope_entry(value: Any, *, label: str) -> dict[str, str]:
+    expected = {"owner_id", "path", "content_root"}
+    if not isinstance(value, Mapping) or set(value) != expected:
+        raise SupervisionLogError(f"{label.title()} shape differs")
+    if type(value.get("owner_id")) is not str:
+        raise SupervisionLogError(f"{label.title()} owner must be a string")
+    owner_id = safe_id(str(value["owner_id"]), label=f"{label} owner")
+    path_value = value.get("path")
+    if type(path_value) is not str or not path_value.startswith("/"):
+        raise SupervisionLogError(f"{label.title()} path must be absolute")
+    path_parts = Path(path_value).parts
+    if "." in path_parts or ".." in path_parts:
+        raise SupervisionLogError(f"{label.title()} path must be normalized")
+    content_root = value.get("content_root")
+    if type(content_root) is not str:
+        raise SupervisionLogError(f"{label.title()} content root must be a string")
+    exact_sha256(content_root, label=f"{label} content root")
+    return {"owner_id": owner_id, "path": path_value, "content_root": content_root}
+
+
+def validate_adaptive_decision_evidence(
+    value: Any, *, policy: Mapping[str, Any]
 ) -> dict[str, Any]:
     expected = {
         "schema_version",
         "kind",
         "decision_id",
-        "state_fingerprint",
-        "target_class",
-        "effect_class",
+        "disposition",
+        "judgment_class",
+        "consequence_class",
+        "reversible",
+        "mission_preserving",
+        "block_contract_root",
+        "tracker_sha256",
+        "target_repository_root",
+        "target_revision",
+        "target_revision_root",
+        "decision_target_state_root",
+        "current_target_state_root",
+        "capability_frame_root",
+        "protected_capability_results",
+        "protected_capability_root",
+        "adjudicating_evidence_refs",
+        "affected_scope",
+        "implementation_owner_id",
+        "proposer_author_id",
+        "stop_boundary",
+        "safe_frontier",
+        "blocked_subjects",
+        "revisit_trigger",
+        "candidate_evidence_root",
+        "evidence_manifest_root",
+        "accepted_decision_head",
+        "accepted_revision_head",
+        "source_root",
+    }
+    if not isinstance(value, Mapping) or set(value) != expected:
+        raise SupervisionLogError("Adaptive decision evidence shape differs")
+    if type(value.get("schema_version")) is not int or value.get("schema_version") != 1:
+        raise SupervisionLogError("Adaptive decision evidence version differs")
+    if value.get("kind") != "software-factory-adaptive-decision-source":
+        raise SupervisionLogError("Adaptive decision evidence kind differs")
+    for field, allowed in (
+        ("disposition", ADAPTIVE_DISPOSITIONS),
+        ("judgment_class", ADAPTIVE_JUDGMENT_CLASSES),
+        ("consequence_class", ADAPTIVE_CONSEQUENCE_CLASSES),
+    ):
+        if value.get(field) not in allowed:
+            raise SupervisionLogError(f"Adaptive decision {field} differs")
+    if type(value.get("decision_id")) is not str:
+        raise SupervisionLogError("Adaptive decision ID must be a string")
+    decision_id = safe_id(str(value["decision_id"]), label="adaptive decision ID")
+    for field in ("reversible", "mission_preserving"):
+        if type(value.get(field)) is not bool:
+            raise SupervisionLogError(f"Adaptive decision {field} must be boolean")
+    for field in (
+        "block_contract_root",
+        "tracker_sha256",
+        "target_revision_root",
+        "decision_target_state_root",
+        "current_target_state_root",
+        "capability_frame_root",
+        "protected_capability_root",
+        "evidence_manifest_root",
+        "source_root",
+    ):
+        if type(value.get(field)) is not str:
+            raise SupervisionLogError(f"Adaptive decision {field} must be a string")
+        exact_sha256(str(value[field]), label=f"adaptive decision {field}")
+    target_revision = value.get("target_revision")
+    if type(target_revision) is not str or not clean(
+        target_revision, label="adaptive target revision", maximum=160
+    ):
+        raise SupervisionLogError("Adaptive target revision is required")
+    if value["target_revision_root"] != digest({"target_revision": target_revision}):
+        raise SupervisionLogError("Adaptive target revision root differs")
+    repository_root = value.get("target_repository_root")
+    if type(repository_root) is not str or not repository_root.startswith("/"):
+        raise SupervisionLogError("Adaptive target repository root must be absolute")
+    root_parts = Path(repository_root).parts
+    if "." in root_parts or ".." in root_parts:
+        raise SupervisionLogError("Adaptive target repository root must be normalized")
+    if type(value.get("implementation_owner_id")) is not str:
+        raise SupervisionLogError("Adaptive implementation owner must be a string")
+    implementation_owner = safe_id(
+        str(value["implementation_owner_id"]), label="adaptive implementation owner"
+    )
+    if implementation_owner != policy.get("target_thread_id"):
+        raise SupervisionLogError("Adaptive implementation owner differs from target owner")
+    proposer = value.get("proposer_author_id")
+    if proposer is not None:
+        if type(proposer) is not str:
+            raise SupervisionLogError("Adaptive proposer must be a string or null")
+        proposer = safe_id(proposer, label="adaptive proposer")
+    control = policy.get("adaptive_decision_control")
+    if not isinstance(control, Mapping):
+        control = adaptive_decision_control_contract("fixed")
+    validate_adaptive_decision_control(control)
+    target_class = str(control["target_class"])
+    if value["disposition"] == "continue-unchanged" and proposer is not None:
+        raise SupervisionLogError("Unchanged decision cannot claim a proposer")
+    if target_class == "software-factory" and value["disposition"] != "continue-unchanged":
+        if proposer is None or proposer == implementation_owner:
+            raise SupervisionLogError(
+                "Software Factory mutation requires a distinct attributable proposer"
+            )
+    elif target_class == "target-repository" and proposer is not None:
+        raise SupervisionLogError("Target-repository decision cannot claim a Factory proposer")
+    evidence_refs = value.get("adjudicating_evidence_refs")
+    if not isinstance(evidence_refs, list) or not 1 <= len(evidence_refs) <= 32:
+        raise SupervisionLogError("Adaptive adjudicating evidence differs")
+    evidence_ids: list[str] = []
+    for item in evidence_refs:
+        if not isinstance(item, Mapping) or set(item) != {
+            "ref_id",
+            "source_class",
+            "root_sha256",
+        }:
+            raise SupervisionLogError("Adaptive adjudicating evidence shape differs")
+        if type(item.get("ref_id")) is not str:
+            raise SupervisionLogError("Adaptive evidence ref ID must be a string")
+        ref_id = safe_id(str(item["ref_id"]), label="adaptive evidence ref ID")
+        if ref_id in evidence_ids or item.get("source_class") not in ADAPTIVE_DECISION_SOURCE_CLASSES:
+            raise SupervisionLogError("Adaptive adjudicating evidence differs")
+        if type(item.get("root_sha256")) is not str:
+            raise SupervisionLogError("Adaptive evidence root must be a string")
+        exact_sha256(str(item["root_sha256"]), label="adaptive evidence root")
+        evidence_ids.append(ref_id)
+    if evidence_ids != sorted(evidence_ids):
+        raise SupervisionLogError("Adaptive adjudicating evidence must be ID-sorted")
+    protected_results = value.get("protected_capability_results")
+    if not isinstance(protected_results, list) or not 1 <= len(protected_results) <= 32:
+        raise SupervisionLogError("Adaptive protected capability results differ")
+    capability_ids: list[str] = []
+    for item in protected_results:
+        if not isinstance(item, Mapping) or set(item) != {
+            "capability_id",
+            "result",
+            "evidence_ref_ids",
+        }:
+            raise SupervisionLogError("Adaptive protected capability result shape differs")
+        if type(item.get("capability_id")) is not str:
+            raise SupervisionLogError("Adaptive protected capability ID must be a string")
+        capability_id = safe_id(
+            str(item["capability_id"]), label="adaptive protected capability ID"
+        )
+        refs = item.get("evidence_ref_ids")
+        if (
+            capability_id in capability_ids
+            or item.get("result") not in {"preserved", "regressed", "unverified"}
+            or not isinstance(refs, list)
+            or not refs
+            or refs != sorted(set(refs))
+            or any(type(ref) is not str or ref not in evidence_ids for ref in refs)
+        ):
+            raise SupervisionLogError("Adaptive protected capability result differs")
+        capability_ids.append(capability_id)
+    if capability_ids != sorted(capability_ids):
+        raise SupervisionLogError("Adaptive protected capabilities must be ID-sorted")
+    if value["protected_capability_root"] != digest(protected_results):
+        raise SupervisionLogError("Adaptive protected capability root differs")
+    if value["evidence_manifest_root"] != digest(evidence_refs):
+        raise SupervisionLogError("Adaptive evidence manifest root differs")
+    affected = value.get("affected_scope")
+    if not isinstance(affected, list) or not 1 <= len(affected) <= 32:
+        raise SupervisionLogError("Adaptive affected scope differs")
+    normalized_scope = [
+        adaptive_scope_entry(item, label="adaptive affected scope") for item in affected
+    ]
+    if any(item["owner_id"] != implementation_owner for item in normalized_scope):
+        raise SupervisionLogError("Adaptive affected scope has a different owner")
+    root_path = Path(repository_root)
+    if any(
+        not Path(item["path"]).is_relative_to(root_path) for item in normalized_scope
+    ):
+        raise SupervisionLogError("Adaptive affected scope escapes the target repository")
+    expected_scope_order = sorted(
+        normalized_scope, key=lambda item: (item["owner_id"], item["path"], item["content_root"])
+    )
+    if normalized_scope != expected_scope_order:
+        raise SupervisionLogError("Adaptive affected scope must be canonically sorted")
+    for field in ("stop_boundary", "revisit_trigger"):
+        if type(value.get(field)) is not str:
+            raise SupervisionLogError(f"Adaptive decision {field} must be a string")
+        clean(str(value[field]), label=f"adaptive decision {field}", maximum=240)
+    for field in ("safe_frontier", "blocked_subjects"):
+        items = value.get(field)
+        if (
+            not isinstance(items, list)
+            or len(items) > 16
+            or any(type(item) is not str or not clean(item, label=field, maximum=160) for item in items)
+            or items != sorted(set(items))
+        ):
+            raise SupervisionLogError(f"Adaptive decision {field} differs")
+    candidate_root = value.get("candidate_evidence_root")
+    candidate_disposition = value["disposition"] in {"compare-candidate", "cutover-candidate"}
+    if candidate_disposition != (candidate_root is not None):
+        raise SupervisionLogError("Adaptive candidate root does not match disposition")
+    if candidate_root is not None:
+        if type(candidate_root) is not str:
+            raise SupervisionLogError("Adaptive candidate evidence root must be a string")
+        exact_sha256(candidate_root, label="adaptive candidate evidence root")
+    for field in ("accepted_decision_head", "accepted_revision_head"):
+        item = value.get(field)
+        if item is not None:
+            if type(item) is not str:
+                raise SupervisionLogError(f"Adaptive {field} must be a string or null")
+            exact_sha256(item, label=f"adaptive {field}")
+    material = dict(value)
+    material.pop("source_root")
+    if value["source_root"] != digest(material):
+        raise SupervisionLogError("Adaptive decision source root differs")
+    return dict(value)
+
+
+def load_adaptive_decision_evidence(
+    path_value: str, *, policy: Mapping[str, Any]
+) -> dict[str, Any]:
+    return validate_adaptive_decision_evidence(
+        load_bounded_canonical_json(
+            path_value,
+            label="adaptive decision evidence",
+            maximum_bytes=MAX_ADAPTIVE_DECISION_EVIDENCE_BYTES,
+        ),
+        policy=policy,
+    )
+
+
+def validate_adaptive_candidate_evidence(
+    value: Any,
+    *,
+    decision_id: str,
+    implementation_owner_id: str,
+) -> dict[str, Any]:
+    expected = {
+        "schema_version",
+        "kind",
+        "decision_id",
         "owner_id",
-        "source_revision",
+        "source_revision_root",
         "candidate_root",
         "candidate_budget_use",
         "candidate_budget_use_root",
@@ -8687,20 +9064,18 @@ def validate_adaptive_candidate_evidence(
         raise SupervisionLogError("Adaptive candidate evidence version differs")
     if value.get("kind") != "software-factory-adaptive-candidate-evidence":
         raise SupervisionLogError("Adaptive candidate evidence kind differs")
-    if (
-        value.get("decision_id") != decision_id
-        or value.get("state_fingerprint") != state_fingerprint
-        or value.get("target_class") != target_class
-        or value.get("effect_class") != effect_class
-    ):
+    if value.get("decision_id") != decision_id:
         raise SupervisionLogError("Adaptive candidate evidence identity differs")
     if type(value.get("owner_id")) is not str:
         raise SupervisionLogError("Adaptive candidate owner ID must be a string")
     safe_id(str(value["owner_id"]), label="adaptive candidate owner ID")
-    if type(value.get("source_revision")) is not str or not clean(
-        str(value["source_revision"]), label="adaptive candidate source revision", maximum=100
-    ):
-        raise SupervisionLogError("Adaptive candidate source revision is required")
+    if value["owner_id"] != implementation_owner_id:
+        raise SupervisionLogError("Adaptive candidate owner differs from implementation owner")
+    if type(value.get("source_revision_root")) is not str:
+        raise SupervisionLogError("Adaptive candidate source revision root is required")
+    exact_sha256(
+        str(value["source_revision_root"]), label="adaptive candidate source revision root"
+    )
     for field in (
         "candidate_root",
         "candidate_budget_use_root",
@@ -8752,11 +9127,8 @@ def validate_adaptive_candidate_evidence(
         raise SupervisionLogError("Adaptive protected-capability root differs")
     currentness_material = {
         "decision_id": decision_id,
-        "state_fingerprint": state_fingerprint,
-        "target_class": target_class,
-        "effect_class": effect_class,
         "owner_id": value["owner_id"],
-        "source_revision": value["source_revision"],
+        "source_revision_root": value["source_revision_root"],
         "candidate_root": value["candidate_root"],
         "candidate_budget_use_root": value["candidate_budget_use_root"],
         "protected_capability_root": value["protected_capability_root"],
@@ -8776,46 +9148,17 @@ def load_adaptive_candidate_evidence(
     path_value: str,
     *,
     decision_id: str,
-    state_fingerprint: str,
-    target_class: str,
-    effect_class: str,
+    implementation_owner_id: str,
 ) -> dict[str, Any]:
-    source = Path(path_value).expanduser()
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = -1
-    try:
-        before_path = source.lstat()
-        if not stat.S_ISREG(before_path.st_mode):
-            raise SupervisionLogError("Adaptive candidate evidence must be a regular file")
-        if before_path.st_size > MAX_ADAPTIVE_CANDIDATE_EVIDENCE_BYTES:
-            raise SupervisionLogError("Adaptive candidate evidence exceeds its byte bound")
-        descriptor = os.open(source, flags)
-        before = file_snapshot(os.fstat(descriptor))
-        with os.fdopen(descriptor, "rb") as handle:
-            descriptor = -1
-            raw = handle.read(MAX_ADAPTIVE_CANDIDATE_EVIDENCE_BYTES + 1)
-            after = file_snapshot(os.fstat(handle.fileno()))
-        if before != after or path_snapshot(source) != before:
-            raise SupervisionLogError("Adaptive candidate evidence changed while reading")
-    except OSError as exc:
-        raise SupervisionLogError("Adaptive candidate evidence cannot be read safely") from exc
-    finally:
-        if descriptor >= 0:
-            os.close(descriptor)
-    if len(raw) > MAX_ADAPTIVE_CANDIDATE_EVIDENCE_BYTES:
-        raise SupervisionLogError("Adaptive candidate evidence exceeds its byte bound")
-    try:
-        value = json.loads(raw)
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise SupervisionLogError("Adaptive candidate evidence is not valid JSON") from exc
-    if raw != canonical(value) + b"\n":
-        raise SupervisionLogError("Adaptive candidate evidence is not exact canonical JSON")
+    value = load_bounded_canonical_json(
+        path_value,
+        label="adaptive candidate evidence",
+        maximum_bytes=MAX_ADAPTIVE_CANDIDATE_EVIDENCE_BYTES,
+    )
     return validate_adaptive_candidate_evidence(
         value,
         decision_id=decision_id,
-        state_fingerprint=state_fingerprint,
-        target_class=target_class,
-        effect_class=effect_class,
+        implementation_owner_id=implementation_owner_id,
     )
 
 
@@ -8829,10 +9172,23 @@ def validate_adaptive_review(
         "record_id",
         "source_decision_record",
         "source_decision_sha256",
+        "decision_id",
+        "decision_fingerprint",
+        "decision_currentness_root",
+        "decision_semantics_root",
+        "disposition",
+        "target_class",
+        "effect_class",
+        "candidate_evidence_root",
+        "candidate_owner_id",
         "reviewer_id",
+        "evaluator_id",
+        "evaluation_evidence_root",
         "review_disposition",
+        "evaluation_disposition",
         "evidence_root",
         "review_root",
+        "authority_key_sha256",
         "policy_sha256",
     }
     if not isinstance(value, Mapping) or set(value) != expected:
@@ -8840,6 +9196,7 @@ def validate_adaptive_review(
     for field, label in (
         ("record_id", "adaptive review record"),
         ("source_decision_record", "adaptive review source decision"),
+        ("decision_id", "adaptive review decision"),
         ("reviewer_id", "adaptive reviewer"),
     ):
         if type(value.get(field)) is not str:
@@ -8847,15 +9204,47 @@ def validate_adaptive_review(
         safe_id(str(value[field]), label=label)
     if value.get("review_disposition") not in {"accepted", "rejected", "inconclusive"}:
         raise SupervisionLogError("Adaptive review disposition differs")
+    if value.get("disposition") not in ADAPTIVE_DISPOSITIONS:
+        raise SupervisionLogError("Adaptive reviewed disposition differs")
+    if value.get("target_class") not in ADAPTIVE_TARGET_CLASSES:
+        raise SupervisionLogError("Adaptive reviewed target class differs")
+    if value.get("effect_class") not in ADAPTIVE_EFFECT_CLASSES:
+        raise SupervisionLogError("Adaptive reviewed effect class differs")
     for field in (
         "source_decision_sha256",
+        "decision_fingerprint",
+        "decision_currentness_root",
+        "decision_semantics_root",
         "evidence_root",
         "review_root",
+        "authority_key_sha256",
         "policy_sha256",
     ):
         if type(value.get(field)) is not str:
             raise SupervisionLogError(f"Adaptive review {field} must be a string")
         exact_sha256(str(value[field]), label=f"adaptive review {field}")
+    candidate_root = value.get("candidate_evidence_root")
+    if candidate_root is not None:
+        if type(candidate_root) is not str:
+            raise SupervisionLogError("Adaptive reviewed candidate root must be a string")
+        exact_sha256(candidate_root, label="adaptive reviewed candidate root")
+    candidate_owner = value.get("candidate_owner_id")
+    if candidate_owner is not None:
+        if type(candidate_owner) is not str:
+            raise SupervisionLogError("Adaptive reviewed candidate owner must be a string")
+        safe_id(candidate_owner, label="adaptive reviewed candidate owner")
+    evaluator = value.get("evaluator_id")
+    if evaluator is not None:
+        if type(evaluator) is not str:
+            raise SupervisionLogError("Adaptive evaluator must be a string")
+        safe_id(evaluator, label="adaptive evaluator")
+    evaluation_root = value.get("evaluation_evidence_root")
+    if evaluation_root is not None:
+        if type(evaluation_root) is not str:
+            raise SupervisionLogError("Adaptive evaluation evidence root must be a string")
+        exact_sha256(evaluation_root, label="adaptive evaluation evidence root")
+    if value.get("evaluation_disposition") not in {None, "accepted", "rejected", "inconclusive"}:
+        raise SupervisionLogError("Adaptive evaluation disposition differs")
     if require_current_policy and value["policy_sha256"] != policy.get("policy_sha256"):
         raise SupervisionLogError("Adaptive review is not current for the policy")
     return dict(value)
@@ -8865,87 +9254,24 @@ def adaptive_decision_posture(
     policy: Mapping[str, Any], packet: Mapping[str, Any]
 ) -> dict[str, Any]:
     expected_packet_fields = {
-        "decision_id",
-        "state_fingerprint",
-        "disposition",
-        "judgment_class",
-        "consequence_class",
-        "reversible",
-        "mission_preserving",
-        "target_class",
-        "effect_class",
+        "decision_evidence",
         "candidate_evidence",
         "independent_review",
         "request_human_input",
-        "blocked_subjects",
-        "safe_frontier",
-        "revisit_trigger",
+        "governing_event_head_root",
     }
     if set(packet) != expected_packet_fields:
         raise SupervisionLogError("Adaptive decision packet shape differs")
-    if type(packet["decision_id"]) is not str:
-        raise SupervisionLogError("Adaptive decision ID must be a string")
-    decision_id = safe_id(packet["decision_id"], label="adaptive decision ID")
-    if type(packet["state_fingerprint"]) is not str:
-        raise SupervisionLogError("Adaptive state fingerprint must be a string")
-    state_fingerprint = exact_sha256(
-        packet["state_fingerprint"], label="adaptive state fingerprint"
+    if type(packet["request_human_input"]) is not bool:
+        raise SupervisionLogError("Adaptive decision human-request posture must be boolean")
+    evidence = validate_adaptive_decision_evidence(
+        packet["decision_evidence"], policy=policy
     )
-    disposition = packet["disposition"]
-    judgment_class = packet["judgment_class"]
-    consequence_class = packet["consequence_class"]
-    target_class = packet["target_class"]
-    effect_class = packet["effect_class"]
-    if disposition not in ADAPTIVE_DISPOSITIONS:
-        raise SupervisionLogError("Unsupported adaptive disposition")
-    if judgment_class not in ADAPTIVE_JUDGMENT_CLASSES:
-        raise SupervisionLogError("Unsupported adaptive judgment class")
-    if consequence_class not in ADAPTIVE_CONSEQUENCE_CLASSES:
-        raise SupervisionLogError("Unsupported adaptive consequence class")
-    if target_class not in ADAPTIVE_TARGET_CLASSES:
-        raise SupervisionLogError("Unsupported adaptive target class")
-    if effect_class not in ADAPTIVE_EFFECT_CLASSES:
-        raise SupervisionLogError("Unsupported adaptive effect class")
-    if effect_class not in ADAPTIVE_DISPOSITION_EFFECTS[disposition]:
-        raise SupervisionLogError("Adaptive disposition and effect class differ")
-    target_effects = {
-        "target-repository": {
-            "no-mutation",
-            "implementation-write",
-            "candidate-isolated-write",
-            "production-cutover",
-            "tracker-amendment",
-        },
-        "software-factory": {
-            "no-mutation",
-            "candidate-isolated-write",
-            "tracker-amendment",
-            "skill-maintenance",
-            "skill-release-cutover",
-        },
-    }
-    if effect_class not in target_effects[target_class]:
-        raise SupervisionLogError("Adaptive target and effect class differ")
-    for field in ("reversible", "mission_preserving", "request_human_input"):
-        if type(packet[field]) is not bool:
-            raise SupervisionLogError(f"Adaptive decision {field} must be boolean")
-    for field in ("blocked_subjects", "safe_frontier"):
-        values = packet[field]
-        if (
-            not isinstance(values, list)
-            or len(values) > 16
-            or any(
-                type(item) is not str or not clean(item, label=field, maximum=160)
-                for item in values
-            )
-            or len(values) != len(set(values))
-        ):
-            raise SupervisionLogError(f"Adaptive decision {field} differs")
-    if type(packet["revisit_trigger"]) is not str:
-        raise SupervisionLogError("Adaptive revisit trigger must be a string")
-    revisit_trigger = clean(
-        packet["revisit_trigger"], label="adaptive revisit trigger", maximum=200
-    )
+    decision_id = str(evidence["decision_id"])
+    disposition = str(evidence["disposition"])
+    judgment_class = str(evidence["judgment_class"])
+    consequence_class = str(evidence["consequence_class"])
+    revisit_trigger = str(evidence["revisit_trigger"])
     control = policy.get("adaptive_decision_control")
     legacy = control is None
     if legacy:
@@ -8954,6 +9280,33 @@ def adaptive_decision_posture(
         raise SupervisionLogError("Adaptive-decision policy is malformed")
     validate_adaptive_decision_control(control)
     mode = str(control["adaptive_decision_mode"])
+    target_class = str(control["target_class"])
+    effect_class = adaptive_effect_class(target_class, str(disposition))
+    mission = bound_mission(dict(policy))
+    mission_root = (
+        str(mission["mission_root"])
+        if mission is not None
+        else str(policy.get("policy_sha256", ""))
+    )
+    fingerprint_material = {
+        "schema_version": 1,
+        "mission_root": mission_root,
+        "authority_effect": "mission-preserving" if evidence["mission_preserving"] else "goal-change",
+        "block_contract_root": evidence["block_contract_root"],
+        "target_class": target_class,
+        "target_repository_root": evidence["target_repository_root"],
+        "decision_target_state_root": evidence["decision_target_state_root"],
+        "capability_frame_root": evidence["capability_frame_root"],
+        "protected_capability_root": evidence["protected_capability_root"],
+        "adjudicating_evidence_refs": evidence["adjudicating_evidence_refs"],
+        "affected_scope": evidence["affected_scope"],
+        "proposer_author_id": evidence["proposer_author_id"],
+        "implementation_owner_id": evidence["implementation_owner_id"],
+        "stop_boundary": evidence["stop_boundary"],
+        "disposition": disposition,
+        "candidate_evidence_root": evidence["candidate_evidence_root"],
+    }
+    decision_fingerprint = digest(fingerprint_material)
     budget = control["candidate_budget"]
     candidate_disposition = disposition in {"compare-candidate", "cutover-candidate"}
     candidate = packet["candidate_evidence"]
@@ -8961,10 +9314,10 @@ def adaptive_decision_posture(
         candidate = validate_adaptive_candidate_evidence(
             candidate,
             decision_id=decision_id,
-            state_fingerprint=state_fingerprint,
-            target_class=target_class,
-            effect_class=effect_class,
+            implementation_owner_id=str(evidence["implementation_owner_id"]),
         )
+        if candidate["evidence_root"] != evidence["candidate_evidence_root"]:
+            raise SupervisionLogError("Adaptive candidate differs from decision evidence")
         usage = validate_adaptive_candidate_usage(candidate["candidate_budget_use"])
         protected_regression = any(
             item["result"] != "preserved"
@@ -8976,8 +9329,71 @@ def adaptive_decision_posture(
         usage = {field: 0 for field in ADAPTIVE_CANDIDATE_USAGE_FIELDS}
         protected_regression = False
     review = packet["independent_review"]
+    event_head_root = packet["governing_event_head_root"]
+    if event_head_root is not None:
+        if type(event_head_root) is not str:
+            raise SupervisionLogError("Adaptive governing event head must be a string or null")
+        exact_sha256(event_head_root, label="adaptive governing event head")
+    pre_review_currentness = digest(
+        {
+            "decision_fingerprint": decision_fingerprint,
+            "evidence_manifest_root": evidence["evidence_manifest_root"],
+            "tracker_sha256": evidence["tracker_sha256"],
+            "policy_root": policy.get("policy_sha256"),
+            "event_head_root": event_head_root,
+            "target_revision": evidence["target_revision"],
+            "target_revision_root": evidence["target_revision_root"],
+            "current_target_state_root": evidence["current_target_state_root"],
+            "safe_frontier": evidence["safe_frontier"],
+            "adaptive_decision_mode": mode,
+            "accepted_decision_head": evidence["accepted_decision_head"],
+            "accepted_revision_head": evidence["accepted_revision_head"],
+            "revisit_trigger": revisit_trigger,
+            "candidate_currentness_root": candidate.get("currentness_root") if candidate else None,
+            "review_root": None,
+            "review_disposition": None,
+            "evaluator_id": None,
+            "evaluation_evidence_root": None,
+            "evaluation_disposition": None,
+        }
+    )
+    semantics_material = {
+        "decision_id": decision_id,
+        "decision_fingerprint": decision_fingerprint,
+        "decision_currentness_root": pre_review_currentness,
+        "disposition": disposition,
+        "judgment_class": judgment_class,
+        "consequence_class": consequence_class,
+        "reversible": evidence["reversible"],
+        "mission_preserving": evidence["mission_preserving"],
+        "target_class": target_class,
+        "effect_class": effect_class,
+        "candidate_evidence_root": candidate.get("evidence_root") if candidate else None,
+        "candidate_owner_id": candidate.get("owner_id") if candidate else None,
+        "blocked_subjects": evidence["blocked_subjects"],
+        "safe_frontier": evidence["safe_frontier"],
+        "revisit_trigger": revisit_trigger,
+        "policy_sha256": policy.get("policy_sha256"),
+    }
+    decision_semantics_root = digest(semantics_material)
     if review is not None:
         review = validate_adaptive_review(review, policy=policy)
+        expected_candidate_root = candidate.get("evidence_root") if candidate else None
+        if (
+            review["decision_id"] != decision_id
+            or review["decision_fingerprint"] != decision_fingerprint
+            or review["decision_currentness_root"] != pre_review_currentness
+            or review["decision_semantics_root"] != decision_semantics_root
+            or review["disposition"] != disposition
+            or review["target_class"] != target_class
+            or review["effect_class"] != effect_class
+            or review["candidate_evidence_root"] != expected_candidate_root
+            or review["candidate_owner_id"]
+            != (candidate.get("owner_id") if candidate else None)
+        ):
+            raise SupervisionLogError(
+                "Adaptive review does not bind the current decision and candidate"
+            )
         usage["review_passes"] += 1
     budget_exceeded = any(
         (
@@ -8999,16 +9415,31 @@ def adaptive_decision_posture(
     permission_granted = all(permission_results.values())
     review_required = bool(
         disposition in ADAPTIVE_REVIEWED_DISPOSITIONS
+        or (target_class == "software-factory" and disposition != "continue-unchanged")
         or (mode == "recommend" and disposition != "continue-unchanged")
     )
     if review is not None and not review_required:
         raise SupervisionLogError("Adaptive review is not eligible for this disposition")
     review_disposition = review.get("review_disposition") if review else None
-    review_complete = review_disposition == "accepted"
+    evaluation_disposition = review.get("evaluation_disposition") if review else None
+    if target_class == "software-factory" and review is not None:
+        identities = {
+            evidence["proposer_author_id"],
+            evidence["implementation_owner_id"],
+            review["reviewer_id"],
+            review["evaluator_id"],
+        }
+        if None in identities or len(identities) != 4:
+            raise SupervisionLogError(
+                "Software Factory review/evaluation roles are not distinct"
+            )
+    review_complete = review_disposition == "accepted" and (
+        target_class != "software-factory" or evaluation_disposition == "accepted"
+    )
     reserved = (
         judgment_class in {"reserved-external", "material-goal-change"}
-        or packet["mission_preserving"] is not True
-        or packet["reversible"] is not True
+        or evidence["mission_preserving"] is not True
+        or evidence["reversible"] is not True
         or (
             mode in {"reviewed-autonomous", "full-autonomous"}
             and disposition != "continue-unchanged"
@@ -9025,7 +9456,7 @@ def adaptive_decision_posture(
         application_authorized = False
         reserved = False
     elif reserved:
-        if not packet["blocked_subjects"] or not revisit_trigger:
+        if not evidence["blocked_subjects"] or not revisit_trigger:
             raise SupervisionLogError(
                 "Reserved-external posture requires blocked subjects and a revisit trigger"
             )
@@ -9073,7 +9504,38 @@ def adaptive_decision_posture(
     result = {
         "schema_version": 1,
         "decision_id": decision_id,
-        "state_fingerprint": state_fingerprint,
+        "state_fingerprint": decision_fingerprint,
+        "decision_fingerprint": decision_fingerprint,
+        "decision_currentness_root": digest(
+            {
+                **{
+                    "decision_fingerprint": decision_fingerprint,
+                    "evidence_manifest_root": evidence["evidence_manifest_root"],
+                    "tracker_sha256": evidence["tracker_sha256"],
+                    "policy_root": policy.get("policy_sha256"),
+                    "event_head_root": event_head_root,
+                    "target_revision": evidence["target_revision"],
+                    "target_revision_root": evidence["target_revision_root"],
+                    "current_target_state_root": evidence["current_target_state_root"],
+                    "safe_frontier": evidence["safe_frontier"],
+                    "adaptive_decision_mode": mode,
+                    "accepted_decision_head": evidence["accepted_decision_head"],
+                    "accepted_revision_head": evidence["accepted_revision_head"],
+                    "revisit_trigger": revisit_trigger,
+                    "candidate_currentness_root": candidate.get("currentness_root") if candidate else None,
+                },
+                "review_root": review.get("review_root") if review else None,
+                "review_disposition": review_disposition,
+                "evaluator_id": review.get("evaluator_id") if review else None,
+                "evaluation_evidence_root": (
+                    review.get("evaluation_evidence_root") if review else None
+                ),
+                "evaluation_disposition": evaluation_disposition,
+            }
+        ),
+        "decision_semantics_root": decision_semantics_root,
+        "decision_source_root": evidence["source_root"],
+        "governing_event_head_root": event_head_root,
         "adaptive_decision_mode": mode,
         "legacy_policy_posture": legacy,
         "disposition": disposition,
@@ -9084,15 +9546,17 @@ def adaptive_decision_posture(
         "required_permissions": list(required_permissions),
         "permission_results": permission_results,
         "permission_granted": permission_granted,
-        "reversible": packet["reversible"],
-        "mission_preserving": packet["mission_preserving"],
+        "reversible": evidence["reversible"],
+        "mission_preserving": evidence["mission_preserving"],
         "independent_review_required": review_required,
         "independent_review_record": review.get("record_id") if review else None,
         "independent_reviewer_id": review.get("reviewer_id") if review else None,
         "independent_review_disposition": review_disposition,
+        "independent_evaluator_id": review.get("evaluator_id") if review else None,
+        "independent_evaluation_disposition": evaluation_disposition,
         "independent_review_root": review.get("review_root") if review else None,
         "candidate_evidence_root": candidate.get("evidence_root") if candidate else None,
-        "candidate_source_revision": candidate.get("source_revision") if candidate else None,
+        "candidate_source_revision": candidate.get("source_revision_root") if candidate else None,
         "candidate_owner_id": candidate.get("owner_id") if candidate else None,
         "candidate_currentness_root": candidate.get("currentness_root") if candidate else None,
         "candidate_budget": dict(budget),
@@ -9103,8 +9567,8 @@ def adaptive_decision_posture(
         "application_authorized": application_authorized,
         "human_request_count": human_request_count,
         "reserved_external": application_posture == "reserved-external",
-        "blocked_subjects": list(packet["blocked_subjects"]),
-        "safe_frontier": list(packet["safe_frontier"]),
+        "blocked_subjects": list(evidence["blocked_subjects"]),
+        "safe_frontier": list(evidence["safe_frontier"]),
         "revisit_trigger": revisit_trigger,
         "next_action": next_action,
         "policy_sha256": policy.get("policy_sha256"),
@@ -9157,6 +9621,7 @@ def adaptive_status_projection(
             adaptive_decision_control_contract(
                 str(normalized["adaptive_decision_mode"]),
                 candidate_budget=normalized["candidate_budget"],
+                target_class=str(normalized["target_class"]),
             )
         )
         decision_events.append(normalized)
@@ -9220,18 +9685,266 @@ def adaptive_status_projection(
     }
 
 
+def adaptive_external_review_root_material(value: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        key: item
+        for key, item in value.items()
+        if key not in {"review_root", "signature_base64"}
+    }
+
+
+def adaptive_external_review_signed_material(value: Mapping[str, Any]) -> dict[str, Any]:
+    return {key: item for key, item in value.items() if key != "signature_base64"}
+
+
+def trusted_adaptive_reviewer_key() -> bytes:
+    path = ADAPTIVE_REVIEW_PUBLIC_KEY_PATH
+    descriptor = -1
+    try:
+        key_stat = path.lstat()
+        if (
+            not stat.S_ISREG(key_stat.st_mode)
+            or stat.S_ISLNK(key_stat.st_mode)
+            or key_stat.st_size > 8192
+            or key_stat.st_mode & 0o022
+        ):
+            raise SupervisionLogError("Sealed adaptive reviewer key posture differs")
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        before = file_snapshot(os.fstat(descriptor))
+        with os.fdopen(descriptor, "rb") as handle:
+            descriptor = -1
+            key_bytes = handle.read(8193)
+            after = file_snapshot(os.fstat(handle.fileno()))
+        if before != after or path_snapshot(path) != before or len(key_bytes) > 8192:
+            raise SupervisionLogError("Sealed adaptive reviewer key changed while reading")
+    except OSError as exc:
+        raise SupervisionLogError("Sealed adaptive reviewer key is unavailable") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if hashlib.sha256(key_bytes).hexdigest() != ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256:
+        raise SupervisionLogError("Sealed adaptive reviewer key identity differs")
+    for parent in (path.parent, path.parent.parent):
+        parent_stat = parent.lstat()
+        if not stat.S_ISDIR(parent_stat.st_mode) or parent_stat.st_mode & 0o022:
+            raise SupervisionLogError("Adaptive reviewer authority owner is writable")
+    return key_bytes
+
+
+def trusted_adaptive_review_openssl() -> Path:
+    path = ADAPTIVE_REVIEW_OPENSSL_PATH
+    try:
+        value = path.read_bytes()
+        mode = path.lstat().st_mode
+    except OSError as exc:
+        raise SupervisionLogError("Pinned adaptive review verifier is unavailable") from exc
+    if (
+        not stat.S_ISREG(mode)
+        or stat.S_ISLNK(mode)
+        or not mode & 0o111
+        or hashlib.sha256(value).hexdigest() != ADAPTIVE_REVIEW_OPENSSL_SHA256
+    ):
+        raise SupervisionLogError("Pinned adaptive review verifier identity differs")
+    return path
+
+
+def verify_adaptive_review_signature(value: Mapping[str, Any]) -> None:
+    signature_value = value.get("signature_base64")
+    if type(signature_value) is not str:
+        raise SupervisionLogError("Adaptive review signature must be base64 text")
+    try:
+        signature = base64.b64decode(signature_value, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise SupervisionLogError("Adaptive review signature is not valid base64") from exc
+    if len(signature) != 64:
+        raise SupervisionLogError("Adaptive review signature length differs")
+    key_bytes = trusted_adaptive_reviewer_key()
+    openssl = trusted_adaptive_review_openssl()
+    with tempfile.TemporaryDirectory(prefix="adaptive-review-verify-") as temp_value:
+        temp = Path(temp_value)
+        content = temp / "review.json"
+        signature_path = temp / "review.sig"
+        key_path = temp / "reviewer.pem"
+        content.write_bytes(canonical(adaptive_external_review_signed_material(value)))
+        signature_path.write_bytes(signature)
+        key_path.write_bytes(key_bytes)
+        result = subprocess.run(
+            [
+                str(openssl),
+                "pkeyutl",
+                "-verify",
+                "-pubin",
+                "-inkey",
+                str(key_path),
+                "-rawin",
+                "-in",
+                str(content),
+                "-sigfile",
+                str(signature_path),
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+        )
+    if result.returncode != 0:
+        raise SupervisionLogError("Adaptive review signature verification failed")
+
+
+def validate_external_adaptive_review(
+    value: Any, *, source: Mapping[str, Any], policy: Mapping[str, Any]
+) -> dict[str, Any]:
+    expected = {
+        "schema_version",
+        "kind",
+        "record_id",
+        "source_decision_record",
+        "source_decision_sha256",
+        "decision_id",
+        "decision_fingerprint",
+        "decision_currentness_root",
+        "decision_semantics_root",
+        "disposition",
+        "target_class",
+        "effect_class",
+        "candidate_evidence_root",
+        "candidate_owner_id",
+        "reviewer_id",
+        "evaluator_id",
+        "evaluation_evidence_root",
+        "review_disposition",
+        "evaluation_disposition",
+        "evidence_root",
+        "policy_sha256",
+        "authority_key_sha256",
+        "review_root",
+        "signature_base64",
+    }
+    if not isinstance(value, Mapping) or set(value) != expected:
+        raise SupervisionLogError("External adaptive review shape differs")
+    if type(value.get("schema_version")) is not int or value.get("schema_version") != 1:
+        raise SupervisionLogError("External adaptive review version differs")
+    if value.get("kind") != "software-factory-adaptive-independent-review":
+        raise SupervisionLogError("External adaptive review kind differs")
+    for field in ("record_id", "source_decision_record", "decision_id"):
+        if type(value.get(field)) is not str:
+            raise SupervisionLogError(f"External adaptive review {field} must be a string")
+        safe_id(str(value[field]), label=f"external adaptive review {field}")
+    for field in (
+        "source_decision_sha256",
+        "decision_fingerprint",
+        "decision_currentness_root",
+        "decision_semantics_root",
+        "evidence_root",
+        "policy_sha256",
+        "authority_key_sha256",
+        "review_root",
+    ):
+        if type(value.get(field)) is not str:
+            raise SupervisionLogError(f"External adaptive review {field} must be a string")
+        exact_sha256(str(value[field]), label=f"external adaptive review {field}")
+    for field in ("candidate_evidence_root",):
+        item = value.get(field)
+        if item is not None:
+            if type(item) is not str:
+                raise SupervisionLogError(f"External adaptive review {field} must be a string")
+            exact_sha256(item, label=f"external adaptive review {field}")
+    evaluation_root = value.get("evaluation_evidence_root")
+    if evaluation_root is not None:
+        if type(evaluation_root) is not str:
+            raise SupervisionLogError("External adaptive evaluation evidence root must be a string")
+        exact_sha256(evaluation_root, label="external adaptive evaluation evidence root")
+    for field in ("candidate_owner_id", "evaluator_id"):
+        item = value.get(field)
+        if item is not None:
+            if type(item) is not str:
+                raise SupervisionLogError(f"External adaptive review {field} must be a string")
+            safe_id(item, label=f"external adaptive review {field}")
+    if value.get("reviewer_id") != ADAPTIVE_REVIEWER_ID:
+        raise SupervisionLogError("External adaptive review authority differs")
+    if value.get("review_disposition") not in {"accepted", "rejected", "inconclusive"}:
+        raise SupervisionLogError("External adaptive review disposition differs")
+    if value.get("evaluation_disposition") not in {None, "accepted", "rejected", "inconclusive"}:
+        raise SupervisionLogError("External adaptive evaluation disposition differs")
+    exact_identity = {
+        "source_decision_record": source.get("record_id"),
+        "source_decision_sha256": source.get("record_sha256"),
+        "decision_id": source.get("decision_id"),
+        "decision_fingerprint": source.get("decision_fingerprint"),
+        "decision_currentness_root": source.get("decision_currentness_root"),
+        "decision_semantics_root": source.get("decision_semantics_root"),
+        "disposition": source.get("disposition"),
+        "target_class": source.get("target_class"),
+        "effect_class": source.get("effect_class"),
+        "candidate_evidence_root": source.get("candidate_evidence_root"),
+        "candidate_owner_id": source.get("candidate_owner_id"),
+        "policy_sha256": policy.get("policy_sha256"),
+        "authority_key_sha256": ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256,
+    }
+    if any(value.get(key) != item for key, item in exact_identity.items()):
+        raise SupervisionLogError("External adaptive review does not bind the source decision")
+    if value["target_class"] == "software-factory":
+        if (
+            value.get("evaluator_id") != ADAPTIVE_EVALUATOR_ID
+            or value.get("evaluation_disposition") is None
+            or value.get("evaluation_evidence_root") is None
+        ):
+            raise SupervisionLogError(
+                "Software Factory review requires an independent evaluator result"
+            )
+    elif (
+        value.get("evaluator_id") is not None
+        or value.get("evaluation_disposition") is not None
+        or value.get("evaluation_evidence_root") is not None
+    ):
+        raise SupervisionLogError("Target-repository review cannot claim a Factory evaluator")
+    if value["review_root"] != digest(adaptive_external_review_root_material(value)):
+        raise SupervisionLogError("External adaptive review root differs")
+    verify_adaptive_review_signature(value)
+    return dict(value)
+
+
+def load_external_adaptive_review(
+    path_value: str, *, source: Mapping[str, Any], policy: Mapping[str, Any]
+) -> dict[str, Any]:
+    return validate_external_adaptive_review(
+        load_bounded_canonical_json(
+            path_value,
+            label="external adaptive review",
+            maximum_bytes=MAX_ADAPTIVE_REVIEW_EVIDENCE_BYTES,
+        ),
+        source=source,
+        policy=policy,
+    )
+
+
 def adaptive_review_root_material(event: Mapping[str, Any]) -> dict[str, Any]:
     return {
-        "source_decision_record": event["source_decision_record"],
-        "source_decision_sha256": event["source_decision_sha256"],
-        "decision_id": event["decision_id"],
-        "state_fingerprint": event["state_fingerprint"],
-        "disposition": event["disposition"],
-        "candidate_evidence_root": event["candidate_evidence_root"],
-        "reviewer_id": event["reviewer_id"],
-        "review_disposition": event["review_disposition"],
-        "evidence_root": event["evidence_root"],
-        "policy_sha256": event["policy_sha256"],
+        key: event[key]
+        for key in (
+            "external_review_record",
+            "source_decision_record",
+            "source_decision_sha256",
+            "decision_id",
+            "decision_fingerprint",
+            "decision_currentness_root",
+            "decision_semantics_root",
+            "disposition",
+            "target_class",
+            "effect_class",
+            "candidate_evidence_root",
+            "candidate_owner_id",
+            "reviewer_id",
+            "evaluator_id",
+            "evaluation_evidence_root",
+            "review_disposition",
+            "evaluation_disposition",
+            "evidence_root",
+            "policy_sha256",
+            "authority_key_sha256",
+            "external_review_root",
+            "external_signature_sha256",
+        )
     }
 
 
@@ -9248,24 +9961,15 @@ def resolve_adaptive_review(
         None,
     )
     expected = {
-        "schema_version",
-        "record_id",
-        "timestamp",
-        "target_thread_id",
-        "kind",
-        "source_decision_record",
-        "source_decision_sha256",
-        "decision_id",
-        "state_fingerprint",
-        "disposition",
-        "candidate_evidence_root",
-        "reviewer_id",
-        "review_disposition",
-        "evidence_root",
-        "policy_sha256",
-        "review_root",
-        "previous_record_sha256",
-        "record_sha256",
+        "schema_version", "record_id", "timestamp", "target_thread_id", "kind",
+        "external_review_record", "source_decision_record", "source_decision_sha256",
+        "decision_id", "decision_fingerprint", "decision_currentness_root",
+        "decision_semantics_root", "disposition", "target_class", "effect_class",
+        "candidate_evidence_root", "candidate_owner_id", "reviewer_id", "evaluator_id",
+        "evaluation_evidence_root",
+        "review_disposition", "evaluation_disposition", "evidence_root", "policy_sha256",
+        "authority_key_sha256", "external_review_root", "external_signature_sha256",
+        "review_root", "previous_record_sha256", "record_sha256",
     }
     if event is None or set(event) != expected:
         raise SupervisionLogError("Canonical adaptive review record differs")
@@ -9284,9 +9988,14 @@ def resolve_adaptive_review(
         or source.get("kind") != "adaptive-decision"
         or source.get("record_sha256") != event["source_decision_sha256"]
         or source.get("decision_id") != event["decision_id"]
-        or source.get("state_fingerprint") != event["state_fingerprint"]
+        or source.get("decision_fingerprint") != event["decision_fingerprint"]
+        or source.get("decision_currentness_root") != event["decision_currentness_root"]
+        or source.get("decision_semantics_root") != event["decision_semantics_root"]
         or source.get("disposition") != event["disposition"]
+        or source.get("target_class") != event["target_class"]
+        or source.get("effect_class") != event["effect_class"]
         or source.get("candidate_evidence_root") != event["candidate_evidence_root"]
+        or source.get("candidate_owner_id") != event["candidate_owner_id"]
         or source.get("independent_review_required") is not True
         or source.get("application_posture") != "automated-independent-review-required"
     ):
@@ -9299,26 +10008,25 @@ def resolve_adaptive_review(
     ]
     if not earlier_adaptive or earlier_adaptive[-1].get("record_id") != source.get("record_id"):
         raise SupervisionLogError("Adaptive review source decision is stale")
-    runtime = policy.get("runtime", {})
     reviewer_id = event.get("reviewer_id")
-    eligible = {
-        runtime.get("reviewer_thread_id"),
-        runtime.get("base_reviewer_thread_id"),
-    }
     disallowed = {
         policy.get("target_thread_id"),
-        runtime.get("watcher_thread_id"),
-        runtime.get("fix_executor_thread_id"),
+        source.get("candidate_owner_id"),
     }
-    if reviewer_id not in eligible or reviewer_id in disallowed:
+    if reviewer_id != ADAPTIVE_REVIEWER_ID or reviewer_id in disallowed:
         raise SupervisionLogError("Adaptive review is not independently owned")
     if event.get("review_disposition") not in {"accepted", "rejected", "inconclusive"}:
         raise SupervisionLogError("Adaptive review disposition differs")
     for field in (
         "source_decision_sha256",
-        "state_fingerprint",
+        "decision_fingerprint",
+        "decision_currentness_root",
+        "decision_semantics_root",
         "evidence_root",
         "policy_sha256",
+        "authority_key_sha256",
+        "external_review_root",
+        "external_signature_sha256",
         "review_root",
         "record_sha256",
     ):
@@ -9339,10 +10047,23 @@ def resolve_adaptive_review(
             "record_id": event["record_id"],
             "source_decision_record": event["source_decision_record"],
             "source_decision_sha256": event["source_decision_sha256"],
+            "decision_id": event["decision_id"],
+            "decision_fingerprint": event["decision_fingerprint"],
+            "decision_currentness_root": event["decision_currentness_root"],
+            "decision_semantics_root": event["decision_semantics_root"],
+            "disposition": event["disposition"],
+            "target_class": event["target_class"],
+            "effect_class": event["effect_class"],
+            "candidate_evidence_root": event["candidate_evidence_root"],
+            "candidate_owner_id": event["candidate_owner_id"],
             "reviewer_id": event["reviewer_id"],
+            "evaluator_id": event["evaluator_id"],
+            "evaluation_evidence_root": event["evaluation_evidence_root"],
             "review_disposition": event["review_disposition"],
+            "evaluation_disposition": event["evaluation_disposition"],
             "evidence_root": event["evidence_root"],
             "review_root": event["review_root"],
+            "authority_key_sha256": event["authority_key_sha256"],
             "policy_sha256": event["policy_sha256"],
         },
         policy=policy,
@@ -9359,18 +10080,22 @@ def cmd_adaptive_decision_gate(args: argparse.Namespace) -> None:
         event_snapshot,
         directory_snapshot,
     ) = load_control_snapshot(args)
-    decision_id = safe_id(args.decision_id, label="adaptive decision ID")
-    state_fingerprint = exact_sha256(
-        args.state_fingerprint, label="adaptive state fingerprint"
+    decision_evidence = load_adaptive_decision_evidence(
+        args.decision_evidence, policy=policy
     )
+    decision_id = str(decision_evidence["decision_id"])
+    control = policy.get("adaptive_decision_control")
+    if control is None:
+        control = adaptive_decision_control_contract("fixed")
+    if not isinstance(control, Mapping):
+        raise SupervisionLogError("Adaptive-decision policy is malformed")
+    validate_adaptive_decision_control(control)
     candidate = None
     if args.candidate_evidence:
         candidate = load_adaptive_candidate_evidence(
             args.candidate_evidence,
             decision_id=decision_id,
-            state_fingerprint=state_fingerprint,
-            target_class=args.target_class,
-            effect_class=args.effect_class,
+            implementation_owner_id=str(decision_evidence["implementation_owner_id"]),
         )
     review = None
     if args.independent_review_record:
@@ -9379,24 +10104,19 @@ def cmd_adaptive_decision_gate(args: argparse.Namespace) -> None:
             args.independent_review_record,
             policy=policy,
         )
+    governing_events = [
+        item
+        for item in all_events
+        if item.get("kind") not in {"adaptive-decision", "adaptive-decision-review"}
+    ]
     packet = {
-        "decision_id": args.decision_id,
-        "state_fingerprint": args.state_fingerprint,
-        "disposition": args.disposition,
-        "judgment_class": args.judgment_class,
-        "consequence_class": args.consequence_class,
-        "reversible": yes_no_value(args.reversible, label="reversible"),
-        "mission_preserving": yes_no_value(
-            args.mission_preserving, label="mission preserving"
-        ),
-        "target_class": args.target_class,
-        "effect_class": args.effect_class,
+        "decision_evidence": decision_evidence,
         "candidate_evidence": candidate,
         "independent_review": review,
         "request_human_input": args.request_human_input,
-        "blocked_subjects": args.blocked_subject,
-        "safe_frontier": args.safe_frontier,
-        "revisit_trigger": args.revisit_trigger,
+        "governing_event_head_root": (
+            governing_events[-1].get("record_sha256") if governing_events else None
+        ),
     }
     result = adaptive_decision_posture(policy, packet)
     record = {
@@ -9421,6 +10141,28 @@ def cmd_adaptive_decision_gate(args: argparse.Namespace) -> None:
         if current_event_snapshot != event_snapshot or current_events != all_events:
             raise SupervisionLogError(
                 "Adaptive decision event head changed; retry current decision state"
+            )
+        same_fingerprint = [
+            item
+            for item in current_events
+            if item.get("kind") == "adaptive-decision"
+            and item.get("decision_fingerprint") == result["decision_fingerprint"]
+        ]
+        if same_fingerprint and same_fingerprint[-1].get("decision_id") != result["decision_id"]:
+            if (
+                review is None
+                and same_fingerprint[-1].get("decision_currentness_root")
+                == result["decision_currentness_root"]
+            ):
+                print(
+                    json.dumps(
+                        {"duplicate": True, "record": same_fingerprint[-1]},
+                        sort_keys=True,
+                    )
+                )
+                return
+            raise SupervisionLogError(
+                "Adaptive fingerprint already has a canonical decision ID; refresh that decision"
             )
         prior = [
             item
@@ -9497,8 +10239,16 @@ def cmd_adaptive_decision_review(args: argparse.Namespace) -> None:
         event_snapshot,
         directory_snapshot,
     ) = load_control_snapshot(args)
+    external_value = load_bounded_canonical_json(
+        args.review_json,
+        label="external adaptive review",
+        maximum_bytes=MAX_ADAPTIVE_REVIEW_EVIDENCE_BYTES,
+    )
+    source_record_value = external_value.get("source_decision_record")
+    if type(source_record_value) is not str:
+        raise SupervisionLogError("External adaptive review source must be a string")
     source_record = safe_id(
-        args.source_decision_record, label="adaptive review source decision"
+        source_record_value, label="adaptive review source decision"
     )
     source = next(
         (dict(item) for item in all_events if item.get("record_id") == source_record),
@@ -9512,6 +10262,18 @@ def cmd_adaptive_decision_review(args: argparse.Namespace) -> None:
         or source.get("policy_sha256") != policy.get("policy_sha256")
     ):
         raise SupervisionLogError("Adaptive review source is not current and review-required")
+    governing_events = [
+        item
+        for item in all_events
+        if item.get("kind") not in {"adaptive-decision", "adaptive-decision-review"}
+    ]
+    current_governing_head = (
+        governing_events[-1].get("record_sha256") if governing_events else None
+    )
+    if source.get("governing_event_head_root") != current_governing_head:
+        raise SupervisionLogError(
+            "Adaptive review source is stale for the governing event head"
+        )
     latest = [
         item
         for item in all_events
@@ -9520,19 +10282,8 @@ def cmd_adaptive_decision_review(args: argparse.Namespace) -> None:
     ]
     if not latest or latest[-1].get("record_id") != source_record:
         raise SupervisionLogError("Adaptive review source decision is stale")
-    reviewer_id = safe_id(args.reviewer_id, label="adaptive reviewer")
-    runtime = policy.get("runtime", {})
-    if reviewer_id not in {
-        runtime.get("reviewer_thread_id"),
-        runtime.get("base_reviewer_thread_id"),
-    } or reviewer_id in {
-        policy.get("target_thread_id"),
-        runtime.get("watcher_thread_id"),
-        runtime.get("fix_executor_thread_id"),
-    }:
-        raise SupervisionLogError("Adaptive review is not independently owned")
-    evidence_root = exact_sha256(
-        args.evidence_root, label="adaptive review evidence root"
+    external_review = validate_external_adaptive_review(
+        external_value, source=source, policy=policy
     )
     record: dict[str, Any] = {
         "schema_version": 1,
@@ -9540,16 +10291,30 @@ def cmd_adaptive_decision_review(args: argparse.Namespace) -> None:
         "timestamp": utc_now(),
         "target_thread_id": args.target_thread,
         "kind": "adaptive-decision-review",
+        "external_review_record": external_review["record_id"],
         "source_decision_record": source_record,
         "source_decision_sha256": source["record_sha256"],
         "decision_id": source["decision_id"],
-        "state_fingerprint": source["state_fingerprint"],
+        "decision_fingerprint": source["decision_fingerprint"],
+        "decision_currentness_root": source["decision_currentness_root"],
+        "decision_semantics_root": source["decision_semantics_root"],
         "disposition": source["disposition"],
+        "target_class": source["target_class"],
+        "effect_class": source["effect_class"],
         "candidate_evidence_root": source.get("candidate_evidence_root"),
-        "reviewer_id": reviewer_id,
-        "review_disposition": args.review_disposition,
-        "evidence_root": evidence_root,
+        "candidate_owner_id": source.get("candidate_owner_id"),
+        "reviewer_id": external_review["reviewer_id"],
+        "evaluator_id": external_review["evaluator_id"],
+        "evaluation_evidence_root": external_review["evaluation_evidence_root"],
+        "review_disposition": external_review["review_disposition"],
+        "evaluation_disposition": external_review["evaluation_disposition"],
+        "evidence_root": external_review["evidence_root"],
         "policy_sha256": policy["policy_sha256"],
+        "authority_key_sha256": external_review["authority_key_sha256"],
+        "external_review_root": external_review["review_root"],
+        "external_signature_sha256": hashlib.sha256(
+            base64.b64decode(external_review["signature_base64"], validate=True)
+        ).hexdigest(),
     }
     record["review_root"] = digest(adaptive_review_root_material(record))
     with owner_append_lock(
@@ -11863,6 +12628,10 @@ def parser() -> argparse.ArgumentParser:
         "--adaptive-decision-mode",
         choices=sorted(ADAPTIVE_DECISION_MODES),
     )
+    adjust.add_argument(
+        "--adaptive-target-class",
+        choices=sorted(ADAPTIVE_TARGET_CLASSES),
+    )
     adjust.add_argument("--candidate-max-active-lanes", type=int)
     adjust.add_argument("--candidate-max-files", type=int)
     adjust.add_argument("--candidate-max-changed-lines", type=int)
@@ -11876,53 +12645,15 @@ def parser() -> argparse.ArgumentParser:
 
     adaptive_gate = subparsers.add_parser("adaptive-decision-gate")
     adaptive_gate.add_argument("--target-thread", required=True)
-    adaptive_gate.add_argument("--decision-id", required=True)
-    adaptive_gate.add_argument("--state-fingerprint", required=True)
-    adaptive_gate.add_argument(
-        "--disposition", choices=sorted(ADAPTIVE_DISPOSITIONS), required=True
-    )
-    adaptive_gate.add_argument(
-        "--judgment-class",
-        choices=sorted(ADAPTIVE_JUDGMENT_CLASSES),
-        required=True,
-    )
-    adaptive_gate.add_argument(
-        "--consequence-class",
-        choices=sorted(ADAPTIVE_CONSEQUENCE_CLASSES),
-        required=True,
-    )
-    adaptive_gate.add_argument("--reversible", choices=("yes", "no"), required=True)
-    adaptive_gate.add_argument(
-        "--mission-preserving", choices=("yes", "no"), required=True
-    )
-    adaptive_gate.add_argument(
-        "--target-class",
-        choices=sorted(ADAPTIVE_TARGET_CLASSES),
-        required=True,
-    )
-    adaptive_gate.add_argument(
-        "--effect-class",
-        choices=sorted(ADAPTIVE_EFFECT_CLASSES),
-        required=True,
-    )
+    adaptive_gate.add_argument("--decision-evidence", required=True)
     adaptive_gate.add_argument("--candidate-evidence")
     adaptive_gate.add_argument("--independent-review-record")
     adaptive_gate.add_argument("--request-human-input", action="store_true")
-    adaptive_gate.add_argument("--blocked-subject", action="append", default=[])
-    adaptive_gate.add_argument("--safe-frontier", action="append", default=[])
-    adaptive_gate.add_argument("--revisit-trigger", default="")
     adaptive_gate.set_defaults(func=cmd_adaptive_decision_gate)
 
     adaptive_review = subparsers.add_parser("adaptive-decision-review")
     adaptive_review.add_argument("--target-thread", required=True)
-    adaptive_review.add_argument("--source-decision-record", required=True)
-    adaptive_review.add_argument("--reviewer-id", required=True)
-    adaptive_review.add_argument(
-        "--review-disposition",
-        choices=("accepted", "rejected", "inconclusive"),
-        required=True,
-    )
-    adaptive_review.add_argument("--evidence-root", required=True)
+    adaptive_review.add_argument("--review-json", required=True)
     adaptive_review.set_defaults(func=cmd_adaptive_decision_review)
 
     weekly_report = subparsers.add_parser("weekly-report")

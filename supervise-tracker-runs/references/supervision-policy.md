@@ -231,6 +231,7 @@ Use the existing policy, event, and status owners:
 python3 scripts/supervision_log.py adjust \
   --target-thread <target-thread-id> \
   --adaptive-decision-mode full-autonomous \
+  --adaptive-target-class <target-repository|software-factory> \
   --candidate-max-active-lanes 1 \
   --candidate-max-files 3 \
   --candidate-max-changed-lines 120 \
@@ -242,46 +243,36 @@ python3 scripts/supervision_log.py adjust \
 
 python3 scripts/supervision_log.py adaptive-decision-gate \
   --target-thread <target-thread-id> \
-  --decision-id <decision-id> \
-  --state-fingerprint <sha256> \
-  --disposition correct-inline \
-  --judgment-class ordinary-engineering \
-  --consequence-class routine \
-  --reversible yes --mission-preserving yes \
-  --target-class target-repository \
-  --effect-class implementation-write \
-  --safe-frontier <remaining-work>
+  --decision-evidence <canonical-decision-evidence.json>
 
 python3 scripts/supervision_log.py adaptive-decision-gate \
   --target-thread <target-thread-id> \
-  --decision-id <decision-id> --state-fingerprint <sha256> \
-  --disposition compare-candidate \
-  --judgment-class ordinary-engineering --consequence-class low-moderate \
-  --reversible yes --mission-preserving yes \
-  --target-class target-repository --effect-class candidate-isolated-write \
-  --candidate-evidence <canonical-candidate-evidence.json> \
-  --safe-frontier <remaining-work>
+  --decision-evidence <canonical-candidate-decision-evidence.json> \
+  --candidate-evidence <canonical-candidate-evidence.json>
 
 python3 scripts/supervision_log.py adaptive-decision-review \
   --target-thread <target-thread-id> \
-  --source-decision-record <review-required-event> \
-  --reviewer-id <bound-independent-reviewer> \
-  --review-disposition <accepted|rejected|inconclusive> \
-  --evidence-root <sha256>
+  --review-json <externally-signed-review.json>
 
 python3 scripts/supervision_log.py adaptive-decision-gate \
-  <same-exact-decision-arguments-and-candidate-evidence> \
+  --target-thread <target-thread-id> \
+  --decision-evidence <same-canonical-decision-evidence.json> \
+  [--candidate-evidence <same-canonical-candidate-evidence.json>] \
   --independent-review-record <canonical-review-event>
 
 python3 scripts/supervision_log.py status \
   --target-thread <target-thread-id>
 ```
 
-The candidate evidence is canonical JSON binding the decision/fingerprint,
-target/effect, candidate owner and source revision, candidate and usage roots,
+The decision evidence is exact canonical JSON; the helper recomputes rather
+than accepts its fingerprint and derives target/effect from canonical policy.
+The candidate evidence is canonical JSON binding the decision, candidate owner
+and source revision, candidate and usage roots,
 protected-capability results, validation/comparison roots, and currentness. Its
 review-pass use is zero; the separately owned canonical review event contributes
-the one review pass. `status` exposes the current mode and budget, legacy
+the one review pass only after a sealed external signature binds the complete
+reviewed semantics/currentness. Equivalent fingerprints deduplicate before a
+second decision or reviewer cycle. `status` exposes the current mode and budget, legacy
 posture, decision and human-request counts across adaptive and existing decision
 paths, independent reviews, reserved deferrals, latest candidate use, safe
 frontier, and application posture. The adaptive gate and review command record
