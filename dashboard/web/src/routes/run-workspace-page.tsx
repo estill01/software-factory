@@ -20,6 +20,7 @@ import {
   eventsForMission,
   missionEntityIds,
   newestPage,
+  runProjectClaims,
   safeReturnPath,
   shortIdentity,
 } from "@/lib/workspace-data"
@@ -97,6 +98,23 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
   const isCurrent = segment?.posture === "current" && selectedRoot === currentRoot
   const missionEvents = eventsForMission(run.timeline, selectedRoot)
   const missionConclusions = eventsForMission(run.conclusions, selectedRoot)
+  const projectClaims = isCurrent
+    ? runProjectClaims(run, taskQuery.data?.data.task ? [taskQuery.data.data.task] : [])
+    : []
+  const projectBindingConflict = new Set(projectClaims.map((claim) => claim.projectId)).size > 1
+  const breadcrumbProjectId = projectBindingConflict
+    ? null
+    : run.project_binding.status === "bound"
+      ? run.project_binding.project_id
+      : taskQuery.data?.data.task.project_binding.status === "bound"
+        ? taskQuery.data.data.task.project_binding.project_id
+        : null
+  const workspaceBindingIntegrity = projectBindingConflict
+    ? "degraded"
+    : run.topology?.binding_integrity ?? "unavailable"
+  const projectClaimSummary = projectClaims.length
+    ? projectClaims.map((claim) => `${claim.source}: ${claim.projectId}`).join(" · ")
+    : "No exact project claim"
   const incidentIds = missionEntityIds(missionEvents, "incident_id")
   const decisionIds = missionEntityIds(missionEvents, "decision_id")
   const transitionIds = missionEntityIds(missionEvents, "transition_id")
@@ -153,7 +171,7 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
       <section className="workspace-panel supervisor-identity-panel">
         <div className="workspace-panel-heading">
           <h2>Supervisor group</h2>
-          <StatusMark status={run.topology?.binding_integrity ?? "unavailable"} />
+          <StatusMark status={workspaceBindingIntegrity} />
         </div>
         {run.topology ? (
           <>
@@ -162,7 +180,7 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
               ["Target", <Identity value={run.topology.implementation.thread_id} />],
               ["Mission", <Identity value={selectedRoot} />],
               ["Policy", isCurrent ? <Identity value={run.policy?.sha256} /> : <Identity value={segment?.policy_sha256s.at(-1)} />],
-              ["Project binding", `${run.topology.project_binding.status}${run.topology.project_binding.project_id ? ` · ${run.topology.project_binding.project_id}` : ""}`],
+              ["Project binding", projectBindingConflict ? projectClaimSummary : `${run.topology.project_binding.status}${run.topology.project_binding.project_id ? ` · ${run.topology.project_binding.project_id}` : ""}`],
               ["Tracker binding", run.topology.tracker_binding.reason],
               ["Last check", <TimeValue value={run.last_check?.timestamp} />],
               ["Next check", "Unavailable from automation owner"],
@@ -324,11 +342,11 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
       <div className="workspace-context-bar">
         <Breadcrumbs>
           <Link to="/projects">Projects</Link><span>/</span>
-          {isCurrent && taskQuery.data?.data.task.project_binding.project_id ? (
-            <Link to={`/projects/${encodeURIComponent(taskQuery.data.data.task.project_binding.project_id)}${backQuery}`}>
-              {taskQuery.data.data.task.project_binding.project_id}
+          {isCurrent && breadcrumbProjectId ? (
+            <Link to={`/projects/${encodeURIComponent(breadcrumbProjectId)}${backQuery}`}>
+              {breadcrumbProjectId}
             </Link>
-          ) : <span>Unassigned</span>}
+          ) : <span>{projectBindingConflict ? "Binding disagreement" : "Unassigned"}</span>}
           <span>/</span><strong>{supervisorOnly ? "Supervisor" : "Run"}</strong>
         </Breadcrumbs>
         <WorkspaceBack to={floorReturn} />
@@ -371,14 +389,15 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
 
           <div className="workspace-split">
             <section className="workspace-panel">
-              <div className="workspace-panel-heading"><h2>Mission &amp; binding</h2><StatusMark status={isCurrent ? run.project_binding.status : "historical"} /></div>
+              <div className="workspace-panel-heading"><h2>Mission &amp; binding</h2><StatusMark status={isCurrent ? projectBindingConflict ? "degraded" : run.project_binding.status : "historical"} /></div>
               <FactGrid facts={[
                 ["Mission root", <Identity value={selectedRoot} />],
                 ["Source record", segment?.mission_source_record ?? "Unavailable"],
                 ["Policy versions", segment?.policy_sha256s.length ?? currentPolicyHistory.length],
-                ["Project", isCurrent ? run.project_binding.project_id ?? "Unassigned" : "Unavailable from mission-scoped records"],
+                ["Project", isCurrent ? projectBindingConflict ? "Binding disagreement" : run.project_binding.project_id ?? "Unassigned" : "Unavailable from mission-scoped records"],
+                ["Project claims", isCurrent ? projectClaimSummary : "Unavailable from mission-scoped records"],
                 ["Group", isCurrent ? <Identity value={run.topology?.supervisor_group_id} /> : "Unavailable from mission-scoped records"],
-                ["Binding integrity", isCurrent ? run.topology?.binding_integrity ?? "Unavailable" : "Not carried from the current run"],
+                ["Binding integrity", isCurrent ? workspaceBindingIntegrity : "Not carried from the current run"],
               ]} />
             </section>
             <section className="workspace-panel">

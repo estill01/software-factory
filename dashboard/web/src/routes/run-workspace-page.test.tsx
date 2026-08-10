@@ -196,4 +196,33 @@ describe("run mission-history boundary", () => {
       expect(mocks.fetchTasks).not.toHaveBeenCalled()
     })
   })
+
+  it("degrades conflicting run and target-task project claims without choosing either breadcrumb", async () => {
+    mocks.fetchRun.mockResolvedValue({ data: { run }, source: {}, observed_at: run.observed_at, fingerprint: hash("9"), coverage: {}, limitations: [], error: null })
+    mocks.fetchTask.mockResolvedValue({
+      data: {
+        task: {
+          id: run.target_thread_id,
+          project_binding: { status: "bound", project_id: "TASK-PROJECT", candidates: ["TASK-PROJECT"] },
+        },
+      },
+    })
+    mocks.fetchTasks.mockResolvedValue({ data: { tasks: [], next_cursor: null } })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    render(
+      <MemoryRouter initialEntries={[`/runs/${run.target_thread_id}`]}>
+        <QueryClientProvider client={client}>
+          <Routes><Route path="/runs/:targetId" element={<RunWorkspace />} /></Routes>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findAllByText("Binding disagreement")).not.toHaveLength(0)
+    expect(screen.getAllByText("run binding: CURRENT-PROJECT · target task: TASK-PROJECT")).toHaveLength(2)
+    expect(screen.getAllByText("degraded").length).toBeGreaterThan(0)
+    expect(screen.queryByRole("link", { name: "CURRENT-PROJECT" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("link", { name: "TASK-PROJECT" })).not.toBeInTheDocument()
+    expect(screen.queryByText("Valid", { exact: true })).not.toBeInTheDocument()
+  })
 })
