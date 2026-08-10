@@ -168,6 +168,14 @@ describe("metrics and report history workspace", () => {
     expect(contract).toHaveTextContent("review 6")
     const trendTable = screen.getByRole("table", { name: "Exact accessible values and sources for the metric trend" })
     expect(within(trendTable).getAllByRole("link", { name: /metric/ })).toHaveLength(3)
+    expect(within(trendTable).getByRole("link", { name: "EVT-101–EVT-199" })).toHaveAttribute(
+      "href",
+      "/runs/target-thread-0001#EVT-199",
+    )
+    expect(screen.getByRole("link", { name: "Events EVT-101–EVT-199" })).toHaveAttribute(
+      "href",
+      "/runs/target-thread-0001#EVT-199",
+    )
     expect(screen.getByText("Historical concurrent implementation count is unavailable.")).toBeVisible()
     expect(screen.getAllByRole("link", { name: "alpha implementation" })[0]).toBeVisible()
     expect(screen.getAllByRole("link", { name: "beta implementation" })[0]).toBeVisible()

@@ -282,12 +282,23 @@ test("live metrics and report history remain source-backed and read-only", async
     "href",
     /\/runs\/.+#current-metric$/,
   )
+  const eventSource = trend.locator(".metric-trend-sources a").nth(1)
+  await expect(eventSource).toHaveAttribute("href", /\/runs\/.+#EVT-/)
+  const eventSourceHref = await eventSource.getAttribute("href")
+  expect(eventSourceHref).not.toBeNull()
   await expect(page.getByRole("region", { name: "Metric contract and sources" })).toContainText(
     "Incident rate uses incident openings",
   )
   await expect(page.getByRole("region", { name: "Factory history" })).toContainText(
     "supervisor groups",
   )
+
+  await page.goto(eventSourceHref!)
+  await expect.poll(() => page.evaluate(() => {
+    const recordId = decodeURIComponent(window.location.hash.slice(1))
+    return recordId.length > 0 && document.getElementById(recordId) !== null
+  })).toBe(true)
+  await page.goto("/reports")
 
   await page.getByRole("button", { name: "Reports", exact: true }).click()
   const history = page.getByRole("region", { name: "History" })
