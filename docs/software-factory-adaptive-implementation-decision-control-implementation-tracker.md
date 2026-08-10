@@ -2097,7 +2097,7 @@ reversible defaults, and attempts to hide mission change behind full autonomy.
 - Repository commit: exact accepted merge
   `65757ec6f0c71b0b237d632c52e9600231f60f6d`, with parents
   `2e932b926691dac38fb280e1f635ac7936a5022e` and
-  `6d497456be0bb6362428f31406cda7e2bbabf11b`, on
+  `6d497456be0b86a3a1c4e50b1707c38827a3cc06`, on
   `codex/control-plane-foundation`, pushed to `origin`; active signed release
   `65757ec6f0c7-07a23ea68087`.
 - Policy and authority: new policies default to `full-autonomous`; legacy
