@@ -502,7 +502,7 @@ the relevant authority and evidence contract.
 | 4 | Supervision, automation, report, and metrics projection | 2 | `accepted` |
 | 5 | Codex task and App Server adapter | 1 | `accepted` |
 | 6 | Cross-project factory floor | 3, 4, 5 | `accepted` |
-| 7 | Project and run workspaces | 6 | `in-progress` |
+| 7 | Project and run workspaces | 6 | `accepted` |
 | 8 | Tracker review and progress workspace | 3, 6 | `not-started` |
 | 9 | Metrics and report history workspace | 4, 6 | `not-started` |
 | 10 | Gated administrative operation framework | 2, 4, 5 | `not-started` |
@@ -2057,7 +2057,7 @@ Stop before adding project/run, tracker, report, or admin detail functionality.
 
 ## Block 7 — Project and run workspaces
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -2363,9 +2363,18 @@ historical App Server turns or ledger events across projects.
   current run, paged event, unknown-mission rejection, predecessor run,
   historical supervisor, and task deep links with one functional route heading
   and no marketing subheader.
-- Exact independent review and acceptance evidence: fresh focused review of the
-  harness-scope successor is pending; Block 7 remains `in-progress` and no
-  later Block is active.
+- Exact independent review and acceptance evidence: exact candidate
+  `bfed4476b51b53a48e8c2f74643644f4150d34e3`, tree
+  `732cbd8048aba2114c696df6a61aa91b3cc0663e`, parent
+  `244215767c6647bf101b3d071c946eb7050448c2`, and tracker blob
+  `745dee0e71299080fc76abe437cd9e06fd11097a` was independently `ACCEPTED`
+  with no material findings. The focused reviewer proved the restored config
+  matches its pre-global-mutation blob, no product source changed after the
+  accepted `7ebc4f2` product revision, affected Vitest passed 10/10, build and
+  typecheck passed, the named drill-down passed 3/3 across desktop/tablet/mobile
+  with invocation-scoped `--workers=1`, tracker verification passed 0/0 plus
+  30/30 tests, and link/diff/clean/remote/Stop checks passed. No unaffected
+  matrix was replayed. Block 7 is accepted; Block 8 may activate next.
 
 ### Stop
 
