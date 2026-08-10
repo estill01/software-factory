@@ -1041,8 +1041,6 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         run["event_count"] = 8
         run["timeline"].append(
             {
-                "record_id": "EVT-000008",
-                "timestamp": "2026-08-10T00:01:00Z",
                 "kind": "check",
                 "status": "no-intervention",
                 "category": "",
@@ -1062,6 +1060,34 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                 "source": {"line": 8},
             }
         )
+        identityless = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(identityless.state, "pending")
+        self.assertFalse(identityless.evidence["check_recorded"])
+
+        run["event_count"] = 9
+        run["timeline"].append(
+            {
+                "record_id": "EVT-000009",
+                "timestamp": "2026-08-10T00:01:00Z",
+                "kind": "check",
+                "status": "no-intervention",
+                "category": "",
+                "severity": "info",
+                "action": "",
+                "resolution": "",
+                "resolution_owner": "",
+                "notice_disposition": "",
+                "user_action_required": "",
+                "state_fingerprint": source.fingerprint,
+                "mission_root": "a" * 64,
+                "policy_sha256": "b" * 64,
+                "evidence": [
+                    "dashboard-route-purpose:watcher-action",
+                    f"dashboard-preview:{source.fingerprint}",
+                ],
+                "source": {"line": 9},
+            }
+        )
         verified = definition.verify(target, {}, source, dispatched)
         self.assertEqual(verified.state, "applied")
         self.assertTrue(verified.evidence["check_recorded"])
@@ -1069,10 +1095,10 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertFalse(verified.evidence["changed_state_routed"])
         self.assertFalse(verified.evidence["semantic_conclusion"])
 
-        run["event_count"] = 9
+        run["event_count"] = 10
         run["timeline"] = [
             {
-                "record_id": "EVT-000009",
+                "record_id": "EVT-000010",
                 "timestamp": "2026-08-10T00:01:15Z",
                 "kind": "escalation",
                 "status": "routed",
@@ -1090,7 +1116,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                     "dashboard-route-purpose:watcher-action",
                     f"dashboard-preview:{source.fingerprint}",
                 ],
-                "source": {"line": 9},
+                "source": {"line": 10},
             }
         ]
         routed = definition.verify(target, {}, source, dispatched)

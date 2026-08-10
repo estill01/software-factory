@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from hashlib import sha256
 import json
 import os
@@ -2316,6 +2317,23 @@ class FactoryWorkflowOwner:
         preview_evidence = f"dashboard-preview:{preview_fingerprint}"
 
         def is_mechanical_outcome(event: Mapping[str, Any]) -> bool:
+            source = event.get("source")
+            line = source.get("line") if isinstance(source, Mapping) else None
+            timestamp = event.get("timestamp")
+            if (
+                type(line) is not int
+                or line <= 0
+                or event.get("record_id") != f"EVT-{line:06d}"
+                or not isinstance(timestamp, str)
+                or not timestamp
+            ):
+                return False
+            try:
+                recorded_at = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            except ValueError:
+                return False
+            if recorded_at.tzinfo is None:
+                return False
             if (
                 event.get("severity") != "info"
                 or event.get("resolution") != ""
