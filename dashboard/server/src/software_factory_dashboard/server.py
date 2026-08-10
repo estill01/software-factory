@@ -48,6 +48,7 @@ MAX_BODY_BYTES = 64 * 1024
 NONCE_PLACEHOLDER = "__SOFTWARE_FACTORY_MUTATION_NONCE__"
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
 FLOOR_CACHE_SECONDS = 2.0
+MAX_TRACKER_SOURCE_LINES = 5_000
 
 
 class DashboardConfigurationError(ValueError):
@@ -497,6 +498,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             outcomes = self.server.tracker_service.project_many(
                 project,
                 relative_paths,
+                include_diff_preview=False,
                 refresh_analysis_cache=refresh_analysis_cache,
             )
             for relative_path in relative_paths:
@@ -590,27 +592,43 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             return
         self._write_json(HTTPStatus.OK, payload)
 
-    def _write_tracker(self, tracker_id: str) -> None:
+    def _tracker_selection(
+        self,
+        tracker_id: str,
+        candidates: Sequence[tuple[ProjectRecord, str]] | None = None,
+    ) -> tuple[ProjectRecord, str]:
         if not re.fullmatch(r"[0-9a-f]{64}", tracker_id):
-            self._error(HTTPStatus.BAD_REQUEST, "invalid_tracker_id", "Tracker ID is invalid.")
-            return
+            raise TrackerProjectionError(
+                "invalid_tracker_id",
+                "Tracker ID is invalid.",
+                status=400,
+            )
+        if candidates is None:
+            candidates, _, _, _ = self._tracker_candidates()
+        selected = next(
+            (
+                (project, relative_path)
+                for project, relative_path in candidates
+                if tracker_identity(project.id, relative_path) == tracker_id
+            ),
+            None,
+        )
+        if selected is None:
+            raise TrackerProjectionError(
+                "tracker_not_found",
+                "Tracker is not discoverable in an active registered project.",
+                status=404,
+            )
+        return selected
+
+    def _write_tracker(self, tracker_id: str) -> None:
         try:
             candidates, _, catalog_fingerprint, recovered = self._tracker_candidates()
-            selected = next(
-                (
-                    (project, relative_path)
-                    for project, relative_path in candidates
-                    if tracker_identity(project.id, relative_path) == tracker_id
-                ),
-                None,
+            selected = self._tracker_selection(tracker_id, candidates)
+            detail = self.server.tracker_service.project(
+                *selected,
+                include_diff_preview=False,
             )
-            if selected is None:
-                raise TrackerProjectionError(
-                    "tracker_not_found",
-                    "Tracker is not discoverable in an active registered project.",
-                    status=404,
-                )
-            detail = self.server.tracker_service.project(*selected)
             payload = envelope(
                 data={
                     "catalog_fingerprint": catalog_fingerprint,
@@ -630,6 +648,86 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                     ),
                 },
                 limitations=detail["limitations"],
+            )
+        except (CatalogError, TrackerProjectionError) as error:
+            self._error(
+                HTTPStatus(error.status),
+                error.code,
+                str(error),
+                retryable=error.retryable,
+            )
+            return
+        self._write_json(HTTPStatus.OK, payload)
+
+    def _write_tracker_source(self, tracker_id: str, query: str) -> None:
+        try:
+            selected = self._tracker_selection(tracker_id)
+            tracker = self.server.tracker_service.source(*selected)
+            if not query:
+                body = tracker.content
+            else:
+                parsed = parse_qs(query, keep_blank_values=True, strict_parsing=True)
+                if set(parsed) != {"line", "end_line"} or any(
+                    len(values) != 1 for values in parsed.values()
+                ):
+                    raise TrackerProjectionError(
+                        "invalid_source_range",
+                        "Tracker source accepts exactly line and end_line once.",
+                    )
+                try:
+                    line = int(parsed["line"][0])
+                    end_line = int(parsed["end_line"][0])
+                except ValueError as exc:
+                    raise TrackerProjectionError(
+                        "invalid_source_range",
+                        "Tracker source line bounds must be integers.",
+                    ) from exc
+                source_lines = tracker.text.splitlines(keepends=True)
+                if (
+                    line < 1
+                    or end_line < line
+                    or end_line > len(source_lines)
+                    or end_line - line + 1 > MAX_TRACKER_SOURCE_LINES
+                ):
+                    raise TrackerProjectionError(
+                        "invalid_source_range",
+                        f"Tracker source range must be within the file and at most {MAX_TRACKER_SOURCE_LINES} lines.",
+                    )
+                body = "".join(source_lines[line - 1 : end_line]).encode("utf-8")
+        except (CatalogError, TrackerProjectionError, ValueError) as error:
+            status = getattr(error, "status", 400)
+            code = getattr(error, "code", "invalid_source_range")
+            retryable = getattr(error, "retryable", False)
+            self._error(HTTPStatus(status), code, str(error), retryable=retryable)
+            return
+        self._write(
+            HTTPStatus.OK,
+            body,
+            content_type="text/markdown; charset=utf-8",
+            cache_control="no-store",
+        )
+
+    def _write_tracker_diff(self, tracker_id: str) -> None:
+        try:
+            selected = self._tracker_selection(tracker_id)
+            projected = self.server.tracker_service.diff(*selected)
+            diff = projected["diff"]
+            payload = envelope(
+                data=projected,
+                source={
+                    "kind": "tracker-git-diff",
+                    "identity": f"software-factory-dashboard/trackers/{tracker_id}/diff",
+                    "revision": projected["content_sha256"],
+                },
+                coverage={
+                    "status": "complete" if diff["status"] == "available" else "partial",
+                    "observed": ["tracker-working-content"]
+                    + (["git-head-diff"] if diff["status"] == "available" else []),
+                    "missing": [] if diff["status"] == "available" else ["git-head-diff"],
+                },
+                limitations=[
+                    "The response is a bounded read-only comparison; tracker and Git identities must match the detail snapshot.",
+                ],
             )
         except (CatalogError, TrackerProjectionError) as error:
             self._error(
@@ -929,6 +1027,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 outcomes = self.server.tracker_service.project_many(
                     project,
                     paths,
+                    include_diff_preview=False,
                     refresh_analysis_cache=refresh_analysis_cache,
                 )
                 for path in paths:
@@ -1595,7 +1694,22 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             return
         tracker_prefix = f"/api/{API_VERSION}/trackers/"
         if decoded_path.startswith(tracker_prefix):
-            tracker_id = decoded_path[len(tracker_prefix) :]
+            tracker_suffix = decoded_path[len(tracker_prefix) :]
+            if tracker_suffix.endswith("/source"):
+                tracker_id = tracker_suffix[: -len("/source")]
+                if not tracker_id or "/" in tracker_id:
+                    self._error(HTTPStatus.BAD_REQUEST, "invalid_tracker_id", "Tracker ID is invalid.")
+                else:
+                    self._write_tracker_source(tracker_id, urlsplit(self.path).query)
+                return
+            if tracker_suffix.endswith("/diff"):
+                tracker_id = tracker_suffix[: -len("/diff")]
+                if not tracker_id or "/" in tracker_id or urlsplit(self.path).query:
+                    self._error(HTTPStatus.BAD_REQUEST, "invalid_tracker_id", "Tracker ID is invalid.")
+                else:
+                    self._write_tracker_diff(tracker_id)
+                return
+            tracker_id = tracker_suffix
             if not tracker_id or "/" in tracker_id or urlsplit(self.path).query:
                 self._error(HTTPStatus.BAD_REQUEST, "invalid_tracker_id", "Tracker ID is invalid.")
             else:

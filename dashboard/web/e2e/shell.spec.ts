@@ -109,7 +109,8 @@ test("factory shell exposes honest state and working navigation", async ({ page 
   await page.getByRole("link", { name: "Trackers", exact: true }).click()
   await expect(page.getByRole("heading", { name: "Trackers", level: 1 })).toBeVisible()
   await expect(page.locator("h1")).toHaveCount(1)
-  await expect(page.getByRole("heading", { name: "Tracker workspace unavailable" })).toBeVisible()
+  await expect(page.locator(".tracker-index-row").first()).toBeVisible()
+  await expect(page.getByText("Tracker workspace unavailable")).toHaveCount(0)
   await expect(page).toHaveURL(/\/trackers$/)
 
 })

@@ -18,6 +18,7 @@ export const router = createBrowserRouter([
       { path: "runs/:targetId/supervisor", lazy: () => import("@/routes/supervisor-workspace-page") },
       { path: "tasks/:taskId", lazy: () => import("@/routes/task-workspace-page") },
       { path: "trackers", lazy: () => import("@/routes/trackers-page") },
+      { path: "trackers/:trackerId/:view?", lazy: () => import("@/routes/tracker-workspace-page") },
       { path: "reports", lazy: () => import("@/routes/reports-page") },
       { path: "admin", lazy: () => import("@/routes/admin-page") },
       { path: "*", lazy: () => import("@/routes/not-found-page") },

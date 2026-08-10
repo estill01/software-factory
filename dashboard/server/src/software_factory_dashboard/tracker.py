@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter, OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime
+import difflib
 from hashlib import sha256
 import importlib.util
 import json
@@ -22,6 +23,8 @@ from .catalog import ProjectRecord
 MAX_TRACKER_BYTES = 4 * 1024 * 1024
 MAX_ANALYSIS_CACHE_ENTRIES = 128
 MAX_MAP_ROWS = 500
+MAX_SECTION_PREVIEW_CHARS = 12_000
+MAX_DIFF_PREVIEW_CHARS = 32_000
 VERIFIER_TIMEOUT_SECONDS = 15
 GIT_TIMEOUT_SECONDS = 5
 FINGERPRINT_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -317,6 +320,25 @@ def _section_body(lines: list[str], section: dict[str, Any] | None) -> list[str]
     return lines[section["body_start"] : section["body_end"]]
 
 
+def _section_projection(lines: list[str], section: dict[str, Any]) -> dict[str, Any]:
+    markdown = "\n".join(_section_body(lines, section)).strip("\n")
+    content = markdown.encode("utf-8")
+    truncated = len(markdown) > MAX_SECTION_PREVIEW_CHARS
+    preview = markdown[:MAX_SECTION_PREVIEW_CHARS]
+    if truncated:
+        preview = preview.rstrip() + "\n\n[Preview truncated; open the exact source range.]"
+    return {
+        "title": section["title"],
+        "normalized_title": section["normalized_title"],
+        "line": section["line"],
+        "end_line": section["end_line"],
+        "anchor": section["anchor"],
+        "markdown_preview": preview,
+        "preview_truncated": truncated,
+        "content_sha256": sha256(content).hexdigest(),
+    }
+
+
 def _parse_dependencies(value: str) -> list[int]:
     if value.strip().strip("`") in {"", "—", "-", "none", "None"}:
         return []
@@ -511,6 +533,73 @@ def _git_blob_contents(root: Path, object_ids: Iterable[str]) -> dict[str, bytes
     return contents
 
 
+def _diff_projection(
+    committed: bytes | None,
+    current: bytes,
+    *,
+    tracked: bool,
+    include_preview: bool = True,
+) -> dict[str, Any]:
+    if committed is None and tracked:
+        return {
+            "status": "unavailable",
+            "changed": None,
+            "base": None,
+            "added_lines": None,
+            "removed_lines": None,
+            "preview": None,
+            "truncated": False,
+            "error": {
+                "code": "committed_tracker_unavailable",
+                "message": "The tracker HEAD blob is unavailable for comparison.",
+            },
+        }
+    try:
+        before = (committed or b"").decode("utf-8").splitlines()
+        after = current.decode("utf-8").splitlines()
+    except UnicodeError:
+        return {
+            "status": "unavailable",
+            "changed": None,
+            "base": None,
+            "added_lines": None,
+            "removed_lines": None,
+            "preview": None,
+            "truncated": False,
+            "error": {
+                "code": "tracker_diff_encoding",
+                "message": "The tracker HEAD blob is not valid UTF-8.",
+            },
+        }
+    lines = list(
+        difflib.unified_diff(
+            before,
+            after,
+            fromfile="HEAD" if tracked else "/dev/null",
+            tofile="working-tree",
+            lineterm="",
+            n=3,
+        )
+    )
+    added = sum(1 for line in lines if line.startswith("+") and not line.startswith("+++"))
+    removed = sum(1 for line in lines if line.startswith("-") and not line.startswith("---"))
+    preview_length = sum(len(line) + 1 for line in lines)
+    truncated = preview_length > MAX_DIFF_PREVIEW_CHARS
+    preview = "\n".join(lines) if include_preview else None
+    if preview is not None and truncated:
+        preview = preview[:MAX_DIFF_PREVIEW_CHARS].rstrip() + "\n[Diff preview truncated.]"
+    return {
+        "status": "available",
+        "changed": bool(lines),
+        "base": "HEAD" if tracked else "empty",
+        "added_lines": added,
+        "removed_lines": removed,
+        "preview": preview,
+        "truncated": truncated,
+        "error": None,
+    }
+
+
 def _git_last_commits(
     root: Path,
     relative_paths: set[str],
@@ -594,6 +683,16 @@ def _git_unavailable(
         "durability": "unavailable",
         "bound_content_sha256": bound_content_sha256,
         "binding_status": "unknown",
+        "diff": {
+            "status": "unavailable",
+            "changed": None,
+            "base": None,
+            "added_lines": None,
+            "removed_lines": None,
+            "preview": None,
+            "truncated": False,
+            "error": {"code": error.code, "message": str(error)},
+        },
         "errors": [{"code": error.code, "message": str(error)}],
     }
 
@@ -603,6 +702,7 @@ def _git_currentness_batch(
     trackers: Iterable[TrackerFile],
     *,
     bound_content_sha256: dict[str, str | None] | None = None,
+    include_diff_preview: bool = True,
 ) -> dict[str, dict[str, Any]]:
     tracker_list = list(trackers)
     bound_hashes = bound_content_sha256 or {}
@@ -789,6 +889,12 @@ def _git_currentness_batch(
                 "durability": durability,
                 "bound_content_sha256": bound_hash,
                 "binding_status": binding_status,
+                "diff": _diff_projection(
+                    committed_content,
+                    tracker.content,
+                    tracked=tracker.relative_path in indexed_paths,
+                    include_preview=include_diff_preview,
+                ),
                 "errors": [],
             }
         return projected
@@ -808,11 +914,13 @@ def _git_currentness(
     tracker: TrackerFile,
     *,
     bound_content_sha256: str | None,
+    include_diff_preview: bool = True,
 ) -> dict[str, Any]:
     return _git_currentness_batch(
         root,
         [tracker],
         bound_content_sha256={tracker.relative_path: bound_content_sha256},
+        include_diff_preview=include_diff_preview,
     )[tracker.relative_path]
 
 
@@ -862,13 +970,13 @@ def _document_analysis(
         if not any(start <= section["line"] <= end for start, end in block_ranges)
     ]
     document_sections = [
-        {
-            "title": section["title"],
-            "normalized_title": section["normalized_title"],
-            "line": section["line"],
-            "end_line": section["end_line"],
-            "anchor": anchors.get(section["line"], _slug(section["title"])),
-        }
+        _section_projection(
+            lines,
+            {
+                **section,
+                "anchor": anchors.get(section["line"], _slug(section["title"])),
+            },
+        )
         for section in document_level_sections
     ]
 
@@ -963,13 +1071,16 @@ def _document_analysis(
                     "preview": evidence_preview,
                 },
                 "sections": [
-                    {
-                        "title": section["title"],
-                        "normalized_title": section["normalized_title"],
-                        "line": section["line"],
-                        "end_line": section["end_line"],
-                        "anchor": anchors.get(section["line"], _slug(section["title"])),
-                    }
+                    _section_projection(
+                        block_lines_list,
+                        {
+                            **section,
+                            "anchor": anchors.get(
+                                section["line"],
+                                _slug(section["title"]),
+                            ),
+                        },
+                    )
                     for section in sections
                 ],
             }
@@ -1380,6 +1491,7 @@ class TrackerProjectionService:
         relative_path: str,
         *,
         bound_content_sha256: str | None = None,
+        include_diff_preview: bool = True,
     ) -> dict[str, Any]:
         root = Path(project.root)
         tracker = _read_tracker_file(root, relative_path)
@@ -1387,8 +1499,28 @@ class TrackerProjectionService:
             root,
             tracker,
             bound_content_sha256=bound_content_sha256,
+            include_diff_preview=include_diff_preview,
         )
         return self._project_loaded(project, tracker, git, bound_content_sha256)
+
+    def source(self, project: ProjectRecord, relative_path: str) -> TrackerFile:
+        return _read_tracker_file(Path(project.root), relative_path)
+
+    def diff(self, project: ProjectRecord, relative_path: str) -> dict[str, Any]:
+        root = Path(project.root)
+        tracker = _read_tracker_file(root, relative_path)
+        git = _git_currentness(
+            root,
+            tracker,
+            bound_content_sha256=None,
+            include_diff_preview=True,
+        )
+        return {
+            "tracker_id": tracker_identity(project.id, tracker.relative_path),
+            "content_sha256": tracker.content_sha256,
+            "repository_head": git["repository_head"],
+            "diff": git["diff"],
+        }
 
     def project_many(
         self,
@@ -1396,6 +1528,7 @@ class TrackerProjectionService:
         relative_paths: Iterable[str],
         *,
         bound_content_sha256: dict[str, str | None] | None = None,
+        include_diff_preview: bool = True,
         refresh_analysis_cache: dict[
             tuple[str, str, str],
             dict[str, Any],
@@ -1420,6 +1553,7 @@ class TrackerProjectionService:
             root,
             trackers.values(),
             bound_content_sha256=bound_hashes,
+            include_diff_preview=include_diff_preview,
         )
         for relative_path in ordered_paths:
             tracker = trackers.get(relative_path)
@@ -1439,7 +1573,7 @@ class TrackerProjectionService:
 
     @staticmethod
     def summary(detail: dict[str, Any]) -> dict[str, Any]:
-        return {
+        summary = {
             key: detail[key]
             for key in (
                 "id",
@@ -1466,6 +1600,13 @@ class TrackerProjectionService:
                 "limitations",
             )
         }
+        git = summary.get("git")
+        if isinstance(git, dict) and isinstance(git.get("diff"), dict):
+            summary["git"] = {
+                **git,
+                "diff": {**git["diff"], "preview": None},
+            }
+        return summary
 
 
 def unavailable_tracker(

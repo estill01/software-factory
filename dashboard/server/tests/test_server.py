@@ -651,6 +651,7 @@ class DashboardServerTests(unittest.TestCase):
             self.assertEqual(healthy["raw_file"]["content_sha256"], expected_content_sha)
             self.assertEqual(healthy["git"]["repository_head"], expected_head)
             self.assertTrue(healthy["git"]["content_matches_head"])
+            self.assertIsNone(healthy["git"]["diff"]["preview"])
             self.assertEqual(healthy["progress_posture"], "current")
 
             detail_response = response(f"{origin}/api/v1/trackers/{healthy['id']}")
@@ -660,10 +661,43 @@ class DashboardServerTests(unittest.TestCase):
             self.assertEqual(detail["raw_file"]["path"], str(tracker_path))
             self.assertEqual(detail["counts"]["by_status"], {"accepted": 1, "not-started": 1})
             self.assertEqual(detail["eligible_blocks"], [1])
+            self.assertFalse(detail["git"]["diff"]["changed"])
+            self.assertIsNone(detail["git"]["diff"]["preview"])
             self.assertIn("unrecognized operator note", {
                 section["normalized_title"]
                 for section in detail["blocks"][0]["sections"]
             })
+            objective = next(
+                section
+                for section in detail["blocks"][0]["sections"]
+                if section["normalized_title"] == "objective"
+            )
+            self.assertIn("Project exact tracker state", objective["markdown_preview"])
+
+            raw_source = response(f"{origin}/api/v1/trackers/{healthy['id']}/source")
+            self.assertEqual(raw_source.status, 200)
+            self.assertEqual(raw_source.body, tracker_path.read_bytes())
+            self.assertEqual(raw_source.headers["Content-Type"], "text/markdown; charset=utf-8")
+            ranged_source = response(
+                f"{origin}/api/v1/trackers/{healthy['id']}/source"
+                f"?line={objective['line']}&end_line={objective['end_line']}"
+            )
+            self.assertEqual(ranged_source.status, 200)
+            self.assertIn(b"### Objective", ranged_source.body)
+            self.assertIn(b"Project exact tracker state", ranged_source.body)
+            diff_response = response(f"{origin}/api/v1/trackers/{healthy['id']}/diff")
+            self.assertEqual(diff_response.status, 200)
+            diff_payload = json.loads(diff_response.body)
+            self.assertEqual(diff_payload["data"]["tracker_id"], healthy["id"])
+            self.assertEqual(diff_payload["data"]["content_sha256"], expected_content_sha)
+            self.assertEqual(diff_payload["data"]["repository_head"], expected_head)
+            self.assertFalse(diff_payload["data"]["diff"]["changed"])
+            self.assertEqual(diff_payload["data"]["diff"]["preview"], "")
+            invalid_range = response(
+                f"{origin}/api/v1/trackers/{healthy['id']}/source?line=0&end_line=2"
+            )
+            self.assertEqual(invalid_range.status, 400)
+            self.assertEqual(json.loads(invalid_range.body)["error"]["code"], "invalid_source_range")
 
             verifier = detail["verifier"]
             direct = subprocess.run(
@@ -682,6 +716,12 @@ class DashboardServerTests(unittest.TestCase):
             invalid_id = response(f"{origin}/api/v1/trackers/not-a-tracker")
             self.assertEqual(invalid_id.status, 400)
             self.assertEqual(json.loads(invalid_id.body)["error"]["code"], "invalid_tracker_id")
+            invalid_source_id = response(f"{origin}/api/v1/trackers/not-a-tracker/source")
+            self.assertEqual(invalid_source_id.status, 400)
+            self.assertEqual(json.loads(invalid_source_id.body)["error"]["code"], "invalid_tracker_id")
+            invalid_diff_id = response(f"{origin}/api/v1/trackers/not-a-tracker/diff")
+            self.assertEqual(invalid_diff_id.status, 400)
+            self.assertEqual(json.loads(invalid_diff_id.body)["error"]["code"], "invalid_tracker_id")
 
     def test_run_report_and_metric_apis_use_live_supervision_owner(self) -> None:
         root = self.make_repo("operations-api")

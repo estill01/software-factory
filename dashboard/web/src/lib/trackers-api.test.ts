@@ -3,9 +3,13 @@ import { describe, expect, it, vi } from "vitest"
 import { DashboardApiError } from "@/lib/api"
 import {
   fetchTracker,
+  fetchTrackerDiff,
+  fetchTrackerSource,
   fetchTrackers,
   trackerDetailEnvelopeSchema,
+  trackerDiffEnvelopeSchema,
   trackerListEnvelopeSchema,
+  trackerSourceUrl,
   trackerSummarySchema,
 } from "@/lib/trackers-api"
 
@@ -64,6 +68,16 @@ const git = {
   durability: "matched",
   bound_content_sha256: null,
   binding_status: "unavailable",
+  diff: {
+    status: "available",
+    changed: false,
+    base: "HEAD",
+    added_lines: 0,
+    removed_lines: 0,
+    preview: null,
+    truncated: false,
+    error: null,
+  },
   errors: [],
 } as const
 
@@ -195,6 +209,9 @@ const detail = {
       line: 20,
       end_line: 25,
       anchor: "source-owner-map",
+      markdown_preview: "| Concern | Owner |",
+      preview_truncated: false,
+      content_sha256: fingerprint("7"),
     },
   ],
   blocks: [
@@ -223,6 +240,9 @@ const detail = {
           line: 34,
           end_line: 37,
           anchor: "objective",
+          markdown_preview: "Establish the base.",
+          preview_truncated: false,
+          content_sha256: fingerprint("8"),
         },
       ],
       dependency_statuses: [],
@@ -240,6 +260,30 @@ const detailEnvelope = {
     recovered_from_previous: false,
     tracker: detail,
   },
+} as const
+
+const diffEnvelope = {
+  data: {
+    tracker_id: availableSummary.id,
+    content_sha256: availableSummary.raw_file.content_sha256,
+    repository_head: availableSummary.git.repository_head,
+    diff: {
+      ...availableSummary.git.diff,
+      changed: true,
+      added_lines: 1,
+      preview: "@@ -1 +1 @@\n-old\n+new",
+    },
+  },
+  source: {
+    kind: "tracker-git-diff",
+    identity: `software-factory-dashboard/trackers/${availableSummary.id}/diff`,
+    revision: availableSummary.raw_file.content_sha256,
+  },
+  observed_at: observedAt,
+  fingerprint: fingerprint("d"),
+  coverage: { status: "complete", observed: ["tracker-working-content", "git-head-diff"], missing: [] },
+  limitations: ["Bounded read-only comparison."],
+  error: null,
 } as const
 
 const errorEnvelope = {
@@ -328,6 +372,7 @@ describe("tracker API contracts", () => {
 
   it("validates exact source ranges and preserves completed-with-open-items as open", () => {
     const parsed = trackerDetailEnvelopeSchema.parse(detailEnvelope)
+    expect(trackerDiffEnvelopeSchema.parse(diffEnvelope).data.diff.preview).toContain("+new")
     expect(parsed.data.tracker.blocks[0].sections[0]).toMatchObject({
       line: 34,
       anchor: "objective",
@@ -353,11 +398,15 @@ describe("tracker API contracts", () => {
       .fn()
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => listEnvelope })
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => detailEnvelope })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => diffEnvelope })
+      .mockResolvedValueOnce({ ok: true, status: 200, text: async () => "### Objective\n\nExact source." })
     vi.stubGlobal("fetch", fetchMock)
     const controller = new AbortController()
 
     await fetchTrackers(controller.signal)
     await fetchTracker(fingerprint("1"), controller.signal)
+    await fetchTrackerDiff(fingerprint("1"), controller.signal)
+    await fetchTrackerSource(fingerprint("1"), { line: 34, endLine: 37 }, controller.signal)
 
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
@@ -369,8 +418,19 @@ describe("tracker API contracts", () => {
       `/api/v1/trackers/${fingerprint("1")}`,
       expect.objectContaining({ signal: controller.signal }),
     )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      `/api/v1/trackers/${fingerprint("1")}/diff`,
+      expect.objectContaining({ signal: controller.signal }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      `/api/v1/trackers/${fingerprint("1")}/source?line=34&end_line=37`,
+      expect.objectContaining({ signal: controller.signal }),
+    )
     await expect(fetchTracker("../tracker")).rejects.toThrow()
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(() => trackerSourceUrl(fingerprint("1"), { line: 9, endLine: 8 })).toThrow()
+    expect(fetchMock).toHaveBeenCalledTimes(4)
   })
 
   it("parses a structured source-local error before throwing", async () => {

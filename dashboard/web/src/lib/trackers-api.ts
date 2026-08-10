@@ -27,6 +27,14 @@ const sourceAnchorSchema = z
 
 const sectionIdentitySchema = sourceAnchorSchema.omit({ normalized_title: true })
 
+const sectionContentSchema = sourceAnchorSchema
+  .extend({
+    markdown_preview: z.string(),
+    preview_truncated: z.boolean(),
+    content_sha256: fingerprintSchema,
+  })
+  .strict()
+
 const tableSchema = z
   .object({
     line: positiveLine,
@@ -70,6 +78,19 @@ const lastCommitSchema = z
   })
   .strict()
 
+export const trackerDiffSchema = z
+  .object({
+    status: z.enum(["available", "unavailable"]),
+    changed: z.boolean().nullable(),
+    base: z.enum(["HEAD", "empty"]).nullable(),
+    added_lines: nonnegativeInteger.nullable(),
+    removed_lines: nonnegativeInteger.nullable(),
+    preview: z.string().nullable(),
+    truncated: z.boolean(),
+    error: gitErrorSchema.nullable(),
+  })
+  .strict()
+
 export const trackerGitSchema = z
   .object({
     status: z.enum(["available", "unavailable"]),
@@ -90,6 +111,7 @@ export const trackerGitSchema = z
     durability: z.enum(["unavailable", "matched", "diverged", "ahead", "behind"]),
     bound_content_sha256: fingerprintSchema.nullable(),
     binding_status: z.enum(["unavailable", "unknown", "current", "stale"]),
+    diff: trackerDiffSchema,
     errors: z.array(gitErrorSchema),
   })
   .strict()
@@ -199,7 +221,7 @@ const trackerBlockSchema = z
         preview: z.string().nullable(),
       })
       .strict(),
-    sections: z.array(sourceAnchorSchema),
+    sections: z.array(sectionContentSchema),
     dependency_statuses: z.array(
       z
         .object({ number: nonnegativeInteger, status: z.string().nullable() })
@@ -230,7 +252,7 @@ export const trackerDetailSchema = availableTrackerSummarySchema
         .extend({ preview: z.string().nullable(), tables: z.array(tableSchema) })
         .strict(),
     ),
-    document_sections: z.array(sourceAnchorSchema),
+    document_sections: z.array(sectionContentSchema),
     blocks: z.array(trackerBlockSchema),
     parser_limitations: z.array(z.string()),
     analysis_cache: z
@@ -304,10 +326,25 @@ export const trackerDetailEnvelopeSchema = z
   })
   .strict()
 
+export const trackerDiffEnvelopeSchema = z
+  .object({
+    data: z
+      .object({
+        tracker_id: trackerIdSchema,
+        content_sha256: fingerprintSchema,
+        repository_head: gitObjectIdSchema.nullable(),
+        diff: trackerDiffSchema,
+      })
+      .strict(),
+    ...envelopeMetadata,
+  })
+  .strict()
+
 export type TrackerSummary = z.infer<typeof trackerSummarySchema>
 export type TrackerDetail = z.infer<typeof trackerDetailSchema>
 export type TrackerListEnvelope = z.infer<typeof trackerListEnvelopeSchema>
 export type TrackerDetailEnvelope = z.infer<typeof trackerDetailEnvelopeSchema>
+export type TrackerDiffEnvelope = z.infer<typeof trackerDiffEnvelopeSchema>
 
 async function parsedResponse<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
   const payload: unknown = await response.json()
@@ -339,4 +376,47 @@ export async function fetchTracker(
     }),
     trackerDetailEnvelopeSchema,
   )
+}
+
+export async function fetchTrackerDiff(
+  trackerId: string,
+  signal?: AbortSignal,
+): Promise<TrackerDiffEnvelope> {
+  const validatedId = trackerIdSchema.parse(trackerId)
+  return parsedResponse(
+    await fetch(`/api/v1/trackers/${validatedId}/diff`, {
+      headers: { Accept: "application/json" },
+      signal,
+    }),
+    trackerDiffEnvelopeSchema,
+  )
+}
+
+export function trackerSourceUrl(
+  trackerId: string,
+  range?: { line: number; endLine: number },
+): string {
+  const validatedId = trackerIdSchema.parse(trackerId)
+  if (!range) return `/api/v1/trackers/${validatedId}/source`
+  const line = positiveLine.parse(range.line)
+  const endLine = positiveLine.parse(range.endLine)
+  if (endLine < line) throw new Error("Tracker source end line must not precede its start line.")
+  const query = new URLSearchParams({ line: String(line), end_line: String(endLine) })
+  return `/api/v1/trackers/${validatedId}/source?${query}`
+}
+
+export async function fetchTrackerSource(
+  trackerId: string,
+  range: { line: number; endLine: number },
+  signal?: AbortSignal,
+): Promise<string> {
+  const response = await fetch(trackerSourceUrl(trackerId, range), {
+    headers: { Accept: "text/markdown" },
+    signal,
+  })
+  if (!response.ok) {
+    const payload: unknown = await response.json()
+    throw new DashboardApiError(response.status, apiErrorEnvelopeSchema.parse(payload))
+  }
+  return response.text()
 }

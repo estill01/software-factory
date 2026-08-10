@@ -258,6 +258,16 @@ class TrackerProjectionTests(unittest.TestCase):
         self.assertTrue(detail["git"]["content_matches_head"])
         self.assertEqual(detail["git"]["binding_status"], "unavailable")
         self.assertTrue(detail["raw_file"]["read_only"])
+        self.assertEqual(detail["git"]["diff"]["status"], "available")
+        self.assertFalse(detail["git"]["diff"]["changed"])
+        objective_section = next(
+            section
+            for section in detail["blocks"][0]["sections"]
+            if section["normalized_title"] == "objective"
+        )
+        self.assertIn("Project exact tracker state", objective_section["markdown_preview"])
+        self.assertRegex(objective_section["content_sha256"], r"^[0-9a-f]{64}$")
+        self.assertFalse(objective_section["preview_truncated"])
         self.assertNotIn(
             "objective",
             [section["normalized_title"] for section in detail["document_sections"]],
@@ -328,6 +338,25 @@ class TrackerProjectionTests(unittest.TestCase):
         self.assertEqual(changed["git"]["binding_status"], "stale")
         self.assertTrue(changed["git"]["worktree_changed"])
         self.assertFalse(changed["git"]["content_matches_head"])
+        self.assertTrue(changed["git"]["diff"]["changed"])
+        self.assertGreater(changed["git"]["diff"]["added_lines"], 0)
+        self.assertIn("changed after binding", changed["git"]["diff"]["preview"])
+        summary = self.service.summary(changed)
+        self.assertIsNone(summary["git"]["diff"]["preview"])
+        self.assertIn("changed after binding", changed["git"]["diff"]["preview"])
+        deferred = self.service.project(
+            self.project,
+            "docs/full-implementation-tracker.md",
+            include_diff_preview=False,
+        )
+        self.assertTrue(deferred["git"]["diff"]["changed"])
+        self.assertIsNone(deferred["git"]["diff"]["preview"])
+        loaded_diff = self.service.diff(
+            self.project,
+            "docs/full-implementation-tracker.md",
+        )
+        self.assertEqual(loaded_diff["content_sha256"], changed["raw_file"]["content_sha256"])
+        self.assertIn("changed after binding", loaded_diff["diff"]["preview"])
         subprocess.run(["git", "-C", str(self.root), "add", str(full_path)], check=True)
         staged = self.service.project(self.project, "docs/full-implementation-tracker.md")
         self.assertTrue(staged["git"]["worktree_changed"])
@@ -343,6 +372,8 @@ class TrackerProjectionTests(unittest.TestCase):
         self.assertFalse(untracked["git"]["tracked"])
         self.assertTrue(untracked["git"]["untracked"])
         self.assertTrue(untracked["git"]["worktree_changed"])
+        self.assertEqual(untracked["git"]["diff"]["base"], "empty")
+        self.assertTrue(untracked["git"]["diff"]["changed"])
 
         with self.assertRaisesRegex(TrackerProjectionError, "Bound tracker hash"):
             self.service.project(
