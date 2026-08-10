@@ -1748,7 +1748,8 @@ def reconcile_event_ledger_anchor_at(
     directory_snapshot = file_snapshot(os.fstat(directory_fd))
     if owner_root_enabled_at(directory_fd):
         raise SupervisionLogError(
-            "Event-head reconciliation is unavailable while owner-root enforcement is active"
+            "Event-head reconciliation is unavailable while owner-root enforcement is active; "
+            "use the maintained owner-root recovery path"
         )
     try:
         event_text, event_snapshot = read_text_snapshot(
