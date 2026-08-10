@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { AlertTriangle, ArrowUpRight, Clock3, ShieldCheck, X } from "lucide-react"
+import { AlertTriangle, ArrowUpRight, ShieldCheck, X } from "lucide-react"
 import { useEffect, useState } from "react"
 
 import { Button } from "@/components/ui/button"
@@ -23,6 +23,7 @@ export function OperationDisabledReason({ reason }: { reason: string }) {
 export function OperationConfirmationDialog({
   preview,
   request,
+  suppliedFacts = [],
   staleReason,
   busy = false,
   onConfirm,
@@ -31,6 +32,7 @@ export function OperationConfirmationDialog({
 }: {
   preview: OperationPreviewEnvelope
   request: OperationPreviewRequest
+  suppliedFacts?: Array<[string, string]>
   staleReason?: string | null
   busy?: boolean
   onConfirm: (confirmation: { class: string; value: string }) => void
@@ -69,9 +71,9 @@ export function OperationConfirmationDialog({
         </div>
 
         <dl className="operation-preview-facts">
-          <div><dt>Target</dt><dd>{request.target.id}<Identity value={request.target.project_id} /></dd></div>
+          <div><dt>Target</dt><dd><Identity value={request.target.id} /><Identity value={request.target.project_id} /></dd></div>
           <div><dt>Owner</dt><dd>{operation.owner}</dd></div>
-          <div><dt>Recipient</dt><dd>{operation.preview.recipient ?? "No cross-thread recipient"}</dd></div>
+          <div><dt>Recipient</dt><dd>{operation.preview.recipient ? <Identity value={operation.preview.recipient} /> : "No cross-thread recipient"}</dd></div>
           <div><dt>Gate</dt><dd><StatusMark status={operation.preview.route_gate.status} /></dd></div>
           <div><dt>Source</dt><dd><Identity value={operation.preview.source_fingerprint} /></dd></div>
           <div><dt>Expires</dt><dd><TimeValue value={operation.preview.expires_at} /></dd></div>
@@ -82,6 +84,14 @@ export function OperationConfirmationDialog({
           <div><strong>Expected postcondition</strong><p>{operation.preview.expected_postcondition}</p></div>
           <div><strong>Failure posture</strong><p>{operation.preview.consequences.failure.join(" ")}</p></div>
         </div>
+
+        {suppliedFacts.length > 0 && (
+          <dl className="operation-supplied-facts">
+            {suppliedFacts.map(([label, value]) => (
+              <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+            ))}
+          </dl>
+        )}
 
         {staleReason ? (
           <div className="operation-stale" role="alert">
@@ -144,6 +154,27 @@ export function OperationFollowUp({ operation }: { operation: OperationRecord })
   )
 }
 
+export function OperationTruthFacts({ operation }: { operation: OperationRecord }) {
+  const evidence = operation.verification_evidence
+  if (!evidence) return null
+  const facts: string[] = []
+  if (typeof evidence.task_turn_started === "boolean") {
+    facts.push(evidence.task_turn_started ? "Task/turn started" : "Task/turn not verified")
+  }
+  if (typeof evidence.block_accepted === "boolean") {
+    facts.push(evidence.block_accepted ? "Block accepted" : "Block not accepted")
+  }
+  if (typeof evidence.outcome_verified === "boolean") {
+    facts.push(evidence.outcome_verified ? "Outcome verified" : "Outcome not verified")
+  }
+  if (facts.length === 0) return null
+  return (
+    <div className="operation-truth-facts" aria-label="Operation truth">
+      {facts.map((fact) => <span key={fact}>{fact}</span>)}
+    </div>
+  )
+}
+
 export function OperationActivityPanel({ operations }: { operations: OperationRecord[] }) {
   return (
     <div className="operation-activity" aria-label="Operation activity">
@@ -167,6 +198,7 @@ export function OperationActivityPanel({ operations }: { operations: OperationRe
                 <StatusMark status={operation.state} />
                 <TimeValue value={latest?.observed_at} />
                 <OperationFollowUp operation={operation} />
+                <OperationTruthFacts operation={operation} />
                 {operation.state === "applied" && (
                   <span className="operation-postcondition">Owner postcondition verified; eventual workflow outcome remains separate.</span>
                 )}
@@ -222,11 +254,6 @@ export function OperationFrameworkPanel() {
       <div className="panel-heading">
         <div className="operation-panel-title"><ShieldCheck aria-hidden="true" /><h2>Operations</h2></div>
         <span className="data-state-label">{supported.length} available</span>
-      </div>
-      <div className="operation-framework-summary">
-        <span><ShieldCheck aria-hidden="true" /> Preview + confirmation</span>
-        <span><Clock3 aria-hidden="true" /> Session-local activity</span>
-        <span>Canonical postconditions</span>
       </div>
       {supported.length === 0 && (
         <OperationDisabledReason reason="No owner-backed administrative operations are currently available." />

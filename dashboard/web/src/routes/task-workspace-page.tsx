@@ -14,6 +14,7 @@ import {
   WorkspaceBack,
 } from "@/components/workspace-ui"
 import { Button } from "@/components/ui/button"
+import { TaskWorkflowActions } from "@/features/admin/factory-workflow-actions"
 import { fetchRuns } from "@/lib/operations-api"
 import { fetchTask, fetchTaskIntegration, fetchTasks } from "@/lib/task-api"
 import { fetchTrackers } from "@/lib/trackers-api"
@@ -90,6 +91,8 @@ export function Component() {
       {detail.isError && (
         <div className="workspace-partial" role="status"><AlertTriangle aria-hidden="true" />Turn detail unavailable: {detail.error.message}</div>
       )}
+
+      <TaskWorkflowActions task={task} pending={pending} trackers={trackerRows} run={run} />
 
       <div className="workspace-split">
         <section className="workspace-panel">

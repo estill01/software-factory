@@ -155,5 +155,19 @@ describe("administrative operation UI", () => {
       failure: { code: "postcondition_timeout", message: "Timed out." },
     }]} />)
     expect(screen.getByText(/canonical postcondition is unverified/i)).toBeVisible()
+
+    rerender(<OperationActivityPanel operations={[{
+      ...operation,
+      state: "applied",
+      history: [...operation.history, { state: "applied", observed_at: "2026-08-10T08:01:00.000Z" }],
+      verification_evidence: {
+        task_turn_started: true,
+        block_accepted: false,
+        outcome_verified: false,
+      },
+    }]} />)
+    expect(screen.getByText("Task/turn started")).toBeVisible()
+    expect(screen.getByText("Block not accepted")).toBeVisible()
+    expect(screen.getByText("Outcome not verified")).toBeVisible()
   })
 })

@@ -5,6 +5,7 @@ import { Link, NavLink, useParams, useSearchParams } from "react-router"
 
 import { SafeMarkdown } from "@/components/safe-markdown"
 import { Button } from "@/components/ui/button"
+import { TrackerWorkflowActions } from "@/features/admin/factory-workflow-actions"
 import {
   Breadcrumbs,
   FactGrid,
@@ -246,6 +247,8 @@ export function Component() {
         <StatusMark status={tracker.verifier.valid ? tracker.tracker_status ?? "available" : "invalid"} />
         <Identity value={tracker.raw_file.content_sha256} />
       </section>
+
+      <TrackerWorkflowActions tracker={tracker} selectedBlock={selectedBlock} />
 
       <nav className="workspace-tabs" aria-label="Tracker views">
         {views.map((name) => <NavLink key={name} end={name === "overview"} to={name === "overview" ? basePath : `${basePath}/${name}`}>{name[0].toUpperCase() + name.slice(1)}</NavLink>)}

@@ -2571,17 +2571,219 @@ h3 {
 }
 
 .operation-panel-title,
-.operation-framework-summary,
 .operation-disabled-reason,
 .operation-activity-label,
 .operation-follow-up,
 .operation-postcondition,
 .operation-result-links,
+.operation-truth-facts,
 .operation-dialog-heading,
 .operation-stale,
 .operation-dialog-actions {
   display: flex;
   align-items: center;
+}
+
+.operation-supplied-facts {
+  display: grid;
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.operation-supplied-facts > div {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  gap: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  padding: 0.55rem 0.8rem;
+}
+
+.operation-supplied-facts > div:last-child {
+  border-bottom: 0;
+}
+
+.operation-supplied-facts dt,
+.operation-supplied-facts dd {
+  margin: 0;
+  font-size: 0.65rem;
+}
+
+.operation-supplied-facts dt {
+  color: var(--text-faint);
+}
+
+.operation-supplied-facts dd {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.workflow-action-strip {
+  display: flex;
+  min-height: 2.55rem;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--panel-solid) 76%, transparent);
+  padding: 0.35rem 0.45rem;
+}
+
+.workflow-action-buttons,
+.workflow-action-result,
+.workflow-action-error {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.workflow-action-buttons {
+  flex-wrap: wrap;
+}
+
+.workflow-action-result {
+  flex-wrap: wrap;
+}
+
+.workflow-action-result,
+.workflow-action-error,
+.workflow-action-pending {
+  color: var(--text-soft);
+  font-size: 0.62rem;
+}
+
+.workflow-action-result > span,
+.workflow-action-result > code {
+  overflow: hidden;
+  max-width: 14rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workflow-action-result > a {
+  color: var(--primary);
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.workflow-action-result .operation-follow-up {
+  display: none;
+}
+
+.workflow-action-result .operation-truth-facts {
+  grid-column: auto;
+}
+
+.workflow-action-error {
+  color: var(--red);
+}
+
+.workflow-action-error svg {
+  width: 0.78rem;
+  height: 0.78rem;
+  flex: none;
+}
+
+.workflow-input-fields {
+  display: grid;
+  gap: 0.72rem;
+  padding: 0.85rem 1rem;
+}
+
+.workflow-input-field {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.workflow-input-field > span,
+.workflow-exact-fact > span {
+  color: var(--text-faint);
+  font-size: 0.62rem;
+  font-weight: 630;
+}
+
+.workflow-input-field input,
+.workflow-input-field textarea,
+.workflow-input-field select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+  background: var(--panel-solid);
+  padding: 0.52rem 0.62rem;
+  color: var(--text);
+  font-size: 0.72rem;
+  outline: none;
+}
+
+.workflow-input-field textarea {
+  min-height: 6.5rem;
+  resize: vertical;
+}
+
+.workflow-input-field input:focus,
+.workflow-input-field textarea:focus,
+.workflow-input-field select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 16%, transparent);
+}
+
+.workflow-input-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem;
+}
+
+.workflow-exact-fact {
+  display: grid;
+  grid-template-columns: 6rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.55rem;
+  font-size: 0.7rem;
+}
+
+.workflow-request-facts {
+  display: grid;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.workflow-request-facts > div {
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  gap: 0.55rem;
+  border-bottom: 1px solid var(--border);
+  padding: 0.45rem 0.55rem;
+}
+
+.workflow-request-facts > div:last-child {
+  border-bottom: 0;
+}
+
+.workflow-request-facts dt,
+.workflow-request-facts dd {
+  margin: 0;
+  font-size: 0.64rem;
+}
+
+.workflow-request-facts dt,
+.workflow-option-description {
+  color: var(--text-faint);
+}
+
+.workflow-request-facts dd {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.workflow-option-description {
+  font-size: 0.62rem;
+  line-height: 1.4;
 }
 
 .operation-panel-title {
@@ -2594,27 +2796,6 @@ h3 {
   color: var(--green);
 }
 
-.operation-framework-summary {
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  padding: 0.6rem 1rem;
-  background: color-mix(in srgb, var(--panel-subtle) 48%, transparent);
-}
-
-.operation-framework-summary > span {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.25rem 0.48rem;
-  color: var(--text-soft);
-  font-size: 0.64rem;
-}
-
-.operation-framework-summary svg,
 .operation-disabled-reason svg,
 .operation-follow-up svg,
 .operation-postcondition svg,
@@ -2696,11 +2877,25 @@ h3 {
 
 .operation-follow-up,
 .operation-postcondition,
-.operation-result-links {
+.operation-result-links,
+.operation-truth-facts {
   grid-column: 1 / -1;
   gap: 0.4rem;
   color: var(--text-soft);
   font-size: 0.65rem;
+}
+
+.operation-truth-facts {
+  flex-wrap: wrap;
+}
+
+.operation-truth-facts > span {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.16rem 0.38rem;
+  color: var(--text-soft);
+  font-size: 0.58rem;
+  white-space: nowrap;
 }
 
 .operation-result-links a {
@@ -2727,7 +2922,7 @@ h3 {
 }
 
 .operation-dialog {
-  width: min(42rem, 100%);
+  width: min(50rem, 100%);
   max-height: calc(100dvh - 2rem);
   overflow: auto;
   border: 1px solid var(--border-strong);
@@ -2743,6 +2938,10 @@ h3 {
   padding: 0.85rem 1rem;
 }
 
+.operation-dialog-heading > div {
+  min-width: 0;
+}
+
 .operation-dialog-heading span {
   color: var(--text-faint);
   font-size: 0.6rem;
@@ -2754,6 +2953,7 @@ h3 {
 .operation-dialog-heading h2 {
   margin: 0.2rem 0 0;
   font-size: 1rem;
+  overflow-wrap: anywhere;
 }
 
 .operation-preview-facts {
@@ -2786,9 +2986,18 @@ h3 {
   display: flex;
   min-width: 0;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.4rem;
   margin: 0;
   font-size: 0.67rem;
+  overflow-wrap: anywhere;
+}
+
+.operation-preview-facts dd code {
+  overflow: hidden;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .operation-preview-consequences {
@@ -3940,6 +4149,20 @@ h3 {
   .operation-preview-facts > div,
   .operation-preview-consequences > div {
     border-right: 0;
+  }
+  .workflow-action-strip {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .workflow-action-result,
+  .workflow-action-error,
+  .workflow-action-pending {
+    width: 100%;
+  }
+  .operation-supplied-facts > div,
+  .workflow-request-facts > div,
+  .workflow-input-pair {
+    grid-template-columns: 1fr;
   }
   .operation-activity-list > article {
     grid-template-columns: minmax(0, 1fr) auto;

@@ -32,6 +32,7 @@ from .catalog import (
 )
 from .contract import API_VERSION, PACKAGE_VERSION, envelope
 from .floor import compose_factory_floor
+from .factory_workflows import build_factory_operation_registry
 from .operations import (
     DEFAULT_AUTOMATIONS_ROOT,
     DEFAULT_SUPERVISION_ROOT,
@@ -124,7 +125,6 @@ class DashboardHTTPServer(ThreadingHTTPServer):
             supervision_root=self.config.supervision_root,
             automations_root=self.config.automations_root,
         )
-        self.operation_coordinator = OperationCoordinator(operation_registry)
         self.floor_cache_lock = Lock()
         self.floor_cache: tuple[float, dict[str, Any]] | None = None
         super().__init__((self.config.host, self.config.port), DashboardRequestHandler)
@@ -133,6 +133,14 @@ class DashboardHTTPServer(ThreadingHTTPServer):
             compatibility_path=self.config.codex_compatibility_path,
             auto_start=self.config.codex_auto_start,
         )
+        registry = operation_registry or build_factory_operation_registry(
+            catalog_store=self.catalog_store,
+            tracker_service=self.tracker_service,
+            operations_service=self.operations_service,
+            app_server_client=self.app_server_client,
+            supervision_root=self.config.supervision_root,
+        )
+        self.operation_coordinator = OperationCoordinator(registry)
 
     def server_close(self) -> None:
         self.app_server_client.close()

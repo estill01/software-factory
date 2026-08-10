@@ -280,6 +280,7 @@ def fake_thread(
     active_turn: bool = False,
     terminal_turn: bool = False,
     ephemeral: bool = False,
+    turn_text: str = "Continue.",
 ) -> dict[str, Any]:
     turns = []
     status = {"type": "idle"}
@@ -290,7 +291,7 @@ def fake_thread(
                 "id": "turn-active-001",
                 "status": "inProgress",
                 "items": [
-                    {"id": "item-user-001", "type": "userMessage", "content": [{"type": "text", "text": "Continue."}]}
+                    {"id": "item-user-001", "type": "userMessage", "content": [{"type": "text", "text": turn_text}]}
                 ],
                 "startedAt": 1786279000,
             }
@@ -338,6 +339,7 @@ def run_server(mode: str, cwd: str) -> int:
     terminal_turn = mode == "terminal"
     ephemeral = False
     callback_sent = False
+    turn_text = "Continue."
     for raw_line in sys.stdin:
         message = json.loads(raw_line)
         method = message.get("method")
@@ -381,6 +383,7 @@ def run_server(mode: str, cwd: str) -> int:
                             active_turn=active_turn,
                             terminal_turn=terminal_turn,
                             ephemeral=ephemeral,
+                            turn_text=turn_text,
                         )
                     ],
                     "nextCursor": None,
@@ -423,6 +426,7 @@ def run_server(mode: str, cwd: str) -> int:
                                 active_turn=active_turn,
                                 terminal_turn=terminal_turn,
                                 ephemeral=ephemeral,
+                                turn_text=turn_text,
                             )
                         },
                     }
@@ -437,8 +441,22 @@ def run_server(mode: str, cwd: str) -> int:
                 }
             )
         elif method == "turn/start":
+            if mode == "turn-start-fails":
+                emit(
+                    {
+                        "id": message["id"],
+                        "error": {"code": -32600, "message": "focused turn start failure"},
+                    }
+                )
+                continue
             active_turn = True
-            turn_value = fake_thread(cwd, active_turn=True, ephemeral=ephemeral)["turns"][0]
+            turn_text = message["params"]["input"][0]["text"]
+            turn_value = fake_thread(
+                cwd,
+                active_turn=True,
+                ephemeral=ephemeral,
+                turn_text=turn_text,
+            )["turns"][0]
             emit({"id": message["id"], "result": {"turn": turn_value}})
             emit({"method": "turn/started", "params": {"threadId": "task-fake-001", "turn": turn_value}})
         elif method == "turn/steer":

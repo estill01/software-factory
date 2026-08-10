@@ -92,6 +92,115 @@ test("tracker review stays source-grounded, navigable, and read-only", async ({ 
   await expect(page.locator(".workspace-toolbar.print-hide")).not.toBeVisible()
 })
 
+test("factory workflow controls stay compact and preview exact owner scope", async ({ page, request }) => {
+  const listPayload = await (await request.get("/api/v1/trackers")).json()
+  const summary = listPayload.data.trackers.find(
+    (tracker: { status: string; relative_path?: string }) =>
+      tracker.status === "available"
+      && tracker.relative_path === "docs/software-factory-operations-dashboard-implementation-tracker.md",
+  ) ?? listPayload.data.trackers.find((tracker: { status: string }) => tracker.status === "available")
+  expect(summary).toBeTruthy()
+
+  const sourceFingerprint = "e".repeat(64)
+  const observedAt = "2026-08-10T10:30:00.000Z"
+  const operation = {
+    id: "op_e2e_workflow_preview",
+    type: "factory.tracker-review",
+    target: { kind: "tracker", id: summary.id, project_id: summary.project_id },
+    state: "previewed",
+    owner: "$author-implementation-trackers + Codex App Server",
+    authority: ["explicit operator confirmation", "exact tracker and Git snapshot"],
+    preview: {
+      effect: `Create one independent read-only tracker review task for ${summary.relative_path}.`,
+      risk: "The task reads exact tracker and Git sources but receives no edit authorization.",
+      recipient: null,
+      source_fingerprint: sourceFingerprint,
+      source_evidence: { tracker_path: summary.relative_path },
+      route_gate: {
+        status: "not-required",
+        recipient: null,
+        purpose: null,
+        source_record: null,
+        required_action: null,
+        action_hash: null,
+        policy_fingerprint: null,
+        binding_fingerprint: null,
+      },
+      consequences: {
+        ordinary: ["Creates one Codex task in the registered repository."],
+        failure: ["Stale or ineligible sources fail before task creation."],
+      },
+      confirmation: {
+        class: "factory-review",
+        prompt: "Type REVIEW to create the read-only review task.",
+        expected_value: "REVIEW",
+      },
+      expected_postcondition: "One exact task and first turn request a read-only maintained-skill review; no edit or acceptance is implied.",
+      idempotency: "One task per consumed preview; no automatic retry.",
+      limitations: ["Task start is separate from tracker status and Block acceptance."],
+      expires_at: "2026-08-10T10:35:00.000Z",
+    },
+    history: [{ state: "previewed", observed_at: observedAt }],
+    request_evidence: null,
+    verification_evidence: null,
+    links: [],
+    failure: null,
+  }
+  const envelope = (record: typeof operation, previewToken = true) => ({
+    data: previewToken
+      ? { operation: record, preview_token: "p".repeat(32) }
+      : { operation: record },
+    source: { kind: "administrative-operation", identity: record.id, revision: sourceFingerprint },
+    observed_at: observedAt,
+    fingerprint: sourceFingerprint,
+    coverage: { status: "partial", observed: ["operation-preview"], missing: ["owner-postcondition"] },
+    limitations: ["Fixture isolates the browser contract from live adapter availability."],
+    error: null,
+  })
+  await page.route("**/api/v1/operations/preview", (route) =>
+    route.fulfill({ json: envelope(operation) }),
+  )
+  await page.route("**/api/v1/operations/op_e2e_workflow_preview/cancel", (route) =>
+    route.fulfill({
+      json: envelope({
+        ...operation,
+        state: "cancelled",
+        history: [...operation.history, { state: "cancelled", observed_at: observedAt }],
+      }, false),
+    }),
+  )
+
+  await page.goto(`/trackers/${summary.id}/blocks`)
+  const actions = page.getByLabel("Available actions")
+  await expect(actions).toBeVisible()
+  await expect(actions.getByRole("button", { name: "Review" })).toBeVisible()
+  await expect(actions.getByRole("button", { name: "Revise" })).toBeVisible()
+  await expect(actions.getByRole("button", { name: "Implement" })).toBeVisible()
+
+  await actions.getByRole("button", { name: "Review" }).click()
+  const preview = page.getByRole("dialog")
+  await expect(preview).toBeVisible()
+  await expect(preview.getByText("Full tracker contract, dependency order, acceptance, negative tests, Stops, source currentness, and implementation readiness.")).toBeVisible()
+  await expect(preview.getByText(summary.relative_path, { exact: false })).toBeVisible()
+  const factOverflow = await preview.locator(".operation-preview-facts > div").evaluateAll((cells) =>
+    cells.map((cell) => cell.scrollWidth - cell.clientWidth),
+  )
+  expect(factOverflow.every((overflow) => overflow <= 1)).toBeTruthy()
+  await preview.getByRole("button", { name: "Close operation preview" }).click()
+
+  await page.goto("/admin")
+  await expect(page.getByText("Preview + confirmation", { exact: true })).toHaveCount(0)
+  await expect(page.getByText("Session-local activity", { exact: true })).toHaveCount(0)
+  await expect(page.getByText("Canonical postconditions", { exact: true })).toHaveCount(0)
+  await expect(page.locator("h1")).toHaveCount(1)
+
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+})
+
 test("unavailable tracker candidates remain independent and explicit", async ({ page }) => {
   await page.route("**/api/v1/trackers", async (route) => {
     const upstream = await route.fetch()

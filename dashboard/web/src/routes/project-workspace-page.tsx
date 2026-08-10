@@ -11,6 +11,7 @@ import {
   TimeValue,
   WorkspaceBack,
 } from "@/components/workspace-ui"
+import { ProjectWorkflowActions } from "@/features/admin/factory-workflow-actions"
 import { fetchFactoryFloor } from "@/lib/floor-api"
 import { fetchReports, fetchRuns } from "@/lib/operations-api"
 import { fetchProject } from "@/lib/projects-api"
@@ -241,6 +242,8 @@ export function Component() {
         <StatusMark status={item.archived ? "archived" : item.discovery.status} />
         <Identity value={item.discovery.git.revision} />
       </section>
+
+      <ProjectWorkflowActions project={item} />
 
       <nav className="workspace-tabs" aria-label="Project views">
         {tabs.map((name) => (
