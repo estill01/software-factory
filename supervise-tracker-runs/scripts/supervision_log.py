@@ -9394,6 +9394,12 @@ def adaptive_decision_posture(
             raise SupervisionLogError(
                 "Adaptive review does not bind the current decision and candidate"
             )
+        if review["reviewer_id"] in {
+            evidence["implementation_owner_id"],
+            evidence["proposer_author_id"],
+            candidate.get("owner_id") if candidate else None,
+        }:
+            raise SupervisionLogError("Adaptive review is not independently owned")
         usage["review_passes"] += 1
     budget_exceeded = any(
         (

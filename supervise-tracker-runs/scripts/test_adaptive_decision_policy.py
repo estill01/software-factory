@@ -486,6 +486,13 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
             full, self.packet(full, evidence=source)
         )
         self.assertTrue(applied["application_authorized"])
+        reviewed_policy = self.policy("reviewed-autonomous")
+        consequential = self.decision_evidence(consequence_class="consequential")
+        held = supervision_log.adaptive_decision_posture(
+            reviewed_policy,
+            self.packet(reviewed_policy, evidence=consequential),
+        )
+        self.assertEqual(held["application_posture"], "external-application-authority-required")
 
     def test_full_autonomy_never_routes_ordinary_judgment_to_a_human(self) -> None:
         policy = self.policy()
@@ -503,6 +510,16 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
             "start-sol-max-attempt",
         )
         self.assertFalse(notification["notification_send_now"])
+        reserved = self.decision_evidence(
+            judgment_class="reserved-external",
+            blocked_subjects=["credential-boundary"],
+            revisit_trigger="Credential authority becomes current.",
+        )
+        posture = supervision_log.adaptive_decision_posture(
+            policy, self.packet(policy, evidence=reserved)
+        )
+        self.assertEqual(posture["application_posture"], "reserved-external")
+        self.assertEqual(posture["human_request_count"], 0)
 
     def test_effect_class_is_policy_derived_and_permission_specific(self) -> None:
         policy = self.policy()
@@ -722,6 +739,12 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(supervision_log.SupervisionLogError, "roles are not distinct"):
             supervision_log.adaptive_decision_posture(
                 policy, self.packet(policy, evidence=evidence, review=bad)
+            )
+        self_review = copy.deepcopy(review)
+        self_review["reviewer_id"] = self.target
+        with self.assertRaisesRegex(supervision_log.SupervisionLogError, "not independently owned"):
+            supervision_log.adaptive_decision_posture(
+                policy, self.packet(policy, evidence=evidence, review=self_review)
             )
 
     def test_structural_target_class_change_requires_evidence_and_is_append_only(self) -> None:
