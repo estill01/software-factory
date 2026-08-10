@@ -2305,9 +2305,34 @@ historical App Server turns or ledger events across projects.
   becomes a project link. Maintained viewport projects run serially against the
   single loopback adapter, preserving all 27 cases without concurrent adapter
   starvation.
+- Third rejected review history: exact candidate
+  `ee0b537444fdeb0ee4a670d926e13b6aec496c9a`, tree
+  `eb62885772d596fa528bc26558c7a002e1e16212`, parent
+  `aa05e88e5691df135dfe750bd72836cd90efc0c3`, and tracker blob
+  `315418de99292049d3d1c6be8eeac575b046a2a6` was independently rejected
+  because a failed run-list read made an explicitly disputed Factory Floor row
+  look like an exact composed-only run. The reviewer reproduced Overview
+  `Runs 1` while the row was degraded and Inventory was lower-bounded. Every
+  requested mission/history, Git-origin, available-source count/report, and
+  Run/Supervisor contradiction regression passed. This candidate remains
+  immutable diagnostic evidence and is not acceptance evidence.
+- Partial-source successor: pushed commit
+  `2c6cea801ea863fe4a04d37627cbb66b5764f982`, tree
+  `03f5d1981b4f28d3a3702b9195ecaf6794abcffd`, parent
+  `ee0b537444fdeb0ee4a670d926e13b6aec496c9a`, workspace-data blob
+  `7ed675d1c57d12cb00d0d0c3d7d2257307b0e290`, project-workspace blob
+  `42f5fe7566bfc88485b8b6ba1f24ff63d6b3b7e9`, and browser-proof blob
+  `d4ea9f54f268252370eaf40e71ff4a386ccda697` require both a successful
+  run-list read and a non-disputed composition before an absent run can become
+  exact. Under the rejected fixture, Overview now renders `Runs ≥0`, excludes
+  one binding disagreement, labels the run source unavailable, and states that
+  disputed Factory Floor claims are not exact; reports fail closed to a lower
+  bound. Focused unit cases distinguish clean source-confirmed composition,
+  source-unavailable composition, and disputed composition, and the browser
+  exercises the failure at all three maintained viewports.
 - Validation: the dashboard Python suite passed 67/67 with `ResourceWarning`
   promoted to errors (the sole collection warning is the pre-existing
-  dataclass named `TestResponse`), Ruff passed, TypeScript/Vitest passed 44/44,
+  dataclass named `TestResponse`), Ruff passed, TypeScript/Vitest passed 45/45,
   the production build passed, and Playwright passed 27/27 across desktop,
   tablet, and mobile with accessibility and horizontal-overflow checks. The
   full tracker verifier passed Blocks 0-25 with 0 errors and 0 warnings, all 30
