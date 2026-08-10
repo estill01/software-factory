@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 from tempfile import TemporaryDirectory
+from threading import Event, Thread
 import time
 import unittest
 
@@ -269,6 +270,56 @@ class CodexAppServerClientTests(unittest.TestCase):
             "app_server_response_id_mismatch",
         )
         self.assertEqual(mismatched.integration_state()["status"], "unavailable")
+
+    def test_restart_cancellation_cannot_poison_the_successor_generation(self) -> None:
+        client = self.client("timeout", request_timeout=2)
+        stale_failure_entered = Event()
+        release_stale_failure = Event()
+        original_set_failure = client._set_failure
+        request_errors: list[AppServerError] = []
+
+        def delay_stale_failure(
+            error: AppServerError,
+            *,
+            terminate: bool = True,
+            expected_generation: int | None = None,
+        ) -> None:
+            if error.code == "app_server_restarted":
+                stale_failure_entered.set()
+                release_stale_failure.wait(2)
+            original_set_failure(
+                error,
+                terminate=terminate,
+                expected_generation=expected_generation,
+            )
+
+        client._set_failure = delay_stale_failure  # type: ignore[method-assign]
+
+        def list_during_restart() -> None:
+            try:
+                client.list_tasks((self.project,))
+            except AppServerError as error:
+                request_errors.append(error)
+
+        worker = Thread(target=list_during_restart)
+        worker.start()
+        self.wait_for(lambda: len(client._pending) == 1)
+        try:
+            restarted = client.restart()
+            self.assertTrue(stale_failure_entered.wait(2))
+        finally:
+            release_stale_failure.set()
+            worker.join(timeout=2)
+
+        state = client.integration_state()
+        process = client._process
+        self.assertEqual(restarted["status"], "available")
+        self.assertEqual([error.code for error in request_errors], ["app_server_restarted"])
+        self.assertEqual(state["status"], "available")
+        self.assertIsNone(state["last_error"])
+        self.assertIsNotNone(process)
+        assert process is not None
+        self.assertIsNone(process.poll())
 
     def test_task_not_found_terminal_state_and_unknown_method_are_explicit(self) -> None:
         missing = self.client("task-not-found")

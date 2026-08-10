@@ -99,7 +99,9 @@ the completed program materially changes Software Factory.
   The event stream resumes from its last consumed cursor, signals replay-window
   gaps before invalidating durable projections, and caps reconnect backoff;
   completed callback records are evicted before live approval/input capacity is
-  refused.
+  refused. Adapter failures are generation-bound, so an in-flight request
+  cancelled by an intentional restart cannot downgrade or terminate the
+  healthy replacement child.
   Admin exposes compact integration health and an adapter-only restart. Task/
   turn mutations remain internal typed capabilities until owner-mediated
   workflows register them; generic prompts, raw protocol, general tool/model

@@ -308,6 +308,7 @@ class GeneratedCompatibility:
 @dataclass
 class PendingCall:
     family: str
+    generation: int
     event: Event = field(default_factory=Event)
     result: Any = None
     error: AppServerError | None = None
@@ -419,20 +420,25 @@ class CodexAppServerClient:
         if auto_start:
             self.start()
 
-    def _record_error(self, error: AppServerError) -> None:
+    def _set_failure(
+        self,
+        error: AppServerError,
+        *,
+        terminate: bool = True,
+        expected_generation: int | None = None,
+    ) -> None:
         with self._state_lock:
+            if self._closing or (
+                expected_generation is not None
+                and expected_generation != self._generation
+            ):
+                return
             self._last_error = {
                 "code": error.code,
                 "message": str(error),
                 "retryable": error.retryable,
                 "observed_at": _observed_at(),
             }
-
-    def _set_failure(self, error: AppServerError, *, terminate: bool = True) -> None:
-        self._record_error(error)
-        with self._state_lock:
-            if self._closing:
-                return
             self._status = "unavailable"
             self._protocol_status = (
                 "incompatible" if "incompatible" in error.code else "disconnected"
@@ -674,9 +680,10 @@ class CodexAppServerClient:
             )
         compatibility.validate(f"client:{family}:params", dict(params))
         with self._state_lock:
+            generation = self._generation
             request_id = self._next_id
             self._next_id += 1
-            pending = PendingCall(family=family)
+            pending = PendingCall(family=family, generation=generation)
             self._pending[request_id] = pending
         try:
             self._write_message({"id": request_id, "method": method, "params": dict(params)})
@@ -692,16 +699,19 @@ class CodexAppServerClient:
                 "Codex App Server did not answer within the bounded timeout.",
                 retryable=True,
             )
-            self._set_failure(error)
+            self._set_failure(error, expected_generation=pending.generation)
             raise error
         if pending.error is not None:
             if pending.error.code not in {"app_server_remote_error", "task_not_found"}:
-                self._set_failure(pending.error)
+                self._set_failure(
+                    pending.error,
+                    expected_generation=pending.generation,
+                )
             raise pending.error
         try:
             compatibility.validate(f"client:{family}:response", pending.result)
         except AppServerError as error:
-            self._set_failure(error)
+            self._set_failure(error, expected_generation=pending.generation)
             raise
         return pending.result
 
@@ -731,7 +741,7 @@ class CodexAppServerClient:
             with self._state_lock:
                 current = generation == self._generation and not self._closing
             if current:
-                self._set_failure(error)
+                self._set_failure(error, expected_generation=generation)
             return
         finally:
             with self._state_lock:
@@ -746,6 +756,7 @@ class CodexAppServerClient:
                         retryable=True,
                     ),
                     terminate=False,
+                    expected_generation=generation,
                 )
 
     def _read_stderr(self, process: subprocess.Popen[str], generation: int) -> None:
