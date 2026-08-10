@@ -1374,6 +1374,19 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         run["timeline"][0]["evidence"][0] = "dashboard-route-purpose:watcher-action"
         self.assertEqual(checkpoint.verify(target, {}, source, dispatched).state, "pending")
         run["timeline"][0]["evidence"][0] = "dashboard-route-purpose:semantic-escalation"
+        run["timeline"][0]["evidence"].extend(
+            [
+                "dashboard-route-purpose:incident-review",
+                f"dashboard-preview:{'e' * 64}",
+                "dashboard-review-task:unrelated-reviewer",
+                "dashboard-source-record:EVT-000003",
+            ]
+        )
+        self.assertEqual(checkpoint.verify(target, {}, source, dispatched).state, "pending")
+        del run["timeline"][0]["evidence"][-4:]
+        run["timeline"][0]["status"] = "routed"
+        self.assertEqual(checkpoint.verify(target, {}, source, dispatched).state, "pending")
+        run["timeline"][0]["status"] = "accepted"
         tasks["reviewer-workflow-001"]["turns"][0]["id"] = "turn-unrelated"
         uncorrelated = checkpoint.verify(target, {}, source, dispatched)
         self.assertEqual(uncorrelated.state, "pending")
@@ -1408,6 +1421,10 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         malformed_later = checkpoint.verify(target, {}, source, dispatched)
         self.assertTrue(malformed_later.evidence["conclusion_current"])
         run["timeline"][-1]["timestamp"] = "2026-08-10T00:03:00Z"
+        run["timeline"][-1]["status"] = "routed"
+        routed_later = checkpoint.verify(target, {}, source, dispatched)
+        self.assertTrue(routed_later.evidence["conclusion_current"])
+        run["timeline"][-1]["status"] = "superseding-review"
         superseded = checkpoint.verify(target, {}, source, dispatched)
         self.assertFalse(superseded.evidence["conclusion_current"])
         self.assertEqual(superseded.evidence["conclusion_superseded_by"], "EVT-000006")
@@ -1442,7 +1459,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                 "timestamp": "2026-08-10T00:04:00+00:00",
                 "kind": "resolution",
                 "status": "awaiting-target-evidence",
-                "category": "notice-outcome",
+                "category": "source-disagreement",
                 "incident_id": "INC-20260810-TEST",
                 "state_fingerprint": "c" * 64,
                 "mission_root": "a" * 64,

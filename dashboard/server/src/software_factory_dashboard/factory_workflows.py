@@ -66,6 +66,24 @@ REVIEW_VARIANTS = {
         "label": "issue follow-up",
     },
 }
+NON_CONCLUSION_REVIEW_STATUSES = frozenset(
+    {
+        "active",
+        "awaiting-conclusion",
+        "awaiting-review",
+        "cancelled",
+        "delivered",
+        "denied",
+        "in-progress",
+        "pending",
+        "queued",
+        "requested",
+        "review-requested",
+        "review-routed",
+        "routed",
+        "started",
+    }
+)
 MAX_WORKFLOW_PROMPT = 16_000
 MAX_ROUTE_HELPER_BYTES = 2 * 1024 * 1024
 MISSION_SOURCE_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,239}$"
@@ -2946,6 +2964,13 @@ class FactoryWorkflowOwner:
         return len(markers) == 1 and markers[0] == expected
 
     @staticmethod
+    def _review_status_is_conclusion(value: Any) -> bool:
+        if not isinstance(value, str) or not value.strip():
+            return False
+        normalized = re.sub(r"[\s_]+", "-", value.strip().lower())
+        return normalized not in NON_CONCLUSION_REVIEW_STATUSES
+
+    @staticmethod
     def _review_records(
         run: Mapping[str, Any],
         *,
@@ -2972,6 +2997,23 @@ class FactoryWorkflowOwner:
             line = source.get("line") if isinstance(source, Mapping) else None
             timestamp = event.get("timestamp")
             evidence = event.get("evidence")
+            binding_evidence = (
+                [
+                    item
+                    for item in evidence
+                    if isinstance(item, str)
+                    and item.startswith(
+                        (
+                            "dashboard-route-purpose:",
+                            "dashboard-preview:",
+                            "dashboard-review-task:",
+                            "dashboard-source-record:",
+                        )
+                    )
+                ]
+                if isinstance(evidence, list)
+                else []
+            )
             if (
                 type(line) is not int
                 or line <= prior_event_count
@@ -2979,9 +3021,8 @@ class FactoryWorkflowOwner:
                 or not isinstance(timestamp, str)
                 or not timestamp
                 or not isinstance(evidence, list)
-                or not required_evidence.issubset(
-                    {item for item in evidence if isinstance(item, str)}
-                )
+                or len(binding_evidence) != len(required_evidence)
+                or set(binding_evidence) != required_evidence
             ):
                 return False
             try:
@@ -2992,8 +3033,9 @@ class FactoryWorkflowOwner:
                 return False
             if (
                 event.get("kind") != expected_kind
-                or not isinstance(event.get("status"), str)
-                or not event["status"]
+                or not FactoryWorkflowOwner._review_status_is_conclusion(
+                    event.get("status")
+                )
                 or event.get("mission_root") != mission_root
                 or event.get("policy_sha256") != policy_sha256
                 or event.get("state_fingerprint") != state_fingerprint
@@ -3001,10 +3043,7 @@ class FactoryWorkflowOwner:
                 return False
             if incident_id is None:
                 return event.get("incident_id") in (None, "")
-            return (
-                event.get("incident_id") == incident_id
-                and event.get("category") == "notice-outcome"
-            )
+            return event.get("incident_id") == incident_id
 
         return [event for event in run.get("timeline", []) if matches(event)]
 
@@ -3528,8 +3567,7 @@ class FactoryWorkflowOwner:
                     or event.get("record_id") != f"EVT-{line:06d}"
                     or not isinstance(timestamp, str)
                     or not timestamp
-                    or not isinstance(event.get("status"), str)
-                    or not event["status"]
+                    or not self._review_status_is_conclusion(event.get("status"))
                     or event.get("mission_root") != source.evidence["mission_root"]
                     or event.get("kind") != source.evidence["expected_kind"]
                 ):
@@ -3543,10 +3581,7 @@ class FactoryWorkflowOwner:
                 incident_id = source.evidence.get("incident_id")
                 if incident_id is None:
                     return event.get("incident_id") in (None, "")
-                return (
-                    event.get("incident_id") == incident_id
-                    and event.get("category") == "notice-outcome"
-                )
+                return event.get("incident_id") == incident_id
 
             later = [
                 event
