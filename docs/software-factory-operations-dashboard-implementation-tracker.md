@@ -3696,6 +3696,25 @@ poll only for the named newer check until the bounded timeout. Stop at
   fatal, the focused UI passed 3/3, Ruff passed, and diff checks were clean;
   previously valid unaffected proof is preserved. This successor remains
   unaccepted pending fresh exact-revision review.
+- Corrective review and identity successor: exact evidence revision
+  `a2f3320b78c5d858e457250f0eac4520351f33fc`, tree
+  `43da6c60fd2d7f6ea3f19b8ab724828f61e689e1`, confirmed closure of the
+  semantic-completion exploit but remained rejected because a projected
+  mechanical record with no `record_id` or `timestamp` could still become
+  applied while displaying both as unavailable. The two-file successor commit
+  `b4d8afc7d38ce8ec72a45f91365896170befc5a2`, tree
+  `5510e4f0deadef5d883ce9ee890146a505c4254b`, parent
+  `a2f3320b78c5d858e457250f0eac4520351f33fc`, is pushed exactly to
+  `origin/codex/evolution-mvp`; its staged diff root was
+  `6295e637a894429892eb3b83402598aae7361f01245c3647d4a8b05d35870e5c`.
+  It requires the event ID to match the exact canonical source-line sequence
+  and requires a parseable timezone-aware timestamp before matching either
+  mechanical outcome family. Identityless, mismatched-ID, empty, malformed, or
+  timezone-free records therefore remain pending. The affected backend module
+  again passed 10/10 with `ResourceWarning` fatal, Ruff passed, and diff checks
+  were clean; the prior review's green focused UI, build, tracker, and Stop
+  evidence is preserved. Block 12 remains unaccepted pending delta-only fresh
+  exact review.
 - Exact live/browser proof: on the rebuilt candidate served at loopback port
   8787, the affected Factory Floor and live run/supervisor/task drill-down
   scenarios passed 6/6 serially across desktop, tablet, and mobile. The current
