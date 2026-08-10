@@ -2314,10 +2314,36 @@ class FactoryWorkflowOwner:
         policy_sha256: str,
     ) -> Mapping[str, Any] | None:
         preview_evidence = f"dashboard-preview:{preview_fingerprint}"
+
+        def is_mechanical_outcome(event: Mapping[str, Any]) -> bool:
+            if (
+                event.get("severity") != "info"
+                or event.get("resolution") != ""
+                or event.get("notice_disposition") != ""
+                or event.get("user_action_required") not in ("", "no")
+            ):
+                return False
+            unchanged = (
+                event.get("kind") == "check"
+                and event.get("status") == "no-intervention"
+                and event.get("category") == ""
+                and event.get("action") == ""
+                and event.get("resolution_owner") == ""
+            )
+            changed = (
+                event.get("kind") == "escalation"
+                and event.get("status") == "routed"
+                and event.get("category") == "changed-state-review"
+                and event.get("action")
+                in ("", "Read the exact changed target delta and perform independent semantic review.")
+                and event.get("resolution_owner") in ("", "supervisor")
+            )
+            return unchanged or changed
+
         matches = [
             event
             for event in run.get("timeline", [])
-            if event.get("kind") == "check"
+            if is_mechanical_outcome(event)
             and event.get("state_fingerprint") == preview_fingerprint
             and event.get("mission_root") == mission_root
             and event.get("policy_sha256") == policy_sha256
@@ -2586,7 +2612,7 @@ class FactoryWorkflowOwner:
                 "",
                 f"Target thread: {target.id}",
                 f"State fingerprint: {source.fingerprint}",
-                "Record the resulting ordinary mechanical check through the canonical supervision owner with kind check and the exact state fingerprint above.",
+                "Record the resulting ordinary mechanical watcher outcome through the canonical supervision owner with the exact state fingerprint above: unchanged state is kind check/status no-intervention; changed state is kind escalation/category changed-state-review/status routed.",
                 "Include both exact evidence references:",
                 f"- {CHECK_EVIDENCE_PURPOSE}",
                 f"- dashboard-preview:{source.fingerprint}",
@@ -2715,8 +2741,10 @@ class FactoryWorkflowOwner:
                     **result.evidence,
                     "check_recorded": True,
                     "check_record_id": check.get("record_id"),
+                    "check_record_kind": check.get("kind"),
                     "check_status": check.get("status"),
                     "check_timestamp": check.get("timestamp"),
+                    "changed_state_routed": check.get("kind") == "escalation",
                     "semantic_conclusion": False,
                     "block_accepted": False,
                     "outcome_verified": False,

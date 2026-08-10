@@ -170,5 +170,22 @@ describe("administrative operation UI", () => {
     expect(screen.getByText("Task/turn started")).toBeVisible()
     expect(screen.getByText("Block not accepted")).toBeVisible()
     expect(screen.getByText("Outcome not verified")).toBeVisible()
+
+    rerender(<OperationActivityPanel operations={[{
+      ...operation,
+      type: "factory.supervision-check-now",
+      state: "applied",
+      history: [...operation.history, { state: "applied", observed_at: "2026-08-10T08:01:00.000Z" }],
+      request_evidence: { watcher_awakened: true },
+      verification_evidence: {
+        check_recorded: true,
+        changed_state_routed: true,
+        semantic_conclusion: false,
+      },
+    }]} />)
+    expect(screen.getByText("Watcher awakened")).toBeVisible()
+    expect(screen.getByText("Canonical check recorded")).toBeVisible()
+    expect(screen.getByText("Changed state routed for review")).toBeVisible()
+    expect(screen.getByText("No semantic conclusion inferred")).toBeVisible()
   })
 })

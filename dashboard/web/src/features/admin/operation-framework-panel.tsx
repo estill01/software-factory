@@ -161,6 +161,7 @@ export function OperationTruthFacts({ operation }: { operation: OperationRecord 
     if (operation.request_evidence?.watcher_awakened === true) facts.push("Watcher awakened")
     if (evidence?.check_recorded === true) facts.push("Canonical check recorded")
     else if (operation.request_evidence?.watcher_awakened === true) facts.push("Canonical check not yet verified")
+    if (evidence?.changed_state_routed === true) facts.push("Changed state routed for review")
     if (evidence?.semantic_conclusion === false) facts.push("No semantic conclusion inferred")
   }
   if (!evidence && facts.length === 0) return null

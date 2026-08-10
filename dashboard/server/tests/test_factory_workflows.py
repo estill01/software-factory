@@ -993,9 +993,16 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         run["timeline"].append(
             {
                 "record_id": "EVT-000006",
-                "timestamp": "2026-08-10T00:01:00Z",
+                "timestamp": "2026-08-10T00:00:45Z",
                 "kind": "check",
-                "status": "no-intervention",
+                "status": "verified",
+                "category": "observable-outcome-completion",
+                "severity": "info",
+                "action": "Accept implementation.",
+                "resolution": "Outcome complete.",
+                "resolution_owner": "reviewer",
+                "notice_disposition": "terminal",
+                "user_action_required": "no",
                 "state_fingerprint": source.fingerprint,
                 "mission_root": "a" * 64,
                 "policy_sha256": "b" * 64,
@@ -1006,13 +1013,94 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                 "source": {"line": 6},
             }
         )
+        semantic = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(semantic.state, "pending")
+        self.assertFalse(semantic.evidence["check_recorded"])
+
+        run["event_count"] = 7
+        run["timeline"].append(
+            {
+                "record_id": "EVT-000007",
+                "timestamp": "2026-08-10T00:01:00Z",
+                "kind": "check",
+                "status": "no-intervention",
+                "state_fingerprint": source.fingerprint,
+                "mission_root": "a" * 64,
+                "policy_sha256": "b" * 64,
+                "evidence": [
+                    "dashboard-route-purpose:watcher-action",
+                    f"dashboard-preview:{source.fingerprint}",
+                ],
+                "source": {"line": 7},
+            }
+        )
+        partial = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(partial.state, "pending")
+        self.assertFalse(partial.evidence["check_recorded"])
+
+        run["event_count"] = 8
+        run["timeline"].append(
+            {
+                "record_id": "EVT-000008",
+                "timestamp": "2026-08-10T00:01:00Z",
+                "kind": "check",
+                "status": "no-intervention",
+                "category": "",
+                "severity": "info",
+                "action": "",
+                "resolution": "",
+                "resolution_owner": "",
+                "notice_disposition": "",
+                "user_action_required": "",
+                "state_fingerprint": source.fingerprint,
+                "mission_root": "a" * 64,
+                "policy_sha256": "b" * 64,
+                "evidence": [
+                    "dashboard-route-purpose:watcher-action",
+                    f"dashboard-preview:{source.fingerprint}",
+                ],
+                "source": {"line": 8},
+            }
+        )
         verified = definition.verify(target, {}, source, dispatched)
         self.assertEqual(verified.state, "applied")
         self.assertTrue(verified.evidence["check_recorded"])
+        self.assertEqual(verified.evidence["check_record_kind"], "check")
+        self.assertFalse(verified.evidence["changed_state_routed"])
         self.assertFalse(verified.evidence["semantic_conclusion"])
 
+        run["event_count"] = 9
+        run["timeline"] = [
+            {
+                "record_id": "EVT-000009",
+                "timestamp": "2026-08-10T00:01:15Z",
+                "kind": "escalation",
+                "status": "routed",
+                "category": "changed-state-review",
+                "severity": "info",
+                "action": "Read the exact changed target delta and perform independent semantic review.",
+                "resolution": "",
+                "resolution_owner": "supervisor",
+                "notice_disposition": "",
+                "user_action_required": "no",
+                "state_fingerprint": source.fingerprint,
+                "mission_root": "a" * 64,
+                "policy_sha256": "b" * 64,
+                "evidence": [
+                    "dashboard-route-purpose:watcher-action",
+                    f"dashboard-preview:{source.fingerprint}",
+                ],
+                "source": {"line": 9},
+            }
+        ]
+        routed = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(routed.state, "applied")
+        self.assertEqual(routed.evidence["check_record_kind"], "escalation")
+        self.assertTrue(routed.evidence["changed_state_routed"])
+        self.assertFalse(routed.evidence["semantic_conclusion"])
+
         run["event_count"] = 5
-        run["timeline"] = run["timeline"][:1]
+        run["timeline"] = []
         watcher_task["turns"] = [
             {
                 "id": "turn-check-001",
