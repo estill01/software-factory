@@ -159,7 +159,7 @@ function WorkingTreeDiff({ tracker }: { tracker: TrackerDetail }) {
       ) : loaded?.diff.preview ? (
         <>
           {loaded.diff.truncated && <div className="workspace-bound">Diff preview is bounded.</div>}
-          <pre className="tracker-diff-preview"><code>{loaded.diff.preview}</code></pre>
+          <pre className="tracker-diff-preview" tabIndex={0} aria-label="Tracker textual diff"><code>{loaded.diff.preview}</code></pre>
         </>
       ) : tracker.git.diff.changed ? (
         <Button variant="outline" size="compact" onClick={() => setRequested(true)} disabled={requested && diffQuery.isPending}>
