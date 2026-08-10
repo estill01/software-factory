@@ -612,10 +612,20 @@ const metricsEnvelope = {
     recovered_from_previous: false,
     owners,
     aggregate: {
+      status: "available",
       definition: "Active missions only.",
       run_count: 2,
       available_run_count: 1,
       historical_segment_count: 1,
+      contract_count: 1,
+      contracts: [{
+        schema_version: metrics.schema_version,
+        kind: metrics.kind,
+        coverage: metrics.coverage,
+        denominator_note: metrics.rates.denominator_note,
+        target_thread_ids: ["target-thread-1"],
+        run_count: 1,
+      }],
       headline: { recorded_events: 3 },
       api_equivalent_estimate: {
         label: "API-equivalent estimate",
@@ -632,6 +642,7 @@ const metricsEnvelope = {
       bound_project_count: 1,
       unmonitored_project_count: 0,
       availability: {
+        status: "available",
         scheduled_active_hours: 1,
         explicitly_paused_hours: 0,
         recorded_target_read_successes: 1,
@@ -769,6 +780,8 @@ describe("operations API contracts", () => {
       previewable: true,
     })
     const parsedMetrics = metricsEnvelopeSchema.parse(metricsEnvelope)
+    expect(parsedMetrics.data.aggregate.status).toBe("available")
+    expect(parsedMetrics.data.aggregate.contracts).toHaveLength(1)
     expect(parsedMetrics.data.aggregate.api_equivalent_estimate).toMatchObject({
       label: "API-equivalent estimate",
       actual_billing_data: false,

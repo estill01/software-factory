@@ -494,14 +494,18 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
               <div className="workspace-panel-heading"><h2>Reports</h2><span>{isCurrent ? run.reports.length : "Historical"}</span></div>
               {!isCurrent ? <QueryState kind="empty" message="Report association is not carried into a predecessor mission" /> : run.reports.length ? <div className="workspace-record-list">{run.reports.map((report) => <article className="workspace-record" key={report.id}><div><strong>{report.family} · {report.stage}</strong><Identity value={report.id} /></div><StatusMark status={report.status} /><span>{report.disposition ?? report.error?.message ?? `${report.members.length} members`}</span><Identity value={report.manifest_root} /></article>)}</div> : <QueryState kind="empty" message="No report associated" />}
             </section>
-            <section className="workspace-panel">
+            <section className="workspace-panel" id={isCurrent ? "current-metric" : undefined}>
               <div className="workspace-panel-heading"><h2>Metrics</h2><span>{isCurrent ? run.metrics.status : "Historical"}</span></div>
               {!isCurrent ? <QueryState kind="empty" message="No mission-isolated historical metric projection" /> : run.metrics.status === "available" ? <FactGrid facts={[
+                ["Metric projection", run.metrics.metrics.report_id],
+                ["Definition", `${run.metrics.metrics.kind} · schema v${run.metrics.metrics.schema_version}`],
                 ["Recorded events", run.metrics.metrics.headline.recorded_events],
                 ["Changed-state routes", run.metrics.metrics.headline.changed_state_routes],
                 ["Incidents opened", run.metrics.metrics.headline.incidents_opened],
                 ["Corrections", run.metrics.metrics.headline.corrections_issued],
                 ["Coverage", `${run.metrics.metrics.coverage.start} — ${run.metrics.metrics.coverage.end}`],
+                ["Denominator", run.metrics.metrics.rates.denominator_note],
+                ["Source root", run.metrics.metrics.source.source_root],
                 ["Cost posture", run.metrics.metrics.resource_estimate.measurement_posture],
               ]} /> : <QueryState kind="error" message={run.metrics.error.message} />}
             </section>

@@ -51,12 +51,15 @@ function metricRun(index: number, projectId: string) {
       report_id: `current-${index}`,
       target_label: `${projectId} implementation`,
       coverage: { start: "2026-08-09T00:00:00Z", end: observedAt, timezone: "America/Los_Angeles", calendar_days: ["2026-08-09"], elapsed_hours: 30, partial_week: true },
+      source: { source_root: hash(String(index)), event_count: 10 * index, first_record_id: `EVT-${index}01`, last_record_id: `EVT-${index}99`, policy_record_count: 1, policy_sha256_at_generation: hash(String(index)), projection_inventory: {} },
       headline: { recorded_events: 10 * index, changed_state_routes: index, incidents_opened: index, incidents_terminal: index - 1, incidents_open_at_end: 1, incidents_open_high_or_critical: index === 2 ? 1 : 0, corrections_issued: index, max_samples: index, roundups: 0, blocks_observed: index, tooling_change_records: 0 },
       rates: { incidents_per_100_changed_state_routes: 100, terminal_share_of_opened_percent: 50, incident_detection_to_terminal_median_hours: 2, incident_detection_to_terminal_p90_hours: 3, denominator_note: "Exact recorded-event denominator." },
       availability: { report_period_hours: 30, observed_event_span_hours: 24, core_heartbeats_scheduled_active_hours: 24, core_heartbeats_explicitly_paused_hours: 0, core_heartbeats_scheduled_active_percent: 80, explicit_pause_intervals: [], recorded_target_read_successes: 1, recorded_target_read_failures: 0, recorded_target_read_availability_percent: 100, continuous_process_uptime_measured: false, interpretation: "Recorded checks only." },
       daily_activity: [{ date: "2026-08-09", mechanical: index, review: index, routing: 0, intervention: 0, communication: 0, maintenance: 0, other: 0 }],
       daily_incidents: [{ date: "2026-08-09", opened: index, terminal: index - 1 }],
-      counts: { by_kind: { heartbeat: index }, by_status: { completed: index }, by_severity: { low: index }, by_category: { review: index }, by_model_reasoning: { "gpt-5 / high": index } },
+      counts: { by_kind: { heartbeat: index, decision: index, resolution: index }, by_status: { completed: index }, by_severity: { low: index }, by_category: { review: index }, by_model_reasoning: { "gpt-5 / high": index } },
+      monitoring_roles: { configured_thread_count: 1, core_role_count: 1, support_role_count: 0, roles: [{ role: "reviewer", purpose: "Semantic reviewer", configured: true, recorded_action_count: index, activity_label: "Recorded category only" }], interpretation: "Roles are configured identities, not inferred event actors." },
+      limitations: ["Recorded activity is a lower bound."],
       resource_estimate: {
         daily: [{ date: "2026-08-09", estimated_tokens_base: 1_000 * index, projected_cost_usd_base: index }],
         totals: { estimated_tokens_base: 1_000 * index, projected_cost_usd_base: index, recorded_model_attributed_events: index },
@@ -72,12 +75,12 @@ const factoryHistory = {
   posture_transition_count: 1,
   supervisor_group_count: 3,
   bound_project_count: 3,
-  availability: { scheduled_active_hours: 72, explicitly_paused_hours: 2 },
+  availability: { status: "available", scheduled_active_hours: 72, explicitly_paused_hours: 2 },
   posture_transitions: [{ target_thread_id: runs[1].target_thread_id, target_label: runs[1].target_label, project_id: "beta", from: "amber", to: "red", trigger: "open-high-or-critical-incident", record: { record_id: "EVT-1", timestamp: observedAt } }],
   unsupported: ["Historical concurrent implementation count is unavailable."],
 }
 
-function metricsResponse(perRun = runs) {
+function metricsResponse(perRun: Array<Record<string, unknown>> = runs) {
   return {
     coverage: { status: "partial" },
     data: { per_run: perRun, factory_history: factoryHistory },
@@ -158,10 +161,17 @@ describe("metrics and report history workspace", () => {
     expect(screen.getByRole("region", { name: "Resources" })).toHaveTextContent("API-equivalent estimate")
     expect(screen.getByRole("heading", { name: "Trend" })).toBeVisible()
     expect(screen.getByRole("heading", { name: "Runs" })).toBeVisible()
+    const contract = screen.getByRole("region", { name: "Metric contract and sources" })
+    expect(contract).toHaveTextContent("supervision-weekly-review · schema v1")
+    expect(contract).toHaveTextContent("Exact recorded-event denominator.")
+    expect(contract).toHaveTextContent("Semantic reviewer (reviewer)")
+    expect(contract).toHaveTextContent("review 6")
+    const trendTable = screen.getByRole("table", { name: "Exact accessible values and sources for the metric trend" })
+    expect(within(trendTable).getAllByRole("link", { name: /metric/ })).toHaveLength(3)
     expect(screen.getByText("Historical concurrent implementation count is unavailable.")).toBeVisible()
-    expect(screen.getByRole("link", { name: "alpha implementation" })).toBeVisible()
+    expect(screen.getAllByRole("link", { name: "alpha implementation" })[0]).toBeVisible()
     expect(screen.getAllByRole("link", { name: "beta implementation" })[0]).toBeVisible()
-    expect(screen.getByRole("link", { name: "gamma implementation" })).toBeVisible()
+    expect(screen.getAllByRole("link", { name: "gamma implementation" })[0]).toBeVisible()
 
     await user.selectOptions(screen.getByLabelText("Project"), "beta")
     expect(screen.queryByRole("link", { name: "alpha implementation" })).not.toBeInTheDocument()
@@ -212,10 +222,42 @@ describe("metrics and report history workspace", () => {
     mocks.fetchMetrics.mockResolvedValue(metricsResponse(mixedRuns))
     renderReports()
 
-    expect(await screen.findByText("Select one timezone before comparing daily buckets; incompatible source dates were not combined.")).toBeVisible()
-    expect(screen.queryByRole("table", { name: "Exact accessible values for the metric trend" })).not.toBeInTheDocument()
+    expect(await screen.findByText("Select one run or an exact shared definition, period, timezone, partial-window, and denominator contract. Incompatible metrics were not combined.")).toBeVisible()
+    expect(screen.queryByRole("table", { name: "Exact accessible values and sources for the metric trend" })).not.toBeInTheDocument()
     await user.selectOptions(screen.getByLabelText("Timezone"), "America/Los_Angeles")
-    expect(await screen.findByRole("table", { name: "Exact accessible values for the metric trend" })).toBeVisible()
+    expect(await screen.findByRole("table", { name: "Exact accessible values and sources for the metric trend" })).toBeVisible()
+  })
+
+  it("withholds aggregate values when schema or coverage contracts differ", async () => {
+    const mixedContracts = runs.map((run, index) => index === 1 && run.status === "available"
+      ? { ...run, metrics: { ...run.metrics, schema_version: 2 } }
+      : run)
+    mocks.fetchMetrics.mockResolvedValue(metricsResponse(mixedContracts))
+    renderReports()
+
+    const delivery = await screen.findByRole("region", { name: "Delivery" })
+    expect(delivery).toHaveTextContent("Incomparable")
+    expect(delivery).not.toHaveTextContent("60")
+    expect(screen.getByRole("region", { name: "Metric contract and sources" })).toHaveTextContent("2 incompatible or unavailable contracts")
+    expect(screen.queryByRole("table", { name: "Exact accessible values and sources for the metric trend" })).not.toBeInTheDocument()
+  })
+
+  it("renders wholly unavailable metrics as unavailable rather than zero", async () => {
+    const unavailableRuns = runs.map((run) => ({
+      ...run,
+      status: "unavailable",
+      metrics: null,
+      error: { code: "metric_projection_failed", message: "Exact metric unavailable", retryable: false },
+    }))
+    mocks.fetchMetrics.mockResolvedValue(metricsResponse(unavailableRuns))
+    renderReports()
+
+    const delivery = await screen.findByRole("region", { name: "Delivery" })
+    const resources = screen.getByRole("region", { name: "Resources" })
+    expect(delivery).toHaveTextContent("Unavailable")
+    expect(delivery).not.toHaveTextContent(/Recorded events\s*0/)
+    expect(resources).not.toHaveTextContent("$0")
+    expect(screen.getByText("No available metric projection matches the filters; unavailable values were not rendered as zero")).toBeVisible()
   })
 
   it("bounds long trend history with transparent contiguous aggregation", async () => {
@@ -241,7 +283,7 @@ describe("metrics and report history workspace", () => {
     const trend = await screen.findByRole("region", { name: "Trend" })
     expect(within(trend).getByText("60 displayed buckets from 120 source days", { exact: false })).toBeVisible()
     expect(within(trend).getByText("summed into contiguous buckets of at most 2 days", { exact: false })).toBeVisible()
-    expect(within(trend).getByRole("table", { name: "Exact accessible values for the metric trend" })).toBeVisible()
+    expect(within(trend).getByRole("table", { name: "Exact accessible values and sources for the metric trend" })).toBeVisible()
   })
 
   it("rejects raw count deltas when report coverage durations differ", async () => {

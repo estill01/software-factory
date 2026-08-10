@@ -361,10 +361,11 @@ const factoryHistorySchema = z
     unmonitored_project_count: nonnegativeInteger,
     availability: z
       .object({
-        scheduled_active_hours: z.number().nonnegative(),
-        explicitly_paused_hours: z.number().nonnegative(),
-        recorded_target_read_successes: nonnegativeInteger,
-        recorded_target_read_failures: nonnegativeInteger,
+        status: z.enum(["available", "incompatible", "unavailable"]),
+        scheduled_active_hours: z.number().nonnegative().nullable(),
+        explicitly_paused_hours: z.number().nonnegative().nullable(),
+        recorded_target_read_successes: nonnegativeInteger.nullable(),
+        recorded_target_read_failures: nonnegativeInteger.nullable(),
         continuous_uptime_measured: z.literal(false),
       })
       .strict(),
@@ -909,17 +910,31 @@ export const reportDetailEnvelopeSchema = z
 
 const aggregateMetricsSchema = z
   .object({
+    status: z.enum(["available", "incompatible", "unavailable"]),
     definition: z.string().min(1),
     run_count: nonnegativeInteger,
     available_run_count: nonnegativeInteger,
     historical_segment_count: nonnegativeInteger,
-    headline: countMapSchema,
+    contract_count: nonnegativeInteger,
+    contracts: z.array(
+      z
+        .object({
+          schema_version: nonnegativeInteger,
+          kind: z.literal("supervision-weekly-review"),
+          coverage: metricCoverageSchema,
+          denominator_note: z.string().min(1),
+          target_thread_ids: z.array(z.string().min(1)),
+          run_count: nonnegativeInteger,
+        })
+        .strict(),
+    ),
+    headline: countMapSchema.nullable(),
     api_equivalent_estimate: z
       .object({
         label: z.literal("API-equivalent estimate"),
         actual_billing_data: z.literal(false),
         coverage_run_count: nonnegativeInteger,
-        totals: numberMapSchema,
+        totals: numberMapSchema.nullable(),
       })
       .strict(),
     limitations: z.array(z.string()),

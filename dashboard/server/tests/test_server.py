@@ -818,6 +818,8 @@ class DashboardServerTests(unittest.TestCase):
         self.assertEqual(detail["data"]["run"]["target_thread_id"], target)
         self.assertEqual(detail["data"]["run"]["metrics"]["status"], "available")
         self.assertEqual(reports["data"]["reports"], [])
+        self.assertEqual(metrics["data"]["aggregate"]["status"], "available")
+        self.assertEqual(metrics["data"]["aggregate"]["contract_count"], 1)
         self.assertEqual(metrics["data"]["aggregate"]["headline"]["recorded_events"], 1)
         self.assertEqual(
             metrics["data"]["aggregate"]["api_equivalent_estimate"]["label"],

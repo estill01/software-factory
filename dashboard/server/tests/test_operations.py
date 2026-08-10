@@ -456,8 +456,11 @@ class OperationsProjectionTests(unittest.TestCase):
         self.assertEqual(metric_run["current_mission_root"], NEW_MISSION)
         self.assertEqual(metric_run["cost_label"], "API-equivalent estimate")
         self.assertIn("meta-review", metric_run["conclusion_counts"]["by_kind"])
+        self.assertEqual(snapshot["metrics"]["aggregate"]["status"], "available")
+        self.assertEqual(snapshot["metrics"]["aggregate"]["contract_count"], 1)
         self.assertEqual(history["bound_project_count"], 1)
         self.assertEqual(history["unmonitored_project_count"], 1)
+        self.assertEqual(history["availability"]["status"], "available")
         self.assertFalse(history["availability"]["continuous_uptime_measured"])
         self.assertTrue(
             any("concurrent implementation" in item for item in history["unsupported"])
@@ -539,6 +542,65 @@ class OperationsProjectionTests(unittest.TestCase):
             self.service._read_selected_report_member(
                 outside, member_name="outside-report.md"
             )
+
+    def test_incompatible_metric_contracts_never_produce_cross_run_totals(self) -> None:
+        second_target = "target-thread-0003"
+        self._init_target(second_target, OLD_MISSION, "direct-item-3")
+        directory = self.supervision_root / second_target
+        policy = self.owner.read_json(directory / "policy.json")
+        for offset, timestamp in enumerate(
+            ("2026-08-09T11:00:00+00:00", "2026-08-09T11:01:00+00:00"),
+            start=1,
+        ):
+            self.owner.append_raw(
+                directory / "events.jsonl",
+                {
+                    "schema_version": 1,
+                    "record_id": f"EVT-SECOND-{offset}",
+                    "timestamp": timestamp,
+                    "kind": "check",
+                    "target_thread_id": second_target,
+                    "policy_sha256": policy["policy_sha256"],
+                    "state_fingerprint": f"state-second-{offset}",
+                    "evidence": ["source-record-3"],
+                    "status": "no-intervention",
+                    "severity": "info",
+                    "category": "changed-state-review",
+                    "summary": "Independent coverage contract.",
+                    "active_block": "9",
+                },
+            )
+
+        snapshot = self.service.snapshot(self.projects)
+        aggregate = snapshot["metrics"]["aggregate"]
+        availability = snapshot["metrics"]["factory_history"]["availability"]
+
+        self.assertEqual(aggregate["status"], "incompatible")
+        self.assertEqual(aggregate["contract_count"], 2)
+        self.assertIsNone(aggregate["headline"])
+        self.assertIsNone(aggregate["api_equivalent_estimate"]["totals"])
+        self.assertEqual(availability["status"], "incompatible")
+        self.assertIsNone(availability["scheduled_active_hours"])
+
+    def test_wholly_unavailable_metrics_never_produce_zero_aggregate(self) -> None:
+        unavailable = {
+            "status": "unavailable",
+            "definition_owner": "supervise-tracker-runs/scripts/weekly_report.py",
+            "metrics": None,
+            "error": {
+                "code": "metric_projection_failed",
+                "message": "Exact metric unavailable.",
+                "retryable": False,
+            },
+        }
+        with patch.object(self.service, "_metrics", return_value=unavailable):
+            snapshot = self.service.snapshot(self.projects)
+
+        aggregate = snapshot["metrics"]["aggregate"]
+        self.assertEqual(aggregate["status"], "unavailable")
+        self.assertEqual(aggregate["contract_count"], 0)
+        self.assertIsNone(aggregate["headline"])
+        self.assertIsNone(aggregate["api_equivalent_estimate"]["totals"])
 
     def test_nested_source_symlinks_fail_locally_without_becoming_discovery(self) -> None:
         broken_policy = self.supervision_root / BROKEN_TARGET / "policy.json"

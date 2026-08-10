@@ -1942,6 +1942,48 @@ class OperationsProjectionService:
             for run in runs
             if run.get("metrics", {}).get("status") == "available"
         ]
+        metric_contracts: dict[tuple[Any, ...], dict[str, Any]] = {}
+        for target_thread_id, metrics in available_metrics:
+            coverage = metrics.get("coverage", {}) if isinstance(metrics, Mapping) else {}
+            rates = metrics.get("rates", {}) if isinstance(metrics, Mapping) else {}
+            calendar_days = tuple(coverage.get("calendar_days", []))
+            contract_key = (
+                metrics.get("schema_version"),
+                metrics.get("kind"),
+                coverage.get("start"),
+                coverage.get("end"),
+                coverage.get("timezone"),
+                coverage.get("elapsed_hours"),
+                coverage.get("partial_week"),
+                calendar_days,
+                rates.get("denominator_note"),
+            )
+            contract = metric_contracts.setdefault(
+                contract_key,
+                {
+                    "schema_version": metrics.get("schema_version"),
+                    "kind": metrics.get("kind"),
+                    "coverage": {
+                        "start": coverage.get("start"),
+                        "end": coverage.get("end"),
+                        "timezone": coverage.get("timezone"),
+                        "elapsed_hours": coverage.get("elapsed_hours"),
+                        "partial_week": coverage.get("partial_week"),
+                        "calendar_days": list(calendar_days),
+                    },
+                    "denominator_note": rates.get("denominator_note"),
+                    "target_thread_ids": [],
+                },
+            )
+            contract["target_thread_ids"].append(target_thread_id)
+        aggregate_status = (
+            "unavailable"
+            if not available_metrics
+            else "available"
+            if len(metric_contracts) == 1
+            else "incompatible"
+        )
+        aggregate_inputs = available_metrics if aggregate_status == "available" else []
         aggregate_headline: Counter[str] = Counter()
         cost_totals: Counter[str] = Counter()
         per_run_metrics = []
@@ -2015,7 +2057,10 @@ class OperationsProjectionService:
                         **transition,
                     }
                 )
-            if metrics_projection.get("status") != "available":
+            if (
+                metrics_projection.get("status") != "available"
+                or aggregate_status != "available"
+            ):
                 continue
             metric_body = metrics_projection.get("metrics")
             availability = (
@@ -2040,7 +2085,7 @@ class OperationsProjectionService:
         )
         posture_transition_total = len(posture_transitions)
         posture_transitions = posture_transitions[-MAX_METRIC_HISTORY_ROWS:]
-        for _target, metrics in available_metrics:
+        for _target, metrics in aggregate_inputs:
             headline = metrics.get("headline", {}) if isinstance(metrics, Mapping) else {}
             for key, value in headline.items():
                 if isinstance(value, int):
@@ -2064,18 +2109,39 @@ class OperationsProjectionService:
                 if isinstance(value, (int, float)):
                     cost_totals[key] += float(value)
         aggregate = {
-            "definition": "Sum of maintained per-active-mission report projections; predecessor missions are excluded before aggregation.",
+            "status": aggregate_status,
+            "definition": "Exact sum only when every included current-mission metric projection shares one schema, definition, coverage interval, timezone, partial-window posture, calendar-day set, and denominator contract.",
             "run_count": len(runs),
-            "available_run_count": sum(1 for run in runs if run["status"] == "available"),
+            "available_run_count": len(available_metrics),
             "historical_segment_count": sum(int(run.get("predecessor_count") or 0) for run in runs),
-            "headline": dict(sorted(aggregate_headline.items())),
+            "contract_count": len(metric_contracts),
+            "contracts": [
+                {
+                    **contract,
+                    "target_thread_ids": sorted(contract["target_thread_ids"]),
+                    "run_count": len(contract["target_thread_ids"]),
+                }
+                for _key, contract in sorted(
+                    metric_contracts.items(), key=lambda item: repr(item[0])
+                )
+            ],
+            "headline": (
+                dict(sorted(aggregate_headline.items()))
+                if aggregate_status == "available"
+                else None
+            ),
             "api_equivalent_estimate": {
                 "label": "API-equivalent estimate",
                 "actual_billing_data": False,
-                "coverage_run_count": len(available_metrics),
-                "totals": dict(sorted(cost_totals.items())),
+                "coverage_run_count": len(aggregate_inputs),
+                "totals": (
+                    dict(sorted(cost_totals.items()))
+                    if aggregate_status == "available"
+                    else None
+                ),
             },
             "limitations": [
+                "Incompatible or wholly unavailable contracts produce no aggregate numeric value; per-run projections remain available independently.",
                 "Cross-run incident resolution percentiles are not synthesized because the maintained owner does not expose merge-safe sufficient statistics; exact median/P90 remain available per run.",
                 "Counts exclude predecessor-only mission records and never imply implementation quality or completion.",
             ],
@@ -2097,10 +2163,23 @@ class OperationsProjectionService:
             "bound_project_count": len(bound_project_ids),
             "unmonitored_project_count": len(unmonitored_projects),
             "availability": {
-                "scheduled_active_hours": round(scheduled_active_hours, 4),
-                "explicitly_paused_hours": round(explicitly_paused_hours, 4),
-                "recorded_target_read_successes": target_read_successes,
-                "recorded_target_read_failures": target_read_failures,
+                "status": aggregate_status,
+                "scheduled_active_hours": (
+                    round(scheduled_active_hours, 4)
+                    if aggregate_status == "available"
+                    else None
+                ),
+                "explicitly_paused_hours": (
+                    round(explicitly_paused_hours, 4)
+                    if aggregate_status == "available"
+                    else None
+                ),
+                "recorded_target_read_successes": (
+                    target_read_successes if aggregate_status == "available" else None
+                ),
+                "recorded_target_read_failures": (
+                    target_read_failures if aggregate_status == "available" else None
+                ),
                 "continuous_uptime_measured": False,
             },
             "conclusions": {

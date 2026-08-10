@@ -12,6 +12,16 @@ export type MetricTrendPoint = {
   activity: number
   incidents: number
   estimatedTokens: number
+  sources: MetricTrendSource[]
+}
+
+export type MetricTrendSource = {
+  targetThreadId: string
+  targetLabel: string
+  metricId: string
+  sourceRoot: string
+  firstRecordId: string | null
+  lastRecordId: string | null
 }
 
 export function MetricHistoryChart({ points }: { points: MetricTrendPoint[] }) {

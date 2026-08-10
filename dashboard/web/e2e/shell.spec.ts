@@ -268,8 +268,22 @@ test("live metrics and report history remain source-backed and read-only", async
   await expect(page.getByRole("region", { name: "Resources" })).toContainText(
     "API-equivalent estimate",
   )
+  await expect(page.getByRole("region", { name: "Delivery" })).toContainText("Incomparable")
+  await expect(page.getByRole("region", { name: "Metric contract and sources" })).toContainText(
+    "Numeric aggregate withheld",
+  )
   await expect(page.getByRole("region", { name: "Trend" })).toContainText(
-    "Exact accessible values",
+    "Incompatible metrics were not combined",
+  )
+  await page.getByLabel("Run", { exact: true }).selectOption({ index: 1 })
+  const trend = page.getByRole("region", { name: "Trend" })
+  await expect(trend.getByRole("table", { name: "Exact accessible values and sources for the metric trend" })).toBeVisible()
+  await expect(trend.getByRole("link", { name: /metric/ }).first()).toHaveAttribute(
+    "href",
+    /\/runs\/.+#current-metric$/,
+  )
+  await expect(page.getByRole("region", { name: "Metric contract and sources" })).toContainText(
+    "Incident rate uses incident openings",
   )
   await expect(page.getByRole("region", { name: "Factory history" })).toContainText(
     "supervisor groups",
@@ -332,6 +346,44 @@ test("live metrics and report history remain source-backed and read-only", async
     clientWidth: document.documentElement.clientWidth,
   }))
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+})
+
+test("wholly unavailable metric projections never render as numeric zero", async ({ page }) => {
+  const response = await page.request.get("/api/v1/metrics")
+  const payload = await response.json()
+  payload.data.per_run = payload.data.per_run.map((run: Record<string, unknown>) => ({
+    ...run,
+    status: "unavailable",
+    metrics: null,
+    error: {
+      code: "metric_projection_failed",
+      message: "Exact metric unavailable",
+      retryable: false,
+    },
+  }))
+  payload.data.aggregate = {
+    ...payload.data.aggregate,
+    status: "unavailable",
+    available_run_count: 0,
+    contract_count: 0,
+    contracts: [],
+    headline: null,
+    api_equivalent_estimate: {
+      ...payload.data.aggregate.api_equivalent_estimate,
+      coverage_run_count: 0,
+      totals: null,
+    },
+  }
+  await page.route("**/api/v1/metrics", (route) => route.fulfill({ json: payload }))
+  await page.goto("/reports")
+
+  const delivery = page.getByRole("region", { name: "Delivery" })
+  await expect(delivery).toContainText("Unavailable")
+  await expect(delivery).not.toContainText("Recorded events 0")
+  await expect(page.getByRole("region", { name: "Resources" })).not.toContainText("$0")
+  await expect(page.getByRole("region", { name: "Trend" })).toContainText(
+    "unavailable values were not rendered as zero",
+  )
 })
 
 test("catalog views preserve bounded discovery, failures, and archive consequences", async ({ page }) => {

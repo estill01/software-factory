@@ -16,6 +16,7 @@ import { Identity, QueryState, StatusMark, TimeValue } from "@/components/worksp
 import {
   MetricHistoryChart,
   type MetricTrendPoint,
+  type MetricTrendSource,
 } from "@/features/reports/metric-history-chart"
 import {
   fetchMetrics,
@@ -29,6 +30,8 @@ import {
 import { fetchProjects } from "@/lib/projects-api"
 
 type MetricRun = MetricsEnvelope["data"]["per_run"][number]
+type AvailableMetricRun = Extract<MetricRun, { status: "available" }>
+type MetricAggregateState = "available" | "incompatible" | "unavailable"
 type WindowFilter = "all" | "24h" | "7d" | "30d"
 
 const MAX_TREND_POINTS = 90
@@ -80,6 +83,50 @@ function aggregateResource(runs: MetricRun[], key: string): number {
   }, 0)
 }
 
+function aggregateKindCount(runs: MetricRun[], key: string): number {
+  return runs.reduce((total, run) => {
+    if (run.status !== "available") return total
+    return total + (run.metrics.counts.by_kind[key] ?? 0)
+  }, 0)
+}
+
+function metricContractKey(run: AvailableMetricRun): string {
+  const { coverage, kind, rates, schema_version: schemaVersion } = run.metrics
+  return JSON.stringify({
+    schemaVersion,
+    kind,
+    start: coverage.start,
+    end: coverage.end,
+    timezone: coverage.timezone,
+    calendarDays: coverage.calendar_days,
+    elapsedHours: coverage.elapsed_hours,
+    partialWeek: coverage.partial_week,
+    denominator: rates.denominator_note,
+  })
+}
+
+function metricSource(run: AvailableMetricRun): MetricTrendSource {
+  return {
+    targetThreadId: run.target_thread_id,
+    targetLabel: run.target_label,
+    metricId: run.metrics.report_id,
+    sourceRoot: run.metrics.source.source_root,
+    firstRecordId: run.metrics.source.first_record_id,
+    lastRecordId: run.metrics.source.last_record_id,
+  }
+}
+
+function aggregateDisplay(
+  state: MetricAggregateState,
+  value: number,
+  options: { currency?: boolean } = {},
+): string {
+  if (state === "unavailable") return "Unavailable"
+  if (state === "incompatible") return "Incomparable"
+  const formatted = numberFormatter.format(value)
+  return options.currency ? `$${formatted}` : formatted
+}
+
 function metricTrend(runs: MetricRun[], windowFilter: WindowFilter): MetricTrendPoint[] {
   const points = new Map<string, MetricTrendPoint>()
   for (const run of runs) {
@@ -96,10 +143,14 @@ function metricTrend(runs: MetricRun[], windowFilter: WindowFilter): MetricTrend
         activity: 0,
         incidents: 0,
         estimatedTokens: 0,
+        sources: [],
       }
       current.activity += day.mechanical + day.review + day.routing + day.intervention + day.communication + day.maintenance + day.other
       current.incidents += incidents.get(day.date) ?? 0
       current.estimatedTokens += resources.get(day.date) ?? 0
+      if (!current.sources.some((source) => source.targetThreadId === run.target_thread_id)) {
+        current.sources.push(metricSource(run))
+      }
       points.set(day.date, current)
     }
   }
@@ -125,6 +176,12 @@ function boundedMetricTrend(points: MetricTrendPoint[]): {
       activity: members.reduce((sum, point) => sum + point.activity, 0),
       incidents: members.reduce((sum, point) => sum + point.incidents, 0),
       estimatedTokens: members.reduce((sum, point) => sum + point.estimatedTokens, 0),
+      sources: members
+        .flatMap((point) => point.sources)
+        .filter((source, index, sources) => sources.findIndex(
+          (candidate) => candidate.targetThreadId === source.targetThreadId
+            && candidate.metricId === source.metricId,
+        ) === index),
     })
   }
   return { points: bounded, sourceDays: points.length, bucketSize }
@@ -146,16 +203,19 @@ function modelReasoningSummary(runs: MetricRun[]): string {
 
 function MetricCard({
   label,
+  definition,
   values,
   coverage,
 }: {
   label: string
+  definition: string
   values: readonly [string, string][]
   coverage: string
 }) {
   return (
     <section className="report-metric-card" aria-label={label}>
       <strong>{label}</strong>
+      <p>{definition}</p>
       <dl>
         {values.map(([name, value]) => <div key={name}><dt>{name}</dt><dd>{value}</dd></div>)}
       </dl>
@@ -304,11 +364,22 @@ export function Component() {
     return inWindow(run.metrics.coverage.end, windowFilter)
   })
   const availableRuns = visibleRuns.filter((run): run is Extract<MetricRun, { status: "available" }> => run.status === "available")
-  const trendTimezones = new Set(availableRuns.map((run) => run.metrics.coverage.timezone))
-  const trendComparable = timezoneFilter !== "all" || trendTimezones.size <= 1
+  const metricContractKeys = new Set(availableRuns.map(metricContractKey))
+  const metricAggregateState: MetricAggregateState = availableRuns.length === 0
+    ? "unavailable"
+    : metricContractKeys.size === 1
+      ? "available"
+      : "incompatible"
+  const aggregateRuns = metricAggregateState === "available" ? availableRuns : []
+  const selectedMetric = aggregateRuns[0]?.metrics
+  const metricCoverageLabel = metricAggregateState === "available"
+    ? `${availableRuns.length}/${visibleRuns.length} runs · one exact definition and coverage contract`
+    : metricAggregateState === "incompatible"
+      ? `${availableRuns.length}/${visibleRuns.length} runs · ${metricContractKeys.size} incompatible definition or coverage contracts; select one run`
+      : `0/${visibleRuns.length} runs · unavailable; no numeric zero substituted`
   const trendProjection = useMemo(
-    () => boundedMetricTrend(trendComparable ? metricTrend(visibleRuns, windowFilter) : []),
-    [visibleRuns, windowFilter, trendComparable],
+    () => boundedMetricTrend(metricAggregateState === "available" ? metricTrend(aggregateRuns, windowFilter) : []),
+    [aggregateRuns, windowFilter, metricAggregateState],
   )
   const trend = trendProjection.points
   const visibleTransitions = (metricsQuery.data?.data.factory_history.posture_transitions ?? []).filter((transition) => {
@@ -316,12 +387,41 @@ export function Component() {
     if (runFilter !== "all" && transition.target_thread_id !== runFilter) return false
     return inWindow(transition.record.timestamp, windowFilter)
   })
-  const visibleScheduledHours = availableRuns.reduce((total, run) => total + run.metrics.availability.core_heartbeats_scheduled_active_hours, 0)
-  const visiblePausedHours = availableRuns.reduce((total, run) => total + run.metrics.availability.core_heartbeats_explicitly_paused_hours, 0)
+  const visibleScheduledHours = aggregateRuns.reduce((total, run) => total + run.metrics.availability.core_heartbeats_scheduled_active_hours, 0)
+  const visiblePausedHours = aggregateRuns.reduce((total, run) => total + run.metrics.availability.core_heartbeats_explicitly_paused_hours, 0)
   const visibleSupervisorGroups = new Set(
     visibleRuns.flatMap((run) => run.supervisor_group_id ? [run.supervisor_group_id] : []),
   ).size
   const visibleBoundProjects = new Set(visibleRuns.flatMap((run) => run.project_binding.project_id ? [run.project_binding.project_id] : []))
+  const visibleConclusionCount = visibleRuns.reduce(
+    (sum, run) => sum + Object.values(run.conclusion_counts.by_kind).reduce((left, right) => left + right, 0),
+    0,
+  )
+  const roleRows = availableRuns.flatMap((run) => run.metrics.monitoring_roles.roles)
+  const roleSummary = [...new Map(roleRows.map((role) => [role.role, role])).values()]
+    .map((role) => `${role.purpose} (${role.role})`)
+    .join("; ") || "Unavailable"
+  const categoryCounts = new Map<string, number>()
+  for (const run of aggregateRuns) {
+    for (const [category, count] of Object.entries(run.metrics.counts.by_category)) {
+      categoryCounts.set(category || "uncategorized", (categoryCounts.get(category || "uncategorized") ?? 0) + count)
+    }
+  }
+  const categorySummary = metricAggregateState === "available"
+    ? [...categoryCounts.entries()]
+        .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+        .slice(0, 8)
+        .map(([category, count]) => `${category} ${numberFormatter.format(count)}`)
+        .join("; ") || "Unavailable"
+    : [...new Set(availableRuns.flatMap((run) => Object.keys(run.metrics.counts.by_category).map((category) => category || "uncategorized")))]
+        .sort()
+        .slice(0, 8)
+        .join("; ") + (availableRuns.length ? " · counts withheld across incompatible contracts" : "Unavailable")
+  const observedTimes = aggregateRuns.map((run) => run.observed_at).sort()
+  const metricLimitations = [...new Set([
+    ...(selectedMetric?.limitations ?? []),
+    ...(metricsQuery.data?.limitations ?? []),
+  ])]
   const projectOptions = [...new Set(metricRuns.flatMap((run) => run.project_binding.project_id ? [run.project_binding.project_id] : []))]
     .sort((left, right) => (projectLabels.get(left) ?? left).localeCompare(projectLabels.get(right) ?? right))
 
@@ -391,26 +491,45 @@ export function Component() {
 
       {view === "metrics" ? metricsQuery.isPending ? <QueryState kind="loading" message="Loading metrics" /> : metricsQuery.isError ? <QueryState kind="error" message={metricsQuery.error.message} retry={() => void metricsQuery.refetch()} /> : <>
         <div className="report-metric-grid">
-          <MetricCard label="Delivery" coverage={`${availableRuns.length}/${visibleRuns.length} runs · maintained weekly definition`} values={[["Recorded events", numberFormatter.format(aggregateCount(visibleRuns, "recorded_events"))], ["Changed-state routes", numberFormatter.format(aggregateCount(visibleRuns, "changed_state_routes"))], ["Blocks observed", numberFormatter.format(aggregateCount(visibleRuns, "blocks_observed"))]]} />
-          <MetricCard label="Reliability" coverage={`${availableRuns.length}/${visibleRuns.length} runs · current mission only; unavailable is not zero`} values={[["Incidents opened", numberFormatter.format(aggregateCount(visibleRuns, "incidents_opened"))], ["Terminal incidents", numberFormatter.format(aggregateCount(visibleRuns, "incidents_terminal"))], ["Open at end", numberFormatter.format(aggregateCount(visibleRuns, "incidents_open_at_end"))]]} />
-          <MetricCard label="Review" coverage={`${availableRuns.length}/${visibleRuns.length} runs · recorded owner events; no actor inference`} values={[["Corrections", numberFormatter.format(aggregateCount(visibleRuns, "corrections_issued"))], ["Max samples", numberFormatter.format(aggregateCount(visibleRuns, "max_samples"))], ["Conclusions", numberFormatter.format(visibleRuns.reduce((sum, run) => sum + Object.values(run.conclusion_counts.by_kind).reduce((a, b) => a + b, 0), 0))]]} />
-          <MetricCard label="Resources" coverage={`${availableRuns.length}/${visibleRuns.length} runs · API-equivalent estimate; not billing telemetry · ${modelReasoningSummary(availableRuns)}`} values={[["Estimated tokens", numberFormatter.format(aggregateResource(visibleRuns, "estimated_tokens_base"))], ["Estimated cost", `$${numberFormatter.format(aggregateResource(visibleRuns, "projected_cost_usd_base"))}`], ["Attributed events", numberFormatter.format(aggregateResource(visibleRuns, "recorded_model_attributed_events"))]]} />
+          <MetricCard label="Delivery" definition="Recorded canonical supervision events, changed-state routes, and observed Blocks in one exact coverage contract." coverage={metricCoverageLabel} values={[["Recorded events", aggregateDisplay(metricAggregateState, aggregateCount(aggregateRuns, "recorded_events"))], ["Changed-state routes", aggregateDisplay(metricAggregateState, aggregateCount(aggregateRuns, "changed_state_routes"))], ["Blocks observed", aggregateDisplay(metricAggregateState, aggregateCount(aggregateRuns, "blocks_observed"))]]} />
+          <MetricCard label="Reliability" definition="Recorded incident openings and terminal heads; this is not continuous process uptime or implementation quality." coverage={metricCoverageLabel} values={[["Incidents opened", aggregateDisplay(metricAggregateState, aggregateCount(aggregateRuns, "incidents_opened"))], ["Terminal incidents", aggregateDisplay(metricAggregateState, aggregateCount(aggregateRuns, "incidents_terminal"))], ["Open at end", aggregateDisplay(metricAggregateState, aggregateCount(aggregateRuns, "incidents_open_at_end"))]]} />
+          <MetricCard label="Review" definition="Recorded correction, decision, and resolution events; configured roles are not inferred as event actors." coverage={metricCoverageLabel} values={[["Corrections", aggregateDisplay(metricAggregateState, aggregateCount(aggregateRuns, "corrections_issued"))], ["Decisions", aggregateDisplay(metricAggregateState, aggregateKindCount(aggregateRuns, "decision"))], ["Resolutions", aggregateDisplay(metricAggregateState, aggregateKindCount(aggregateRuns, "resolution"))]]} />
+          <MetricCard label="Resources" definition="Versioned content-derived token and API-equivalent estimate; never provider usage or billed cost." coverage={`${metricCoverageLabel} · ${metricAggregateState === "available" ? modelReasoningSummary(aggregateRuns) : "model/reasoning aggregate withheld"}`} values={[["Estimated tokens", aggregateDisplay(metricAggregateState, aggregateResource(aggregateRuns, "estimated_tokens_base"))], ["Estimated cost", aggregateDisplay(metricAggregateState, aggregateResource(aggregateRuns, "projected_cost_usd_base"), { currency: true })], ["Attributed events", aggregateDisplay(metricAggregateState, aggregateResource(aggregateRuns, "recorded_model_attributed_events"))]]} />
         </div>
 
+        <section className="workspace-panel metric-contract-context" aria-label="Metric contract and sources">
+          <dl>
+            <div><dt>Aggregate</dt><dd><StatusMark status={metricAggregateState} />{metricAggregateState === "available" ? "Exact compatible cohort" : metricAggregateState === "incompatible" ? "Numeric aggregate withheld" : "No available metric projection"}</dd></div>
+            <div><dt>Definition</dt><dd>{selectedMetric ? `${selectedMetric.kind} · schema v${selectedMetric.schema_version}` : `${metricContractKeys.size} incompatible or unavailable contracts`}</dd></div>
+            <div><dt>Period</dt><dd>{selectedMetric ? <><TimeValue value={selectedMetric.coverage.start} /> → <TimeValue value={selectedMetric.coverage.end} /> · {selectedMetric.coverage.elapsed_hours} h · {selectedMetric.coverage.timezone}{selectedMetric.coverage.partial_week ? " · partial" : ""}</> : "Unavailable until one exact coverage contract is selected"}</dd></div>
+            <div><dt>Denominator</dt><dd>{selectedMetric?.rates.denominator_note ?? "No cross-contract denominator was computed."}</dd></div>
+            <div><dt>Observed</dt><dd>{observedTimes.length ? <><TimeValue value={observedTimes[0]} />{observedTimes.length > 1 ? <> → <TimeValue value={observedTimes.at(-1)} /></> : null}</> : "Unavailable"}</dd></div>
+            <div><dt>Limitations</dt><dd>{metricLimitations.length ? metricLimitations.join(" ") : "Unavailable projections remain independent and are not rendered as zero."}</dd></div>
+          </dl>
+          <div className="metric-review-context">
+            <p><strong>Recorded roles</strong>{roleSummary}. Role activity attribution remains unavailable unless a canonical event names its actor.</p>
+            <p><strong>Top categories</strong>{categorySummary}</p>
+            <p><strong>Current state</strong>{numberFormatter.format(visibleConclusionCount)} conclusions · {numberFormatter.format(visibleTransitions.length)} matching posture transitions. These are current source records, not weekly metric values.</p>
+          </div>
+          <div className="metric-source-list" aria-label="Metric source projections">
+            {availableRuns.length ? availableRuns.map((run) => <div key={run.target_thread_id}><Link to={`/runs/${encodeURIComponent(run.target_thread_id)}#current-metric`}>{run.target_label}</Link><Identity value={run.metrics.report_id} /><Identity value={run.metrics.source.source_root} />{run.metrics.source.first_record_id ? <Link to={`/runs/${encodeURIComponent(run.target_thread_id)}#${encodeURIComponent(run.metrics.source.first_record_id)}`}>Events {run.metrics.source.first_record_id}–{run.metrics.source.last_record_id ?? "latest"}</Link> : <span>Canonical record range unavailable</span>}</div>) : <span>No available metric source projection</span>}
+          </div>
+        </section>
+
         <section className="workspace-panel report-trend-panel" aria-labelledby="metric-trend-heading">
-          <div className="workspace-panel-heading"><h2 id="metric-trend-heading">Trend</h2><span>{trendComparable ? `${trend.length} displayed buckets from ${trendProjection.sourceDays} source days · ${timezoneFilter === "all" ? "one source timezone" : timezoneFilter}` : `${trendTimezones.size} incompatible source timezones`}</span></div>
-          {!trendComparable ? <div className="workspace-partial" role="status"><AlertTriangle aria-hidden="true" />Select one timezone before comparing daily buckets; incompatible source dates were not combined.</div> : trend.length ? <><MetricHistoryChart points={trend} /><div className="table-scroll"><table className="report-data-table"><caption className="sr-only">Exact accessible values for the metric trend</caption><thead><tr><th>Date</th><th>Recorded activity</th><th>Incidents opened</th><th>Estimated tokens</th></tr></thead><tbody>{trend.map((point) => <tr key={point.date}><th>{point.date}</th><td>{point.activity}</td><td>{point.incidents}</td><td>{numberFormatter.format(point.estimatedTokens)}</td></tr>)}</tbody></table></div></> : <QueryState kind="empty" message="No compatible metric points match the filters" />}
-          <p className="workspace-limitation">Daily buckets retain each report owner&apos;s source timezone. Incompatible timezones are never re-bucketed or combined.{trendProjection.bucketSize > 1 ? ` More than ${MAX_TREND_POINTS} source days are summed into contiguous buckets of at most ${trendProjection.bucketSize} days for this display.` : ""}</p>
+          <div className="workspace-panel-heading"><h2 id="metric-trend-heading">Trend</h2><span>{metricAggregateState === "available" ? `${trend.length} displayed buckets from ${trendProjection.sourceDays} source days · exact selected contract` : metricAggregateState === "incompatible" ? `${metricContractKeys.size} incompatible contracts` : "Source metrics unavailable"}</span></div>
+          {metricAggregateState === "incompatible" ? <div className="workspace-partial" role="status"><AlertTriangle aria-hidden="true" />Select one run or an exact shared definition, period, timezone, partial-window, and denominator contract. Incompatible metrics were not combined.</div> : metricAggregateState === "unavailable" ? <QueryState kind="empty" message="No available metric projection matches the filters; unavailable values were not rendered as zero" /> : trend.length ? <><MetricHistoryChart points={trend} /><div className="table-scroll"><table className="report-data-table"><caption className="sr-only">Exact accessible values and sources for the metric trend</caption><thead><tr><th>Date</th><th>Recorded activity</th><th>Incidents opened</th><th>Estimated tokens</th><th>Sources</th></tr></thead><tbody>{trend.map((point) => <tr key={point.date}><th>{point.date}</th><td>{point.activity}</td><td>{point.incidents}</td><td>{numberFormatter.format(point.estimatedTokens)}</td><td><div className="metric-trend-sources">{point.sources.map((source) => <span key={`${source.targetThreadId}:${source.metricId}`}><Link to={`/runs/${encodeURIComponent(source.targetThreadId)}#current-metric`}>{source.targetLabel} metric</Link><Identity value={source.metricId} />{source.firstRecordId ? <Link to={`/runs/${encodeURIComponent(source.targetThreadId)}#${encodeURIComponent(source.firstRecordId)}`}>{source.firstRecordId}–{source.lastRecordId ?? "latest"}</Link> : null}</span>)}</div></td></tr>)}</tbody></table></div></> : <QueryState kind="empty" message="No compatible metric points match the filters" />}
+          <p className="workspace-limitation">Daily buckets retain the selected owner contract and source timezone. Different definitions, coverage intervals, timezones, partial-window postures, or denominators are never combined.{trendProjection.bucketSize > 1 ? ` More than ${MAX_TREND_POINTS} source days are summed into contiguous buckets of at most ${trendProjection.bucketSize} days for this display.` : ""}</p>
         </section>
 
         <section className="workspace-panel" aria-labelledby="metric-runs-heading">
           <div className="workspace-panel-heading"><h2 id="metric-runs-heading">Runs</h2><span>{visibleRuns.length} source projections</span></div>
-          <div className="table-scroll"><table className="report-data-table"><thead><tr><th>Project / run</th><th>Posture</th><th>Period</th><th>Coverage</th><th>Incidents</th><th>Estimate</th></tr></thead><tbody>{visibleRuns.map((run) => <tr key={run.target_thread_id}><th><span>{run.project_binding.project_id ? projectLabels.get(run.project_binding.project_id) ?? run.project_binding.project_id : "Unassigned"}</span><Link to={`/runs/${encodeURIComponent(run.target_thread_id)}`}>{run.target_label}</Link><Identity value={run.target_thread_id} /></th><td><StatusMark status={run.light.posture} /></td><td>{run.status === "available" ? <><TimeValue value={run.metrics.coverage.start} /> → <TimeValue value={run.metrics.coverage.end} /></> : "Unavailable"}</td><td>{run.status === "available" ? <>{numberFormatter.format(run.metrics.coverage.elapsed_hours)} h · {run.metrics.coverage.timezone}<small>Generated <TimeValue value={run.observed_at} /></small></> : run.error.message}</td><td>{run.status === "available" ? <>{run.metrics.headline.incidents_opened}<small>Median {run.metrics.rates.incident_detection_to_terminal_median_hours ?? "—"} h · P90 {run.metrics.rates.incident_detection_to_terminal_p90_hours ?? "—"} h</small></> : "—"}</td><td>{run.status === "available" ? `$${numberFormatter.format(run.metrics.resource_estimate.totals.projected_cost_usd_base)}` : "—"}</td></tr>)}</tbody></table></div>
+          <div className="table-scroll"><table className="report-data-table"><thead><tr><th>Project / run</th><th>Posture</th><th>Period</th><th>Coverage</th><th>Incidents / review</th><th>Estimate</th></tr></thead><tbody>{visibleRuns.map((run) => <tr key={run.target_thread_id}><th><span>{run.project_binding.project_id ? projectLabels.get(run.project_binding.project_id) ?? run.project_binding.project_id : "Unassigned"}</span><Link to={`/runs/${encodeURIComponent(run.target_thread_id)}`}>{run.target_label}</Link><Identity value={run.target_thread_id} />{run.status === "available" ? <><Link to={`/runs/${encodeURIComponent(run.target_thread_id)}#current-metric`}>Metric source</Link><Identity value={run.metrics.report_id} /></> : null}</th><td><StatusMark status={run.light.posture} /></td><td>{run.status === "available" ? <><TimeValue value={run.metrics.coverage.start} /> → <TimeValue value={run.metrics.coverage.end} /></> : "Unavailable"}</td><td>{run.status === "available" ? <>{numberFormatter.format(run.metrics.coverage.elapsed_hours)} h · {run.metrics.coverage.timezone}<small>Generated <TimeValue value={run.observed_at} /></small></> : run.error.message}</td><td>{run.status === "available" ? <>{run.metrics.headline.incidents_opened}<small>Median {run.metrics.rates.incident_detection_to_terminal_median_hours ?? "—"} h · P90 {run.metrics.rates.incident_detection_to_terminal_p90_hours ?? "—"} h</small><small>Decisions {run.metrics.counts.by_kind.decision ?? 0} · resolutions {run.metrics.counts.by_kind.resolution ?? 0} · conclusions {Object.values(run.conclusion_counts.by_kind).reduce((sum, count) => sum + count, 0)}</small></> : "—"}</td><td>{run.status === "available" ? `$${numberFormatter.format(run.metrics.resource_estimate.totals.projected_cost_usd_base)}` : "—"}</td></tr>)}</tbody></table></div>
         </section>
 
         <section className="workspace-panel" aria-labelledby="factory-history-heading">
           <div className="workspace-panel-heading"><h2 id="factory-history-heading">Factory history</h2><span>{Math.min(visibleTransitions.length, 80)} shown · {visibleTransitions.length} retained matches · {metricsQuery.data.data.factory_history.posture_transition_count} total exact transitions{metricsQuery.data.data.factory_history.posture_transitions_truncated ? " · retained window truncated" : ""}</span></div>
-          <div className="report-history-summary"><span><strong>{visibleSupervisorGroups}</strong> supervisor groups</span><span><strong>{visibleBoundProjects.size}</strong> bound projects</span><span><strong>{numberFormatter.format(visibleScheduledHours)}</strong> scheduled-active hours</span><span><strong>{numberFormatter.format(visiblePausedHours)}</strong> explicit paused hours</span></div>
+          <div className="report-history-summary"><span><strong>{visibleSupervisorGroups}</strong> supervisor groups</span><span><strong>{visibleBoundProjects.size}</strong> bound projects</span><span><strong>{visibleConclusionCount}</strong> current conclusions</span><span><strong>{aggregateDisplay(metricAggregateState, visibleScheduledHours)} / {aggregateDisplay(metricAggregateState, visiblePausedHours)}</strong> scheduled / paused hours</span></div>
           <div className="table-scroll"><table className="report-data-table"><thead><tr><th>Observed</th><th>Run</th><th>Transition</th><th>Trigger / source</th></tr></thead><tbody>{visibleTransitions.slice(-80).reverse().map((transition, index) => <tr key={`${transition.target_thread_id}:${transition.record.record_id}:${index}`}><td><TimeValue value={transition.record.timestamp} /></td><th><Link to={`/runs/${encodeURIComponent(transition.target_thread_id)}`}>{transition.target_label}</Link><Identity value={transition.target_thread_id} /></th><td><StatusMark status={transition.to} /><span>{transition.from} → {transition.to}</span></td><td>{transition.trigger}<Identity value={transition.record.record_id} /></td></tr>)}</tbody></table></div>
           <div className="workspace-warning-list">{metricsQuery.data.data.factory_history.unsupported.map((item) => <span key={item}><AlertTriangle aria-hidden="true" />{item}</span>)}</div>
         </section>
