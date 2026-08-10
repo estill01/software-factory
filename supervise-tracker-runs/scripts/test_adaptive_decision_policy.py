@@ -262,7 +262,6 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
             "evidence_root": "",
         }
         currentness = {
-            "decision_id": decision_id,
             "owner_id": value["owner_id"],
             "source_revision_root": value["source_revision_root"],
             "candidate_root": value["candidate_root"],
@@ -274,6 +273,7 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         value["currentness_root"] = supervision_log.digest(currentness)
         material = dict(value)
         material.pop("evidence_root")
+        material.pop("decision_id")
         value["evidence_root"] = supervision_log.digest(material)
         return value
 
@@ -662,7 +662,6 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         stale_source = self.candidate()
         stale_source["source_revision_root"] = "0" * 64
         stale_currentness = {
-            "decision_id": stale_source["decision_id"],
             "owner_id": stale_source["owner_id"],
             "source_revision_root": stale_source["source_revision_root"],
             "candidate_root": stale_source["candidate_root"],
@@ -674,6 +673,7 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         stale_source["currentness_root"] = supervision_log.digest(stale_currentness)
         stale_material = dict(stale_source)
         stale_material.pop("evidence_root")
+        stale_material.pop("decision_id")
         stale_source["evidence_root"] = supervision_log.digest(stale_material)
         with self.assertRaisesRegex(supervision_log.SupervisionLogError, "source revision"):
             supervision_log.validate_adaptive_candidate_evidence(
@@ -806,7 +806,6 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         changed_candidate = copy.deepcopy(candidate)
         changed_candidate["source_revision_root"] = "0" * 64
         changed_currentness = {
-            "decision_id": changed_candidate["decision_id"],
             "owner_id": changed_candidate["owner_id"],
             "source_revision_root": changed_candidate["source_revision_root"],
             "candidate_root": changed_candidate["candidate_root"],
@@ -818,6 +817,7 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         changed_candidate["currentness_root"] = supervision_log.digest(changed_currentness)
         candidate_material = dict(changed_candidate)
         candidate_material.pop("evidence_root")
+        candidate_material.pop("decision_id")
         changed_candidate["evidence_root"] = supervision_log.digest(candidate_material)
         changed_evidence = copy.deepcopy(evidence)
         changed_evidence["candidate_evidence_root"] = changed_candidate["evidence_root"]
@@ -861,6 +861,30 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
             supervision_log.SupervisionLogError, "canonical decision ID"
         ):
             self.run_gate(self.gate_args(changed_semantics))
+        candidate_one = self.candidate(decision_id="candidate-one-1234")
+        candidate_two = self.candidate(decision_id="candidate-two-1234")
+        self.assertEqual(candidate_one["evidence_root"], candidate_two["evidence_root"])
+        candidate_source_one = self.decision_evidence(
+            decision_id="candidate-one-1234",
+            disposition="compare-candidate",
+            candidate_evidence_root=str(candidate_one["evidence_root"]),
+        )
+        candidate_source_two = self.decision_evidence(
+            decision_id="candidate-two-1234",
+            disposition="compare-candidate",
+            candidate_evidence_root=str(candidate_two["evidence_root"]),
+        )
+        first_candidate = self.run_gate(
+            self.gate_args(candidate_source_one, candidate=candidate_one)
+        )
+        second_candidate = self.run_gate(
+            self.gate_args(candidate_source_two, candidate=candidate_two)
+        )
+        self.assertFalse(first_candidate["duplicate"])
+        self.assertTrue(second_candidate["duplicate"])
+        self.assertEqual(
+            second_candidate["record"]["decision_id"], "candidate-one-1234"
+        )
 
     def test_fingerprint_is_recomputed_from_exact_evidence_not_caller_sha(self) -> None:
         policy = self.policy()

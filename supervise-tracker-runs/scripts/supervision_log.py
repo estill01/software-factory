@@ -9227,7 +9227,6 @@ def validate_adaptive_candidate_evidence(
     if value["protected_capability_root"] != digest(protected):
         raise SupervisionLogError("Adaptive protected-capability root differs")
     currentness_material = {
-        "decision_id": decision_id,
         "owner_id": value["owner_id"],
         "source_revision_root": value["source_revision_root"],
         "candidate_root": value["candidate_root"],
@@ -9240,6 +9239,7 @@ def validate_adaptive_candidate_evidence(
         raise SupervisionLogError("Adaptive candidate currentness root differs")
     evidence_material = dict(value)
     evidence_material.pop("evidence_root")
+    evidence_material.pop("decision_id")
     if value["evidence_root"] != digest(evidence_material):
         raise SupervisionLogError("Adaptive candidate evidence root differs")
     return dict(value)
