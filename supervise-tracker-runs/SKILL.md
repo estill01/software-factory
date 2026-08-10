@@ -342,6 +342,44 @@ Repeat independently for additional targets.
   to `blocked`, `failed`, and explicit `stopped`; the Pacific-time writer never
   delays or replaces it.
 
+Adaptive implementation authority is separately configurable through the same
+policy owner. New groups start `full-autonomous`; a legacy group without the
+field behaves as `fixed` until an explicit `bind` or `adjust` appends the
+migration. Operators may select `fixed`, `recommend`, `reviewed-autonomous`, or
+`full-autonomous` and adjust the one-lane file/change/command/time/mapped/review
+ceilings without changing code:
+
+```bash
+python3 scripts/supervision_log.py adjust \
+  --target-thread <target-thread-id> \
+  --adaptive-decision-mode <fixed|recommend|reviewed-autonomous|full-autonomous> \
+  --candidate-max-active-lanes 1 \
+  --candidate-max-files <n> \
+  --candidate-max-changed-lines <n> \
+  --candidate-max-commands <n> \
+  --candidate-max-elapsed-minutes <n> \
+  --candidate-max-mapped-comparisons 1 \
+  --candidate-max-review-passes 1 \
+  --reason <operator-directive> --evidence <source-record>
+```
+
+Before applying or exposing an adaptive choice, call
+`adaptive-decision-gate` with the exact decision fingerprint, disposition,
+judgment/consequence class, reversibility, mission preservation, existing
+permission, review posture, candidate use, safe frontier, and any reserved
+subjects/revisit trigger. The gate records the decision in the existing event
+ledger. In `full-autonomous`, it rejects every human-request attempt: resolve
+ordinary judgment from current sources, choose the safest reversible supported
+option, or record `reserved-external` with exact blockers and continue the safe
+frontier. Do not send a Resume instruction.
+
+Adaptive mode never grants repository, command, credential, spend, destructive,
+Gmail, deployment, release, promotion, or skill-maintenance permission. A
+candidate still requires one lane, exact ceilings, focused-before-mapped proof,
+and independent review; ceiling exhaustion or protected regression retires it.
+Use `status` to inspect the mode, budget/use, decision and human-request counts,
+reserved deferrals, safe frontier, and application posture.
+
 ## Record and improve
 
 - Record every bounded check as one compact JSONL event. Create Markdown only for

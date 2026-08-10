@@ -4,6 +4,7 @@
 
 - [Defaults](#defaults)
 - [Execution economy and reusable maintenance](#execution-economy-and-reusable-maintenance)
+- [Adaptive decision authority and input avoidance](#adaptive-decision-authority-and-input-avoidance)
 - [Factory capability-evolution workflow](#factory-capability-evolution-workflow)
 - [Mission binding and authority provenance](#mission-binding-and-authority-provenance)
 - [Continuation-first decision resolution](#continuation-first-decision-resolution)
@@ -175,6 +176,80 @@ reference. `bind` or resume backfills a missing economy contract and
 `propose-only` maintenance posture for legacy groups; it never silently grants
 allowlisted skill maintenance. Refresh the existing role and heartbeat prompts
 after that policy update and before the next target check.
+
+## Adaptive decision authority and input avoidance
+
+Adaptive implementation control is one versioned field in the canonical
+supervision policy, not a second controller. New policies default to
+`full-autonomous`. A legacy policy with no adaptive field continues as `fixed`
+until an explicit `bind` or `adjust` migration appends a new policy version;
+prior policy-history bytes and roots remain unchanged.
+
+The exact modes are:
+
+- `fixed` records supported bad-path evidence but applies no adaptive change;
+- `recommend` independently reviews the applicable recommendation, records at
+  most one exact lower-mode request, and continues the safe frontier without
+  treating the recommendation as applied;
+- `reviewed-autonomous` applies inline and low-to-moderate reviewed changes,
+  while consequential product application remains externally owned; and
+- `full-autonomous` applies reversible, mission-preserving, in-authority
+  decisions through their existing owners after any required automated review.
+  It emits zero human requests for ordinary engineering judgment.
+
+Candidate budgets admit at most one active lane per decision and target and
+bound files, changed lines, commands, elapsed minutes, mapped comparisons, and
+review passes. Independent review, resource-exhaustion Stop, and protected-
+regression Stop cannot be disabled. Exceeding a ceiling retires the candidate
+and continues unaffected safe work. The mode never changes repository-write,
+command, skill-maintenance, Gmail, credential, spend, destructive, deployment,
+release, or promotion permissions. Each mutating disposition cites its existing
+`repository_write` permission; a missing permission becomes an exact reserved
+subject rather than an adaptive grant.
+
+Before a user-facing question in `full-autonomous`, resolve current sources,
+choose the safest reversible supported option, or retain a bounded assumption
+with a revisit trigger. A genuinely unavailable or out-of-authority act records
+`reserved-external`, exact blocked subjects, the remaining safe frontier, and a
+revisit trigger without requesting a human or Resume action. One bounded
+automated independent review is permitted when required. Equivalent decision
+and currentness state deduplicates in the existing event ledger.
+
+Use the existing policy, event, and status owners:
+
+```bash
+python3 scripts/supervision_log.py adjust \
+  --target-thread <target-thread-id> \
+  --adaptive-decision-mode full-autonomous \
+  --candidate-max-active-lanes 1 \
+  --candidate-max-files 3 \
+  --candidate-max-changed-lines 120 \
+  --candidate-max-commands 6 \
+  --candidate-max-elapsed-minutes 20 \
+  --candidate-max-mapped-comparisons 1 \
+  --candidate-max-review-passes 1 \
+  --reason <operator-directive> --evidence <source-record>
+
+python3 scripts/supervision_log.py adaptive-decision-gate \
+  --target-thread <target-thread-id> \
+  --decision-id <decision-id> \
+  --state-fingerprint <sha256> \
+  --disposition correct-inline \
+  --judgment-class ordinary-engineering \
+  --consequence-class routine \
+  --reversible yes --mission-preserving yes \
+  --required-permission repository_write \
+  --independent-review-complete yes \
+  --safe-frontier <remaining-work>
+
+python3 scripts/supervision_log.py status \
+  --target-thread <target-thread-id>
+```
+
+`status` exposes the current mode and budget, legacy posture, decision and human-
+request counts, reserved deferrals, latest candidate use, safe frontier, and
+application posture. The adaptive gate records its result in `events.jsonl`
+through the canonical owner-relative, currentness-checked append path.
 
 ## Factory capability-evolution workflow
 

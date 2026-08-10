@@ -113,6 +113,49 @@ SKILL_MAINTENANCE_MODES = {
     "apply-supervision-maintenance",
     "apply-allowlisted-skill-maintenance-with-review",
 }
+ADAPTIVE_DECISION_MODES = {
+    "fixed",
+    "recommend",
+    "reviewed-autonomous",
+    "full-autonomous",
+}
+ADAPTIVE_DISPOSITIONS = {
+    "continue-unchanged",
+    "correct-inline",
+    "compare-candidate",
+    "cutover-candidate",
+    "amend-structure",
+}
+ADAPTIVE_JUDGMENT_CLASSES = {
+    "ordinary-engineering",
+    "consequential-product-tradeoff",
+    "reserved-external",
+    "material-goal-change",
+}
+ADAPTIVE_CONSEQUENCE_CLASSES = {"routine", "low-moderate", "consequential"}
+ADAPTIVE_REVIEWED_DISPOSITIONS = {
+    "compare-candidate",
+    "cutover-candidate",
+    "amend-structure",
+}
+ADAPTIVE_PERMISSION_FIELDS = {
+    "repository_write",
+    "command_or_test_execution",
+    "bounded_thread_steer",
+    "bounded_supervision_maintenance",
+    "allowlisted_skill_maintenance",
+    "gmail_self_notification",
+    "gmail_inbound_processing",
+    "gmail_priority_notification",
+    "gmail_roundup_notification",
+}
+ADAPTIVE_DISPOSITION_PERMISSIONS = {
+    "continue-unchanged": [],
+    "correct-inline": ["repository_write"],
+    "compare-candidate": ["repository_write", "command_or_test_execution"],
+    "cutover-candidate": ["repository_write"],
+    "amend-structure": ["repository_write"],
+}
 FACTORY_EVOLUTION_ARTIFACT_NAMES = {
     "learning-packet.json",
     "prepare-manifest.json",
@@ -380,6 +423,116 @@ def skill_maintenance_contract(mode: str = "propose-only") -> dict[str, Any]:
         "independent_review_required": True,
         "refresh_active_roles_after_acceptance": True,
     }
+
+
+def adaptive_candidate_budget_contract() -> dict[str, Any]:
+    return {
+        "max_active_lanes_per_decision": 1,
+        "max_active_lanes_per_target": 1,
+        "max_files": 3,
+        "max_changed_lines": 120,
+        "max_commands": 6,
+        "max_elapsed_minutes": 20,
+        "max_mapped_comparisons": 1,
+        "max_review_passes": 1,
+        "independent_review_required": True,
+        "stop_on_resource_exhaustion": True,
+        "stop_on_protected_regression": True,
+    }
+
+
+def adaptive_decision_control_contract(
+    mode: str = "full-autonomous",
+    *,
+    candidate_budget: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    if mode not in ADAPTIVE_DECISION_MODES:
+        raise SupervisionLogError("Unsupported adaptive-decision mode")
+    budget = dict(candidate_budget or adaptive_candidate_budget_contract())
+    return {
+        "schema_version": 1,
+        "adaptive_decision_mode": mode,
+        "candidate_budget": budget,
+        "unchanged_fast_path": "fingerprint-currentness-only",
+        "permission_posture": "never-expand-non-adaptive-permissions",
+        "required_independent_review": sorted(ADAPTIVE_REVIEWED_DISPOSITIONS),
+        "input_avoidance": {
+            "enabled": mode == "full-autonomous",
+            "ordinary_human_request_limit": 0 if mode == "full-autonomous" else 1,
+            "automated_review_pass_limit": 1,
+            "reversible_default": "safest-source-backed-option",
+            "assumption_posture": "bounded-assumption-with-revisit-trigger",
+            "unavailable_act_posture": "reserved-external-no-request",
+            "continue_safe_frontier": True,
+        },
+    }
+
+
+def validate_adaptive_decision_control(value: Mapping[str, Any]) -> None:
+    expected_keys = {
+        "schema_version",
+        "adaptive_decision_mode",
+        "candidate_budget",
+        "unchanged_fast_path",
+        "permission_posture",
+        "required_independent_review",
+        "input_avoidance",
+    }
+    mode = value.get("adaptive_decision_mode")
+    if (
+        set(value) != expected_keys
+        or type(value.get("schema_version")) is not int
+        or value.get("schema_version") != 1
+        or mode not in ADAPTIVE_DECISION_MODES
+        or value.get("unchanged_fast_path") != "fingerprint-currentness-only"
+        or value.get("permission_posture")
+        != "never-expand-non-adaptive-permissions"
+        or value.get("required_independent_review")
+        != sorted(ADAPTIVE_REVIEWED_DISPOSITIONS)
+    ):
+        raise SupervisionLogError("Adaptive-decision control contract differs")
+    budget = value.get("candidate_budget")
+    expected_budget_keys = set(adaptive_candidate_budget_contract())
+    if not isinstance(budget, Mapping) or set(budget) != expected_budget_keys:
+        raise SupervisionLogError("Adaptive candidate budget shape differs")
+    exact_limits = {
+        "max_active_lanes_per_decision": (1, 1),
+        "max_active_lanes_per_target": (1, 1),
+        "max_files": (1, 64),
+        "max_changed_lines": (1, 5000),
+        "max_commands": (1, 100),
+        "max_elapsed_minutes": (1, 240),
+        "max_mapped_comparisons": (1, 1),
+        "max_review_passes": (1, 1),
+    }
+    for field, (minimum, maximum) in exact_limits.items():
+        item = budget.get(field)
+        if type(item) is not int or not minimum <= item <= maximum:
+            raise SupervisionLogError(f"Adaptive candidate budget {field} is invalid")
+    for field in (
+        "independent_review_required",
+        "stop_on_resource_exhaustion",
+        "stop_on_protected_regression",
+    ):
+        if budget.get(field) is not True:
+            raise SupervisionLogError(f"Adaptive candidate budget {field} must remain enabled")
+    input_avoidance = value.get("input_avoidance")
+    expected_input = adaptive_decision_control_contract(str(mode))["input_avoidance"]
+    if input_avoidance != expected_input:
+        raise SupervisionLogError("Adaptive input-avoidance contract differs")
+
+
+def ensure_adaptive_decision_policy(
+    policy: dict[str, Any], *, mode: str = "full-autonomous"
+) -> bool:
+    current = policy.get("adaptive_decision_control")
+    if current is None:
+        policy["adaptive_decision_control"] = adaptive_decision_control_contract(mode)
+        return True
+    if not isinstance(current, Mapping):
+        raise SupervisionLogError("Adaptive-decision policy is malformed")
+    validate_adaptive_decision_control(current)
+    return False
 
 
 def decision_resolution_contract() -> dict[str, Any]:
@@ -1172,6 +1325,7 @@ def default_policy(args: argparse.Namespace) -> dict[str, Any]:
         "decision_resolution": decision_resolution_contract(),
         "cross_thread_routing": cross_thread_routing_contract(),
         "skill_maintenance": skill_maintenance_contract(),
+        "adaptive_decision_control": adaptive_decision_control_contract(),
         "reports": {
             "weekly": weekly_report_contract(),
             "terminal": terminal_report_contract(),
@@ -1341,6 +1495,11 @@ def validate_policy(policy: dict[str, Any]) -> None:
             raise SupervisionLogError("Unsupported skill-maintenance mode")
         if maintenance.get("allowlist") != ALLOWLISTED_MAINTENANCE_SKILLS:
             raise SupervisionLogError("Skill-maintenance allowlist differs")
+    adaptive = policy.get("adaptive_decision_control")
+    if adaptive is not None:
+        if not isinstance(adaptive, Mapping):
+            raise SupervisionLogError("Adaptive-decision policy is malformed")
+        validate_adaptive_decision_control(adaptive)
     economy = policy.get("execution_economy")
     if economy is not None and canonical(economy) not in {
         canonical(execution_economy_contract()),
@@ -2933,6 +3092,8 @@ def cmd_bind(args: argparse.Namespace) -> None:
         "roundup_automation_id": args.roundup_automation,
     }
     changed = ensure_execution_economy_policy(policy)
+    if ensure_adaptive_decision_policy(policy):
+        changed = True
     requested_mission = mission_binding_from_args(args, required=False)
     current_mission = bound_mission(policy)
     if requested_mission is not None:
@@ -8241,8 +8402,16 @@ def cmd_adjust(args: argparse.Namespace) -> None:
         "gmail_active_minutes": args.gmail_active_minutes,
         "gmail_active_window_minutes": args.gmail_active_window_minutes,
         "skill_maintenance_mode": args.skill_maintenance_mode,
+        "adaptive_decision_mode": getattr(args, "adaptive_decision_mode", None),
+        "candidate_max_active_lanes": getattr(args, "candidate_max_active_lanes", None),
+        "candidate_max_files": getattr(args, "candidate_max_files", None),
+        "candidate_max_changed_lines": getattr(args, "candidate_max_changed_lines", None),
+        "candidate_max_commands": getattr(args, "candidate_max_commands", None),
+        "candidate_max_elapsed_minutes": getattr(args, "candidate_max_elapsed_minutes", None),
+        "candidate_max_mapped_comparisons": getattr(args, "candidate_max_mapped_comparisons", None),
+        "candidate_max_review_passes": getattr(args, "candidate_max_review_passes", None),
     }
-    changed = False
+    changed = ensure_adaptive_decision_policy(policy)
     if requested["routine_minutes"] is not None:
         value = int(requested["routine_minutes"])
         if not 15 <= value <= 60:
@@ -8324,6 +8493,43 @@ def cmd_adjust(args: argparse.Namespace) -> None:
             mode == "apply-allowlisted-skill-maintenance-with-review"
         )
         changed = True
+    adaptive_requested = any(
+        requested[key] is not None
+        for key in (
+            "adaptive_decision_mode",
+            "candidate_max_active_lanes",
+            "candidate_max_files",
+            "candidate_max_changed_lines",
+            "candidate_max_commands",
+            "candidate_max_elapsed_minutes",
+            "candidate_max_mapped_comparisons",
+            "candidate_max_review_passes",
+        )
+    )
+    if adaptive_requested:
+        adaptive = dict(policy["adaptive_decision_control"])
+        budget = dict(adaptive["candidate_budget"])
+        mode = requested["adaptive_decision_mode"] or adaptive["adaptive_decision_mode"]
+        budget_updates = {
+            "max_active_lanes_per_decision": requested["candidate_max_active_lanes"],
+            "max_active_lanes_per_target": requested["candidate_max_active_lanes"],
+            "max_files": requested["candidate_max_files"],
+            "max_changed_lines": requested["candidate_max_changed_lines"],
+            "max_commands": requested["candidate_max_commands"],
+            "max_elapsed_minutes": requested["candidate_max_elapsed_minutes"],
+            "max_mapped_comparisons": requested["candidate_max_mapped_comparisons"],
+            "max_review_passes": requested["candidate_max_review_passes"],
+        }
+        for key, value in budget_updates.items():
+            if value is not None:
+                budget[key] = int(value)
+        replacement = adaptive_decision_control_contract(
+            str(mode), candidate_budget=budget
+        )
+        validate_adaptive_decision_control(replacement)
+        if replacement != policy["adaptive_decision_control"]:
+            policy["adaptive_decision_control"] = replacement
+            changed = True
     if not changed:
         raise SupervisionLogError("No bounded policy field was supplied")
     write_policy_version(
@@ -8334,6 +8540,435 @@ def cmd_adjust(args: argparse.Namespace) -> None:
         evidence_values=evidence_values,
     )
     print(json.dumps({"changed": True, "policy": policy}, sort_keys=True))
+
+
+def adaptive_decision_posture(
+    policy: Mapping[str, Any], packet: Mapping[str, Any]
+) -> dict[str, Any]:
+    expected_packet_fields = {
+        "decision_id",
+        "state_fingerprint",
+        "disposition",
+        "judgment_class",
+        "consequence_class",
+        "reversible",
+        "mission_preserving",
+        "required_permission",
+        "independent_review_complete",
+        "request_human_input",
+        "candidate_budget_use",
+        "protected_regression",
+        "blocked_subjects",
+        "safe_frontier",
+        "revisit_trigger",
+    }
+    if set(packet) != expected_packet_fields:
+        raise SupervisionLogError("Adaptive decision packet shape differs")
+    if not isinstance(packet["decision_id"], str):
+        raise SupervisionLogError("Adaptive decision ID must be a string")
+    decision_id = safe_id(packet["decision_id"], label="adaptive decision ID")
+    if not isinstance(packet["state_fingerprint"], str):
+        raise SupervisionLogError("Adaptive state fingerprint must be a string")
+    state_fingerprint = exact_sha256(
+        packet["state_fingerprint"], label="adaptive state fingerprint"
+    )
+    disposition = packet["disposition"]
+    judgment_class = packet["judgment_class"]
+    consequence_class = packet["consequence_class"]
+    if disposition not in ADAPTIVE_DISPOSITIONS:
+        raise SupervisionLogError("Unsupported adaptive disposition")
+    if judgment_class not in ADAPTIVE_JUDGMENT_CLASSES:
+        raise SupervisionLogError("Unsupported adaptive judgment class")
+    if consequence_class not in ADAPTIVE_CONSEQUENCE_CLASSES:
+        raise SupervisionLogError("Unsupported adaptive consequence class")
+    for field in (
+        "reversible",
+        "mission_preserving",
+        "independent_review_complete",
+        "request_human_input",
+        "protected_regression",
+    ):
+        if type(packet[field]) is not bool:
+            raise SupervisionLogError(f"Adaptive decision {field} must be boolean")
+    required_permission = packet["required_permission"]
+    if not isinstance(required_permission, str):
+        raise SupervisionLogError("Adaptive permission field must be a string")
+    if required_permission != "none" and required_permission not in ADAPTIVE_PERMISSION_FIELDS:
+        raise SupervisionLogError("Unsupported adaptive permission field")
+    required_permissions = ADAPTIVE_DISPOSITION_PERMISSIONS[disposition]
+    expected_permission = required_permissions[0] if required_permissions else "none"
+    if required_permission != expected_permission:
+        raise SupervisionLogError(
+            "Adaptive disposition does not match its required permission ceiling"
+        )
+    for field in ("blocked_subjects", "safe_frontier"):
+        values = packet[field]
+        if (
+            not isinstance(values, list)
+            or len(values) > 16
+            or any(
+                type(item) is not str
+                or not clean(item, label=field, maximum=160)
+                for item in values
+            )
+            or len(values) != len(set(values))
+        ):
+            raise SupervisionLogError(f"Adaptive decision {field} differs")
+    if type(packet["revisit_trigger"]) is not str:
+        raise SupervisionLogError("Adaptive revisit trigger must be a string")
+    revisit_trigger = clean(
+        packet["revisit_trigger"], label="adaptive revisit trigger", maximum=200
+    )
+    control = policy.get("adaptive_decision_control")
+    legacy = control is None
+    if legacy:
+        control = adaptive_decision_control_contract("fixed")
+    if not isinstance(control, Mapping):
+        raise SupervisionLogError("Adaptive-decision policy is malformed")
+    validate_adaptive_decision_control(control)
+    mode = str(control["adaptive_decision_mode"])
+    budget = control["candidate_budget"]
+    usage = packet["candidate_budget_use"]
+    usage_fields = {
+        "active_lanes_for_decision",
+        "active_lanes_for_target",
+        "files",
+        "changed_lines",
+        "commands",
+        "elapsed_minutes",
+        "mapped_comparisons",
+        "review_passes",
+    }
+    if not isinstance(usage, Mapping) or set(usage) != usage_fields:
+        raise SupervisionLogError("Adaptive candidate usage shape differs")
+    for field, item in usage.items():
+        if type(item) is not int or item < 0:
+            raise SupervisionLogError(f"Adaptive candidate usage {field} is invalid")
+    if disposition not in {"compare-candidate", "cutover-candidate"} and (
+        any(usage.values()) or packet["protected_regression"] is True
+    ):
+        raise SupervisionLogError(
+            "Candidate usage and protected regression require a candidate disposition"
+        )
+    budget_exceeded = any(
+        (
+            usage["active_lanes_for_decision"] > budget["max_active_lanes_per_decision"],
+            usage["active_lanes_for_target"] > budget["max_active_lanes_per_target"],
+            usage["files"] > budget["max_files"],
+            usage["changed_lines"] > budget["max_changed_lines"],
+            usage["commands"] > budget["max_commands"],
+            usage["elapsed_minutes"] > budget["max_elapsed_minutes"],
+            usage["mapped_comparisons"] > budget["max_mapped_comparisons"],
+            usage["review_passes"] > budget["max_review_passes"],
+        )
+    )
+    permission_results = {
+        field: policy.get("permissions", {}).get(field) is True
+        for field in required_permissions
+    }
+    permission_granted = all(permission_results.values())
+    review_required = bool(
+        disposition in ADAPTIVE_REVIEWED_DISPOSITIONS
+        or (mode == "recommend" and disposition != "continue-unchanged")
+    )
+    review_complete = packet["independent_review_complete"] is True
+    reserved = (
+        judgment_class in {"reserved-external", "material-goal-change"}
+        or packet["mission_preserving"] is not True
+        or packet["reversible"] is not True
+        or (
+            mode in {"reviewed-autonomous", "full-autonomous"}
+            and disposition != "continue-unchanged"
+            and not permission_granted
+        )
+    )
+    if mode == "full-autonomous" and packet["request_human_input"] is True:
+        raise SupervisionLogError(
+            "Full-autonomous mode forbids a human request; resolve or reserve externally"
+        )
+    if budget_exceeded or packet["protected_regression"] is True:
+        application_posture = "stop-and-retire-candidate"
+        next_action = "continue-unaffected-safe-frontier"
+        application_authorized = False
+        reserved = False
+    elif reserved:
+        if not packet["blocked_subjects"] or not revisit_trigger:
+            raise SupervisionLogError(
+                "Reserved-external posture requires blocked subjects and a revisit trigger"
+            )
+        application_posture = "reserved-external"
+        next_action = "continue-safe-frontier-without-human-request"
+        application_authorized = False
+    elif review_required and not review_complete:
+        application_posture = "automated-independent-review-required"
+        next_action = "obtain-one-bounded-automated-review"
+        application_authorized = False
+    elif disposition == "continue-unchanged":
+        application_posture = "continue-unchanged"
+        next_action = "continue-current-block"
+        application_authorized = False
+    elif mode == "fixed":
+        application_posture = "record-only"
+        next_action = "continue-safe-frontier-without-application"
+        application_authorized = False
+    elif mode == "recommend":
+        application_posture = "recommendation-only"
+        next_action = "continue-safe-frontier-pending-external-application"
+        application_authorized = False
+    elif (
+        mode == "reviewed-autonomous"
+        and consequence_class == "consequential"
+    ):
+        application_posture = "external-application-authority-required"
+        next_action = "continue-safe-frontier-pending-external-application"
+        application_authorized = False
+    else:
+        application_posture = "apply-autonomously"
+        next_action = "apply-through-existing-owner-and-continue"
+        application_authorized = True
+    request_allowed = mode != "full-autonomous" and application_posture in {
+        "recommendation-only",
+        "external-application-authority-required",
+        "reserved-external",
+    }
+    if packet["request_human_input"] is True and not request_allowed:
+        raise SupervisionLogError("Adaptive human request is not eligible")
+    human_request_count = 1 if packet["request_human_input"] is True else 0
+    if human_request_count:
+        next_action = "continue-safe-frontier-pending-external-response"
+    result = {
+        "schema_version": 1,
+        "decision_id": decision_id,
+        "state_fingerprint": state_fingerprint,
+        "adaptive_decision_mode": mode,
+        "legacy_policy_posture": legacy,
+        "disposition": disposition,
+        "judgment_class": judgment_class,
+        "consequence_class": consequence_class,
+        "required_permission": required_permission,
+        "required_permissions": list(required_permissions),
+        "permission_results": permission_results,
+        "permission_granted": permission_granted,
+        "reversible": packet["reversible"],
+        "mission_preserving": packet["mission_preserving"],
+        "independent_review_required": review_required,
+        "independent_review_complete": review_complete,
+        "candidate_budget": dict(budget),
+        "candidate_budget_use": dict(usage),
+        "budget_exceeded": budget_exceeded,
+        "protected_regression": packet["protected_regression"],
+        "application_posture": application_posture,
+        "application_authorized": application_authorized,
+        "human_request_count": human_request_count,
+        "reserved_external": application_posture == "reserved-external",
+        "blocked_subjects": list(packet["blocked_subjects"]),
+        "safe_frontier": list(packet["safe_frontier"]),
+        "revisit_trigger": revisit_trigger,
+        "next_action": next_action,
+        "policy_sha256": policy.get("policy_sha256"),
+    }
+    result["result_sha256"] = digest(result)
+    return result
+
+
+def adaptive_status_projection(
+    policy: Mapping[str, Any], all_events: Sequence[Mapping[str, Any]]
+) -> dict[str, Any]:
+    configured = policy.get("adaptive_decision_control")
+    legacy = configured is None
+    control = (
+        adaptive_decision_control_contract("fixed")
+        if configured is None
+        else configured
+    )
+    if not isinstance(control, Mapping):
+        raise SupervisionLogError("Adaptive-decision policy is malformed")
+    validate_adaptive_decision_control(control)
+    decision_events: list[dict[str, Any]] = []
+    event_only_fields = {
+        "record_id",
+        "timestamp",
+        "target_thread_id",
+        "kind",
+        "previous_record_sha256",
+        "record_sha256",
+    }
+    for item in all_events:
+        if item.get("kind") != "adaptive-decision":
+            continue
+        normalized = dict(item)
+        result_material = {
+            key: value
+            for key, value in normalized.items()
+            if key not in event_only_fields | {"result_sha256"}
+        }
+        if (
+            normalized.get("result_sha256") != digest(result_material)
+            or type(normalized.get("human_request_count")) is not int
+            or normalized.get("human_request_count") not in {0, 1}
+            or normalized.get("adaptive_decision_mode") not in ADAPTIVE_DECISION_MODES
+            or normalized.get("disposition") not in ADAPTIVE_DISPOSITIONS
+            or not isinstance(normalized.get("candidate_budget"), Mapping)
+        ):
+            raise SupervisionLogError("Canonical adaptive decision event is invalid")
+        validate_adaptive_decision_control(
+            adaptive_decision_control_contract(
+                str(normalized["adaptive_decision_mode"]),
+                candidate_budget=normalized["candidate_budget"],
+            )
+        )
+        decision_events.append(normalized)
+    human_request_count = sum(
+        int(item.get("human_request_count", 0)) for item in decision_events
+    )
+    reserved = [item for item in decision_events if item.get("reserved_external") is True]
+    last = decision_events[-1] if decision_events else None
+    return {
+        "schema_version": 1,
+        "adaptive_decision_mode": control["adaptive_decision_mode"],
+        "legacy_policy_posture": legacy,
+        "candidate_budget": dict(control["candidate_budget"]),
+        "decision_count": len(decision_events),
+        "human_request_count": human_request_count,
+        "reserved_external_count": len(reserved),
+        "last_decision": last,
+        "last_candidate_budget_use": (
+            last.get("candidate_budget_use") if last is not None else None
+        ),
+        "last_safe_frontier": last.get("safe_frontier") if last is not None else [],
+        "last_application_posture": (
+            last.get("application_posture") if last is not None else None
+        ),
+    }
+
+
+def cmd_adaptive_decision_gate(args: argparse.Namespace) -> None:
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        all_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
+    usage = {
+        "active_lanes_for_decision": args.active_lanes_for_decision,
+        "active_lanes_for_target": args.active_lanes_for_target,
+        "files": args.candidate_files,
+        "changed_lines": args.candidate_changed_lines,
+        "commands": args.candidate_commands,
+        "elapsed_minutes": args.candidate_elapsed_minutes,
+        "mapped_comparisons": args.mapped_comparisons,
+        "review_passes": args.review_passes,
+    }
+    packet = {
+        "decision_id": args.decision_id,
+        "state_fingerprint": args.state_fingerprint,
+        "disposition": args.disposition,
+        "judgment_class": args.judgment_class,
+        "consequence_class": args.consequence_class,
+        "reversible": yes_no_value(args.reversible, label="reversible"),
+        "mission_preserving": yes_no_value(
+            args.mission_preserving, label="mission preserving"
+        ),
+        "required_permission": args.required_permission,
+        "independent_review_complete": yes_no_value(
+            args.independent_review_complete,
+            label="independent review complete",
+        ),
+        "request_human_input": args.request_human_input,
+        "candidate_budget_use": usage,
+        "protected_regression": args.protected_regression,
+        "blocked_subjects": args.blocked_subject,
+        "safe_frontier": args.safe_frontier,
+        "revisit_trigger": args.revisit_trigger,
+    }
+    result = adaptive_decision_posture(policy, packet)
+    record = {
+        "schema_version": 1,
+        "record_id": "",
+        "timestamp": utc_now(),
+        "target_thread_id": args.target_thread,
+        "kind": "adaptive-decision",
+        **result,
+    }
+    with owner_append_lock(
+        root_from(args), args.target_thread, directory_snapshot
+    ) as directory_fd:
+        require_bound_policy_at(
+            directory_fd,
+            expected_policy=policy,
+            expected_snapshot=policy_snapshot,
+        )
+        current_events, current_event_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        if current_event_snapshot != event_snapshot or current_events != all_events:
+            raise SupervisionLogError(
+                "Adaptive decision event head changed; retry current decision state"
+            )
+        prior = [
+            item
+            for item in current_events
+            if item.get("kind") == "adaptive-decision"
+            and item.get("decision_id") == result["decision_id"]
+        ]
+        if prior:
+            comparable = {
+                key: value
+                for key, value in prior[-1].items()
+                if key
+                not in {
+                    "record_id",
+                    "timestamp",
+                    "previous_record_sha256",
+                    "record_sha256",
+                }
+            }
+            current = {
+                key: value
+                for key, value in record.items()
+                if key not in {"record_id", "timestamp"}
+            }
+            if comparable == current:
+                print(
+                    json.dumps(
+                        {"duplicate": True, "record": prior[-1]}, sort_keys=True
+                    )
+                )
+                return
+            if (
+                prior[-1].get("human_request_count") == 1
+                and record["human_request_count"] == 1
+            ):
+                raise SupervisionLogError(
+                    "Adaptive decision already emitted its bounded human request"
+                )
+        record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
+        previous = (
+            str(current_events[-1]["record_sha256"]) if current_events else None
+        )
+        append_raw_locked_at(
+            directory_fd,
+            "events.jsonl",
+            record,
+            previous_record_sha256=previous,
+            expected_file_snapshot=current_event_snapshot,
+            require_event_anchor=bool(current_events),
+        )
+        current_directory_snapshot = path_snapshot(directory)
+        if (
+            current_directory_snapshot is None
+            or current_directory_snapshot[:2] != directory_snapshot[:2]
+        ):
+            raise SupervisionLogError(
+                "Adaptive decision owner changed during append; retry current decision state"
+            )
+        written_events, _written_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        record = written_events[-1]
+    print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
 
 
 def factory_evolution_module() -> Any:
@@ -10101,6 +10736,7 @@ def cmd_status(args: argparse.Namespace) -> None:
     ]
     transition_heads = successor_transition_heads(all_events)
     open_transitions = successor_transition_heads(all_events, open_only=True)
+    adaptive_control = adaptive_status_projection(policy, all_events)
     control_posture = reduce_control_posture(
         directory=directory,
         policy=policy,
@@ -10154,6 +10790,7 @@ def cmd_status(args: argparse.Namespace) -> None:
                 "open_decisions": open_decisions,
                 "successor_transition_count": len(transition_heads),
                 "open_successor_transitions": list(open_transitions.values()),
+                "adaptive_decision_control": adaptive_control,
                 "control_posture": control_posture,
                 "required_target_posture": control_posture[
                     "required_target_posture"
@@ -10575,9 +11212,66 @@ def parser() -> argparse.ArgumentParser:
         "--skill-maintenance-mode",
         choices=sorted(SKILL_MAINTENANCE_MODES),
     )
+    adjust.add_argument(
+        "--adaptive-decision-mode",
+        choices=sorted(ADAPTIVE_DECISION_MODES),
+    )
+    adjust.add_argument("--candidate-max-active-lanes", type=int)
+    adjust.add_argument("--candidate-max-files", type=int)
+    adjust.add_argument("--candidate-max-changed-lines", type=int)
+    adjust.add_argument("--candidate-max-commands", type=int)
+    adjust.add_argument("--candidate-max-elapsed-minutes", type=int)
+    adjust.add_argument("--candidate-max-mapped-comparisons", type=int)
+    adjust.add_argument("--candidate-max-review-passes", type=int)
     adjust.add_argument("--reason", required=True)
     adjust.add_argument("--evidence", action="append", default=[])
     adjust.set_defaults(func=cmd_adjust)
+
+    adaptive_gate = subparsers.add_parser("adaptive-decision-gate")
+    adaptive_gate.add_argument("--target-thread", required=True)
+    adaptive_gate.add_argument("--decision-id", required=True)
+    adaptive_gate.add_argument("--state-fingerprint", required=True)
+    adaptive_gate.add_argument(
+        "--disposition", choices=sorted(ADAPTIVE_DISPOSITIONS), required=True
+    )
+    adaptive_gate.add_argument(
+        "--judgment-class",
+        choices=sorted(ADAPTIVE_JUDGMENT_CLASSES),
+        required=True,
+    )
+    adaptive_gate.add_argument(
+        "--consequence-class",
+        choices=sorted(ADAPTIVE_CONSEQUENCE_CLASSES),
+        required=True,
+    )
+    adaptive_gate.add_argument("--reversible", choices=("yes", "no"), required=True)
+    adaptive_gate.add_argument(
+        "--mission-preserving", choices=("yes", "no"), required=True
+    )
+    adaptive_gate.add_argument(
+        "--required-permission",
+        choices=["none", *sorted(ADAPTIVE_PERMISSION_FIELDS)],
+        required=True,
+    )
+    adaptive_gate.add_argument(
+        "--independent-review-complete",
+        choices=("yes", "no"),
+        required=True,
+    )
+    adaptive_gate.add_argument("--request-human-input", action="store_true")
+    adaptive_gate.add_argument("--active-lanes-for-decision", type=int, default=0)
+    adaptive_gate.add_argument("--active-lanes-for-target", type=int, default=0)
+    adaptive_gate.add_argument("--candidate-files", type=int, default=0)
+    adaptive_gate.add_argument("--candidate-changed-lines", type=int, default=0)
+    adaptive_gate.add_argument("--candidate-commands", type=int, default=0)
+    adaptive_gate.add_argument("--candidate-elapsed-minutes", type=int, default=0)
+    adaptive_gate.add_argument("--mapped-comparisons", type=int, default=0)
+    adaptive_gate.add_argument("--review-passes", type=int, default=0)
+    adaptive_gate.add_argument("--protected-regression", action="store_true")
+    adaptive_gate.add_argument("--blocked-subject", action="append", default=[])
+    adaptive_gate.add_argument("--safe-frontier", action="append", default=[])
+    adaptive_gate.add_argument("--revisit-trigger", default="")
+    adaptive_gate.set_defaults(func=cmd_adaptive_decision_gate)
 
     weekly_report = subparsers.add_parser("weekly-report")
     weekly_report.add_argument("--target-thread", required=True)
