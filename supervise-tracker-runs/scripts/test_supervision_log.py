@@ -5973,6 +5973,108 @@ class MissionContainmentContractTests(unittest.TestCase):
                     stale_event,
                 )
 
+    def test_cmd_record_rejects_stale_policy_after_winning_mutation(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            init = supervision_log.parser().parse_args(
+                [
+                    "--root",
+                    temporary,
+                    "init",
+                    "--target-thread",
+                    self.target,
+                    "--target-label",
+                    "target",
+                    "--watcher-thread",
+                    "watcher-1234",
+                    "--reviewer-thread",
+                    "reviewer-1234",
+                    "--mission-source-class",
+                    "tracker",
+                    "--mission-source-record",
+                    "MISSION-A",
+                    "--mission-source-sha256",
+                    "a" * 64,
+                ]
+            )
+            with redirect_stdout(io.StringIO()):
+                supervision_log.cmd_init(init)
+            directory = Path(temporary, self.target)
+            stale_policy = supervision_log.read_json(directory / "policy.json")
+            record = supervision_log.parser().parse_args(
+                [
+                    "--root",
+                    temporary,
+                    "record",
+                    "--target-thread",
+                    self.target,
+                    "--kind",
+                    "check",
+                    "--model",
+                    "gpt-5.6-sol",
+                    "--reasoning",
+                    "xhigh",
+                    "--status",
+                    "no-intervention",
+                    "--state-fingerprint",
+                    "stale-record-fingerprint",
+                    "--summary",
+                    "This stale record must not enter the canonical ledger.",
+                ]
+            )
+            record_waiting = threading.Event()
+            winner_finished = threading.Event()
+            outcome: dict[str, object] = {}
+            real_append_lock = supervision_log.append_lock
+
+            @contextmanager
+            def delayed_record_lock(path: Path):
+                record_waiting.set()
+                if not winner_finished.wait(timeout=5):
+                    raise AssertionError("Winning policy mutation did not finish")
+                with real_append_lock(path):
+                    yield
+
+            def run_stale_record() -> None:
+                try:
+                    with redirect_stdout(io.StringIO()):
+                        supervision_log.cmd_record(record)
+                except Exception as exc:  # noqa: BLE001 - captured for thread assertion
+                    outcome["error"] = exc
+
+            with mock.patch.object(
+                supervision_log, "append_lock", delayed_record_lock
+            ):
+                thread = threading.Thread(target=run_stale_record)
+                thread.start()
+                try:
+                    self.assertTrue(record_waiting.wait(timeout=5))
+                    winning_policy = supervision_log.read_json(
+                        directory / "policy.json"
+                    )
+                    supervision_log.write_policy_version(
+                        directory,
+                        winning_policy,
+                        kind="policy-test",
+                        reason="Winning mutation advances the canonical policy.",
+                        evidence_values=["test-winning-policy"],
+                    )
+                finally:
+                    winner_finished.set()
+                    thread.join(timeout=5)
+
+            self.assertFalse(thread.is_alive())
+            self.assertIsInstance(
+                outcome.get("error"), supervision_log.SupervisionLogError
+            )
+            self.assertRegex(str(outcome["error"]), "changed concurrently")
+            current_policy = supervision_log.read_json(directory / "policy.json")
+            self.assertNotEqual(
+                current_policy["policy_sha256"], stale_policy["policy_sha256"]
+            )
+            self.assertEqual(
+                supervision_log.events(directory / "events.jsonl"), []
+            )
+
     def test_accepted_legacy_binding_remains_readable_and_bind_upgrades_it(self) -> None:
         policy = self.policy()
         policy["mission_binding"] = supervision_log.legacy_mission_binding_contract(

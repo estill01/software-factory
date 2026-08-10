@@ -4664,7 +4664,7 @@ def cmd_record(args: argparse.Namespace) -> None:
             finally:
                 os.close(verified_directory_fd)
         else:
-            append_raw_locked(directory / "events.jsonl", record)
+            append_event_locked(args, directory, record)
         if incident_path is not None:
             append_markdown(incident_path, record, create=args.kind == "incident")
         if review_path is not None and review_record is not None:
