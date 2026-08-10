@@ -11,7 +11,7 @@ import os
 import tempfile
 import threading
 import unittest
-from contextlib import contextmanager, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -419,6 +419,363 @@ class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
             self.assertIn(evidence_class, reconciliation_contract)
         self.assertIn('"owner_class"', reconciliation_contract)
         self.assertIn("source JSON remains caller-owned", policy)
+
+
+class EventHeadReconcileTests(unittest.TestCase):
+    target = "event-head-target-1234"
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "init",
+                "--target-thread",
+                self.target,
+                "--target-label",
+                "Event head target",
+                "--watcher-thread",
+                "event-head-watcher-1234",
+                "--reviewer-thread",
+                "event-head-reviewer-1234",
+                "--mission-source-class",
+                "tracker",
+                "--mission-source-record",
+                "tracker:event-head-test",
+                "--mission-source-sha256",
+                "a" * 64,
+            ]
+        )
+        with redirect_stdout(io.StringIO()):
+            args.func(args)
+        self.directory = self.root / self.target
+        self.ledger = self.directory / "events.jsonl"
+        self.anchor = self.directory / supervision_log.EVENT_LEDGER_ANCHOR_NAME
+        for status in ("one", "two", "three"):
+            self.append_event(status)
+        self.set_anchor_count(2)
+
+    def append_event(self, status: str) -> dict[str, object]:
+        current = supervision_log.events(self.ledger)
+        supervision_log.append_raw(
+            self.ledger,
+            {
+                "schema_version": 1,
+                "record_id": f"EVT-{len(current) + 1:06d}",
+                "timestamp": supervision_log.utc_now(),
+                "target_thread_id": self.target,
+                "kind": "check",
+                "status": status,
+                "summary": f"Event head test {status}.",
+            },
+        )
+        return supervision_log.events(self.ledger)[-1]
+
+    def set_anchor_count(self, count: int) -> None:
+        supervision_log.atomic_json(
+            self.anchor,
+            supervision_log.event_ledger_anchor(
+                supervision_log.events(self.ledger)[:count]
+            ),
+        )
+
+    def reconcile_args(self) -> argparse.Namespace:
+        return supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "event-head-reconcile",
+                "--target-thread",
+                self.target,
+            ]
+        )
+
+    def reconcile(self) -> dict[str, object]:
+        output = io.StringIO()
+        args = self.reconcile_args()
+        with redirect_stdout(output):
+            args.func(args)
+        return json.loads(output.getvalue())
+
+    def test_strict_prefix_recovery_preserves_events_and_enables_next_append(
+        self,
+    ) -> None:
+        event_bytes = self.ledger.read_bytes()
+        policy_bytes = (self.directory / "policy.json").read_bytes()
+        history_bytes = (self.directory / "policy-history.jsonl").read_bytes()
+        current = supervision_log.events(self.ledger)
+
+        result = self.reconcile()
+
+        self.assertTrue(result["reconciled"])
+        self.assertTrue(result["events_unchanged"])
+        self.assertEqual(result["previous_event_count"], 2)
+        self.assertEqual(result["event_count"], 3)
+        self.assertEqual(self.ledger.read_bytes(), event_bytes)
+        self.assertEqual((self.directory / "policy.json").read_bytes(), policy_bytes)
+        self.assertEqual(
+            (self.directory / "policy-history.jsonl").read_bytes(), history_bytes
+        )
+        supervision_log.validate_event_ledger_anchor(
+            self.directory, current, allow_missing=False
+        )
+
+        appended = self.append_event("four")
+        updated_bytes = self.ledger.read_bytes()
+        updated = supervision_log.events(self.ledger)
+        self.assertTrue(updated_bytes.startswith(event_bytes))
+        self.assertEqual(len(updated), 4)
+        self.assertEqual(updated[-1]["record_sha256"], appended["record_sha256"])
+        self.assertEqual(
+            updated[-1]["previous_record_sha256"], current[-1]["record_sha256"]
+        )
+        supervision_log.validate_event_ledger_anchor(
+            self.directory, updated, allow_missing=False
+        )
+
+    def test_missing_malformed_and_invalid_anchor_are_refused(self) -> None:
+        stale_anchor = self.anchor.read_bytes()
+
+        self.anchor.unlink()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "missing, malformed, or unsafe"
+        ):
+            self.reconcile()
+
+        self.anchor.write_bytes(b"{not-json\n")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "missing, malformed, or unsafe"
+        ):
+            self.reconcile()
+
+        self.anchor.write_bytes(stale_anchor)
+        invalid = supervision_log.read_json(self.anchor)
+        invalid["unexpected"] = True
+        supervision_log.atomic_json(self.anchor, invalid)
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "not an exact ledger prefix"
+        ):
+            self.reconcile()
+
+    def test_nonprefix_mismatched_ahead_and_current_anchors_are_refused(self) -> None:
+        current = supervision_log.events(self.ledger)
+
+        divergent = supervision_log.event_ledger_anchor(
+            [{"record_sha256": "f" * 64}]
+        )
+        supervision_log.atomic_json(self.anchor, divergent)
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "not an exact ledger prefix"
+        ):
+            self.reconcile()
+
+        mismatched = supervision_log.event_ledger_anchor(current[:1])
+        mismatched["event_head_sha256"] = current[1]["record_sha256"]
+        mismatched["anchor_sha256"] = supervision_log.digest(
+            {
+                key: value
+                for key, value in mismatched.items()
+                if key != "anchor_sha256"
+            }
+        )
+        supervision_log.atomic_json(self.anchor, mismatched)
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "not an exact ledger prefix"
+        ):
+            self.reconcile()
+
+        ahead = supervision_log.event_ledger_anchor(
+            [*current, {"record_sha256": "e" * 64}]
+        )
+        supervision_log.atomic_json(self.anchor, ahead)
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "ahead of the ledger"
+        ):
+            self.reconcile()
+
+        supervision_log.atomic_json(
+            self.anchor, supervision_log.event_ledger_anchor(current)
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "already current"
+        ):
+            self.reconcile()
+
+    def test_broken_and_re_rooted_event_chains_are_refused(self) -> None:
+        original = self.ledger.read_bytes()
+        rows = supervision_log.events(self.ledger)
+        broken = copy.deepcopy(rows)
+        broken[-1]["previous_record_sha256"] = "f" * 64
+        self.ledger.write_bytes(
+            b"".join(supervision_log.canonical(item) + b"\n" for item in broken)
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "broken hash chain|stale record hash"
+        ):
+            self.reconcile()
+
+        self.ledger.write_bytes(original)
+        previous = None
+        re_rooted = []
+        for index, item in enumerate(rows):
+            material = {
+                key: value
+                for key, value in item.items()
+                if key not in {"previous_record_sha256", "record_sha256"}
+            }
+            if index == 0:
+                material["summary"] = "Re-rooted event chain."
+            material["previous_record_sha256"] = previous
+            material["record_sha256"] = supervision_log.digest(material)
+            previous = material["record_sha256"]
+            re_rooted.append(material)
+        self.ledger.write_bytes(
+            b"".join(
+                supervision_log.canonical(item) + b"\n" for item in re_rooted
+            )
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "not an exact ledger prefix"
+        ):
+            self.reconcile()
+
+        supervision_log.atomic_json(
+            self.anchor, supervision_log.event_ledger_anchor([])
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "does not bind the ledger genesis"
+        ):
+            self.reconcile()
+
+    def test_lock_snapshot_and_concurrent_change_fail_closed(self) -> None:
+        anchor_bytes = self.anchor.read_bytes()
+
+        @contextmanager
+        def lost_lock(_directory_fd: int):
+            raise supervision_log.SupervisionLogError("append lock unavailable")
+            yield
+
+        with (
+            mock.patch.object(
+                supervision_log, "append_lock_at", side_effect=lost_lock
+            ),
+            self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "append lock unavailable"
+            ),
+        ):
+            self.reconcile()
+        self.assertEqual(self.anchor.read_bytes(), anchor_bytes)
+
+        original_read = supervision_log.read_text_snapshot
+        event_reads = 0
+
+        def lose_snapshot(path: Path, **kwargs: object):
+            nonlocal event_reads
+            text, snapshot = original_read(path, **kwargs)
+            if path.name == "events.jsonl":
+                event_reads += 1
+                if event_reads == 2 and snapshot is not None:
+                    snapshot = (*snapshot[:3], snapshot[3] + 1)
+            return text, snapshot
+
+        with (
+            mock.patch.object(
+                supervision_log, "read_text_snapshot", side_effect=lose_snapshot
+            ),
+            self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "changed during reconciliation"
+            ),
+        ):
+            self.reconcile()
+        self.assertEqual(self.anchor.read_bytes(), anchor_bytes)
+
+        anchor_reads = 0
+
+        def change_ledger(path: Path, **kwargs: object):
+            nonlocal anchor_reads
+            result = original_read(path, **kwargs)
+            if path.name == supervision_log.EVENT_LEDGER_ANCHOR_NAME:
+                anchor_reads += 1
+                if anchor_reads == 1:
+                    current = supervision_log.events(self.ledger)
+                    material = {
+                        "schema_version": 1,
+                        "record_id": "EVT-000004",
+                        "timestamp": supervision_log.utc_now(),
+                        "target_thread_id": self.target,
+                        "kind": "check",
+                        "status": "concurrent",
+                        "summary": "Concurrent event.",
+                        "previous_record_sha256": current[-1]["record_sha256"],
+                    }
+                    material["record_sha256"] = supervision_log.digest(material)
+                    with self.ledger.open("ab") as handle:
+                        handle.write(supervision_log.canonical(material) + b"\n")
+            return result
+
+        with (
+            mock.patch.object(
+                supervision_log, "read_text_snapshot", side_effect=change_ledger
+            ),
+            self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "changed during reconciliation"
+            ),
+        ):
+            self.reconcile()
+        self.assertEqual(self.anchor.read_bytes(), anchor_bytes)
+
+    def test_symlink_and_owner_path_substitution_are_refused(self) -> None:
+        event_bytes = self.ledger.read_bytes()
+        outside_events = self.root / "outside-events.jsonl"
+        self.ledger.rename(outside_events)
+        self.ledger.symlink_to(outside_events)
+        with self.assertRaises(supervision_log.SupervisionLogError):
+            self.reconcile()
+        self.assertEqual(outside_events.read_bytes(), event_bytes)
+
+        self.ledger.unlink()
+        outside_events.rename(self.ledger)
+        anchor_bytes = self.anchor.read_bytes()
+        outside_anchor = self.root / "outside-anchor.json"
+        self.anchor.rename(outside_anchor)
+        self.anchor.symlink_to(outside_anchor)
+        with self.assertRaises(supervision_log.SupervisionLogError):
+            self.reconcile()
+        self.assertEqual(outside_anchor.read_bytes(), anchor_bytes)
+
+        self.anchor.unlink()
+        outside_anchor.rename(self.anchor)
+        preserved = self.root / "preserved-target"
+        self.directory.rename(preserved)
+        self.directory.symlink_to(preserved, target_is_directory=True)
+        with self.assertRaises(supervision_log.SupervisionLogError):
+            self.reconcile()
+        self.assertEqual((preserved / "events.jsonl").read_bytes(), event_bytes)
+
+    def test_cli_has_no_caller_supplied_ledger_identity(self) -> None:
+        for forbidden in (
+            ["--event-count", "2"],
+            ["--event-head-sha256", "f" * 64],
+            ["--genesis-record-sha256", "e" * 64],
+            ["--replacement-path", "events.jsonl"],
+        ):
+            with (
+                redirect_stderr(io.StringIO()),
+                self.assertRaises(SystemExit),
+            ):
+                supervision_log.parser().parse_args(
+                    [
+                        "--root",
+                        str(self.root),
+                        "event-head-reconcile",
+                        "--target-thread",
+                        self.target,
+                        *forbidden,
+                    ]
+                )
 
 
 class SuccessorTransitionContractTests(unittest.TestCase):
