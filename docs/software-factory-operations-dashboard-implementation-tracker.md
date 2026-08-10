@@ -2830,7 +2830,28 @@ ordinary chart interaction; widen only on explicit source drill-down.
   its exact metric/table/source views. Full-profile tracker verification remained
   Blocks 0–25 with 0 errors/warnings, all 30 verifier tests passed, diff checks
   passed, and the remote resolved to the exact successor.
-- Fresh independent exact-revision review and acceptance: pending.
+- Corrective evidence revision
+  `a5b50e76e445173369ab85edb19204a2f42e1f0f`, tree
+  `b037c8f45951899fbf4ba12f901d605ab3c5a6e0`, was independently `REJECTED`
+  on one residual source-navigation row only. The reviewer closed incompatible
+  aggregation, unavailable-as-zero, and metric explainability/context, but
+  proved that linking an event range to its first retained record could target
+  an event outside the run workspace's mounted newest-50 page. The rejected
+  evidence and its three closed rows remain immutable; Block 10 did not start.
+- Residual drill-down successor:
+  `c7edaa4741149aec0ebc02f931ad0de4697332e0`, tree
+  `7da54d3b8dac8b8e619230d1d138b412a692a824`, parent
+  `a5b50e76e445173369ab85edb19204a2f42e1f0f`. Both event-range entry points
+  retain the full exact first–latest source identity but navigate to the latest
+  canonical event, which is guaranteed to be present in the run workspace's
+  newest page. The focused Reports component suite passed 8/8, the production
+  TypeScript build passed, the exact live drill-down test passed 3/3 across
+  desktop, tablet, and mobile, and each browser case proved that the destination
+  hash resolved to a mounted element rather than checking the URL alone. Diff
+  checks passed and the remote resolved to the exact successor.
+- Fresh independent exact-revision review and acceptance: pending for the one
+  residual source-navigation row; the three previously closed rows are not
+  reopened.
 
 ### Stop
 
