@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "kind": "software-factory-bounded-candidate-pre-run-contract",
+  "created_at": "2026-08-10T04:00:56.000000Z",
+  "predecessor_revision": "20c3ff5fd66714fdb9046efb8977918e6d39ffc0",
+  "tracker_source_revision": "ac09b46110d5af73f010e18836b5f1fc5cd655be",
+  "tracker_sha256": "3902dfb3e0c3002160f3b361b1959c005b6ad21d2842cb951bc33813ff200bc0",
+  "block_number": 6,
+  "candidate_trigger": {
+    "disposition": "compare-candidate",
+    "reason": "material-better-path",
+    "source_class": "tracker",
+    "source_root": "3902dfb3e0c3002160f3b361b1959c005b6ad21d2842cb951bc33813ff200bc0"
+  },
+  "hypothesis": "a bounded mid-level compression implementation may materially reduce representative artifact bytes without a material runtime, API, semantic, maintenance, compatibility, protected-capability, or restoration regression",
+  "hypothesis_scope": [
+    {
+      "owner_id": "owner-target-production",
+      "path": "/software-factory-candidate-target/stream_export.py",
+      "content_root": "776bbfd3f521f4b9247a279acfbe35dc218db8c9a4e43393873f05e5e6176047"
+    }
+  ],
+  "representative_workload": {
+    "schema_version": 1,
+    "kind": "deterministic-compression-corpus",
+    "row_count": 1000,
+    "index_format": "row-%04d-",
+    "repeated_utf8": "ABCD",
+    "repeat_count": 64,
+    "suffix_alphabet": "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "suffix_repeat_count": 32,
+    "join_separator_hex": "0a"
+  },
+  "validation_runtime": {
+    "schema_version": 1,
+    "kind": "python-stdlib-zlib",
+    "algorithm": "zlib.compress",
+    "python_executable": "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/bin/python3.9",
+    "python_executable_sha256": "0bd93edaf7552f46edeb6bda6ad5388982d9b45e85c2b5c84e730a5eaadac76d",
+    "python_version": "3.9.6",
+    "zlib_version": "1.2.12",
+    "system": "Darwin",
+    "system_release": "25.5.0",
+    "machine": "arm64"
+  },
+  "performance_protocol": {
+    "clock": "process_time_ns",
+    "warmup_pairs": 3,
+    "sample_pairs": 15,
+    "calls_per_sample": 10,
+    "order": "alternating-incumbent-candidate",
+    "summary": "median-ratio-basis-points",
+    "maximum_interquartile_spread_basis_points": 3000
+  },
+  "materiality_criterion": {
+    "minimum_artifact_byte_reduction": 50,
+    "minimum_reduction_basis_points": 150,
+    "maximum_candidate_runtime_basis_points": 12500,
+    "maximum_changed_lines": 2,
+    "maximum_restore_steps": 1,
+    "rationale": "require both a nontrivial absolute change and at least a 1.5 percent representative-size improvement while rejecting a 25 percent or larger runtime regression and any unbounded implementation or restoration cost"
+  },
+  "capability_contract": {
+    "statement": "export a semantically identical compressed artifact through the stable bytes API with a materially smaller observed artifact",
+    "protected_capabilities": ["semantic-roundtrip", "stable-bytes-api"],
+    "expected_observable_effect": "the decompressed payload remains identical while the representative compressed artifact is measurably smaller",
+    "success_criteria": ["materially-smaller-artifact", "semantic-roundtrip", "stable-bytes-api"],
+    "cleanup_retention_posture": "winner stays isolated for Block 9; every other lane is retired with only immutable non-authoritative evidence"
+  },
+  "resource_ceiling": {
+    "max_files": 3,
+    "max_changed_lines": 120,
+    "max_commands": 6,
+    "max_review_passes": 1,
+    "time_ceiling_minutes": 20,
+    "review_ceiling_minutes": 10
+  },
+  "candidate_source_posture": "not-yet-implemented",
+  "stop": "before candidate implementation evidence, independent disposition, cutover, tracker mutation, policy change, publication, or external release"
+}
