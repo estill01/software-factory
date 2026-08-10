@@ -6,7 +6,6 @@ const baseURL =
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
-  workers: 1,
   forbidOnly: true,
   retries: 0,
   reporter: "line",
