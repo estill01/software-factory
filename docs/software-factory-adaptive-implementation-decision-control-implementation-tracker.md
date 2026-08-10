@@ -657,8 +657,8 @@ continuous cognition the price of ordinary execution.
 | 4 | Freeze the three-path adaptive decision-control contract | 3 | `completed` |
 | 5 | Correct bad implementation decisions inline and continue | 4 | `completed` |
 | 6 | Build and independently compare one bounded parallel candidate | 5 | `completed` |
-| 7 | Add configurable adaptive authority, budgets, and human-input posture | 5, 6 | `in-progress` |
-| 8 | Amend and apply the tracker only for structural invalidation | 4, 7 | `not-started` |
+| 7 | Add configurable adaptive authority, budgets, and human-input posture | 5, 6 | `completed` |
+| 8 | Amend and apply the tracker only for structural invalidation | 4, 7 | `in-progress` |
 | 9 | Cut over a winning candidate, reconcile currentness, and resume | 6, 7 | `not-started` |
 | 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `not-started` |
 | 11 | Dogfood all decision paths and document demonstrated operation | 10 | `not-started` |
@@ -1968,7 +1968,7 @@ Stop before cutover, tracker amendment, or policy-mode changes.
 
 ## Block 7 — Add configurable adaptive authority, budgets, and human-input posture
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -2094,7 +2094,94 @@ reversible defaults, and attempts to hide mission change behind full autonomy.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: exact accepted merge
+  `65757ec6f0c71b0b237d632c52e9600231f60f6d`, with parents
+  `2e932b926691dac38fb280e1f635ac7936a5022e` and
+  `6d497456be0bb6362428f31406cda7e2bbabf11b`, on
+  `codex/control-plane-foundation`, pushed to `origin`; active signed release
+  `65757ec6f0c7-07a23ea68087`.
+- Policy and authority: new policies default to `full-autonomous`; legacy
+  policies remain readable and unchanged until explicit bind/adjust. The
+  canonical policy exposes the four exact adaptive modes, one-lane and bounded
+  file/change/command/time/mapped/review ceilings, and separate repository,
+  allowlisted-skill, external-action, destructive, spend, release, deployment,
+  and production-promotion permissions. A higher adaptive mode never grants an
+  unrelated permission.
+- Application boundary: the public adaptive reducer never emits consumable
+  write authority. An applicable in-authority decision ends at
+  `owner-application-ready` with `application_authorized=false` and one exact
+  precondition root; only the target owner may rehydrate that precondition and
+  atomically revalidate current policy, mission, repository revision, tracker,
+  Block/capability roots, affected bytes, protected results, retained candidate
+  evidence, role separation, budgets, and event head before mutation. Stale or
+  post-validation target drift rejects without appending an authorizing event.
+- Autonomy posture: `full-autonomous` resolves ordinary reversible engineering
+  judgments without a human request. Unavailable external authority becomes a
+  content-minimized `reserved-external` posture with blocked subjects, safe
+  frontier, and revisit trigger; lower-mode request suppression is keyed to the
+  canonical decision fingerprint rather than caller decision IDs. Direct
+  policy, currentness, frontier, review, classification, and head assertions
+  cannot manufacture authority.
+- Candidate/resource posture: retained candidate artifacts, commands,
+  chronology, protected results, validation/comparison roots, and source basis
+  are rederived under the exact repository owner. One active lane is derived
+  from canonical mission-scoped events; configured ceilings are exact and
+  protected regression or exhaustion stops the lane. Equivalent candidate
+  decisions deduplicate before another producer or reviewer cycle.
+- Mission/invocation integration: mission succession preserves the adaptive
+  contract but scopes status, governing/currentness heads, active-lane
+  frontiers, review resolution, and deduplication to the current mission.
+  Predecessor adaptive history remains append-only but cannot block or authorize
+  the successor. Pending mission activation remains a terminal gate, and the
+  invocation-envelope behavior from the active predecessor release is
+  preserved.
+- Focused validation: adaptive-policy suite `26/26`; invocation-envelope suite
+  `5/5`; all focused tests passed.
+- Mapped validation: supervision suite `286/286` under the maintained Python
+  runtime; author suite `30/30`; all three fixed Skill Creator validators;
+  full-profile verifier found Blocks 0–17 with no errors or warnings;
+  `py_compile`, isolated-archive, exact-parent diff, and clean-tree checks
+  passed.
+- Independent source review: `/root/block2_review` found no issues on exact
+  merge `65757ec6f0c71b0b237d632c52e9600231f60f6d` after replaying policy,
+  permission, candidate, role, timing, currentness, mission-scoping, and
+  append-boundary attacks. Signed release-review record
+  `block7-release-candidate-65757ec6`, review root
+  `10ffdce9cc9c163ea669f2f15462a17761a8b6d56e8567355496efa6aef5c7e6`,
+  candidate root
+  `d58a19e167ff8160a42a44b2e9e68b96b09dba1519e021c40ca071812774abfa`,
+  and sealed record SHA-256
+  `fc77f4fed7d7ef2b3f52039cd992c8d729bf9d2e89b59a0dce7b8be98e04ab86`.
+- Release activation: manifest root
+  `7b2cedf8c6b59d85a78f7f13945aeacf2f5e1d58bac9d48bf8286161948a1bf2`;
+  sequence-8 one-use operator permit
+  `software-factory-activate-65757ec6f0c7-07a23ea68087`, permit/ledger head
+  `e8ae1bcc11b02c70e80188f276f6b7cda1b679cfeca122cea61cc9f59b803365`;
+  `RELEASE-ACCEPTANCE-8` HMAC
+  `d2d4dc68601af56d2f11bd3333a8dbc3cab3c925ad9dcf928ccd205a62cc17c2`;
+  `ACTIVATION-8` HMAC
+  `d2edb0d332204d4b22fd8292d497d91612e4294221339af02db7f0e0d5e55f30`;
+  post-swap reload root
+  `58d76fa777b1cf65bc32fdfabcc6cb2422cb11b355dd793b4823a8f70c56226b`.
+- Installed outcome: stable discovery links resolve author root
+  `343fb12d47d32537157baeb9aec72434c449df1c9c864438ead4bb97fc7851a3`
+  (8 files), implementation root
+  `d5290de89fb03cfd11de3653f7c90345fb766636a31ed7a95d225240e8c51eaf`
+  (17 files), and supervision root
+  `64f707c88537cc25a57f91fb3dbb7596b99204eb7f5f7fa175bff5fe7790b6ca`
+  (18 files). Fresh installed-only probes accepted target-drift rejection,
+  nonauthorizing owner readiness, stale-precondition rejection, predecessor
+  mission isolation, pending-activation terminal gating, zero ordinary human
+  requests, exact budget/status output, and intact invocation behavior.
+- Remediation closure: rejected revisions `1c76843`, `e5a2ba6`, and their
+  predecessors remain durable history for self-authorized policy/frontier/head
+  inputs, protected-regression gaps, chronology and budget assertions,
+  currentness races, permission laundering, review/source substitution, and
+  mission leakage. Exact successor regressions and installed probes close each
+  accepted finding without broadening repository or external authority.
+- Retained open work: Blocks 8–17 only. This Stop is an internal full-range
+  checkpoint; Block 8 is the next dependency-safe action and no human Resume is
+  required.
 
 ### Stop
 
@@ -2104,7 +2191,7 @@ Stop before structural tracker amendment or candidate cutover.
 
 ## Block 8 — Amend and apply the tracker only for structural invalidation
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 

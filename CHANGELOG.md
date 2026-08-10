@@ -108,6 +108,24 @@ the completed program materially changes Software Factory.
   that handoff without another lane, producer, or reviewer cycle. The method is
   installed in active release `3d984d9094c3-c689901b7413` with verification
   root `67703c07d630e9b10e9d47d55bc74484c3ec79c224524096bd9d67280cabc409`.
+- **Configurable adaptive authority with target-owner application.** Operators
+  can now select fixed, recommend, reviewed-autonomous, or full-autonomous
+  decision posture through canonical versioned supervision policy while
+  retaining independent candidate/self-change review, exact candidate resource
+  ceilings, and separate repository, skill, release, deployment, promotion,
+  destructive, spend, and external-action permissions. Full autonomy resolves
+  ordinary reversible engineering choices without a human scheduling gate;
+  unavailable external authority is reserved narrowly while safe work
+  continues. The decision layer itself remains nonauthorizing: it emits an
+  exact owner-ready precondition, and only the target owner can rehydrate and
+  atomically revalidate current policy, mission, source, scope, protected
+  results, candidate evidence, budgets, and event head before mutation.
+  Mission succession keeps predecessor adaptive history immutable but removes
+  it from current status, lane, review, and dedup authority. This behavior is
+  installed in release `65757ec6f0c7-07a23ea68087` from accepted merge
+  `65757ec6f0c71b0b237d632c52e9600231f60f6d`; fresh installed probes found no
+  target-drift authority leak, ordinary human request, or predecessor-mission
+  interference.
 
 - **Successor-transition continuity and structured failure-mode records.** A
   requested implementation that must cross into a distinct task now remains an
