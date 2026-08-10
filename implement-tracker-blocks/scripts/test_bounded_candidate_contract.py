@@ -9,8 +9,10 @@ import difflib
 import hashlib
 import json
 import math
+import platform
 import re
 import subprocess
+import sys
 import unittest
 import unicodedata
 import zlib
@@ -45,9 +47,11 @@ ADAPTIVE = (SKILL_ROOT / "references/adaptive-decision-control.md").read_text(en
 SPEC = json.loads(ADAPTIVE.split("<!-- contract-spec-v1 -->", 1)[1].split("```json", 1)[1].split("```", 1)[0])
 EXERCISE = load_strict_json(SKILL_ROOT / "fixtures/bounded_candidate_v1.json")
 REVIEW_FIXTURE = load_strict_json(SKILL_ROOT / "fixtures/bounded_candidate_reviews_v1.json")
+PRE_RUN = load_strict_json(SKILL_ROOT / "fixtures/bounded_candidate_prerun_v1.json")
 
-EXPECTED_EXERCISE_ROOT = "1428e8aae7dd94fd89102b667f95e12b33d569197867a3e1fc01091b3f105517"
-EXPECTED_REVIEW_FIXTURE_ROOT = "4e39ef8ac720b7db2f1981507f6ad93a2b1696b3d33de8e741c8efce1a473343"
+EXPECTED_EXERCISE_ROOT = "a039c787cb15df11e7fd1c2dbfd904a4b908540f5aa2ffea4900f359df383337"
+EXPECTED_REVIEW_FIXTURE_ROOT = "3bbf84c0823cecdd73110f60ff990f541bb20c14a9deeda868463a54811804e0"
+EXPECTED_PRE_RUN_ROOT = "f3fc594b4eca93ff75db127234a18ed494377575df82373695ac8754a9231bbb"
 GIT_EXECUTABLE = "/usr/bin/git"
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 REV_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -193,6 +197,21 @@ def block_contract_root() -> str:
     return exact_string(EXERCISE["block_contract_root"], "archive Block 6 root", SHA_RE)
 
 
+def pre_run_contract_root() -> str:
+    relative = "implement-tracker-blocks/fixtures/bounded_candidate_prerun_v1.json"
+    source_revision = EXERCISE["pre_run_contract"]["source_revision"]
+    probe = subprocess.run([GIT_EXECUTABLE, "rev-parse", "--is-inside-work-tree"], cwd=REPO_ROOT, capture_output=True, text=True)
+    frozen = subprocess.run([GIT_EXECUTABLE, "show", f"{source_revision}:{relative}"], cwd=REPO_ROOT, capture_output=True)
+    if frozen.returncode == 0:
+        value = json.loads(frozen.stdout, object_pairs_hook=reject_duplicate_pairs)
+        if type(value) is not dict:
+            raise ValueError("pre-run contract source differs")
+        return root(value)
+    if probe.returncode == 0:
+        raise ValueError("pre-run contract source cannot be resolved in live repository")
+    return exact_string(EXERCISE["pre_run_contract"]["contract_root"], "archive pre-run contract root", SHA_RE)
+
+
 def file_manifest(files: object, *, contained_by: str) -> list[dict[str, str]]:
     if type(files) is not list or not files:
         raise ValueError("artifact files differ")
@@ -248,7 +267,20 @@ def representative_payload() -> tuple[list[bytes], bytes]:
 
 def validation_runtime_root() -> str:
     runtime = EXERCISE["validation_runtime"]
-    if type(runtime) is not dict or set(runtime) != {"schema_version", "kind", "algorithm", "zlib_version"} or runtime != {"schema_version": 1, "kind": "python-stdlib-zlib", "algorithm": "zlib.compress", "zlib_version": zlib.ZLIB_RUNTIME_VERSION}:
+    executable = Path(sys.executable).resolve()
+    expected = {
+        "schema_version": 1,
+        "kind": "python-stdlib-zlib",
+        "algorithm": "zlib.compress",
+        "python_executable": str(executable),
+        "python_executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
+        "python_version": platform.python_version(),
+        "zlib_version": zlib.ZLIB_RUNTIME_VERSION,
+        "system": platform.system(),
+        "system_release": platform.release(),
+        "machine": platform.machine(),
+    }
+    if type(runtime) is not dict or runtime != expected:
         raise ValueError("validation runtime differs")
     return root(runtime)
 
@@ -274,30 +306,87 @@ def load_export(files: object, *, contained_by: str):
     return export
 
 
-def performance_posture(files: object, *, contained_by: str) -> str:
-    cache_key = root({"workload": EXERCISE["representative_workload"], "runtime": EXERCISE["validation_runtime"], "criterion": EXERCISE["materiality_criterion"], "incumbent": EXERCISE["incumbent"]["files"], "candidate": files})
-    if cache_key in PERFORMANCE_CACHE:
-        return PERFORMANCE_CACHE[cache_key]
+def benchmark_performance(files: object, *, contained_by: str) -> dict[str, object]:
     rows, _ = representative_payload()
     incumbent_export = load_export(EXERCISE["incumbent"]["files"], contained_by=EXERCISE["target_repository_root"])
     candidate_export = load_export(files, contained_by=contained_by)
-    for _ in range(3):
+    protocol = EXERCISE["performance_protocol"]
+    for _ in range(protocol["warmup_pairs"]):
         incumbent_export(rows)
         candidate_export(rows)
     incumbent_samples: list[int] = []
     candidate_samples: list[int] = []
-    for sample in range(15):
+    for sample in range(protocol["sample_pairs"]):
         ordered = ((candidate_export, candidate_samples), (incumbent_export, incumbent_samples)) if sample % 2 else ((incumbent_export, incumbent_samples), (candidate_export, candidate_samples))
         for operation, samples in ordered:
             started = process_time_ns()
-            for _ in range(10):
+            for _ in range(protocol["calls_per_sample"]):
                 operation(rows)
             samples.append(process_time_ns() - started)
-    ratio_basis_points = int(median(candidate_samples) * 10000) // int(median(incumbent_samples))
+    incumbent_median = int(median(incumbent_samples))
+    candidate_median = int(median(candidate_samples))
+    ratios = sorted((candidate * 10000) // incumbent for candidate, incumbent in zip(candidate_samples, incumbent_samples))
+    ratio_basis_points = candidate_median * 10000 // incumbent_median
+    spread = ratios[11] - ratios[3]
     maximum = EXERCISE["materiality_criterion"]["maximum_candidate_runtime_basis_points"]
-    posture = "candidate-not-materially-slower" if ratio_basis_points <= maximum else "candidate-materially-slower"
-    PERFORMANCE_CACHE[cache_key] = posture
-    return posture
+    if spread > protocol["maximum_interquartile_spread_basis_points"]:
+        posture = "inconclusive"
+    else:
+        posture = "candidate-not-materially-slower" if ratio_basis_points <= maximum else "candidate-materially-slower"
+    return {
+        "incumbent_samples_ns": incumbent_samples,
+        "candidate_samples_ns": candidate_samples,
+        "incumbent_median_ns": incumbent_median,
+        "candidate_median_ns": candidate_median,
+        "ratio_basis_points": ratio_basis_points,
+        "interquartile_spread_basis_points": spread,
+        "performance_posture": posture,
+    }
+
+
+def performance_evidence(artifact: dict[str, object], candidate_root: str) -> dict[str, object]:
+    mapped = artifact["mapped"]
+    if type(mapped) is not dict or type(mapped.get("performance_evidence")) is not dict:
+        raise ValueError("mapped performance evidence is absent")
+    value = copy.deepcopy(mapped["performance_evidence"])
+    exact_fields = {
+        "schema_version", "kind", "candidate_root", "representative_workload_root",
+        "validation_runtime_root", "performance_protocol_root", "recorded_at",
+        "incumbent_samples_ns", "candidate_samples_ns", "incumbent_median_ns",
+        "candidate_median_ns", "ratio_basis_points", "interquartile_spread_basis_points",
+        "performance_posture", "result_root",
+    }
+    if type(value) is not dict or set(value) != exact_fields or value["schema_version"] != 1 or value["kind"] != "software-factory-candidate-performance-result":
+        raise ValueError("performance evidence shape differs")
+    if value["candidate_root"] != candidate_root or value["representative_workload_root"] != root(EXERCISE["representative_workload"]) or value["validation_runtime_root"] != validation_runtime_root() or value["performance_protocol_root"] != root(EXERCISE["performance_protocol"]):
+        raise ValueError("performance evidence basis differs")
+    parse_time(value["recorded_at"], "performance evidence time")
+    protocol = EXERCISE["performance_protocol"]
+    for key in ("incumbent_samples_ns", "candidate_samples_ns"):
+        samples = value[key]
+        if type(samples) is not list or len(samples) != protocol["sample_pairs"]:
+            raise ValueError("performance sample count differs")
+        for sample in samples:
+            exact_int(sample, "performance sample", minimum=1, maximum=10_000_000_000)
+    incumbent_median = int(median(value["incumbent_samples_ns"]))
+    candidate_median = int(median(value["candidate_samples_ns"]))
+    ratios = sorted((candidate * 10000) // incumbent for candidate, incumbent in zip(value["candidate_samples_ns"], value["incumbent_samples_ns"]))
+    spread = ratios[11] - ratios[3]
+    ratio = candidate_median * 10000 // incumbent_median
+    posture = "inconclusive" if spread > protocol["maximum_interquartile_spread_basis_points"] else "candidate-not-materially-slower" if ratio <= EXERCISE["materiality_criterion"]["maximum_candidate_runtime_basis_points"] else "candidate-materially-slower"
+    if (value["incumbent_median_ns"], value["candidate_median_ns"], value["ratio_basis_points"], value["interquartile_spread_basis_points"], value["performance_posture"]) != (incumbent_median, candidate_median, ratio, spread, posture):
+        raise ValueError("performance evidence calculation differs")
+    raw = dict(value)
+    recorded_root = raw.pop("result_root")
+    if recorded_root != root(raw):
+        raise ValueError("performance evidence root differs")
+    cache_key = root({"candidate_root": candidate_root, "evidence_root": recorded_root})
+    if cache_key not in PERFORMANCE_CACHE:
+        fresh = benchmark_performance(artifact["files"], contained_by=EXERCISE["lane"]["root"])
+        PERFORMANCE_CACHE[cache_key] = fresh["performance_posture"]
+    if PERFORMANCE_CACHE[cache_key] != posture:
+        raise ValueError("current performance posture differs from retained evidence")
+    return value
 
 
 def execute_stream(files: object, *, contained_by: str) -> dict[str, object]:
@@ -337,11 +426,12 @@ def decision_points(files: object, *, contained_by: str) -> int:
 
 def derived_candidate_metrics(artifact: dict[str, object]) -> dict[str, object]:
     observed = execute_stream(artifact["files"], contained_by=EXERCISE["lane"]["root"])
+    performance = performance_evidence(artifact, artifact_root(artifact))
     compatibility: list[str] | None = []
     if artifact["mapped"]["output"] == "comparison=broader-compatibility-unavailable":
         compatibility = None
     return {
-        "observable-outcome": {"decompressed_sha256": observed["decompressed_sha256"], "artifact_bytes": observed["artifact_bytes"], "performance_posture": performance_posture(artifact["files"], contained_by=EXERCISE["lane"]["root"])},
+        "observable-outcome": {"decompressed_sha256": observed["decompressed_sha256"], "artifact_bytes": observed["artifact_bytes"], "performance_posture": performance["performance_posture"], "performance_result_root": performance["result_root"]},
         "implementation-cost": {"changed_lines": changed_lines(artifact["files"])},
         "maintenance-cost": {"decision_points": decision_points(artifact["files"], contained_by=EXERCISE["lane"]["root"])},
         "reversibility": {"restore_steps": 1},
@@ -353,7 +443,7 @@ def derived_candidate_metrics(artifact: dict[str, object]) -> dict[str, object]:
 def derived_incumbent_metrics() -> dict[str, object]:
     observed = execute_stream(EXERCISE["incumbent"]["files"], contained_by=EXERCISE["target_repository_root"])
     return {
-        "observable-outcome": {"decompressed_sha256": observed["decompressed_sha256"], "artifact_bytes": observed["artifact_bytes"], "performance_posture": "baseline"},
+        "observable-outcome": {"decompressed_sha256": observed["decompressed_sha256"], "artifact_bytes": observed["artifact_bytes"], "performance_posture": "baseline", "performance_result_root": None},
         "implementation-cost": {"changed_lines": 0},
         "maintenance-cost": {"decision_points": decision_points(EXERCISE["incumbent"]["files"], contained_by=EXERCISE["target_repository_root"])},
         "reversibility": {"restore_steps": 0},
@@ -387,6 +477,8 @@ def focused_result(artifact: dict[str, object], candidate_root: str) -> dict[str
         "kind": "software-factory-candidate-focused-result",
         "result_id": result_id("focused", candidate_root),
         "candidate_root": candidate_root,
+        "pre_run_contract_root": pre_run_contract_root(),
+        "lane_execution_root": root(EXERCISE["lane_execution"]),
         "representative_workload_root": root(EXERCISE["representative_workload"]),
         "validation_runtime_root": validation_runtime_root(),
         "recorded_at": exact_string(value["recorded_at"], "focused time"),
@@ -404,13 +496,15 @@ def validate_metrics(metrics: object) -> dict[str, object]:
     if type(metrics) is not dict or list(metrics) != DIMENSIONS:
         raise ValueError("mapped metrics differ")
     outcome = metrics["observable-outcome"]
-    if type(outcome) is not dict or set(outcome) != {"decompressed_sha256", "artifact_bytes", "performance_posture"}:
+    if type(outcome) is not dict or set(outcome) != {"decompressed_sha256", "artifact_bytes", "performance_posture", "performance_result_root"}:
         raise ValueError("observable metric differs")
     exact_string(outcome["decompressed_sha256"], "observable output", SHA_RE)
     if outcome["artifact_bytes"] is not None:
         exact_int(outcome["artifact_bytes"], "artifact bytes")
-    if outcome["performance_posture"] not in {"baseline", "candidate-not-materially-slower", "candidate-materially-slower"}:
+    if outcome["performance_posture"] not in {"baseline", "candidate-not-materially-slower", "candidate-materially-slower", "inconclusive"}:
         raise ValueError("performance posture differs")
+    if outcome["performance_result_root"] is not None:
+        exact_string(outcome["performance_result_root"], "performance result root", SHA_RE)
     for dimension, field in (
         ("implementation-cost", "changed_lines"),
         ("maintenance-cost", "decision_points"),
@@ -437,14 +531,14 @@ def mapped_result(artifact: dict[str, object], candidate_root: str, focused: dic
     value = artifact["mapped"]
     if value is None:
         return None
-    if type(value) is not dict or set(value) != {"recorded_at", "command", "exit_code", "output", "metrics"}:
+    if type(value) is not dict or set(value) != {"recorded_at", "command", "exit_code", "output", "metrics", "performance_evidence"}:
         raise ValueError("mapped result shape differs")
     metrics = value["metrics"]
     if metrics is not None:
         validate_metrics(metrics)
         if value["command"] != "embedded:mapped-compressed-export-v1" or value["exit_code"] != 0 or metrics != derived_candidate_metrics(artifact):
             raise ValueError("mapped result differs from executable candidate bytes")
-    elif value["command"] != "embedded:mapped-compressed-export-v1" or value["exit_code"] == 0:
+    elif value["command"] != "embedded:mapped-compressed-export-v1" or value["exit_code"] == 0 or value["performance_evidence"] is not None:
         raise ValueError("mapped failure differs")
     result = {
         "schema_version": 1,
@@ -457,6 +551,7 @@ def mapped_result(artifact: dict[str, object], candidate_root: str, focused: dic
         "command": exact_string(value["command"], "mapped command"),
         "exit_code": exact_int(value["exit_code"], "mapped exit", maximum=255),
         "output_sha256": bytes_root(exact_string(value["output"], "mapped output")),
+        "performance_result_root": metrics["observable-outcome"]["performance_result_root"] if metrics is not None else None,
         "metrics": metrics,
     }
     if parse_time(result["recorded_at"], "mapped time") <= parse_time(focused["recorded_at"], "focused time"):
@@ -468,7 +563,7 @@ def mapped_result(artifact: dict[str, object], candidate_root: str, focused: dic
 def validate_exercise() -> None:
     if root(EXERCISE) != EXPECTED_EXERCISE_ROOT or root(REVIEW_FIXTURE) != EXPECTED_REVIEW_FIXTURE_ROOT:
         raise ValueError("bounded candidate source root differs")
-    exact_exercise_fields = {"schema_version", "kind", "block_number", "tracker_source_revision", "tracker_sha256", "mission_root", "policy_root", "event_head_root", "block_contract_root", "representative_workload", "validation_runtime", "materiality_criterion", "candidate_trigger", "target_repository_root", "target_revision", "capability_contract", "incumbent", "lane", "hypothesis", "hypothesis_scope", "comparison_dimensions", "eligibility_evidence", "eligibility_default", "artifacts", "cases"}
+    exact_exercise_fields = {"schema_version", "kind", "block_number", "tracker_source_revision", "tracker_sha256", "mission_root", "policy_root", "event_head_root", "block_contract_root", "pre_run_contract", "lane_execution", "representative_workload", "validation_runtime", "performance_protocol", "materiality_criterion", "candidate_trigger", "target_repository_root", "target_revision", "capability_contract", "incumbent", "lane", "hypothesis", "hypothesis_scope", "comparison_dimensions", "eligibility_evidence", "eligibility_default", "artifacts", "cases"}
     if set(EXERCISE) != exact_exercise_fields:
         raise ValueError("bounded candidate exercise shape differs")
     if type(EXERCISE["schema_version"]) is not int or EXERCISE["schema_version"] != 2 or EXERCISE["kind"] != "software-factory-bounded-candidate-exercise" or type(EXERCISE["block_number"]) is not int or EXERCISE["block_number"] != 6:
@@ -481,16 +576,39 @@ def validate_exercise() -> None:
         raise ValueError("candidate trigger differs")
     if EXERCISE["block_contract_root"] != block_contract_root():
         raise ValueError("Block 6 contract root is stale")
+    pre_run = EXERCISE["pre_run_contract"]
+    if type(pre_run) is not dict or set(pre_run) != {"source_revision", "contract_root"}:
+        raise ValueError("pre-run contract identity differs")
+    exact_string(pre_run["source_revision"], "pre-run source revision", REV_RE)
+    if pre_run["contract_root"] != EXPECTED_PRE_RUN_ROOT or pre_run_contract_root() != EXPECTED_PRE_RUN_ROOT or root(PRE_RUN) != EXPECTED_PRE_RUN_ROOT:
+        raise ValueError("pre-run contract root differs")
+    lane_execution = EXERCISE["lane_execution"]
+    if type(lane_execution) is not dict or set(lane_execution) != {"schema_version", "kind", "pre_run_source_revision", "pre_run_contract_root", "lane_started_at", "implementation_started_at", "start_basis"} or lane_execution["schema_version"] != 1 or lane_execution["kind"] != "software-factory-bounded-candidate-lane-execution" or lane_execution["pre_run_source_revision"] != pre_run["source_revision"] or lane_execution["pre_run_contract_root"] != pre_run["contract_root"] or lane_execution["start_basis"] != "conservative-pre-run-checkpoint-commit-time":
+        raise ValueError("lane execution start differs")
+    lane_started = parse_time(lane_execution["lane_started_at"], "lane start")
+    implementation_started = parse_time(lane_execution["implementation_started_at"], "implementation start")
+    if implementation_started < lane_started:
+        raise ValueError("implementation predates lane start")
     representative_payload()
     runtime_root = validation_runtime_root()
+    protocol = EXERCISE["performance_protocol"]
+    if type(protocol) is not dict or set(protocol) != {"clock", "warmup_pairs", "sample_pairs", "calls_per_sample", "order", "summary", "maximum_interquartile_spread_basis_points"} or protocol["clock"] != "process_time_ns" or protocol["order"] != "alternating-incumbent-candidate" or protocol["summary"] != "median-ratio-basis-points":
+        raise ValueError("performance protocol differs")
+    exact_int(protocol["warmup_pairs"], "performance warmups", minimum=1, maximum=100)
+    exact_int(protocol["sample_pairs"], "performance samples", minimum=15, maximum=101)
+    exact_int(protocol["calls_per_sample"], "performance calls", minimum=1, maximum=1000)
+    exact_int(protocol["maximum_interquartile_spread_basis_points"], "performance spread", minimum=1, maximum=10000)
     materiality = EXERCISE["materiality_criterion"]
-    if type(materiality) is not dict or set(materiality) != {"minimum_artifact_byte_reduction", "minimum_reduction_basis_points", "maximum_candidate_runtime_basis_points", "maximum_changed_lines", "maximum_restore_steps"}:
+    if type(materiality) is not dict or set(materiality) != {"minimum_artifact_byte_reduction", "minimum_reduction_basis_points", "maximum_candidate_runtime_basis_points", "maximum_changed_lines", "maximum_restore_steps", "rationale"}:
         raise ValueError("candidate materiality criterion differs")
     exact_int(materiality["minimum_artifact_byte_reduction"], "minimum artifact byte reduction", minimum=1)
     exact_int(materiality["minimum_reduction_basis_points"], "minimum reduction basis points", minimum=1, maximum=10000)
     exact_int(materiality["maximum_candidate_runtime_basis_points"], "maximum candidate runtime basis points", minimum=1, maximum=100000)
     exact_int(materiality["maximum_changed_lines"], "maximum changed lines", minimum=0, maximum=1000)
     exact_int(materiality["maximum_restore_steps"], "maximum restore steps", minimum=0, maximum=100)
+    exact_string(materiality["rationale"], "materiality rationale")
+    if any(EXERCISE[key] != PRE_RUN[key] for key in ("representative_workload", "validation_runtime", "performance_protocol", "materiality_criterion", "capability_contract", "hypothesis", "hypothesis_scope")):
+        raise ValueError("candidate run differs from frozen pre-run contract")
     expected_mission = root({"source_class": "tracker", "tracker_sha256": EXERCISE["tracker_sha256"], "block_number": 6, "capability_contract": EXERCISE["capability_contract"]})
     expected_policy = root({"adaptive_decision_mode": "full-autonomous", "candidate_lane_limit": 1, "mission_root": expected_mission})
     expected_event = root({"event_id": "block6-exercise-genesis", "mission_root": expected_mission, "policy_root": expected_policy})
@@ -556,7 +674,7 @@ def validate_exercise() -> None:
     if (defaults["outcome_uncertainty_evidence_root"], defaults["implementation_evidence_root"], defaults["reversibility_evidence_root"]) != (root(eligibility_records["outcome_uncertainty"]), root(eligibility_records["implementation_evidence"]), root(eligibility_records["reversibility"])):
         raise ValueError("eligibility evidence roots differ")
     implementation_evidence = eligibility_records["implementation_evidence"]
-    if implementation_evidence.get("representative_workload_root") != root(EXERCISE["representative_workload"]) or implementation_evidence.get("validation_runtime_root") != runtime_root or implementation_evidence.get("materiality_criterion") != materiality:
+    if implementation_evidence.get("pre_run_contract_root") != pre_run["contract_root"] or implementation_evidence.get("representative_workload_root") != root(EXERCISE["representative_workload"]) or implementation_evidence.get("validation_runtime_root") != runtime_root or implementation_evidence.get("performance_protocol_root") != root(protocol) or implementation_evidence.get("materiality_criterion") != materiality:
         raise ValueError("implementation-evidence basis differs")
     validate_metrics(EXERCISE["incumbent"]["metrics"])
     if EXERCISE["incumbent"]["metrics"] != derived_incumbent_metrics():
@@ -572,6 +690,8 @@ def validate_exercise() -> None:
             raise ValueError("candidate artifact shape differs")
         candidate = artifact_root(artifact)
         focused = focused_result(artifact, candidate)
+        if parse_time(focused["recorded_at"], "focused time") <= implementation_started:
+            raise ValueError("focused proof predates implementation start")
         mapped_result(artifact, candidate, focused)
     if type(EXERCISE["cases"]) is not list or len({case["case_id"] for case in EXERCISE["cases"]}) != len(EXERCISE["cases"]):
         raise ValueError("case identity differs")
@@ -655,8 +775,10 @@ def decision_basis(case: dict[str, object], eligible: dict[str, object]) -> dict
         "hypothesis_scope": EXERCISE["hypothesis_scope"],
         "capability_contract": contract,
         "expected_observable_effect": contract["expected_observable_effect"],
+        "pre_run_contract_root": pre_run_contract_root(),
         "representative_workload_root": root(EXERCISE["representative_workload"]),
         "validation_runtime_root": validation_runtime_root(),
+        "performance_protocol_root": root(EXERCISE["performance_protocol"]),
         "materiality_criterion": EXERCISE["materiality_criterion"],
         "comparison_dimensions": DIMENSIONS,
         "eligibility_root": eligible["eligibility_root"],
@@ -813,10 +935,13 @@ def blind_review_packet(candidate_root: str, mapped: dict[str, object], comparis
         "target_revision_root": target_revision_root(),
         "incumbent_root": incumbent_root(),
         "candidate_root": candidate_root,
+        "pre_run_contract_root": pre_run_contract_root(),
+        "lane_execution_root": root(EXERCISE["lane_execution"]),
         "representative_workload_root": root(EXERCISE["representative_workload"]),
         "validation_runtime_root": validation_runtime_root(),
         "materiality_criterion": EXERCISE["materiality_criterion"],
         "focused_result_root": mapped["focused_result_root"],
+        "performance_result_root": mapped["performance_result_root"],
         "mapped_result_root": mapped["result_root"],
         "comparison_root": root(comparison),
         "comparison_dimensions": DIMENSIONS,
@@ -902,6 +1027,8 @@ def control_stop_result(artifact: dict[str, object], candidate_root: str, reason
         "kind": "software-factory-candidate-focused-result",
         "result_id": result_id("focused", candidate_root),
         "candidate_root": candidate_root,
+        "pre_run_contract_root": pre_run_contract_root(),
+        "lane_execution_root": root(EXERCISE["lane_execution"]),
         "representative_workload_root": root(EXERCISE["representative_workload"]),
         "validation_runtime_root": validation_runtime_root(),
         "recorded_at": exact_string(artifact["focused"]["recorded_at"], "control Stop time"),
@@ -1138,7 +1265,9 @@ def stage_records(case: dict[str, object], eligible: dict[str, object], candidat
     stages = list(dict.fromkeys(stages))
     records: list[dict[str, object]] = []
     previous: str | None = None
-    times = {"selected": focused_time - timedelta(seconds=2), "implementing": focused_time - timedelta(seconds=1), "validated": focused_time, "reviewed": review_time, terminal_stage: review_time + timedelta(seconds=1)}
+    lane_started = parse_time(EXERCISE["lane_execution"]["lane_started_at"], "lane start")
+    implementation_started = parse_time(EXERCISE["lane_execution"]["implementation_started_at"], "implementation start")
+    times = {"selected": lane_started, "implementing": implementation_started, "validated": focused_time, "reviewed": review_time, terminal_stage: review_time + timedelta(seconds=1)}
     for stage in stages:
         decision_id = f"candidate-{case['case_id']}-{stage}"
         current_state = root({"target_revision_root": target_revision_root(), "incumbent_root": incumbent_root(), "candidate_root": candidate_root, "stage": stage, "candidate_authoritative": False})
@@ -1269,6 +1398,8 @@ def derived_usage(
     focused: dict[str, object] | None = None,
     mapped: dict[str, object] | None = None,
     review: dict[str, object] | None = None,
+    prior_reviews: list[dict[str, object]] | None = None,
+    compare_expected: bool = True,
 ) -> dict[str, int]:
     reason = case.get("stop_reason")
     files = artifact["files"]
@@ -1280,31 +1411,39 @@ def derived_usage(
         commands = 1
     else:
         commands = 2
+    started = parse_time(EXERCISE["lane_execution"]["lane_started_at"], "lane start")
     if focused is None:
+        last = started
         elapsed_minutes = 0
     else:
-        started = parse_time(focused["recorded_at"], "focused time") - timedelta(seconds=2)
         last = parse_time(focused["recorded_at"], "focused time")
         if mapped is not None:
             last = parse_time(mapped["recorded_at"], "mapped time")
-        if review is not None:
-            review_time = parse_time(review["recorded_at"], "review time")
+        reviews = [*(prior_reviews or []), *([review] if review is not None else [])]
+        for item in reviews:
+            review_time = parse_time(item["recorded_at"], "review time")
             if review_time <= last:
                 raise ValueError("independent review does not follow retained producer evidence")
-            if review_time - last > timedelta(minutes=EXERCISE["eligibility_default"]["review_ceiling_minutes"]):
-                raise ValueError("independent review exceeds the review ceiling")
             last = review_time
         elapsed_minutes = max(1, math.ceil((last - started).total_seconds() / 60))
     value = {
         "files": file_count,
         "changed_lines": artifact_changed_lines(files),
         "commands": commands,
-        "review_passes": 1 if review is not None else 0,
+        "review_passes": len(prior_reviews or []) + (1 if review is not None else 0),
         "elapsed_minutes": elapsed_minutes,
     }
-    if review is not None and case["usage"] != value:
+    if review is not None and compare_expected and case["usage"] != value:
         raise ValueError("candidate usage differs from retained artifacts")
     return value
+
+
+def review_exceeds_ceiling(review: dict[str, object], producer: dict[str, object]) -> bool:
+    review_time = parse_time(review["recorded_at"], "review time")
+    producer_time = parse_time(producer["recorded_at"], "producer time")
+    if review_time <= producer_time:
+        raise ValueError("independent review does not follow retained producer evidence")
+    return review_time - producer_time > timedelta(minutes=EXERCISE["eligibility_default"]["review_ceiling_minutes"])
 
 
 def ceiling_exceeded(usage: dict[str, int]) -> bool:
@@ -1358,6 +1497,21 @@ def evaluate(case_id: str, *, accepted_head: dict[str, object] | None = None) ->
     comparison = comparison_records(mapped)
     packet = blind_review_packet(candidate_root, mapped, comparison)
     review = review_fixture_result(packet, comparison)
+    if review_exceeds_ceiling(review, mapped):
+        late_usage = derived_usage(case, artifact, focused=focused, mapped=mapped, review=review, compare_expected=False)
+        cause = {
+            "reason": "review-ceiling-expired",
+            "review_ceiling_minutes": EXERCISE["eligibility_default"]["review_ceiling_minutes"],
+            "mapped_result_root": mapped["result_root"],
+            "late_review_root": review["review_root"],
+            "late_review_recorded_at": review["recorded_at"],
+            "usage_at_detection": late_usage,
+        }
+        stop_packet = stop_review_packet(case, candidate_root, focused, mapped, "review-ceiling-expired", late_usage, cause)
+        stop_review = review_fixture_result(stop_packet, None)
+        usage = derived_usage(case, artifact, focused=focused, mapped=mapped, review=stop_review, prior_reviews=[review])
+        records = stage_records(case, eligible, candidate_root, focused, mapped, stop_review, "closed")
+        return {"action": "stop-retire", "lane_created": True, "review_cycle": True, "decision_fingerprint": fingerprint, "stop_reason": "review-ceiling-expired", "stop_cause": cause, "stop_review_packet": stop_packet, "resource_usage": usage, "stage_records": records, "candidate_root": candidate_root, "candidate_authoritative": False, "incumbent_authoritative": True, "isolation_cleanup": "retired-non-authoritative", "retained_evidence": [focused["result_root"], mapped["result_root"], review["review_root"], stop_review["review_root"]], "handoff": None, "cutover_performed": False, "tracker_mutated": False, "policy_mutated": False}
     usage = derived_usage(case, artifact, focused=focused, mapped=mapped, review=review)
     if ceiling_exceeded(usage):
         raise ValueError("candidate review completed outside the resource ceiling")
@@ -1381,6 +1535,11 @@ class BoundedCandidateContractTests(unittest.TestCase):
 
     def test_source_preflight_and_nonopaque_eligibility_include_reversibility(self) -> None:
         validate_exercise()
+        self.assertEqual(root(PRE_RUN), EXPECTED_PRE_RUN_ROOT)
+        self.assertEqual(EXERCISE["pre_run_contract"]["source_revision"], "c8b92ac48920b86587a1e39f5f16702de8b65554")
+        self.assertEqual(EXERCISE["pre_run_contract"]["contract_root"], EXPECTED_PRE_RUN_ROOT)
+        self.assertGreater(parse_time(EXERCISE["lane_execution"]["lane_started_at"], "lane start"), parse_time(PRE_RUN["created_at"], "pre-run creation"))
+        self.assertGreater(parse_time(EXERCISE["lane_execution"]["implementation_started_at"], "implementation start"), parse_time(EXERCISE["lane_execution"]["lane_started_at"], "lane start"))
         positive = eligibility(canonical_case("winning-candidate"))
         self.assertEqual(positive["bounded_cost_minutes"], 35)
         self.assertEqual(positive["net_avoidable_minutes"], 25)
@@ -1424,7 +1583,7 @@ class BoundedCandidateContractTests(unittest.TestCase):
             self.assertEqual(record["target_revision_root"], root({"target_revision": record["target_revision"]}))
 
     def test_all_post_creation_stops_close_with_evidence_cleanup_and_no_authority(self) -> None:
-        for case_id in ("ceiling-expired", "incumbent-conflict", "focused-failure", "mapped-failure", "protected-regression", "review-currentness-loss", "cancelled", "isolation-drift", "hypothesis-falsified"):
+        for case_id in ("ceiling-expired", "incumbent-conflict", "focused-failure", "mapped-failure", "protected-regression", "review-currentness-loss", "cancelled", "isolation-drift", "hypothesis-falsified", "review-timeout"):
             result = evaluate(case_id)
             self.assertEqual(result["action"], "stop-retire")
             self.assertEqual(result["stage_records"][-1]["decision_stage"], "closed")
@@ -1514,6 +1673,16 @@ class BoundedCandidateContractTests(unittest.TestCase):
         winning = evaluate("winning-candidate")
         self.assertEqual(winning["blind_review_packet"]["representative_workload_root"], root(EXERCISE["representative_workload"]))
         self.assertEqual(winning["blind_review_packet"]["validation_runtime_root"], validation_runtime_root())
+        performance = EXERCISE["artifacts"]["candidate-winning"]["mapped"]["performance_evidence"]
+        self.assertEqual(len(performance["incumbent_samples_ns"]), EXERCISE["performance_protocol"]["sample_pairs"])
+        self.assertEqual(len(performance["candidate_samples_ns"]), EXERCISE["performance_protocol"]["sample_pairs"])
+        self.assertEqual(performance["incumbent_median_ns"], int(median(performance["incumbent_samples_ns"])))
+        self.assertEqual(performance["candidate_median_ns"], int(median(performance["candidate_samples_ns"])))
+        self.assertEqual(winning["blind_review_packet"]["performance_result_root"], performance["result_root"])
+        stale = copy.deepcopy(EXERCISE["artifacts"]["candidate-winning"])
+        stale["mapped"]["performance_evidence"]["candidate_samples_ns"][0] += 1
+        with self.assertRaisesRegex(ValueError, "performance (evidence|result) root"):
+            performance_evidence(stale, artifact_root(stale))
 
     def test_review_chronology_and_usage_ceiling_are_derived(self) -> None:
         case = canonical_case("winning-candidate")
@@ -1526,8 +1695,13 @@ class BoundedCandidateContractTests(unittest.TestCase):
         self.assertEqual(usage, case["usage"])
         delayed = copy.deepcopy(review)
         delayed["recorded_at"] = format_time(parse_time(mapped["recorded_at"], "mapped") + timedelta(minutes=11))
-        with self.assertRaisesRegex(ValueError, "review ceiling"):
-            derived_usage(case, artifact, focused=focused, mapped=mapped, review=delayed)
+        self.assertTrue(review_exceeds_ceiling(delayed, mapped))
+        timeout = evaluate("review-timeout")
+        self.assertEqual(timeout["action"], "stop-retire")
+        self.assertEqual(timeout["stop_reason"], "review-ceiling-expired")
+        self.assertEqual(timeout["resource_usage"]["review_passes"], 2)
+        self.assertEqual(timeout["isolation_cleanup"], "retired-non-authoritative")
+        self.assertIsNone(timeout["handoff"])
 
     def test_stop_observations_are_retained_objects_not_unresolved_roots(self) -> None:
         for case_id, retained_key, derived_key in (

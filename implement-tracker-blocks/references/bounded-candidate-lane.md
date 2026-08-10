@@ -44,6 +44,15 @@ recovery. The lane may open only when all boolean gates pass and
 Reversibility is therefore an input to admission, not a fact added after work
 starts.
 
+Before candidate work begins, one committed pre-run contract freezes the
+accepted tracker revision and blob root, candidate trigger, hypothesis and
+scope, representative workload, exact validation runtime and executable root,
+performance protocol, materiality thresholds and rationale, capability and
+protected-capability contract, resource ceilings, cleanup posture, and Stop.
+The lane-start and implementation-start observations must follow that exact
+checkpoint and precede focused proof. Later source, results, or reviews may
+resolve the frozen inputs but cannot tune them after observing the candidate.
+
 The lane source freezes the accepted tracker revision and blob root, target and
 incumbent revisions, canonical content manifests, capability contract,
 hypothesis and affected scope, six-dimension order, role identities, writable
@@ -102,10 +111,19 @@ better only when it clears the frozen absolute and proportional artifact-size
 thresholds, is not materially slower under the frozen runtime ceiling, adds no
 maintenance/protected/compatibility regression, and stays within the explicit
 changed-line and restoration-step ceilings.
+The performance result retains the exact incumbent and candidate samples,
+medians, ratio, interquartile spread, protocol root, workload root, runtime
+root, candidate root, timestamp, and result root. The runtime identity binds
+the resolved interpreter bytes, language and zlib versions, operating system,
+release, and machine. An unstable sample spread is `inconclusive`; a posture
+label without the retained measurements is never review evidence.
 File count, changed lines, executed commands, reviewer passes, and elapsed time
-are likewise recomputed from retained files and the focused, mapped, and review
-chronology and bound into resource/currentness evidence. A review outside its
-own time ceiling cannot become current by asserting a smaller elapsed value.
+are likewise recomputed from retained files and the actual lane-start,
+implementation-start, focused, mapped, and review chronology and bound into
+resource/currentness evidence. A review outside its own time ceiling cannot
+become current by asserting a smaller elapsed value. It is retained only as
+late process evidence; the method creates a cause-bound Stop-review packet,
+retires the candidate with a complete closed record, and emits no handoff.
 
 The raw comparison is a six-record ordered array. Each record has exactly
 `dimension`, `unit`, `incumbent_evidence_root`, `candidate_evidence_root`,

@@ -91,6 +91,19 @@ the completed program materially changes Software Factory.
   plus 25 adversarial probes. Active release:
   `75a3f3e4f39b-3adc588d1dbb`; accepted source:
   `75a3f3e4f39bcdaaa809951e9c15db91af3d7de2`.
+- **Selective bounded candidate comparison.** The implementation owner can now
+  checkpoint a sound incumbent, freeze one pre-run hypothesis/workload/runtime/
+  materiality contract, and build exactly one safely isolated candidate when
+  read-only evidence cannot decide a materially better path. Focused proof
+  precedes mapped comparison; raw size, semantic, API, timing, cost,
+  compatibility, protected-capability, and restoration evidence is retained
+  for a distinct reviewer. A materially better result emits only a non-mutating
+  Block 9 handoff, while losing, inconclusive, failed, stale, cancelled,
+  over-ceiling, and late-review lanes retire without acquiring production
+  authority. The retained exercise demonstrates a bounded 88-byte improvement
+  under criteria frozen at pre-run revision `c8b92ac48920b86587a1e39f5f16702de8b65554`;
+  exact candidate acceptance and installed-release activation remain the
+  Block 6 checkpoint boundary.
 
 - **Successor-transition continuity and structured failure-mode records.** A
   requested implementation that must cross into a distinct task now remains an
