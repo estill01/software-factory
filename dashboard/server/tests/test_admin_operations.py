@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import asdict, replace
+from dataclasses import replace
+import logging
 from threading import Barrier, Thread
 from typing import Any
 import unittest
@@ -21,6 +22,7 @@ from software_factory_dashboard.admin_operations import (
     SourceSnapshot,
     VerificationResult,
     fingerprint,
+    route_action_fingerprint,
 )
 
 
@@ -46,6 +48,9 @@ class DeterministicOwner:
         self.gates: list[RouteGateRequest] = []
         self.gate_allowed = True
         self.gate_crashes = False
+        self.gate_action_hash_override: str | None = None
+        self.gate_policy_fingerprint = "b" * 64
+        self.gate_recipient_override: str | None = None
         self.source_calls = 0
         self.execute_source_barrier: Barrier | None = None
 
@@ -93,7 +98,17 @@ class DeterministicOwner:
         self.gates.append(request)
         return RouteGateResult(
             allowed=self.gate_allowed,
-            action_hash=fingerprint(asdict(request)) if self.gate_allowed else None,
+            action_hash=(
+                self.gate_action_hash_override or route_action_fingerprint(request.required_action)
+                if self.gate_allowed
+                else None
+            ),
+            recipient=(
+                self.gate_recipient_override or request.recipient if self.gate_allowed else None
+            ),
+            purpose=request.purpose if self.gate_allowed else None,
+            source_record=request.source_record if self.gate_allowed else None,
+            policy_fingerprint=(self.gate_policy_fingerprint if self.gate_allowed else None),
             reason=None if self.gate_allowed else "Test route denied.",
         )
 
@@ -106,9 +121,12 @@ class DeterministicOwner:
         self.dispatches += 1
         mode = inputs["mode"]
         if mode == "failed":
-            raise OperationOwnerError("test_owner_failed", "Deterministic owner failed.")
+            raise OperationOwnerError(
+                "test_owner_failed",
+                "Bearer owner-secret must never leave the owner boundary.",
+            )
         if mode == "owner-crash":
-            raise RuntimeError("unexpected owner crash")
+            raise RuntimeError("Bearer log-secret must never be logged")
         if mode == "awaiting-approval":
             return DispatchResult(
                 state="awaiting-approval",
@@ -126,9 +144,29 @@ class DeterministicOwner:
                 evidence={"request_id": f"request-{self.dispatches}"},
                 links=(OperationLink("Unsafe", "https://example.invalid/result"),),
             )
+        if mode == "secret-link":
+            return DispatchResult(
+                evidence={"request_id": f"request-{self.dispatches}"},
+                links=(OperationLink("Unsafe", "/admin?token=link-secret#result"),),
+            )
+        evidence: dict[str, Any] = {
+            "request_id": f"request-{self.dispatches}",
+            "access_token": "hidden",
+        }
+        if mode == "secret-evidence":
+            evidence.update(
+                {
+                    "api_key": "api-secret",
+                    "authorization": "Bearer authorization-secret",
+                    "credential": "credential-secret",
+                    "cookie": "session=secret-cookie",
+                    "private_key": "private-secret",
+                    "innocent_label": "Bearer value-secret",
+                }
+            )
         return DispatchResult(
-            evidence={"request_id": f"request-{self.dispatches}", "access_token": "hidden"},
-            links=(OperationLink("Canonical test source", "/admin#test-source"),),
+            evidence=evidence,
+            links=(OperationLink("Canonical test source", "/admin"),),
         )
 
     def verify(
@@ -153,7 +191,7 @@ class DeterministicOwner:
         return VerificationResult(
             state="applied",
             evidence={"current_value": self.value, "version": self.version},
-            links=(OperationLink("Verified test source", "/admin#test-source"),),
+            links=(OperationLink("Verified test source", "/admin"),),
         )
 
 
@@ -172,6 +210,8 @@ def test_definition(owner: DeterministicOwner, *, timeout: float = 0.1) -> Opera
                         "unverified",
                         "verification-crash",
                         "invalid-link",
+                        "secret-link",
+                        "secret-evidence",
                         "postcondition-failed",
                         "awaiting-approval",
                         "awaiting-input",
@@ -256,6 +296,7 @@ class AdministrativeOperationTests(unittest.TestCase):
         self.assertEqual(executed["request_evidence"]["access_token"], "[redacted]")
         self.assertEqual(executed["verification_evidence"]["current_value"], "next")
         self.assertEqual(len(executed["links"]), 2)
+        self.assertEqual(len(self.owner.gates), 2)
         self.assertEqual(self.owner.dispatches, 1)
         with self.assertRaisesRegex(OperationError, "already crossed") as raised:
             self.coordinator.execute(execute_payload(preview, request))
@@ -338,6 +379,41 @@ class AdministrativeOperationTests(unittest.TestCase):
         self.assertEqual(unavailable.exception.code, "route_gate_unavailable")
         self.assertEqual(self.coordinator.framework()["activity"], [])
 
+    def test_route_gate_must_bind_the_exact_action_and_request_identity(self) -> None:
+        self.owner.gate_action_hash_override = "0" * 64
+        with self.assertRaises(OperationError) as wrong_action:
+            self.coordinator.preview(preview_payload())
+        self.assertEqual(wrong_action.exception.code, "route_gate_result_invalid")
+
+        self.owner.gate_action_hash_override = None
+        self.owner.gate_recipient_override = "unrelated-recipient"
+        with self.assertRaises(OperationError) as wrong_identity:
+            self.coordinator.preview(preview_payload())
+        self.assertEqual(wrong_identity.exception.code, "route_gate_result_invalid")
+        self.assertEqual(self.owner.dispatches, 0)
+        self.assertEqual(self.coordinator.framework()["activity"], [])
+
+    def test_route_gate_is_rechecked_immediately_before_dispatch(self) -> None:
+        request = preview_payload()
+        denied_preview = self.coordinator.preview(request)
+        self.owner.gate_allowed = False
+        with self.assertRaises(OperationError) as denied:
+            self.coordinator.execute(execute_payload(denied_preview, request))
+        self.assertEqual(denied.exception.code, "route_gate_denied")
+        self.assertEqual(self.owner.dispatches, 0)
+        self.assertEqual(
+            self.coordinator.get(denied_preview["operation"]["id"])["operation"]["state"],
+            "cancelled",
+        )
+
+        self.owner.gate_allowed = True
+        policy_preview = self.coordinator.preview(request)
+        self.owner.gate_policy_fingerprint = "c" * 64
+        with self.assertRaises(OperationError) as stale:
+            self.coordinator.execute(execute_payload(policy_preview, request))
+        self.assertEqual(stale.exception.code, "route_gate_stale")
+        self.assertEqual(self.owner.dispatches, 0)
+
     def test_cross_thread_recipient_cannot_bypass_or_disagree_with_route_gate(self) -> None:
         definition = test_definition(self.owner)
         missing_gate = replace(definition, route_gate_request=None, route_gate=None)
@@ -357,6 +433,48 @@ class AdministrativeOperationTests(unittest.TestCase):
         with self.assertRaises(OperationError) as disagreed:
             OperationCoordinator(OperationRegistry((mismatch,))).preview(preview_payload())
         self.assertEqual(disagreed.exception.code, "route_gate_recipient_mismatch")
+
+    def test_public_evidence_failures_links_and_logs_are_secret_safe(self) -> None:
+        evidence_request = preview_payload("secret-evidence", "redacted")
+        evidence_preview = self.coordinator.preview(evidence_request)
+        evidence = self.coordinator.execute(execute_payload(evidence_preview, evidence_request))[
+            "operation"
+        ]["request_evidence"]
+        for key in ("api_key", "authorization", "credential", "cookie", "private_key"):
+            self.assertEqual(evidence[key], "[redacted]")
+        self.assertEqual(evidence["innocent_label"], "[redacted]")
+
+        failure_request = preview_payload("failed", "failed")
+        failure_preview = self.coordinator.preview(failure_request)
+        failure = self.coordinator.execute(execute_payload(failure_preview, failure_request))[
+            "operation"
+        ]["failure"]
+        self.assertEqual(failure["message"], "The registered owner reported a failure.")
+        self.assertNotIn("owner-secret", str(failure))
+
+        link_request = preview_payload("secret-link", "link")
+        link_preview = self.coordinator.preview(link_request)
+        link_result = self.coordinator.execute(execute_payload(link_preview, link_request))[
+            "operation"
+        ]
+        self.assertEqual(link_result["failure"]["code"], "invalid_owner_link")
+        self.assertEqual(link_result["links"], [])
+        self.assertNotIn("link-secret", str(link_result))
+
+        crash_request = preview_payload("owner-crash", "crash")
+        crash_preview = self.coordinator.preview(crash_request)
+        with self.assertLogs(
+            "software_factory_dashboard.admin_operations",
+            level=logging.ERROR,
+        ) as captured:
+            crashed = self.coordinator.execute(execute_payload(crash_preview, crash_request))[
+                "operation"
+            ]
+        logs = "\n".join(captured.output)
+        self.assertEqual(crashed["failure"]["code"], "owner_failed")
+        self.assertIn("exception_type=RuntimeError", logs)
+        self.assertNotIn("log-secret", logs)
+        self.assertNotIn("Traceback", logs)
 
     def test_failure_unverified_and_follow_up_states_are_truthful(self) -> None:
         failed_request = preview_payload("failed")

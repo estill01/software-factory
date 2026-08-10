@@ -31,6 +31,8 @@ const operation = {
       source_record: "TEST-1",
       required_action: "Set fixture-1 to next",
       action_hash: hash,
+      policy_fingerprint: hash,
+      binding_fingerprint: hash,
     },
     consequences: { ordinary: ["Fixture changes."], failure: ["Verification may fail."] },
     confirmation: {

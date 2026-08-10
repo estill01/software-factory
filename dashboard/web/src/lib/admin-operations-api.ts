@@ -34,6 +34,8 @@ const routeGateSchema = z
     source_record: z.string().nullable(),
     required_action: z.string().nullable(),
     action_hash: fingerprintSchema.nullable(),
+    policy_fingerprint: fingerprintSchema.nullable(),
+    binding_fingerprint: fingerprintSchema.nullable(),
   })
   .strict()
 

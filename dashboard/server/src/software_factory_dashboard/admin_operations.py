@@ -33,7 +33,16 @@ TERMINAL_STATES = {"applied", "failed", "unverified", "cancelled"}
 OPERATION_TYPE_PATTERN = re.compile(r"[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*\Z")
 IDENTITY_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,255}\Z")
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
-SENSITIVE_KEY_PATTERN = re.compile(r"(?:body|content|password|prompt|secret|token)", re.I)
+SENSITIVE_KEY_PATTERN = re.compile(
+    r"(?:api[_-]?key|authorization|body|content|cookie|credential|password|"
+    r"private[_-]?key|prompt|secret|session|token)",
+    re.I,
+)
+SENSITIVE_VALUE_PATTERN = re.compile(
+    r"(?:\bBearer\s+\S+|(?:api[_-]?key|authorization|cookie|credential|password|"
+    r"private[_-]?key|secret|token)\s*[:=]\s*\S+)",
+    re.I,
+)
 MAX_ACTIVITY_RECORDS = 200
 
 
@@ -60,6 +69,8 @@ class OperationOwnerError(RuntimeError):
     def __init__(self, code: str, message: str, *, state: str = "failed") -> None:
         if state not in {"failed", "unverified"}:
             raise ValueError("Owner errors may end only as failed or unverified")
+        if not re.fullmatch(r"[a-z][a-z0-9_]{0,79}", code):
+            raise ValueError("Owner error code is invalid")
         super().__init__(message)
         self.code = code
         self.state = state
@@ -78,6 +89,19 @@ def fingerprint(value: Any) -> str:
     return sha256(_canonical(value)).hexdigest()
 
 
+def route_action_fingerprint(action: str) -> str:
+    """Match the maintained thread-route-gate action_sha256 contract."""
+
+    return sha256(
+        json.dumps(
+            action,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+
+
 def _timestamp(value: float | None = None) -> str:
     observed = datetime.fromtimestamp(value, UTC) if value is not None else datetime.now(UTC)
     return observed.isoformat(timespec="milliseconds").replace("+00:00", "Z")
@@ -94,10 +118,18 @@ def _redact(value: Any, *, key: str = "") -> Any:
     if isinstance(value, list | tuple):
         return [_redact(item) for item in value[:100]]
     if isinstance(value, str):
+        if SENSITIVE_VALUE_PATTERN.search(value):
+            return "[redacted]"
         return value if len(value) <= 500 else f"{value[:497]}..."
     if value is None or isinstance(value, bool | int | float):
         return value
-    return str(value)[:500]
+    return f"[{type(value).__name__}]"
+
+
+def _owner_failure_message(state: str) -> str:
+    if state == "unverified":
+        return "The registered owner reported that its canonical postcondition is unverified."
+    return "The registered owner reported a failure."
 
 
 @dataclass(frozen=True)
@@ -149,8 +181,13 @@ class RouteGateRequest:
 
     def __post_init__(self) -> None:
         if not all(
-            isinstance(value, str) and value.strip() and len(value) <= 2_000
-            for value in (self.recipient, self.purpose, self.source_record, self.required_action)
+            isinstance(value, str) and value.strip() and len(value) <= 240
+            for value in (
+                self.recipient,
+                self.purpose,
+                self.source_record,
+                self.required_action,
+            )
         ):
             raise ValueError("Route-gate fields must be nonempty and bounded")
 
@@ -159,13 +196,26 @@ class RouteGateRequest:
 class RouteGateResult:
     allowed: bool
     action_hash: str | None
+    recipient: str | None = None
+    purpose: str | None = None
+    source_record: str | None = None
+    policy_fingerprint: str | None = None
     reason: str | None = None
 
     def __post_init__(self) -> None:
-        if self.allowed and not (
-            isinstance(self.action_hash, str) and SHA256_PATTERN.fullmatch(self.action_hash)
-        ):
-            raise ValueError("Allowed route gates require an exact action hash")
+        if self.allowed:
+            if not (
+                isinstance(self.action_hash, str)
+                and SHA256_PATTERN.fullmatch(self.action_hash)
+                and isinstance(self.policy_fingerprint, str)
+                and SHA256_PATTERN.fullmatch(self.policy_fingerprint)
+            ):
+                raise ValueError("Allowed route gates require exact action and policy fingerprints")
+            if not all(
+                isinstance(value, str) and value.strip()
+                for value in (self.recipient, self.purpose, self.source_record)
+            ):
+                raise ValueError("Allowed route gates must echo their exact request identity")
 
 
 @dataclass(frozen=True)
@@ -464,7 +514,9 @@ class OperationCoordinator:
         route_result: RouteGateResult | None = None
         if route_request is not None:
             try:
-                route_result = definition.route_gate(route_request) if definition.route_gate else None
+                route_result = (
+                    definition.route_gate(route_request) if definition.route_gate else None
+                )
             except Exception as error:  # owner boundary; body is intentionally not logged
                 LOGGER.warning("route gate unavailable for operation type=%s", operation_type)
                 raise OperationError(
@@ -473,12 +525,26 @@ class OperationCoordinator:
                     status=503,
                     retryable=True,
                 ) from error
-            if route_result is None or not route_result.allowed:
+            if route_result is None:
+                raise OperationError(
+                    "route_gate_unavailable",
+                    "The required cross-thread route gate returned no result.",
+                    status=503,
+                    retryable=True,
+                )
+            if not isinstance(route_result, RouteGateResult):
+                raise OperationError(
+                    "route_gate_result_invalid",
+                    "Route gate returned an invalid result contract.",
+                    status=503,
+                )
+            if not route_result.allowed:
                 raise OperationError(
                     "route_gate_denied",
-                    route_result.reason if route_result and route_result.reason else "Route gate denied the exact action.",
+                    "Route gate denied the exact action.",
                     status=409,
                 )
+            self._validate_route_result(route_request, route_result)
 
         now_monotonic = self._monotonic()
         expires_monotonic = now_monotonic + self.preview_ttl_seconds
@@ -609,6 +675,8 @@ class OperationCoordinator:
                 status=409,
             )
 
+        self._recheck_route_gate(record, current_source)
+
         with self._lock:
             if record.state == "cancelled":
                 raise OperationError(
@@ -630,7 +698,10 @@ class OperationCoordinator:
         except OperationOwnerError as error:
             with self._lock:
                 self._transition(record, error.state)
-                record.failure = {"code": error.code, "message": str(error)}
+                record.failure = {
+                    "code": error.code,
+                    "message": _owner_failure_message(error.state),
+                }
             LOGGER.warning(
                 "operation owner ended type=%s id=%s state=%s code=%s",
                 record.definition.operation_type,
@@ -639,17 +710,18 @@ class OperationCoordinator:
                 error.code,
             )
             return {"operation": self._public(record)}
-        except Exception:
+        except Exception as error:
             with self._lock:
                 self._transition(record, "failed")
                 record.failure = {
                     "code": "owner_failed",
                     "message": "The registered owner failed before returning request evidence.",
                 }
-            LOGGER.exception(
-                "operation owner crashed type=%s id=%s",
+            LOGGER.error(
+                "operation owner crashed type=%s id=%s exception_type=%s",
                 record.definition.operation_type,
                 record.operation_id,
+                type(error).__name__,
             )
             return {"operation": self._public(record)}
 
@@ -658,7 +730,10 @@ class OperationCoordinator:
         except OperationOwnerError as error:
             with self._lock:
                 self._transition(record, error.state)
-                record.failure = {"code": error.code, "message": str(error)}
+                record.failure = {
+                    "code": error.code,
+                    "message": _owner_failure_message(error.state),
+                }
             return {"operation": self._public(record)}
         with self._lock:
             record.request_evidence = dispatch.evidence
@@ -680,19 +755,23 @@ class OperationCoordinator:
             except OperationOwnerError as error:
                 with self._lock:
                     self._transition(record, error.state)
-                    record.failure = {"code": error.code, "message": str(error)}
+                    record.failure = {
+                        "code": error.code,
+                        "message": _owner_failure_message(error.state),
+                    }
                 return {"operation": self._public(record)}
-            except Exception:
+            except Exception as error:
                 with self._lock:
                     self._transition(record, "unverified")
                     record.failure = {
                         "code": "postcondition_unavailable",
                         "message": "Canonical postcondition verification is unavailable.",
                     }
-                LOGGER.exception(
-                    "operation verification crashed type=%s id=%s",
+                LOGGER.error(
+                    "operation verification crashed type=%s id=%s exception_type=%s",
                     record.definition.operation_type,
                     record.operation_id,
+                    type(error).__name__,
                 )
                 return {"operation": self._public(record)}
 
@@ -702,7 +781,10 @@ class OperationCoordinator:
                 except OperationOwnerError as error:
                     with self._lock:
                         self._transition(record, error.state)
-                        record.failure = {"code": error.code, "message": str(error)}
+                        record.failure = {
+                            "code": error.code,
+                            "message": _owner_failure_message(error.state),
+                        }
                     return {"operation": self._public(record)}
                 with self._lock:
                     final_state = verification.state
@@ -767,6 +849,157 @@ class OperationCoordinator:
             )
         return record
 
+    @staticmethod
+    def _validate_route_result(
+        request: RouteGateRequest,
+        result: RouteGateResult,
+    ) -> None:
+        expected_action_hash = route_action_fingerprint(request.required_action)
+        if (
+            result.recipient != request.recipient
+            or result.purpose != request.purpose
+            or result.source_record != request.source_record
+            or result.action_hash is None
+            or not secrets.compare_digest(result.action_hash, expected_action_hash)
+            or result.policy_fingerprint is None
+        ):
+            raise OperationError(
+                "route_gate_result_invalid",
+                "Allowed route-gate result did not bind the exact recipient, purpose, source, action, and policy.",
+                status=503,
+            )
+
+    @staticmethod
+    def _route_binding(result: RouteGateResult) -> dict[str, Any]:
+        return {
+            "allowed": result.allowed,
+            "recipient": result.recipient,
+            "purpose": result.purpose,
+            "source_record": result.source_record,
+            "action_hash": result.action_hash,
+            "policy_fingerprint": result.policy_fingerprint,
+        }
+
+    def _invalidate_preview(
+        self,
+        record: _OperationRecord,
+        *,
+        code: str,
+        message: str,
+    ) -> None:
+        with self._lock:
+            if not record.consumed and record.state in {"previewed", "confirmed"}:
+                self._transition(record, "cancelled")
+                record.failure = {"code": code, "message": message}
+
+    def _recheck_route_gate(
+        self,
+        record: _OperationRecord,
+        current_source: SourceSnapshot,
+    ) -> None:
+        definition = record.definition
+        if definition.route_gate_request is None:
+            return
+        try:
+            current_request = definition.route_gate_request(
+                record.target,
+                record.inputs,
+                current_source,
+            )
+        except Exception as error:
+            self._invalidate_preview(
+                record,
+                code="route_gate_unavailable",
+                message="Route gate could not be re-resolved before owner dispatch.",
+            )
+            LOGGER.warning(
+                "route request unavailable before dispatch type=%s id=%s exception_type=%s",
+                definition.operation_type,
+                record.operation_id,
+                type(error).__name__,
+            )
+            raise OperationError(
+                "route_gate_unavailable",
+                "The required cross-thread route gate is unavailable; preview again.",
+                status=503,
+                retryable=True,
+            ) from error
+        if current_request != record.route_request or current_request is None:
+            self._invalidate_preview(
+                record,
+                code="route_gate_stale",
+                message="Exact route-gate request changed after preview.",
+            )
+            raise OperationError(
+                "route_gate_stale",
+                "Route recipient, purpose, source, or action changed; preview again.",
+                status=409,
+            )
+        try:
+            current_result = (
+                definition.route_gate(current_request) if definition.route_gate else None
+            )
+        except Exception as error:
+            self._invalidate_preview(
+                record,
+                code="route_gate_unavailable",
+                message="Route gate could not be rechecked before owner dispatch.",
+            )
+            LOGGER.warning(
+                "route gate unavailable before dispatch type=%s id=%s exception_type=%s",
+                definition.operation_type,
+                record.operation_id,
+                type(error).__name__,
+            )
+            raise OperationError(
+                "route_gate_unavailable",
+                "The required cross-thread route gate is unavailable; preview again.",
+                status=503,
+                retryable=True,
+            ) from error
+        if not isinstance(current_result, RouteGateResult):
+            self._invalidate_preview(
+                record,
+                code="route_gate_result_invalid",
+                message="Route gate returned an invalid current result.",
+            )
+            raise OperationError(
+                "route_gate_result_invalid",
+                "Route gate returned an invalid current result; preview again.",
+                status=503,
+            )
+        if not current_result.allowed:
+            self._invalidate_preview(
+                record,
+                code="route_gate_denied",
+                message="Current route gate denied the exact action.",
+            )
+            raise OperationError(
+                "route_gate_denied",
+                "Current route gate denied the exact action; preview again.",
+                status=409,
+            )
+        try:
+            self._validate_route_result(current_request, current_result)
+        except OperationError:
+            self._invalidate_preview(
+                record,
+                code="route_gate_result_invalid",
+                message="Current route-gate result did not bind the exact action.",
+            )
+            raise
+        if self._route_binding(current_result) != self._route_binding(record.route_result):
+            self._invalidate_preview(
+                record,
+                code="route_gate_stale",
+                message="Route-gate action or policy changed after preview.",
+            )
+            raise OperationError(
+                "route_gate_stale",
+                "Route-gate action or policy changed; preview again.",
+                status=409,
+            )
+
     def _transition(self, record: _OperationRecord, state: str) -> None:
         if state not in OPERATION_STATES:
             raise ValueError(f"Invalid operation state: {state}")
@@ -812,7 +1045,10 @@ class OperationCoordinator:
                 or link.href.startswith("//")
                 or parsed.scheme
                 or parsed.netloc
+                or "?" in link.href
+                or "#" in link.href
                 or ".." in parsed.path.split("/")
+                or _redact(link.label) != link.label
             ):
                 raise OperationOwnerError(
                     "invalid_owner_link",
@@ -834,8 +1070,15 @@ class OperationCoordinator:
             "source_record": None,
             "required_action": None,
             "action_hash": None,
+            "policy_fingerprint": None,
+            "binding_fingerprint": None,
         }
         if record.route_request is not None:
+            route_binding = (
+                OperationCoordinator._route_binding(record.route_result)
+                if record.route_result is not None
+                else None
+            )
             route_gate = {
                 "status": "allowed" if record.route_result and record.route_result.allowed else "unavailable",
                 "recipient": record.route_request.recipient,
@@ -843,6 +1086,10 @@ class OperationCoordinator:
                 "source_record": record.route_request.source_record,
                 "required_action": _redact(record.route_request.required_action),
                 "action_hash": record.route_result.action_hash if record.route_result else None,
+                "policy_fingerprint": (
+                    record.route_result.policy_fingerprint if record.route_result else None
+                ),
+                "binding_fingerprint": fingerprint(route_binding) if route_binding else None,
             }
         return {
             "id": record.operation_id,
@@ -850,17 +1097,17 @@ class OperationCoordinator:
             "target": record.target.as_dict(),
             "state": record.state,
             "owner": record.definition.owner,
-            "authority": list(record.definition.authority),
+            "authority": _redact(list(record.definition.authority)),
             "preview": {
-                "effect": record.effect.summary,
-                "risk": record.effect.risk,
+                "effect": _redact(record.effect.summary),
+                "risk": _redact(record.effect.risk),
                 "recipient": record.effect.recipient,
                 "source_fingerprint": record.source.fingerprint,
                 "source_evidence": _redact(record.source.evidence),
                 "route_gate": route_gate,
                 "consequences": {
-                    "ordinary": list(record.definition.ordinary_consequences),
-                    "failure": list(record.definition.failure_consequences),
+                    "ordinary": _redact(list(record.definition.ordinary_consequences)),
+                    "failure": _redact(list(record.definition.failure_consequences)),
                 },
                 "confirmation": {
                     "class": record.definition.confirmation.kind,
@@ -869,12 +1116,12 @@ class OperationCoordinator:
                 },
                 "expected_postcondition": record.definition.expected_postcondition,
                 "idempotency": record.definition.idempotency,
-                "limitations": list(record.definition.limitations),
+                "limitations": _redact(list(record.definition.limitations)),
                 "expires_at": record.expires_at,
             },
             "history": list(record.history),
             "request_evidence": _redact(record.request_evidence),
             "verification_evidence": _redact(record.verification_evidence),
             "links": [{"label": link.label, "href": link.href} for link in record.links],
-            "failure": record.failure,
+            "failure": _redact(record.failure),
         }
