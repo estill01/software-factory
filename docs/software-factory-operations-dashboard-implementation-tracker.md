@@ -3348,6 +3348,70 @@ not full reports/event histories; owners can fetch exact referenced sources.
     asynchronous confirmation round trip, accepted to prevent stale tracker,
     wrong-cwd, duplicate-owner, steer/continue, or HTTP-success-only mistakes;
     frozen-candidate proof remains pending.
+- Frozen implementation candidate: commit
+  `9bf58dc8a3c5c15fe7597ec56bd8845b013d04a6`, tree
+  `f56a9c9e4f3325290f4be01513692ba2f282c959`, parent/activation
+  `e098ced98e04a113c13745139fa7c9366a7de528`. Representative exact blobs are
+  `d8e2c232dc2f0188d846364c836988916b492892` for the closed Python workflow
+  owner, `d38fe288d0a6fc2c50a0f331bb73b4875c7b9b50` for its owner/API proof,
+  `1a03dd5c6a3aadd4e6bd2d8bf18c90a127f90040` for the workspace controls, and
+  `38ef0931b7578cc4fa7bf7039e2c964fd058bf5d` for their component proof. The
+  candidate changes only the Block 11 Python registry/owner adapter, existing
+  App Server fake, workspace controls/styles/routes, and mapped tests; its
+  branch and upstream were exact at `0 0` after push.
+- Closed workflow proof: production now registers ten supported explicit
+  operations—author, read-only review, bounded revise, eligible Block/range
+  implementation, supervision attach, continue, steer, approval response,
+  input response, and turn interrupt—plus one explicitly unavailable planned
+  tracker-authoring-supervision row. Author/review/revise/implement turns name
+  the maintained skills, preserve exact operator scope, source/hash/HEAD/
+  profile/Stop facts, and start at most one registered-cwd task without retry.
+  Current tracker content/Git/profile, clean-writer posture, dependencies,
+  contiguous range, exact Stop, bounded active-owner absence, task/turn/request
+  identity, and canonical supervised-task route are resolved at preview and
+  rechecked at execute by the accepted Block 10 coordinator.
+- Consequence and recovery proof: wrong cwd, stale/dirty tracker, invalid range,
+  conflicting author/revise/implementation ownership, partial task/turn start,
+  route absence/denial, stale one-use approval/input, and incomplete
+  supervision setup all fail closed or remain explicit partial/unverified
+  attention. The maintained route helper rejects symlink substitution; task
+  conflict reads fail closed on a partial first page. Supervision is `applied`
+  only after the exact mission source, project binding, role bindings, and an
+  automation are all current. Continue, steer, respond, and interrupt use only
+  their typed App Server methods; interruption records no supervision pause,
+  mission stop, or work acceptance.
+- Operator-interface proof: compact action strips sit directly in project,
+  tracker, and task workspaces without a marketing title/subheader row. Typed
+  confirmation shows exact target, owner, recipient/gate, source, supplied
+  objective/text/choice/range, consequences, and postcondition. Approval and
+  input dialogs retain current command/file scope and bounded option text;
+  unregistered tasks and missing canonical routes disable mutation controls.
+  Result truth reports task/turn start, Block acceptance, and outcome
+  verification separately, links the exact task/run when observed, and
+  refreshes task/list/run/floor/tracker sources without inventing a second
+  ledger or lifecycle state. The live visual check exposed and corrected a
+  long-identity collision in the confirmation grid, then added cell-level
+  overflow proof across all maintained viewports.
+- Focused accessibility successor: the first exact full browser replay passed
+  47/48 cases and exposed one serious pre-existing mobile diff-view defect only
+  after this uncommitted evidence made the read-only diff long enough to scroll:
+  its `<pre>` had no keyboard focus target. Successor
+  `f78dcdd37f1c0208fa2c97480a3409760b1b2382`, tree
+  `897e18666a8feeacb49612a815fad047e3ef99f4`, parent
+  `9bf58dc8a3c5c15fe7597ec56bd8845b013d04a6`, changes only that shared tracker
+  diff element to expose a named keyboard focus target. The exact rejected
+  mobile scenario then passed 1/1 with Axe and overflow proof; the other 47
+  browser cases are unaffected and remain valid.
+- Candidate validation: the exact Python suite passed 92/92 with
+  `ResourceWarning` fatal and the focused workflow owner/API suite passed 7/7;
+  full Ruff passed. TypeScript and all 18 Vitest files/73 tests passed, the
+  production build passed, the workflow scenario passed 3/3 across desktop,
+  tablet, and mobile, and the proportional browser result is the 47 unaffected
+  full-matrix passes plus the corrected affected mobile 1/1. Full-profile
+  tracker verification reports Blocks 0–25 with 0 errors/warnings, all 30
+  verifier tests pass, and diff checks pass. Independent exact-revision review
+  is pending; Block 11 remains `in-progress` until the evidence revision is
+  independently accepted.
 
 ### Stop
 
