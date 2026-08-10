@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import io
 import json
@@ -2332,6 +2333,20 @@ class MissionContainmentContractTests(unittest.TestCase):
             ]
         )
 
+        app_authored_source = (
+            "[$implement-tracker-blocks]"
+            "(/Users/example/.codex/releases/current/implement-tracker-blocks/SKILL.md)"
+        ).encode("utf-8")
+        source_sha256 = hashlib.sha256(app_authored_source).hexdigest()
+        exact = plan(source_sha256)
+        self.assertEqual(exact["mission_source_sha256"], source_sha256)
+        self.assertEqual(
+            exact["mission_binding"]["mission_derivation"]["controlling_source"][
+                "sha256"
+            ],
+            source_sha256,
+        )
+
     def test_init_derives_binding_without_manual_mission_root(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             args = supervision_log.parser().parse_args(
@@ -2517,6 +2532,8 @@ class MissionContainmentContractTests(unittest.TestCase):
                     "policy_sha256": initial_policy["policy_sha256"],
                 },
             )
+            history_path = Path(temporary, self.target, "policy-history.jsonl")
+            predecessor_history = history_path.read_bytes()
             successor = supervision_log.parser().parse_args(
                 [
                     "--root",
@@ -2560,10 +2577,9 @@ class MissionContainmentContractTests(unittest.TestCase):
             )
             history = [
                 json.loads(line)
-                for line in Path(
-                    temporary, self.target, "policy-history.jsonl"
-                ).read_text(encoding="utf-8").splitlines()
+                for line in history_path.read_text(encoding="utf-8").splitlines()
             ]
+            self.assertTrue(history_path.read_bytes().startswith(predecessor_history))
             self.assertEqual(history[-1]["kind"], "policy-mission-successor")
             self.assertIn("EVT-LIFECYCLE-A", history[-1]["evidence"])
             self.assertEqual(
