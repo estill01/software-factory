@@ -3923,6 +3923,37 @@ only its named conclusion source until the bounded timeout, then retain
   dashboard review ledger, automatic retry, implementation acceptance,
   policy/cadence or binding mutation, lifecycle/continuity control, report
   operation, or Factory-evolution action. Blocks 14–25 remain unopened.
+- Rejected exact review: evidence revision
+  `1091bb2773e2be545624886683d4fcb27c779500`, tree
+  `047b6f574b92ee5473d7ed3b08aaaba6605e810e`, and product revision
+  `cfe9bd7dffe3414820a018dd6bb11bd05694f3ff` remain immutable rejected
+  evidence. Independent review found three bounded matcher defects: issue
+  resolution required an invented `notice-outcome` category absent from the
+  maintained owner contract; required evidence was only a subset, so
+  contradictory same-namespace bindings could coexist; and any nonempty status
+  allowed a routed request record to become a conclusion. The review otherwise
+  reproduced backend 11/11 with `ResourceWarning` fatal, Ruff, frontend 14/14,
+  production build, the 26-Block verifier at 0 errors/warnings, all 30 verifier
+  tests, clean exact diffs, clean checkout, exact remote identity, and the Stop.
+  Block 13 remained in progress and Block 14 stayed closed.
+- Corrective successor: commit
+  `196145e5a713997cb71c4a22048005ae20b98b7f`, tree
+  `d2aa3b9c1314d1338a42a67783c45b609a3ce8ce`, parent
+  `1091bb2773e2be545624886683d4fcb27c779500`, is pushed exactly to
+  `origin/codex/evolution-mvp`. Its two-file diff root is
+  `c5b81bc69a4126e3f921489c42230b21f94544f049290b9548c0c52051bf474b`;
+  corrected blobs are `22a113a9bd13d87061d4c709a716377624463c5b`
+  for the owner and `301c4ac2a18433df0a88ff01c4753aa43567e870`
+  for focused proof. The issue path now accepts the incident's actual canonical
+  category, while retaining exact incident/kind/task/turn/source binding. The
+  four reserved dashboard evidence namespaces must contain exactly one matching
+  binding each, so duplicates or contradictory values remain pending while
+  unrelated owner evidence is preserved. Requested, routed, active, awaiting,
+  denied, queued, delivered, and other non-conclusion statuses cannot match or
+  supersede a conclusion. Focused backend proof again passed 11/11 with
+  `ResourceWarning` fatal, Ruff and diff checks passed, and the rejected
+  review's unaffected frontend/build/browser/tracker/Stop evidence remains
+  current. This successor remains unaccepted pending fresh exact delta review.
 
 ### Stop
 
