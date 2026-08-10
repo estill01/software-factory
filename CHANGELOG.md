@@ -108,6 +108,20 @@ the completed program materially changes Software Factory.
   settings, remote transport, task forking, and permission-profile mutation
   remain unavailable.
   Implementation scope is Block 5 of the operations-dashboard tracker.
+- **Cross-project Factory Floor.** Added a read-only composed endpoint and the
+  default four-region operating view for implementation/supervisor rows,
+  ranked attention, semantic conclusions beside accepted tracker outcomes,
+  and bounded metrics/source freshness. It joins only exact current catalog,
+  tracker/Git, supervision/report/metric, and Codex task projections; preserves
+  unresolved, candidate, ambiguous, unmonitored, orphaned, partial, stale, and
+  disagreeing states; and stores no operational data. Every operating light has
+  text, reason, source time, and an explicit non-completion posture. Filters
+  keep hidden critical counts visible; row, attention, conclusion/outcome,
+  source-health, and metric cards retain source-bearing inspector routes; and
+  API-equivalent cost remains labeled as an estimate rather than spend. The
+  compact interface uses functional region labels without marketing subheaders
+  and is validated at desktop, tablet, and mobile widths. Implementation scope
+  is Block 6 of the operations-dashboard tracker.
 - **Successor-transition continuity and structured failure-mode records.** A
   requested implementation that must cross into a distinct task now remains an
   open append-only transition through `required`, task creation, isolated

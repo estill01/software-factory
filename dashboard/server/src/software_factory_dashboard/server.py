@@ -9,6 +9,8 @@ from pathlib import Path, PurePosixPath
 import re
 import secrets
 import sys
+from threading import Lock
+from time import monotonic
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Sequence
@@ -27,6 +29,7 @@ from .catalog import (
     validate_project_id,
 )
 from .contract import API_VERSION, PACKAGE_VERSION, envelope
+from .floor import compose_factory_floor
 from .operations import (
     DEFAULT_AUTOMATIONS_ROOT,
     DEFAULT_SUPERVISION_ROOT,
@@ -44,6 +47,7 @@ from .tracker import (
 MAX_BODY_BYTES = 64 * 1024
 NONCE_PLACEHOLDER = "__SOFTWARE_FACTORY_MUTATION_NONCE__"
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
+FLOOR_CACHE_SECONDS = 2.0
 
 
 class DashboardConfigurationError(ValueError):
@@ -111,6 +115,8 @@ class DashboardHTTPServer(ThreadingHTTPServer):
             supervision_root=self.config.supervision_root,
             automations_root=self.config.automations_root,
         )
+        self.floor_cache_lock = Lock()
+        self.floor_cache: tuple[float, dict[str, Any]] | None = None
         super().__init__((self.config.host, self.config.port), DashboardRequestHandler)
         self.app_server_client = CodexAppServerClient(
             command=self.config.codex_command,
@@ -769,6 +775,294 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             return
         self._write_json(HTTPStatus.OK, payload)
 
+    @staticmethod
+    def _floor_source(
+        *,
+        family: str,
+        label: str,
+        status: str,
+        identity: str,
+        revision: str | None,
+        observed_at: str,
+        reason: str,
+        coverage: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "family": family,
+            "label": label,
+            "status": status,
+            "identity": identity,
+            "revision": revision,
+            "observed_at": observed_at,
+            "reason": reason,
+            "coverage": coverage,
+        }
+
+    def _build_factory_floor_payload(self) -> dict[str, Any]:
+        observed_at = datetime.now(UTC).isoformat(timespec="milliseconds").replace(
+            "+00:00", "Z"
+        )
+        source_health: list[dict[str, Any]] = []
+        active_projects: tuple[ProjectRecord, ...] = ()
+        project_views: list[dict[str, Any]] = []
+        discoveries: dict[str, dict[str, Any]] = {}
+        catalog_fingerprint: str | None = None
+        recovered = False
+
+        try:
+            loaded = self.server.catalog_store.load()
+            active_projects = tuple(
+                project for project in loaded.state.projects if not project.archived
+            )
+            catalog_fingerprint = loaded.fingerprint
+            recovered = loaded.recovered_from_previous
+            discovered = [discover_project(project) for project in active_projects]
+            discoveries = {str(project["id"]): project for project in discovered}
+            unavailable_projects = [
+                project for project in discovered if project["discovery"]["status"] != "available"
+            ]
+            project_views = [
+                {
+                    "id": project["id"],
+                    "label": project["label"],
+                    "status": project["discovery"]["status"],
+                    "observed_at": project["observed_at"],
+                }
+                for project in discovered
+            ]
+            catalog_status = "partial" if unavailable_projects else "available"
+            catalog_reason = (
+                f"{len(unavailable_projects)} registered project root(s) are unavailable."
+                if unavailable_projects
+                else "Active registered project roots were read successfully."
+            )
+            source_health.append(
+                self._floor_source(
+                    family="catalog",
+                    label="Project catalog",
+                    status=catalog_status,
+                    identity="software-factory-dashboard/project-catalog",
+                    revision=loaded.fingerprint,
+                    observed_at=observed_at,
+                    reason=catalog_reason,
+                    coverage={
+                        "status": "partial" if unavailable_projects else "complete",
+                        "observed": [project["id"] for project in discovered if project["discovery"]["status"] == "available"],
+                        "missing": [project["id"] for project in unavailable_projects],
+                    },
+                )
+            )
+        except CatalogError as error:
+            source_health.append(
+                self._floor_source(
+                    family="catalog",
+                    label="Project catalog",
+                    status="unavailable",
+                    identity="software-factory-dashboard/project-catalog",
+                    revision=None,
+                    observed_at=observed_at,
+                    reason=str(error),
+                    coverage={"status": "partial", "observed": [], "missing": ["catalog"]},
+                )
+            )
+
+        operations: dict[str, Any] | None = None
+        try:
+            operations = self.server.operations_service.snapshot(active_projects)
+            source_health.append(
+                self._floor_source(
+                    family="operations",
+                    label="Supervision",
+                    status="available",
+                    identity="supervise-tracker-runs/operations",
+                    revision=operations["fingerprint"],
+                    observed_at=observed_at,
+                    reason="Current mission-scoped supervision owners were projected.",
+                    coverage=operations["coverage"],
+                )
+            )
+        except OperationsProjectionError as error:
+            source_health.append(
+                self._floor_source(
+                    family="operations",
+                    label="Supervision",
+                    status="unavailable",
+                    identity="supervise-tracker-runs/operations",
+                    revision=None,
+                    observed_at=observed_at,
+                    reason=str(error),
+                    coverage={
+                        "status": "partial",
+                        "observed": [],
+                        "missing": ["supervision"],
+                    },
+                )
+            )
+
+        trackers: list[dict[str, Any]] = []
+        tracker_failures = 0
+        if catalog_fingerprint is None:
+            source_health.append(
+                self._floor_source(
+                    family="trackers",
+                    label="Trackers",
+                    status="unavailable",
+                    identity="software-factory-dashboard/trackers",
+                    revision=None,
+                    observed_at=observed_at,
+                    reason="Tracker candidates require the unavailable project catalog.",
+                    coverage={
+                        "status": "partial",
+                        "observed": [],
+                        "missing": ["tracker-candidates", "tracker-content"],
+                    },
+                )
+            )
+        else:
+            refresh_analysis_cache: dict[tuple[str, str, str], dict[str, Any]] = {}
+            for project in active_projects:
+                discovery = discoveries[project.id]
+                if discovery["discovery"]["status"] != "available":
+                    tracker_failures += 1
+                    continue
+                paths = discovery["discovery"]["trackers"]["candidates"]
+                outcomes = self.server.tracker_service.project_many(
+                    project,
+                    paths,
+                    refresh_analysis_cache=refresh_analysis_cache,
+                )
+                for path in paths:
+                    outcome = outcomes[path]
+                    if isinstance(outcome, TrackerProjectionError):
+                        tracker_failures += 1
+                        trackers.append(unavailable_tracker(project, path, outcome))
+                    else:
+                        trackers.append(outcome)
+            trackers.sort(key=lambda item: (str(item["project_id"]), str(item["relative_path"])))
+            try:
+                verifier = self.server.tracker_service.verifier_revision()
+                tracker_revision = verifier["sha256"]
+            except TrackerProjectionError as error:
+                tracker_failures += 1
+                tracker_revision = None
+                tracker_reason = str(error)
+            else:
+                tracker_reason = (
+                    f"{tracker_failures} tracker or project source(s) are unavailable."
+                    if tracker_failures
+                    else "Discovered tracker candidates were projected by the maintained verifier."
+                )
+            source_health.append(
+                self._floor_source(
+                    family="trackers",
+                    label="Trackers",
+                    status="partial" if tracker_failures else "available",
+                    identity="software-factory-dashboard/trackers",
+                    revision=tracker_revision,
+                    observed_at=observed_at,
+                    reason=tracker_reason,
+                    coverage={
+                        "status": "partial" if tracker_failures else "complete",
+                        "observed": [tracker["id"] for tracker in trackers if tracker["status"] == "available"],
+                        "missing": [tracker["id"] for tracker in trackers if tracker["status"] != "available"],
+                    },
+                )
+            )
+
+        task_data: dict[str, Any] | None = None
+        try:
+            task_data = self.server.app_server_client.list_tasks(active_projects, limit=100)
+            integration = task_data["integration"]
+            source_health.append(
+                self._floor_source(
+                    family="tasks",
+                    label="Codex tasks",
+                    status="available",
+                    identity="codex-app-server/task-list",
+                    revision=integration["revision"],
+                    observed_at=integration["observed_at"],
+                    reason="The version-gated task page was read successfully.",
+                    coverage={
+                        "status": "partial" if task_data.get("next_cursor") else "complete",
+                        "observed": ["task-list-page"],
+                        "missing": ["later-task-pages"] if task_data.get("next_cursor") else [],
+                    },
+                )
+            )
+        except AppServerError as error:
+            state = self.server.app_server_client.integration_state()
+            source_health.append(
+                self._floor_source(
+                    family="tasks",
+                    label="Codex tasks",
+                    status="unavailable",
+                    identity="codex-app-server/task-list",
+                    revision=state["revision"],
+                    observed_at=state["observed_at"],
+                    reason=str(error),
+                    coverage={
+                        "status": "partial",
+                        "observed": [],
+                        "missing": ["codex-task-state"],
+                    },
+                )
+            )
+
+        floor = compose_factory_floor(
+            projects=project_views,
+            operations=operations,
+            trackers=trackers,
+            task_data=task_data,
+            source_health=source_health,
+            observed_at=observed_at,
+        )
+        observed_families = [
+            source["family"] for source in source_health if source["status"] != "unavailable"
+        ]
+        missing_families = [
+            source["family"]
+            for source in source_health
+            if source["status"] != "available"
+            or source["coverage"]["status"] != "complete"
+        ]
+        return envelope(
+            data={
+                "catalog_fingerprint": catalog_fingerprint,
+                "recovered_from_previous": recovered,
+                **floor,
+            },
+            source={
+                "kind": "factory-floor-composition",
+                "identity": "software-factory-dashboard/factory-floor",
+                "revision": floor["fingerprint"],
+            },
+            coverage={
+                "status": "partial" if missing_families else "complete",
+                "observed": observed_families,
+                "missing": missing_families,
+            },
+            limitations=[
+                "The Factory Floor composes existing read owners and stores no operational state.",
+                "Tracker association remains candidate or ambiguous unless a canonical run binding exists.",
+                "Task pages and recent records are bounded; truncation is explicit.",
+                "Operating lights are transparent derived posture and never completion state.",
+                "API-equivalent cost is an estimate, not actual spend.",
+            ],
+        )
+
+    def _factory_floor_payload(self) -> dict[str, Any]:
+        with self.server.floor_cache_lock:
+            now = monotonic()
+            cached = self.server.floor_cache
+            if cached is not None and now - cached[0] <= FLOOR_CACHE_SECONDS:
+                return cached[1]
+            payload = self._build_factory_floor_payload()
+            self.server.floor_cache = (monotonic(), payload)
+            return payload
+
+    def _write_factory_floor(self) -> None:
+        self._write_json(HTTPStatus.OK, self._factory_floor_payload())
+
     def _active_projects(self) -> tuple[ProjectRecord, ...]:
         loaded = self.server.catalog_store.load()
         return tuple(project for project in loaded.state.projects if not project.archived)
@@ -1228,6 +1522,16 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             return
         if decoded_path == f"/api/{API_VERSION}/health":
             self._health()
+            return
+        if decoded_path == f"/api/{API_VERSION}/factory-floor":
+            if urlsplit(self.path).query:
+                self._error(
+                    HTTPStatus.BAD_REQUEST,
+                    "invalid_query",
+                    "Factory Floor does not accept query parameters.",
+                )
+            else:
+                self._write_factory_floor()
             return
         if decoded_path == f"/api/{API_VERSION}/task-integration":
             if urlsplit(self.path).query:

@@ -1,170 +1,630 @@
-import { useQuery } from "@tanstack/react-query"
+import { useAtom } from "jotai"
 import {
-  ArrowDownRight,
-  CircleAlert,
-  Factory,
-  ShieldCheck,
-  Workflow,
+  AlertTriangle,
+  CheckCircle2,
+  ChevronRight,
+  Circle,
+  CirclePause,
+  Clock3,
+  RefreshCw,
+  X,
 } from "lucide-react"
+import { useEffect, useMemo } from "react"
+import { useQuery } from "@tanstack/react-query"
 
-import { ChartPlaceholder } from "@/components/chart-placeholder"
-import { fetchHealth } from "@/lib/api"
-import { fetchProjects } from "@/lib/projects-api"
+import { Button } from "@/components/ui/button"
+import {
+  fetchFactoryFloor,
+  type FactoryFloorAttention,
+  type FactoryFloorData,
+  type FactoryFloorRow,
+} from "@/lib/floor-api"
+import {
+  floorInspectorAtom,
+  floorPostureFilterAtom,
+  floorProjectFilterAtom,
+  floorSeverityFilterAtom,
+  floorTimeFilterAtom,
+  type FloorTimeFilter,
+} from "@/lib/floor-state"
 
-export function Component() {
-  const runtimeHealth = useQuery({
-    queryKey: ["runtime-health"],
-    queryFn: ({ signal }) => fetchHealth(signal),
-    retry: 1,
-  })
-  const projects = useQuery({
-    queryKey: ["projects", false],
-    queryFn: ({ signal }) => fetchProjects(false, signal),
-    retry: 1,
-  })
-  const runtimeReadiness = runtimeHealth.isPending
-    ? {
-        detail: "Awaiting the runtime health response",
-        label: "Checking",
-        ready: false,
-      }
-    : runtimeHealth.isError
-      ? {
-          detail: "Health check failed; readiness is unknown",
-          label: "Unavailable",
-          ready: false,
-        }
-      : {
-          detail: "Connected and locally constrained",
-          label: "Ready",
-          ready: true,
-        }
-  const projectReadiness = projects.isPending
-    ? { detail: "Awaiting the bounded catalog", label: "Checking", ready: false }
-    : projects.isError
-      ? { detail: "Catalog or registered roots could not be read", label: "Unavailable", ready: false }
-      : {
-          detail: `${projects.data.data.projects.length} visible project${projects.data.data.projects.length === 1 ? "" : "s"}`,
-          label: "Ready",
-          ready: true,
-        }
-  const taskReadiness = runtimeHealth.isPending
-    ? { detail: "Checking the local adapter", label: "Checking", ready: false }
-    : runtimeHealth.isError
-      ? { detail: "Integration health is unknown", label: "Unavailable", ready: false }
-      : runtimeHealth.data.data.integrations.codex_app_server.status === "available"
-        ? { detail: "Version and schema matched", label: "Ready", ready: true }
-        : {
-            detail:
-              runtimeHealth.data.data.integrations.codex_app_server.reason ?? "Adapter unavailable",
-            label: "Unavailable",
-            ready: false,
-          }
-  const summaryCards = [
-    {
-      label: "Registered projects",
-      value: projects.isSuccess ? String(projects.data.data.projects.length) : "—",
-      detail: projects.isPending
-        ? "Checking catalog"
-        : projects.isError
-          ? "Catalog unavailable"
-          : "Visible catalog records",
-      tone: projects.isSuccess ? "green" : "neutral",
-    },
-    { label: "Active implementations", value: "—", detail: "Not computed in this view", tone: "neutral" },
-    { label: "Supervisor groups", value: "—", detail: "Bindings unavailable", tone: "neutral" },
-    { label: "Action required", value: "—", detail: "Cannot be determined", tone: "neutral" },
-  ] as const
+const metricKeys = new Set([
+  "active-projects",
+  "active-tasks",
+  "active-implementations",
+  "supervision-runs",
+  "unmonitored-implementations",
+  "degraded-groups",
+  "orphaned-supervisors",
+  "accepted-blocks",
+  "blocks-in-progress",
+  "blocks-not-started",
+  "open-items",
+  "supervisor-checks",
+  "semantic-conclusions",
+  "api-equivalent",
+])
+
+const postureLabels = {
+  red: "Action required",
+  amber: "Watch",
+  green: "On track",
+  neutral: "Neutral",
+} as const
+
+function parseTime(value: string | null): number | null {
+  if (!value) return null
+  const parsed = Date.parse(value)
+  return Number.isNaN(parsed) ? null : parsed
+}
+
+function withinTime(value: string | null, filter: FloorTimeFilter, now: number): boolean {
+  if (filter === "all") return true
+  const parsed = parseTime(value)
+  if (parsed === null) return false
+  const window = filter === "24h" ? 24 * 60 * 60 * 1_000 : 7 * 24 * 60 * 60 * 1_000
+  return now - parsed <= window
+}
+
+function formatTime(value: string | null): string {
+  if (!value) return "Unavailable"
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.valueOf())) return "Unavailable"
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(parsed)
+}
+
+function shortId(value: string | null): string {
+  if (!value) return "Unavailable"
+  return value.length > 16 ? `${value.slice(0, 8)}…${value.slice(-5)}` : value
+}
+
+function blockLabel(value: string | null): string {
+  if (!value) return "Block unavailable"
+  return /^block\b/i.test(value) ? value : `Block ${value}`
+}
+
+function inspectKey(route: string): string {
+  return new URL(route, window.location.origin).searchParams.get("inspect") ?? route
+}
+
+function setInspectRoute(value: string | null): void {
+  const url = new URL(window.location.href)
+  if (value) url.searchParams.set("inspect", value)
+  else url.searchParams.delete("inspect")
+  window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`)
+}
+
+function Time({ value }: { value: string | null }) {
+  return value
+    ? <time dateTime={value} title={value}>{formatTime(value)}</time>
+    : <span>Unavailable</span>
+}
+
+function LightIcon({ posture }: { posture: FactoryFloorRow["light"]["posture"] }) {
+  if (posture === "green") return <CheckCircle2 aria-hidden="true" />
+  if (posture === "red" || posture === "amber") return <AlertTriangle aria-hidden="true" />
+  return <CirclePause aria-hidden="true" />
+}
+
+function Inspector({ data, selected, close }: {
+  data: FactoryFloorData
+  selected: string
+  close: () => void
+}) {
+  const row = data.rows.find((item) => `${item.detail.kind}:${item.detail.id}` === selected)
+  const attention = data.attention.find((item) => inspectKey(item.source.route) === selected)
+  const conclusion = data.conclusions.find((item) => inspectKey(item.source.route) === selected)
+  const outcome = data.accepted_outcomes.find((item) => inspectKey(item.source.route) === selected)
+  const source = data.source_health.find((item) => `source:${item.family}` === selected)
+  const project = data.projects.find((item) => `project:${item.id}` === selected)
+  const metric = data.metrics.find((item) => `metric:${item.key}` === selected)
+  const facts: Array<[string, string | number | null]> = []
+  let title = "Source detail"
+  let identity: string | null = null
+  let revision: string | null = null
+  let path: string | null = null
+
+  if (row) {
+    title = row.implementation.name ?? shortId(row.implementation.task_id)
+    facts.push(
+      ["Project", row.project.label],
+      ["Task", row.implementation.task_id],
+      ["Task state", row.implementation.status_label],
+      ["Supervision", row.supervision.status_label],
+      ["Roles", row.supervision.role_count],
+      ["Binding", row.supervision.binding_integrity],
+      ["Tracker", row.work.tracker.title ?? row.work.tracker.status],
+      ["Block", row.work.active_block],
+      ["Checkpoint", row.work.checkpoint],
+      ["Open items", row.issues.total],
+      ["Posture", row.light.label],
+      ["Reason", row.light.reason],
+      ["Observed", row.light.observed_at],
+    )
+    const preferred = row.detail.source_refs[0]
+    identity = preferred?.identity ?? row.detail.id
+    revision = preferred?.revision ?? null
+    path = preferred?.path ?? null
+  } else if (attention) {
+    title = attention.rule?.replaceAll("-", " ") ?? "Attention item"
+    facts.push(
+      ["Rank", attention.rank],
+      ["Severity", attention.severity],
+      ["Target", attention.target_thread_id],
+      ["Reason", attention.reason],
+      ["Safe frontier", attention.safe_frontier],
+      ["Observed", attention.observed_at],
+    )
+    identity = attention.source.identity
+    path = attention.source.path
+  } else if (conclusion) {
+    title = conclusion.summary ?? "Supervisor conclusion"
+    facts.push(
+      ["Target", conclusion.target_label],
+      ["Disposition", conclusion.disposition],
+      ["Author", conclusion.author ?? "Unavailable from owner"],
+      ["Current", conclusion.current ? "Yes" : "No"],
+      ["Open work retained", conclusion.retained_open_work],
+      ["Next action", conclusion.next_action],
+      ["Observed", conclusion.observed_at],
+    )
+    identity = conclusion.source.identity
+    revision = conclusion.source.revision
+    path = conclusion.source.path
+  } else if (outcome) {
+    title = `Block ${outcome.block} · ${outcome.title}`
+    facts.push(
+      ["Project", outcome.project_id],
+      ["Tracker", outcome.tracker_title],
+      ["Status", outcome.status],
+      ["Currentness", outcome.currentness],
+      ["Open work retained", outcome.retained_open_work],
+      ["Observed", outcome.observed_at],
+    )
+    identity = outcome.source.identity
+    revision = outcome.source.revision
+    path = outcome.source.path
+  } else if (source) {
+    title = source.label
+    facts.push(
+      ["Status", source.status],
+      ["Reason", source.reason],
+      ["Coverage", source.coverage.status],
+      ["Observed", source.observed_at],
+      ["Missing", source.coverage.missing.join(", ") || "None"],
+    )
+    identity = source.identity
+    revision = source.revision
+  } else if (project) {
+    title = project.label
+    facts.push(["Project ID", project.id])
+    identity = `project-catalog/${project.id}`
+  } else if (metric) {
+    title = metric.label
+    facts.push(
+      ["Value", metric.available ? `${metric.value} ${metric.unit}` : "Unavailable"],
+      ["Period", metric.period],
+      ["Coverage", metric.coverage],
+      ["Estimate", metric.estimate ? "Yes" : "No"],
+    )
+    identity = metric.source_identity
+  } else {
+    facts.push(["Reference", selected])
+  }
 
   return (
-    <div className="page-stack floor-page">
-      <section className="summary-grid" aria-label="Factory summary">
-        {summaryCards.map((card) => (
-          <article className="summary-card" key={card.label}>
-            <div className="summary-card-topline">
-              <span>{card.label}</span>
-              <ArrowDownRight aria-hidden="true" />
-            </div>
-            <strong>{card.value}</strong>
-            <span className="summary-detail">
-              <span className={`status-dot status-${card.tone}`} />
-              {card.detail}
-            </span>
-          </article>
+    <aside className="floor-inspector" aria-label="Factory source inspector">
+      <div className="floor-inspector-heading">
+        <div>
+          <span className="eyebrow">Inspector</span>
+          <strong>{title}</strong>
+        </div>
+        <Button variant="ghost" size="icon" onClick={close} aria-label="Close inspector">
+          <X aria-hidden="true" />
+        </Button>
+      </div>
+      <dl className="floor-inspector-facts">
+        {facts.map(([label, value]) => (
+          <div key={label}>
+            <dt>{label}</dt>
+            <dd>{value === null || value === "" ? "Unavailable" : String(value)}</dd>
+          </div>
         ))}
-      </section>
+      </dl>
+      <div className="floor-inspector-source">
+        <span>Source</span>
+        <code>{identity ?? "Unavailable"}</code>
+        {revision && <code title={revision}>{shortId(revision)}</code>}
+        {path && <code title={path}>{path}</code>}
+      </div>
+    </aside>
+  )
+}
 
-      <div className="floor-layout">
-        <section className="panel floor-panel" aria-labelledby="floor-panel-title">
-          <div className="panel-heading">
-            <h2 id="floor-panel-title">Implementation lanes</h2>
-            <span className="data-state-label">No source coverage</span>
-          </div>
-
-          <div className="floor-column-labels" aria-hidden="true">
-            <span>Project &amp; implementation</span>
-            <span>Supervisor</span>
-            <span>Current work</span>
-            <span>Posture</span>
-          </div>
-
-          <div className="floor-empty">
-            <div className="floor-empty-visual" aria-hidden="true">
-              <span /><span /><span />
-              <Factory />
-            </div>
-            <div>
-              <h3>Implementation lanes unavailable</h3>
-              <p>Task and supervision sources are not connected.</p>
-            </div>
-          </div>
-        </section>
-
-        <aside className="panel readiness-panel" aria-labelledby="readiness-title">
-          <div className="panel-heading">
-            <h2 id="readiness-title">Source readiness</h2>
-          </div>
-          <ul className="readiness-list">
-            <li>
-              <span className={`readiness-icon ${runtimeReadiness.ready ? "readiness-ready" : ""}`}>
-                {runtimeReadiness.ready
-                  ? <ShieldCheck aria-hidden="true" />
-                  : <CircleAlert aria-hidden="true" />}
-              </span>
-              <div><strong>Loopback runtime</strong><span>{runtimeReadiness.detail}</span></div>
-              <span className={`readiness-state ${runtimeReadiness.ready ? "state-ready" : ""}`}>
-                {runtimeReadiness.label}
-              </span>
-            </li>
-            <li>
-              <span className={`readiness-icon ${projectReadiness.ready ? "readiness-ready" : ""}`}>
-                <Workflow aria-hidden="true" />
-              </span>
-              <div><strong>Project catalog</strong><span>{projectReadiness.detail}</span></div>
-              <span className={`readiness-state ${projectReadiness.ready ? "state-ready" : ""}`}>
-                {projectReadiness.label}
-              </span>
-            </li>
-            <li>
-              <span className={`readiness-icon ${taskReadiness.ready ? "readiness-ready" : ""}`}>
-                <Factory aria-hidden="true" />
-              </span>
-              <div><strong>Codex tasks</strong><span>{taskReadiness.detail}</span></div>
-              <span className={`readiness-state ${taskReadiness.ready ? "state-ready" : ""}`}>
-                {taskReadiness.label}
-              </span>
-            </li>
-          </ul>
-        </aside>
+function FloorRow({ row, inspect }: { row: FactoryFloorRow; inspect: (route: string) => void }) {
+  const tracker = row.work.tracker
+  return (
+    <article className={`factory-row posture-${row.light.posture}`}>
+      <div className="factory-row-implementation">
+        <span className="row-project">{row.project.label}</span>
+        <strong>{row.implementation.name ?? shortId(row.implementation.task_id)}</strong>
+        <span className="row-meta">
+          <span className={`status-chip state-${row.implementation.status}`}>
+            {row.implementation.status_label}
+          </span>
+          <code title={row.implementation.task_id}>{shortId(row.implementation.task_id)}</code>
+        </span>
+        {row.disagreements.length > 0 && (
+          <span className="row-disagreement"><AlertTriangle aria-hidden="true" />{row.disagreements[0]}</span>
+        )}
       </div>
 
-      <section className="panel metrics-panel" aria-labelledby="metrics-title">
-        <div className="panel-heading metrics-heading">
-          <h2 id="metrics-title">Factory activity</h2>
-          <span className="data-state-label">Unavailable</span>
+      <div className="factory-row-supervision">
+        <span className="cell-label">Supervisor</span>
+        <strong>{row.supervision.status_label}</strong>
+        <span>{row.supervision.role_count} role{row.supervision.role_count === 1 ? "" : "s"}</span>
+        <span className="row-meta">Target <code>{shortId(row.supervision.target_thread_id)}</code></span>
+        <span>{row.supervision.binding_integrity === "valid" ? "Bindings valid" : `Bindings ${row.supervision.binding_integrity}`}</span>
+      </div>
+
+      <div className="factory-row-work">
+        <span className="cell-label">Current work</span>
+        <strong>
+          {blockLabel(row.work.active_block)}
+          {row.work.checkpoint ? ` · ${row.work.checkpoint}` : ""}
+        </strong>
+        <span title={tracker.relative_path ?? undefined}>{tracker.title ?? `Tracker ${tracker.status}`}</span>
+        <span>{row.work.last_action ?? "No current action recorded"}</span>
+        <span className="row-meta">
+          {row.issues.total} open · Last <Time value={row.supervision.last_check?.observed_at ?? null} />
+          {" · Next "}
+          {row.supervision.next_check.at
+            ? <Time value={row.supervision.next_check.at} />
+            : <span title={row.supervision.next_check.reason}>unavailable</span>}
+        </span>
+      </div>
+
+      <div className="factory-row-light">
+        <span className={`operating-light light-${row.light.posture}`}>
+          <LightIcon posture={row.light.posture} />
+          <strong>{row.light.label}</strong>
+        </span>
+        <span>{row.light.reason}</span>
+        <Time value={row.light.observed_at} />
+        <a
+          className="inspect-link"
+          href={row.detail.route}
+          onClick={(event) => {
+            event.preventDefault()
+            inspect(row.detail.route)
+          }}
+        >
+          Inspect <ChevronRight aria-hidden="true" />
+        </a>
+      </div>
+    </article>
+  )
+}
+
+function AttentionItem({ item, inspect }: {
+  item: FactoryFloorAttention
+  inspect: (route: string) => void
+}) {
+  return (
+    <li className={`attention-item severity-${item.severity}`}>
+      <span className="attention-rank">{item.rank}</span>
+      <span className="attention-icon" aria-hidden="true">
+        {item.severity === "neutral" ? <Circle /> : <AlertTriangle />}
+      </span>
+      <div>
+        <strong>{item.reason ?? item.rule ?? "Attention item"}</strong>
+        <span>
+          {item.target_thread_id ? `Target ${shortId(item.target_thread_id)} · ` : ""}
+          {item.owner ?? "Owner unavailable"}
+        </span>
+        <span>Safe frontier: {item.safe_frontier ?? "Unavailable from owner"}</span>
+      </div>
+      <div className="attention-action">
+        <Time value={item.observed_at} />
+        <a
+          href={item.source.route}
+          onClick={(event) => {
+            event.preventDefault()
+            inspect(item.source.route)
+          }}
+        >Inspect</a>
+      </div>
+    </li>
+  )
+}
+
+function FactoryFloor({ data, isFetching, refresh }: {
+  data: FactoryFloorData
+  isFetching: boolean
+  refresh: () => void
+}) {
+  const [projectFilter, setProjectFilter] = useAtom(floorProjectFilterAtom)
+  const [postureFilter, setPostureFilter] = useAtom(floorPostureFilterAtom)
+  const [severityFilter, setSeverityFilter] = useAtom(floorSeverityFilterAtom)
+  const [timeFilter, setTimeFilter] = useAtom(floorTimeFilterAtom)
+  const [selected, setSelected] = useAtom(floorInspectorAtom)
+  const now = Date.now()
+  const rowProject = new Map(
+    data.rows.map((row) => [row.supervision.target_thread_id, row.project.project_id]),
+  )
+  const matchesProject = (projectId: string | null, targetId?: string | null) =>
+    projectFilter === "all" || projectId === projectFilter || rowProject.get(targetId ?? "") === projectFilter
+  const rows = data.rows.filter((row) =>
+    matchesProject(row.project.project_id)
+    && (postureFilter === "all" || row.light.posture === postureFilter)
+    && withinTime(row.freshness.observed_at, timeFilter, now)
+  )
+  const attentionMatches = data.attention.filter((item) =>
+    matchesProject(item.project_id, item.target_thread_id)
+    && (severityFilter === "all" || item.severity === severityFilter)
+    && withinTime(item.observed_at, timeFilter, now)
+  )
+  const conclusionMatches = data.conclusions.filter((item) =>
+    matchesProject(null, item.target_thread_id)
+    && withinTime(item.observed_at, timeFilter, now)
+  )
+  const outcomeMatches = data.accepted_outcomes.filter((item) =>
+    matchesProject(item.project_id)
+    && withinTime(item.observed_at, timeFilter, now)
+  )
+  const totalCritical = data.attention.filter((item) => item.severity !== "neutral").length
+  const visibleCritical = attentionMatches.filter((item) => item.severity !== "neutral").length
+  const hiddenCritical = Math.max(0, totalCritical - visibleCritical)
+  const attention = attentionMatches.slice(0, 10)
+  const boundedCritical = attentionMatches
+    .slice(attention.length)
+    .filter((item) => item.severity !== "neutral").length
+  const conclusions = conclusionMatches.slice(0, 6)
+  const outcomes = outcomeMatches.slice(0, 6)
+  const sourcesIncomplete = data.source_health.filter(
+    (source) => source.status !== "available" || source.coverage.status !== "complete",
+  )
+  const metrics = data.metrics.filter((metric) => metricKeys.has(metric.key))
+
+  const inspect = (route: string) => {
+    const key = inspectKey(route)
+    setSelected(key)
+    setInspectRoute(key)
+  }
+  const closeInspector = () => {
+    setSelected(null)
+    setInspectRoute(null)
+  }
+
+  useEffect(() => {
+    const current = new URL(window.location.href).searchParams.get("inspect")
+    if (current && current !== selected) setSelected(current)
+  }, [selected, setSelected])
+
+  return (
+    <div className="page-stack factory-floor-page">
+      <section className="panel factory-floor-region" aria-labelledby="factory-floor-heading">
+        <div className="floor-region-heading">
+          <div>
+            <h2 id="factory-floor-heading">Implementations &amp; supervisors</h2>
+            <span>{rows.length} of {data.rows.length} rows</span>
+          </div>
+          <div className="floor-refresh">
+            <span className={sourcesIncomplete.length ? "freshness-partial" : "freshness-current"}>
+              <Clock3 aria-hidden="true" />
+              {sourcesIncomplete.length ? `${sourcesIncomplete.length} source${sourcesIncomplete.length === 1 ? "" : "s"} partial` : "Sources current"}
+            </span>
+            <Button variant="outline" size="compact" onClick={refresh} disabled={isFetching}>
+              <RefreshCw className={isFetching ? "spin" : ""} aria-hidden="true" />
+              {isFetching ? "Refreshing" : "Refresh"}
+            </Button>
+          </div>
         </div>
-        <ChartPlaceholder />
+
+        <div className="floor-summary" role="group" aria-label="Factory summary">
+          <div><span>Projects</span><strong>{data.summary.registered_projects}</strong></div>
+          <div><span>Active</span><strong>{data.summary.active_implementations ?? "—"}</strong></div>
+          <div><span>Supervisors</span><strong>{data.summary.supervisor_groups ?? "—"}</strong></div>
+          <div><span>Action required</span><strong>{data.summary.action_required}</strong></div>
+          {(["red", "amber", "green", "neutral"] as const).map((posture) => (
+            <div className={`summary-posture posture-${posture}`} key={posture}>
+              <span>{postureLabels[posture]}</span><strong>{data.summary.postures[posture]}</strong>
+            </div>
+          ))}
+        </div>
+
+        <div className="floor-filters" aria-label="Factory Floor filters">
+          <label>
+            <span>Project</span>
+            <select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}>
+              <option value="all">All projects</option>
+              {data.projects.map((project) => (
+                <option value={project.id} key={project.id}>{project.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Time</span>
+            <select value={timeFilter} onChange={(event) => setTimeFilter(event.target.value as FloorTimeFilter)}>
+              <option value="all">All current</option>
+              <option value="24h">Last 24 hours</option>
+              <option value="7d">Last 7 days</option>
+            </select>
+          </label>
+          <label>
+            <span>Posture</span>
+            <select value={postureFilter} onChange={(event) => setPostureFilter(event.target.value as typeof postureFilter)}>
+              <option value="all">All postures</option>
+              <option value="red">Action required</option>
+              <option value="amber">Watch</option>
+              <option value="green">On track</option>
+              <option value="neutral">Neutral</option>
+            </select>
+          </label>
+          <label>
+            <span>Attention</span>
+            <select value={severityFilter} onChange={(event) => setSeverityFilter(event.target.value as typeof severityFilter)}>
+              <option value="all">All severities</option>
+              <option value="red">Red</option>
+              <option value="amber">Amber</option>
+              <option value="neutral">Neutral</option>
+            </select>
+          </label>
+          {hiddenCritical > 0 && (
+            <span className="hidden-critical" role="status">
+              <AlertTriangle aria-hidden="true" />{hiddenCritical} critical hidden by filters
+            </span>
+          )}
+        </div>
+
+        <div className="factory-row-labels" aria-hidden="true">
+          <span>Implementation</span><span>Supervisor</span><span>Work &amp; checks</span><span>Operating light</span>
+        </div>
+        <div className="factory-rows">
+          {rows.length > 0
+            ? rows.map((row) => <FloorRow row={row} inspect={inspect} key={row.id} />)
+            : <div className="bounded-empty">No rows match the current filters.</div>}
+        </div>
+        {data.rows_truncated && <div className="bounded-note">The owner-bounded row limit was reached.</div>}
       </section>
+
+      <section className="panel attention-region" aria-labelledby="attention-heading">
+        <div className="floor-region-heading">
+          <div><h2 id="attention-heading">Needs attention</h2></div>
+          <strong>{attention.length} of {attentionMatches.length}</strong>
+        </div>
+        {attention.length > 0
+          ? <ol className="attention-list">{attention.map((item) => <AttentionItem item={item} inspect={inspect} key={item.id} />)}</ol>
+          : <div className="bounded-empty">No attention items match the current filters.</div>}
+        {boundedCritical > 0 && (
+          <div className="bounded-note critical-note" role="status">
+            {boundedCritical} critical item{boundedCritical === 1 ? "" : "s"} outside the bounded view.
+          </div>
+        )}
+      </section>
+
+      <section className="panel outcomes-region" aria-labelledby="outcomes-heading">
+        <div className="floor-region-heading">
+          <div><h2 id="outcomes-heading">Latest conclusions &amp; accepted outcomes</h2></div>
+        </div>
+        <div className="outcome-columns">
+          <div className="outcome-column" aria-label="Supervisor and reviewer conclusions">
+            <div className="outcome-column-label"><span>Conclusions</span><strong>{conclusions.length} of {conclusionMatches.length}</strong></div>
+            {conclusions.length > 0 ? conclusions.map((item) => (
+              <article className="outcome-item" key={item.id}>
+                <span className="outcome-kicker">{item.disposition ?? "Disposition unavailable"} · {item.current ? "Current" : "Superseded"}</span>
+                <strong>{item.summary ?? "Conclusion summary unavailable"}</strong>
+                <span>{item.target_label} · Author {item.author ?? "unavailable"}</span>
+                <span>{item.next_action ?? "No next action recorded"}</span>
+                <footer>
+                  <Time value={item.observed_at} />
+                  <a href={item.source.route} onClick={(event) => { event.preventDefault(); inspect(item.source.route) }}>Inspect</a>
+                </footer>
+              </article>
+            )) : <div className="bounded-empty compact">No current conclusions in range.</div>}
+          </div>
+          <div className="outcome-column" aria-label="Accepted implementation outcomes">
+            <div className="outcome-column-label"><span>Accepted outcomes</span><strong>{outcomes.length} of {outcomeMatches.length}</strong></div>
+            {outcomes.length > 0 ? outcomes.map((item) => (
+              <article className="outcome-item" key={item.id}>
+                <span className="outcome-kicker">Block {item.block} · {item.currentness}</span>
+                <strong>{item.title}</strong>
+                <span>{item.tracker_title} · {item.project_id}</span>
+                <span>Evidence {shortId(item.evidence_revision)} · {item.retained_open_work ?? "—"} open retained</span>
+                <footer>
+                  <span>Observed <Time value={item.observed_at} /></span>
+                  <a href={item.source.route} onClick={(event) => { event.preventDefault(); inspect(item.source.route) }}>Inspect</a>
+                </footer>
+              </article>
+            )) : <div className="bounded-empty compact">No accepted tracker outcomes in range.</div>}
+          </div>
+        </div>
+      </section>
+
+      <section className="panel metrics-freshness-region" aria-labelledby="metrics-heading">
+        <div className="floor-region-heading">
+          <div><h2 id="metrics-heading">Metrics &amp; freshness</h2></div>
+        </div>
+        <div className="source-health-strip">
+          {data.source_health.map((source) => (
+            <a href={`/?inspect=source:${source.family}`} onClick={(event) => { event.preventDefault(); inspect(`/?inspect=source:${source.family}`) }} key={source.family}>
+              <span className={`source-health-dot source-${source.status === "available" && source.coverage.status === "partial" ? "partial" : source.status}`} aria-hidden="true" />
+              <strong>{source.label}</strong>
+              <span>
+                {source.status}
+                {source.status === "available" && source.coverage.status === "partial" ? " · partial" : ""}
+              </span>
+              <Time value={source.observed_at} />
+            </a>
+          ))}
+        </div>
+        <div className="floor-metric-grid">
+          {metrics.map((metric) => (
+            <a
+              className="floor-metric"
+              href={`/?inspect=metric:${metric.key}`}
+              key={metric.key}
+              onClick={(event) => {
+                event.preventDefault()
+                inspect(`/?inspect=metric:${metric.key}`)
+              }}
+            >
+              <span>{metric.label}</span>
+              <strong>{metric.available ? metric.value : "—"}</strong>
+              <span>{metric.available ? metric.unit : "Unavailable"}{metric.estimate ? " · estimate" : ""}</span>
+              <small>{metric.period}</small>
+              <small>{metric.coverage}</small>
+            </a>
+          ))}
+        </div>
+      </section>
+
+      {selected && <Inspector data={data} selected={selected} close={closeInspector} />}
     </div>
   )
+}
+
+export function Component() {
+  const floor = useQuery({
+    queryKey: ["factory-floor"],
+    queryFn: ({ signal }) => fetchFactoryFloor(signal),
+    retry: 1,
+    refetchOnWindowFocus: true,
+    refetchInterval: () => document.visibilityState === "visible" ? 20_000 : false,
+  })
+
+  const content = useMemo(() => {
+    if (floor.isPending) {
+      return (
+        <section className="panel floor-query-state" aria-busy="true">
+          <RefreshCw className="spin" aria-hidden="true" />
+          <span>Loading Factory Floor</span>
+        </section>
+      )
+    }
+    if (floor.isError) {
+      return (
+        <section className="panel floor-query-state" role="alert">
+          <AlertTriangle aria-hidden="true" />
+          <strong>Factory Floor unavailable</strong>
+          <span>{floor.error instanceof Error ? floor.error.message : "The aggregate source could not be read."}</span>
+          <Button variant="outline" size="compact" onClick={() => void floor.refetch()}>Retry</Button>
+        </section>
+      )
+    }
+    return (
+      <FactoryFloor
+        data={floor.data.data}
+        isFetching={floor.isFetching}
+        refresh={() => void floor.refetch()}
+      />
+    )
+  }, [floor.data, floor.error, floor.isError, floor.isFetching, floor.isPending, floor.refetch])
+
+  return content
 }

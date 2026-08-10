@@ -225,6 +225,63 @@ class DashboardServerTests(unittest.TestCase):
             1,
         )
 
+    def test_factory_floor_composes_live_owners_and_preserves_query_boundary(self) -> None:
+        root = self.make_repo("factory-floor")
+        compatibility = self.static_dir / "factory-floor-compatibility.json"
+        write_contract(compatibility)
+        command = (
+            sys.executable,
+            str(FAKE_APP_SERVER),
+            "--cwd",
+            str(root),
+        )
+        with running_server(
+            self.static_dir,
+            codex_command=command,
+            codex_compatibility_path=compatibility,
+        ) as origin:
+            initial_catalog = json.loads(
+                response(f"{origin}/api/v1/projects?include_archived=true").body
+            )
+            created = self.catalog_request(
+                origin,
+                "/api/v1/projects",
+                {
+                    "source_fingerprint": initial_catalog["data"]["catalog_fingerprint"],
+                    "project": {
+                        "id": "factory-floor",
+                        "label": "Factory Floor",
+                        "root": str(root),
+                        "tracker_patterns": [],
+                        "description": None,
+                    },
+                },
+            )
+            floor_result = response(f"{origin}/api/v1/factory-floor")
+            cached_floor_result = response(f"{origin}/api/v1/factory-floor")
+            invalid_query = response(f"{origin}/api/v1/factory-floor?project=factory-floor")
+
+        payload = json.loads(floor_result.body)
+        self.assertEqual(created.status, 201)
+        self.assertEqual(floor_result.status, 200)
+        self.assertEqual(cached_floor_result.status, 200)
+        self.assertEqual(
+            json.loads(cached_floor_result.body)["observed_at"],
+            payload["observed_at"],
+        )
+        self.assertEqual(payload["source"]["kind"], "factory-floor-composition")
+        self.assertEqual(payload["data"]["summary"]["registered_projects"], 1)
+        self.assertEqual(payload["data"]["rows"][0]["implementation"]["task_id"], "task-fake-001")
+        self.assertEqual(payload["data"]["rows"][0]["supervision"]["status"], "unmonitored")
+        self.assertEqual(
+            {source["family"] for source in payload["data"]["source_health"]},
+            {"catalog", "operations", "trackers", "tasks"},
+        )
+        self.assertTrue(all(metric["period"] for metric in payload["data"]["metrics"]))
+        self.assertTrue(all(metric["coverage"] for metric in payload["data"]["metrics"]))
+        self.assertEqual(invalid_query.status, 400)
+        self.assertEqual(json.loads(invalid_query.body)["error"]["code"], "invalid_query")
+
     def test_task_events_and_mutations_require_same_origin_launch_nonce(self) -> None:
         with running_server(self.static_dir) as origin:
             event_without_origin = response(f"{origin}/api/v1/task-events")

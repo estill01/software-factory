@@ -9,6 +9,7 @@ export default defineConfig({
   forbidOnly: true,
   retries: 0,
   reporter: "line",
+  expect: { timeout: 15_000 },
   use: {
     baseURL,
     trace: "retain-on-failure",

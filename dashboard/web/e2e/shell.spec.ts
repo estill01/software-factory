@@ -1,6 +1,8 @@
 import AxeBuilder from "@axe-core/playwright"
 import { expect, test } from "@playwright/test"
 
+import { makeFactoryFloorEnvelope } from "../src/test/factory-floor-fixture"
+
 const catalogFingerprint = "a".repeat(64)
 
 function project(id: string, status: "available" | "unavailable", archived = false) {
@@ -57,17 +59,14 @@ function catalog(projects: ReturnType<typeof project>[]) {
 }
 
 test("factory shell exposes honest state and working navigation", async ({ page }) => {
+  await page.route("**/api/v1/factory-floor", (route) =>
+    route.fulfill({ json: makeFactoryFloorEnvelope() }),
+  )
   await page.goto("/")
   await expect(page.getByRole("heading", { name: "Factory Floor", level: 1 })).toBeVisible()
   await expect(page.locator("h1")).toHaveCount(1)
   await expect(page.getByRole("status", { name: /Local runtime online/ })).toBeVisible()
-  await expect(page.getByRole("heading", { name: "Implementation lanes unavailable" })).toBeVisible()
-
-  await page.getByRole("link", { name: "Trackers", exact: true }).click()
-  await expect(page.getByRole("heading", { name: "Trackers", level: 1 })).toBeVisible()
-  await expect(page.locator("h1")).toHaveCount(1)
-  await expect(page.getByRole("heading", { name: "Tracker workspace unavailable" })).toBeVisible()
-  await expect(page).toHaveURL(/\/trackers$/)
+  await expect(page.getByRole("heading", { name: "Implementations & supervisors" })).toBeVisible()
 
   const themeToggle = page.getByRole("button", { name: /Switch to (light|dark) mode/ })
   const initialTheme = await page.locator("html").getAttribute("data-theme")
@@ -76,11 +75,21 @@ test("factory shell exposes honest state and working navigation", async ({ page 
     "data-theme",
     initialTheme === "dark" ? "light" : "dark",
   )
+
+  await page.getByRole("link", { name: "Trackers", exact: true }).click()
+  await expect(page.getByRole("heading", { name: "Trackers", level: 1 })).toBeVisible()
+  await expect(page.locator("h1")).toHaveCount(1)
+  await expect(page.getByRole("heading", { name: "Tracker workspace unavailable" })).toBeVisible()
+  await expect(page).toHaveURL(/\/trackers$/)
+
 })
 
 test("shell has no serious accessibility violations", async ({ page }) => {
+  await page.route("**/api/v1/factory-floor", (route) =>
+    route.fulfill({ json: makeFactoryFloorEnvelope() }),
+  )
   await page.goto("/")
-  await expect(page.getByRole("heading", { name: "Factory Floor", level: 1 })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Implementations & supervisors" })).toBeVisible()
   const results = await new AxeBuilder({ page }).analyze()
   const material = results.violations.filter(({ impact }) =>
     impact === "serious" || impact === "critical",
@@ -89,8 +98,11 @@ test("shell has no serious accessibility violations", async ({ page }) => {
 })
 
 test("maintained viewport has no horizontal page overflow", async ({ page }) => {
+  await page.route("**/api/v1/factory-floor", (route) =>
+    route.fulfill({ json: makeFactoryFloorEnvelope() }),
+  )
   await page.goto("/")
-  await expect(page.getByRole("heading", { name: "Factory Floor", level: 1 })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Implementations & supervisors" })).toBeVisible()
   const dimensions = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     clientWidth: document.documentElement.clientWidth,
@@ -107,13 +119,102 @@ test("unknown client routes render the bounded not-found state", async ({ page }
 
 test("failed runtime health never leaves a ready claim behind", async ({ page }) => {
   await page.route("**/api/v1/health", (route) => route.abort())
+  await page.route("**/api/v1/factory-floor", (route) => route.abort())
   await page.goto("/")
 
   await expect(page.getByRole("status", { name: "Runtime unavailable" })).toBeVisible()
-  await expect(page.getByText("Health check failed; readiness is unknown")).toBeVisible()
+  await expect(page.getByRole("alert")).toContainText("Factory Floor unavailable")
   await expect(page.getByText("Connected and locally constrained")).toHaveCount(0)
-  const runtimeRow = page.getByText("Loopback runtime").locator("..").locator("..")
-  await expect(runtimeRow.getByText("Ready", { exact: true })).toHaveCount(0)
+  await expect(page.getByText("Sources current")).toHaveCount(0)
+  await expect(page.getByText("On track", { exact: true })).toHaveCount(0)
+})
+
+test("loading, empty, and stale-source states remain explicit", async ({ page }) => {
+  const empty = makeFactoryFloorEnvelope()
+  empty.data.rows = []
+  empty.data.attention = []
+  empty.data.conclusions = []
+  empty.data.accepted_outcomes = []
+  empty.data.summary = {
+    registered_projects: 3,
+    active_implementations: 0,
+    supervisor_groups: 0,
+    action_required: 0,
+    postures: { red: 0, amber: 0, green: 0, neutral: 0 },
+  }
+  empty.data.source_health[0].status = "partial"
+  empty.data.source_health[0].coverage.status = "partial"
+  empty.data.source_health[0].reason = "Last successful catalog read is stale."
+  empty.data.source_health[0].coverage.missing = ["current-catalog-read"]
+
+  await page.route("**/api/v1/factory-floor", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    await route.fulfill({ json: empty })
+  })
+  await page.goto("/", { waitUntil: "domcontentloaded" })
+
+  await expect(page.getByText("Loading Factory Floor")).toBeVisible()
+  await expect(page.getByText("No rows match the current filters.")).toBeVisible()
+  await expect(page.getByText("No attention items match the current filters.")).toBeVisible()
+  await expect(page.getByText("No current conclusions in range.")).toBeVisible()
+  await expect(page.getByText("No accepted tracker outcomes in range.")).toBeVisible()
+  const catalogSource = page.getByRole("link", { name: /Project catalog partial/ })
+  await catalogSource.click()
+  await expect(page.getByRole("complementary", { name: "Factory source inspector" }))
+    .toContainText("Last successful catalog read is stale.")
+})
+
+test("three-project floor keeps operations, attention, outcomes, and partial truth actionable", async ({ page }) => {
+  await page.route("**/api/v1/factory-floor", (route) =>
+    route.fulfill({ json: makeFactoryFloorEnvelope() }),
+  )
+  await page.goto("/")
+
+  await expect(page.locator("h1")).toHaveCount(1)
+  await expect(page.getByRole("heading", { name: "Implementations & supervisors" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Needs attention" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Latest conclusions & accepted outcomes" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Metrics & freshness" })).toBeVisible()
+  await expect(page.getByText("Alpha implementation", { exact: true })).toBeVisible()
+  await expect(page.getByText("Beta implementation", { exact: true })).toBeVisible()
+  await expect(page.getByText("Gamma implementation", { exact: true })).toBeVisible()
+  await expect(page.getByText("A current incident remains open.", { exact: true }).last()).toBeVisible()
+  await expect(page.getByText("Typed owner adapter")).toBeVisible()
+  await expect(page.getByText("Codex tasks").last()).toBeVisible()
+  await expect(page.getByText("partial", { exact: true })).toBeVisible()
+  await expect(page.getByText(/spend/i)).toHaveCount(0)
+
+  await page.getByRole("link", { name: /API-equivalent estimate/ }).click()
+  const metricInspector = page.getByRole("complementary", { name: "Factory source inspector" })
+  await expect(metricInspector).toContainText("fixture/api-equivalent")
+  await expect(metricInspector).toContainText("3 registered projects")
+  await page.getByRole("button", { name: "Close inspector" }).click()
+
+  const projectFilter = page.getByLabel("Project")
+  await projectFilter.focus()
+  await expect(projectFilter).toBeFocused()
+  await projectFilter.selectOption("gamma")
+  await expect(page.getByText("Gamma implementation", { exact: true })).toBeVisible()
+  await expect(page.getByText("Alpha implementation", { exact: true })).toHaveCount(0)
+  await expect(page.locator(".hidden-critical")).toContainText("1 critical hidden by filters")
+
+  await projectFilter.selectOption("all")
+  const betaRow = page.locator("article.factory-row").filter({ hasText: "Beta implementation" })
+  await betaRow.getByRole("link", { name: "Inspect" }).click()
+  await expect(page.getByRole("complementary", { name: "Factory source inspector" })).toBeVisible()
+  await expect(page).toHaveURL(/inspect=run%3Atarget-beta/)
+  await page.getByRole("button", { name: "Close inspector" }).click()
+  await expect(page.getByRole("complementary", { name: "Factory source inspector" })).toHaveCount(0)
+
+  const results = await new AxeBuilder({ page }).analyze()
+  expect(
+    results.violations.filter(({ impact }) => impact === "serious" || impact === "critical"),
+  ).toEqual([])
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
 })
 
 test("catalog views preserve bounded discovery, failures, and archive consequences", async ({ page }) => {

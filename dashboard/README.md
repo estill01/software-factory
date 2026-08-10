@@ -4,8 +4,9 @@ The dashboard is a local, single-operator control room. It currently provides
 the loopback runtime, typed transport, accessible application shell, a bounded
 multi-project catalog, and read-only APIs for implementation trackers, Git
 currentness, supervision, reports, owner-produced metrics, and a version-gated
-Codex task adapter. The composed Factory Floor and task workspaces remain in
-their later tracker Blocks.
+Codex task adapter. Its composed Factory Floor is the default operating view;
+detailed project, run, tracker, report, and task workspaces remain in later
+tracker Blocks.
 
 ## Prerequisites
 
@@ -48,7 +49,7 @@ Open `http://127.0.0.1:8787`. Choose another free port with `--port`; the
 service rejects non-loopback hosts. The production server serves the Vite build,
 SPA routes, `/api/v1/health`, security headers, and per-launch mutation-nonce
 plumbing. Read-only project, tracker, supervision, report, and metrics APIs are
-served from the same origin.
+served from the same origin, including the composed Factory Floor.
 
 ## Register projects
 
@@ -150,6 +151,40 @@ automation prompt bodies, and does not create, repair, pause, resume, stop, or
 otherwise mutate supervised work. It also does not generate reports. Each
 target and report fails locally so one damaged source cannot erase healthy
 operations data.
+
+## Operate from the Factory Floor
+
+The default route reads one same-origin aggregate:
+
+```text
+GET /api/v1/factory-floor
+```
+
+The endpoint composes the catalog, tracker/Git, supervision/report/metric, and
+Codex task adapters without storing operational state or choosing a source
+winner. It pairs current supervision targets with exact tasks when available,
+keeps unmonitored tasks and unresolved or disagreeing bindings visible, and
+returns transparent red, amber, green, or neutral posture with a textual
+reason, observation time, and `completion_claim: false`. A two-second
+process-local response cache coalesces simultaneous page loads; the browser
+polls only while visible and can request an explicit refresh.
+
+The page has four bounded operating regions: implementation/supervisor rows,
+ranked attention, semantic conclusions beside accepted tracker outcomes, and
+metrics/source freshness. Project, time, posture, and severity filters never
+change source ranking. Any critical item hidden by filters or the default
+limit remains counted visibly. Rows, attention items, conclusions, outcomes,
+source states, and metric tiles open an inspector that retains the exact owner
+identity plus a source revision or path when supplied. Source states retain
+their coverage and limitation reason; metric tiles retain their exact period
+and coverage. API-equivalent cost is always an estimate and is never labeled
+as actual spend.
+
+Independent source failure remains local. The top envelope becomes partial,
+the affected region shows its limitation, and healthy catalog, file-backed
+tracker, supervision, report, or task data remain visible. The endpoint accepts
+no query parameters and exposes no mutation, lifecycle, workflow-start, or
+acceptance control.
 
 ## Inspect and control Codex tasks
 
