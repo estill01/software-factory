@@ -2521,8 +2521,42 @@ from the browser or on every selection rerender.
   for exact tracker-binding claims. No operational or tracker state is stored.
   The accepted tradeoff is a richer typed detail envelope in exchange for one
   maintained parse and one lazy detail read per tracker fingerprint.
-- Implementation, validation, and exact independent review: pending; Block 8
-  remains `in-progress` and no later Block is active.
+- Implementation candidate: commit
+  `099a0f53d297de617dd412aec414cd8831fdf3f0`, tree
+  `b4278265d9495a7892c0bc213a8250c976705dcc`, parent
+  `786e78af29a0774f57955360dcd959d08263a1fd`; representative owner/UI/browser
+  blobs are tracker projection
+  `ce9bd34297d65c05728d5a41940ee731a4421914`, tracker workspace
+  `efd227a707d36f31d3c3ae51e46dd72768ab5819`, and browser proof
+  `54e3f4f20527a8d3c5a4f0e3883dd6d042fface9`. The candidate adds bounded
+  section bodies and content hashes, summary-only diff metadata, a lazy exact
+  diff endpoint with content/HEAD identity checks, same-tracker source ranges,
+  strict Zod contracts, safe inert Markdown projection, index/overview/Block/
+  evidence/print views, exact run mapping, missing-section truth, and no
+  mutation surface.
+- Focused and mapped validation: Python tracker/server tests passed 18 tests
+  plus 5 subtests before the aggregate run; the exact aggregate Python suite
+  passed 67 tests plus 13 subtests with `ResourceWarning` fatal and Ruff passed.
+  TypeScript, all 14 Vitest files/50 tests, and production build passed. The
+  invocation-scoped serial Playwright run passed all 33 cases across desktop,
+  tablet, and mobile, including one full and one inherited-core tracker,
+  filters, default current-Block selection, keyboard selection, safe source
+  links, recorded evidence, unavailable candidates, print CSS, accessibility,
+  and horizontal overflow. The full-profile tracker verifier reported Blocks
+  0–25 with 0 errors/warnings, all 30 verifier tests passed, 21 relative links
+  resolved with 0 missing, and staged/final diff checks were clean.
+- Remediation closure: live/browser proof found and closed missing-query Block
+  zero coercion, disabled deferred queries falsely labeled loading, shared
+  amber-warning contrast below WCAG AA, eager diff payloads, and pending
+  composed-owner data represented as an empty claim. Focused regression proof
+  covers each boundary; one cross-suite concurrent run that exceeded unrelated
+  five-second unit-test budgets is retained as diagnostic only, and the exact
+  suites passed without cross-suite contention.
+- Candidate freeze and durability: the implementation candidate was pushed to
+  `origin/codex/evolution-mvp` with local/upstream at `0 0`; no implementation
+  source changed after the recorded aggregate validation. Exact independent
+  review is pending, so Block 8 remains `in-progress`, no acceptance is claimed,
+  and no later Block is active.
 
 ### Stop
 
