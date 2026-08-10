@@ -3983,6 +3983,30 @@ only its named conclusion source until the bounded timeout, then retain
   `ResourceWarning` fatal, Ruff and diff checks passed, and no frontend,
   operation-route, tracker-status, or later-Block product surface changed. This
   successor remains unaccepted pending fresh exact delta review.
+- Rejected taxonomy review: exact evidence revision
+  `345c7a972695a9a1666ff4dd1a92b82814984904`, tree
+  `739de33322c1bf7181b9c3ed42f87047621c1a43`, and product revision
+  `ece13b46f667383b16554c4b884a80a525d1ba61` remain immutable rejected
+  evidence. Independent review confirmed the three workflow states and the
+  original category/binding rows were closed, but found the closed resolution
+  taxonomy omitted maintained terminal incident status `resolved`, excluding
+  it from both matching and the generated owner request. The exact affected
+  backend module, Ruff, full-profile verifier, 30 verifier tests, diff checks,
+  remote identity, and Stop otherwise remained clean.
+- Maintained-terminal successor: commit
+  `9542332c8a9fb884bd0dbe56038df843ae0d1cbd`, tree
+  `895ef49637ddc9953a3ec1e6a88aea7a00fdd80d`, parent
+  `345c7a972695a9a1666ff4dd1a92b82814984904`, is pushed exactly to
+  `origin/codex/evolution-mvp`. Its two-file diff root is
+  `abe0c389ed4586e67d64e60ebec6b56b9f63889a6bb55a5bdb880d879f605fd9`;
+  corrected blobs are `962d2894a6cc52b391b67e4c188d221c70915a8b`
+  for the owner and `ef89d43e9368b45ad958f8346f6874fc64c88244`
+  for focused proof. The resolution taxonomy now includes the maintained
+  terminal `resolved` outcome, and focused proof requires both prompt exposure
+  and applied matching for that exact status. The affected backend module again
+  passed 11/11 with `ResourceWarning` fatal, Ruff and diff checks passed, and
+  the closed workflow-state, category, and exact-binding rows remain unchanged.
+  This successor remains unaccepted pending fresh exact delta review.
 
 ### Stop
 
