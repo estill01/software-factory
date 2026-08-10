@@ -3632,6 +3632,55 @@ poll only for the named newer check until the bounded timeout. Stop at
   maintained watcher/route owners. Protected behavior is exact target and
   mission binding, duplicate-active exclusion, at-most-one wake, bounded
   postcondition polling, and explicit denied/timed-out/unverified truth.
+- Implementation candidate: commit
+  `152ad1ecd7709197fa3d0b1f56e1b4344f109dac`, tree
+  `90c69d9e566a48d0074eeef84316c951ffc8188a`, parent
+  `62f61405609c9acc53f457a48b87db91186cdd3a`, is pushed exactly to
+  `origin/codex/evolution-mvp`. The principal owner blobs are
+  `8de9b0756265fd8b9ee8a8c47c3b5617ce3e056b` for the watcher workflow,
+  `478dcc4074f10f95a0e0153f3f8e17aad79cb8b0` for the App Server adapter,
+  `562d3198c39b52cfc1b5677d339dcdbb4201be89` for the action UI, and
+  `7421104b5a8a9a973b224ad0c5295228e24a10f6` for responsive browser proof.
+  This revision remains unaccepted pending independent exact-revision review.
+- Implemented owner path: `factory.supervision-check-now` resolves one exact
+  current run, target task, watcher role, active cadence-bound automation,
+  current mission/policy/event head, and watcher task/cwd identity; uses the
+  maintained `watcher-action` route gate; wakes the exact idle or resumable
+  watcher at most once; and reaches `applied` only for one newer canonical
+  `check` with the exact mission, policy, source line, purpose, and preview
+  evidence. Wake-only, unrelated-newer-event, timeout, missing/active watcher,
+  missing automation, stale source, and mismatched evidence paths remain
+  failed, disabled, pending, or unverified without a semantic conclusion.
+- Currentness and bounded-transport proof: the dedicated internal role-turn
+  owner rechecks the canonical watcher cwd device/inode immediately before the
+  App Server owner call, including a same-path replacement negative test with
+  zero requests. The bounded protocol line limit is 32 MiB so the accepted
+  80-turn/250-item projection can shape a long supervised task; a 5 MiB raw
+  response is accepted, projected to the tighter text bound, and leaves the
+  adapter available. Generic task controls still require registered project
+  cwd ownership.
+- Candidate validation: the exact frozen diff hash was
+  `2d99ad31d6c32e647b64d8907994571a7c3da115`; backend discovery passed 98/98
+  with `ResourceWarning` fatal, full Ruff passed, all 18 Vitest files and 74
+  tests passed, and the production TypeScript/Vite build passed. The full
+  tracker verifier passed all 26 Blocks with 0 errors/warnings, all 30 verifier
+  self-tests passed, and staged diff checks were clean. A hard-coded idle-task
+  fixture crossed its 24-hour recency window during the first backend run; the
+  test now explicitly requests the active task it asserts, its focused rerun
+  passed, and the complete serial backend rerun passed without changing
+  production recency behavior.
+- Exact live/browser proof: on the rebuilt candidate served at loopback port
+  8787, the affected Factory Floor and live run/supervisor/task drill-down
+  scenarios passed 6/6 serially across desktop, tablet, and mobile. The current
+  run exposed an available source-bound `Check now` preview with
+  `watcher-action`, then cancelled it before dispatch; the historical mission
+  exposed no control. A separate live task read returned the bounded projected
+  long-lived task while the adapter remained available. No watcher was awakened
+  during non-destructive live proof.
+- Stop proof: the candidate adds no semantic review request, policy/cadence or
+  binding mutation, lifecycle/continuity action, report/evolution operation,
+  dashboard supervision ledger, automatic retry, semantic approval, Block
+  acceptance, or outcome-completion claim.
 
 ### Stop
 
