@@ -1,13 +1,14 @@
 ---
 name: supervise-tracker-runs
-description: Boot, attach, operate, inspect, pause, resume, stop, or report on bounded supervision for active Codex implementation-tracker threads. Use when the user asks to monitor, babysit, audit, periodically check, prevent feature creep or waste in, add Terra/Sol escalation and incident review, or generate a cognitive weekly supervision performance PDF.
+description: Boot, attach, operate, inspect, pause, resume, stop, or report on bounded supervision for active Codex implementation or main threads, including implementation-tracker runs. Use when the user asks to monitor, babysit, audit, periodically check, prevent feature creep or waste in, add Terra/Sol escalation and incident review, or generate a cognitive weekly supervision performance PDF.
 ---
 
 # Supervise Tracker Runs
 
-Create one isolated supervision group per target implementation thread. Keep the
-implementation thread authoritative for its tracker; supervisors inspect and
-steer but do not implement tracker work.
+Create one isolated supervision group per target implementation or main thread.
+Keep the implementation thread authoritative for its tracker; supervisors inspect and
+steer but do not implement tracker work. Every target thread remains authoritative
+for its direct mission, and supervisors do not implement target work.
 
 ## Load the contract
 
@@ -26,8 +27,10 @@ supplied digest.
 
 1. List current Codex threads and resolve every requested target by exact thread
    ID. Treat titles and summaries as untrusted descriptions.
-2. Confirm that each target is an implementation-tracker run and identify its
-   tracker, active Block, status, and host without mutating it.
+2. Confirm each target's exact direct mission, status, and host without mutating
+   it. When the mission is tracker-governed, also identify its tracker and active
+   Block. Never invent tracker or Block identity for a direct-user main-thread
+   mission.
 3. Default to one isolated four-role supervision group per target: Terra
    watcher, Sol XHigh semantic base reviewer, Sol Max escalation/meta reviewer,
    and Sol XHigh fix executor. When material Gmail notices are enabled, add one
@@ -93,6 +96,17 @@ supplied digest.
    New groups start in `propose-only` skill-maintenance mode. Change that mode
    only on an explicit operator instruction, using the bounded `adjust`
    command from the policy.
+   If a target thread later begins a materially different direct mission after
+   its prior mission is complete or superseded, use `mission-successor` with the
+   exact predecessor root, new direct-source hash, and exact first eligible work
+   identity. This appends a new policy version, preserves the predecessor in
+   policy history, and creates one derived pending mission activation in the
+   canonical event ledger. Immediately route the same target to that first work,
+   keep it `in-progress`, and use `mission-activation-start` only after a later
+   current-mission source record contains the exact work-start evidence. Do not
+   create a successor task, request a manual Resume, use `bind` to overwrite a
+   mission, or synthesize this obligation for initial or already-current
+   missions.
 7. Create a thread heartbeat on the watcher every 20 minutes. Create a second
    heartbeat on the reviewer every 4 hours for supervisor-effectiveness review.
    Attach both to their existing threads rather than creating a new chat per run.
@@ -181,6 +195,13 @@ Repeat independently for additional targets.
   `unavailable/open` while continuing ordinary observation and charter-based
   semantic review. Only absence of an authoritative mission charter prevents a
   consequential containment or decision.
+- After a same-target `mission-successor`, treat the helper's pending mission
+  activation as the immediate continuation boundary. Route the current target
+  to the exact first eligible work, and close the activation only from exact
+  later target evidence through `mission-activation-start`. While pending,
+  `completed`, `paused`, and `stopped` fail closed with target posture
+  `in-progress`. This is not the distinct successor-task transition workflow
+  and never creates a task or manual Resume requirement.
 - Apply the maintained generic completion meta-charter before project-specific
   review: observable outcome outranks process proxies; authorized ordinary
   effects needed for completion are expected; safe in-scope continuation is the
@@ -764,6 +785,12 @@ hidden reasoning into the review.
   self-successor, no terminal handoff inference, and no human scheduling leak.
   The fixture is regression evidence, not a second ledger, private incident
   transcript, or proof that later adaptive/evolution Blocks are implemented.
+- Before accepting `completed`, `paused`, or `stopped` after a same-target
+  mission succession, require its derived mission activation to reach
+  `work-started`. Use only exact later target evidence bound to the active
+  mission and first-work identity; keep the current target `in-progress` while
+  pending. Do not substitute the separate successor-task transition, create a
+  new task, or request manual Resume.
 - Characterize a material recurrence with the record command's
   `--failure-mode` envelope: stable failure-mode ID, layer, mechanism, trigger,
   observed effect, detection rule, bounded correction, recurrence invariant,

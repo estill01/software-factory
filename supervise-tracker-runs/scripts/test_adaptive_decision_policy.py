@@ -1694,6 +1694,141 @@ Stop after exact review.
             1,
         )
 
+    def test_mission_successor_scopes_adaptive_history_and_keeps_activation_gate(self) -> None:
+        self.init()
+        self.adjust("--adaptive-decision-mode", "recommend")
+        directory = self.root / self.target
+        old_candidate = self.candidate(decision_id="old-mission-candidate-1234")
+        old_source = self.decision_evidence(
+            decision_id="old-mission-candidate-1234",
+            disposition="compare-candidate",
+            candidate_evidence_root=str(old_candidate["evidence_root"]),
+        )
+        pending = self.run_gate(
+            self.gate_args(old_source, candidate=old_candidate)
+        )["record"]
+        old_review = self.run_review(pending)["record"]
+        reviewed = self.run_gate(
+            self.gate_args(
+                old_source,
+                candidate=old_candidate,
+                review_record=str(old_review["record_id"]),
+            )
+        )["record"]
+        self.assertEqual(reviewed["application_posture"], "recommendation-only")
+        old_policy = json.loads((directory / "policy.json").read_text(encoding="utf-8"))
+        old_mission_root = old_policy["mission_binding"]["mission_root"]
+        supervision_log.append_raw(
+            directory / "events.jsonl",
+            {
+                "record_id": "EVT-OLD-MISSION-COMPLETED",
+                "target_thread_id": self.target,
+                "kind": "lifecycle",
+                "status": "completed",
+                "policy_sha256": old_policy["policy_sha256"],
+            },
+        )
+        successor_args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "mission-successor",
+                "--target-thread",
+                self.target,
+                "--from-mission-root",
+                str(old_mission_root),
+                "--mission-source-class",
+                "direct-user",
+                "--mission-source-record",
+                "item-new-mission-1234",
+                "--mission-source-sha256",
+                "b" * 64,
+                "--predecessor-disposition",
+                "completed",
+                "--first-eligible-work",
+                "Block 7 current work",
+                "--reason",
+                "The completed predecessor is replaced by current direct authority.",
+                "--evidence",
+                "item-new-mission-1234",
+            ]
+        )
+        successor_output = io.StringIO()
+        with redirect_stdout(successor_output):
+            supervision_log.cmd_mission_successor(successor_args)
+        successor = json.loads(successor_output.getvalue())
+        self.assertEqual(successor["mission_activation"]["phase"], "pending")
+        self.assertEqual(
+            successor["policy"]["adaptive_decision_control"],
+            old_policy["adaptive_decision_control"],
+        )
+
+        new_candidate = self.candidate(
+            decision_id="new-mission-candidate-1234", after_text="VALUE = 3\n"
+        )
+        new_source = self.decision_evidence(
+            decision_id="new-mission-candidate-1234",
+            disposition="compare-candidate",
+            candidate_evidence_root=str(new_candidate["evidence_root"]),
+        )
+        new_pending = self.run_gate(
+            self.gate_args(new_source, candidate=new_candidate)
+        )
+        self.assertFalse(new_pending["duplicate"])
+
+        status_args = supervision_log.parser().parse_args(
+            ["--root", str(self.root), "status", "--target-thread", self.target]
+        )
+        status_output = io.StringIO()
+        with redirect_stdout(status_output):
+            supervision_log.cmd_status(status_args)
+        status = json.loads(status_output.getvalue())
+        adaptive = status["adaptive_decision_control"]
+        self.assertEqual(adaptive["decision_count"], 1)
+        self.assertEqual(adaptive["independent_review_count"], 0)
+        self.assertEqual(
+            adaptive["last_decision"]["decision_id"], "new-mission-candidate-1234"
+        )
+        self.assertEqual(len(status["open_mission_activations"]), 1)
+        all_events = supervision_log.events(directory / "events.jsonl")
+        self.assertGreater(
+            sum(item.get("kind") == "adaptive-decision" for item in all_events),
+            adaptive["decision_count"],
+        )
+        self.assertIn(old_review, all_events)
+
+        new_policy = json.loads((directory / "policy.json").read_text(encoding="utf-8"))
+        supervision_log.append_raw(
+            directory / "events.jsonl",
+            {
+                "record_id": "EVT-NEW-MISSION-PREMATURE-COMPLETION",
+                "target_thread_id": self.target,
+                "kind": "lifecycle",
+                "status": "completed",
+                "policy_sha256": new_policy["policy_sha256"],
+            },
+        )
+        lifecycle_args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "lifecycle-gate",
+                "--target-thread",
+                self.target,
+                "--lifecycle-state",
+                "completed",
+                "--source-record",
+                "EVT-NEW-MISSION-PREMATURE-COMPLETION",
+            ]
+        )
+        lifecycle_output = io.StringIO()
+        with redirect_stdout(lifecycle_output):
+            supervision_log.cmd_lifecycle_gate(lifecycle_args)
+        lifecycle = json.loads(lifecycle_output.getvalue())
+        self.assertFalse(lifecycle["source_stop_permitted"])
+        self.assertNotEqual(lifecycle["completion_action"], "record-completed-lifecycle")
+        self.assertEqual(len(lifecycle["open_mission_activations"]), 1)
+
     def test_software_factory_role_identities_are_event_and_signature_bound(self) -> None:
         policy = self.policy(target_class="software-factory")
         policy["permissions"]["allowlisted_skill_maintenance"] = True
