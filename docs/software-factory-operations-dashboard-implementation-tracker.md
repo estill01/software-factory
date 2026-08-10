@@ -507,7 +507,7 @@ the relevant authority and evidence contract.
 | 9 | Metrics and report history workspace | 4, 6 | `accepted` |
 | 10 | Gated administrative operation framework | 2, 4, 5 | `accepted` |
 | 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `accepted` |
-| 12 | On-demand mechanical supervision checks | 7, 10, 11 | `in-progress` |
+| 12 | On-demand mechanical supervision checks | 7, 10, 11 | `accepted` |
 | 13 | Semantic supervision review requests | 7, 10, 11 | `not-started` |
 | 14 | Supervision policy and cadence administration | 7, 10, 11 | `not-started` |
 | 15 | Mission and target/tracker binding repair | 7, 10, 11 | `not-started` |
@@ -3516,7 +3516,7 @@ administration, or semantic lifecycle controls.
 
 ## Block 12 — On-demand mechanical supervision checks
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -3713,8 +3713,22 @@ poll only for the named newer check until the bounded timeout. Stop at
   timezone-free records therefore remain pending. The affected backend module
   again passed 10/10 with `ResourceWarning` fatal, Ruff passed, and diff checks
   were clean; the prior review's green focused UI, build, tracker, and Stop
-  evidence is preserved. Block 12 remains unaccepted pending delta-only fresh
-  exact review.
+  evidence is preserved. At freeze, Block 12 remained unaccepted pending the
+  delta-only fresh exact review recorded next.
+- Fresh exact acceptance: independent review accepted evidence revision
+  `bb23a96ea2497c762270ae520cfa0d58cb194531`, tree
+  `2171eb7188041c6f7ebe4d81297424f351543de1`, and product revision
+  `b4d8afc7d38ce8ec72a45f91365896170befc5a2`, tree
+  `5510e4f0deadef5d883ce9ee890146a505c4254b`, with no material findings.
+  Missing, empty, malformed, non-string, timezone-free, and source-line-
+  mismatched record identities/timestamps all remained pending; exact UTC and
+  offset-aware canonical identities applied for both maintained mechanical
+  outcome families; semantic/outcome-completion records remained pending.
+  The reviewer reproduced the affected backend 10/10 with `ResourceWarning`
+  fatal, Ruff, the full-profile tracker verifier at 26 Blocks and 0 errors or
+  warnings, all 30 verifier self-tests, clean product/evidence diffs, a clean
+  checkout, and exact local/upstream/remote identity. Block 12 is therefore
+  accepted without opening its semantic-review or later-operation Stop.
 - Exact live/browser proof: on the rebuilt candidate served at loopback port
   8787, the affected Factory Floor and live run/supervisor/task drill-down
   scenarios passed 6/6 serially across desktop, tablet, and mobile. The current
