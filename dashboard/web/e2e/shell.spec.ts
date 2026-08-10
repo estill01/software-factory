@@ -332,16 +332,24 @@ test("live project, run, supervisor, and task drill-downs preserve mission bound
     supervision: { ...projectFloor.data.rows[0].supervision, run_id: target, target_thread_id: target },
     detail: { ...projectFloor.data.rows[0].detail, id: target, kind: "run", route: `/?inspect=run:${target}` },
   }]
+  projectFloor.data.rows[0].disagreements = ["Supervision binds project beta; task cwd binds project software-factory."]
   projectFloor.data.rows_truncated = false
   await page.route("**/api/v1/factory-floor", (route) => route.fulfill({ json: projectFloor }))
+  await page.route("**/api/v1/runs", (route) => route.abort())
 
   await page.goto(`/projects/software-factory?return=${encodeURIComponent(returnPath)}`)
   await expect(page.getByRole("heading", { name: "Projects", level: 1 })).toBeVisible()
   await expect(page.getByRole("heading", { name: "Current work" })).toBeVisible()
   await expect(page.getByRole("link", { name: /sf-dashboard-plan/i })).toBeVisible()
+  const projectSummary = page.getByRole("region", { name: "Project summary" })
+  await expect(projectSummary).toContainText("Runs≥0")
+  await expect(projectSummary).toContainText("1 binding disagreement excluded")
+  await expect(projectSummary).toContainText("Run association source unavailable")
+  await expect(page.getByText(/disputed Factory Floor claims are not counted as exact/)).toBeVisible()
   await expect(page.getByRole("link", { name: "Factory Floor" }).last()).toHaveAttribute("href", returnPath)
   await expect(page.locator("h1")).toHaveCount(1)
 
+  await page.unroute("**/api/v1/runs")
   await page.unroute("**/api/v1/factory-floor")
 
   await page.goto(`/runs/${target}?return=${encodeURIComponent(returnPath)}`)

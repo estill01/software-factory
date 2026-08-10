@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { AlertTriangle, FolderGit2 } from "lucide-react"
+import { AlertTriangle, FolderGit2, RefreshCw } from "lucide-react"
 import { Link, NavLink, useParams, useSearchParams } from "react-router"
 
 import {
@@ -68,10 +68,20 @@ export function Component() {
   const allTasks = tasks.data?.data.tasks ?? []
   const composedRunClaims = floor.data?.data.rows.flatMap((row) =>
     row.supervision.run_id && row.project.project_id
-      ? [{ runId: row.supervision.run_id, projectId: row.project.project_id }]
+      ? [{
+          runId: row.supervision.run_id,
+          projectId: row.project.project_id,
+          disputed: row.disagreements.length > 0 || row.project.status === "ambiguous",
+        }]
       : [],
   ) ?? []
-  const exactRunIds = exactProjectRunIds(allRuns, allTasks, composedRunClaims, projectId)
+  const exactRunIds = exactProjectRunIds(
+    allRuns,
+    allTasks,
+    composedRunClaims,
+    projectId,
+    runs.isSuccess ? "available" : "unavailable",
+  )
   const claimsByRun = new Map(allRuns.map((run) => {
     const composedProject = floor.data?.data.rows.find((row) => row.supervision.run_id === run.target_thread_id)?.project.project_id
     return [run.target_thread_id, runProjectClaims(run, allTasks, composedProject)]
@@ -81,6 +91,13 @@ export function Component() {
   const projectDisagreements = disagreements.filter((run) =>
     (claimsByRun.get(run.target_thread_id) ?? []).some((claim) => claim.projectId === projectId),
   )
+  const composedDisagreementRows = composedRows.filter((row) =>
+    row.disagreements.length > 0 || row.project.status === "ambiguous",
+  )
+  const projectDisagreementRunIds = new Set([
+    ...projectDisagreements.map((run) => run.target_thread_id),
+    ...composedDisagreementRows.flatMap((row) => row.supervision.run_id ? [row.supervision.run_id] : []),
+  ])
   const conflictOnlyRows = projectDisagreements.filter((run) =>
     !runRows.some((candidate) => candidate.target_thread_id === run.target_thread_id),
   )
@@ -88,10 +105,13 @@ export function Component() {
   const composedOnlyRunRows = composedRows.filter((row) => row.supervision.run_id && exactRunIds.has(row.supervision.run_id) && !listedRunIds.has(row.supervision.run_id))
   const trackerRows = trackers.data?.data.trackers.filter((tracker) => tracker.project_id === projectId) ?? []
   const reportProject = (targetId: string): string | null => {
+    if (runs.isError) return null
     const boundRun = runs.data?.data.runs.find((run) => run.target_thread_id === targetId)
     if (boundRun?.project_binding.status === "bound") return boundRun.project_binding.project_id
     const composed = floor.data?.data.rows.find((row) => row.supervision.run_id === targetId)
-    if (composed?.project.project_id) return composed.project.project_id
+    if (composed?.project.project_id && composed.disagreements.length === 0 && composed.project.status !== "ambiguous") {
+      return composed.project.project_id
+    }
     const targetTask = tasks.data?.data.tasks.find((task) => task.id === targetId)
     return targetTask?.project_binding.status === "bound" ? targetTask.project_binding.project_id : null
   }
@@ -104,6 +124,7 @@ export function Component() {
   const returnQuery = `?return=${encodeURIComponent(floorReturn)}`
   const taskSourcesPending = needsTasks && (tasks.isPending || floor.isPending)
   const runSourcesPending = needsRuns && (runs.isPending || (needsTasks && tasks.isPending) || floor.isPending)
+  const runAssociationsPartial = runs.isError || floor.isError
   const reportsPending = reports.isPending || runs.isPending || floor.isPending
   const reportsUnavailable = reports.isError || (runs.isError && floor.isError)
   const reportsPartial = !reports.isError && (runs.isError || floor.isError || unresolvedReportAssociation)
@@ -160,7 +181,7 @@ export function Component() {
       </section>
 
       <section className="workspace-panel" aria-labelledby="project-runs-heading">
-        <div className="workspace-panel-heading"><h2 id="project-runs-heading">Runs</h2><span>{runSourcesPending ? "Loading" : runs.isError && floor.isError ? "Unavailable" : `${runRows.length + composedOnlyRunRows.length} exact${projectDisagreements.length ? ` · ${projectDisagreements.length} disagreement${projectDisagreements.length === 1 ? "" : "s"}` : ""}`}</span></div>
+        <div className="workspace-panel-heading"><h2 id="project-runs-heading">Runs</h2><span>{runSourcesPending ? "Loading" : runs.isError && floor.isError ? "Unavailable" : `${runAssociationsPartial ? "≥" : ""}${runRows.length + composedOnlyRunRows.length} exact${projectDisagreementRunIds.size ? ` · ${projectDisagreementRunIds.size} disagreement${projectDisagreementRunIds.size === 1 ? "" : "s"}` : ""}`}</span></div>
         {runSourcesPending ? <QueryState kind="loading" message="Loading run sources" /> : runs.isError && floor.isError ? <QueryState kind="error" message={runs.error.message} retry={() => void runs.refetch()} /> : runRows.length || composedOnlyRunRows.length || conflictOnlyRows.length ? (
           <div className="workspace-record-list">
             {runRows.map((run) => {
@@ -235,10 +256,18 @@ export function Component() {
         <>
           <section className="workspace-summary-grid" aria-label="Project summary">
             <div><span>Tasks</span><strong>{floor.isPending ? "…" : floor.isError ? "—" : new Set(composedRows.map((row) => row.implementation.task_id)).size}</strong><small>Factory Floor composition</small></div>
-            <div><span>Runs</span><strong>{runs.isPending || floor.isPending ? "…" : runs.isError && floor.isError ? "—" : exactRunIds.size}</strong><small>{projectDisagreements.length ? `${projectDisagreements.length} binding disagreement${projectDisagreements.length === 1 ? "" : "s"} excluded` : "Exact canonical/composed IDs"}</small></div>
+            <div><span>Runs</span><strong>{runs.isPending || floor.isPending ? "…" : runs.isError && floor.isError ? "—" : `${runAssociationsPartial ? "≥" : ""}${exactRunIds.size}`}</strong><small>{[
+              projectDisagreementRunIds.size ? `${projectDisagreementRunIds.size} binding disagreement${projectDisagreementRunIds.size === 1 ? "" : "s"} excluded` : null,
+              runAssociationsPartial ? "Run association source unavailable" : "Exact canonical/composed IDs",
+            ].filter(Boolean).join(" · ")}</small></div>
             <div><span>Trackers</span><strong>{trackers.isPending ? "…" : trackers.isError ? "—" : trackerRows.length}</strong><small>Catalog discovery</small></div>
             <div><span>Reports</span><strong>{reportsPending ? "…" : reportsUnavailable ? "—" : reportRows.length}</strong><small>{reportsPartial ? "Partial exact associations" : "Exact run target"}</small></div>
           </section>
+          {runAssociationsPartial && (
+            <div className="workspace-partial" role="status">
+              <RefreshCw aria-hidden="true" />Run and report associations are lower bounds while an owner source is unavailable; disputed Factory Floor claims are not counted as exact.
+            </div>
+          )}
           {overviewWorkPanel}
           <div className="workspace-split">
             <section className="workspace-panel">

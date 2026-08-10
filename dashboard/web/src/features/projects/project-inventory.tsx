@@ -45,16 +45,26 @@ export function ProjectInventory() {
   const runById = new Map((runs.data?.data.runs ?? []).map((run) => [run.target_thread_id, run]))
   const hasProjectBindingDisagreement = floor.data?.data.rows.some((row) => {
     const run = row.supervision.run_id ? runById.get(row.supervision.run_id) : undefined
-    return run?.project_binding.status === "bound"
-      && run.project_binding.project_id !== row.project.project_id
+    return row.disagreements.length > 0
+      || row.project.status === "ambiguous"
+      || (run?.project_binding.status === "bound"
+        && run.project_binding.project_id !== row.project.project_id)
   }) ?? false
   const composedRunClaims = floor.data?.data.rows.flatMap((row) =>
     row.supervision.run_id && row.project.project_id
-      ? [{ runId: row.supervision.run_id, projectId: row.project.project_id }]
+      ? [{
+          runId: row.supervision.run_id,
+          projectId: row.project.project_id,
+          disputed: row.disagreements.length > 0 || row.project.status === "ambiguous",
+        }]
       : [],
   ) ?? []
   const exactlyAssociatedRunIds = new Set([
-    ...(floor.data?.data.rows.flatMap((row) => row.supervision.run_id ? [row.supervision.run_id] : []) ?? []),
+    ...(runs.isSuccess ? floor.data?.data.rows.flatMap((row) =>
+      row.supervision.run_id && row.disagreements.length === 0 && row.project.status !== "ambiguous"
+        ? [row.supervision.run_id]
+        : [],
+    ) ?? [] : []),
     ...(runs.data?.data.runs.flatMap((run) => run.project_binding.status === "bound" ? [run.target_thread_id] : []) ?? []),
   ])
   const unresolvedReportAssociation = reports.data?.data.reports.some(
@@ -88,9 +98,17 @@ export function ProjectInventory() {
             const composedRows = floor.data?.data.rows.filter((row) => row.project.project_id === project.id) ?? []
             const projectHasBindingDisagreement = composedRows.some((row) => {
               const run = row.supervision.run_id ? runById.get(row.supervision.run_id) : undefined
-              return run?.project_binding.status === "bound" && run.project_binding.project_id !== project.id
+              return row.disagreements.length > 0
+                || row.project.status === "ambiguous"
+                || (run?.project_binding.status === "bound" && run.project_binding.project_id !== project.id)
             })
-            const projectRunIds = exactProjectRunIds(runs.data?.data.runs ?? [], [], composedRunClaims, project.id)
+            const projectRunIds = exactProjectRunIds(
+              runs.data?.data.runs ?? [],
+              [],
+              composedRunClaims,
+              project.id,
+              runs.isSuccess ? "available" : "unavailable",
+            )
             const trackerRows = trackers.data?.data.trackers.filter((tracker) => tracker.project_id === project.id) ?? []
             const reportRows = reports.data?.data.reports.filter((report) => projectRunIds.has(report.target_thread_id)) ?? []
             const attention = composedRows.reduce((total, row) => total + row.issues.total, 0)

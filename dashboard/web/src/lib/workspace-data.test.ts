@@ -44,9 +44,18 @@ describe("workspace source boundaries", () => {
       { source: "target task", projectId: "alpha" },
       { source: "Factory Floor", projectId: "alpha" },
     ])
-    const claims = [{ runId: "target-1", projectId: "alpha" }]
-    expect([...exactProjectRunIds([run] as never, task as never, claims, "alpha")]).toEqual([])
-    expect([...exactProjectRunIds([run] as never, task as never, claims, "beta")]).toEqual(["target-1"])
+    const claims = [{ runId: "target-1", projectId: "alpha", disputed: true }]
+    expect([...exactProjectRunIds([run] as never, task as never, claims, "alpha", "available")]).toEqual([])
+    expect([...exactProjectRunIds([run] as never, task as never, claims, "beta", "available")]).toEqual(["target-1"])
+  })
+
+  it("does not turn a disputed or source-unavailable composition into an exact run", () => {
+    const clean = [{ runId: "target-1", projectId: "alpha", disputed: false }]
+    const disputed = [{ runId: "target-2", projectId: "alpha", disputed: true }]
+
+    expect([...exactProjectRunIds([], [], clean, "alpha", "available")]).toEqual(["target-1"])
+    expect([...exactProjectRunIds([], [], clean, "alpha", "unavailable")]).toEqual([])
+    expect([...exactProjectRunIds([], [], disputed, "alpha", "available")]).toEqual([])
   })
 
   it("keeps predecessor events and entities outside the current mission", () => {
