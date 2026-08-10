@@ -3078,6 +3078,48 @@ widening or repeating.
   with 0 errors/warnings, all 30 verifier tests passed, diff checks passed, and
   the live server on `127.0.0.1:8787` returned an empty production registry and
   zero session activities without exposing a domain mutation control.
+- First exact evidence revision and review: evidence commit
+  `faa27791fc54c432f0ea1fceb8657bd83acd938c`, tree
+  `91adb0edbd3466b58f42d67f130f4fa7dbdacdbf`, preserved the implementation
+  candidate and validation but was rejected on two bounded rows. An allowed
+  route-gate result was not proven to hash and echo the exact recipient,
+  purpose, source, and action or rechecked for current policy immediately before
+  dispatch. Redaction also omitted common secret key families, owner failure
+  text and exception logs could disclose owner-controlled strings, and result
+  links admitted query or fragment material. No other Block 10 finding was
+  reported; production registration remained empty and the Stop held.
+- Focused successor: `5d1571ad506374b1675b19b3e5a1dd09b8deeab2`,
+  tree `fc5fb16c6ad99d94d9a3a18d47308f2ea5be44be`, parent
+  `faa27791fc54c432f0ea1fceb8657bd83acd938c`, changes only the coordinator,
+  its focused tests, and the strict frontend route-gate contract and fixtures.
+  Representative successor blobs are
+  `f30531a4c9871805e11a678c3fbffeadf5e145f6` for the coordinator,
+  `2a0ef2a884bacb1fd39ea7f6ddb6f42208307353` for its tests, and
+  `6a4a7aebfa8a19b768f27cf94cfd2afb37313b42` for the frontend contract.
+- Route-gate closure: allowed results now echo the exact recipient, purpose,
+  and source, use the maintained `thread-route-gate` canonical action SHA-256,
+  carry the current policy SHA-256, and expose a fingerprint of that complete
+  binding. Execute re-resolves the request and re-runs the gate after source
+  currentness and immediately before the one owner-dispatch boundary; denial,
+  invalid identity/action, or changed policy cancels the unconsumed preview.
+  Focused adversarial proof rejected an unrelated all-zero action hash and
+  mismatched recipient, then proved that a post-preview denial or policy change
+  produced zero dispatches and a cancelled preview.
+- Secret-boundary closure: public owner evidence now redacts `api_key`,
+  `authorization`, `credential`, `cookie`, `private_key`, bearer and other
+  secret-bearing values in addition to the prior families. Owner failure text
+  is replaced with bounded framework language, unexpected exceptions log only
+  their type without message or traceback, unknown objects never stringify,
+  and same-origin result links reject query, fragment, traversal, external
+  origins, and sensitive labels. Focused proof placed unique secrets in every
+  named evidence family, an owner error, an exception message, and a query plus
+  fragment link; none reached the public record or captured logs.
+- Focused exact-successor validation: the operation coordinator suite passed
+  11/11 with `ResourceWarning` fatal, the mapped HTTP suite passed 17/17 with
+  `ResourceWarning` fatal, the affected strict frontend/API suites passed 6/6,
+  and Ruff, TypeScript, and the production build passed. Diff checks passed,
+  the branch and remote were exact at `0 0`, and the restarted live server on
+  `127.0.0.1:8787` returned the closed production registry with zero activity.
 - Fresh independent exact-revision safety/authority review: pending; Block 11
   remains unopened.
 
