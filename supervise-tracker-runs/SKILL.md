@@ -392,8 +392,14 @@ not a candidate counter, supplies the one-active-lane-per-target frontier.
 Software Factory proposer and implementation-owner identities come from the
 configured owner roles and remain explicit in both reviewer/evaluator signatures
 and canonical events. Never replace any of these with caller flags or counts.
-The gate records the decision in
-the existing event ledger. When it returns `automated-independent-review-required`,
+The gate records the decision in the existing event ledger, but it never writes
+the target or publishes an unconditional cross-owner write grant. An otherwise
+applicable decision is `owner-application-ready` with
+`application_authorized=false` and an exact application-precondition root. Only
+the existing target Git/write owner may consume it, and that owner must
+atomically revalidate policy, target revision/state, affected bytes, candidate
+currentness, and owner identity in the same write transaction. When the gate
+returns `automated-independent-review-required`,
 the external reviewer signs the complete source-decision identity, fingerprint,
 currentness, semantics, candidate/owner, disposition, policy, and evidence
 result with the sealed reviewer authority. Import it exactly once through

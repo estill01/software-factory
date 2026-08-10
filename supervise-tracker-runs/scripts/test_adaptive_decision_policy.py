@@ -880,7 +880,10 @@ Stop after exact review.
         applied = self.posture(
             full, self.packet(full, evidence=source)
         )
-        self.assertTrue(applied["application_authorized"])
+        self.assertFalse(applied["application_authorized"])
+        self.assertTrue(applied["application_ready"])
+        self.assertEqual(applied["application_posture"], "owner-application-ready")
+        self.assertRegex(str(applied["application_precondition_root"]), r"^[0-9a-f]{64}$")
         reviewed_policy = self.policy("reviewed-autonomous")
         consequential = self.decision_evidence(consequence_class="consequential")
         held = self.posture(
@@ -1340,7 +1343,9 @@ Stop after exact review.
         applied = self.posture(
             policy, self.packet(policy, evidence=evidence, review=review)
         )
-        self.assertTrue(applied["application_authorized"])
+        self.assertFalse(applied["application_authorized"])
+        self.assertTrue(applied["application_ready"])
+        self.assertEqual(applied["application_posture"], "owner-application-ready")
         reviewer_rewrites_evaluator = copy.deepcopy(review)
         reviewer_rewrites_evaluator["evaluation_disposition"] = "rejected"
         reviewer_rewrites_evaluator["evaluation_root"] = supervision_log.digest(
@@ -1563,6 +1568,51 @@ Stop after exact review.
         self.assertEqual(
             sum(item.get("kind") == "adaptive-decision" for item in events), 0
         )
+
+    def test_post_recheck_target_drift_never_appends_write_authority(self) -> None:
+        self.init()
+        directory = self.root / self.target
+        policy = json.loads((directory / "policy.json").read_text(encoding="utf-8"))
+        policy["permissions"]["repository_write"] = True
+        supervision_log.write_policy_version(
+            directory,
+            policy,
+            kind="policy-change",
+            reason="Enable the post-recheck currentness fixture.",
+            evidence_values=["post-recheck-currentness-regression"],
+        )
+        evidence = self.decision_evidence(decision_id="post-recheck-drift-1234")
+        original = supervision_log.validate_adaptive_decision_evidence
+        calls = 0
+
+        def validate_then_drift(value, *, policy):
+            nonlocal calls
+            calls += 1
+            result = original(value, policy=policy)
+            if calls == 3:
+                self.owned_path.write_text("VALUE = 99\n", encoding="utf-8")
+            return result
+
+        with mock.patch.object(
+            supervision_log,
+            "validate_adaptive_decision_evidence",
+            side_effect=validate_then_drift,
+        ):
+            record = self.run_gate(self.gate_args(evidence))["record"]
+        self.assertEqual(calls, 3)
+        self.assertFalse(record["application_authorized"])
+        self.assertTrue(record["application_ready"])
+        self.assertEqual(record["application_posture"], "owner-application-ready")
+        self.assertRegex(str(record["application_precondition_root"]), r"^[0-9a-f]{64}$")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "content is stale|target state"
+        ):
+            supervision_log.validate_adaptive_decision_evidence(
+                evidence,
+                policy=json.loads(
+                    (directory / "policy.json").read_text(encoding="utf-8")
+                ),
+            )
 
     def test_canonical_event_frontier_rejects_two_distinct_active_candidate_lanes(self) -> None:
         direct_candidate = self.candidate(decision_id="direct-lane-bypass-1234")

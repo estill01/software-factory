@@ -294,6 +294,12 @@ paths, independent reviews, reserved deferrals, latest candidate use, safe
 frontier, and application posture. The adaptive gate and review command record
 their results in `events.jsonl`
 through the canonical owner-relative, currentness-checked append path.
+Because that ledger and the target Git worktree have different writers, an
+applicable event is nonauthorizing `owner-application-ready` evidence with an
+exact application-precondition root, never an unconditional repository grant.
+The existing target owner must atomically rehydrate that root with the target
+mutation; stale policy, revision, affected bytes, candidate currentness, or
+owner identity makes the ready event a no-op and requires currentness refresh.
 
 ## Factory capability-evolution workflow
 

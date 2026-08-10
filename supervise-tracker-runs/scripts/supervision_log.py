@@ -10100,6 +10100,7 @@ def _adaptive_decision_posture(
         )
         next_action = "continue-unaffected-safe-frontier"
         application_authorized = False
+        application_ready = False
         reserved = False
     elif reserved:
         if not evidence["blocked_subjects"] or not revisit_trigger:
@@ -10109,34 +10110,42 @@ def _adaptive_decision_posture(
         application_posture = "reserved-external"
         next_action = "continue-safe-frontier-without-human-request"
         application_authorized = False
+        application_ready = False
     elif review_required and review is None:
         application_posture = "automated-independent-review-required"
         next_action = "obtain-one-bounded-automated-review"
         application_authorized = False
+        application_ready = False
     elif review_required and not review_complete:
         application_posture = f"independent-review-{review_disposition}"
         next_action = "retire-or-hold-rejected-path-and-continue-safe-frontier"
         application_authorized = False
+        application_ready = False
     elif disposition == "continue-unchanged":
         application_posture = "continue-unchanged"
         next_action = "continue-current-block"
         application_authorized = False
+        application_ready = False
     elif mode == "fixed":
         application_posture = "record-only"
         next_action = "continue-safe-frontier-without-application"
         application_authorized = False
+        application_ready = False
     elif mode == "recommend":
         application_posture = "recommendation-only"
         next_action = "continue-safe-frontier-pending-external-application"
         application_authorized = False
+        application_ready = False
     elif mode == "reviewed-autonomous" and consequence_class == "consequential":
         application_posture = "external-application-authority-required"
         next_action = "continue-safe-frontier-pending-external-application"
         application_authorized = False
+        application_ready = False
     else:
-        application_posture = "apply-autonomously"
-        next_action = "apply-through-existing-owner-and-continue"
-        application_authorized = True
+        application_posture = "owner-application-ready"
+        next_action = "apply-through-existing-owner-after-atomic-currentness-recheck"
+        application_authorized = False
+        application_ready = True
     request_allowed = mode != "full-autonomous" and application_posture in {
         "recommendation-only",
         "external-application-authority-required",
@@ -10218,6 +10227,7 @@ def _adaptive_decision_posture(
         "protected_regression": protected_regression,
         "application_posture": application_posture,
         "application_authorized": application_authorized,
+        "application_ready": application_ready,
         "human_request_count": human_request_count,
         "reserved_external": application_posture == "reserved-external",
         "blocked_subjects": list(evidence["blocked_subjects"]),
@@ -10226,6 +10236,23 @@ def _adaptive_decision_posture(
         "next_action": next_action,
         "policy_sha256": policy.get("policy_sha256"),
     }
+    result["application_precondition_root"] = (
+        digest(
+            {
+                "decision_source_root": result["decision_source_root"],
+                "decision_fingerprint": result["decision_fingerprint"],
+                "decision_currentness_root": result["decision_currentness_root"],
+                "policy_sha256": result["policy_sha256"],
+                "target_revision_root": evidence["target_revision_root"],
+                "current_target_state_root": evidence["current_target_state_root"],
+                "affected_scope": evidence["affected_scope"],
+                "candidate_currentness_root": result["candidate_currentness_root"],
+                "implementation_owner_id": result["implementation_owner_id"],
+            }
+        )
+        if application_ready
+        else None
+    )
     result["result_sha256"] = digest(result)
     return result
 
@@ -10244,7 +10271,7 @@ def adaptive_decision_posture(
     result = _adaptive_decision_posture(
         policy, packet, active_candidate_fingerprints=[]
     )
-    if result["application_authorized"] is True:
+    if result["application_authorized"] is True or result["application_ready"] is True:
         raise SupervisionLogError(
             "Adaptive application authorization requires the canonical owner-bound decision gate"
         )
