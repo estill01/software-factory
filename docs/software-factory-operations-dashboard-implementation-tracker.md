@@ -1773,7 +1773,12 @@ task/source identifiers. Never poll every historical task body.
   implementation or lifecycle success inferred from process proxies.
 - Git durability: non-force pushes advanced `origin/codex/evolution-mvp`
   through the exact accepted candidate; local and remote matched at `0 0`
-  divergence before this evidence-only tracker checkpoint.
+  divergence before the evidence-only acceptance checkpoint
+  `ad27bcbab8da0b201917c1da49cf4f8bf1748063`, tree
+  `fa66e72cfe4661101b316da597e1428eb7e5ab12`, tracker blob
+  `fe58e4faa7ef8fb9df932508cc6df3c4f406db9b`. That checkpoint was also
+  non-force pushed before this durability-finalization successor and before
+  Block 6 implementation began.
 
 ### Stop
 
