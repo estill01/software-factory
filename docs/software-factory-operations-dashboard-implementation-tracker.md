@@ -503,7 +503,7 @@ the relevant authority and evidence contract.
 | 5 | Codex task and App Server adapter | 1 | `accepted` |
 | 6 | Cross-project factory floor | 3, 4, 5 | `accepted` |
 | 7 | Project and run workspaces | 6 | `accepted` |
-| 8 | Tracker review and progress workspace | 3, 6 | `in-progress` |
+| 8 | Tracker review and progress workspace | 3, 6 | `accepted` |
 | 9 | Metrics and report history workspace | 4, 6 | `not-started` |
 | 10 | Gated administrative operation framework | 2, 4, 5 | `not-started` |
 | 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `not-started` |
@@ -2384,7 +2384,7 @@ Stop before adding tracker review, report analytics, or operational controls.
 
 ## Block 8 — Tracker review and progress workspace
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -2584,11 +2584,18 @@ from the browser or on every selection rerender.
   retained as environment-timing diagnostics after unrelated five-second tests
   exceeded their budgets; all affected tests passed independently and the
   unchanged pre-correction aggregate proof remains diagnostic only.
-- Corrected freeze and durability: `59729ebb73c1ab8ed457b529256bcff0edd0835a`
-  is pushed to `origin/codex/evolution-mvp`, remote identity matches, and its
-  exact diff check is clean. Fresh exact independent review is pending, so
-  Block 8 remains `in-progress`, no acceptance is claimed, and no later Block
-  is active.
+- Corrected freeze, durability, and acceptance:
+  `59729ebb73c1ab8ed457b529256bcff0edd0835a` is pushed to
+  `origin/codex/evolution-mvp`, remote identity matches, and its exact diff
+  check is clean. Independent reviewer `/root/block6_exact_review` accepted
+  exact evidence revision `3d6286d498bd21293a148a8f11a88203f472e26e`, tree
+  `bb9aca5cae8db1dbe1a2087554d31cd834a78371`, with no material findings after
+  reproducing Python 5/5 with fatal `ResourceWarning`, Ruff, affected Vitest
+  12/12, production build, focused Playwright 6/6 across three viewports,
+  full-profile verifier 0 errors/warnings plus 30/30 verifier tests, remote/
+  tree/currentness, clean evidence-only diff, and Stop proof. All five rejected
+  rows are closed, so Block 8 is accepted; Block 9 and later remain unstarted at
+  this acceptance boundary.
 
 ### Stop
 
