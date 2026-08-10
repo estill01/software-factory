@@ -8,6 +8,9 @@
   "policy_root": "f186c89c2e9feba24c344e1a64898b962836ecf226fffe5f75e70f15b9e89c2c",
   "event_head_root": "f5ca8bfce5304c91bebf3f59245c74eb756e00e25adc6fc2ae335cab43617652",
   "block_contract_root": "6d0e4632d0a50b62df2807d7a22571c54e00b4ff6cd7083c5d6ae68e4ad37880",
+  "representative_workload": {"schema_version": 1, "kind": "deterministic-compression-corpus", "row_count": 1000, "index_format": "row-%04d-", "repeated_utf8": "ABCD", "repeat_count": 64, "suffix_alphabet": "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "suffix_repeat_count": 32, "join_separator_hex": "0a"},
+  "validation_runtime": {"schema_version": 1, "kind": "python-stdlib-zlib", "algorithm": "zlib.compress", "zlib_version": "1.2.12"},
+  "materiality_criterion": {"minimum_artifact_byte_reduction": 50, "minimum_reduction_basis_points": 150, "maximum_candidate_runtime_basis_points": 12500, "maximum_changed_lines": 2, "maximum_restore_steps": 1},
   "candidate_trigger": {
     "disposition": "compare-candidate",
     "reason": "material-better-path",
@@ -30,9 +33,9 @@
       {"path": "/software-factory-candidate-target/stream_export.py", "content_utf8": "def export(rows):\n    payload = b'\\n'.join(rows)\n    return zlib.compress(payload, 1)\n"}
     ],
     "metrics": {
-      "observable-outcome": {"decompressed_sha256": "b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03", "artifact_bytes": 4619},
+      "observable-outcome": {"decompressed_sha256": "b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03", "artifact_bytes": 4619, "performance_posture": "baseline"},
       "implementation-cost": {"changed_lines": 0},
-      "maintenance-cost": {"decision_points": 1},
+      "maintenance-cost": {"decision_points": 0},
       "reversibility": {"restore_steps": 0},
       "compatibility": {"api_break_ids": []},
       "protected-capability": {"regression_ids": []}
@@ -64,7 +67,7 @@
   "comparison_dimensions": ["observable-outcome", "implementation-cost", "maintenance-cost", "reversibility", "compatibility", "protected-capability"],
   "eligibility_evidence": {
     "outcome_uncertainty": {"kind": "candidate-outcome-uncertainty", "claim": "read-only source establishes semantics but cannot establish the representative compressed-size delta or whether it justifies the bounded change", "source_root": "3902dfb3e0c3002160f3b361b1959c005b6ad21d2842cb951bc33813ff200bc0"},
-    "implementation_evidence": {"kind": "candidate-implementation-evidence-need", "required_observation": "execute exact compression alternatives against a retained representative payload and compare artifact bytes plus semantic round-trip", "bounded_probe": "embedded:focused-compressed-export-v1"},
+    "implementation_evidence": {"kind": "candidate-implementation-evidence-need", "required_observation": "execute exact compression alternatives against a retained representative payload and compare artifact bytes, performance posture, semantic round-trip, implementation cost, and restore cost", "bounded_probe": "embedded:focused-compressed-export-v1", "representative_workload_root": "a5be25f1953b32a31376fe5950a00a840871d458a14e3f59f543bf4ee04eeb64", "validation_runtime_root": "6f1da7c58a74a4f6824108fbdfb18420ec3a711a3a6e0caed6c305814ad5c483", "materiality_criterion": {"minimum_artifact_byte_reduction": 50, "minimum_reduction_basis_points": 150, "maximum_candidate_runtime_basis_points": 12500, "maximum_changed_lines": 2, "maximum_restore_steps": 1}},
     "reversibility": {"kind": "candidate-reversibility", "incumbent_revision": "5555555555555555555555555555555555555555", "restoration": "discard the isolated lane and retain the incumbent"}
   },
   "eligibility_default": {
@@ -73,7 +76,7 @@
     "outcome_uncertainty_supported": true,
     "outcome_uncertainty_evidence_root": "42a1f378a29f207e38063b83ed1374aa1bcf4cc167553d7142a35287df1a76fa",
     "implementation_evidence_required": true,
-    "implementation_evidence_root": "d308928d6fdc58953572ad2f6d127682cec55a55f0e424f63654b759f23df107",
+    "implementation_evidence_root": "c6c0d510a8cac9243859c1548d57bc4e415ebf7a563781889994cb3ee8cabf95",
     "read_only_resolvable": false,
     "rework_avoided_minutes": 60,
     "candidate_ceiling_minutes": 20,
@@ -86,55 +89,55 @@
   "artifacts": {
     "candidate-winning": {
       "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    payload = b'\\n'.join(rows)\n    return zlib.compress(payload, 9)\n"}],
-      "focused": {"recorded_at": "2026-08-10T03:27:50.000000Z", "command": "embedded:focused-compressed-export-v1", "exit_code": 0, "output": "roundtrip=b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03;bytes=4480;api=bytes", "protected_result": "preserved"},
-      "mapped": {"recorded_at": "2026-08-10T03:27:51.000000Z", "command": "embedded:mapped-compressed-export-v1", "exit_code": 0, "output": "comparison=coherent", "metrics": {"observable-outcome": {"decompressed_sha256": "b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03", "artifact_bytes": 4480}, "implementation-cost": {"changed_lines": 2}, "maintenance-cost": {"decision_points": 0}, "reversibility": {"restore_steps": 1}, "compatibility": {"api_break_ids": []}, "protected-capability": {"regression_ids": []}}}
+      "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    payload = b'\\n'.join(rows)\n    return zlib.compress(payload, 3)\n"}],
+      "focused": {"recorded_at": "2026-08-10T03:48:00.000000Z", "command": "embedded:focused-compressed-export-v1", "exit_code": 0, "output": "roundtrip=b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03;bytes=4531;api=bytes", "protected_result": "preserved"},
+      "mapped": {"recorded_at": "2026-08-10T03:48:01.000000Z", "command": "embedded:mapped-compressed-export-v1", "exit_code": 0, "output": "comparison=coherent", "metrics": {"observable-outcome": {"decompressed_sha256": "b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03", "artifact_bytes": 4531, "performance_posture": "candidate-not-materially-slower"}, "implementation-cost": {"changed_lines": 2}, "maintenance-cost": {"decision_points": 0}, "reversibility": {"restore_steps": 1}, "compatibility": {"api_break_ids": []}, "protected-capability": {"regression_ids": []}}}
     },
     "candidate-equivalent": {
       "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    payload = b'\\n'.join(rows)\n    return zlib.compress(payload, 1)\n"}],
-      "focused": {"recorded_at": "2026-08-10T03:27:53.000000Z", "command": "embedded:focused-compressed-export-v1", "exit_code": 0, "output": "roundtrip=b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03;bytes=4619;api=bytes", "protected_result": "preserved"},
-      "mapped": {"recorded_at": "2026-08-10T03:27:54.000000Z", "command": "embedded:mapped-compressed-export-v1", "exit_code": 0, "output": "comparison=coherent", "metrics": {"observable-outcome": {"decompressed_sha256": "b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03", "artifact_bytes": 4619}, "implementation-cost": {"changed_lines": 0}, "maintenance-cost": {"decision_points": 0}, "reversibility": {"restore_steps": 1}, "compatibility": {"api_break_ids": []}, "protected-capability": {"regression_ids": []}}}
+      "focused": {"recorded_at": "2026-08-10T03:48:03.000000Z", "command": "embedded:focused-compressed-export-v1", "exit_code": 0, "output": "roundtrip=b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03;bytes=4619;api=bytes", "protected_result": "preserved"},
+      "mapped": {"recorded_at": "2026-08-10T03:48:04.000000Z", "command": "embedded:mapped-compressed-export-v1", "exit_code": 0, "output": "comparison=coherent", "metrics": {"observable-outcome": {"decompressed_sha256": "b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03", "artifact_bytes": 4619, "performance_posture": "candidate-not-materially-slower"}, "implementation-cost": {"changed_lines": 0}, "maintenance-cost": {"decision_points": 0}, "reversibility": {"restore_steps": 1}, "compatibility": {"api_break_ids": []}, "protected-capability": {"regression_ids": []}}}
     },
     "candidate-losing": {
       "revision": "cccccccccccccccccccccccccccccccccccccccc",
       "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    payload = b'\\n'.join(rows)\n    return zlib.compress(payload, 0)\n"}],
-      "focused": {"recorded_at": "2026-08-10T03:27:56.000000Z", "command": "embedded:focused-compressed-export-v1", "exit_code": 0, "output": "roundtrip=b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03;bytes=298030;api=bytes", "protected_result": "preserved"},
-      "mapped": {"recorded_at": "2026-08-10T03:27:57.000000Z", "command": "embedded:mapped-compressed-export-v1", "exit_code": 0, "output": "comparison=coherent", "metrics": {"observable-outcome": {"decompressed_sha256": "b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03", "artifact_bytes": 298030}, "implementation-cost": {"changed_lines": 2}, "maintenance-cost": {"decision_points": 0}, "reversibility": {"restore_steps": 1}, "compatibility": {"api_break_ids": []}, "protected-capability": {"regression_ids": []}}}
+      "focused": {"recorded_at": "2026-08-10T03:48:06.000000Z", "command": "embedded:focused-compressed-export-v1", "exit_code": 0, "output": "roundtrip=b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03;bytes=298030;api=bytes", "protected_result": "preserved"},
+      "mapped": {"recorded_at": "2026-08-10T03:48:07.000000Z", "command": "embedded:mapped-compressed-export-v1", "exit_code": 0, "output": "comparison=coherent", "metrics": {"observable-outcome": {"decompressed_sha256": "b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03", "artifact_bytes": 298030, "performance_posture": "candidate-not-materially-slower"}, "implementation-cost": {"changed_lines": 2}, "maintenance-cost": {"decision_points": 0}, "reversibility": {"restore_steps": 1}, "compatibility": {"api_break_ids": []}, "protected-capability": {"regression_ids": []}}}
     },
     "candidate-inconclusive": {
       "revision": "dddddddddddddddddddddddddddddddddddddddd",
-      "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    payload = b'\\n'.join(rows)\n    return zlib.compress(payload, 9)\n"}],
-      "focused": {"recorded_at": "2026-08-10T03:27:59.000000Z", "command": "embedded:focused-compressed-export-v1", "exit_code": 0, "output": "roundtrip=b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03;bytes=4480;api=bytes", "protected_result": "preserved"},
-      "mapped": {"recorded_at": "2026-08-10T03:28:00.000000Z", "command": "embedded:mapped-compressed-export-v1", "exit_code": 0, "output": "comparison=broader-compatibility-unavailable", "metrics": {"observable-outcome": {"decompressed_sha256": "b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03", "artifact_bytes": 4480}, "implementation-cost": {"changed_lines": 2}, "maintenance-cost": {"decision_points": 0}, "reversibility": {"restore_steps": 1}, "compatibility": {"api_break_ids": null}, "protected-capability": {"regression_ids": []}}}
+      "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    payload = b'\\n'.join(rows)\n    return zlib.compress(payload, 3)\n"}],
+      "focused": {"recorded_at": "2026-08-10T03:48:09.000000Z", "command": "embedded:focused-compressed-export-v1", "exit_code": 0, "output": "roundtrip=b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03;bytes=4531;api=bytes", "protected_result": "preserved"},
+      "mapped": {"recorded_at": "2026-08-10T03:48:10.000000Z", "command": "embedded:mapped-compressed-export-v1", "exit_code": 0, "output": "comparison=broader-compatibility-unavailable", "metrics": {"observable-outcome": {"decompressed_sha256": "b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03", "artifact_bytes": 4531, "performance_posture": "candidate-not-materially-slower"}, "implementation-cost": {"changed_lines": 2}, "maintenance-cost": {"decision_points": 0}, "reversibility": {"restore_steps": 1}, "compatibility": {"api_break_ids": null}, "protected-capability": {"regression_ids": []}}}
     },
     "candidate-focused-failure": {
       "revision": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
       "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    raise RuntimeError('failed')\n"}],
-      "focused": {"recorded_at": "2026-08-10T03:28:02.000000Z", "command": "embedded:focused-compressed-export-v1", "exit_code": 1, "output": "execution=RuntimeError:failed", "protected_result": "failed"},
+      "focused": {"recorded_at": "2026-08-10T03:48:12.000000Z", "command": "embedded:focused-compressed-export-v1", "exit_code": 1, "output": "execution=RuntimeError:failed", "protected_result": "failed"},
       "mapped": null
     },
     "candidate-mapped-failure": {
       "revision": "ffffffffffffffffffffffffffffffffffffffff",
-      "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    payload = b'\\n'.join(rows)\n    return zlib.compress(payload, 9)\n"}],
-      "focused": {"recorded_at": "2026-08-10T03:28:04.000000Z", "command": "embedded:focused-compressed-export-v1", "exit_code": 0, "output": "roundtrip=b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03;bytes=4480;api=bytes", "protected_result": "preserved"},
-      "mapped": {"recorded_at": "2026-08-10T03:28:05.000000Z", "command": "embedded:mapped-compressed-export-v1", "exit_code": 1, "output": "comparison=failed", "metrics": null}
+      "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    payload = b'\\n'.join(rows)\n    return zlib.compress(payload, 3)\n"}],
+      "focused": {"recorded_at": "2026-08-10T03:48:14.000000Z", "command": "embedded:focused-compressed-export-v1", "exit_code": 0, "output": "roundtrip=b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03;bytes=4531;api=bytes", "protected_result": "preserved"},
+      "mapped": {"recorded_at": "2026-08-10T03:48:15.000000Z", "command": "embedded:mapped-compressed-export-v1", "exit_code": 1, "output": "comparison=failed", "metrics": null}
     },
     "candidate-protected-regression": {
       "revision": "1234512345123451234512345123451234512345",
       "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    return b'\\n'.join(rows)\n"}],
-      "focused": {"recorded_at": "2026-08-10T03:28:07.000000Z", "command": "embedded:focused-compressed-export-v1", "exit_code": 1, "output": "roundtrip=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855;bytes=297999;api=bytes", "protected_result": "regressed"},
+      "focused": {"recorded_at": "2026-08-10T03:48:17.000000Z", "command": "embedded:focused-compressed-export-v1", "exit_code": 1, "output": "roundtrip=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855;bytes=297999;api=bytes", "protected_result": "regressed"},
       "mapped": null
     },
     "candidate-over-ceiling": {
       "revision": "2345623456234562345623456234562345623456",
       "files": [
-        {"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    payload = b'\\n'.join(rows)\n    return zlib.compress(payload, 9)\n"},
+        {"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    payload = b'\\n'.join(rows)\n    return zlib.compress(payload, 3)\n"},
         {"path": "/software-factory-candidate-lane/extra_a.py", "content_utf8": "VALUE = 'a'\n"},
         {"path": "/software-factory-candidate-lane/extra_b.py", "content_utf8": "VALUE = 'b'\n"},
         {"path": "/software-factory-candidate-lane/extra_c.py", "content_utf8": "VALUE = 'c'\n"}
       ],
-      "focused": {"recorded_at": "2026-08-10T03:28:09.000000Z", "command": "embedded:focused-compressed-export-v1", "exit_code": 0, "output": "roundtrip=b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03;bytes=4480;api=bytes", "protected_result": "preserved"},
+      "focused": {"recorded_at": "2026-08-10T03:48:19.000000Z", "command": "embedded:focused-compressed-export-v1", "exit_code": 0, "output": "roundtrip=b67c29b93d6e48271d2ef7fb54f3bf2e86dedfe9e9d606fa6c17d5644ab8cb03;bytes=4531;api=bytes", "protected_result": "preserved"},
       "mapped": null
     }
   },

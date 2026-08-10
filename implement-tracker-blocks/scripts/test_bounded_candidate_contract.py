@@ -8,6 +8,7 @@ import ast
 import difflib
 import hashlib
 import json
+import math
 import re
 import subprocess
 import unittest
@@ -15,6 +16,8 @@ import unicodedata
 import zlib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
+from statistics import median
+from time import process_time_ns
 
 
 def reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
@@ -43,8 +46,8 @@ SPEC = json.loads(ADAPTIVE.split("<!-- contract-spec-v1 -->", 1)[1].split("```js
 EXERCISE = load_strict_json(SKILL_ROOT / "fixtures/bounded_candidate_v1.json")
 REVIEW_FIXTURE = load_strict_json(SKILL_ROOT / "fixtures/bounded_candidate_reviews_v1.json")
 
-EXPECTED_EXERCISE_ROOT = "11dd76684c2a76a0ba973a77550f2d687fc8861c8cf181078a0104e32196ca64"
-EXPECTED_REVIEW_FIXTURE_ROOT = "16a75918936bd51db2db9d75742f0f8f980547dcc7067fde9789adf289b682b1"
+EXPECTED_EXERCISE_ROOT = "1428e8aae7dd94fd89102b667f95e12b33d569197867a3e1fc01091b3f105517"
+EXPECTED_REVIEW_FIXTURE_ROOT = "4e39ef8ac720b7db2f1981507f6ad93a2b1696b3d33de8e741c8efce1a473343"
 GIT_EXECUTABLE = "/usr/bin/git"
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 REV_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -87,6 +90,7 @@ ELIGIBILITY_FIELDS = {
     "reversibility_evidence_root",
     "isolation_safe",
 }
+PERFORMANCE_CACHE: dict[str, str] = {}
 
 
 def validate_canonical_value(value: object) -> None:
@@ -228,6 +232,27 @@ def target_revision_root() -> str:
     return root({"target_revision": EXERCISE["target_revision"]})
 
 
+def representative_payload() -> tuple[list[bytes], bytes]:
+    workload = EXERCISE["representative_workload"]
+    exact_fields = {"schema_version", "kind", "row_count", "index_format", "repeated_utf8", "repeat_count", "suffix_alphabet", "suffix_repeat_count", "join_separator_hex"}
+    if type(workload) is not dict or set(workload) != exact_fields or workload["schema_version"] != 1 or workload["kind"] != "deterministic-compression-corpus" or workload["index_format"] != "row-%04d-" or workload["join_separator_hex"] != "0a":
+        raise ValueError("representative workload differs")
+    row_count = exact_int(workload["row_count"], "workload rows", minimum=1, maximum=10000)
+    repeat_count = exact_int(workload["repeat_count"], "workload repeat", minimum=1, maximum=1000)
+    suffix_count = exact_int(workload["suffix_repeat_count"], "workload suffix", minimum=1, maximum=1000)
+    repeated = exact_string(workload["repeated_utf8"], "workload repeated bytes").encode("utf-8")
+    alphabet = exact_string(workload["suffix_alphabet"], "workload alphabet").encode("ascii")
+    rows = [(b"row-%04d-" % index) + (repeated * repeat_count) + (bytes([alphabet[index % len(alphabet)]]) * suffix_count) for index in range(row_count)]
+    return rows, bytes.fromhex(workload["join_separator_hex"]).join(rows)
+
+
+def validation_runtime_root() -> str:
+    runtime = EXERCISE["validation_runtime"]
+    if type(runtime) is not dict or set(runtime) != {"schema_version", "kind", "algorithm", "zlib_version"} or runtime != {"schema_version": 1, "kind": "python-stdlib-zlib", "algorithm": "zlib.compress", "zlib_version": zlib.ZLIB_RUNTIME_VERSION}:
+        raise ValueError("validation runtime differs")
+    return root(runtime)
+
+
 def stream_source(files: object, *, contained_by: str) -> str:
     path = f"{contained_by}/stream_export.py"
     if type(files) is not list:
@@ -238,18 +263,47 @@ def stream_source(files: object, *, contained_by: str) -> str:
     return exact_string(matches[0].get("content_utf8"), "stream source bytes")
 
 
-def execute_stream(files: object, *, contained_by: str) -> dict[str, object]:
+def load_export(files: object, *, contained_by: str):
     source = stream_source(files, contained_by=contained_by)
     namespace: dict[str, object] = {}
-    safe_builtins = {"bytes": bytes, "RuntimeError": RuntimeError}
+    code = compile(source, "<bounded-candidate-stream-export>", "exec")
+    exec(code, {"__builtins__": {"bytes": bytes, "RuntimeError": RuntimeError}, "zlib": zlib}, namespace)
+    export = namespace.get("export")
+    if not callable(export):
+        raise ValueError("stream source lacks export")
+    return export
+
+
+def performance_posture(files: object, *, contained_by: str) -> str:
+    cache_key = root({"workload": EXERCISE["representative_workload"], "runtime": EXERCISE["validation_runtime"], "criterion": EXERCISE["materiality_criterion"], "incumbent": EXERCISE["incumbent"]["files"], "candidate": files})
+    if cache_key in PERFORMANCE_CACHE:
+        return PERFORMANCE_CACHE[cache_key]
+    rows, _ = representative_payload()
+    incumbent_export = load_export(EXERCISE["incumbent"]["files"], contained_by=EXERCISE["target_repository_root"])
+    candidate_export = load_export(files, contained_by=contained_by)
+    for _ in range(3):
+        incumbent_export(rows)
+        candidate_export(rows)
+    incumbent_samples: list[int] = []
+    candidate_samples: list[int] = []
+    for sample in range(15):
+        ordered = ((candidate_export, candidate_samples), (incumbent_export, incumbent_samples)) if sample % 2 else ((incumbent_export, incumbent_samples), (candidate_export, candidate_samples))
+        for operation, samples in ordered:
+            started = process_time_ns()
+            for _ in range(10):
+                operation(rows)
+            samples.append(process_time_ns() - started)
+    ratio_basis_points = int(median(candidate_samples) * 10000) // int(median(incumbent_samples))
+    maximum = EXERCISE["materiality_criterion"]["maximum_candidate_runtime_basis_points"]
+    posture = "candidate-not-materially-slower" if ratio_basis_points <= maximum else "candidate-materially-slower"
+    PERFORMANCE_CACHE[cache_key] = posture
+    return posture
+
+
+def execute_stream(files: object, *, contained_by: str) -> dict[str, object]:
     try:
-        code = compile(source, "<bounded-candidate-stream-export>", "exec")
-        exec(code, {"__builtins__": safe_builtins, "zlib": zlib}, namespace)
-        export = namespace.get("export")
-        if not callable(export):
-            raise ValueError("stream source lacks export")
-        rows = [(b"row-%04d-" % index) + (b"ABCD" * 64) + (bytes([65 + index % 26]) * 32) for index in range(1000)]
-        payload = b"\n".join(rows)
+        export = load_export(files, contained_by=contained_by)
+        rows, payload = representative_payload()
         result = export(rows)
         bytes_api = type(result) is bytes
         regressions: list[str] = []
@@ -287,11 +341,23 @@ def derived_candidate_metrics(artifact: dict[str, object]) -> dict[str, object]:
     if artifact["mapped"]["output"] == "comparison=broader-compatibility-unavailable":
         compatibility = None
     return {
-        "observable-outcome": {"decompressed_sha256": observed["decompressed_sha256"], "artifact_bytes": observed["artifact_bytes"]},
+        "observable-outcome": {"decompressed_sha256": observed["decompressed_sha256"], "artifact_bytes": observed["artifact_bytes"], "performance_posture": performance_posture(artifact["files"], contained_by=EXERCISE["lane"]["root"])},
         "implementation-cost": {"changed_lines": changed_lines(artifact["files"])},
         "maintenance-cost": {"decision_points": decision_points(artifact["files"], contained_by=EXERCISE["lane"]["root"])},
         "reversibility": {"restore_steps": 1},
         "compatibility": {"api_break_ids": compatibility},
+        "protected-capability": {"regression_ids": observed["regression_ids"]},
+    }
+
+
+def derived_incumbent_metrics() -> dict[str, object]:
+    observed = execute_stream(EXERCISE["incumbent"]["files"], contained_by=EXERCISE["target_repository_root"])
+    return {
+        "observable-outcome": {"decompressed_sha256": observed["decompressed_sha256"], "artifact_bytes": observed["artifact_bytes"], "performance_posture": "baseline"},
+        "implementation-cost": {"changed_lines": 0},
+        "maintenance-cost": {"decision_points": decision_points(EXERCISE["incumbent"]["files"], contained_by=EXERCISE["target_repository_root"])},
+        "reversibility": {"restore_steps": 0},
+        "compatibility": {"api_break_ids": []},
         "protected-capability": {"regression_ids": observed["regression_ids"]},
     }
 
@@ -321,6 +387,8 @@ def focused_result(artifact: dict[str, object], candidate_root: str) -> dict[str
         "kind": "software-factory-candidate-focused-result",
         "result_id": result_id("focused", candidate_root),
         "candidate_root": candidate_root,
+        "representative_workload_root": root(EXERCISE["representative_workload"]),
+        "validation_runtime_root": validation_runtime_root(),
         "recorded_at": exact_string(value["recorded_at"], "focused time"),
         "command": exact_string(value["command"], "focused command"),
         "exit_code": exact_int(value["exit_code"], "focused exit", maximum=255),
@@ -336,11 +404,13 @@ def validate_metrics(metrics: object) -> dict[str, object]:
     if type(metrics) is not dict or list(metrics) != DIMENSIONS:
         raise ValueError("mapped metrics differ")
     outcome = metrics["observable-outcome"]
-    if type(outcome) is not dict or set(outcome) != {"decompressed_sha256", "artifact_bytes"}:
+    if type(outcome) is not dict or set(outcome) != {"decompressed_sha256", "artifact_bytes", "performance_posture"}:
         raise ValueError("observable metric differs")
     exact_string(outcome["decompressed_sha256"], "observable output", SHA_RE)
     if outcome["artifact_bytes"] is not None:
         exact_int(outcome["artifact_bytes"], "artifact bytes")
+    if outcome["performance_posture"] not in {"baseline", "candidate-not-materially-slower", "candidate-materially-slower"}:
+        raise ValueError("performance posture differs")
     for dimension, field in (
         ("implementation-cost", "changed_lines"),
         ("maintenance-cost", "decision_points"),
@@ -398,7 +468,7 @@ def mapped_result(artifact: dict[str, object], candidate_root: str, focused: dic
 def validate_exercise() -> None:
     if root(EXERCISE) != EXPECTED_EXERCISE_ROOT or root(REVIEW_FIXTURE) != EXPECTED_REVIEW_FIXTURE_ROOT:
         raise ValueError("bounded candidate source root differs")
-    exact_exercise_fields = {"schema_version", "kind", "block_number", "tracker_source_revision", "tracker_sha256", "mission_root", "policy_root", "event_head_root", "block_contract_root", "candidate_trigger", "target_repository_root", "target_revision", "capability_contract", "incumbent", "lane", "hypothesis", "hypothesis_scope", "comparison_dimensions", "eligibility_evidence", "eligibility_default", "artifacts", "cases"}
+    exact_exercise_fields = {"schema_version", "kind", "block_number", "tracker_source_revision", "tracker_sha256", "mission_root", "policy_root", "event_head_root", "block_contract_root", "representative_workload", "validation_runtime", "materiality_criterion", "candidate_trigger", "target_repository_root", "target_revision", "capability_contract", "incumbent", "lane", "hypothesis", "hypothesis_scope", "comparison_dimensions", "eligibility_evidence", "eligibility_default", "artifacts", "cases"}
     if set(EXERCISE) != exact_exercise_fields:
         raise ValueError("bounded candidate exercise shape differs")
     if type(EXERCISE["schema_version"]) is not int or EXERCISE["schema_version"] != 2 or EXERCISE["kind"] != "software-factory-bounded-candidate-exercise" or type(EXERCISE["block_number"]) is not int or EXERCISE["block_number"] != 6:
@@ -411,6 +481,16 @@ def validate_exercise() -> None:
         raise ValueError("candidate trigger differs")
     if EXERCISE["block_contract_root"] != block_contract_root():
         raise ValueError("Block 6 contract root is stale")
+    representative_payload()
+    runtime_root = validation_runtime_root()
+    materiality = EXERCISE["materiality_criterion"]
+    if type(materiality) is not dict or set(materiality) != {"minimum_artifact_byte_reduction", "minimum_reduction_basis_points", "maximum_candidate_runtime_basis_points", "maximum_changed_lines", "maximum_restore_steps"}:
+        raise ValueError("candidate materiality criterion differs")
+    exact_int(materiality["minimum_artifact_byte_reduction"], "minimum artifact byte reduction", minimum=1)
+    exact_int(materiality["minimum_reduction_basis_points"], "minimum reduction basis points", minimum=1, maximum=10000)
+    exact_int(materiality["maximum_candidate_runtime_basis_points"], "maximum candidate runtime basis points", minimum=1, maximum=100000)
+    exact_int(materiality["maximum_changed_lines"], "maximum changed lines", minimum=0, maximum=1000)
+    exact_int(materiality["maximum_restore_steps"], "maximum restore steps", minimum=0, maximum=100)
     expected_mission = root({"source_class": "tracker", "tracker_sha256": EXERCISE["tracker_sha256"], "block_number": 6, "capability_contract": EXERCISE["capability_contract"]})
     expected_policy = root({"adaptive_decision_mode": "full-autonomous", "candidate_lane_limit": 1, "mission_root": expected_mission})
     expected_event = root({"event_id": "block6-exercise-genesis", "mission_root": expected_mission, "policy_root": expected_policy})
@@ -475,7 +555,12 @@ def validate_exercise() -> None:
     defaults = EXERCISE["eligibility_default"]
     if (defaults["outcome_uncertainty_evidence_root"], defaults["implementation_evidence_root"], defaults["reversibility_evidence_root"]) != (root(eligibility_records["outcome_uncertainty"]), root(eligibility_records["implementation_evidence"]), root(eligibility_records["reversibility"])):
         raise ValueError("eligibility evidence roots differ")
+    implementation_evidence = eligibility_records["implementation_evidence"]
+    if implementation_evidence.get("representative_workload_root") != root(EXERCISE["representative_workload"]) or implementation_evidence.get("validation_runtime_root") != runtime_root or implementation_evidence.get("materiality_criterion") != materiality:
+        raise ValueError("implementation-evidence basis differs")
     validate_metrics(EXERCISE["incumbent"]["metrics"])
+    if EXERCISE["incumbent"]["metrics"] != derived_incumbent_metrics():
+        raise ValueError("incumbent metrics differ from retained bytes")
     if set(EXERCISE["incumbent"]) != {"revision", "production_authority_owner_id", "files", "metrics", "writable_scope"}:
         raise ValueError("candidate incumbent shape differs")
     incumbent_root()
@@ -570,6 +655,9 @@ def decision_basis(case: dict[str, object], eligible: dict[str, object]) -> dict
         "hypothesis_scope": EXERCISE["hypothesis_scope"],
         "capability_contract": contract,
         "expected_observable_effect": contract["expected_observable_effect"],
+        "representative_workload_root": root(EXERCISE["representative_workload"]),
+        "validation_runtime_root": validation_runtime_root(),
+        "materiality_criterion": EXERCISE["materiality_criterion"],
         "comparison_dimensions": DIMENSIONS,
         "eligibility_root": eligible["eligibility_root"],
         "isolation": EXERCISE["lane"],
@@ -636,14 +724,21 @@ def decision_fingerprint(case: dict[str, object], eligible: dict[str, object]) -
 def metric_relation(dimension: str, incumbent: dict[str, object], candidate: dict[str, object]) -> tuple[str, str]:
     if dimension == "observable-outcome":
         if candidate["decompressed_sha256"] != incumbent["decompressed_sha256"]:
-            return "incumbent-better", "roundtrip-sha256-and-artifact-bytes"
+            return "incumbent-better", "roundtrip-sha256-artifact-bytes-and-runtime"
         if candidate["artifact_bytes"] is None:
-            return "inconclusive", "roundtrip-sha256-and-artifact-bytes"
-        if candidate["artifact_bytes"] < incumbent["artifact_bytes"]:
-            return "candidate-better", "roundtrip-sha256-and-artifact-bytes"
-        if candidate["artifact_bytes"] > incumbent["artifact_bytes"]:
-            return "incumbent-better", "roundtrip-sha256-and-artifact-bytes"
-        return "equivalent", "roundtrip-sha256-and-artifact-bytes"
+            return "inconclusive", "roundtrip-sha256-artifact-bytes-and-runtime"
+        if candidate["performance_posture"] == "candidate-materially-slower":
+            return "incumbent-better", "roundtrip-sha256-artifact-bytes-and-runtime"
+        if candidate["performance_posture"] != "candidate-not-materially-slower" or incumbent["performance_posture"] != "baseline":
+            return "inconclusive", "roundtrip-sha256-artifact-bytes-and-runtime"
+        reduction = incumbent["artifact_bytes"] - candidate["artifact_bytes"]
+        basis_points = (reduction * 10000) // incumbent["artifact_bytes"]
+        criterion = EXERCISE["materiality_criterion"]
+        if reduction >= criterion["minimum_artifact_byte_reduction"] and basis_points >= criterion["minimum_reduction_basis_points"]:
+            return "candidate-better", "roundtrip-sha256-artifact-bytes-and-runtime"
+        if reduction < 0:
+            return "incumbent-better", "roundtrip-sha256-artifact-bytes-and-runtime"
+        return "equivalent", "roundtrip-sha256-artifact-bytes-and-runtime"
     field = {"implementation-cost": "changed_lines", "maintenance-cost": "decision_points", "reversibility": "restore_steps"}.get(dimension)
     if field is not None:
         left, right = incumbent[field], candidate[field]
@@ -718,6 +813,9 @@ def blind_review_packet(candidate_root: str, mapped: dict[str, object], comparis
         "target_revision_root": target_revision_root(),
         "incumbent_root": incumbent_root(),
         "candidate_root": candidate_root,
+        "representative_workload_root": root(EXERCISE["representative_workload"]),
+        "validation_runtime_root": validation_runtime_root(),
+        "materiality_criterion": EXERCISE["materiality_criterion"],
         "focused_result_root": mapped["focused_result_root"],
         "mapped_result_root": mapped["result_root"],
         "comparison_root": root(comparison),
@@ -752,8 +850,20 @@ def review_fixture_result(packet: dict[str, object], comparison: list[dict[str, 
         if disposition not in COMPARISON_DISPOSITIONS:
             raise ValueError("comparison disposition differs")
         relations = {item["dimension"]: item["relation"] for item in comparison}
-        if disposition == "candidate-better" and (relations["observable-outcome"] != "candidate-better" or relations["compatibility"] in {"incumbent-better", "inconclusive"} or relations["protected-capability"] in {"incumbent-better", "inconclusive"}):
-            raise ValueError("candidate-better is unsupported by raw comparison")
+        values = {item["dimension"]: item["candidate_value"] for item in comparison}
+        criterion = packet["materiality_criterion"]
+        candidate_within_bounded_cost = (
+            values["implementation-cost"]["changed_lines"] <= criterion["maximum_changed_lines"]
+            and values["reversibility"]["restore_steps"] <= criterion["maximum_restore_steps"]
+        )
+        if disposition == "candidate-better" and (
+            relations["observable-outcome"] != "candidate-better"
+            or relations["maintenance-cost"] in {"incumbent-better", "inconclusive"}
+            or relations["compatibility"] in {"incumbent-better", "inconclusive"}
+            or relations["protected-capability"] in {"incumbent-better", "inconclusive"}
+            or not candidate_within_bounded_cost
+        ):
+            raise ValueError("candidate-better is unsupported by material raw comparison")
         if disposition == "incumbent-better" and "incumbent-better" not in relations.values():
             raise ValueError("incumbent-better is unsupported by raw comparison")
         if disposition == "non-inferior-no-benefit" and ("candidate-better" in relations.values() or "inconclusive" in relations.values()):
@@ -792,6 +902,8 @@ def control_stop_result(artifact: dict[str, object], candidate_root: str, reason
         "kind": "software-factory-candidate-focused-result",
         "result_id": result_id("focused", candidate_root),
         "candidate_root": candidate_root,
+        "representative_workload_root": root(EXERCISE["representative_workload"]),
+        "validation_runtime_root": validation_runtime_root(),
         "recorded_at": exact_string(artifact["focused"]["recorded_at"], "control Stop time"),
         "command": "control:pre-validation-stop",
         "exit_code": 1,
@@ -1150,7 +1262,14 @@ def artifact_changed_lines(files: object) -> int:
     return changed_lines(files) + extra
 
 
-def derived_usage(case: dict[str, object], artifact: dict[str, object]) -> dict[str, int]:
+def derived_usage(
+    case: dict[str, object],
+    artifact: dict[str, object],
+    *,
+    focused: dict[str, object] | None = None,
+    mapped: dict[str, object] | None = None,
+    review: dict[str, object] | None = None,
+) -> dict[str, int]:
     reason = case.get("stop_reason")
     files = artifact["files"]
     file_count = len(files)
@@ -1161,8 +1280,29 @@ def derived_usage(case: dict[str, object], artifact: dict[str, object]) -> dict[
         commands = 1
     else:
         commands = 2
-    value = {"files": file_count, "changed_lines": artifact_changed_lines(files), "commands": commands, "review_passes": 1, "elapsed_minutes": 1}
-    if case["usage"] != value:
+    if focused is None:
+        elapsed_minutes = 0
+    else:
+        started = parse_time(focused["recorded_at"], "focused time") - timedelta(seconds=2)
+        last = parse_time(focused["recorded_at"], "focused time")
+        if mapped is not None:
+            last = parse_time(mapped["recorded_at"], "mapped time")
+        if review is not None:
+            review_time = parse_time(review["recorded_at"], "review time")
+            if review_time <= last:
+                raise ValueError("independent review does not follow retained producer evidence")
+            if review_time - last > timedelta(minutes=EXERCISE["eligibility_default"]["review_ceiling_minutes"]):
+                raise ValueError("independent review exceeds the review ceiling")
+            last = review_time
+        elapsed_minutes = max(1, math.ceil((last - started).total_seconds() / 60))
+    value = {
+        "files": file_count,
+        "changed_lines": artifact_changed_lines(files),
+        "commands": commands,
+        "review_passes": 1 if review is not None else 0,
+        "elapsed_minutes": elapsed_minutes,
+    }
+    if review is not None and case["usage"] != value:
         raise ValueError("candidate usage differs from retained artifacts")
     return value
 
@@ -1183,9 +1323,7 @@ def evaluate(case_id: str, *, accepted_head: dict[str, object] | None = None) ->
     artifact, candidate_root = candidate_root_for(case)
     usage = derived_usage(case, artifact)
     if accepted_head is not None:
-        head = validate_accepted_head(accepted_head)
-        if head["decision_fingerprint"] == fingerprint and head["candidate_root"] == candidate_root and head["target_revision_root"] == target_revision_root() and head["tracker_sha256"] == EXERCISE["tracker_sha256"]:
-            return {"action": "deduplicate", "lane_created": False, "review_cycle": False, "handoff_emitted": False, "decision_fingerprint": fingerprint, "accepted_head_root": head["head_root"]}
+        raise ValueError("caller-supplied accepted lane heads are not authority")
     stop_reason = case["stop_reason"]
     if ceiling_exceeded(usage):
         stop_reason = "ceiling-expired"
@@ -1197,6 +1335,9 @@ def evaluate(case_id: str, *, accepted_head: dict[str, object] | None = None) ->
     else:
         focused = focused_result(artifact, candidate_root)
         mapped = mapped_result(artifact, candidate_root, focused)
+    usage = derived_usage(case, artifact, focused=focused, mapped=mapped)
+    if ceiling_exceeded(usage):
+        stop_reason = "ceiling-expired"
     if focused["exit_code"] != 0:
         if not early_stop:
             stop_reason = "focused-failure"
@@ -1209,6 +1350,7 @@ def evaluate(case_id: str, *, accepted_head: dict[str, object] | None = None) ->
         cause = stop_cause(case, artifact, candidate_root, focused, mapped, usage, stop_reason)
         packet = stop_review_packet(case, candidate_root, focused, mapped, stop_reason, usage, cause)
         review = review_fixture_result(packet, None)
+        usage = derived_usage(case, artifact, focused=focused, mapped=mapped, review=review)
         records = stage_records(case, eligible, candidate_root, focused, mapped, review, "closed")
         return {"action": "stop-retire", "lane_created": True, "review_cycle": True, "decision_fingerprint": fingerprint, "stop_reason": stop_reason, "stop_cause": cause, "stop_review_packet": packet, "resource_usage": usage, "stage_records": records, "candidate_root": candidate_root, "candidate_authoritative": False, "incumbent_authoritative": True, "isolation_cleanup": "retired-non-authoritative", "retained_evidence": [focused["result_root"], *( [mapped["result_root"]] if mapped else []), review["review_root"]], "handoff": None, "cutover_performed": False, "tracker_mutated": False, "policy_mutated": False}
     if mapped is None or mapped["exit_code"] != 0 or mapped["metrics"] is None:
@@ -1216,11 +1358,14 @@ def evaluate(case_id: str, *, accepted_head: dict[str, object] | None = None) ->
     comparison = comparison_records(mapped)
     packet = blind_review_packet(candidate_root, mapped, comparison)
     review = review_fixture_result(packet, comparison)
+    usage = derived_usage(case, artifact, focused=focused, mapped=mapped, review=review)
+    if ceiling_exceeded(usage):
+        raise ValueError("candidate review completed outside the resource ceiling")
     terminal = "cutover-eligible" if review["comparison_disposition"] == "candidate-better" else "closed"
     records = stage_records(case, eligible, candidate_root, focused, mapped, review, terminal)
     handoff = handoff_record(records, comparison, review) if terminal == "cutover-eligible" else None
     action = "handoff-block-9" if handoff else "retire-candidate"
-    result = {"action": action, "lane_created": True, "review_cycle": True, "decision_fingerprint": fingerprint, "candidate_root": candidate_root, "focused_result": focused, "mapped_result": mapped, "raw_comparison_records": comparison, "blind_review_packet": packet, "review_result": review, "stage_records": records, "candidate_authoritative": False, "incumbent_authoritative": True, "isolation_cleanup": "kept-isolated-for-block-9" if handoff else "retired-non-authoritative", "handoff": handoff, "cutover_performed": False, "tracker_mutated": False, "policy_mutated": False}
+    result = {"action": action, "lane_created": True, "review_cycle": True, "decision_fingerprint": fingerprint, "candidate_root": candidate_root, "focused_result": focused, "mapped_result": mapped, "resource_usage": usage, "raw_comparison_records": comparison, "blind_review_packet": packet, "review_result": review, "stage_records": records, "candidate_authoritative": False, "incumbent_authoritative": True, "isolation_cleanup": "kept-isolated-for-block-9" if handoff else "retired-non-authoritative", "handoff": handoff, "cutover_performed": False, "tracker_mutated": False, "policy_mutated": False}
     result["lane_head"] = accepted_lane_head(result)
     return result
 
@@ -1293,17 +1438,18 @@ class BoundedCandidateContractTests(unittest.TestCase):
             classes = {item["source_class"] for item in result["stage_records"][-1]["evidence_refs"]}
             self.assertTrue({"validation", "independent-review", "observed-outcome"}.issubset(classes))
 
-    def test_accepted_head_deduplicates_automatically_without_lane_review_or_handoff(self) -> None:
+    def test_caller_cannot_fabricate_an_accepted_head_to_suppress_work(self) -> None:
         first = evaluate("winning-candidate")
-        repeat = evaluate("winning-candidate", accepted_head=first["lane_head"])
-        self.assertEqual(repeat["action"], "deduplicate")
-        self.assertFalse(repeat["lane_created"])
-        self.assertFalse(repeat["review_cycle"])
-        self.assertFalse(repeat["handoff_emitted"])
-        stale = copy.deepcopy(first["lane_head"])
-        stale["candidate_root"] = "f" * 64
-        with self.assertRaisesRegex(ValueError, "stale"):
-            evaluate("winning-candidate", accepted_head=stale)
+        with self.assertRaisesRegex(ValueError, "not authority"):
+            evaluate("winning-candidate", accepted_head=first["lane_head"])
+        forged = copy.deepcopy(first["lane_head"])
+        for key in ("review_root", "currentness_root", "handoff_root"):
+            forged[key] = "0" * 64
+        raw = dict(forged)
+        raw.pop("head_root")
+        forged["head_root"] = root(raw)
+        with self.assertRaisesRegex(ValueError, "not authority"):
+            evaluate("winning-candidate", accepted_head=forged)
 
     def test_winner_emits_one_frozen_nonmutating_block9_handoff(self) -> None:
         result = evaluate("winning-candidate")
@@ -1336,7 +1482,7 @@ class BoundedCandidateContractTests(unittest.TestCase):
         incumbent = execute_stream(EXERCISE["incumbent"]["files"], contained_by=EXERCISE["target_repository_root"])
         winner = execute_stream(EXERCISE["artifacts"]["candidate-winning"]["files"], contained_by=EXERCISE["lane"]["root"])
         self.assertEqual(incumbent["decompressed_sha256"], winner["decompressed_sha256"])
-        self.assertEqual((incumbent["artifact_bytes"], winner["artifact_bytes"]), (4619, 4480))
+        self.assertEqual((incumbent["artifact_bytes"], winner["artifact_bytes"]), (4619, 4531))
         self.assertEqual(winner["regression_ids"], [])
         self.assertEqual(metric_relation("observable-outcome", EXERCISE["incumbent"]["metrics"]["observable-outcome"], derived_candidate_metrics(EXERCISE["artifacts"]["candidate-winning"])["observable-outcome"])[0], "candidate-better")
         broken = copy.deepcopy(EXERCISE["artifacts"]["candidate-winning"])
@@ -1346,14 +1492,42 @@ class BoundedCandidateContractTests(unittest.TestCase):
 
     def test_resource_usage_is_derived_and_ceiling_is_factual(self) -> None:
         winning = canonical_case("winning-candidate")
-        self.assertEqual(derived_usage(winning, EXERCISE["artifacts"][winning["artifact_id"]]), winning["usage"])
+        result = evaluate("winning-candidate")
+        self.assertEqual(result["resource_usage"], winning["usage"])
+        self.assertEqual(derived_usage(winning, EXERCISE["artifacts"][winning["artifact_id"]])["review_passes"], 0)
         ceiling = canonical_case("ceiling-expired")
         usage = derived_usage(ceiling, EXERCISE["artifacts"][ceiling["artifact_id"]])
         self.assertTrue(ceiling_exceeded(usage))
-        changed = copy.deepcopy(ceiling)
+        changed = copy.deepcopy(winning)
         changed["usage"]["files"] = 3
         with self.assertRaisesRegex(ValueError, "retained artifacts"):
-            derived_usage(changed, EXERCISE["artifacts"][changed["artifact_id"]])
+            derived_usage(changed, EXERCISE["artifacts"][changed["artifact_id"]], focused=result["focused_result"], mapped=result["mapped_result"], review=result["review_result"])
+
+    def test_materiality_runtime_and_incumbent_metrics_are_factual(self) -> None:
+        self.assertEqual(EXERCISE["incumbent"]["metrics"], derived_incumbent_metrics())
+        incumbent = EXERCISE["incumbent"]["metrics"]["observable-outcome"]
+        one_byte = {**incumbent, "artifact_bytes": incumbent["artifact_bytes"] - 1, "performance_posture": "candidate-not-materially-slower"}
+        self.assertEqual(metric_relation("observable-outcome", incumbent, one_byte)[0], "equivalent")
+        slow = copy.deepcopy(derived_candidate_metrics(EXERCISE["artifacts"]["candidate-winning"])["observable-outcome"])
+        slow["performance_posture"] = "candidate-materially-slower"
+        self.assertEqual(metric_relation("observable-outcome", incumbent, slow)[0], "incumbent-better")
+        winning = evaluate("winning-candidate")
+        self.assertEqual(winning["blind_review_packet"]["representative_workload_root"], root(EXERCISE["representative_workload"]))
+        self.assertEqual(winning["blind_review_packet"]["validation_runtime_root"], validation_runtime_root())
+
+    def test_review_chronology_and_usage_ceiling_are_derived(self) -> None:
+        case = canonical_case("winning-candidate")
+        artifact, candidate = candidate_root_for(case)
+        focused = focused_result(artifact, candidate)
+        mapped = mapped_result(artifact, candidate, focused)
+        comparison = comparison_records(mapped)
+        review = review_fixture_result(blind_review_packet(candidate, mapped, comparison), comparison)
+        usage = derived_usage(case, artifact, focused=focused, mapped=mapped, review=review)
+        self.assertEqual(usage, case["usage"])
+        delayed = copy.deepcopy(review)
+        delayed["recorded_at"] = format_time(parse_time(mapped["recorded_at"], "mapped") + timedelta(minutes=11))
+        with self.assertRaisesRegex(ValueError, "review ceiling"):
+            derived_usage(case, artifact, focused=focused, mapped=mapped, review=delayed)
 
     def test_stop_observations_are_retained_objects_not_unresolved_roots(self) -> None:
         for case_id, retained_key, derived_key in (
@@ -1397,6 +1571,9 @@ class BoundedCandidateContractTests(unittest.TestCase):
             ("target_revision", "f" * 40),
             ("incumbent_revision", "e" * 40),
             ("expected_observable_effect", "different effect"),
+            ("representative_workload_root", "d" * 64),
+            ("validation_runtime_root", "c" * 64),
+            ("materiality_criterion", {**EXERCISE["materiality_criterion"], "minimum_artifact_byte_reduction": 51}),
             ("comparison_dimensions", list(reversed(DIMENSIONS))),
         ):
             changed = copy.deepcopy(baseline)

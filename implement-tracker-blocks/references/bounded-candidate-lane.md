@@ -30,8 +30,9 @@ Failure of any condition returns to the incumbent without creating a lane.
 Repeated equivalent decision, candidate, or review roots are a no-op.
 Source semantics that already decide the result route to inline correction;
 the retained compression exercise opens a lane only because the representative
-artifact-size delta and its exact protected-capability result require executing
-the bounded alternatives.
+artifact-size delta, runtime posture, and exact protected-capability result
+require executing the bounded alternatives. The representative workload and
+validation runtime are canonical rooted records, not unbound test inputs.
 
 Eligibility is a transparent comparison, not a confidence score. The retained
 record contains exact boolean findings for source-backed uncertainty,
@@ -93,11 +94,18 @@ cannot begin or become current before a coherent focused pass.
 
 Retained focused and mapped claims are checked by executing the bounded
 candidate bytes with a restricted embedded runtime. Semantic output identity,
-artifact size, protected API posture, changed lines, decision points, exact
-compatibility obligations, and named protected regressions are derived from
-those bytes; fixture strings cannot override a different observable result.
+artifact size, a repeated alternating process-time comparison, protected API
+posture, changed lines, decision points, exact compatibility obligations, and
+named protected regressions are derived from those bytes; fixture strings
+cannot override a different observable result. A candidate is materially
+better only when it clears the frozen absolute and proportional artifact-size
+thresholds, is not materially slower under the frozen runtime ceiling, adds no
+maintenance/protected/compatibility regression, and stays within the explicit
+changed-line and restoration-step ceilings.
 File count, changed lines, executed commands, reviewer passes, and elapsed time
-are likewise recomputed and bound into resource/currentness evidence.
+are likewise recomputed from retained files and the focused, mapped, and review
+chronology and bound into resource/currentness evidence. A review outside its
+own time ceiling cannot become current by asserting a smaller elapsed value.
 
 The raw comparison is a six-record ordered array. Each record has exactly
 `dimension`, `unit`, `incumbent_evidence_root`, `candidate_evidence_root`,
