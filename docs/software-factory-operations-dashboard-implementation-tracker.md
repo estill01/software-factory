@@ -3029,7 +3029,57 @@ widening or repeating.
     registered tracker/task/supervision/report/lifecycle operation.
   - Tradeoff: the extra preview and canonical-verification round trip is
     accepted to prevent stale, replayed, cross-target, or HTTP-success-only
-    mutations; frozen-candidate proof remains pending.
+    mutations.
+  - Frozen-candidate proof: implementation candidate
+    `909946a76d0b67d495fc3d53a68403df6da868e0`, tree
+    `7dac9486cdeef652f66e7d3a40830e8ff5a31199`, demonstrates the bounded seam
+    through an injected deterministic test owner while the live production
+    registry remains empty.
+- Frozen implementation candidate:
+  `909946a76d0b67d495fc3d53a68403df6da868e0`, tree
+  `7dac9486cdeef652f66e7d3a40830e8ff5a31199`, parent
+  `db3f6902d5a4c35ce52c2c72a9d6ce24f04afce7`. Representative blobs are
+  `b26e6d918997ece366aebfe0c1a8d9e803f40f29` for the closed registry and
+  ephemeral coordinator, `05644181b6ec2f92ea6eba107be9789fdfe11632` for
+  the same-origin HTTP adapter, `6c7c60889349c054880276c29e28592298005f1f`
+  for the strict frontend contract, and
+  `dbfff177a413c9af5fd862f508bf8bd4836bfc0b` for the reusable Admin UI. The
+  branch and remote both resolved to the exact candidate after push.
+- Capability and Stop result: the production registry contains zero domain
+  operations. The deterministic owner is injected only in tests. Preview is
+  source-fingerprint and route-gate bound and non-mutating; execute requires
+  same origin, the per-launch nonce, the exact unexpired token, unchanged
+  request/source, and typed confirmation; it consumes the token before one
+  named owner dispatch and distinguishes `requested`, approval/input waits,
+  verification, `applied`, failure, unverified timeout, and cancellation.
+  Activity is capped, process-local, and redacted; restart does not reconstruct
+  a second ledger. No tracker, task, supervision, report, evolution, or
+  lifecycle operation was registered, and no arbitrary command, path, method,
+  recipient, or external result link is selectable.
+- Adversarial proof: the deterministic owner covered non-mutating preview,
+  allowed/denied/unavailable and mismatched route gates, exact confirmation,
+  changed target/input, schema extras, expiry, stale source, duplicate submit,
+  replay, owner failure/crash, approval/input waits, failed and timed-out
+  postconditions, unsafe owner links, cancellation before/after the request
+  boundary, redaction, and restart loss. A forced two-thread execute race
+  produced one owner dispatch and one replay rejection. The API integration
+  test also proved origin and launch-nonce enforcement plus an exact mounted
+  status record.
+- Validation: the full Python dashboard suite passed 82/82 with
+  `ResourceWarning` fatal, the full serial TypeScript/Vitest suite passed 17
+  files and 67 tests, the production build and full Ruff scan passed, and the
+  affected Admin browser scenario passed 3/3 across desktop, tablet, and
+  mobile with accessibility and horizontal-overflow checks. The direct
+  `test_server` selector first exposed its established sibling-import binding;
+  no product code ran in that setup attempt, and the corrected maintained
+  discovery envelope passed 17/17 before the full suite. The staged candidate
+  tree remained exactly `7dac9486cdeef652f66e7d3a40830e8ff5a31199`.
+- Mechanical proof: full-profile tracker verification reported Blocks 0–25
+  with 0 errors/warnings, all 30 verifier tests passed, diff checks passed, and
+  the live server on `127.0.0.1:8787` returned an empty production registry and
+  zero session activities without exposing a domain mutation control.
+- Fresh independent exact-revision safety/authority review: pending; Block 11
+  remains unopened.
 
 ### Stop
 
