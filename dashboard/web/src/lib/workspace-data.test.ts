@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   boundedText,
+  exactProjectRunIds,
   eventsForMission,
   missionEntityIds,
   newestTimestamp,
@@ -43,6 +44,9 @@ describe("workspace source boundaries", () => {
       { source: "target task", projectId: "alpha" },
       { source: "Factory Floor", projectId: "alpha" },
     ])
+    const claims = [{ runId: "target-1", projectId: "alpha" }]
+    expect([...exactProjectRunIds([run] as never, task as never, claims, "alpha")]).toEqual([])
+    expect([...exactProjectRunIds([run] as never, task as never, claims, "beta")]).toEqual(["target-1"])
   })
 
   it("keeps predecessor events and entities outside the current mission", () => {

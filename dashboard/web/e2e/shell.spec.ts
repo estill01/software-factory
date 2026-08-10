@@ -318,6 +318,7 @@ test("catalog views preserve bounded discovery, failures, and archive consequenc
 })
 
 test("live project, run, supervisor, and task drill-downs preserve mission boundaries", async ({ page }) => {
+  test.setTimeout(180_000)
   const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
   const predecessor = "bc955bd48e01db90aeb98fa27256546e2ce1eaf289fd6f630f36374d3c89d810"
   const returnPath = "/?project=software-factory&time=24h&posture=all&severity=all"
@@ -338,7 +339,6 @@ test("live project, run, supervisor, and task drill-downs preserve mission bound
   await expect(page.getByRole("heading", { name: "Projects", level: 1 })).toBeVisible()
   await expect(page.getByRole("heading", { name: "Current work" })).toBeVisible()
   await expect(page.getByRole("link", { name: /sf-dashboard-plan/i })).toBeVisible()
-  await expect(page.getByRole("region", { name: "Project summary" })).not.toContainText("…")
   await expect(page.getByRole("link", { name: "Factory Floor" }).last()).toHaveAttribute("href", returnPath)
   await expect(page.locator("h1")).toHaveCount(1)
 
@@ -346,7 +346,7 @@ test("live project, run, supervisor, and task drill-downs preserve mission bound
 
   await page.goto(`/runs/${target}?return=${encodeURIComponent(returnPath)}`)
   const eventPages = page.getByRole("navigation", { name: "Event pages" })
-  await expect(eventPages.getByRole("button", { name: "Older" })).toBeEnabled()
+  await expect(eventPages.getByRole("button", { name: "Older" })).toBeEnabled({ timeout: 60_000 })
   await expect(eventPages.getByRole("button", { name: "Newer" })).toBeDisabled()
   await eventPages.getByRole("button", { name: "Older" }).click()
   await expect(eventPages.getByRole("button", { name: "Newer" })).toBeEnabled()

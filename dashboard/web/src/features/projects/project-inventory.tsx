@@ -9,7 +9,7 @@ import { fetchFactoryFloor } from "@/lib/floor-api"
 import { fetchReports, fetchRuns } from "@/lib/operations-api"
 import { fetchProjects } from "@/lib/projects-api"
 import { fetchTrackers } from "@/lib/trackers-api"
-import { newestTimestamp } from "@/lib/workspace-data"
+import { exactProjectRunIds, newestTimestamp } from "@/lib/workspace-data"
 
 function Count({ value, bounded = false, loading = false }: { value: number | null; bounded?: boolean; loading?: boolean }) {
   return <>{loading ? "…" : value === null ? "Unavailable" : `${bounded ? "≥" : ""}${value}`}</>
@@ -48,6 +48,11 @@ export function ProjectInventory() {
     return run?.project_binding.status === "bound"
       && run.project_binding.project_id !== row.project.project_id
   }) ?? false
+  const composedRunClaims = floor.data?.data.rows.flatMap((row) =>
+    row.supervision.run_id && row.project.project_id
+      ? [{ runId: row.supervision.run_id, projectId: row.project.project_id }]
+      : [],
+  ) ?? []
   const exactlyAssociatedRunIds = new Set([
     ...(floor.data?.data.rows.flatMap((row) => row.supervision.run_id ? [row.supervision.run_id] : []) ?? []),
     ...(runs.data?.data.runs.flatMap((run) => run.project_binding.status === "bound" ? [run.target_thread_id] : []) ?? []),
@@ -85,19 +90,7 @@ export function ProjectInventory() {
               const run = row.supervision.run_id ? runById.get(row.supervision.run_id) : undefined
               return run?.project_binding.status === "bound" && run.project_binding.project_id !== project.id
             })
-            const composedRunIds = new Set(composedRows.flatMap((row) => {
-              if (!row.supervision.run_id) return []
-              const run = runById.get(row.supervision.run_id)
-              return run?.project_binding.status === "bound" && run.project_binding.project_id !== project.id
-                ? []
-                : [row.supervision.run_id]
-            }))
-            const boundRunIds = new Set(runs.data?.data.runs.flatMap((run) =>
-              run.project_binding.status === "bound" && run.project_binding.project_id === project.id
-                ? [run.target_thread_id]
-                : [],
-            ) ?? [])
-            const projectRunIds = new Set([...composedRunIds, ...boundRunIds])
+            const projectRunIds = exactProjectRunIds(runs.data?.data.runs ?? [], [], composedRunClaims, project.id)
             const trackerRows = trackers.data?.data.trackers.filter((tracker) => tracker.project_id === project.id) ?? []
             const reportRows = reports.data?.data.reports.filter((report) => projectRunIds.has(report.target_thread_id)) ?? []
             const attention = composedRows.reduce((total, row) => total + row.issues.total, 0)

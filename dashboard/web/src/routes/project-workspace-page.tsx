@@ -17,8 +17,8 @@ import { fetchProject } from "@/lib/projects-api"
 import { fetchTasks } from "@/lib/task-api"
 import { fetchTrackers } from "@/lib/trackers-api"
 import {
+  exactProjectRunIds,
   newestTimestamp,
-  runBelongsToProject,
   runProjectClaims,
   safeReturnPath,
   taskBelongsToProject,
@@ -66,15 +66,18 @@ export function Component() {
   const composedOnlyRows = composedRows.filter((row) => !listedTaskIds.has(row.implementation.task_id))
   const allRuns = runs.data?.data.runs ?? []
   const allTasks = tasks.data?.data.tasks ?? []
+  const composedRunClaims = floor.data?.data.rows.flatMap((row) =>
+    row.supervision.run_id && row.project.project_id
+      ? [{ runId: row.supervision.run_id, projectId: row.project.project_id }]
+      : [],
+  ) ?? []
+  const exactRunIds = exactProjectRunIds(allRuns, allTasks, composedRunClaims, projectId)
   const claimsByRun = new Map(allRuns.map((run) => {
     const composedProject = floor.data?.data.rows.find((row) => row.supervision.run_id === run.target_thread_id)?.project.project_id
     return [run.target_thread_id, runProjectClaims(run, allTasks, composedProject)]
   }))
   const disagreements = allRuns.filter((run) => new Set((claimsByRun.get(run.target_thread_id) ?? []).map((claim) => claim.projectId)).size > 1)
-  const runRows = allRuns.filter((run) =>
-    runBelongsToProject(run, allTasks, projectId)
-    || (run.project_binding.status !== "bound" && composedRunIds.has(run.target_thread_id)),
-  )
+  const runRows = allRuns.filter((run) => exactRunIds.has(run.target_thread_id))
   const projectDisagreements = disagreements.filter((run) =>
     (claimsByRun.get(run.target_thread_id) ?? []).some((claim) => claim.projectId === projectId),
   )
@@ -82,7 +85,7 @@ export function Component() {
     !runRows.some((candidate) => candidate.target_thread_id === run.target_thread_id),
   )
   const listedRunIds = new Set(allRuns.map((run) => run.target_thread_id))
-  const composedOnlyRunRows = composedRows.filter((row) => row.supervision.run_id && !listedRunIds.has(row.supervision.run_id))
+  const composedOnlyRunRows = composedRows.filter((row) => row.supervision.run_id && exactRunIds.has(row.supervision.run_id) && !listedRunIds.has(row.supervision.run_id))
   const trackerRows = trackers.data?.data.trackers.filter((tracker) => tracker.project_id === projectId) ?? []
   const reportProject = (targetId: string): string | null => {
     const boundRun = runs.data?.data.runs.find((run) => run.target_thread_id === targetId)
@@ -232,7 +235,7 @@ export function Component() {
         <>
           <section className="workspace-summary-grid" aria-label="Project summary">
             <div><span>Tasks</span><strong>{floor.isPending ? "…" : floor.isError ? "—" : new Set(composedRows.map((row) => row.implementation.task_id)).size}</strong><small>Factory Floor composition</small></div>
-            <div><span>Runs</span><strong>{floor.isPending ? "…" : floor.isError ? "—" : composedRunIds.size}</strong><small>Composed exact target IDs</small></div>
+            <div><span>Runs</span><strong>{runs.isPending || floor.isPending ? "…" : runs.isError && floor.isError ? "—" : exactRunIds.size}</strong><small>{projectDisagreements.length ? `${projectDisagreements.length} binding disagreement${projectDisagreements.length === 1 ? "" : "s"} excluded` : "Exact canonical/composed IDs"}</small></div>
             <div><span>Trackers</span><strong>{trackers.isPending ? "…" : trackers.isError ? "—" : trackerRows.length}</strong><small>Catalog discovery</small></div>
             <div><span>Reports</span><strong>{reportsPending ? "…" : reportsUnavailable ? "—" : reportRows.length}</strong><small>{reportsPartial ? "Partial exact associations" : "Exact run target"}</small></div>
           </section>

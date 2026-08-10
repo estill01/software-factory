@@ -35,6 +35,29 @@ export function runProjectClaims(
   )
 }
 
+export function exactProjectRunIds(
+  runs: readonly RunSummary[],
+  tasks: readonly ListedTask[],
+  composed: readonly { runId: string; projectId: string }[],
+  projectId: string,
+): Set<string> {
+  const exact = new Set<string>()
+  const runById = new Map(runs.map((run) => [run.target_thread_id, run]))
+  runs.forEach((run) => {
+    if (runBelongsToProject(run, tasks, projectId)) {
+      exact.add(run.target_thread_id)
+      return
+    }
+    if (run.project_binding.status !== "bound" && composed.some((claim) =>
+      claim.runId === run.target_thread_id && claim.projectId === projectId,
+    )) exact.add(run.target_thread_id)
+  })
+  composed.forEach((claim) => {
+    if (claim.projectId === projectId && !runById.has(claim.runId)) exact.add(claim.runId)
+  })
+  return exact
+}
+
 export function taskBelongsToProject(task: ListedTask, projectId: string): boolean {
   return task.project_binding.status === "bound" && task.project_binding.project_id === projectId
 }
