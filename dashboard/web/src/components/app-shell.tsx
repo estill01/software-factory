@@ -49,6 +49,13 @@ export function AppShell() {
   const current = navigation.find(({ to }) =>
     to === "/" ? location.pathname === "/" : location.pathname.startsWith(to),
   )
+  const title = location.pathname.includes("/supervisor")
+    ? "Supervisor"
+    : location.pathname.startsWith("/runs/")
+      ? "Run"
+      : location.pathname.startsWith("/tasks/")
+        ? "Task"
+        : current?.label ?? "Not found"
 
   return (
     <div className="app-shell">
@@ -70,7 +77,7 @@ export function AppShell() {
         <header className="topbar">
           <div className="topbar-title">
             <span className="mobile-brand-mark" aria-hidden="true"><Factory /></span>
-            <h1>{current?.label ?? "Not found"}</h1>
+            <h1>{title}</h1>
           </div>
           <div className="topbar-actions">
             <ConnectionStatus />

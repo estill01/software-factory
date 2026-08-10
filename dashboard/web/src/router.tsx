@@ -13,6 +13,10 @@ export const router = createBrowserRouter([
     children: [
       { index: true, lazy: () => import("@/routes/floor-page") },
       { path: "projects", lazy: () => import("@/routes/projects-page") },
+      { path: "projects/:projectId/:tab?", lazy: () => import("@/routes/project-workspace-page") },
+      { path: "runs/:targetId", lazy: () => import("@/routes/run-workspace-page") },
+      { path: "runs/:targetId/supervisor", lazy: () => import("@/routes/supervisor-workspace-page") },
+      { path: "tasks/:taskId", lazy: () => import("@/routes/task-workspace-page") },
       { path: "trackers", lazy: () => import("@/routes/trackers-page") },
       { path: "reports", lazy: () => import("@/routes/reports-page") },
       { path: "admin", lazy: () => import("@/routes/admin-page") },

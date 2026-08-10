@@ -5,6 +5,36 @@ import { makeFactoryFloorEnvelope } from "../src/test/factory-floor-fixture"
 
 const catalogFingerprint = "a".repeat(64)
 
+const integrationEnvelope = {
+  data: {
+    integration: {
+      status: "available",
+      protocol_status: "compatible",
+      cli: { command: ["/usr/local/bin/codex"], version: "codex-cli 0.145.0", expected_version: "codex-cli 0.145.0" },
+      schema: { semantic_manifest_sha256: "e".repeat(64), expected_semantic_manifest_sha256: "e".repeat(64), file_count: 273, expected_file_count: 273 },
+      transport: { kind: "stdio", child_running: true },
+      reconnect: { failure_count: 0, retry_after_ms: 0, maximum_delay_ms: 30_000 },
+      features: [
+        { capability: "task_list", status: "supported", exposure: "read", reason: null },
+        { capability: "raw_protocol", status: "unavailable", exposure: "unavailable", reason: "Never exposed." },
+      ],
+      pending_requests: 0,
+      last_error: null,
+      restart_count: 0,
+      connection_generation: 1,
+      ignored_protocol_messages: 0,
+      observed_at: "2026-08-09T10:00:00.000Z",
+      revision: "f".repeat(64),
+    },
+  },
+  source: { kind: "codex-app-server", identity: "software-factory-dashboard/task-integration", revision: "f".repeat(64) },
+  observed_at: "2026-08-09T10:00:00.000Z",
+  fingerprint: "1".repeat(64),
+  coverage: { status: "complete", observed: ["codex-app-server"], missing: [] },
+  limitations: [],
+  error: null,
+}
+
 function project(id: string, status: "available" | "unavailable", archived = false) {
   const available = status === "available"
   return {
@@ -236,6 +266,9 @@ test("catalog views preserve bounded discovery, failures, and archive consequenc
   await page.route("**/api/v1/projects?include_archived=false", (route) =>
     route.fulfill({ json: catalog([alpha, beta]) }),
   )
+  await page.route("**/api/v1/task-integration", (route) =>
+    route.fulfill({ json: integrationEnvelope }),
+  )
 
   await page.goto("/admin")
   await expect(page.getByRole("heading", { name: "Admin", level: 1 })).toBeVisible()
@@ -272,14 +305,77 @@ test("catalog views preserve bounded discovery, failures, and archive consequenc
 
   await page.goto("/projects")
   await expect(page.getByRole("heading", { name: "Projects", level: 1 })).toBeVisible()
-  await expect(page.getByRole("heading", { name: "Alpha" })).toBeVisible()
-  await expect(page.getByRole("heading", { name: "Beta" })).toBeVisible()
+  await expect(page.getByRole("link", { name: "Alpha", exact: true })).toBeVisible()
+  await expect(page.getByRole("link", { name: "Beta", exact: true })).toBeVisible()
   await expect(page.getByText("Registered project root is missing.")).toBeVisible()
-  await expect(page.getByText("cccccccccc")).toBeVisible()
+  await expect(page.getByText(/cccccccccc/)).toBeVisible()
 
   const dimensions = await page.evaluate(() => ({
     scrollWidth: document.documentElement.scrollWidth,
     clientWidth: document.documentElement.clientWidth,
   }))
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+})
+
+test("live project, run, supervisor, and task drill-downs preserve mission boundaries", async ({ page }) => {
+  const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const predecessor = "bc955bd48e01db90aeb98fa27256546e2ce1eaf289fd6f630f36374d3c89d810"
+  const returnPath = "/?project=software-factory&time=24h&posture=all&severity=all"
+  const projectFloor = makeFactoryFloorEnvelope()
+  projectFloor.data.projects = [{ id: "software-factory", label: "Software Factory" }]
+  projectFloor.data.rows = [{
+    ...projectFloor.data.rows[0],
+    id: `run:${target}`,
+    project: { status: "task-only", project_id: "software-factory", label: "Software Factory", reason: "Exact target task binding." },
+    implementation: { ...projectFloor.data.rows[0].implementation, task_id: target, name: "sf-dashboard-plan" },
+    supervision: { ...projectFloor.data.rows[0].supervision, run_id: target, target_thread_id: target },
+    detail: { ...projectFloor.data.rows[0].detail, id: target, kind: "run", route: `/?inspect=run:${target}` },
+  }]
+  projectFloor.data.rows_truncated = false
+  await page.route("**/api/v1/factory-floor", (route) => route.fulfill({ json: projectFloor }))
+
+  await page.goto(`/projects/software-factory?return=${encodeURIComponent(returnPath)}`)
+  await expect(page.getByRole("heading", { name: "Projects", level: 1 })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Current work" })).toBeVisible()
+  await expect(page.getByRole("link", { name: /sf-dashboard-plan/i })).toBeVisible()
+  await expect(page.getByRole("region", { name: "Project summary" })).not.toContainText("…")
+  await expect(page.getByRole("link", { name: "Factory Floor" }).last()).toHaveAttribute("href", returnPath)
+  await expect(page.locator("h1")).toHaveCount(1)
+
+  await page.unroute("**/api/v1/factory-floor")
+
+  await page.goto(`/runs/${target}?return=${encodeURIComponent(returnPath)}`)
+  const eventPages = page.getByRole("navigation", { name: "Event pages" })
+  await expect(eventPages.getByRole("button", { name: "Older" })).toBeEnabled()
+  await expect(eventPages.getByRole("button", { name: "Newer" })).toBeDisabled()
+  await eventPages.getByRole("button", { name: "Older" }).click()
+  await expect(eventPages.getByRole("button", { name: "Newer" })).toBeEnabled()
+
+  await page.goto(`/runs/${target}?mission=${predecessor}&return=${encodeURIComponent(returnPath)}`)
+  await expect(page.getByText("Historical mission", { exact: true })).toBeVisible()
+  await expect(page.getByText(/Current topology, role tasks, automations, checks, and bindings are intentionally suppressed/)).toBeVisible()
+  await expect(page.getByText("Suppressed at succession boundary", { exact: true })).toHaveCount(2)
+  await expect(page.getByRole("heading", { name: "Roles & routes" })).toHaveCount(0)
+  await expect(page.getByText("Tracker watcher - SF dashboard plan", { exact: true })).toHaveCount(0)
+  await expect(page.getByText("No mission-isolated historical metric projection")).toBeVisible()
+
+  await page.goto(`/runs/${target}/supervisor?mission=${predecessor}&return=${encodeURIComponent(returnPath)}`)
+  await expect(page.getByRole("heading", { name: "Supervisor", level: 1 })).toBeVisible()
+  await expect(page.getByText("Historical mission", { exact: true })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Recent supervision activity" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Roles & routes" })).toHaveCount(0)
+
+  const runAxe = await new AxeBuilder({ page }).analyze()
+  expect(runAxe.violations.filter(({ impact }) => impact === "serious" || impact === "critical"))
+    .toEqual([])
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+
+  await page.goto(`/tasks/${target}?return=${encodeURIComponent(returnPath)}`)
+  await expect(page.getByRole("heading", { name: "Task", level: 1 })).toBeVisible()
+  await expect(page.locator("main")).toContainText(/Task|Codex App Server|Loading/)
+  await expect(page.getByText(/dashboard (lets|allows|helps) you/i)).toHaveCount(0)
 })

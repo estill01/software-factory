@@ -3,6 +3,7 @@ import { Provider as JotaiProvider } from "jotai"
 import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { MemoryRouter } from "react-router"
 
 import { Component as FloorPage } from "@/routes/floor-page"
 import { makeFactoryFloorEnvelope } from "@/test/factory-floor-fixture"
@@ -12,11 +13,13 @@ function renderFloor() {
     defaultOptions: { queries: { retry: false, retryDelay: 0 } },
   })
   return render(
-    <JotaiProvider>
-      <QueryClientProvider client={queryClient}>
-        <FloorPage />
-      </QueryClientProvider>
-    </JotaiProvider>,
+    <MemoryRouter>
+      <JotaiProvider>
+        <QueryClientProvider client={queryClient}>
+          <FloorPage />
+        </QueryClientProvider>
+      </JotaiProvider>
+    </MemoryRouter>,
   )
 }
 
@@ -90,7 +93,10 @@ describe("Factory Floor", () => {
     await user.selectOptions(screen.getByLabelText("Posture"), "all")
 
     await user.selectOptions(screen.getByLabelText("Attention"), "neutral")
-    expect(screen.getByText("A recent task has no exact supervision run.")).toBeVisible()
+    const taskAttention = screen.getByText("A recent task has no exact supervision run.").closest("li")
+    expect(taskAttention).not.toBeNull()
+    expect(within(taskAttention!).getByRole("link", { name: "Open" }))
+      .toHaveAttribute("href", "/tasks/task-gamma?return=%2F%3Fproject%3Dall%26time%3Dall%26posture%3Dall%26severity%3Dneutral")
     expect(screen.queryByText("A current incident remains open.", { selector: ".attention-item strong" })).not.toBeInTheDocument()
     expect(screen.getByRole("status")).toHaveTextContent("1 critical hidden by filters")
     await user.selectOptions(screen.getByLabelText("Attention"), "all")
@@ -108,7 +114,7 @@ describe("Factory Floor", () => {
     expect(window.location.search).toContain("inspect=run%3Atarget-beta")
     await user.click(screen.getByRole("button", { name: "Close inspector" }))
     await waitFor(() => expect(screen.queryByRole("complementary")).not.toBeInTheDocument())
-    expect(window.location.search).toBe("")
+    expect(window.location.search).toBe("?project=all&time=all&posture=all&severity=all")
 
     const estimate = screen.getByRole("link", { name: /API-equivalent estimate/ })
     expect(estimate).toHaveTextContent("USD estimate · estimate")

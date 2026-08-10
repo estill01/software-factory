@@ -9,8 +9,9 @@ import {
   RefreshCw,
   X,
 } from "lucide-react"
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useRef } from "react"
 import { useQuery } from "@tanstack/react-query"
+import { Link } from "react-router"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -25,6 +26,8 @@ import {
   floorProjectFilterAtom,
   floorSeverityFilterAtom,
   floorTimeFilterAtom,
+  type FloorPostureFilter,
+  type FloorSeverityFilter,
   type FloorTimeFilter,
 } from "@/lib/floor-state"
 
@@ -260,15 +263,27 @@ function Inspector({ data, selected, close }: {
   )
 }
 
-function FloorRow({ row, inspect }: { row: FactoryFloorRow; inspect: (route: string) => void }) {
+function FloorRow({ row, inspect, returnPath }: {
+  row: FactoryFloorRow
+  inspect: (route: string) => void
+  returnPath: string
+}) {
   const tracker = row.work.tracker
+  const workspacePath = row.detail.kind === "run"
+    ? `/runs/${encodeURIComponent(row.detail.id)}?return=${encodeURIComponent(returnPath)}`
+    : `/tasks/${encodeURIComponent(row.detail.id)}?return=${encodeURIComponent(returnPath)}`
   const roleSummary = row.supervision.roles
     .map((role) => role.label ?? role.role ?? shortId(role.thread_id))
     .join(" · ")
   return (
     <article className={`factory-row posture-${row.light.posture}`}>
       <div className="factory-row-implementation">
-        <span className="row-project">{row.project.label}</span>
+        {row.project.project_id ? (
+          <Link
+            className="row-project row-project-link"
+            to={`/projects/${encodeURIComponent(row.project.project_id)}?return=${encodeURIComponent(returnPath)}`}
+          >{row.project.label}</Link>
+        ) : <span className="row-project">{row.project.label}</span>}
         <strong>{row.implementation.name ?? shortId(row.implementation.task_id)}</strong>
         <span className="row-meta">
           <span className={`status-chip state-${row.implementation.status}`}>
@@ -287,9 +302,11 @@ function FloorRow({ row, inspect }: { row: FactoryFloorRow; inspect: (route: str
         <span title={roleSummary || undefined}>
           {roleSummary || `${row.supervision.role_count} role${row.supervision.role_count === 1 ? "" : "s"}`}
         </span>
-        <span className="row-meta">
-          Group <code title={row.supervision.group_id ?? undefined}>{shortId(row.supervision.group_id)}</code>
-        </span>
+        {row.supervision.run_id ? (
+          <Link className="row-meta row-detail-link" to={`/runs/${encodeURIComponent(row.supervision.run_id)}/supervisor?return=${encodeURIComponent(returnPath)}`}>
+            Group <code title={row.supervision.group_id ?? undefined}>{shortId(row.supervision.group_id)}</code>
+          </Link>
+        ) : <span className="row-meta">Group <code>{shortId(row.supervision.group_id)}</code></span>}
         <span className="row-meta">Target <code>{shortId(row.supervision.target_thread_id)}</code></span>
         <span>{row.supervision.binding_integrity === "valid" ? "Bindings valid" : `Bindings ${row.supervision.binding_integrity}`}</span>
       </div>
@@ -328,14 +345,16 @@ function FloorRow({ row, inspect }: { row: FactoryFloorRow; inspect: (route: str
         >
           Inspect <ChevronRight aria-hidden="true" />
         </a>
+        <Link className="inspect-link" to={workspacePath}>Open workspace <ChevronRight aria-hidden="true" /></Link>
       </div>
     </article>
   )
 }
 
-function AttentionItem({ item, inspect }: {
+function AttentionItem({ item, inspect, workspacePath }: {
   item: FactoryFloorAttention
   inspect: (route: string) => void
+  workspacePath: string | null
 }) {
   return (
     <li className={`attention-item severity-${item.severity}`}>
@@ -360,6 +379,7 @@ function AttentionItem({ item, inspect }: {
             inspect(item.source.route)
           }}
         >Inspect</a>
+        {workspacePath && <Link to={workspacePath}>Open</Link>}
       </div>
     </li>
   )
@@ -375,10 +395,20 @@ function FactoryFloor({ data, isFetching, refresh }: {
   const [severityFilter, setSeverityFilter] = useAtom(floorSeverityFilterAtom)
   const [timeFilter, setTimeFilter] = useAtom(floorTimeFilterAtom)
   const [selected, setSelected] = useAtom(floorInspectorAtom)
+  const filtersHydrated = useRef(false)
   const now = Date.now()
   const rowProject = new Map(
     data.rows.map((row) => [row.supervision.target_thread_id, row.project.project_id]),
   )
+  const rowWorkspace = new Map(data.rows.flatMap((row) => {
+    const path = row.detail.kind === "run"
+      ? `/runs/${encodeURIComponent(row.detail.id)}`
+      : `/tasks/${encodeURIComponent(row.detail.id)}`
+    return [
+      [row.supervision.target_thread_id, path] as const,
+      [row.implementation.task_id, path] as const,
+    ]
+  }))
   const matchesProject = (projectId: string | null, targetId?: string | null) =>
     projectFilter === "all" || projectId === projectFilter || rowProject.get(targetId ?? "") === projectFilter
   const rows = data.rows.filter((row) =>
@@ -414,6 +444,35 @@ function FactoryFloor({ data, isFetching, refresh }: {
     (source) => source.status !== "available" || source.coverage.status !== "complete",
   )
   const metrics = data.metrics.filter((metric) => metricKeys.has(metric.key))
+  const floorParams = new URLSearchParams()
+  floorParams.set("project", projectFilter)
+  floorParams.set("time", timeFilter)
+  floorParams.set("posture", postureFilter)
+  floorParams.set("severity", severityFilter)
+  const returnPath = `/?${floorParams.toString()}`
+
+  useEffect(() => {
+    const params = new URL(window.location.href).searchParams
+    const project = params.get("project")
+    const time = params.get("time")
+    const posture = params.get("posture")
+    const severity = params.get("severity")
+    if (project && (project === "all" || data.projects.some((item) => item.id === project))) setProjectFilter(project)
+    if (time === "all" || time === "24h" || time === "7d") setTimeFilter(time)
+    if (posture === "all" || posture === "red" || posture === "amber" || posture === "green" || posture === "neutral") setPostureFilter(posture as FloorPostureFilter)
+    if (severity === "all" || severity === "red" || severity === "amber" || severity === "neutral") setSeverityFilter(severity as FloorSeverityFilter)
+    filtersHydrated.current = true
+  }, [data.projects, setPostureFilter, setProjectFilter, setSeverityFilter, setTimeFilter])
+
+  useEffect(() => {
+    if (!filtersHydrated.current) return
+    const url = new URL(window.location.href)
+    url.searchParams.set("project", projectFilter)
+    url.searchParams.set("time", timeFilter)
+    url.searchParams.set("posture", postureFilter)
+    url.searchParams.set("severity", severityFilter)
+    window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`)
+  }, [postureFilter, projectFilter, severityFilter, timeFilter])
 
   const inspect = (route: string) => {
     const key = inspectKey(route)
@@ -511,7 +570,7 @@ function FactoryFloor({ data, isFetching, refresh }: {
         </div>
         <div className="factory-rows">
           {rows.length > 0
-            ? rows.map((row) => <FloorRow row={row} inspect={inspect} key={row.id} />)
+            ? rows.map((row) => <FloorRow row={row} inspect={inspect} returnPath={returnPath} key={row.id} />)
             : <div className="bounded-empty">No rows match the current filters.</div>}
         </div>
         {data.rows_truncated && <div className="bounded-note">The owner-bounded row limit was reached.</div>}
@@ -523,7 +582,10 @@ function FactoryFloor({ data, isFetching, refresh }: {
           <strong>{attention.length} of {attentionMatches.length}</strong>
         </div>
         {attention.length > 0
-          ? <ol className="attention-list">{attention.map((item) => <AttentionItem item={item} inspect={inspect} key={item.id} />)}</ol>
+          ? <ol className="attention-list">{attention.map((item) => {
+            const path = item.target_thread_id ? rowWorkspace.get(item.target_thread_id) : null
+            return <AttentionItem item={item} inspect={inspect} workspacePath={path ? `${path}?return=${encodeURIComponent(returnPath)}` : null} key={item.id} />
+          })}</ol>
           : <div className="bounded-empty">No attention items match the current filters.</div>}
         {boundedCritical > 0 && (
           <div className="bounded-note critical-note" role="status">
@@ -560,7 +622,7 @@ function FactoryFloor({ data, isFetching, refresh }: {
                 <span>{item.next_action ?? "No next action recorded"}</span>
                 <footer>
                   <Time value={item.observed_at} />
-                  <a href={item.source.route} onClick={(event) => { event.preventDefault(); inspect(item.source.route) }}>Inspect</a>
+                  <span className="floor-action-links"><a href={item.source.route} onClick={(event) => { event.preventDefault(); inspect(item.source.route) }}>Inspect</a><Link to={`/runs/${encodeURIComponent(item.target_thread_id)}?return=${encodeURIComponent(returnPath)}`}>Open</Link></span>
                 </footer>
               </article>
             )) : <div className="bounded-empty compact">No current conclusions in range.</div>}
@@ -575,7 +637,7 @@ function FactoryFloor({ data, isFetching, refresh }: {
                 <span>Evidence {shortId(item.evidence_revision)} · {item.retained_open_work ?? "—"} open retained</span>
                 <footer>
                   <span>Observed <Time value={item.observed_at} /></span>
-                  <a href={item.source.route} onClick={(event) => { event.preventDefault(); inspect(item.source.route) }}>Inspect</a>
+                  <span className="floor-action-links"><a href={item.source.route} onClick={(event) => { event.preventDefault(); inspect(item.source.route) }}>Inspect</a><Link to={`/projects/${encodeURIComponent(item.project_id)}?return=${encodeURIComponent(returnPath)}`}>Project</Link></span>
                 </footer>
               </article>
             )) : <div className="bounded-empty compact">No accepted tracker outcomes in range.</div>}

@@ -122,6 +122,23 @@ the completed program materially changes Software Factory.
   compact interface uses functional region labels without marketing subheaders
   and is validated at desktop, tablet, and mobile widths. Implementation scope
   is Block 6 of the operations-dashboard tracker.
+- **Source-grounded project, run, supervisor, and task workspaces.** Added a
+  compact Projects operating index; contextual project Overview, Work,
+  Trackers, Reports, and Sources views; exact run and supervisor-group
+  inspectors; and bounded Codex task detail. Factory Floor links preserve the
+  active project/time filters while each workspace keeps canonical task, run,
+  tracker, report, policy, role, automation, event, incident, decision, and
+  transition identities separate. Long-lived targets can select an exact
+  mission segment: predecessor views use only mission-scoped records and
+  historical hashes/timestamps, explicitly suppress current lifecycle,
+  topology, role-task, automation, report, metric, and source-head state, and
+  never issue current task reads for the historical projection. Event filters,
+  stable anchors, bounded turn summaries, independent source failures, and
+  explicit unavailable/lower-bound states keep the interface useful without a
+  dashboard-owned history store or inferred completion. The slice is read-only;
+  tracker deep review, report analytics, and owner-gated mutations remain in
+  later Blocks. Implementation scope is Block 7 of the operations-dashboard
+  tracker.
 - **Successor-transition continuity and structured failure-mode records.** A
   requested implementation that must cross into a distinct task now remains an
   open append-only transition through `required`, task creation, isolated
