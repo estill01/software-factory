@@ -1180,11 +1180,20 @@ def validate_candidate_fields(values: dict[str, object]) -> None:
     validate_scope_refs(values["shared_resource_exclusions"], "shared exclusions", contained_by=EXERCISE["target_repository_root"], min_items=0)
 
 
-def process_evidence(stage: str, decision_id: str, candidate_root: str, focused: dict[str, object], mapped: dict[str, object] | None, review: dict[str, object], current_state_root: str, target_root: str) -> list[dict[str, object]]:
+def resource_usage_root(usage: dict[str, int]) -> str:
+    return root({
+        "resource_usage": usage,
+        "resource_ceiling": EXERCISE["lane"]["resource_ceiling"],
+        "time_ceiling_minutes": EXERCISE["lane"]["time_ceiling_minutes"],
+    })
+
+
+def process_evidence(stage: str, decision_id: str, candidate_root: str, focused: dict[str, object], mapped: dict[str, object] | None, review: dict[str, object], current_state_root: str, target_root: str, usage: dict[str, int]) -> list[dict[str, object]]:
     evidence: list[dict[str, object]] = []
     if stage in {"validated", "reviewed", "cutover-eligible", "closed"}:
         validation_root = root({"focused_result_root": focused["result_root"], "mapped_result_root": mapped["result_root"] if mapped else None})
         evidence.append({"ref_id": f"validation-{stage}", "source_class": "validation", "adjudication_posture": "process", "root_sha256": validation_root, "claim_ids": sorted([decision_id, candidate_root])})
+        evidence.append({"ref_id": f"resource-{stage}", "source_class": "validation", "adjudication_posture": "process", "root_sha256": resource_usage_root(usage), "claim_ids": sorted([decision_id, candidate_root, "resource-usage"])})
     if stage in {"reviewed", "cutover-eligible", "closed"}:
         evidence.append({"ref_id": f"review-{stage}", "source_class": "independent-review", "adjudication_posture": "process", "root_sha256": review["review_root"], "claim_ids": sorted([decision_id, candidate_root, review["reviewer_id"], review["review_disposition"]])})
     if stage in {"cutover-eligible", "closed"}:
@@ -1250,7 +1259,7 @@ def validate_stage_record(record: dict[str, object]) -> None:
         raise ValueError("candidate currentness differs")
 
 
-def stage_records(case: dict[str, object], eligible: dict[str, object], candidate_root: str, focused: dict[str, object], mapped: dict[str, object] | None, review: dict[str, object], terminal_stage: str) -> list[dict[str, object]]:
+def stage_records(case: dict[str, object], eligible: dict[str, object], candidate_root: str, focused: dict[str, object], mapped: dict[str, object] | None, review: dict[str, object], terminal_stage: str, usage: dict[str, int]) -> list[dict[str, object]]:
     fingerprint_values = fingerprint_projection(case, eligible)
     fingerprint = decision_fingerprint(case, eligible)
     base_evidence = source_evidence(case, eligible)
@@ -1270,11 +1279,12 @@ def stage_records(case: dict[str, object], eligible: dict[str, object], candidat
     times = {"selected": lane_started, "implementing": implementation_started, "validated": focused_time, "reviewed": review_time, terminal_stage: review_time + timedelta(seconds=1)}
     for stage in stages:
         decision_id = f"candidate-{case['case_id']}-{stage}"
-        current_state = root({"target_revision_root": target_revision_root(), "incumbent_root": incumbent_root(), "candidate_root": candidate_root, "stage": stage, "candidate_authoritative": False})
-        evidence = sorted([*copy.deepcopy(base_evidence), *process_evidence(stage, decision_id, candidate_root, focused, mapped, review, current_state, target_revision_root())], key=lambda item: item["ref_id"])
+        candidate_is_observed = stage in {"validated", "reviewed", "cutover-eligible", "closed"}
+        current_state = root({"target_revision_root": target_revision_root(), "incumbent_root": incumbent_root(), "candidate_root": candidate_root if candidate_is_observed else None, "stage": stage, "candidate_authoritative": False, "resource_usage_root": resource_usage_root(usage) if candidate_is_observed else None})
+        evidence = sorted([*copy.deepcopy(base_evidence), *process_evidence(stage, decision_id, candidate_root, focused, mapped, review, current_state, target_revision_root(), usage)], key=lambda item: item["ref_id"])
         terminal = stage == terminal_stage
         retirement = review["retirement_posture"] if terminal else "active-isolated"
-        fields = candidate_fields(candidate_root if stage != "selected" else None, focused if stage not in {"selected", "implementing"} else None, mapped if stage in {"reviewed", "cutover-eligible", "closed"} else None, review if stage in {"reviewed", "cutover-eligible", "closed"} else None, retirement)
+        fields = candidate_fields(candidate_root if candidate_is_observed else None, focused if candidate_is_observed else None, mapped if stage in {"reviewed", "cutover-eligible", "closed"} else None, review if stage in {"reviewed", "cutover-eligible", "closed"} else None, retirement)
         record = {
             **fingerprint_values,
             **fields,
@@ -1321,7 +1331,7 @@ def stage_records(case: dict[str, object], eligible: dict[str, object], candidat
     return records
 
 
-def handoff_record(records: list[dict[str, object]], comparison: list[dict[str, object]], review: dict[str, object]) -> dict[str, object]:
+def handoff_record(records: list[dict[str, object]], comparison: list[dict[str, object]], review: dict[str, object], usage: dict[str, int]) -> dict[str, object]:
     final = records[-1]
     if final["decision_stage"] != "cutover-eligible" or final["retirement_posture"] != "eligible-cutover":
         raise ValueError("candidate is not handoff eligible")
@@ -1337,6 +1347,8 @@ def handoff_record(records: list[dict[str, object]], comparison: list[dict[str, 
         "candidate_root": final["candidate_root"],
         "review_root": final["review_root"],
         "comparison_root": root(comparison),
+        "resource_usage": usage,
+        "resource_usage_root": resource_usage_root(usage),
         "target_owner_id": final["cutover_owner_id"],
         "protected_capability_results": final["protected_capability_results"],
         "cutover_preconditions": final["cutover_preconditions"],
@@ -1364,19 +1376,20 @@ def accepted_lane_head(result: dict[str, object]) -> dict[str, object]:
         "review_root": final["review_root"],
         "currentness_root": final["currentness_root"],
         "handoff_root": result["handoff"]["handoff_root"] if result["handoff"] else None,
+        "resource_usage_root": resource_usage_root(result["resource_usage"]),
     }
     value["head_root"] = root(value)
     return value
 
 
 def validate_accepted_head(value: object) -> dict[str, object]:
-    if type(value) is not dict or set(value) != {"schema_version", "kind", "tracker_sha256", "target_revision_root", "decision_fingerprint", "candidate_root", "review_root", "currentness_root", "handoff_root", "head_root"}:
+    if type(value) is not dict or set(value) != {"schema_version", "kind", "tracker_sha256", "target_revision_root", "decision_fingerprint", "candidate_root", "review_root", "currentness_root", "handoff_root", "resource_usage_root", "head_root"}:
         raise ValueError("accepted lane head differs")
     raw = dict(value)
     recorded = raw.pop("head_root")
     if recorded != root(raw):
         raise ValueError("accepted lane head is stale")
-    for key in ("tracker_sha256", "target_revision_root", "decision_fingerprint", "candidate_root", "review_root", "currentness_root"):
+    for key in ("tracker_sha256", "target_revision_root", "decision_fingerprint", "candidate_root", "review_root", "currentness_root", "resource_usage_root"):
         exact_string(value[key], key, SHA_RE)
     if value["handoff_root"] is not None:
         exact_string(value["handoff_root"], "handoff root", SHA_RE)
@@ -1490,7 +1503,7 @@ def evaluate(case_id: str, *, accepted_head: dict[str, object] | None = None) ->
         packet = stop_review_packet(case, candidate_root, focused, mapped, stop_reason, usage, cause)
         review = review_fixture_result(packet, None)
         usage = derived_usage(case, artifact, focused=focused, mapped=mapped, review=review)
-        records = stage_records(case, eligible, candidate_root, focused, mapped, review, "closed")
+        records = stage_records(case, eligible, candidate_root, focused, mapped, review, "closed", usage)
         return {"action": "stop-retire", "lane_created": True, "review_cycle": True, "decision_fingerprint": fingerprint, "stop_reason": stop_reason, "stop_cause": cause, "stop_review_packet": packet, "resource_usage": usage, "stage_records": records, "candidate_root": candidate_root, "candidate_authoritative": False, "incumbent_authoritative": True, "isolation_cleanup": "retired-non-authoritative", "retained_evidence": [focused["result_root"], *( [mapped["result_root"]] if mapped else []), review["review_root"]], "handoff": None, "cutover_performed": False, "tracker_mutated": False, "policy_mutated": False}
     if mapped is None or mapped["exit_code"] != 0 or mapped["metrics"] is None:
         raise ValueError("mapped result is absent after focused success")
@@ -1510,14 +1523,14 @@ def evaluate(case_id: str, *, accepted_head: dict[str, object] | None = None) ->
         stop_packet = stop_review_packet(case, candidate_root, focused, mapped, "review-ceiling-expired", late_usage, cause)
         stop_review = review_fixture_result(stop_packet, None)
         usage = derived_usage(case, artifact, focused=focused, mapped=mapped, review=stop_review, prior_reviews=[review])
-        records = stage_records(case, eligible, candidate_root, focused, mapped, stop_review, "closed")
+        records = stage_records(case, eligible, candidate_root, focused, mapped, stop_review, "closed", usage)
         return {"action": "stop-retire", "lane_created": True, "review_cycle": True, "decision_fingerprint": fingerprint, "stop_reason": "review-ceiling-expired", "stop_cause": cause, "stop_review_packet": stop_packet, "resource_usage": usage, "stage_records": records, "candidate_root": candidate_root, "candidate_authoritative": False, "incumbent_authoritative": True, "isolation_cleanup": "retired-non-authoritative", "retained_evidence": [focused["result_root"], mapped["result_root"], review["review_root"], stop_review["review_root"]], "handoff": None, "cutover_performed": False, "tracker_mutated": False, "policy_mutated": False}
     usage = derived_usage(case, artifact, focused=focused, mapped=mapped, review=review)
     if ceiling_exceeded(usage):
         raise ValueError("candidate review completed outside the resource ceiling")
     terminal = "cutover-eligible" if review["comparison_disposition"] == "candidate-better" else "closed"
-    records = stage_records(case, eligible, candidate_root, focused, mapped, review, terminal)
-    handoff = handoff_record(records, comparison, review) if terminal == "cutover-eligible" else None
+    records = stage_records(case, eligible, candidate_root, focused, mapped, review, terminal, usage)
+    handoff = handoff_record(records, comparison, review, usage) if terminal == "cutover-eligible" else None
     action = "handoff-block-9" if handoff else "retire-candidate"
     result = {"action": action, "lane_created": True, "review_cycle": True, "decision_fingerprint": fingerprint, "candidate_root": candidate_root, "focused_result": focused, "mapped_result": mapped, "resource_usage": usage, "raw_comparison_records": comparison, "blind_review_packet": packet, "review_result": review, "stage_records": records, "candidate_authoritative": False, "incumbent_authoritative": True, "isolation_cleanup": "kept-isolated-for-block-9" if handoff else "retired-non-authoritative", "handoff": handoff, "cutover_performed": False, "tracker_mutated": False, "policy_mutated": False}
     result["lane_head"] = accepted_lane_head(result)
@@ -1573,6 +1586,11 @@ class BoundedCandidateContractTests(unittest.TestCase):
         self.assertEqual(inconclusive["stage_records"][-1]["decision_stage"], "closed")
         self.assertEqual(inconclusive["stage_records"][-1]["review_disposition"], "inconclusive")
         self.assertEqual(inconclusive["stage_records"][-1]["retirement_posture"], "retired-inconclusive")
+        loser = evaluate("losing-candidate")
+        for index in (0, 1):
+            self.assertIsNone(winner["stage_records"][index]["candidate_root"])
+            self.assertIsNone(loser["stage_records"][index]["candidate_root"])
+            self.assertEqual(winner["stage_records"][index]["current_target_state_root"], loser["stage_records"][index]["current_target_state_root"])
         for record in [*winner["stage_records"], *inconclusive["stage_records"]]:
             self.assertEqual(record["currentness_root"], root(currentness_projection(record)))
             self.assertEqual(set(record), set(SPEC["common_fields"]) | set(SPEC["candidate_fields"]))
@@ -1661,6 +1679,34 @@ class BoundedCandidateContractTests(unittest.TestCase):
         changed["usage"]["files"] = 3
         with self.assertRaisesRegex(ValueError, "retained artifacts"):
             derived_usage(changed, EXERCISE["artifacts"][changed["artifact_id"]], focused=result["focused_result"], mapped=result["mapped_result"], review=result["review_result"])
+
+    def test_resource_usage_is_bound_to_currentness_handoff_and_accepted_head(self) -> None:
+        result = evaluate("winning-candidate")
+        baseline_currentness = result["stage_records"][-1]["currentness_root"]
+        baseline_handoff = result["handoff"]["handoff_root"]
+        baseline_head = result["lane_head"]["head_root"]
+        expected_usage_root = resource_usage_root(result["resource_usage"])
+        self.assertEqual(result["handoff"]["resource_usage_root"], expected_usage_root)
+        self.assertEqual(result["lane_head"]["resource_usage_root"], expected_usage_root)
+        resource_ref = next(item for item in result["stage_records"][-1]["evidence_refs"] if item["ref_id"] == "resource-cutover-eligible")
+        self.assertEqual(resource_ref["root_sha256"], expected_usage_root)
+        case = canonical_case("winning-candidate")
+        eligible = eligibility(case)
+        artifact, candidate = candidate_root_for(case)
+        focused = focused_result(artifact, candidate)
+        mapped = mapped_result(artifact, candidate, focused)
+        comparison = comparison_records(mapped)
+        review = review_fixture_result(blind_review_packet(candidate, mapped, comparison), comparison)
+        for replacement in (
+            {key: 0 for key in result["resource_usage"]},
+            {key: 999 for key in result["resource_usage"]},
+        ):
+            records = stage_records(case, eligible, candidate, focused, mapped, review, "cutover-eligible", replacement)
+            self.assertNotEqual(records[-1]["currentness_root"], baseline_currentness)
+            mutated_handoff = handoff_record(records, comparison, review, replacement)
+            self.assertNotEqual(mutated_handoff["handoff_root"], baseline_handoff)
+            mutated = {**result, "resource_usage": replacement, "stage_records": records, "handoff": mutated_handoff}
+            self.assertNotEqual(accepted_lane_head(mutated)["head_root"], baseline_head)
 
     def test_materiality_runtime_and_incumbent_metrics_are_factual(self) -> None:
         self.assertEqual(EXERCISE["incumbent"]["metrics"], derived_incumbent_metrics())
