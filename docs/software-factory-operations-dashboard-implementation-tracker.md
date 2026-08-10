@@ -2330,6 +2330,28 @@ historical App Server turns or ledger events across projects.
   bound. Focused unit cases distinguish clean source-confirmed composition,
   source-unavailable composition, and disputed composition, and the browser
   exercises the failure at all three maintained viewports.
+- Exact product review of candidate
+  `7ebc4f2daf892acc385248fd083d60799f08f603`, tree
+  `0d2f61e15d268e57be53f76fa6f15cc1f3d425a3`, returned `ACCEPTED` with no
+  material finding. The reviewer reproduced disputed source failure as `Runs
+  ≥0`, clean composition after a successful empty run list as exact `Runs 1`,
+  normal canonical/disputed/report association, every predecessor and unknown-
+  mission boundary, credential-safe origins, both Run/Supervisor conflicting-
+  claim routes, and the read-only Stop. Exact identity/remote/clean checks and
+  all mapped suites passed. This review is valid product evidence, but the
+  candidate was not used to advance because a later harness-scope correction
+  required removal of its unrelated global Playwright worker setting.
+- Harness-scope correction: source incident `INC-20260810-045558-DF5C85`
+  preserved the accepted product proof while rejecting repository-wide
+  `workers: 1` as an unrelated validation mutation. Pushed successor
+  `244215767c6647bf101b3d071c946eb7050448c2`, tree
+  `e561478fdbaa63dbd4009ff033cddf0de41332ca`, parent
+  `7ebc4f2daf892acc385248fd083d60799f08f603`, and restored config blob
+  `af36f1a8e16d485b172b1b018fa7e32b18d8c759` remove exactly that one line.
+  The affected association tests passed 10/10, the production build passed,
+  `git diff --check` passed, and the one drill-down fixture passed 3/3 across
+  desktop/tablet/mobile with `--workers=1` supplied only for that invocation.
+  No unaffected matrix was replayed after the correction.
 - Validation: the dashboard Python suite passed 67/67 with `ResourceWarning`
   promoted to errors (the sole collection warning is the pre-existing
   dataclass named `TestResponse`), Ruff passed, TypeScript/Vitest passed 45/45,
@@ -2341,8 +2363,9 @@ historical App Server turns or ledger events across projects.
   current run, paged event, unknown-mission rejection, predecessor run,
   historical supervisor, and task deep links with one functional route heading
   and no marketing subheader.
-- Exact independent review and acceptance evidence: pending; Block 7 remains
-  `in-progress` and no later Block is active.
+- Exact independent review and acceptance evidence: fresh focused review of the
+  harness-scope successor is pending; Block 7 remains `in-progress` and no
+  later Block is active.
 
 ### Stop
 
