@@ -2747,7 +2747,53 @@ ordinary chart interaction; widen only on explicit source drill-down.
   No tracker structure, failure registry, recovery workspace, or new-scope work
   was created before that omission; the existing Blocks 0–25 remain the active
   full implementation range.
-- Candidate, validation, exact-revision review, and acceptance: pending.
+- Product-capability review: selected the existing maintained weekly-report and
+  supervision projection owners behind `OperationsProjectionService`, the
+  loopback `/api/v1` boundary, strict Zod contracts, and the existing React
+  workspace conventions. A telemetry database, generalized BI/query layer,
+  report regeneration, report adoption, and lifecycle controls were rejected
+  because they are independently owned outcomes outside this Block.
+- Frozen implementation candidate:
+  `01efe0d6f5d2abb6f509af5a13e597fac7532204`, tree
+  `a7fe043743ac9c5e9f76e11dcd4836277b07a66b`, parent
+  `2ed467634c5e4a78c4b57c8a0a9ab4e238d2de24`. The candidate changes exactly
+  13 dashboard implementation/test files. Representative blobs are
+  `416d358d192aeb5dcc25d94b745871a49274121e` for the normalized operations
+  owner, `795d64dd0508f19598258d65ecd2f280a5f698bd` for the loopback server,
+  `12e3d8291f7c052923f36cede9caf267b50cd02d` for the Reports workspace,
+  `dd22076923a8ac0589d55636827f63ff987bbeeb` for its frontend contract, and
+  `854679a7280e65ac1218aa3cc16451b8af0d177a` for browser proof. The remote
+  branch resolved to the same exact commit after push.
+- Exact live source sample on `127.0.0.1:8787`: weekly report
+  `weekly-20260801T001853Z-20260803T234400Z-62f881d083b0` remained currently
+  verified with source root
+  `62f881d083b0e64262f54a81c575d0dd7b7a3e4330ea363f5a2b9414aadfd032`
+  and manifest root
+  `8046f7ae7223f19c348c9e4205375208bfcf4944905183273272b160c2a9a227`;
+  the served `report.md` bytes independently reproduced SHA-256
+  `4d624c74b30ed0898138f4868cbe8a7da2107fc841add0ed701743baeb784998`.
+  Live metrics exposed six runs and six distinct exact supervisor-group IDs;
+  unsupported concurrency, unmonitored-duration, posture-duration,
+  late/missed-check, and generalized recurrence claims remained explicitly
+  unavailable.
+- Validation: the full Python dashboard suite passed 71/71 with
+  `ResourceWarning` fatal and Ruff passed. The full strict TypeScript/Vitest
+  run passed 15 files and 58 tests serially, and the production build passed.
+  The full Playwright matrix passed 42/42 across desktop, tablet, and mobile.
+  After the final distinct-group truth-label correction, affected exact proof
+  passed one Python test plus Ruff, six Reports component tests, TypeScript and
+  production build, and the live Reports browser case 3/3 across the same
+  viewports. The ordinary parallel frontend invocation had earlier produced
+  one existing five-second Floor test timeout; the mapped serial run and the
+  exact affected successor proof passed, so that timing result remains a
+  diagnostic rather than candidate acceptance evidence.
+- Mechanical and Stop proof: the full-profile tracker verifier reported Blocks
+  0–25 with 0 errors and 0 warnings, all 30 verifier tests passed, staged and
+  committed diff checks passed, and the checkout/remote identity was exact.
+  Artifact reads remain same-origin, bounded, currently verified, and
+  read-only; no report generation, evolution adoption, outcome acceptance, or
+  lifecycle administration control was added.
+- Independent exact-revision review and acceptance: pending.
 
 ### Stop
 
