@@ -656,8 +656,8 @@ continuous cognition the price of ordinary execution.
 | 3 | Replay observed failures and prove control-plane convergence | 0, 1, 2 | `completed` |
 | 4 | Freeze the three-path adaptive decision-control contract | 3 | `completed` |
 | 5 | Correct bad implementation decisions inline and continue | 4 | `completed` |
-| 6 | Build and independently compare one bounded parallel candidate | 5 | `in-progress` |
-| 7 | Add configurable adaptive authority, budgets, and human-input posture | 5, 6 | `not-started` |
+| 6 | Build and independently compare one bounded parallel candidate | 5 | `completed` |
+| 7 | Add configurable adaptive authority, budgets, and human-input posture | 5, 6 | `in-progress` |
 | 8 | Amend and apply the tracker only for structural invalidation | 4, 7 | `not-started` |
 | 9 | Cut over a winning candidate, reconcile currentness, and resume | 6, 7 | `not-started` |
 | 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `not-started` |
@@ -1768,7 +1768,7 @@ Stop before opening a parallel candidate lane or changing policy authority.
 
 ## Block 6 — Build and independently compare one bounded parallel candidate
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -1890,7 +1890,75 @@ viewing either implementer's rationale.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: `3d984d9094c3c2c4b28b78f44cd13a8bd7891381`
+  on `codex/control-plane-foundation`, pushed to `origin`; active signed release
+  `3d984d9094c3-c689901b7413`, installed verification root
+  `67703c07d630e9b10e9d47d55bc74484c3ec79c224524096bd9d67280cabc409`.
+- Implementation: the installed execution method now admits one candidate only
+  from the exact Block 4 trigger and positive evidence-bound decision value,
+  freezes the incumbent/pre-run contract, binds actual lane and implementation
+  starts, enforces isolated canonical scope and resource ceilings, runs focused
+  proof before mapped comparison, and routes a raw six-dimension packet to a
+  distinct automated reviewer. No candidate gains production authority here.
+- Frozen inputs: pre-run revision
+  `c8b92ac48920b86587a1e39f5f16702de8b65554`, pre-run root
+  `f3fc594b4eca93ff75db127234a18ed494377575df82373695ac8754a9231bbb`,
+  exercise root
+  `a039c787cb15df11e7fd1c2dbfd904a4b908540f5aa2ffea4900f359df383337`,
+  review-fixture root
+  `3bbf84c0823cecdd73110f60ff990f541bb20c14a9deeda868463a54811804e0`,
+  and accepted-snapshot root
+  `c5af9febeae85773f106d3a761689e88e7756f75666e4f613de5c38615ea2252`.
+- Winning comparison: decision fingerprint
+  `8246b08debd2dd139a37385ce361664972ba99c41219f10d3476f6a4293cb195`;
+  candidate root
+  `10516cd50db6e436ac94b33d09f00dbbf4157bb80d347cf7921c04548f2f08b5`;
+  exact resource use one file, two changed lines, two commands, one review pass,
+  and eleven elapsed minutes; resource root
+  `9b6f19bc8bc548eb659e068a43cd5e3f83930c5face9793951ca2ae45e5c1e5c`.
+  The candidate reduced the frozen representative artifact by 88 bytes while
+  preserving semantic roundtrip, bytes API, compatibility, protected
+  capabilities, bounded timing, and reversible two-line/one-restore cost.
+- Disposition and Stop: independent review selected `candidate-better`; the
+  incumbent remains the sole authority and the candidate remains isolated.
+  Block 6 performed no cutover, publication, tracker mutation, or policy
+  mutation. It emitted one non-mutating Block 9 handoff rooted at
+  `eee651909f87a4e0c50cca8956b6805d641e09c6f97ff6a0831818984b958844`
+  and accepted lane head
+  `3493d8048ac4dc4f35cf0ac236bb05588a786a90cfa8c6885d56e9d361a3e93c`.
+- Recovery/negative proof: losing, novelty-biased, inconclusive, unsafe,
+  read-only-resolvable, style-only, speculative, over-ceiling, incumbent-drift,
+  focused/mapped failure, protected-regression, stale-review, cancellation,
+  isolation-drift, falsified-hypothesis, and late-review cases reject or retire
+  without handoff or duplicate authority. A real late reviewer result is
+  retained but the lane closes `retired-inconclusive` after its deadline.
+- Deduplication/economy: the accepted lane is bound to exact source files, the
+  complete handoff, resource/currentness roots, sealed external reviewer key,
+  and signed exact review. A fresh installed process returned `deduplicate`
+  with no lane, focused/mapped/performance producer, review cycle, new handoff,
+  or cutover; the existing handoff is reused defensively. Caller heads,
+  coordinated snapshot/review replacement, missing/tampered skill sources, and
+  live-Git missing tracker evidence reject. Only the already signed tracker blob
+  may be absent in the Git-less installed release layout.
+- Validation: focused bounded-candidate suite `23/23` in clean Git, isolated
+  archive, and installed Git-less layouts; full implementation suite `67/67`;
+  all three fixed Skill Creator validators; full-profile 18-Block tracker
+  verifier; `py_compile`; exact diff and source-currentness checks passed.
+- Independent review: `/root/block2_review` found no issues on exact semantic
+  successor `3d984d9094c3c2c4b28b78f44cd13a8bd7891381` after rejecting prior
+  chronology, source-authority, evidence, comparison, resource, lifecycle, and
+  deployment-trust defects. Signed semantic review root:
+  `58d7eb88bec62d3846402a860b0091c2eb4b770a663032ba68838468767fc241`;
+  signed release-review root:
+  `0e816c99352a06a2639d17d6480f4ded8a085e488fafed2453840e07c1dde271`;
+  sequence-6 operator permit head:
+  `a621a037ca70d303419ecbc3133646ab57e1abf90e326f80ec20d7ac32e7b462`.
+- Preserved history: rejected candidates and their findings remain append-only;
+  Blocks 0–5 evidence and rollback release `75a3f3e4f39b-3adc588d1dbb` remain
+  intact. Factory evolution was not invoked and received no adoption authority.
+- Retained open work: Blocks 7–17 only. This Stop is an internal checkpoint
+  under the frozen full-tracker range; Block 7 is the next dependency-safe
+  action and no human Resume is required.
 
 ### Stop
 
@@ -1900,7 +1968,7 @@ Stop before cutover, tracker amendment, or policy-mode changes.
 
 ## Block 7 — Add configurable adaptive authority, budgets, and human-input posture
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 

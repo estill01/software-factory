@@ -101,9 +101,13 @@ the completed program materially changes Software Factory.
   Block 9 handoff, while losing, inconclusive, failed, stale, cancelled,
   over-ceiling, and late-review lanes retire without acquiring production
   authority. The retained exercise demonstrates a bounded 88-byte improvement
-  under criteria frozen at pre-run revision `c8b92ac48920b86587a1e39f5f16702de8b65554`;
-  exact candidate acceptance and installed-release activation remain the
-  Block 6 checkpoint boundary.
+  under criteria frozen at pre-run revision
+  `c8b92ac48920b86587a1e39f5f16702de8b65554`; the accepted candidate remains
+  isolated and non-authoritative behind one immutable Block 9 handoff. Exact
+  repeat evidence now resolves the externally signed accepted head and reuses
+  that handoff without another lane, producer, or reviewer cycle. The method is
+  installed in active release `3d984d9094c3-c689901b7413` with verification
+  root `67703c07d630e9b10e9d47d55bc74484c3ec79c224524096bd9d67280cabc409`.
 
 - **Successor-transition continuity and structured failure-mode records.** A
   requested implementation that must cross into a distinct task now remains an
