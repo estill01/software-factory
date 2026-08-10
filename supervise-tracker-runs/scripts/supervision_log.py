@@ -9,6 +9,7 @@ import difflib
 import fcntl
 import hashlib
 import hmac
+import importlib.util
 import json
 import os
 import re
@@ -97,6 +98,7 @@ MAX_CAPABILITY_RECONCILIATION_BYTES = 64 * 1024
 MAX_ADAPTIVE_CANDIDATE_EVIDENCE_BYTES = 64 * 1024
 MAX_ADAPTIVE_DECISION_EVIDENCE_BYTES = 64 * 1024
 MAX_ADAPTIVE_REVIEW_EVIDENCE_BYTES = 64 * 1024
+MAX_PROGRAM_REVISION_EVIDENCE_BYTES = 256 * 1024
 ADAPTIVE_REVIEWER_ID = "software-factory-release-reviewer-v1"
 ADAPTIVE_EVALUATOR_ID = "software-factory-adaptive-evaluator-v1"
 ADAPTIVE_REVIEW_PUBLIC_KEY_PATH = Path(
@@ -328,6 +330,7 @@ MAX_SUCCESSOR_TRANSITION_HOURS = 24
 IMPLEMENTATION_RANGE_INTENTS = {"full-tracker", "explicit-blocks"}
 DIRECT_AUTHORITY_EVENT_KIND = "direct-user-authority-source"
 TRACKER_AMENDMENT_EVENT_KIND = "implementation-tracker-amendment"
+PROGRAM_REVISION_EVENT_KIND = "implementation-program-revision"
 SUCCESSOR_TOPOLOGY_EVENT_KIND = "successor-topology-decision"
 EVENT_LEDGER_ANCHOR_NAME = "events-head.json"
 OWNER_ROOT_HISTORY_NAME = "owner-root-history.jsonl"
@@ -2554,6 +2557,292 @@ def validate_direct_authority_receipts(
             )
 
 
+def program_revision_module() -> Any:
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "author-implementation-trackers"
+        / "scripts"
+        / "program_revision.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "supervision_program_revision", path
+    )
+    if spec is None or spec.loader is None:
+        raise SupervisionLogError("Program revision verifier is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    except (OSError, ValueError) as exc:
+        raise SupervisionLogError("Program revision verifier cannot be loaded") from exc
+    finally:
+        sys.modules.pop(spec.name, None)
+    return module
+
+
+def verify_program_revision_review_signature(value: Mapping[str, Any]) -> None:
+    signature_value = value.get("signature_base64")
+    if type(signature_value) is not str:
+        raise SupervisionLogError("Program revision review signature must be base64 text")
+    try:
+        signature = base64.b64decode(signature_value, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise SupervisionLogError("Program revision review signature is invalid") from exc
+    if len(signature) != 64:
+        raise SupervisionLogError("Program revision review signature length differs")
+    module = program_revision_module()
+    signed = dict(value)
+    signed.pop("signature_base64", None)
+    key_bytes = trusted_adaptive_reviewer_key()
+    openssl = trusted_adaptive_review_openssl()
+    with tempfile.TemporaryDirectory(prefix="program-revision-review-") as temp_value:
+        temp = Path(temp_value)
+        content = temp / "review.json"
+        signature_path = temp / "review.sig"
+        key_path = temp / "reviewer.pem"
+        content.write_bytes(module.canonical(signed))
+        signature_path.write_bytes(signature)
+        key_path.write_bytes(key_bytes)
+        result = subprocess.run(
+            [
+                str(openssl),
+                "pkeyutl",
+                "-verify",
+                "-pubin",
+                "-inkey",
+                str(key_path),
+                "-rawin",
+                "-in",
+                str(content),
+                "-sigfile",
+                str(signature_path),
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+        )
+    if result.returncode != 0:
+        raise SupervisionLogError("Program revision review signature verification failed")
+
+
+def validate_program_revision_review(
+    value: Any, *, packet: Mapping[str, Any]
+) -> dict[str, Any]:
+    module = program_revision_module()
+    try:
+        review = module.validate_review_shape(
+            value,
+            packet=packet,
+            authority_key_sha256=ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256,
+        )
+    except module.ProgramRevisionError as exc:
+        raise SupervisionLogError(str(exc)) from exc
+    if review["reviewer_id"] != ADAPTIVE_REVIEWER_ID:
+        raise SupervisionLogError("Program revision reviewer authority differs")
+    verify_program_revision_review_signature(review)
+    return review
+
+
+def canonical_program_revision_event(
+    event: Mapping[str, Any],
+    *,
+    policy: Mapping[str, Any],
+    policy_history: list[dict[str, Any]],
+) -> dict[str, Any]:
+    required = {
+        "schema_version",
+        "record_id",
+        "timestamp",
+        "target_thread_id",
+        "kind",
+        "revision_id",
+        "packet",
+        "packet_root",
+        "review_payload",
+        "review_root",
+        "review_disposition",
+        "authority_key_sha256",
+        "external_signature_sha256",
+        "policy_sha256",
+        "mission_root",
+        "decision_record_id",
+        "decision_record_sha256",
+        "provenance_status",
+        "evidence",
+        "previous_record_sha256",
+        "record_sha256",
+    }
+    if set(event) != required:
+        raise SupervisionLogError("Canonical program-revision event shape differs")
+    if (
+        type(event.get("schema_version")) is not int
+        or event.get("schema_version") != 1
+        or event.get("kind") != PROGRAM_REVISION_EVENT_KIND
+        or event.get("target_thread_id") != policy.get("target_thread_id")
+    ):
+        raise SupervisionLogError("Canonical program-revision identity differs")
+    module = program_revision_module()
+    try:
+        packet = module.validate_stored_packet(event.get("packet"))
+    except module.ProgramRevisionError as exc:
+        raise SupervisionLogError(str(exc)) from exc
+    review = validate_program_revision_review(event.get("review_payload"), packet=packet)
+    comparisons = {
+        "revision_id": packet["revision_id"],
+        "packet_root": packet["packet_root"],
+        "review_root": review["review_root"],
+        "review_disposition": review["disposition"],
+        "authority_key_sha256": review["authority_key_sha256"],
+        "policy_sha256": packet["policy_sha256"],
+        "mission_root": packet["mission_root"],
+        "decision_record_id": packet["decision_record_id"],
+        "decision_record_sha256": packet["decision_record_sha256"],
+    }
+    if any(event.get(field) != expected for field, expected in comparisons.items()):
+        raise SupervisionLogError("Canonical program-revision event differs from its packet")
+    if event.get("external_signature_sha256") != hashlib.sha256(
+        base64.b64decode(review["signature_base64"], validate=True)
+    ).hexdigest():
+        raise SupervisionLogError("Canonical program-revision signature root differs")
+    exact_sha256(str(event.get("record_sha256", "")), label="program revision event root")
+    source_policy_sha256 = str(event["policy_sha256"])
+    if not any(
+        isinstance(item.get("policy"), Mapping)
+        and item["policy"].get("policy_sha256") == source_policy_sha256
+        for item in policy_history
+    ):
+        raise SupervisionLogError("Program revision is not anchored to policy history")
+    mission = bound_mission(dict(policy))
+    if mission is None or packet["mission_root"] != mission["mission_root"]:
+        raise SupervisionLogError("Program revision is stale for the current mission")
+    evidence = event.get("evidence")
+    expected_evidence = [
+        packet["packet_root"],
+        review["review_root"],
+        packet["full_verifier_result_root"],
+    ]
+    if evidence != expected_evidence:
+        raise SupervisionLogError("Canonical program-revision evidence differs")
+    if review["disposition"] != "accepted":
+        raise SupervisionLogError("Program revision was not independently accepted")
+    if event.get("provenance_status") != "accepted-before-entry":
+        raise SupervisionLogError("Program revision acceptance provenance differs")
+    return {
+        **dict(event),
+        "old_tracker_path": packet["previous_tracker_path"],
+        "old_tracker_sha256": packet["previous_tracker_sha256"],
+        "old_tracker_structure_sha256": packet[
+            "previous_tracker_structure_sha256"
+        ],
+        "old_blocks": packet["previous_blocks"],
+        "new_tracker_path": packet["proposed_tracker_path"],
+        "new_tracker_sha256": packet["proposed_tracker_sha256"],
+        "new_tracker_structure_sha256": packet[
+            "proposed_tracker_structure_sha256"
+        ],
+        "new_blocks": packet["proposed_blocks"],
+        "block_number_map": packet["block_number_map"],
+        "verifier_id": packet["reviewer_id"],
+    }
+
+
+def validate_program_revision_application_commit(
+    event: Mapping[str, Any], application_commit: str
+) -> str:
+    if re.fullmatch(r"[0-9a-f]{40}", application_commit) is None:
+        raise SupervisionLogError("Program revision application commit is not exact")
+    packet = event.get("packet")
+    if not isinstance(packet, Mapping):
+        raise SupervisionLogError("Program revision application packet is absent")
+    repository = adaptive_git_top_level(str(packet["repository_root"]))
+    tracker = Path(str(packet["proposed_tracker_path"]))
+    try:
+        relative = tracker.relative_to(repository)
+    except ValueError as exc:
+        raise SupervisionLogError(
+            "Program revision tracker is outside its repository owner"
+        ) from exc
+    if not relative.parts or any(item in {".", ".."} for item in relative.parts):
+        raise SupervisionLogError("Program revision tracker path is not normalized")
+    resolved = subprocess.run(
+        [
+            "/usr/bin/git",
+            "-C",
+            str(repository),
+            "rev-parse",
+            "--verify",
+            f"{application_commit}^{{commit}}",
+        ],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+    )
+    if resolved.returncode != 0 or resolved.stdout.strip() != application_commit:
+        raise SupervisionLogError("Program revision application commit is unavailable")
+    ancestor = subprocess.run(
+        [
+            "/usr/bin/git",
+            "-C",
+            str(repository),
+            "merge-base",
+            "--is-ancestor",
+            application_commit,
+            "HEAD",
+        ],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+    )
+    if ancestor.returncode != 0:
+        raise SupervisionLogError(
+            "Program revision application commit is not in current repository history"
+        )
+    object_name = f"{application_commit}:{relative.as_posix()}"
+    size = subprocess.run(
+        ["/usr/bin/git", "-C", str(repository), "cat-file", "-s", object_name],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+    )
+    try:
+        byte_count = int(size.stdout.strip())
+    except ValueError as exc:
+        raise SupervisionLogError(
+            "Program revision application tracker blob is unavailable"
+        ) from exc
+    if (
+        size.returncode != 0
+        or byte_count < 0
+        or byte_count > MAX_IMPLEMENTATION_TRACKER_BYTES
+    ):
+        raise SupervisionLogError(
+            "Program revision application tracker blob exceeds its bound"
+        )
+    blob = subprocess.run(
+        ["/usr/bin/git", "-C", str(repository), "cat-file", "blob", object_name],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+    )
+    if (
+        blob.returncode != 0
+        or len(blob.stdout) != byte_count
+        or hashlib.sha256(blob.stdout).hexdigest()
+        != packet["proposed_tracker_sha256"]
+    ):
+        raise SupervisionLogError(
+            "Program revision application commit does not contain the accepted tracker"
+        )
+    return application_commit
+
+
 def canonical_tracker_amendment_event(
     all_events: list[dict[str, Any]],
     *,
@@ -2568,6 +2857,10 @@ def canonical_tracker_amendment_event(
     if event is None:
         raise SupervisionLogError(
             "Tracker amendment is not in the canonical owner event ledger"
+        )
+    if event.get("kind") == PROGRAM_REVISION_EVENT_KIND:
+        return canonical_program_revision_event(
+            event, policy=policy, policy_history=policy_history
         )
     required = {
         "schema_version",
@@ -2709,6 +3002,15 @@ def validate_tracker_amendment_events(
         ):
             raise SupervisionLogError(
                 "Range history differs from its canonical tracker-amendment event"
+            )
+        application_commit = entry.get("application_commit", "")
+        if event.get("kind") == PROGRAM_REVISION_EVENT_KIND:
+            validate_program_revision_application_commit(
+                event, str(application_commit)
+            )
+        elif application_commit:
+            raise SupervisionLogError(
+                "Legacy tracker amendment cannot claim a program application commit"
             )
 
 
@@ -6500,6 +6802,7 @@ def implementation_range_history_entry(
     amendment_map_sha256: str = "",
     amendment_event_record_id: str = "",
     amendment_event_sha256: str = "",
+    application_commit: str = "",
 ) -> dict[str, Any]:
     entry: dict[str, Any] = {
         "sequence": sequence,
@@ -6517,6 +6820,7 @@ def implementation_range_history_entry(
         "amendment_map_sha256": amendment_map_sha256,
         "amendment_event_record_id": amendment_event_record_id,
         "amendment_event_sha256": amendment_event_sha256,
+        "application_commit": application_commit,
     }
     entry["entry_sha256"] = digest(entry)
     return entry
@@ -6606,6 +6910,274 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
     print(json.dumps({"binding": policy["implementation_range"]}, sort_keys=True))
 
 
+def validate_program_revision_inputs(
+    args: argparse.Namespace,
+    *,
+    directory: Path,
+    policy: Mapping[str, Any],
+    all_events: list[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    module = program_revision_module()
+    packet_value = load_bounded_canonical_json(
+        args.packet_json,
+        label="program revision packet",
+        maximum_bytes=MAX_PROGRAM_REVISION_EVIDENCE_BYTES,
+    )
+    try:
+        packet = module.validate_revision_packet(
+            packet_value,
+            previous_tracker=args.previous_tracker,
+            proposed_tracker=args.proposed_tracker,
+        )
+    except module.ProgramRevisionError as exc:
+        raise SupervisionLogError(str(exc)) from exc
+    review_value = load_bounded_canonical_json(
+        args.review_json,
+        label="program revision review",
+        maximum_bytes=MAX_PROGRAM_REVISION_EVIDENCE_BYTES,
+    )
+    review = validate_program_revision_review(review_value, packet=packet)
+    if review["disposition"] != "accepted" and not review["finding_refs"]:
+        raise SupervisionLogError(
+            "Non-accepted program revision review requires exact finding references"
+        )
+    mission = bound_mission(dict(policy))
+    if (
+        mission is None
+        or packet["target_thread_id"] != policy.get("target_thread_id")
+        or packet["mission_root"] != mission["mission_root"]
+        or packet["policy_sha256"] != policy.get("policy_sha256")
+    ):
+        raise SupervisionLogError("Program revision mission or policy is stale")
+    contract = implementation_range_contract(policy)
+    if contract is None:
+        raise SupervisionLogError("Program revision requires a bound implementation range")
+    validate_implementation_range_contract(contract)
+    previous_path, previous_sha, previous_structure, previous_blocks = (
+        implementation_tracker_snapshot(args.previous_tracker)
+    )
+    expected_previous = {
+        "previous_tracker_path": contract["tracker_path"],
+        "previous_tracker_sha256": contract["tracker_sha256"],
+        "previous_tracker_structure_sha256": contract[
+            "tracker_structure_sha256"
+        ],
+        "previous_blocks": contract["tracker_blocks"],
+    }
+    actual_previous = {
+        "previous_tracker_path": str(previous_path),
+        "previous_tracker_sha256": previous_sha,
+        "previous_tracker_structure_sha256": previous_structure,
+        "previous_blocks": sorted(previous_blocks),
+    }
+    if actual_previous != expected_previous or any(
+        packet[field] != expected for field, expected in expected_previous.items()
+    ):
+        raise SupervisionLogError("Program revision predecessor tracker is stale")
+    decision_evidence = load_adaptive_decision_evidence(
+        args.decision_evidence, policy=dict(policy)
+    )
+    active_events = mission_scoped_events(directory, dict(policy), all_events)
+    source = next(
+        (
+            dict(item)
+            for item in active_events
+            if item.get("record_id") == packet["decision_record_id"]
+        ),
+        None,
+    )
+    latest = [
+        item
+        for item in active_events
+        if item.get("kind") == "adaptive-decision"
+        and item.get("decision_id") == decision_evidence["decision_id"]
+    ]
+    if (
+        source is None
+        or source.get("kind") != "adaptive-decision"
+        or not latest
+        or latest[-1].get("record_id") != source.get("record_id")
+        or source.get("record_sha256") != packet["decision_record_sha256"]
+        or source.get("decision_source_root") != decision_evidence["source_root"]
+        or source.get("disposition") != "amend-structure"
+        or source.get("effect_class") != "tracker-amendment"
+        or source.get("application_posture") != "owner-application-ready"
+        or source.get("application_ready") is not True
+        or source.get("application_authorized") is not False
+        or source.get("policy_sha256") != policy.get("policy_sha256")
+    ):
+        raise SupervisionLogError(
+            "Program revision lacks a current accepted structural decision"
+        )
+    review_record = source.get("independent_review_record")
+    if type(review_record) is not str:
+        raise SupervisionLogError("Program revision decision lacks independent review")
+    resolved_adaptive_review = resolve_adaptive_review(
+        active_events, review_record, policy=policy
+    )
+    if (
+        resolved_adaptive_review.get("review_disposition") != "accepted"
+        or (
+            source.get("target_class") == "software-factory"
+            and resolved_adaptive_review.get("evaluation_disposition") != "accepted"
+        )
+    ):
+        raise SupervisionLogError("Program revision structural decision is not accepted")
+    exact_decision = {
+        "decision_record_id": source["record_id"],
+        "decision_record_sha256": source["record_sha256"],
+        "decision_fingerprint": source["decision_fingerprint"],
+        "decision_currentness_root": source["decision_currentness_root"],
+        "application_precondition_root": source["application_precondition_root"],
+        "candidate_evidence_root": source["candidate_evidence_root"],
+        "decision_target_state_root": decision_evidence[
+            "decision_target_state_root"
+        ],
+        "current_target_state_root": decision_evidence[
+            "current_target_state_root"
+        ],
+        "target_class": source["target_class"],
+        "repository_root": decision_evidence["target_repository_root"],
+        "target_revision": decision_evidence["target_revision"],
+        "target_revision_root": decision_evidence["target_revision_root"],
+        "author_id": source["implementation_owner_id"],
+        "reviewer_id": ADAPTIVE_REVIEWER_ID,
+        "authority_mode": source["adaptive_decision_mode"],
+    }
+    if any(packet[field] != expected for field, expected in exact_decision.items()):
+        raise SupervisionLogError("Program revision packet differs from its decision owner")
+    return packet, review, source
+
+
+def cmd_implementation_program_revision(args: argparse.Namespace) -> None:
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        all_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
+    packet, review, source = validate_program_revision_inputs(
+        args,
+        directory=directory,
+        policy=policy,
+        all_events=all_events,
+    )
+    record: dict[str, Any] = {
+        "schema_version": 1,
+        "record_id": "",
+        "timestamp": utc_now(),
+        "target_thread_id": args.target_thread,
+        "kind": PROGRAM_REVISION_EVENT_KIND,
+        "revision_id": packet["revision_id"],
+        "packet": packet,
+        "packet_root": packet["packet_root"],
+        "review_payload": review,
+        "review_root": review["review_root"],
+        "review_disposition": review["disposition"],
+        "authority_key_sha256": review["authority_key_sha256"],
+        "external_signature_sha256": hashlib.sha256(
+            base64.b64decode(review["signature_base64"], validate=True)
+        ).hexdigest(),
+        "policy_sha256": policy["policy_sha256"],
+        "mission_root": packet["mission_root"],
+        "decision_record_id": source["record_id"],
+        "decision_record_sha256": source["record_sha256"],
+        "provenance_status": (
+            "accepted-before-entry"
+            if review["disposition"] == "accepted"
+            else f"independent-review-{review['disposition']}"
+        ),
+        "evidence": [
+            packet["packet_root"],
+            review["review_root"],
+            packet["full_verifier_result_root"],
+        ],
+    }
+    with owner_append_lock(
+        root_from(args), args.target_thread, directory_snapshot
+    ) as directory_fd:
+        require_bound_policy_at(
+            directory_fd,
+            expected_policy=policy,
+            expected_snapshot=policy_snapshot,
+        )
+        current_events, current_event_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        if current_event_snapshot != event_snapshot or current_events != all_events:
+            raise SupervisionLogError(
+                "Program revision event head changed; retry current revision state"
+            )
+        current_packet, current_review, current_source = validate_program_revision_inputs(
+            args,
+            directory=directory,
+            policy=policy,
+            all_events=current_events,
+        )
+        if (
+            current_packet != packet
+            or current_review != review
+            or current_source != source
+        ):
+            raise SupervisionLogError(
+                "Program revision inputs changed before canonical append"
+            )
+        prior = [
+            item
+            for item in mission_scoped_events(directory, policy, current_events)
+            if item.get("kind") == PROGRAM_REVISION_EVENT_KIND
+            and item.get("revision_id") == packet["revision_id"]
+        ]
+        if prior:
+            comparable = {
+                key: value
+                for key, value in prior[-1].items()
+                if key
+                not in {
+                    "record_id",
+                    "timestamp",
+                    "previous_record_sha256",
+                    "record_sha256",
+                }
+            }
+            current = {
+                key: value
+                for key, value in record.items()
+                if key not in {"record_id", "timestamp"}
+            }
+            if comparable == current:
+                print(json.dumps({"duplicate": True, "record": prior[-1]}, sort_keys=True))
+                return
+            raise SupervisionLogError("Program revision ID already has a different record")
+        record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
+        previous = str(current_events[-1]["record_sha256"]) if current_events else None
+        append_raw_locked_at(
+            directory_fd,
+            "events.jsonl",
+            record,
+            previous_record_sha256=previous,
+            expected_file_snapshot=current_event_snapshot,
+            require_event_anchor=bool(current_events),
+        )
+        written_events, _written_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        record = written_events[-1]
+    next_action = {
+        "accepted": "install-exact-proposal-through-repository-owner-then-range-amend",
+        "revise": "return-exact-findings-to-author-and-continue-safe-frontier",
+        "rejected": "retain-rejection-and-continue-current-program-safe-frontier",
+    }[review["disposition"]]
+    print(
+        json.dumps(
+            {"duplicate": False, "next_action": next_action, "record": record},
+            sort_keys=True,
+        )
+    )
+
+
 def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     contract = implementation_range_contract(policy)
@@ -6627,8 +7199,32 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
         or new_blocks != old_blocks
         or tracker_structure_sha256 != contract["tracker_structure_sha256"]
     )
+    if not structural_change and not args.request_text:
+        if args.amendment_event_record:
+            latest = contract["history"][-1]
+            if (
+                latest.get("amendment_event_record_id")
+                == args.amendment_event_record
+                and latest.get("application_commit", "") == args.application_commit
+            ):
+                print(
+                    json.dumps(
+                        {"binding": contract, "contraction": False, "duplicate": True},
+                        sort_keys=True,
+                    )
+                )
+                return
+        elif tracker_sha256 == contract["tracker_sha256"]:
+            print(
+                json.dumps(
+                    {"binding": contract, "contraction": False, "duplicate": True},
+                    sort_keys=True,
+                )
+            )
+            return
     amendment_event: dict[str, Any] | None = None
-    block_number_map = {str(item): item for item in old_blocks}
+    block_number_map = {str(item): [item] for item in old_blocks}
+    amendment_map_value: Mapping[str, Any] | None = None
     if structural_change:
         event_record_id = safe_id(
             args.amendment_event_record,
@@ -6668,7 +7264,19 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
             raise SupervisionLogError(
                 "Canonical tracker-amendment event does not match the exact transition"
             )
-        block_number_map = dict(amendment_event["block_number_map"])
+        amendment_map_value = dict(amendment_event["block_number_map"])
+        block_number_map = {
+            key: ([value] if type(value) is int else list(value))
+            for key, value in amendment_map_value.items()
+        }
+        if amendment_event.get("kind") == PROGRAM_REVISION_EVENT_KIND:
+            validate_program_revision_application_commit(
+                amendment_event, args.application_commit
+            )
+        elif args.application_commit:
+            raise SupervisionLogError(
+                "Legacy tracker amendment cannot claim a program application commit"
+            )
     elif args.amendment_event_record:
         raise SupervisionLogError(
             "A status-only tracker update must not invent a structural amendment"
@@ -6681,15 +7289,33 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
     else:
         new_intent = old_intent
         new_explicit = (
-            [block_number_map[str(item)] for item in old_explicit]
+            sorted(
+                {
+                    successor
+                    for item in old_explicit
+                    for successor in block_number_map[str(item)]
+                }
+            )
             if structural_change
             else old_explicit
         )
+    mapped_old_explicit = (
+        {
+            successor
+            for item in old_explicit
+            for successor in block_number_map[str(item)]
+        }
+        if structural_change
+        else set(old_explicit)
+    )
     contraction = bool(
-        old_intent == "full-tracker" and new_intent != "full-tracker"
-        or old_intent == "explicit-blocks"
-        and new_intent == "explicit-blocks"
-        and not set(old_explicit).issubset(new_explicit)
+        args.request_text
+        and (
+            old_intent == "full-tracker" and new_intent != "full-tracker"
+            or old_intent == "explicit-blocks"
+            and new_intent == "explicit-blocks"
+            and not mapped_old_explicit.issubset(new_explicit)
+        )
     )
     history = list(contract["history"])
     authority = dict(contract["authority"])
@@ -6744,9 +7370,7 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
         authority_policy_version = int(
             contract["history"][-1].get("authority_policy_version", 0)
         )
-    amendment_map = (
-        digest(block_number_map) if amendment_event is not None else ""
-    )
+    amendment_map = digest(amendment_map_value) if amendment_map_value is not None else ""
     entry = implementation_range_history_entry(
         sequence=len(history) + 1,
         prior_entry_sha256=str(contract["history_head_sha256"]),
@@ -6766,6 +7390,12 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
         ),
         amendment_event_sha256=(
             str(amendment_event["record_sha256"]) if amendment_event is not None else ""
+        ),
+        application_commit=(
+            args.application_commit
+            if amendment_event is not None
+            and amendment_event.get("kind") == PROGRAM_REVISION_EVENT_KIND
+            else ""
         ),
     )
     history.append(entry)
@@ -6791,7 +7421,35 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
         reason="Advance the canonical tracker identity without losing direct range intent.",
         evidence_values=[tracker_sha256, entry["entry_sha256"], *( [amendment_map] if amendment_map else [])],
     )
-    print(json.dumps({"binding": contract, "contraction": contraction}, sort_keys=True))
+    program_state = None
+    if (
+        amendment_event is not None
+        and amendment_event.get("kind") == PROGRAM_REVISION_EVENT_KIND
+    ):
+        packet = amendment_event["packet"]
+        program_state = {
+            "revision_id": packet["revision_id"],
+            "accepted_history_blocks": packet["accepted_history_blocks"],
+            "affected_previous_blocks": packet["affected_previous_blocks"],
+            "affected_proposed_blocks": packet["affected_proposed_blocks"],
+            "safe_frontier_blocks": packet["safe_frontier_blocks"],
+            "preserved_work_refs": packet["preserved_work_refs"],
+            "invalidated_proof_refs": packet["invalidated_proof_refs"],
+            "resume_block": packet["resume_block"],
+            "application_commit": args.application_commit,
+            "next_action": f"resume-block-{packet['resume_block']}-without-user-scheduling",
+        }
+    print(
+        json.dumps(
+            {
+                "binding": contract,
+                "contraction": contraction,
+                "duplicate": False,
+                "program_revision": program_state,
+            },
+            sort_keys=True,
+        )
+    )
 
 
 def cmd_implementation_range_gate(args: argparse.Namespace) -> None:
@@ -13996,6 +14654,15 @@ def parser() -> argparse.ArgumentParser:
     range_bind.add_argument("--authority-source-sha256", required=True)
     range_bind.set_defaults(func=cmd_implementation_range_bind)
 
+    program_revision = subparsers.add_parser("implementation-program-revision")
+    program_revision.add_argument("--target-thread", required=True)
+    program_revision.add_argument("--previous-tracker", required=True)
+    program_revision.add_argument("--proposed-tracker", required=True)
+    program_revision.add_argument("--packet-json", required=True)
+    program_revision.add_argument("--review-json", required=True)
+    program_revision.add_argument("--decision-evidence", required=True)
+    program_revision.set_defaults(func=cmd_implementation_program_revision)
+
     range_amend = subparsers.add_parser("implementation-range-amend")
     range_amend.add_argument("--target-thread", required=True)
     range_amend.add_argument("--tracker", required=True)
@@ -14003,6 +14670,7 @@ def parser() -> argparse.ArgumentParser:
     range_amend.add_argument("--authority-source-record", default="")
     range_amend.add_argument("--authority-source-sha256", default="")
     range_amend.add_argument("--amendment-event-record", default="")
+    range_amend.add_argument("--application-commit", default="")
     range_amend.set_defaults(func=cmd_implementation_range_amend)
 
     range_gate = subparsers.add_parser("implementation-range-gate")

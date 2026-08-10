@@ -2338,7 +2338,25 @@ delta, and a local correction incorrectly escalated to structural change.
 
 ### Completion evidence
 
-Pending.
+- In-progress validator/runtime envelope for incident
+  `INC-20260810-044522-A943F2`: all three naturally required fixed Skill Creator
+  validator subprocesses produced exact output root
+  `db349825903d66adffea3ecf1bd8e1803043e8a71cf1a051235dabc5371f5bb0`
+  (`Skill is valid!`) under `/usr/bin/python3`, runtime root
+  `179301dcb41ea78accc3fa0048a7e6f6710d891945a751a34addd622020c1818`,
+  validator
+  `/Users/ethanstillman/.codex/skills/.system/skill-creator/scripts/quick_validate.py`,
+  validator root
+  `6cc9dc3199c935916cf6f73fcbbbb0e3bb1b58c8f5109fefa499978908164f51`.
+  Per-command identities were `author-implementation-trackers`,
+  `implement-tracker-blocks`, and `supervise-tracker-runs`. The first evidence
+  wrappers each exited `1` after validation because zsh rejected the reserved
+  assignment `status`; their bounded temp outputs were recovered with the
+  exact root above. The corrected wrappers used `validator_exit`; each validator
+  exited `0` with the same output root. This records the first-attempt envelope
+  explicitly rather than replacing it with the successful retry.
+- Block 8 remains `in-progress`; exact source acceptance, release, activation,
+  installed outcome, and final completion evidence are pending.
 
 ### Stop
 

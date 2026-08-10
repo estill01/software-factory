@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import re
 import sys
@@ -515,7 +516,20 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument("--json", action="store_true", help="emit machine-readable diagnostics")
+    parser.add_argument(
+        "--revision-packet",
+        type=Path,
+        help="also verify one exact active-program structural revision packet",
+    )
+    parser.add_argument(
+        "--previous-tracker",
+        type=Path,
+        help="exact predecessor tracker required with --revision-packet",
+    )
     args = parser.parse_args(argv)
+
+    if bool(args.revision_packet) != bool(args.previous_tracker):
+        parser.error("--revision-packet and --previous-tracker must be supplied together")
 
     if not args.tracker.is_file():
         print(f"error: tracker does not exist: {args.tracker}", file=sys.stderr)
@@ -526,6 +540,30 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, UnicodeError) as exc:
         print(f"error: cannot read tracker: {exc}", file=sys.stderr)
         return 2
+
+    if args.revision_packet is not None:
+        module_path = Path(__file__).with_name("program_revision.py")
+        spec = importlib.util.spec_from_file_location(
+            "verify_tracker_program_revision", module_path
+        )
+        if spec is None or spec.loader is None:
+            result["errors"].append("program revision verifier is unavailable")
+        else:
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            try:
+                packet = module.validate_revision_packet(
+                    module.load_json(args.revision_packet),
+                    previous_tracker=args.previous_tracker,
+                    proposed_tracker=args.tracker,
+                )
+                result["program_revision"] = {
+                    "revision_id": packet["revision_id"],
+                    "packet_root": packet["packet_root"],
+                    "resume_block": packet["resume_block"],
+                }
+            except module.ProgramRevisionError as exc:
+                result["errors"].append(f"program revision: {exc}")
 
     if args.json:
         print(json.dumps(result, indent=2, sort_keys=True))

@@ -783,9 +783,18 @@ python3 <LOG_HELPER> implementation-range-bind \
   --authority-source-record <DIRECT_ITEM> \
   --authority-source-sha256 <DIRECT_ITEM_SHA256>
 
+python3 <LOG_HELPER> implementation-program-revision \
+  --target-thread <TARGET> \
+  --previous-tracker <ABSOLUTE_CURRENT_TRACKER_PATH> \
+  --proposed-tracker <ISOLATED_PROPOSAL_PATH> \
+  --packet-json <CANONICAL_PROGRAM_REVISION_PACKET> \
+  --review-json <SEALED_SIGNED_AUTHORING_REVIEW> \
+  --decision-evidence <CURRENT_AMEND_STRUCTURE_DECISION_SOURCE>
+
 python3 <LOG_HELPER> implementation-range-amend \
   --target-thread <TARGET> --tracker <ABSOLUTE_TRACKER_PATH> \
-  --amendment-event-record <CANONICAL_ACCEPTED_AMENDMENT_EVENT>
+  --amendment-event-record <CANONICAL_ACCEPTED_AMENDMENT_EVENT> \
+  --application-commit <EXACT_COMMIT_CONTAINING_ACCEPTED_TRACKER>
 
 python3 <LOG_HELPER> implementation-range-gate \
   --target-thread <TARGET> \
@@ -812,12 +821,21 @@ metadata cannot be paired with fabricated scope text.
 Ordinary tracker status and completion-evidence updates preserve the
 owner-pinned tracker path, exact Block-number set, and canonical structural
 root. Changing the path, Block set, dependencies, scope, acceptance, Stop, or
-other Block-contract content requires a
-pre-existing, independently accepted `implementation-tracker-amendment` owner
-event binding the old and new paths, hashes, complete Block sets, and an
-injective renumbering map. The event must predate the range amendment and match
-the current policy-history anchor; a caller-supplied map or replacement tracker
-is never amendment authority. Policy history is version-contiguous and the
+other Block-contract content requires a pre-existing, independently accepted
+`implementation-program-revision` owner event. Its author-owned packet binds
+the exact current mission/policy/repository revision, canonical adaptive
+`amend-structure` decision and application precondition, old/proposed paths and
+hashes, complete Block sets, one-to-zero/one/many mapping, accepted-history
+root, affected dependency closure, safe frontier, and dependency-safe resume
+Block. Its separate reviewer signs that exact delta with the sealed reviewer
+authority. The author cannot review itself; `revise` and `rejected` events are
+retained but cannot amend the range. The event must predate the range amendment
+and match the current mission and policy-history anchor; a caller-supplied map,
+replacement tracker, release label, routed packet, or stale mission root is
+never amendment authority. The legacy one-to-one
+`implementation-tracker-amendment` event remains readable only for already
+accepted range history. New structural work uses the program-revision path.
+Policy history is version-contiguous and the
 event ledger is pinned by a separately current, self-hashed head anchor, so
 truncation, re-rooting, stale suffixes, symlink substitution, and detached-owner
 writes fail closed before range or transition decisions. A separate append-only

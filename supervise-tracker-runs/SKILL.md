@@ -436,6 +436,22 @@ ordinary judgment from current sources, choose the safest reversible supported
 option, or record `reserved-external` with exact blockers and continue the safe
 frontier. Do not send a Resume instruction.
 
+An accepted `amend-structure` adaptive decision is only the trigger for the
+existing tracker-authoring owner. It is not tracker bytes or range authority.
+The author builds an exact active-program revision packet through
+`author-implementation-trackers/scripts/program_revision.py`; a distinct sealed
+reviewer signs the exact predecessor/proposal, accepted history, Block map,
+affected closure, and resume Block. Import that result with
+`implementation-program-revision --previous-tracker --proposed-tracker
+--packet-json --review-json --decision-evidence`. The command records one
+append-only `implementation-program-revision` event and never edits the target.
+Only `accepted` permits the repository owner to install the exact proposal and
+then call `implementation-range-amend` with that event. `revise` and `rejected`
+remain history and continue unaffected safe work. Full-tracker intent expands
+across inserts/splits/renumbering; explicit ranges map to the union of their
+successors. Revalidate and resume the derived dependency-safe Block without a
+user scheduling step. Do not use this path for status-only or local corrections.
+
 Adaptive mode never grants repository, command, credential, spend, destructive,
 Gmail, deployment, release, promotion, or skill-maintenance permission. A
 candidate still requires one lane, exact ceilings, focused-before-mapped proof,

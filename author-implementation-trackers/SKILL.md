@@ -188,6 +188,17 @@ renumbering mechanically, then inspect every dependency and semantic
 cross-reference. Do not mark newly introduced work complete merely because
 adjacent implementation exists.
 
+When implementation is already active and a learned fact invalidates the
+program structure rather than one local implementation choice, also read
+[references/active-program-revision.md](references/active-program-revision.md).
+Use `scripts/program_revision.py` to build the exact predecessor/proposal map,
+accepted-history proof, affected dependency closure, safe frontier, and resume
+Block. A status edit, local implementation correction, or unsupported idea is
+not a structural revision and must remain on its existing cheaper owner path.
+The author produces proposal bytes and the packet; it cannot accept its own
+work. The independently signed review and maintained supervision event decide
+acceptance before the implementation range may advance to the new tracker.
+
 An accepted amendment changes the plan, not the standing direct implementation
 range. When the user authorized implementation of the tracker as a whole,
 inserted prerequisite Blocks, splits, merges, and renumbering remain inside the
@@ -239,6 +250,16 @@ structure or product reasoning. Use `--json` when machine-readable diagnostics
 are useful. The verifier checks structure and declared values mechanically;
 substantive review must still test source support, underreach, tradeoffs, and
 speculative over-architecture.
+
+For an active structural revision, verify both tracker versions and the exact
+packet in one invocation:
+
+```bash
+python3 "${CODEX_HOME:-$HOME/.codex}/skills/author-implementation-trackers/scripts/verify_tracker.py" \
+  path/to/proposed-tracker.md --profile full \
+  --revision-packet path/to/program-revision.json \
+  --previous-tracker path/to/current-tracker.md
+```
 
 Also run the repository's documentation checks, changed-test plan, formatting
 checks, and link checks when applicable. Inspect the final diff for stale block
