@@ -507,7 +507,7 @@ the relevant authority and evidence contract.
 | 9 | Metrics and report history workspace | 4, 6 | `accepted` |
 | 10 | Gated administrative operation framework | 2, 4, 5 | `accepted` |
 | 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `accepted` |
-| 12 | On-demand mechanical supervision checks | 7, 10, 11 | `not-started` |
+| 12 | On-demand mechanical supervision checks | 7, 10, 11 | `in-progress` |
 | 13 | Semantic supervision review requests | 7, 10, 11 | `not-started` |
 | 14 | Supervision policy and cadence administration | 7, 10, 11 | `not-started` |
 | 15 | Mission and target/tracker binding repair | 7, 10, 11 | `not-started` |
@@ -3516,7 +3516,7 @@ administration, or semantic lifecycle controls.
 
 ## Block 12 — On-demand mechanical supervision checks
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -3611,7 +3611,27 @@ poll only for the named newer check until the bounded timeout. Stop at
 
 ### Completion evidence
 
-Pending.
+- Activation: Block 12 started automatically from accepted and pushed Block 11
+  checkpoint `8737c0fa37c570c76ac5330f18fbc94fc0ac89a7`; dependencies 7, 10, and 11
+  are accepted, the checkout/upstream were exact at `0 0`, and Blocks 13–25
+  remain unopened.
+- Governing implementation authority: direct-user item 44 at
+  `codex:019fe547-e054-7ca0-9940-ec4aa146df78:019fe572-0536-7692-8505-c8624eefa7ab:item-44`
+  under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+- Execution brief: reuse the accepted Block 10 coordinator, Block 11 task and
+  route-gate owner, current run projection, and canonical supervision ledger.
+  Add one explicit watcher-owned operation whose applied postcondition is one
+  exact newer current-mission `check` record matching the selected target,
+  maintained `watcher-action` purpose, and preview fingerprint. One successful
+  wake is only an intermediate state; no dashboard ledger, retry loop, semantic
+  conclusion, policy change, or later-Block control is introduced.
+- Product-capability review activation: the bounded operation-definition path
+  is selected over a direct endpoint or a generic supervisor command because it
+  preserves the accepted preview/confirmation/currentness lifecycle and the
+  maintained watcher/route owners. Protected behavior is exact target and
+  mission binding, duplicate-active exclusion, at-most-one wake, bounded
+  postcondition polling, and explicit denied/timed-out/unverified truth.
 
 ### Stop
 
