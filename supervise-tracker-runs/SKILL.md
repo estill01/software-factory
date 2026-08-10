@@ -365,10 +365,19 @@ python3 scripts/supervision_log.py adjust \
 
 Before applying or exposing an adaptive choice, call
 `adaptive-decision-gate` with the exact decision fingerprint, disposition,
-judgment/consequence class, reversibility, mission preservation, existing
-permission, review posture, candidate use, safe frontier, and any reserved
-subjects/revisit trigger. The gate records the decision in the existing event
-ledger. In `full-autonomous`, it rejects every human-request attempt: resolve
+judgment/consequence class, target/effect class, reversibility, mission
+preservation, safe frontier, and any reserved subjects/revisit trigger. The
+effect class derives every required permission; a caller cannot substitute a
+weaker permission. Candidate dispositions also require one bounded canonical
+`--candidate-evidence` JSON object that binds owner, source revision, candidate,
+usage, protected-capability, validation, comparison, and currentness roots.
+Never replace it with caller flags or counts. The gate records the decision in
+the existing event ledger. When it returns `automated-independent-review-required`,
+the bound independent reviewer records exactly one disposition through
+`adaptive-decision-review`; rerun the gate with that canonical record ID.
+Neither a boolean nor reviewer prose proves review. In `full-autonomous`, the
+adaptive gate and the existing decision/notification owner both reject or
+suppress every human-request attempt: resolve
 ordinary judgment from current sources, choose the safest reversible supported
 option, or record `reserved-external` with exact blockers and continue the safe
 frontier. Do not send a Resume instruction.

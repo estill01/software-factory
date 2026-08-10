@@ -6675,6 +6675,14 @@ class DecisionResolutionTests(unittest.TestCase):
             supervision_log.cmd_record(args)
         return json.loads(output.getvalue())
 
+    def use_lower_input_mode(self, policy: dict[str, object]) -> None:
+        policy["adaptive_decision_control"] = (
+            supervision_log.adaptive_decision_control_contract("recommend")
+        )
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+
     def test_default_policy_has_fixed_continuation_first_contract(self) -> None:
         policy = supervision_log.default_policy(self.init_args())
         contract = policy["decision_resolution"]
@@ -6740,6 +6748,7 @@ class DecisionResolutionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             policy = supervision_log.default_policy(self.init_args())
+            self.use_lower_input_mode(policy)
             policy["notifications"]["gmail_priority"].update(
                 {
                     "enabled": True,
@@ -6777,10 +6786,50 @@ class DecisionResolutionTests(unittest.TestCase):
             )
             self.assertFalse(active["notification_send_now"])
 
+    def test_full_autonomous_unresolved_attempt_never_opens_human_window(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = supervision_log.default_policy(self.init_args())
+            policy["notifications"]["gmail_priority"].update(
+                {
+                    "enabled": True,
+                    "reply_message_id": "gmail-priority-1234",
+                    "decision_context_enabled": True,
+                }
+            )
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="decision-ready",
+            )
+            self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="attempt-started",
+                attempt=1,
+            )
+            unresolved = self.record(
+                directory,
+                policy,
+                classification="human-preference",
+                phase="attempt-unresolved",
+                attempt=1,
+                now="2026-08-01T12:20:00+00:00",
+            )["record"]
+            gated = self.gate(directory, policy, "2026-08-01T12:20:00+00:00")
+            self.assertEqual(unresolved["human_input_requested_at"], "")
+            self.assertEqual(unresolved["user_deadline_at"], "")
+            self.assertFalse(gated["notification_send_now"])
+            self.assertFalse(gated["human_input_eligible"])
+            self.assertEqual(gated["adaptive_decision_mode"], "full-autonomous")
+
     def test_first_unresolved_attempt_requests_input_and_starts_next_attempt(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             policy = supervision_log.default_policy(self.init_args())
+            self.use_lower_input_mode(policy)
             policy["notifications"]["gmail_priority"].update(
                 {
                     "enabled": True,
@@ -6833,6 +6882,7 @@ class DecisionResolutionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             policy = supervision_log.default_policy(self.init_args())
+            self.use_lower_input_mode(policy)
             self.record(
                 directory,
                 policy,
@@ -6931,7 +6981,7 @@ class DecisionResolutionTests(unittest.TestCase):
 
                     with self.assertRaisesRegex(
                         supervision_log.SupervisionLogError,
-                        "requires all attempts and the user window",
+                        "requires all maintained attempts",
                     ):
                         self.record(
                             directory,
@@ -6947,6 +6997,7 @@ class DecisionResolutionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             policy = supervision_log.default_policy(self.init_args())
+            self.use_lower_input_mode(policy)
             policy["notifications"]["gmail_priority"].update(
                 {
                     "enabled": True,

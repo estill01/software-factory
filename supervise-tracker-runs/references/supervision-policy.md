@@ -203,9 +203,15 @@ review passes. Independent review, resource-exhaustion Stop, and protected-
 regression Stop cannot be disabled. Exceeding a ceiling retires the candidate
 and continues unaffected safe work. The mode never changes repository-write,
 command, skill-maintenance, Gmail, credential, spend, destructive, deployment,
-release, or promotion permissions. Each mutating disposition cites its existing
-`repository_write` permission; a missing permission becomes an exact reserved
-subject rather than an adaptive grant.
+release, or promotion permissions. Each mutating disposition cites an exact
+effect class that deterministically expands to every applicable existing
+permission. Production cutover additionally requires promotion authority;
+skill maintenance requires the allowlisted-skill permission; skill-release
+cutover requires repository, allowlisted-skill, release, and promotion
+permissions. Deployment, destructive action, spend, credential access, and
+external action remain distinct ceilings and cannot be laundered through
+repository write. A missing permission becomes an exact reserved subject rather
+than an adaptive grant.
 
 Before a user-facing question in `full-autonomous`, resolve current sources,
 choose the safest reversible supported option, or retain a bounded assumption
@@ -213,7 +219,11 @@ with a revisit trigger. A genuinely unavailable or out-of-authority act records
 `reserved-external`, exact blocked subjects, the remaining safe frontier, and a
 revisit trigger without requesting a human or Resume action. One bounded
 automated independent review is permitted when required. Equivalent decision
-and currentness state deduplicates in the existing event ledger.
+and currentness state deduplicates in the existing event ledger. The existing
+`decision-record`, `decision-gate`, and decision-notification owner also reads
+the adaptive mode: under `full-autonomous`, unresolved attempts create no human
+deadline or notification and proceed after the bounded attempts to selection or
+safe deferral.
 
 Use the existing policy, event, and status owners:
 
@@ -238,17 +248,44 @@ python3 scripts/supervision_log.py adaptive-decision-gate \
   --judgment-class ordinary-engineering \
   --consequence-class routine \
   --reversible yes --mission-preserving yes \
-  --required-permission repository_write \
-  --independent-review-complete yes \
+  --target-class target-repository \
+  --effect-class implementation-write \
   --safe-frontier <remaining-work>
+
+python3 scripts/supervision_log.py adaptive-decision-gate \
+  --target-thread <target-thread-id> \
+  --decision-id <decision-id> --state-fingerprint <sha256> \
+  --disposition compare-candidate \
+  --judgment-class ordinary-engineering --consequence-class low-moderate \
+  --reversible yes --mission-preserving yes \
+  --target-class target-repository --effect-class candidate-isolated-write \
+  --candidate-evidence <canonical-candidate-evidence.json> \
+  --safe-frontier <remaining-work>
+
+python3 scripts/supervision_log.py adaptive-decision-review \
+  --target-thread <target-thread-id> \
+  --source-decision-record <review-required-event> \
+  --reviewer-id <bound-independent-reviewer> \
+  --review-disposition <accepted|rejected|inconclusive> \
+  --evidence-root <sha256>
+
+python3 scripts/supervision_log.py adaptive-decision-gate \
+  <same-exact-decision-arguments-and-candidate-evidence> \
+  --independent-review-record <canonical-review-event>
 
 python3 scripts/supervision_log.py status \
   --target-thread <target-thread-id>
 ```
 
-`status` exposes the current mode and budget, legacy posture, decision and human-
-request counts, reserved deferrals, latest candidate use, safe frontier, and
-application posture. The adaptive gate records its result in `events.jsonl`
+The candidate evidence is canonical JSON binding the decision/fingerprint,
+target/effect, candidate owner and source revision, candidate and usage roots,
+protected-capability results, validation/comparison roots, and currentness. Its
+review-pass use is zero; the separately owned canonical review event contributes
+the one review pass. `status` exposes the current mode and budget, legacy
+posture, decision and human-request counts across adaptive and existing decision
+paths, independent reviews, reserved deferrals, latest candidate use, safe
+frontier, and application posture. The adaptive gate and review command record
+their results in `events.jsonl`
 through the canonical owner-relative, currentness-checked append path.
 
 ## Factory capability-evolution workflow
