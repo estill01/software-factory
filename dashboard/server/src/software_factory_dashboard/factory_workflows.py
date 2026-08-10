@@ -66,24 +66,57 @@ REVIEW_VARIANTS = {
         "label": "issue follow-up",
     },
 }
-NON_CONCLUSION_REVIEW_STATUSES = frozenset(
-    {
-        "active",
-        "awaiting-conclusion",
-        "awaiting-review",
-        "cancelled",
-        "delivered",
-        "denied",
-        "in-progress",
-        "pending",
-        "queued",
-        "requested",
-        "review-requested",
-        "review-routed",
-        "routed",
-        "started",
-    }
-)
+REVIEW_CONCLUSION_STATUSES = {
+    "checkpoint-review": frozenset(
+        {
+            "accepted",
+            "already-corrected",
+            "correction-issued",
+            "correction-required",
+            "false-positive",
+            "insufficient-evidence",
+            "no-intervention",
+            "rejected",
+            "supported-finding",
+            "superseded",
+            "uncertainty",
+        }
+    ),
+    "meta-review": frozenset(
+        {
+            "accepted",
+            "awaiting-target-evidence",
+            "corrected",
+            "effective",
+            "false-positive",
+            "finding",
+            "ineffective",
+            "insufficient-evidence",
+            "needs-fix",
+            "no-intervention",
+            "observing",
+            "rejected",
+            "superseded",
+            "uncertainty",
+        }
+    ),
+    "resolution": frozenset(
+        {
+            "accepted-risk",
+            "awaiting-target-evidence",
+            "closed",
+            "corrected",
+            "false-positive",
+            "insufficient-evidence",
+            "needs-user-decision",
+            "observing",
+            "steered",
+            "superseded",
+            "uncertainty",
+            "under-review",
+        }
+    ),
+}
 MAX_WORKFLOW_PROMPT = 16_000
 MAX_ROUTE_HELPER_BYTES = 2 * 1024 * 1024
 MISSION_SOURCE_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,239}$"
@@ -2964,11 +2997,14 @@ class FactoryWorkflowOwner:
         return len(markers) == 1 and markers[0] == expected
 
     @staticmethod
-    def _review_status_is_conclusion(value: Any) -> bool:
+    def _review_status_is_conclusion(kind: Any, value: Any) -> bool:
+        allowed = REVIEW_CONCLUSION_STATUSES.get(kind)
+        if allowed is None:
+            return False
         if not isinstance(value, str) or not value.strip():
             return False
         normalized = re.sub(r"[\s_]+", "-", value.strip().lower())
-        return normalized not in NON_CONCLUSION_REVIEW_STATUSES
+        return normalized in allowed
 
     @staticmethod
     def _review_records(
@@ -3034,7 +3070,8 @@ class FactoryWorkflowOwner:
             if (
                 event.get("kind") != expected_kind
                 or not FactoryWorkflowOwner._review_status_is_conclusion(
-                    event.get("status")
+                    expected_kind,
+                    event.get("status"),
                 )
                 or event.get("mission_root") != mission_root
                 or event.get("policy_sha256") != policy_sha256
@@ -3337,6 +3374,9 @@ class FactoryWorkflowOwner:
             "meta": "Run one bounded supervisor-effectiveness meta-review under your maintained reviewer role.",
             "issue": "Review only the exact current open incident head under your maintained notice-outcome reviewer role.",
         }[variant]
+        allowed_statuses = ", ".join(
+            sorted(REVIEW_CONCLUSION_STATUSES[config["expected_kind"]])
+        )
         facts = {
             "target_thread_id": target.id,
             "mission_root": source.evidence["mission_root"],
@@ -3353,6 +3393,7 @@ class FactoryWorkflowOwner:
                 "Do not implement, edit the target, or treat delivery or task terminality as a conclusion.",
                 "Use the canonical supervision owner for the eventual semantic record.",
                 f"Record kind {config['expected_kind']} with the exact state fingerprint and current mission/policy above.",
+                f"Record status as exactly one supported semantic conclusion: {allowed_statuses}.",
                 "Include all four exact evidence references:",
                 f"- dashboard-route-purpose:{config['purpose']}",
                 f"- dashboard-preview:{source.fingerprint}",
@@ -3567,7 +3608,10 @@ class FactoryWorkflowOwner:
                     or event.get("record_id") != f"EVT-{line:06d}"
                     or not isinstance(timestamp, str)
                     or not timestamp
-                    or not self._review_status_is_conclusion(event.get("status"))
+                    or not self._review_status_is_conclusion(
+                        source.evidence["expected_kind"],
+                        event.get("status"),
+                    )
                     or event.get("mission_root") != source.evidence["mission_root"]
                     or event.get("kind") != source.evidence["expected_kind"]
                 ):

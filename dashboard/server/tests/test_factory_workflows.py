@@ -1384,8 +1384,12 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(checkpoint.verify(target, {}, source, dispatched).state, "pending")
         del run["timeline"][0]["evidence"][-4:]
-        run["timeline"][0]["status"] = "routed"
-        self.assertEqual(checkpoint.verify(target, {}, source, dispatched).state, "pending")
+        for non_conclusion_status in ("routed", "request", "awaiting", "unverified"):
+            run["timeline"][0]["status"] = non_conclusion_status
+            self.assertEqual(
+                checkpoint.verify(target, {}, source, dispatched).state,
+                "pending",
+            )
         run["timeline"][0]["status"] = "accepted"
         tasks["reviewer-workflow-001"]["turns"][0]["id"] = "turn-unrelated"
         uncorrelated = checkpoint.verify(target, {}, source, dispatched)
@@ -1421,10 +1425,11 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         malformed_later = checkpoint.verify(target, {}, source, dispatched)
         self.assertTrue(malformed_later.evidence["conclusion_current"])
         run["timeline"][-1]["timestamp"] = "2026-08-10T00:03:00Z"
-        run["timeline"][-1]["status"] = "routed"
-        routed_later = checkpoint.verify(target, {}, source, dispatched)
-        self.assertTrue(routed_later.evidence["conclusion_current"])
-        run["timeline"][-1]["status"] = "superseding-review"
+        for non_conclusion_status in ("routed", "request", "awaiting", "unverified"):
+            run["timeline"][-1]["status"] = non_conclusion_status
+            routed_later = checkpoint.verify(target, {}, source, dispatched)
+            self.assertTrue(routed_later.evidence["conclusion_current"])
+        run["timeline"][-1]["status"] = "rejected"
         superseded = checkpoint.verify(target, {}, source, dispatched)
         self.assertFalse(superseded.evidence["conclusion_current"])
         self.assertEqual(superseded.evidence["conclusion_superseded_by"], "EVT-000006")
