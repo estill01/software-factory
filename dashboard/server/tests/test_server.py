@@ -14,6 +14,7 @@ from typing import Iterator
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 import unittest
+from unittest.mock import patch
 
 from test_tracker import FULL_TRACKER
 from dashboard.server.tests.fake_app_server import write_contract
@@ -24,7 +25,10 @@ from software_factory_dashboard.server import (
     ServerConfig,
     create_server,
 )
-from software_factory_dashboard.operations import DEFAULT_SUPERVISION_OWNER
+from software_factory_dashboard.operations import (
+    DEFAULT_SUPERVISION_OWNER,
+    OperationsProjectionService,
+)
 from software_factory_dashboard.app_server import COMPATIBILITY_PATH
 
 
@@ -821,11 +825,176 @@ class DashboardServerTests(unittest.TestCase):
         )
         self.assertEqual(metrics["data"]["per_run"][0]["status"], "available")
         self.assertEqual(
+            metrics["data"]["per_run"][0]["target_label"],
+            "Operations target",
+        )
+        self.assertFalse(
+            metrics["data"]["factory_history"]["availability"][
+                "continuous_uptime_measured"
+            ]
+        )
+        self.assertEqual(
             metrics["data"]["per_run"][0]["cost_label"],
             "API-equivalent estimate",
         )
         self.assertEqual(missing.status, 404)
         self.assertEqual(json.loads(missing.body)["error"]["code"], "run_not_found")
+
+    def test_report_detail_and_artifact_routes_remain_verified_and_same_origin(self) -> None:
+        target = "report-target-0001"
+        family = "weekly"
+        report_id = "weekly-report-0001"
+        member_name = "report.md"
+        member_body = b"# Verified report\n"
+        member = {
+            "name": member_name,
+            "path": "/source/report.md",
+            "media_type": "text/markdown",
+            "bytes": len(member_body),
+            "sha256": sha256(member_body).hexdigest(),
+            "read_only": True,
+        }
+        report = {
+            "id": report_id,
+            "target_thread_id": target,
+            "family": family,
+            "stage": "verified",
+            "status": "available",
+            "source_root": "1" * 64,
+            "manifest_root": "2" * 64,
+            "disposition": "effective-with-findings",
+            "coverage": None,
+            "review_summary": None,
+            "verification": {"valid": True},
+            "members": [member],
+            "limitations": [],
+            "error": None,
+            "metric_summary": None,
+        }
+        owners = OperationsProjectionService().owner_revisions()
+        projected = {
+            "fingerprint": "3" * 64,
+            "owners": owners,
+            "selected_report": report,
+            "coverage": {"status": "partial", "observed": ["reports"], "missing": []},
+            "limitations": [],
+        }
+
+        with (
+            patch.object(OperationsProjectionService, "report", return_value=projected),
+            patch.object(
+                OperationsProjectionService,
+                "report_member",
+                return_value=(member_body, member),
+            ),
+            running_server(self.static_dir) as origin,
+        ):
+            detail_response = response(
+                f"{origin}/api/v1/reports/{target}/{family}/{report_id}"
+            )
+            detail = json.loads(detail_response.body)
+            inline = response(
+                f"{origin}/api/v1/reports/{target}/{family}/{report_id}/artifacts/{member_name}"
+            )
+            download = response(
+                f"{origin}/api/v1/reports/{target}/{family}/{report_id}/artifacts/{member_name}?download=true"
+            )
+            invalid = response(
+                f"{origin}/api/v1/reports/{target}/{family}/{report_id}/artifacts/{member_name}?raw=true"
+            )
+
+        self.assertEqual(detail_response.status, 200)
+        artifact = detail["data"]["report"]["artifacts"][0]
+        self.assertTrue(artifact["previewable"])
+        self.assertTrue(artifact["preview_url"].startswith("/api/v1/reports/"))
+        self.assertTrue(artifact["download_url"].endswith("?download=true"))
+        self.assertEqual(inline.body, member_body)
+        self.assertEqual(inline.headers["Content-Disposition"], 'inline; filename="report.md"')
+        self.assertEqual(download.headers["Content-Disposition"], 'attachment; filename="report.md"')
+        self.assertEqual(json.loads(invalid.body)["error"]["code"], "invalid_query")
+
+    def test_each_verified_report_family_uses_the_same_bounded_artifact_route(self) -> None:
+        target = "report-target-0002"
+        owners = OperationsProjectionService().owner_revisions()
+        cases = (
+            ("weekly", "verified", "report.md", "text/markdown", b"# Weekly\n"),
+            ("terminal", "verified", "full.pdf", "application/pdf", b"%PDF-test"),
+            (
+                "factory-evolution",
+                "evaluated",
+                "evaluation.json",
+                "application/json",
+                b'{"disposition":"retain"}',
+            ),
+        )
+        for family, stage, member_name, media_type, member_body in cases:
+            with self.subTest(family=family):
+                report_id = f"{family}-report-0001"
+                member = {
+                    "name": member_name,
+                    "path": f"/source/{member_name}",
+                    "media_type": media_type,
+                    "bytes": len(member_body),
+                    "sha256": sha256(member_body).hexdigest(),
+                    "read_only": True,
+                }
+                report = {
+                    "id": report_id,
+                    "target_thread_id": target,
+                    "family": family,
+                    "stage": stage,
+                    "status": "available",
+                    "source_root": "1" * 64,
+                    "manifest_root": "2" * 64,
+                    "disposition": "retain",
+                    "coverage": None,
+                    "review_summary": None,
+                    "verification": {"valid": True},
+                    "members": [member],
+                    "limitations": [],
+                    "error": None,
+                    "metric_summary": None,
+                }
+                projected = {
+                    "fingerprint": "3" * 64,
+                    "owners": owners,
+                    "selected_report": report,
+                    "coverage": {
+                        "status": "partial",
+                        "observed": ["reports"],
+                        "missing": [],
+                    },
+                    "limitations": [],
+                }
+                with (
+                    patch.object(
+                        OperationsProjectionService,
+                        "report",
+                        return_value=projected,
+                    ),
+                    patch.object(
+                        OperationsProjectionService,
+                        "report_member",
+                        return_value=(member_body, member),
+                    ),
+                    running_server(self.static_dir) as origin,
+                ):
+                    detail = json.loads(
+                        response(
+                            f"{origin}/api/v1/reports/{target}/{family}/{report_id}"
+                        ).body
+                    )
+                    artifact = response(
+                        f"{origin}/api/v1/reports/{target}/{family}/{report_id}"
+                        f"/artifacts/{member_name}"
+                    )
+
+                self.assertEqual(
+                    detail["data"]["report"]["artifacts"][0]["preview_url"],
+                    f"/api/v1/reports/{target}/{family}/{report_id}"
+                    f"/artifacts/{member_name}",
+                )
+                self.assertEqual(artifact.body, member_body)
 
 
 if __name__ == "__main__":

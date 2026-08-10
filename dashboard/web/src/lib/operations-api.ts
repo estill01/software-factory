@@ -344,6 +344,40 @@ const operatingTransitionSchema = z
   })
   .strict()
 
+const metricHistoryTransitionSchema = operatingTransitionSchema
+  .extend({
+    target_thread_id: z.string().min(1),
+    target_label: z.string().min(1),
+    project_id: nullableString,
+  })
+  .strict()
+
+const factoryHistorySchema = z
+  .object({
+    definition: z.string().min(1),
+    current_postures: countMapSchema,
+    supervisor_group_count: nonnegativeInteger,
+    bound_project_count: nonnegativeInteger,
+    unmonitored_project_count: nonnegativeInteger,
+    availability: z
+      .object({
+        scheduled_active_hours: z.number().nonnegative(),
+        explicitly_paused_hours: z.number().nonnegative(),
+        recorded_target_read_successes: nonnegativeInteger,
+        recorded_target_read_failures: nonnegativeInteger,
+        continuous_uptime_measured: z.literal(false),
+      })
+      .strict(),
+    conclusions: z
+      .object({ by_kind: countMapSchema, by_category: countMapSchema })
+      .strict(),
+    posture_transition_count: nonnegativeInteger,
+    posture_transitions: z.array(metricHistoryTransitionSchema),
+    posture_transitions_truncated: z.boolean(),
+    unsupported: z.array(z.string().min(1)),
+  })
+  .strict()
+
 const metricCoverageSchema = z
   .object({
     start: z.string().min(1),
@@ -596,6 +630,36 @@ export const supervisionMetricsSchema = z
   })
   .strict()
 
+const reportMetricSummarySchema = supervisionMetricsSchema
+  .extend({
+    line_items: z.array(
+      z
+        .object({
+          active_block: z.string(),
+          category: z.string(),
+          kind: z.string(),
+          record_id: z.string().min(1),
+          severity: z.string(),
+          status: z.string(),
+          summary: z.string(),
+          timestamp: z.string().min(1),
+        })
+        .strict(),
+    ),
+    tooling_changes: z.array(
+      z
+        .object({
+          category: z.string(),
+          record_id: z.string().min(1),
+          status: z.string(),
+          summary: z.string(),
+          timestamp: z.string().min(1),
+        })
+        .strict(),
+    ),
+  })
+  .strict()
+
 const metricsOwner = z.literal("supervise-tracker-runs/scripts/weekly_report.py")
 const metricsProjectionSchema = z.discriminatedUnion("status", [
   z
@@ -695,6 +759,21 @@ export const reportArtifactSchema = z
     members: z.array(reportMemberSchema),
     limitations: z.array(z.string()),
     error: projectionErrorSchema.nullable(),
+  })
+  .strict()
+
+const reportDownloadSchema = reportMemberSchema
+  .extend({
+    previewable: z.boolean(),
+    preview_url: z.string().startsWith(`/api/v1/reports/`).nullable(),
+    download_url: z.string().startsWith(`/api/v1/reports/`).nullable(),
+  })
+  .strict()
+
+export const reportDetailSchema = reportArtifactSchema
+  .extend({
+    metric_summary: reportMetricSummarySchema.nullable(),
+    artifacts: z.array(reportDownloadSchema),
   })
   .strict()
 
@@ -816,6 +895,18 @@ export const reportListEnvelopeSchema = z
   })
   .strict()
 
+export const reportDetailEnvelopeSchema = z
+  .object({
+    data: z
+      .object({
+        owners: ownerBundleSchema,
+        report: reportDetailSchema,
+      })
+      .strict(),
+    ...envelopeMetadata,
+  })
+  .strict()
+
 const aggregateMetricsSchema = z
   .object({
     definition: z.string().min(1),
@@ -843,11 +934,26 @@ export const metricsEnvelopeSchema = z
         recovered_from_previous: z.boolean(),
         owners: ownerBundleSchema,
         aggregate: aggregateMetricsSchema,
+        factory_history: factoryHistorySchema,
         per_run: z.array(
           z.discriminatedUnion("status", [
             z
               .object({
                 target_thread_id: z.string().min(1),
+                target_label: z.string().min(1),
+                supervisor_group_id: fingerprintSchema.nullable(),
+                project_binding: projectBindingSchema,
+                observed_at: z.string().min(1),
+                current_mission_root: fingerprintSchema.nullable(),
+                lifecycle: z
+                  .object({ status: nullableString, record: recordRefSchema.nullable() })
+                  .strict(),
+                light: lightSchema,
+                operating_history: z.array(operatingTransitionSchema),
+                conclusion_counts: z
+                  .object({ by_kind: countMapSchema, by_category: countMapSchema })
+                  .strict(),
+                report_counts: countMapSchema,
                 status: z.literal("available"),
                 cost_label: z.literal("API-equivalent estimate"),
                 metrics: supervisionMetricsSchema,
@@ -857,6 +963,20 @@ export const metricsEnvelopeSchema = z
             z
               .object({
                 target_thread_id: z.string().min(1),
+                target_label: z.string().min(1),
+                supervisor_group_id: fingerprintSchema.nullable(),
+                project_binding: projectBindingSchema,
+                observed_at: z.string().min(1),
+                current_mission_root: fingerprintSchema.nullable(),
+                lifecycle: z
+                  .object({ status: nullableString, record: recordRefSchema.nullable() })
+                  .strict(),
+                light: lightSchema,
+                operating_history: z.array(operatingTransitionSchema),
+                conclusion_counts: z
+                  .object({ by_kind: countMapSchema, by_category: countMapSchema })
+                  .strict(),
+                report_counts: countMapSchema,
                 status: z.literal("unavailable"),
                 cost_label: z.literal("API-equivalent estimate"),
                 metrics: z.null(),
@@ -874,9 +994,11 @@ export const metricsEnvelopeSchema = z
 export type RunSummary = z.infer<typeof runSummarySchema>
 export type RunDetail = z.infer<typeof runDetailSchema>
 export type ReportArtifact = z.infer<typeof reportArtifactSchema>
+export type ReportDetail = z.infer<typeof reportDetailSchema>
 export type RunListEnvelope = z.infer<typeof runListEnvelopeSchema>
 export type RunDetailEnvelope = z.infer<typeof runDetailEnvelopeSchema>
 export type ReportListEnvelope = z.infer<typeof reportListEnvelopeSchema>
+export type ReportDetailEnvelope = z.infer<typeof reportDetailEnvelopeSchema>
 export type MetricsEnvelope = z.infer<typeof metricsEnvelopeSchema>
 
 async function parsedResponse<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
@@ -915,6 +1037,49 @@ export async function fetchReports(signal?: AbortSignal): Promise<ReportListEnve
     await fetch("/api/v1/reports", { headers: { Accept: "application/json" }, signal }),
     reportListEnvelopeSchema,
   )
+}
+
+const reportIdentityPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{3,127}$/
+
+export async function fetchReport(
+  targetThreadId: string,
+  family: ReportArtifact["family"],
+  reportId: string,
+  signal?: AbortSignal,
+): Promise<ReportDetailEnvelope> {
+  if (!reportIdentityPattern.test(targetThreadId) || !reportIdentityPattern.test(reportId)) {
+    throw new Error("Report identity is invalid.")
+  }
+  const path = [targetThreadId, family, reportId].map(encodeURIComponent).join("/")
+  return parsedResponse(
+    await fetch(`/api/v1/reports/${path}`, {
+      headers: { Accept: "application/json" },
+      signal,
+    }),
+    reportDetailEnvelopeSchema,
+  )
+}
+
+export async function fetchReportArtifactText(
+  artifactUrl: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  if (!/^\/api\/v1\/reports\/[A-Za-z0-9%._:-]+\/[A-Za-z0-9%._:-]+\/[A-Za-z0-9%._:-]+\/artifacts\/[A-Za-z0-9%._:-]+$/.test(artifactUrl)) {
+    throw new Error("Report artifact URL is invalid.")
+  }
+  const response = await fetch(artifactUrl, {
+    headers: { Accept: "application/json, text/markdown" },
+    signal,
+  })
+  if (!response.ok) {
+    const payload: unknown = await response.json()
+    throw new DashboardApiError(response.status, apiErrorEnvelopeSchema.parse(payload))
+  }
+  const contentType = response.headers.get("Content-Type")?.split(";", 1)[0]
+  if (contentType !== "application/json" && contentType !== "text/markdown") {
+    throw new Error("Report artifact is not a previewable text type.")
+  }
+  return response.text()
 }
 
 export async function fetchMetrics(signal?: AbortSignal): Promise<MetricsEnvelope> {

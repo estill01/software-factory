@@ -75,5 +75,5 @@ export function SafeMarkdown({ markdown }: { markdown: string }) {
     blocks.push(<p key={`paragraph:${index}`}>{paragraph.join(" ")}</p>)
   }
 
-  return <div className="safe-markdown">{blocks}</div>
+  return <div className="safe-markdown" tabIndex={0}>{blocks}</div>
 }

@@ -14,7 +14,7 @@ from time import monotonic
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Sequence
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from .app_server import COMPATIBILITY_PATH, AppServerError, CodexAppServerClient
 
@@ -49,6 +49,7 @@ NONCE_PLACEHOLDER = "__SOFTWARE_FACTORY_MUTATION_NONCE__"
 LOOPBACK_HOSTS = {"127.0.0.1", "localhost"}
 FLOOR_CACHE_SECONDS = 2.0
 MAX_TRACKER_SOURCE_LINES = 5_000
+MAX_INLINE_REPORT_BYTES = 2 * 1024 * 1024
 
 
 class DashboardConfigurationError(ValueError):
@@ -165,12 +166,15 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         *,
         content_type: str,
         cache_control: str = "no-store",
+        content_disposition: str | None = None,
     ) -> None:
         try:
             self.send_response(status.value)
             self._send_security_headers()
             self.send_header("Cache-Control", cache_control)
             self.send_header("Content-Type", content_type)
+            if content_disposition is not None:
+                self.send_header("Content-Disposition", content_disposition)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             if self.command != "HEAD":
@@ -846,6 +850,142 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             return
         self._write_json(HTTPStatus.OK, payload)
 
+    @staticmethod
+    def _report_artifact_url(
+        target_thread_id: str,
+        family: str,
+        report_id: str,
+        member_name: str,
+        *,
+        download: bool = False,
+    ) -> str:
+        segments = (
+            target_thread_id,
+            family,
+            report_id,
+            "artifacts",
+            member_name,
+        )
+        path = f"/api/{API_VERSION}/reports/" + "/".join(
+            quote(segment, safe="") for segment in segments
+        )
+        return f"{path}?download=true" if download else path
+
+    def _write_report(
+        self,
+        target_thread_id: str,
+        family: str,
+        report_id: str,
+    ) -> None:
+        try:
+            snapshot = self.server.operations_service.report(
+                self._active_projects(), target_thread_id, family, report_id
+            )
+            report = snapshot["selected_report"]
+            verified = report["status"] == "available" and isinstance(
+                report.get("verification"), dict
+            )
+            artifacts = []
+            for member in report["members"]:
+                supported = member["media_type"] in {
+                    "application/json",
+                    "application/pdf",
+                    "text/markdown",
+                }
+                previewable = verified and supported and member["bytes"] <= MAX_INLINE_REPORT_BYTES
+                downloadable = verified and supported
+                artifacts.append(
+                    {
+                        **member,
+                        "previewable": previewable,
+                        "preview_url": self._report_artifact_url(
+                            target_thread_id,
+                            family,
+                            report_id,
+                            member["name"],
+                        )
+                        if previewable
+                        else None,
+                        "download_url": self._report_artifact_url(
+                            target_thread_id,
+                            family,
+                            report_id,
+                            member["name"],
+                            download=True,
+                        )
+                        if downloadable
+                        else None,
+                    }
+                )
+            payload = self._operations_envelope(
+                identity=(
+                    "software-factory-dashboard/reports/"
+                    f"{target_thread_id}/{family}/{report_id}"
+                ),
+                revision=report["manifest_root"] or snapshot["fingerprint"],
+                data={
+                    "owners": snapshot["owners"],
+                    "report": {**report, "artifacts": artifacts},
+                },
+                coverage=snapshot["coverage"],
+                limitations=snapshot["limitations"]
+                + [
+                    "Artifact URLs are exact same-origin reads from the currently verified bundle; no report is generated or adopted.",
+                    "Unavailable or partial report sets remain inspectable as metadata but their members are not served.",
+                ],
+            )
+        except (CatalogError, OperationsProjectionError) as error:
+            self._error(
+                HTTPStatus(error.status),
+                error.code,
+                str(error),
+                retryable=error.retryable,
+            )
+            return
+        self._write_json(HTTPStatus.OK, payload)
+
+    def _write_report_artifact(
+        self,
+        target_thread_id: str,
+        family: str,
+        report_id: str,
+        member_name: str,
+        query: str,
+    ) -> None:
+        if query not in {"", "download=true"}:
+            self._error(
+                HTTPStatus.BAD_REQUEST,
+                "invalid_query",
+                "Report artifacts accept only download=true.",
+            )
+            return
+        try:
+            raw, member = self.server.operations_service.report_member(
+                self._active_projects(),
+                target_thread_id,
+                family,
+                report_id,
+                member_name,
+            )
+        except (CatalogError, OperationsProjectionError) as error:
+            self._error(
+                HTTPStatus(error.status),
+                error.code,
+                str(error),
+                retryable=error.retryable,
+            )
+            return
+        disposition = "attachment" if query == "download=true" else "inline"
+        self._write(
+            HTTPStatus.OK,
+            raw,
+            content_type=f"{member['media_type']}; charset=utf-8"
+            if member["media_type"] != "application/pdf"
+            else "application/pdf",
+            cache_control="no-store",
+            content_disposition=f'{disposition}; filename="{member_name}"',
+        )
+
     def _write_metrics(self) -> None:
         try:
             snapshot, catalog_fingerprint, recovered = self._operations_snapshot()
@@ -857,6 +997,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                     "recovered_from_previous": recovered,
                     "owners": snapshot["owners"],
                     "aggregate": snapshot["metrics"]["aggregate"],
+                    "factory_history": snapshot["metrics"]["factory_history"],
                     "per_run": snapshot["metrics"]["per_run"],
                 },
                 coverage=snapshot["coverage"],
@@ -1675,6 +1816,35 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 self._error(HTTPStatus.BAD_REQUEST, "invalid_query", "Reports does not accept query parameters.")
             else:
                 self._write_reports()
+            return
+        report_prefix = f"/api/{API_VERSION}/reports/"
+        if decoded_path.startswith(report_prefix):
+            suffix = decoded_path[len(report_prefix) :]
+            parts = suffix.split("/")
+            if len(parts) == 3 and all(parts):
+                if urlsplit(self.path).query:
+                    self._error(
+                        HTTPStatus.BAD_REQUEST,
+                        "invalid_query",
+                        "Report detail does not accept query parameters.",
+                    )
+                else:
+                    self._write_report(parts[0], parts[1], parts[2])
+                return
+            if len(parts) == 5 and parts[3] == "artifacts" and all(parts):
+                self._write_report_artifact(
+                    parts[0],
+                    parts[1],
+                    parts[2],
+                    parts[4],
+                    urlsplit(self.path).query,
+                )
+                return
+            self._error(
+                HTTPStatus.BAD_REQUEST,
+                "invalid_report_path",
+                "Report path is invalid.",
+            )
             return
         if decoded_path == f"/api/{API_VERSION}/metrics":
             if urlsplit(self.path).query:

@@ -15,5 +15,6 @@ describe("SafeMarkdown", () => {
     expect(screen.getByText("echo safe")).toBeVisible()
     expect(container.querySelector("script")).toBeNull()
     expect(container.querySelector("a")).toBeNull()
+    expect(container.querySelector(".safe-markdown")).toHaveAttribute("tabindex", "0")
   })
 })

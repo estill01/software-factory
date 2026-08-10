@@ -257,6 +257,83 @@ test("three-project floor keeps operations, attention, outcomes, and partial tru
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
 })
 
+test("live metrics and report history remain source-backed and read-only", async ({ page }) => {
+  await page.goto("/reports")
+
+  await expect(page.getByRole("heading", { name: "Reports", level: 1 })).toBeVisible()
+  await expect(page.locator("h1")).toHaveCount(1)
+  await expect(page.getByRole("region", { name: "Delivery" })).toBeVisible()
+  await expect(page.getByRole("region", { name: "Reliability" })).toBeVisible()
+  await expect(page.getByRole("region", { name: "Review" })).toBeVisible()
+  await expect(page.getByRole("region", { name: "Resources" })).toContainText(
+    "API-equivalent estimate",
+  )
+  await expect(page.getByRole("region", { name: "Trend" })).toContainText(
+    "Exact accessible values",
+  )
+  await expect(page.getByRole("region", { name: "Factory history" })).toContainText(
+    "supervisor groups",
+  )
+
+  await page.getByRole("button", { name: "Reports", exact: true }).click()
+  const history = page.getByRole("region", { name: "History" })
+  await expect(history).toBeVisible()
+  await expect(history.getByText("invalid", { exact: true }).first()).toBeVisible()
+
+  const invalidRow = history.locator("tbody tr").filter({ hasText: "invalid" }).first()
+  await invalidRow.getByRole("button").click()
+  const invalidDetail = page.getByRole("region", { name: "Detail" })
+  await expect(invalidDetail.getByRole("alert")).toContainText("metadata-only")
+  await expect(invalidDetail.getByRole("link", { name: "Open" })).toHaveCount(0)
+
+  const verifiedRow = history.locator("tbody tr").filter({ hasText: "verified" }).first()
+  await expect(verifiedRow).toBeVisible()
+  await verifiedRow.getByRole("button").click()
+  const detail = page.getByRole("region", { name: "Detail" })
+  await expect(detail).toContainText("Source root")
+  await expect(detail).toContainText("Manifest root")
+  await expect(detail.getByRole("link", { name: "Open" })).toHaveAttribute(
+    "href",
+    /\/api\/v1\/reports\/.+\/artifacts\/report\.pdf$/,
+  )
+  await expect(page.getByRole("button", { name: /generate|adopt|accept/i })).toHaveCount(0)
+  const markdownArtifact = detail.locator(".report-artifact-list > div").filter({ hasText: "report.md" })
+  await markdownArtifact.getByRole("button", { name: "Preview" }).click()
+  await expect(detail.locator(".safe-markdown")).toContainText(
+    "Supervision weekly review",
+    { timeout: 30_000 },
+  )
+
+  const results = await new AxeBuilder({ page }).analyze()
+  expect(
+    results.violations.filter(({ impact }) => impact === "serious" || impact === "critical"),
+  ).toEqual([])
+  const themeToggle = page.getByRole("button", { name: /Switch to (light|dark) mode/ })
+  const initialTheme = await page.locator("html").getAttribute("data-theme")
+  await themeToggle.click()
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-theme",
+    initialTheme === "dark" ? "light" : "dark",
+  )
+  await page.waitForTimeout(250)
+  const alternateThemeResults = await new AxeBuilder({ page }).analyze()
+  expect(
+    alternateThemeResults.violations.filter(
+      ({ impact }) => impact === "serious" || impact === "critical",
+    ),
+  ).toEqual([])
+
+  await page.emulateMedia({ media: "print" })
+  await expect(page.locator(".report-mode-toolbar")).toBeHidden()
+  await expect(detail).toBeVisible()
+  await page.emulateMedia({ media: "screen" })
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+})
+
 test("catalog views preserve bounded discovery, failures, and archive consequences", async ({ page }) => {
   const alpha = project("alpha", "available")
   const beta = project("beta", "unavailable")

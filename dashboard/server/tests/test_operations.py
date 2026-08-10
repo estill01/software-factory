@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime
+from hashlib import sha256
 import importlib.util
 import json
 from pathlib import Path
@@ -18,6 +19,7 @@ from software_factory_dashboard.operations import (
     DEFAULT_SUPERVISION_OWNER,
     DEFAULT_TERMINAL_OWNER,
     DEFAULT_WEEKLY_OWNER,
+    OperationsProjectionError,
     OperationsProjectionService,
 )
 
@@ -438,6 +440,105 @@ class OperationsProjectionTests(unittest.TestCase):
         )
         self.assertEqual(broken_metrics["status"], "unavailable")
         self.assertEqual(broken_metrics["cost_label"], "API-equivalent estimate")
+
+    def test_metric_workspace_context_and_verified_artifact_boundary(self) -> None:
+        snapshot = self.service.snapshot(self.projects)
+        metric_run = next(
+            item
+            for item in snapshot["metrics"]["per_run"]
+            if item["target_thread_id"] == TARGET
+        )
+        history = snapshot["metrics"]["factory_history"]
+
+        self.assertEqual(metric_run["target_label"], TARGET)
+        self.assertIsNotNone(metric_run["supervisor_group_id"])
+        self.assertEqual(metric_run["project_binding"]["project_id"], "demo")
+        self.assertEqual(metric_run["current_mission_root"], NEW_MISSION)
+        self.assertEqual(metric_run["cost_label"], "API-equivalent estimate")
+        self.assertIn("meta-review", metric_run["conclusion_counts"]["by_kind"])
+        self.assertEqual(history["bound_project_count"], 1)
+        self.assertEqual(history["unmonitored_project_count"], 1)
+        self.assertFalse(history["availability"]["continuous_uptime_measured"])
+        self.assertTrue(
+            any("concurrent implementation" in item for item in history["unsupported"])
+        )
+        self.assertTrue(
+            any("late or missed-check" in item for item in history["unsupported"])
+        )
+
+        report_root = (
+            self.supervision_root
+            / TARGET
+            / "reports"
+            / "weekly"
+            / "weekly-verified-test"
+        )
+        report_root.mkdir(parents=True)
+        member_path = report_root / "report.md"
+        member_path.write_text("# Verified\n", encoding="utf-8")
+        raw = member_path.read_bytes()
+        selected = {
+            "id": report_root.name,
+            "target_thread_id": TARGET,
+            "family": "weekly",
+            "stage": "verified",
+            "status": "available",
+            "verification": {"valid": True},
+            "members": [
+                {
+                    "name": member_path.name,
+                    "path": str(member_path),
+                    "media_type": "text/markdown",
+                    "bytes": len(raw),
+                    "sha256": sha256(raw).hexdigest(),
+                    "read_only": True,
+                }
+            ],
+        }
+
+        loaded, member = self.service._read_selected_report_member(
+            selected, member_name="report.md"
+        )
+        self.assertEqual(loaded, raw)
+        self.assertEqual(member["sha256"], sha256(raw).hexdigest())
+
+        member_path.write_text("# Changed\n", encoding="utf-8")
+        with self.assertRaisesRegex(OperationsProjectionError, "changed after verification"):
+            self.service._read_selected_report_member(
+                selected, member_name="report.md"
+            )
+
+        unverified = {
+            **selected,
+            "status": "unavailable",
+            "stage": "partial",
+            "verification": None,
+        }
+        with self.assertRaisesRegex(OperationsProjectionError, "currently verified"):
+            self.service._read_selected_report_member(
+                unverified, member_name="report.md"
+            )
+
+        outside_path = self.root / "outside-report.md"
+        outside_path.write_text("# Outside\n", encoding="utf-8")
+        outside_raw = outside_path.read_bytes()
+        outside = {
+            **selected,
+            "members": [
+                {
+                    "name": "outside-report.md",
+                    "path": str(outside_path),
+                    "media_type": "text/markdown",
+                    "bytes": len(outside_raw),
+                    "sha256": sha256(outside_raw).hexdigest(),
+                    "read_only": True,
+                }
+            ],
+        }
+        with self.assertRaisesRegex(OperationsProjectionError, "outside its verified bundle"):
+            self.service._read_selected_report_member(
+                outside, member_name="outside-report.md"
+            )
 
     def test_nested_source_symlinks_fail_locally_without_becoming_discovery(self) -> None:
         broken_policy = self.supervision_root / BROKEN_TARGET / "policy.json"

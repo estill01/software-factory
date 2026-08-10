@@ -42,6 +42,7 @@ MAX_TIMELINE_RECORDS = 2_500
 MAX_RECENT_RECORDS = 250
 MAX_REPORT_SETS = 250
 MAX_CACHE_ENTRIES = 256
+MAX_METRIC_HISTORY_ROWS = 1_000
 OWNER_TIMEOUT_SECONDS = 30
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{3,127}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -1943,16 +1944,102 @@ class OperationsProjectionService:
         ]
         aggregate_headline: Counter[str] = Counter()
         cost_totals: Counter[str] = Counter()
-        per_run_metrics = [
-            {
-                "target_thread_id": run["target_thread_id"],
-                "status": run["metrics"]["status"],
-                "cost_label": "API-equivalent estimate",
-                "metrics": run["metrics"]["metrics"],
-                "error": run["metrics"]["error"],
-            }
-            for run in runs
-        ]
+        per_run_metrics = []
+        posture_transitions: list[dict[str, Any]] = []
+        current_postures: Counter[str] = Counter()
+        conclusion_kinds: Counter[str] = Counter()
+        conclusion_categories: Counter[str] = Counter()
+        scheduled_active_hours = 0.0
+        explicitly_paused_hours = 0.0
+        target_read_successes = 0
+        target_read_failures = 0
+        for run in runs:
+            metrics_projection = run["metrics"]
+            conclusions = run.get("conclusions", [])
+            per_run_metrics.append(
+                {
+                    "target_thread_id": run["target_thread_id"],
+                    "target_label": run["target_label"],
+                    "supervisor_group_id": (
+                        run.get("topology", {}).get("supervisor_group_id")
+                        if isinstance(run.get("topology"), Mapping)
+                        else None
+                    ),
+                    "project_binding": run["project_binding"],
+                    "observed_at": run["observed_at"],
+                    "current_mission_root": (
+                        run.get("current_mission", {}).get("root")
+                        if isinstance(run.get("current_mission"), Mapping)
+                        else None
+                    ),
+                    "lifecycle": run["lifecycle"],
+                    "light": run["light"],
+                    "operating_history": run.get("operating_history", []),
+                    "conclusion_counts": {
+                        "by_kind": dict(
+                            sorted(
+                                Counter(
+                                    str(item.get("kind") or "unavailable")
+                                    for item in conclusions
+                                ).items()
+                            )
+                        ),
+                        "by_category": dict(
+                            sorted(
+                                Counter(
+                                    str(item.get("category") or "unavailable")
+                                    for item in conclusions
+                                ).items()
+                            )
+                        ),
+                    },
+                    "report_counts": dict(run.get("counts", {}).get("reports", {}))
+                    if isinstance(run.get("counts"), Mapping)
+                    else {},
+                    "status": metrics_projection["status"],
+                    "cost_label": "API-equivalent estimate",
+                    "metrics": metrics_projection["metrics"],
+                    "error": metrics_projection["error"],
+                }
+            )
+            current_postures[str(run.get("light", {}).get("posture", "unavailable"))] += 1
+            for conclusion in conclusions:
+                conclusion_kinds[str(conclusion.get("kind") or "unavailable")] += 1
+                conclusion_categories[str(conclusion.get("category") or "unavailable")] += 1
+            for transition in run.get("operating_history", []):
+                posture_transitions.append(
+                    {
+                        "target_thread_id": run["target_thread_id"],
+                        "target_label": run["target_label"],
+                        "project_id": run.get("project_binding", {}).get("project_id"),
+                        **transition,
+                    }
+                )
+            if metrics_projection.get("status") != "available":
+                continue
+            metric_body = metrics_projection.get("metrics")
+            availability = (
+                metric_body.get("availability", {})
+                if isinstance(metric_body, Mapping)
+                else {}
+            )
+            scheduled_active_hours += float(
+                availability.get("core_heartbeats_scheduled_active_hours", 0) or 0
+            )
+            explicitly_paused_hours += float(
+                availability.get("core_heartbeats_explicitly_paused_hours", 0) or 0
+            )
+            target_read_successes += int(
+                availability.get("recorded_target_read_successes", 0) or 0
+            )
+            target_read_failures += int(
+                availability.get("recorded_target_read_failures", 0) or 0
+            )
+        posture_transitions.sort(
+            key=lambda item: str(item.get("record", {}).get("timestamp") or "")
+        )
+        posture_transition_total = len(posture_transitions)
+        posture_transitions = posture_transitions[-MAX_METRIC_HISTORY_ROWS:]
         for _target, metrics in available_metrics:
             headline = metrics.get("headline", {}) if isinstance(metrics, Mapping) else {}
             for key, value in headline.items():
@@ -1991,6 +2078,46 @@ class OperationsProjectionService:
             "limitations": [
                 "Cross-run incident resolution percentiles are not synthesized because the maintained owner does not expose merge-safe sufficient statistics; exact median/P90 remain available per run.",
                 "Counts exclude predecessor-only mission records and never imply implementation quality or completion.",
+            ],
+        }
+        factory_history = {
+            "definition": (
+                "Bounded current-mission supervision history from maintained run "
+                "projections; task concurrency and unrecorded no-op wakes are not inferred."
+            ),
+            "current_postures": dict(sorted(current_postures.items())),
+            "supervisor_group_count": len(
+                {
+                    str(run["topology"]["supervisor_group_id"])
+                    for run in runs
+                    if isinstance(run.get("topology"), Mapping)
+                    and run["topology"].get("supervisor_group_id")
+                }
+            ),
+            "bound_project_count": len(bound_project_ids),
+            "unmonitored_project_count": len(unmonitored_projects),
+            "availability": {
+                "scheduled_active_hours": round(scheduled_active_hours, 4),
+                "explicitly_paused_hours": round(explicitly_paused_hours, 4),
+                "recorded_target_read_successes": target_read_successes,
+                "recorded_target_read_failures": target_read_failures,
+                "continuous_uptime_measured": False,
+            },
+            "conclusions": {
+                "by_kind": dict(sorted(conclusion_kinds.items())),
+                "by_category": dict(sorted(conclusion_categories.items())),
+            },
+            "posture_transition_count": posture_transition_total,
+            "posture_transitions": posture_transitions,
+            "posture_transitions_truncated": (
+                posture_transition_total > len(posture_transitions)
+            ),
+            "unsupported": [
+                "Historical concurrent implementation count is unavailable because the canonical task owner exposes bounded current pages, not a retained task-state timeline.",
+                "Unmonitored duration is unavailable; registered projects without a current exact run binding are a present-time count only.",
+                "Traffic-light transition times do not establish time-in-posture without a complete interval boundary.",
+                "Historical late or missed-check intervals are unavailable; current cadence warnings remain source-grounded light facts on each run.",
+                "Generalized issue-recurrence rates are unavailable from merge-safe current metrics; exact incident and report evidence remains in source drill-downs.",
             ],
         }
         current_owner_hashes = {
@@ -2041,7 +2168,11 @@ class OperationsProjectionService:
             "orphan_automations": orphan_automations,
             "unmonitored_projects": unmonitored_projects,
             "reports": reports,
-            "metrics": {"aggregate": aggregate, "per_run": per_run_metrics},
+            "metrics": {
+                "aggregate": aggregate,
+                "factory_history": factory_history,
+                "per_run": per_run_metrics,
+            },
             "coverage": {
                 "status": "partial",
                 "observed": observed,
@@ -2063,3 +2194,157 @@ class OperationsProjectionService:
                 "run_not_found", "Supervision target is not discoverable.", status=404
             )
         return {**snapshot, "selected_run": selected}
+
+    def _selected_report(
+        self,
+        projects: Sequence[ProjectRecord],
+        target_thread_id: str,
+        family: str,
+        report_id: str,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        if not SAFE_ID.fullmatch(target_thread_id):
+            raise OperationsProjectionError("invalid_run_id", "Run target ID is invalid.")
+        if family not in {"weekly", "terminal", "factory-evolution"}:
+            raise OperationsProjectionError("invalid_report_family", "Report family is invalid.")
+        if not SAFE_ID.fullmatch(report_id):
+            raise OperationsProjectionError("invalid_report_id", "Report ID is invalid.")
+        snapshot = self.snapshot(projects)
+        selected = next(
+            (
+                report
+                for report in snapshot["reports"]
+                if report["target_thread_id"] == target_thread_id
+                and report["family"] == family
+                and report["id"] == report_id
+            ),
+            None,
+        )
+        if selected is None:
+            raise OperationsProjectionError(
+                "report_not_found", "Report artifact set is not discoverable.", status=404
+            )
+        return snapshot, selected
+
+    def _read_selected_report_member(
+        self,
+        selected: Mapping[str, Any],
+        *,
+        member_name: str,
+    ) -> tuple[bytes, dict[str, Any]]:
+        if selected.get("status") != "available" or not isinstance(
+            selected.get("verification"), Mapping
+        ):
+            raise OperationsProjectionError(
+                "report_not_verified",
+                "Artifacts are served only from a currently verified report set.",
+                status=409,
+            )
+        if not SAFE_ID.fullmatch(member_name):
+            raise OperationsProjectionError(
+                "invalid_report_member", "Report member name is invalid."
+            )
+        member = next(
+            (item for item in selected.get("members", []) if item.get("name") == member_name),
+            None,
+        )
+        if member is None:
+            raise OperationsProjectionError(
+                "report_member_not_found", "Report member is not discoverable.", status=404
+            )
+        if member.get("media_type") not in {
+            "application/json",
+            "application/pdf",
+            "text/markdown",
+        }:
+            raise OperationsProjectionError(
+                "report_member_type_unsupported",
+                "Only verified JSON, Markdown, and PDF report members are served.",
+                status=415,
+            )
+        target = str(selected["target_thread_id"])
+        family = str(selected["family"])
+        report_id = str(selected["id"])
+        relative_root = (
+            Path("learning") / "factory-evolution"
+            if family == "factory-evolution"
+            else Path("reports") / family
+        )
+        expected_root = self.supervision_root / target / relative_root / report_id
+        path = Path(str(member.get("path", "")))
+        try:
+            if expected_root.is_symlink() or path.is_symlink():
+                raise OSError("symlinked report member")
+            resolved_root = expected_root.resolve(strict=True)
+            resolved_path = path.resolve(strict=True)
+        except OSError as exc:
+            raise OperationsProjectionError(
+                "report_member_unavailable",
+                "Verified report member is no longer available at its exact source.",
+                status=409,
+                retryable=True,
+            ) from exc
+        if resolved_path.parent != resolved_root or not resolved_path.is_file():
+            raise OperationsProjectionError(
+                "report_member_outside_bundle",
+                "Report member is outside its verified bundle.",
+                status=403,
+            )
+        raw = _read_bounded(resolved_path, MAX_REPORT_ARTIFACT_BYTES)
+        if len(raw) != member.get("bytes") or sha256(raw).hexdigest() != member.get("sha256"):
+            raise OperationsProjectionError(
+                "report_member_changed",
+                "Report member changed after verification; refresh the report projection.",
+                status=409,
+                retryable=True,
+            )
+        return raw, dict(member)
+
+    def report(
+        self,
+        projects: Sequence[ProjectRecord],
+        target_thread_id: str,
+        family: str,
+        report_id: str,
+    ) -> dict[str, Any]:
+        snapshot, selected = self._selected_report(
+            projects, target_thread_id, family, report_id
+        )
+        metric_summary: dict[str, Any] | None = None
+        if selected.get("status") == "available" and family == "weekly":
+            raw, _member = self._read_selected_report_member(
+                selected, member_name="metrics.json"
+            )
+            try:
+                parsed = json.loads(raw)
+            except (UnicodeError, json.JSONDecodeError) as exc:
+                raise OperationsProjectionError(
+                    "report_metric_summary_invalid",
+                    "Verified weekly metric summary is not valid JSON.",
+                    status=422,
+                ) from exc
+            if not isinstance(parsed, dict):
+                raise OperationsProjectionError(
+                    "report_metric_summary_invalid",
+                    "Verified weekly metric summary is not an object.",
+                    status=422,
+                )
+            metric_summary = parsed
+        return {
+            **snapshot,
+            "selected_report": {**selected, "metric_summary": metric_summary},
+        }
+
+    def report_member(
+        self,
+        projects: Sequence[ProjectRecord],
+        target_thread_id: str,
+        family: str,
+        report_id: str,
+        member_name: str,
+    ) -> tuple[bytes, dict[str, Any]]:
+        _snapshot, selected = self._selected_report(
+            projects, target_thread_id, family, report_id
+        )
+        return self._read_selected_report_member(
+            selected, member_name=member_name
+        )

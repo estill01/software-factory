@@ -2,12 +2,15 @@ import { describe, expect, it, vi } from "vitest"
 
 import { DashboardApiError } from "@/lib/api"
 import {
+  fetchReport,
+  fetchReportArtifactText,
   fetchMetrics,
   fetchReports,
   fetchRun,
   fetchRuns,
   metricsEnvelopeSchema,
   reportArtifactSchema,
+  reportDetailEnvelopeSchema,
   reportListEnvelopeSchema,
   runDetailEnvelopeSchema,
   runListEnvelopeSchema,
@@ -365,6 +368,31 @@ const metrics = {
   ],
 } as const
 
+const reportMetricSummary = {
+  ...metrics,
+  line_items: [
+    {
+      active_block: "1",
+      category: "integrity",
+      kind: "incident",
+      record_id: "EVT-000003",
+      severity: "high",
+      status: "detected",
+      summary: "Source integrity failure detected.",
+      timestamp: "2026-08-09T11:20:00+00:00",
+    },
+  ],
+  tooling_changes: [
+    {
+      category: "supervision-maintenance",
+      record_id: "EVT-000002",
+      status: "configured",
+      summary: "Maintained watcher policy updated.",
+      timestamp: "2026-08-09T11:10:00+00:00",
+    },
+  ],
+} as const
+
 const report = {
   id: "weekly-demo",
   target_thread_id: "target-thread-1",
@@ -558,6 +586,25 @@ const reportEnvelope = {
   },
 } as const
 
+const reportDetailEnvelope = {
+  ...reportEnvelope,
+  data: {
+    owners,
+    report: {
+      ...report,
+      metric_summary: reportMetricSummary,
+      artifacts: [
+        {
+          ...report.members[0],
+          previewable: true,
+          preview_url: "/api/v1/reports/target-thread-1/weekly/weekly-demo/artifacts/report.pdf",
+          download_url: "/api/v1/reports/target-thread-1/weekly/weekly-demo/artifacts/report.pdf?download=true",
+        },
+      ],
+    },
+  },
+} as const
+
 const metricsEnvelope = {
   ...runListEnvelope,
   data: {
@@ -578,9 +625,52 @@ const metricsEnvelope = {
       },
       limitations: ["No synthetic cross-run percentiles."],
     },
+    factory_history: {
+      definition: "Bounded current-mission supervision history.",
+      current_postures: { red: 2 },
+      supervisor_group_count: 1,
+      bound_project_count: 1,
+      unmonitored_project_count: 0,
+      availability: {
+        scheduled_active_hours: 1,
+        explicitly_paused_hours: 0,
+        recorded_target_read_successes: 1,
+        recorded_target_read_failures: 0,
+        continuous_uptime_measured: false,
+      },
+      conclusions: {
+        by_kind: { "meta-review": 1 },
+        by_category: { "effectiveness-review": 1 },
+      },
+      posture_transition_count: 1,
+      posture_transitions: [{
+        target_thread_id: "target-thread-1",
+        target_label: "Demo target",
+        project_id: "demo",
+        from: "neutral",
+        to: "red",
+        trigger: "open-high",
+        record,
+      }],
+      posture_transitions_truncated: false,
+      unsupported: ["Task concurrency history is unavailable."],
+    },
     per_run: [
       {
         target_thread_id: "target-thread-1",
+        target_label: "Demo target",
+        supervisor_group_id: hash("8"),
+        project_binding: projectBinding,
+        observed_at: observedAt,
+        current_mission_root: hash("1"),
+        lifecycle: { status: null, record: null },
+        light,
+        operating_history: [{ from: "neutral", to: "red", trigger: "open-high", record }],
+        conclusion_counts: {
+          by_kind: { "meta-review": 1 },
+          by_category: { "effectiveness-review": 1 },
+        },
+        report_counts: { "weekly:available": 1 },
         status: "available",
         cost_label: "API-equivalent estimate",
         metrics,
@@ -588,6 +678,16 @@ const metricsEnvelope = {
       },
       {
         target_thread_id: "target-thread-2",
+        target_label: "Unavailable target",
+        supervisor_group_id: null,
+        project_binding: { status: "unassigned", project_id: null, evidence: [], limitations: [] },
+        observed_at: observedAt,
+        current_mission_root: null,
+        lifecycle: { status: null, record: null },
+        light,
+        operating_history: [],
+        conclusion_counts: { by_kind: {}, by_category: {} },
+        report_counts: {},
         status: "unavailable",
         cost_label: "API-equivalent estimate",
         metrics: null,
@@ -626,7 +726,48 @@ describe("operations API contracts", () => {
 
   it("validates report manifests and API-equivalent estimate labels without widening", () => {
     expect(reportArtifactSchema.parse(report).verification).toMatchObject({ valid: true })
+    expect(reportArtifactSchema.parse({
+      ...report,
+      id: "terminal-demo",
+      family: "terminal",
+      verification: {
+        valid: true,
+        report_set_id: "terminal-demo",
+        source_root: hash("4"),
+        state_fingerprint: "state-1",
+        completion_record_id: "EVT-10",
+        lifecycle_record_id: "EVT-11",
+        manifest_root: hash("8"),
+        delta_pdf_path: "/reports/terminal-demo/delta.pdf",
+        full_pdf_path: "/reports/terminal-demo/full.pdf",
+        delta_pdf_sha256: hash("c"),
+        full_pdf_sha256: hash("d"),
+        delta_page_count: 2,
+        full_page_count: 4,
+      },
+    }).family).toBe("terminal")
+    expect(reportArtifactSchema.parse({
+      ...report,
+      id: "evolution-demo",
+      family: "factory-evolution",
+      stage: "evaluated",
+      verification: {
+        action: "verify",
+        evolution_id: "evolution-demo",
+        stage: "evaluated",
+        packet_id: "packet-1",
+        packet_root: hash("1"),
+        review_id: "review-1",
+        review_root: hash("2"),
+        evaluation_id: "evaluation-1",
+        evaluation_root: hash("3"),
+        disposition: "retain",
+      },
+    }).family).toBe("factory-evolution")
     expect(reportListEnvelopeSchema.parse(reportEnvelope).data.reports).toHaveLength(1)
+    expect(reportDetailEnvelopeSchema.parse(reportDetailEnvelope).data.report.artifacts[0]).toMatchObject({
+      previewable: true,
+    })
     const parsedMetrics = metricsEnvelopeSchema.parse(metricsEnvelope)
     expect(parsedMetrics.data.aggregate.api_equivalent_estimate).toMatchObject({
       label: "API-equivalent estimate",
@@ -645,6 +786,13 @@ describe("operations API contracts", () => {
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => runDetailEnvelope })
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => reportEnvelope })
       .mockResolvedValueOnce({ ok: true, status: 200, json: async () => metricsEnvelope })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => reportDetailEnvelope })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ "Content-Type": "text/markdown; charset=utf-8" }),
+        text: async () => "# Exact report",
+      })
       .mockResolvedValueOnce({ ok: false, status: 404, json: async () => errorEnvelope })
     vi.stubGlobal("fetch", fetchMock)
     const controller = new AbortController()
@@ -653,6 +801,13 @@ describe("operations API contracts", () => {
     await fetchRun("target-thread-1", controller.signal)
     await fetchReports(controller.signal)
     await fetchMetrics(controller.signal)
+    await fetchReport("target-thread-1", "weekly", "weekly-demo", controller.signal)
+    await expect(
+      fetchReportArtifactText(
+        "/api/v1/reports/target-thread-1/weekly/weekly-demo/artifacts/report.md",
+        controller.signal,
+      ),
+    ).resolves.toBe("# Exact report")
     await expect(fetchRun("missing-target-1")).rejects.toBeInstanceOf(DashboardApiError)
     await expect(fetchRun("../escaped")).rejects.toThrow("invalid")
 
@@ -661,6 +816,6 @@ describe("operations API contracts", () => {
       "/api/v1/runs/target-thread-1",
       expect.objectContaining({ signal: controller.signal }),
     )
-    expect(fetchMock).toHaveBeenCalledTimes(5)
+    expect(fetchMock).toHaveBeenCalledTimes(7)
   })
 })
