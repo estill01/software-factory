@@ -2244,16 +2244,41 @@ historical App Server turns or ledger events across projects.
   command arguments, message/reasoning bodies, and raw errors remain withheld
   from the dashboard. Tracker/report deep review and every mutation remain
   outside the slice.
+- Rejected review history: exact candidate
+  `8613225745d079cea97c7c64446b333568b38a03`, tree
+  `0649401b2ac2f7c597cd69381428ba7c5c6ab157`, was independently rejected
+  after full mapped validation because an unknown mission deep link fell back
+  to current state, a hashless predecessor fell back to the current policy
+  hash, conflicting run/task project bindings were silently merged and labeled
+  as one run binding, and a credential-bearing Git origin was rendered raw.
+  The candidate remains reusable history and is not acceptance evidence.
+- Focused successor: pushed commit
+  `df51788203113701a8cf18c9eea2e375b5b98a1d`, tree
+  `f2ede4d45ee0d782c5f9065e74bdc53a58188041`, parent
+  `8613225745d079cea97c7c64446b333568b38a03`, workspace-data blob
+  `863d86f629dbbb2f4b9062d79915b736722327a7`, run-workspace blob
+  `ac230cb8376eff76558bda020d5dbac85eabcff8`, project-workspace blob
+  `c12ea8effa971e4bd89ee22f6d5e8e606a7dd251`, and task-workspace blob
+  `c7b8afdc617029f6120c6b6ed96873d16b15d1ea` change only eight cited Block 7
+  frontend/test files. Explicit unknown missions now fail closed without task
+  reads or current projections; predecessor hashes have no current fallback;
+  canonical run binding wins association while all run/task/Floor claims are
+  separately listed as degraded disagreements; and Git origin display retains
+  only a credential-free host with path/credential withholding. Focused tests
+  use unknown roots, empty historical hash arrays, contradictory `alpha`/`beta`
+  bindings, and HTTP/SSH/SCP origins containing `SUPERSECRET`/`SECRET`. The
+  non-force push reread local/upstream at `0 0`.
 - Validation: the dashboard Python suite passed 67/67 with `ResourceWarning`
   promoted to errors (the sole collection warning is the pre-existing
-  dataclass named `TestResponse`), Ruff passed, TypeScript/Vitest passed 41/41,
+  dataclass named `TestResponse`), Ruff passed, TypeScript/Vitest passed 43/43,
   the production build passed, and Playwright passed 27/27 across desktop,
   tablet, and mobile with accessibility and horizontal-overflow checks. The
   full tracker verifier passed Blocks 0-25 with 0 errors and 0 warnings, all 30
   verifier tests passed, five changed-document relative links resolved, and
   `git diff --check` passed. Live loopback `127.0.0.1:8787` exercised project,
-  current run, paged event, predecessor run, historical supervisor, and task
-  deep links with one functional route heading and no marketing subheader.
+  current run, paged event, unknown-mission rejection, predecessor run,
+  historical supervisor, and task deep links with one functional route heading
+  and no marketing subheader.
 - Exact independent review and acceptance evidence: pending; Block 7 remains
   `in-progress` and no later Block is active.
 
