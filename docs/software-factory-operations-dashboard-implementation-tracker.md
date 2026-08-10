@@ -501,7 +501,7 @@ the relevant authority and evidence contract.
 | 3 | Tracker truth and Git-currentness projection | 2 | `accepted` |
 | 4 | Supervision, automation, report, and metrics projection | 2 | `accepted` |
 | 5 | Codex task and App Server adapter | 1 | `accepted` |
-| 6 | Cross-project factory floor | 3, 4, 5 | `not-started` |
+| 6 | Cross-project factory floor | 3, 4, 5 | `in-progress` |
 | 7 | Project and run workspaces | 6 | `not-started` |
 | 8 | Tracker review and progress workspace | 3, 6 | `not-started` |
 | 9 | Metrics and report history workspace | 4, 6 | `not-started` |
@@ -1788,7 +1788,7 @@ Stop before exposing workflow-start or lifecycle mutation controls.
 
 ## Block 6 — Cross-project factory floor
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -1930,7 +1930,38 @@ do not trigger deep source validation on every render.
 
 ### Completion evidence
 
-Pending.
+- Activation: began automatically from accepted and pushed Block 5 durability
+  checkpoint `faa771bfae70036bd86e6740bd02dd3725e8a47c`, tracker blob
+  `83f3ae7ed039de8b128efd58277aa59b78727c89`, with accepted Blocks 3, 4,
+  and 5 satisfying every dependency. Direct-user item 44, mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`,
+  and the user's later `continue` preserve the full-tracker request; no routed
+  packet, successor task, manual resume, or range contraction is used.
+- Range-control currentness: the newly installed execution helper's transition
+  gate returned `Implementation range is not canonically bound` because this
+  run predates that helper contract and the live policy has no range record.
+  The target did not manufacture a caller-selected binding, alter supervision
+  files, or reinterpret a routed record as authority. The exact control-plane
+  compatibility gap remains visible while dependency-safe work continues under
+  the pre-existing direct full-tracker authority.
+- Product-capability review: `consequential`; the exact capability frame is the
+  same 54-line source hashed
+  `26664146d46f0880752bad3252c562232fa8d6a2a19adb7804908d2ee1b562ec`.
+  A browser-side join of `/runs`, `/metrics`, `/tasks`, and `/trackers` was
+  rejected because it would duplicate association/precedence logic and could
+  silently choose a source winner. Expanding the maintained operations owner
+  into task/tracker authority or adding a database/general analytics layer was
+  also rejected. The selected bounded option is one read-only
+  `/api/v1/factory-floor` composer at the existing loopback HTTP boundary over
+  unchanged catalog, tracker, supervision, report/metric, and Codex adapters.
+  It is view-specific, preserves every source identity/disagreement/limitation,
+  exposes explicit truncation and coverage, and stores nothing. Block 7 is the
+  one named adjacent consumer for source-bearing detail navigation; no Block 7
+  detail is implemented here. The accepted tradeoff is a maintained composed
+  response schema in exchange for one bounded request and one canonical place
+  for display-only association rules.
+- Candidate implementation, validation, exact review, and acceptance evidence:
+  pending.
 
 ### Stop
 
