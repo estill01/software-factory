@@ -506,7 +506,7 @@ the relevant authority and evidence contract.
 | 8 | Tracker review and progress workspace | 3, 6 | `accepted` |
 | 9 | Metrics and report history workspace | 4, 6 | `accepted` |
 | 10 | Gated administrative operation framework | 2, 4, 5 | `accepted` |
-| 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `not-started` |
+| 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `in-progress` |
 | 12 | On-demand mechanical supervision checks | 7, 10, 11 | `not-started` |
 | 13 | Semantic supervision review requests | 7, 10, 11 | `not-started` |
 | 14 | Supervision policy and cadence administration | 7, 10, 11 | `not-started` |
@@ -3171,7 +3171,7 @@ Stop before registering tracker/task/supervision/report/lifecycle operations.
 
 ## Block 11 — Author, implement, supervise, and task-control workflows
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -3300,7 +3300,54 @@ not full reports/event histories; owners can fetch exact referenced sources.
 
 ### Completion evidence
 
-Pending.
+- Activation: Block 11 started from accepted Block 10 checkpoint
+  `203fcf67da69bbdd4d1155783478da45e1600b43`; required Blocks 8 and 10
+  remain accepted, the checkout and upstream were exact at `0 0`, and Blocks
+  12–25 remain unopened.
+- Governing implementation authority: direct-user item 44 at
+  `codex:019fe547-e054-7ca0-9940-ec4aa146df78:019fe572-0536-7692-8505-c8624eefa7ab:item-44`
+  under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+- Execution brief: accepted tracker/Git projections already supply exact path,
+  hash, profile, Block eligibility, and worktree posture. The accepted App
+  Server adapter already owns task start/resume, turn start/steer/interrupt,
+  pending approval/input responses, current task state, and registered-cwd
+  enforcement. The accepted Block 10 coordinator supplies preview, confirmation,
+  replay/currentness, route-gate, owner dispatch, and canonical postcondition
+  seams but intentionally has an empty production registry. The missing delta
+  is a closed set of ordinary Factory workflow definitions, bounded skill prompt
+  builders, exact conflict/readiness gates, workspace controls, and focused
+  owner/API/browser proof. No new task system, tracker editor, scheduler, or
+  durable operation state is required.
+- Product-capability review activation:
+  - Trigger: Block 11 is consequential because it introduces the first real
+    Software Factory workflow and task-control mutations in the dashboard.
+  - Frame identity: this tracker, Block 11, target-product frame SHA-256
+    `26664146d46f0880752bad3252c562232fa8d6a2a19adb7804908d2ee1b562ec`.
+  - Capability selected: explicit operator-confirmed author, review, revise,
+    implement, supervise, continue, steer, respond, and interrupt workflows that
+    reach exact owner task/turn/request records without conflating those records
+    with tracker acceptance or mission outcome.
+  - Paths compared: direct workflow-specific HTTP mutations; explicit bounded
+    operation definitions inside the accepted Block 10 framework; raw use of
+    the existing skill and App Server owners without a browser safety seam.
+  - Selected level and owner: bounded explicit definitions over the accepted
+    operation coordinator, tracker projector, App Server adapter, and maintained
+    author/implement/supervise skills. Direct endpoints would duplicate the
+    accepted safety lifecycle, while raw owners alone cannot supply the required
+    browser preview/confirmation/currentness contract.
+  - Protected-capability posture: prompts preserve the operator's exact scope
+    and named skill, tracker/Git readiness remains authoritative, registered cwd
+    and exact task/turn/request identities remain App Server-owned, review stays
+    read-only, and task activity remains distinct from Block or outcome state.
+  - Rejected alternatives: no generic prompt composer, workflow engine, inline
+    tracker editor, direct skill execution in the HTTP process, inferred task
+    reuse, auto-retry, hidden second owner, or premature later-Block policy,
+    report, evolution, succession, or lifecycle controls.
+  - Tradeoff: explicit definitions and owner postconditions add code and an
+    asynchronous confirmation round trip, accepted to prevent stale tracker,
+    wrong-cwd, duplicate-owner, steer/continue, or HTTP-success-only mistakes;
+    frozen-candidate proof remains pending.
 
 ### Stop
 
