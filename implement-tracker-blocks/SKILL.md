@@ -207,6 +207,62 @@ frame and affected owner once, permit at most one named widening fact, and run
 focused proof before any mapped suite. If a valid incumbent remains the
 lowest-complexity complete path, retain it without manufacturing a correction.
 
+## Compare one bounded candidate when behavior must decide
+
+Use `compare-candidate` only after the inline loop proves that current source
+evidence cannot decide a material implementation choice and that an isolated
+implementation will supply the missing evidence. Read
+[references/bounded-candidate-lane.md](references/bounded-candidate-lane.md)
+and execute its exact record and lifecycle contract.
+
+1. Record the concrete hypothesis and affected capability, the uncertainty and
+   avoidable rework, the required implementation evidence, duplicate build and
+   review cost, isolation risk, and reversibility. Open no lane unless the
+   named expected decision benefit exceeds its bounded cost and read-only
+   evidence cannot decide. Style, novelty, optional reuse, or a merely
+   different implementation is not positive decision value.
+2. Freeze the coherent incumbent revision and content root before candidate
+   work. It remains the sole production authority. Declare the isolated
+   writable scope and every shared-resource exclusion; reject overlap with the
+   incumbent writer, canonical state, deployment, release, credentials, or
+   another candidate. Dependency-safe incumbent work may continue only when it
+   cannot change the comparison basis.
+3. Open exactly one branch, worktree, temporary repository, or equivalent lane
+   for one hypothesis. Bind the normal implementation owner, capability and
+   protected-capability contract, expected observable effect, file/change,
+   command, elapsed-time, and review ceilings, early failure Stops, success
+   criteria, and cleanup posture. The lane has no publish, production, cutover,
+   tracker, policy, or second-owner authority.
+4. Implement only the candidate delta through the normal target owner. Stop at
+   the first exceeded ceiling, unsafe isolation, incumbent-basis drift,
+   hypothesis falsification, focused failure, or protected-capability
+   regression. Retain useful evidence as non-authoritative history; never make
+   a failed lane production-capable.
+5. Run focused candidate validation first. Only after the candidate is coherent
+   and frozen may mapped comparison read both exact roots. Compare the current
+   observable outcome, implementation cost, maintenance cost, reversibility,
+   compatibility, and protected-capability result without a novelty bonus or
+   opaque aggregate score.
+6. Give the raw roots, outcomes, costs, and protected results—without an
+   implementer preference—to a distinct automated reviewer. It returns exactly
+   `candidate-better`, `incumbent-better`, `non-inferior-no-benefit`, or
+   `inconclusive`. Local tests alone, newer code, or implementer rationale
+   cannot authorize a winning disposition.
+7. For `candidate-better`, freeze one non-mutating cutover handoff for the
+   normal target owner and Block 9; do not cut over here. For every other
+   disposition, retire the candidate as losing or inconclusive, preserve only
+   useful evidence, and keep the incumbent authoritative. Never retain two
+   live implementations or force adoption.
+8. Record the Block 4 candidate fields and immutable stage/currentness chain.
+   Deduplicate the decision fingerprint, candidate root, and review root so an
+   unchanged trigger creates no new lane or reviewer cycle. Continue the
+   current requested tracker range automatically after the Block Stop.
+
+The candidate mechanism is selective evidence gathering, not routine
+dependency parallelism and not a generalized experiment service. It does not
+edit the tracker, change adaptive policy, cut over a winner, publish a branch,
+or ask a human to choose an ordinary engineering tradeoff.
+
 For a materially expensive read-only proof or audit with a separate reporter or
 helper, cheaply preflight the maintained reporting interface and its invocation
 binding before starting the expensive computation. If valid proof output
