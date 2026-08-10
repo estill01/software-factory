@@ -1,6 +1,6 @@
 # Software Factory Adaptive Implementation Decision Control and Autonomous Evolution Implementation Tracker
 
-- Tracker status: `planning-amended`
+- Tracker status: `in-progress`
 - Tracker sequence: Blocks 0–17
 - Repository: `https://github.com/estill01/software-factory`
 - Planning baseline: `4a33cd9344f0fbb1d1feaa6caac13521eb3237f3`
@@ -232,6 +232,27 @@ Completion means:
   changes, not for normal, inline, or no-change execution.
 
 ## 2. Target architecture and authority boundaries
+
+### Three coupled control loops
+
+The system has three coupled loops with distinct triggers and owners. They may
+hand evidence to one another, but none may collapse into another loop's writer
+or use a local boundary as governing-outcome completion.
+
+| Loop | Normal trigger and owned effect | Existing authoritative owners | Handoff boundary |
+|---|---|---|---|
+| 1. Within-run implementation decision control | Live Block evidence shows the path is sound, locally bad, requires an isolated comparison, or invalidates the active program contract. It continues unchanged, corrects inline, compares one candidate, or forms a structural packet. | `implement-tracker-blocks`, the target repository owner, existing Git/test owners, and independent candidate review. | A genuine structural invalidation hands one bounded packet to Loop 2. A demonstrated reusable Software Factory result may later become canonical evidence for Loop 3. |
+| 2. Tracker authoring and independent authoring supervision | Before implementation, or exceptionally during it, a requested capability must become a dependency-ordered tracker or live evidence proves that an open Block/later graph is structurally invalid. It authors or minimally amends the tracker and independently reviews the exact delta. | `author-implementation-trackers` is sole tracker writer; the accepted tracker-authoring supervision profile is read-only; the full verifier is mechanical evidence. | An accepted tracker/revision returns an exact resume point to Loop 1. A rejected/revise disposition preserves safe implementation work and cannot become an implementation or terminal decision. |
+| 3. Cross-run Factory evolution | Newly adjudicating canonical report/event/outcome evidence, including productive results and supported meta-patterns, passes the deterministic novelty/policy gate. It prepares, reviews, implements through normal owners, evaluates, adopts or retires, and records current outcome/rollback evidence. | `supervise-tracker-runs`, `factory_evolution.py` as derived evidence/evaluation owner, the applicable normal skill/tracker owner, distinct reviewer/evaluator, and the existing release/cutover owner. | Candidate implementation is governed by Loop 1. A consequential tracker-method change routes through Loop 2. Current terminal outcomes return to canonical evidence for a later distinct Loop 3 eligibility decision. |
+
+Loop 1 therefore applies while Loop 3 work is being implemented: a bad
+Factory-evolution implementation path is corrected inline by default, compared
+in one isolated candidate lane only when behavior must decide, and routed to
+Loop 2 only when its active Block or later program contract is invalidated.
+Loop 3 is not a detector or a substitute planner, and Loop 2 is not the default
+correction path. All three reuse the same direct mission, protected-capability,
+currentness, single-writer, independent-review, and no-ordinary-human-scheduling
+invariants.
 
 ```text
 direct mission + capability frame + accepted tracker + live repository
@@ -635,7 +656,7 @@ continuous cognition the price of ordinary execution.
 | 3 | Replay observed failures and prove control-plane convergence | 0, 1, 2 | `completed` |
 | 4 | Freeze the three-path adaptive decision-control contract | 3 | `completed` |
 | 5 | Correct bad implementation decisions inline and continue | 4 | `completed` |
-| 6 | Build and independently compare one bounded parallel candidate | 5 | `not-started` |
+| 6 | Build and independently compare one bounded parallel candidate | 5 | `in-progress` |
 | 7 | Add configurable adaptive authority, budgets, and human-input posture | 5, 6 | `not-started` |
 | 8 | Amend and apply the tracker only for structural invalidation | 4, 7 | `not-started` |
 | 9 | Cut over a winning candidate, reconcile currentness, and resume | 6, 7 | `not-started` |
@@ -1747,7 +1768,7 @@ Stop before opening a parallel candidate lane or changing policy authority.
 
 ## Block 6 — Build and independently compare one bounded parallel candidate
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -2639,6 +2660,12 @@ evidence converges as a cheap no-op and reports remain non-authoritative.
   repackaged/paraphrased report, overlapping report window, different checkpoint
   kind, or unrelated Factory revision cannot create novelty. Report hypotheses
   nominate; canonical events and outcomes remain adjudicating evidence.
+- Admit supported productive evidence as well as gaps or failures. A productive
+  result or meta-pattern is eligible only when its report-nominated hypothesis
+  resolves to exact canonical outcome/event evidence showing a repeatable
+  capability, economy, preservation, or owner-method effect beyond consumed
+  coverage. Positive prose, praise, frequency alone, and a report-generated
+  theme are not adjudicating evidence and cannot create novelty.
 - Derive a safe evolution ID from the canonical-evidence novelty key plus its
   current context root, prepare the existing
   immutable packet/manifests once, and record admission through the canonical
@@ -2653,8 +2680,10 @@ evidence converges as a cheap no-op and reports remain non-authoritative.
 - Add compatibility and focused tests for every gate, deterministic identity,
   unchanged recurrence, the same canonical events in a new or paraphrased
   report, overlapping report windows, changed checkpoint kind, unrelated
-  Factory revision, report-only claims, conflicting active cycles, policy
-  modes, path containment, interruption, and legacy policy migration.
+  Factory revision, report-only claims, one productive result, one supported
+  cross-outcome meta-pattern, a prose-only positive theme, conflicting active
+  cycles, policy modes, path containment, interruption, and legacy policy
+  migration.
 
 ### Scope and non-goals
 
@@ -2687,13 +2716,16 @@ of an active cycle but cannot admit another cognitive cycle.
 
 Mechanical tests cover roots, migration, bounds, containment, modes, and
 deduplication. Independent review challenges false-positive admission,
-productive-signal preservation, report authority leakage, and hidden recurring
-work at the exact candidate revision.
+productive-signal and supported-meta-pattern preservation, report authority
+leakage, and hidden recurring work at the exact candidate revision.
 
 ### Acceptance
 
 - A new supported canonical Factory evidence key is admitted automatically at a
   maintained checkpoint under reviewed/full autonomy.
+- A productive result or supported meta-pattern with new exact adjudicating
+  coverage can enter the same bounded path; it receives no shortcut around
+  novelty, independent review, owner, candidate, evaluation, or adoption gates.
 - The identical canonical coverage is a cheap no-op across repackaged reports,
   overlapping windows, checkpoint kinds, and unrelated Factory revisions and
   never causes another reviewer cycle.
@@ -2707,6 +2739,8 @@ work at the exact candidate revision.
 ### Negative tests
 
 - Reject eligibility from unverified prose or an event-unbound hypothesis.
+- Reject a positive or repeated report theme whose claimed productive pattern
+  is not resolved to new exact canonical outcome/event evidence.
 - Reject a duplicate or concurrently conflicting active cycle.
 - Reject novelty inferred only from report packaging, checkpoint identity,
   overlapping coverage, or an unrelated Factory revision.
@@ -2780,6 +2814,15 @@ tracker, skill, and target writers separate.
   a tracker is the required normal owner; use `implement-tracker-blocks` for a
   bounded implementation program; use `supervise-tracker-runs` for its owned
   policy/evidence surfaces.
+- Route by exact selected candidate type and the maintained owner map, not by a
+  detector, free-text classifier, or model-created owner. `skill-method` and
+  direct implementation-method candidates route to `implement-tracker-blocks`;
+  `tracker-method` routes to `author-implementation-trackers` plus its accepted
+  independent authoring supervision when consequential; supervision policy or
+  evidence-method changes route to `supervise-tracker-runs`. An absent,
+  conflicting, or unsupported type/owner binding returns revise/reject with no
+  target write; it never invents a generalized detector or asks a human to
+  choose an ordinary owner.
 - Apply Blocks 4–6 to the Factory-as-target implementation itself: leave a
   sound owner path unchanged, correct a bad local approach inline, use one
   isolated candidate lane only when implementation evidence is necessary, and
@@ -2793,7 +2836,9 @@ tracker, skill, and target writers separate.
   unacknowledged owner results, or candidate writes that bypass the owner.
 - Add focused and interrupted-resume tests for direct skill-method, tracker-
   method, supervision, removal/simplification, rejected owner, inline
-  correction during candidate implementation, and candidate-lane escalation.
+  correction during candidate implementation, candidate-lane escalation,
+  deterministic non-detector routing, unknown candidate type, and conflicting
+  owner claims.
 
 ### Scope and non-goals
 
@@ -2835,6 +2880,9 @@ owner/architecture is proportional before broad validation.
   capabilities, resource ceiling, Stop, current roots, and distinct identities.
 - The evolution helper validates and records but never performs the owner
   mutation.
+- Every supported candidate type resolves deterministically to one existing
+  authoritative owner, while unknown/conflicting bindings stop before mutation
+  without starting a detector framework or human routing gate.
 - Inline correction remains the normal response to a bad candidate-
   implementation approach, and structural authoring remains exceptional.
 - Duplicate, stale, interrupted, or rejected handoffs cannot create a second
@@ -2846,6 +2894,8 @@ owner/architecture is proportional before broad validation.
   preselected as the implementation judge.
 - Reject skill/tracker writes by the evolution helper or a bypass of the normal
   owner.
+- Reject routing based only on hypothesis prose, model preference, a fabricated
+  candidate type, or a duplicate owner registry.
 - Reject a second candidate for an unchanged admitted root.
 - Reject implementation beyond the experiment scope, ceiling, or Stop.
 
@@ -3135,6 +3185,13 @@ regressing adoption through the normal owner.
   packet/review/evaluation/adoption roots; selected and rejected paths; intended
   effect; current observed effect; protected regressions; resource cost;
   recurrence posture; rollback/reopen result; identities; and evidence refs.
+- Represent a later supported regression as an append-only successor outcome in
+  the same cycle lineage. Bind `predecessor_outcome_root`, the previously
+  accepted effective outcome, newly observed regression evidence/currentness,
+  affected installed root, rollback/reopen action, and the new current outcome
+  head. Preserve the earlier effective record as truthful historical evidence;
+  never rewrite it, fork an unrelated cycle identity, or let the older terminal
+  posture remain current after the successor is accepted.
 - Require current operator-visible or independently observed behavior for
   `adopted-effective`. Process records alone support only pending, ineffective,
   regressing, retired, or inconclusive posture.
@@ -3148,6 +3205,10 @@ regressing adoption through the normal owner.
   Factory revision. New adjudicating canonical events/outcomes beyond consumed
   coverage may create a new key. A bounded `revise` disposition continues the
   same cycle through a revision lineage and cannot masquerade as new evidence.
+  A later-regression successor remains in that same outcome lineage and may
+  become adjudicating evidence for a future cycle only after rollback/reopen
+  reaches a current terminal head; the regression event itself cannot replay
+  the original consumed coverage as a fresh cycle.
 - Feed outcome records into future learning packets as canonical evidence and
   include concise exact-cycle summaries in weekly/terminal machine and human
   reports. Reports still nominate; they cannot override outcome or reopen a
@@ -3158,7 +3219,9 @@ regressing adoption through the normal owner.
 - Add focused tests for effective adoption, no-adoption retirement, regression
   rollback, missing observable proof, duplicate/overlap suppression, materially
   new canonical evidence, report/checkpoint/revision repackaging, revise
-  lineage, report projection, interruption, and stale context roots.
+  lineage, later regression after an initially effective outcome, stale older
+  terminal-head replay, report projection, interruption, and stale context
+  roots.
 
 ### Scope and non-goals
 
@@ -3197,6 +3260,9 @@ suppression of materially new evidence.
   evaluation narrative as effect proof.
 - A current effective adoption becomes canonical evidence for later cycles; a
   regression rolls back/reopens through the normal owner and remains visible.
+- A later regression supersedes the current outcome posture through one exact
+  append-only lineage while preserving the prior effective record and preventing
+  duplicate rollback or fresh-cycle masquerade.
 - Identical evidence cannot repeat cognition, candidate work, or adoption;
   materially changed evidence can create one new exact cycle.
 - Reports and changelog projections remain human-readable derived summaries,
@@ -3208,6 +3274,9 @@ suppression of materially new evidence.
 
 - Reject `adopted-effective` without current observable outcome evidence.
 - Reject report prose or a `promote` disposition as a terminal outcome.
+- Reject rewriting an earlier effective outcome, dropping its lineage, keeping
+  it current after a supported later regression, or treating that regression as
+  an unrelated fresh cycle before rollback/reopen closure.
 - Reject reopening an unchanged consumed root or suppressing a changed root.
 - Reject rollback that deletes evidence, bypasses the normal owner, or leaves
   live skill symlinks on a regressing candidate.
@@ -3401,20 +3470,23 @@ evolution candidate.
 | Static-plan, legacy policy, and current-owner compatibility | 5 | 7–11 | 11 |
 | No fourth skill, second ledger, or prospective-control platform | 4 | 5–11 | 11 |
 | Deterministic checkpoint eligibility and exact no-op deduplication | 12 | 13–17 | 17 |
+| Productive-result and supported-meta-pattern admission without report authority | 12 | 13–17 | 17 |
 | Reports nominate while canonical evidence adjudicates | 12 | 13–17 | 17 |
 | Existing-owner autonomous candidate orchestration | 13 | 14–17 | 17 |
+| Deterministic candidate-type routing without a detector framework | 13 | 14–17 | 17 |
 | Adaptive control governs Factory-evolution implementation | 13 | 14–17 | 17 |
 | Independent evaluation and frozen disposition | 14 | 15–17 | 17 |
 | Policy-gated adoption and single installed authority | 15 | 16–17 | 17 |
 | Reversible cutover and current installed behavior | 15 | 16–17 | 17 |
 | Current outcome feedback, recurrence suppression, and rollback | 16 | 17 | 17 |
+| Append-only later-regression outcome lineage | 16 | 17 | 17 |
 | Canonical data versus human-readable report/changelog separation | 16 | 17 | 17 |
 | Live-skill integrated operator-visible proof | 17 | — | 17 |
 
 ## 9. Final completion definition
 
 This tracker is complete only when every Block is accepted at exact current
-revisions and frozen dogfood demonstrates both coupled loops: Software Factory
+revisions and frozen dogfood demonstrates all three coupled loops: Software Factory
 first keeps one persistent governing outcome across distinct tracker, run,
 task, supervision-group, and Block identities; reduces all live control evidence
 to one posture; corrects or retires invalid transitions append-only; rejects a
@@ -3428,8 +3500,11 @@ inline, selectively build and independently compare one isolated alternative,
 cut over only when it is demonstrably better, amend the tracker only when the
 Block contract or later program is invalidated, preserve
 mission/history/currentness, and automatically resume to current operator-
-visible behavior for both target classes; and a newly eligible cross-run
-Factory evidence root can progress automatically through the existing learning,
+visible behavior for both target classes; the sole tracker author plus
+independent authoring supervision can author before implementation and revise
+only genuinely invalidated open program structure; and a newly eligible
+cross-run Factory evidence root, including a supported productive or
+meta-pattern signal, can progress automatically through the existing learning,
 normal-owner implementation, independent evaluation, policy-gated adoption,
 outcome, rollback, and recurrence owners while unchanged evidence does nothing.
 
