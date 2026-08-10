@@ -500,7 +500,7 @@ the relevant authority and evidence contract.
 | 2 | Project catalog and bounded discovery | 1 | `accepted` |
 | 3 | Tracker truth and Git-currentness projection | 2 | `accepted` |
 | 4 | Supervision, automation, report, and metrics projection | 2 | `accepted` |
-| 5 | Codex task and App Server adapter | 1 | `in-progress` |
+| 5 | Codex task and App Server adapter | 1 | `accepted` |
 | 6 | Cross-project factory floor | 3, 4, 5 | `not-started` |
 | 7 | Project and run workspaces | 6 | `not-started` |
 | 8 | Tracker review and progress workspace | 3, 6 | `not-started` |
@@ -1552,7 +1552,7 @@ automation, report, or evolution owner.
 
 ## Block 5 — Codex task and App Server adapter
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -1684,8 +1684,96 @@ task/source identifiers. Never poll every historical task body.
   with local and remote at `0 0` divergence before implementation changes
   began. No new mission, successor task, routed authority, or manual resume is
   used.
-- Candidate implementation, validation, exact review, and acceptance evidence:
-  pending.
+- Accepted implementation: exact pushed commit
+  `64e455f370814634d865f1635e673a3761abbab1`, tree
+  `1c34cd7b4e7cd84cbd96b02f30bd1c7da5e7e549`, parent
+  `9ba4c74954f6d8337f4475f296d848d94e269e51`. The accepted cumulative
+  Block 5 scope is ten files: the version-gated Python client and HTTP adapter,
+  deterministic fake server and Python tests, closed Zod/task-event contracts,
+  compact Admin integration health, focused frontend tests, and the changelog.
+  Authoritative accepted blobs include App Server client
+  `e5c9df91fb58b820bcd982f281e77a4594538cac`, client tests
+  `dc1c64b48cbdee812fe3f1dc5511f02f3fedc6c9`, HTTP adapter
+  `e103a6a05749ba2431cf116c6b029af0f8be7de1`, task API
+  `33504843d4e72ca015db6da210811600b3bdb91e`, Admin integration panel
+  `4df23ec936b8130c0d286c9233bbd9f74245bceb`, and changelog
+  `222aa6dffa967e5ef167c4cb6c3cbb6e50f7a360`.
+- Delivered behavior: one long-lived exact-binary stdio child performs the
+  official initialize handshake, validates every narrowed payload against the
+  deterministic 273-file compatibility bundle, projects bounded task/turn/item
+  and pending-request truth, binds operations only to registered canonical
+  cwd, and exposes authenticated same-origin reads plus a resumable ephemeral
+  SSE channel. Each capability is gated by its own schema family. Malformed,
+  mismatched, duplicate, timed-out, incompatible, disconnected, missing-task,
+  and unsupported-method states fail closed without suppressing independent
+  file-backed monitoring. The stream preserves its consumed cursor, reconnects
+  with capped backoff, reports retained-window gaps, and invalidates durable
+  task/integration projections after a gap. Answered or stale callbacks are
+  evicted before live callback capacity is refused.
+- Restart/failure integrity: all request failures, transport writes, inbound
+  responses, notifications, callbacks, callback-capacity responses, and
+  callback resolutions carry their issuing connection generation. Final
+  notification publication, callback insertion, request-event publication,
+  and turn-completion staling recheck that generation at the side-effect
+  linearization point. Forced interleavings prove an old request, cancellation,
+  notification, approval callback, or turn-completion event cannot poison,
+  terminate, publish into, or stale state owned by the healthy replacement
+  child.
+- Preserved rejection history: initial candidate
+  `63520931c2defba72ab01b4b000c3ea83246d2b7` was rejected because malformed
+  negotiated responses left capabilities enabled, SSE lacked cursor-preserving
+  recovery/gap truth, and completed callback records exhausted lifetime
+  capacity. Successor `688e9f89b78660005bdb7d0b4d78ccec5c2b0452`
+  closed those rows but was rejected for a post-cancellation restart race;
+  `a1fd4c57ce4856cf64957aeb3a75a25f04582e74` closed that race but was
+  rejected for a pre-write cross-generation request;
+  `9ba4c74954f6d8337f4475f296d848d94e269e51` generation-bound outbound
+  transport but was rejected because old notifications and approval callbacks
+  could still publish after restart. Each finding was corrected only at its
+  reproduced boundary and all rejected commits remain durable diagnostic
+  history, not acceptance evidence.
+- Product-capability review: `consequential`; the exact 54-line capability
+  frame hashed
+  `26664146d46f0880752bad3252c562232fa8d6a2a19adb7804908d2ee1b562ec`.
+  Screen scraping, task-file guessing, a raw browser JSON-RPC bridge, and a
+  general Codex client were rejected. The selected bounded option reuses the
+  official installed App Server owner behind one closed Python adapter; no
+  larger platform or database is justified. It preserves Codex task authority,
+  recipient/cwd identity, approval and input fingerprints, same-origin gates,
+  file-backed monitoring, and fail-closed feature availability. The accepted
+  tradeoff is explicit compatibility maintenance for exact CLI/schema versions;
+  Block 6 is the first named adjacent consumer and receives read-only typed
+  projections rather than protocol access.
+- Validation: final exact Python validation passed 59 tests with
+  `ResourceWarning` promoted to errors and Ruff passed. Unchanged exact-parent
+  evidence remained current: TypeScript/Vitest 30/30, production build,
+  Playwright 18/18 across desktop/tablet/mobile, full tracker verification for
+  Blocks 0-25 with 0 errors and 0 warnings, all 30 verifier tests, link checks,
+  and `git diff --check`. Live exact-server proof on port 8787 reproduced
+  installed `codex-cli 0.145.0`, 273 schemas and semantic root
+  `757aa191b6d452c6e6d05f6c1f1cb093b9f673da2d185a29ee8d5d96feae67a8`,
+  returned current bounded tasks, and emitted replay-aware SSE `ready` plus
+  generation-1 connection events. The earlier disposable bounded task/turn
+  ended with its actual `usageLimitExceeded` result and was never relabeled
+  successful.
+- Independent exact-revision review: `block5_exact_review_retry` accepted
+  exact `64e455f370814634d865f1635e673a3761abbab1` with no material finding or
+  unclosed uncertainty after replaying every forced restart schedule, delayed
+  turn-completion/callback interaction, capacity and resolution writes, the
+  59-test Python suite, Ruff, exact diff/remote checks, the three original
+  rejection rows, and the Block 5 Stop.
+- Resource and Stop posture: one child, bounded task pages/items/events,
+  deterministic schema reuse, and capped reconnect/callback buffers were
+  preserved. The browser exposes task reads/events and adapter-only restart;
+  it has no generic workflow start, task/turn mutation, prompt, approval/input
+  response, lifecycle mutation, raw protocol, remote transport, model/tool
+  setting, permission-profile, or forking control.
+- Post-block audit: `accepted`; all acceptance and negative-test conditions are
+  satisfied on the reviewed revision, with rejected evidence preserved and no
+  implementation or lifecycle success inferred from process proxies.
+- Git durability: non-force pushes advanced `origin/codex/evolution-mvp`
+  through the exact accepted candidate; local and remote matched at `0 0`
+  divergence before this evidence-only tracker checkpoint.
 
 ### Stop
 
