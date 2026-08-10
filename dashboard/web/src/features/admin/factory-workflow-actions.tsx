@@ -404,6 +404,75 @@ export function RunCheckAction({
   )
 }
 
+export function RunSupervisionActions({
+  targetId,
+  projectId,
+  openIncidentIds,
+}: {
+  targetId: string
+  projectId: string | null
+  openIncidentIds: string[]
+}) {
+  const runner = useOperationRunner()
+  const [selectedIncident, setSelectedIncident] = useState("")
+  const incidentId = openIncidentIds.includes(selectedIncident)
+    ? selectedIncident
+    : openIncidentIds[0] ?? ""
+  const launch = (
+    operationType: string,
+    label: string,
+    input: Record<string, unknown> = {},
+  ) => {
+    if (!projectId) return
+    runner.launch({
+      request: {
+        operation_type: operationType,
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input,
+      },
+      suppliedFacts: [
+        ["Run target", targetId],
+        ["Review", label],
+        ["Scope", "One exact reviewer task · conclusion remains separate from delivery"],
+        ...(incidentId && operationType.endsWith("-issue") ? [["Incident", incidentId] as [string, string]] : []),
+      ],
+    })
+  }
+  const unavailable = !projectId || runner.busy
+  return (
+    <>
+      <ActionStrip feedback={runner.feedback}>
+        <Button size="compact" variant="outline" disabled={unavailable} onClick={() => launch("factory.supervision-check-now", "Mechanical check")}>Check now</Button>
+        <Button size="compact" variant="outline" disabled={unavailable} onClick={() => launch("factory.supervision-review-checkpoint", "Checkpoint review")}>Checkpoint review</Button>
+        <Button size="compact" variant="outline" disabled={unavailable} onClick={() => launch("factory.supervision-review-meta", "Meta-review")}>Meta-review</Button>
+        {openIncidentIds.length > 0 && (
+          <select
+            aria-label="Issue for follow-up"
+            value={incidentId}
+            onChange={(event) => setSelectedIncident(event.target.value)}
+            disabled={unavailable}
+          >
+            {openIncidentIds.map((id) => <option value={id} key={id}>{id}</option>)}
+          </select>
+        )}
+        <Button
+          size="compact"
+          variant="outline"
+          disabled={unavailable || !incidentId}
+          onClick={() => launch(
+            "factory.supervision-review-issue",
+            "Issue follow-up",
+            { incident_id: incidentId },
+          )}
+        >
+          Issue follow-up
+        </Button>
+      </ActionStrip>
+      {runner.confirmation}
+    </>
+  )
+}
+
 export function TrackerWorkflowActions({
   tracker,
   selectedBlock,

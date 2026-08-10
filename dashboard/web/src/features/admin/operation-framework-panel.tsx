@@ -42,6 +42,22 @@ export function OperationConfirmationDialog({
   const [value, setValue] = useState("")
   const operation = preview.data.operation
   const confirmation = operation.preview.confirmation
+  const sourceEvidence = operation.preview.source_evidence
+  const reviewState = typeof sourceEvidence.state_fingerprint === "string"
+    ? sourceEvidence.state_fingerprint
+    : null
+  const reviewSource = typeof sourceEvidence.source_record === "string"
+    ? sourceEvidence.source_record
+    : null
+  const reviewerRole = typeof sourceEvidence.reviewer_role === "string"
+    ? sourceEvidence.reviewer_role
+    : null
+  const expectedKind = typeof sourceEvidence.expected_kind === "string"
+    ? sourceEvidence.expected_kind
+    : null
+  const incidentId = typeof sourceEvidence.incident_id === "string"
+    ? sourceEvidence.incident_id
+    : null
   const matches = value === confirmation.expected_value
 
   useEffect(() => {
@@ -74,8 +90,20 @@ export function OperationConfirmationDialog({
           <div><dt>Target</dt><dd><Identity value={request.target.id} /><Identity value={request.target.project_id} /></dd></div>
           <div><dt>Owner</dt><dd>{operation.owner}</dd></div>
           <div><dt>Recipient</dt><dd>{operation.preview.recipient ? <Identity value={operation.preview.recipient} /> : "No cross-thread recipient"}</dd></div>
-          <div><dt>Gate</dt><dd><StatusMark status={operation.preview.route_gate.status} /></dd></div>
+          <div>
+            <dt>Gate</dt>
+            <dd>
+              <StatusMark status={operation.preview.route_gate.status} />
+              {operation.preview.route_gate.purpose && <span>{operation.preview.route_gate.purpose}</span>}
+            </dd>
+          </div>
           <div><dt>Source</dt><dd><Identity value={operation.preview.source_fingerprint} /></dd></div>
+          {reviewState && <div><dt>State</dt><dd><Identity value={reviewState} /></dd></div>}
+          {reviewSource && <div><dt>Source record</dt><dd><Identity value={reviewSource} /></dd></div>}
+          {(reviewerRole || expectedKind) && (
+            <div><dt>Review binding</dt><dd>{reviewerRole && <span>{reviewerRole}</span>}{expectedKind && <span>{expectedKind}</span>}</dd></div>
+          )}
+          {incidentId && <div><dt>Incident</dt><dd><Identity value={incidentId} /></dd></div>}
           <div><dt>Expires</dt><dd><TimeValue value={operation.preview.expires_at} /></dd></div>
         </dl>
 
@@ -163,6 +191,21 @@ export function OperationTruthFacts({ operation }: { operation: OperationRecord 
     else if (operation.request_evidence?.watcher_awakened === true) facts.push("Canonical check not yet verified")
     if (evidence?.changed_state_routed === true) facts.push("Changed state routed for review")
     if (evidence?.semantic_conclusion === false) facts.push("No semantic conclusion inferred")
+  }
+  if (operation.type.startsWith("factory.supervision-review-")) {
+    if (operation.request_evidence?.review_task_started === true) facts.push("Reviewer task started")
+    if (evidence?.conclusion_recorded === true) facts.push("Canonical conclusion recorded")
+    else if (
+      evidence?.reviewer_request_current === false
+      && typeof evidence?.matching_record_id === "string"
+    ) facts.push("Matching record is not correlated to the exact reviewer turn")
+    else if (operation.request_evidence?.review_task_started === true) facts.push("Awaiting canonical conclusion")
+    if (typeof evidence?.conclusion_status === "string") facts.push(`Conclusion: ${evidence.conclusion_status}`)
+    if (evidence?.conclusion_current === false) facts.push("Conclusion superseded")
+    if (evidence?.reviewer_turn_correlated === true) facts.push("Exact reviewer turn correlated")
+    if (evidence?.conclusion_actor_attribution === "unavailable") facts.push("Conclusion actor unavailable")
+    if (evidence?.request_delivery_is_conclusion === false) facts.push("Delivery is not a conclusion")
+    if (evidence?.implementation_accepted_by_dashboard === false) facts.push("Dashboard did not accept implementation")
   }
   if (!evidence && facts.length === 0) return null
   if (typeof evidence?.task_turn_started === "boolean") {

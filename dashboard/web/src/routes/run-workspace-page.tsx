@@ -14,7 +14,7 @@ import {
   WorkspaceBack,
 } from "@/components/workspace-ui"
 import { Button } from "@/components/ui/button"
-import { RunCheckAction } from "@/features/admin/factory-workflow-actions"
+import { RunSupervisionActions } from "@/features/admin/factory-workflow-actions"
 import { fetchRun, type RunDetail } from "@/lib/operations-api"
 import { fetchTask, fetchTasks } from "@/lib/task-api"
 import {
@@ -361,9 +361,10 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
       </section>
 
       {isCurrent && (
-        <RunCheckAction
+        <RunSupervisionActions
           targetId={run.target_thread_id}
           projectId={projectBindingConflict ? null : breadcrumbProjectId}
+          openIncidentIds={missionIncidents.filter((incident) => incident.open).map((incident) => incident.incident_id)}
         />
       )}
 

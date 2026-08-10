@@ -122,6 +122,7 @@ describe("administrative operation UI", () => {
     await user.click(requestButton)
     expect(onConfirm).toHaveBeenCalledWith({ class: "typed-phrase", value: "APPLY TEST FIXTURE" })
     expect(screen.getByText("The fixture reports next.")).toBeVisible()
+    expect(screen.getByText("deterministic-owner-proof")).toBeVisible()
     expect(screen.queryByText(/workflow complete/i)).not.toBeInTheDocument()
   })
 
@@ -187,5 +188,45 @@ describe("administrative operation UI", () => {
     expect(screen.getByText("Canonical check recorded")).toBeVisible()
     expect(screen.getByText("Changed state routed for review")).toBeVisible()
     expect(screen.getByText("No semantic conclusion inferred")).toBeVisible()
+
+    rerender(<OperationActivityPanel operations={[{
+      ...operation,
+      type: "factory.supervision-review-checkpoint",
+      state: "applied",
+      history: [...operation.history, { state: "applied", observed_at: "2026-08-10T08:02:00.000Z" }],
+      request_evidence: { review_task_started: true },
+      verification_evidence: {
+        conclusion_recorded: true,
+        conclusion_status: "accepted",
+        conclusion_current: false,
+        reviewer_turn_correlated: true,
+        conclusion_actor_attribution: "unavailable",
+        request_delivery_is_conclusion: false,
+        implementation_accepted_by_dashboard: false,
+      },
+    }]} />)
+    expect(screen.getByText("Reviewer task started")).toBeVisible()
+    expect(screen.getByText("Canonical conclusion recorded")).toBeVisible()
+    expect(screen.getByText("Conclusion: accepted")).toBeVisible()
+    expect(screen.getByText("Conclusion superseded")).toBeVisible()
+    expect(screen.getByText("Exact reviewer turn correlated")).toBeVisible()
+    expect(screen.getByText("Conclusion actor unavailable")).toBeVisible()
+    expect(screen.getByText("Delivery is not a conclusion")).toBeVisible()
+    expect(screen.getByText("Dashboard did not accept implementation")).toBeVisible()
+
+    rerender(<OperationActivityPanel operations={[{
+      ...operation,
+      type: "factory.supervision-review-checkpoint",
+      state: "unverified",
+      history: [...operation.history, { state: "unverified", observed_at: "2026-08-10T08:03:00.000Z" }],
+      request_evidence: { review_task_started: true },
+      verification_evidence: {
+        conclusion_recorded: false,
+        reviewer_request_current: false,
+        matching_record_id: "EVT-000005",
+      },
+    }]} />)
+    expect(screen.getByText("Matching record is not correlated to the exact reviewer turn")).toBeVisible()
+    expect(screen.queryByText("Awaiting canonical conclusion")).not.toBeInTheDocument()
   })
 })

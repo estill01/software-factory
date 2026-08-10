@@ -157,6 +157,9 @@ describe("run mission-history boundary", () => {
     expect(screen.getAllByText("HISTORICAL-SOURCE-RECORD").length).toBeGreaterThan(0)
     expect(screen.getAllByText("Suppressed at succession boundary").length).toBe(2)
     expect(screen.queryByTitle(hash("f"))).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Checkpoint review" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Meta-review" })).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: "Issue follow-up" })).not.toBeInTheDocument()
 
     for (const sentinel of [
       "CURRENT-LIGHT",

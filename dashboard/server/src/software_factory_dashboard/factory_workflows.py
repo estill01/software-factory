@@ -42,6 +42,30 @@ MISSION_MARKER = "SOFTWARE_FACTORY_DASHBOARD_MISSION "
 CHECK_MARKER = "SOFTWARE_FACTORY_DASHBOARD_CHECK "
 CHECK_ROUTE_PURPOSE = "watcher-action"
 CHECK_EVIDENCE_PURPOSE = "dashboard-route-purpose:watcher-action"
+REVIEW_MARKER = "SOFTWARE_FACTORY_DASHBOARD_REVIEW "
+REVIEW_VARIANTS = {
+    "checkpoint": {
+        "operation_type": "factory.supervision-review-checkpoint",
+        "role": "reviewer",
+        "purpose": "semantic-escalation",
+        "expected_kind": "checkpoint-review",
+        "label": "checkpoint review",
+    },
+    "meta": {
+        "operation_type": "factory.supervision-review-meta",
+        "role": "reviewer",
+        "purpose": "semantic-escalation",
+        "expected_kind": "meta-review",
+        "label": "meta-review",
+    },
+    "issue": {
+        "operation_type": "factory.supervision-review-issue",
+        "role": "notice_reviewer",
+        "purpose": "incident-review",
+        "expected_kind": "resolution",
+        "label": "issue follow-up",
+    },
+}
 MAX_WORKFLOW_PROMPT = 16_000
 MAX_ROUTE_HELPER_BYTES = 2 * 1024 * 1024
 MISSION_SOURCE_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,239}$"
@@ -233,6 +257,7 @@ class FactoryWorkflowOwner:
         self.app_server_client = app_server_client
         self.route_gate = route_gate
         self._check_dispatch_lock = RLock()
+        self._review_dispatch_lock = RLock()
 
     def registry(self) -> OperationRegistry:
         return OperationRegistry(
@@ -248,6 +273,9 @@ class FactoryWorkflowOwner:
                 self._input_definition(),
                 self._interrupt_definition(),
                 self._check_now_definition(),
+                self._semantic_review_definition("checkpoint"),
+                self._semantic_review_definition("meta"),
+                self._semantic_review_definition("issue"),
                 self._unavailable_authoring_supervision_definition(),
             )
         )
@@ -2809,6 +2837,797 @@ class FactoryWorkflowOwner:
                 recipient=str(source.evidence["watcher_task_id"]),
             ),
             route_gate_request=self._check_route_request,
+            route_gate=self.route_gate,
+            dispatch=dispatch,
+            verify=verify,
+        )
+
+    @staticmethod
+    def _parse_review_marker(summary: str) -> Mapping[str, Any] | None:
+        required = {
+            "kind",
+            "variant",
+            "target_thread_id",
+            "mission_root",
+            "policy_sha256",
+            "state_fingerprint",
+            "preview_fingerprint",
+            "prior_event_count",
+            "route_purpose",
+            "expected_kind",
+            "source_record",
+            "reviewer_role",
+            "reviewer_task_id",
+            "incident_id",
+        }
+        first_line = summary.splitlines()[0] if summary else ""
+        if not first_line.startswith(REVIEW_MARKER):
+            return None
+        try:
+            marker = json.loads(first_line.removeprefix(REVIEW_MARKER))
+        except json.JSONDecodeError as error:
+            raise OperationError(
+                "review_marker_invalid",
+                "The reviewer task's dashboard review marker is malformed.",
+                status=409,
+            ) from error
+        config = REVIEW_VARIANTS.get(marker.get("variant")) if isinstance(marker, Mapping) else None
+        incident_id = marker.get("incident_id") if isinstance(marker, Mapping) else None
+        if (
+            not isinstance(marker, Mapping)
+            or set(marker) != required
+            or marker.get("kind") != "semantic-review-request"
+            or config is None
+            or marker.get("route_purpose") != config["purpose"]
+            or marker.get("expected_kind") != config["expected_kind"]
+            or marker.get("reviewer_role") != config["role"]
+            or not all(
+                isinstance(marker.get(field), str) and marker[field]
+                for field in (
+                    "target_thread_id",
+                    "source_record",
+                    "reviewer_task_id",
+                )
+            )
+            or not all(
+                isinstance(marker.get(field), str)
+                and SHA256_PATTERN.fullmatch(str(marker[field]))
+                for field in (
+                    "mission_root",
+                    "policy_sha256",
+                    "state_fingerprint",
+                    "preview_fingerprint",
+                )
+            )
+            or type(marker.get("prior_event_count")) is not int
+            or marker["prior_event_count"] < 0
+            or (marker["variant"] == "issue") != isinstance(incident_id, str)
+            or (isinstance(incident_id, str) and not incident_id)
+        ):
+            raise OperationError(
+                "review_marker_invalid",
+                "The reviewer task's dashboard review marker is malformed.",
+                status=409,
+            )
+        return marker
+
+    @staticmethod
+    def _latest_review_marker(task: Mapping[str, Any]) -> Mapping[str, Any] | None:
+        """Return the latest dashboard review marker retained by the exact role task."""
+
+        for turn in reversed(task.get("turns", [])):
+            for item in reversed(turn.get("items", [])):
+                summary = item.get("summary")
+                if item.get("type") != "userMessage" or not isinstance(summary, str):
+                    continue
+                marker = FactoryWorkflowOwner._parse_review_marker(summary)
+                if marker is not None:
+                    return marker
+        return None
+
+    @staticmethod
+    def _review_turn_has_marker(
+        task: Mapping[str, Any],
+        *,
+        turn_id: str,
+        expected: Mapping[str, Any],
+    ) -> bool:
+        matching_turns = [turn for turn in task.get("turns", []) if turn.get("id") == turn_id]
+        if len(matching_turns) != 1:
+            return False
+        markers = []
+        for item in matching_turns[0].get("items", []):
+            summary = item.get("summary")
+            if item.get("type") != "userMessage" or not isinstance(summary, str):
+                continue
+            marker = FactoryWorkflowOwner._parse_review_marker(summary)
+            if marker is not None:
+                markers.append(marker)
+        return len(markers) == 1 and markers[0] == expected
+
+    @staticmethod
+    def _review_records(
+        run: Mapping[str, Any],
+        *,
+        preview_fingerprint: str,
+        prior_event_count: int,
+        mission_root: str,
+        policy_sha256: str,
+        state_fingerprint: str,
+        route_purpose: str,
+        expected_kind: str,
+        reviewer_task_id: str,
+        source_record: str,
+        incident_id: str | None,
+    ) -> list[Mapping[str, Any]]:
+        required_evidence = {
+            f"dashboard-route-purpose:{route_purpose}",
+            f"dashboard-preview:{preview_fingerprint}",
+            f"dashboard-review-task:{reviewer_task_id}",
+            f"dashboard-source-record:{source_record}",
+        }
+
+        def matches(event: Mapping[str, Any]) -> bool:
+            source = event.get("source")
+            line = source.get("line") if isinstance(source, Mapping) else None
+            timestamp = event.get("timestamp")
+            evidence = event.get("evidence")
+            if (
+                type(line) is not int
+                or line <= prior_event_count
+                or event.get("record_id") != f"EVT-{line:06d}"
+                or not isinstance(timestamp, str)
+                or not timestamp
+                or not isinstance(evidence, list)
+                or not required_evidence.issubset(
+                    {item for item in evidence if isinstance(item, str)}
+                )
+            ):
+                return False
+            try:
+                recorded_at = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            except ValueError:
+                return False
+            if recorded_at.tzinfo is None:
+                return False
+            if (
+                event.get("kind") != expected_kind
+                or not isinstance(event.get("status"), str)
+                or not event["status"]
+                or event.get("mission_root") != mission_root
+                or event.get("policy_sha256") != policy_sha256
+                or event.get("state_fingerprint") != state_fingerprint
+            ):
+                return False
+            if incident_id is None:
+                return event.get("incident_id") in (None, "")
+            return (
+                event.get("incident_id") == incident_id
+                and event.get("category") == "notice-outcome"
+            )
+
+        return [event for event in run.get("timeline", []) if matches(event)]
+
+    def _review_source(
+        self,
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+        *,
+        variant: str,
+    ) -> SourceSnapshot:
+        config = REVIEW_VARIANTS[variant]
+        projects, catalog_fingerprint = self._active_projects()
+        project = self._project_from(projects, target)
+        self._require_capabilities("task_read", "task_resume", "turn_start")
+        try:
+            target_detail = self.app_server_client.read_task(
+                projects,
+                target.id,
+                include_turns=False,
+            )
+        except AppServerError as error:
+            raise _operation_error(error, fallback="review_target_unavailable") from error
+        target_task = target_detail["task"]
+        target_binding = target_task.get("project_binding")
+        if (
+            target_task.get("id") != target.id
+            or not isinstance(target_binding, Mapping)
+            or target_binding.get("status") != "bound"
+            or target_binding.get("project_id") != project.id
+        ):
+            raise OperationError(
+                "review_project_mismatch",
+                "The selected run target is not bound to the exact registered project.",
+                status=409,
+            )
+        try:
+            snapshot = self.operations_service.run(projects, target.id)
+        except OperationsProjectionError as error:
+            raise _operation_error(error, fallback="review_source_unavailable") from error
+        run = snapshot["selected_run"]
+        current_mission = run.get("current_mission")
+        if run.get("status") != "available" or not isinstance(current_mission, Mapping):
+            raise OperationError(
+                "review_source_unavailable",
+                "The selected run has no current canonical supervision source.",
+                status=409,
+            )
+        project_binding = run.get("project_binding")
+        if not isinstance(project_binding, Mapping) or project_binding.get("status") in {
+            "ambiguous",
+        } or (
+            project_binding.get("status") == "bound"
+            and project_binding.get("project_id") != project.id
+        ):
+            raise OperationError(
+                "review_project_mismatch",
+                "The selected run and target task disagree about their registered project.",
+                status=409,
+            )
+        lifecycle = run.get("lifecycle")
+        lifecycle_status = lifecycle.get("status") if isinstance(lifecycle, Mapping) else None
+        if lifecycle_status in {"completed", "stopped"}:
+            raise OperationError(
+                "review_lifecycle_terminal",
+                f"Semantic review requests are unavailable after lifecycle {lifecycle_status}.",
+                status=409,
+            )
+        topology = run.get("topology")
+        roles = topology.get("roles", []) if isinstance(topology, Mapping) else []
+        candidates = [role for role in roles if role.get("role") == config["role"]]
+        if len(candidates) != 1:
+            raise OperationError(
+                "reviewer_binding_unavailable",
+                f"The selected run does not have one exact {config['role']} binding.",
+                status=409,
+            )
+        role = candidates[0]
+        reviewer_task_id = role.get("thread_id")
+        if role.get("binding_status") != "bound" or not isinstance(reviewer_task_id, str):
+            raise OperationError(
+                "reviewer_binding_unavailable",
+                "The selected semantic reviewer task binding is not current.",
+                status=409,
+            )
+        try:
+            reviewer_detail = self.app_server_client.read_task(
+                projects,
+                reviewer_task_id,
+                include_turns=True,
+            )
+        except AppServerError as error:
+            raise _operation_error(error, fallback="reviewer_task_unavailable") from error
+        reviewer_task = reviewer_detail["task"]
+        reviewer_cwd = reviewer_task.get("cwd")
+        try:
+            canonical_reviewer_cwd = str(
+                Path(str(reviewer_cwd)).expanduser().resolve(strict=True)
+            )
+        except (OSError, RuntimeError) as error:
+            raise OperationError(
+                "reviewer_task_unavailable",
+                "The exact configured reviewer task cwd is unavailable.",
+                status=409,
+            ) from error
+        reviewer_path = Path(canonical_reviewer_cwd)
+        if not reviewer_path.is_dir() or reviewer_task.get("id") != reviewer_task_id:
+            raise OperationError(
+                "reviewer_task_unavailable",
+                "The exact configured reviewer task identity or cwd is unavailable.",
+                status=409,
+            )
+        reviewer_cwd_stat = reviewer_path.stat()
+        reviewer_status = reviewer_task.get("status", {}).get("type")
+        if reviewer_status == "active":
+            raise OperationError(
+                "review_active",
+                "The exact reviewer already has an active turn; no duplicate request was sent.",
+                status=409,
+            )
+        if reviewer_status not in {"idle", "notLoaded"}:
+            raise OperationError(
+                "reviewer_task_unavailable",
+                "The exact reviewer task is not idle and available for one review.",
+                status=409,
+            )
+        mission_root = current_mission.get("root")
+        policy_sha256 = run.get("source", {}).get("policy_head_sha256")
+        event_count = run.get("event_count")
+        state_fingerprint = run.get("fingerprint")
+        if (
+            not isinstance(mission_root, str)
+            or not SHA256_PATTERN.fullmatch(mission_root)
+            or not isinstance(policy_sha256, str)
+            or not SHA256_PATTERN.fullmatch(policy_sha256)
+            or type(event_count) is not int
+            or event_count < 0
+            or not isinstance(state_fingerprint, str)
+            or not SHA256_PATTERN.fullmatch(state_fingerprint)
+        ):
+            raise OperationError(
+                "review_source_unavailable",
+                "The selected run's mission, policy, event head, or state fingerprint is incomplete.",
+                status=409,
+            )
+        incident_id = inputs.get("incident_id") if variant == "issue" else None
+        if variant == "issue":
+            incidents = [
+                incident
+                for incident in run.get("incidents", [])
+                if incident.get("incident_id") == incident_id
+            ]
+            if len(incidents) != 1 or incidents[0].get("open") is not True:
+                raise OperationError(
+                    "review_issue_unavailable",
+                    "Issue follow-up requires one exact current open incident.",
+                    status=409,
+                )
+            incident_head = incidents[0].get("head")
+            source_record = (
+                incident_head.get("record_id")
+                if isinstance(incident_head, Mapping)
+                else None
+            )
+        else:
+            source_record = next(
+                (
+                    record.get("record_id")
+                    for record in (
+                        run.get("latest_activity"),
+                        run.get("latest_conclusion"),
+                        run.get("last_check"),
+                    )
+                    if isinstance(record, Mapping)
+                    and isinstance(record.get("record_id"), str)
+                ),
+                None,
+            )
+        if not isinstance(source_record, str) or not source_record:
+            raise OperationError(
+                "review_source_record_unavailable",
+                "The selected review has no exact current canonical source record.",
+                status=409,
+            )
+        prior_marker = self._latest_review_marker(reviewer_task)
+        if prior_marker is not None:
+            if prior_marker.get("target_thread_id") != target.id:
+                raise OperationError(
+                    "review_owner_busy",
+                    "The exact reviewer has an unresolved dashboard request for another target.",
+                    status=409,
+                )
+            prior_records = self._review_records(
+                run,
+                preview_fingerprint=str(prior_marker["preview_fingerprint"]),
+                prior_event_count=int(prior_marker["prior_event_count"]),
+                mission_root=str(prior_marker["mission_root"]),
+                policy_sha256=str(prior_marker["policy_sha256"]),
+                state_fingerprint=str(prior_marker["state_fingerprint"]),
+                route_purpose=str(prior_marker["route_purpose"]),
+                expected_kind=str(prior_marker["expected_kind"]),
+                reviewer_task_id=str(prior_marker["reviewer_task_id"]),
+                source_record=str(prior_marker["source_record"]),
+                incident_id=(
+                    str(prior_marker["incident_id"])
+                    if isinstance(prior_marker.get("incident_id"), str)
+                    else None
+                ),
+            )
+            if not prior_records:
+                raise OperationError(
+                    "review_unverified_active",
+                    "The reviewer's latest dashboard request has no matching canonical conclusion.",
+                    status=409,
+                )
+        evidence = {
+            "catalog_fingerprint": catalog_fingerprint,
+            "project_id": project.id,
+            "target_thread_id": target.id,
+            "variant": variant,
+            "mission_root": mission_root,
+            "policy_sha256": policy_sha256,
+            "event_head_sha256": run.get("source", {}).get("event_head_sha256"),
+            "prior_event_count": event_count,
+            "state_fingerprint": state_fingerprint,
+            "source_record": source_record,
+            "incident_id": incident_id,
+            "reviewer_role": config["role"],
+            "reviewer_task_id": reviewer_task_id,
+            "reviewer_task_status": reviewer_status,
+            "reviewer_task_cwd": canonical_reviewer_cwd,
+            "reviewer_cwd_device": reviewer_cwd_stat.st_dev,
+            "reviewer_cwd_inode": reviewer_cwd_stat.st_ino,
+            "reviewer_resume_required": reviewer_status == "notLoaded",
+            "route_purpose": config["purpose"],
+            "expected_kind": config["expected_kind"],
+        }
+        material = {
+            "catalog": catalog_fingerprint,
+            "run": state_fingerprint,
+            "event_head": evidence["event_head_sha256"],
+            "event_count": event_count,
+            "mission": mission_root,
+            "policy": policy_sha256,
+            "variant": variant,
+            "source_record": source_record,
+            "incident_id": incident_id,
+            "reviewer": reviewer_task,
+        }
+        return SourceSnapshot(fingerprint=fingerprint(material), evidence=evidence)
+
+    @staticmethod
+    def _semantic_review_marker(
+        target: OperationTarget,
+        source: SourceSnapshot,
+        *,
+        variant: str,
+    ) -> dict[str, Any]:
+        config = REVIEW_VARIANTS[variant]
+        return {
+            "kind": "semantic-review-request",
+            "variant": variant,
+            "target_thread_id": target.id,
+            "mission_root": source.evidence["mission_root"],
+            "policy_sha256": source.evidence["policy_sha256"],
+            "state_fingerprint": source.evidence["state_fingerprint"],
+            "preview_fingerprint": source.fingerprint,
+            "prior_event_count": source.evidence["prior_event_count"],
+            "route_purpose": config["purpose"],
+            "expected_kind": config["expected_kind"],
+            "source_record": source.evidence["source_record"],
+            "reviewer_role": config["role"],
+            "reviewer_task_id": source.evidence["reviewer_task_id"],
+            "incident_id": source.evidence["incident_id"],
+        }
+
+    @staticmethod
+    def _semantic_review_prompt(
+        target: OperationTarget,
+        source: SourceSnapshot,
+        *,
+        variant: str,
+    ) -> str:
+        config = REVIEW_VARIANTS[variant]
+        marker = FactoryWorkflowOwner._semantic_review_marker(
+            target,
+            source,
+            variant=variant,
+        )
+        instruction = {
+            "checkpoint": "Perform one bounded delta-only checkpoint retrospective under your maintained reviewer role.",
+            "meta": "Run one bounded supervisor-effectiveness meta-review under your maintained reviewer role.",
+            "issue": "Review only the exact current open incident head under your maintained notice-outcome reviewer role.",
+        }[variant]
+        facts = {
+            "target_thread_id": target.id,
+            "mission_root": source.evidence["mission_root"],
+            "policy_sha256": source.evidence["policy_sha256"],
+            "state_fingerprint": source.evidence["state_fingerprint"],
+            "source_record": source.evidence["source_record"],
+            "incident_id": source.evidence["incident_id"],
+            "review_variant": variant,
+        }
+        return FactoryWorkflowOwner._bounded_prompt(
+            (
+                REVIEW_MARKER + _canonical(marker),
+                instruction,
+                "Do not implement, edit the target, or treat delivery or task terminality as a conclusion.",
+                "Use the canonical supervision owner for the eventual semantic record.",
+                f"Record kind {config['expected_kind']} with the exact state fingerprint and current mission/policy above.",
+                "Include all four exact evidence references:",
+                f"- dashboard-route-purpose:{config['purpose']}",
+                f"- dashboard-preview:{source.fingerprint}",
+                f"- dashboard-review-task:{source.evidence['reviewer_task_id']}",
+                f"- dashboard-source-record:{source.evidence['source_record']}",
+                "A rejected or insufficient-evidence conclusion must retain that exact status; never infer implementation acceptance from this request.",
+                "",
+                *FactoryWorkflowOwner._prompt_facts(facts),
+            )
+        )
+
+    def _review_route_request(
+        self,
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+        source: SourceSnapshot,
+    ) -> RouteGateRequest:
+        del inputs
+        reviewer_task_id = source.evidence.get("reviewer_task_id")
+        source_record = source.evidence.get("source_record")
+        route_purpose = source.evidence.get("route_purpose")
+        variant = source.evidence.get("variant")
+        if not all(
+            isinstance(value, str) and value
+            for value in (reviewer_task_id, source_record, route_purpose, variant)
+        ):
+            raise OperationError(
+                "route_gate_unavailable",
+                "The exact semantic-review route is incomplete.",
+                status=409,
+            )
+        return RouteGateRequest(
+            target_thread=target.id,
+            recipient=reviewer_task_id,
+            purpose=route_purpose,
+            source_record=source_record,
+            required_action=(
+                f"Request one {variant} semantic review for target {target.id}; "
+                f"preview SHA-256 {source.fingerprint}."
+            ),
+        )
+
+    def _semantic_review_definition(self, variant: str) -> OperationDefinition:
+        config = REVIEW_VARIANTS[variant]
+        schema = (
+            _object_schema(
+                {"incident_id": _text_schema(128, pattern=r"^INC-[A-Za-z0-9-]+$")}
+            )
+            if variant == "issue"
+            else _object_schema({}, required=())
+        )
+
+        def resolve(target: OperationTarget, inputs: Mapping[str, Any]) -> SourceSnapshot:
+            return self._review_source(target, inputs, variant=variant)
+
+        def dispatch(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+        ) -> DispatchResult:
+            with self._review_dispatch_lock:
+                current = self._review_source(target, inputs, variant=variant)
+                if current.fingerprint != source.fingerprint:
+                    raise OperationOwnerError(
+                        "review_source_changed",
+                        "The exact semantic-review source changed before dispatch.",
+                    )
+                projects, _ = self._active_projects()
+                reviewer_task_id = str(source.evidence["reviewer_task_id"])
+                prompt = self._semantic_review_prompt(target, source, variant=variant)
+                try:
+                    result = self.app_server_client.start_configured_role_turn(
+                        projects,
+                        reviewer_task_id,
+                        prompt,
+                        expected_cwd=str(source.evidence["reviewer_task_cwd"]),
+                        expected_cwd_identity=(
+                            int(source.evidence["reviewer_cwd_device"]),
+                            int(source.evidence["reviewer_cwd_inode"]),
+                        ),
+                    )
+                except AppServerError as error:
+                    raise OperationOwnerError(_owner_code(error), str(error)) from error
+                return DispatchResult(
+                    evidence={
+                        "target_thread_id": target.id,
+                        "review_variant": variant,
+                        "reviewer_role": config["role"],
+                        "reviewer_task_id": reviewer_task_id,
+                        "reviewer_turn_id": result["turn"]["id"],
+                        "review_task_started": True,
+                        "reviewer_task_resumed": result["task_resumed"],
+                        "source_record": source.evidence["source_record"],
+                        "state_fingerprint": source.evidence["state_fingerprint"],
+                        "preview_fingerprint": source.fingerprint,
+                        "conclusion_recorded": False,
+                    },
+                    links=(
+                        OperationLink("Run", f"/runs/{target.id}"),
+                        OperationLink("Reviewer task", f"/tasks/{reviewer_task_id}"),
+                    ),
+                )
+
+        def verify(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+            result: DispatchResult,
+        ) -> VerificationResult:
+            del inputs
+            projects, _ = self._active_projects()
+            try:
+                snapshot = self.operations_service.run(projects, target.id)
+            except OperationsProjectionError as error:
+                return VerificationResult(
+                    "pending",
+                    {
+                        **result.evidence,
+                        "conclusion_recorded": False,
+                        "owner_error_code": error.code,
+                    },
+                    result.links,
+                )
+            run = snapshot["selected_run"]
+            records = self._review_records(
+                run,
+                preview_fingerprint=source.fingerprint,
+                prior_event_count=int(source.evidence["prior_event_count"]),
+                mission_root=str(source.evidence["mission_root"]),
+                policy_sha256=str(source.evidence["policy_sha256"]),
+                state_fingerprint=str(source.evidence["state_fingerprint"]),
+                route_purpose=str(source.evidence["route_purpose"]),
+                expected_kind=str(source.evidence["expected_kind"]),
+                reviewer_task_id=str(source.evidence["reviewer_task_id"]),
+                source_record=str(source.evidence["source_record"]),
+                incident_id=(
+                    str(source.evidence["incident_id"])
+                    if isinstance(source.evidence.get("incident_id"), str)
+                    else None
+                ),
+            )
+            if not records:
+                return VerificationResult(
+                    "pending",
+                    {
+                        **result.evidence,
+                        "conclusion_recorded": False,
+                        "new_event_count": run.get("event_count"),
+                        "request_delivery_is_conclusion": False,
+                    },
+                    result.links,
+                )
+            reviewer_task_id = str(source.evidence["reviewer_task_id"])
+            try:
+                reviewer_detail = self.app_server_client.read_task(
+                    projects,
+                    reviewer_task_id,
+                    include_turns=True,
+                )
+            except AppServerError as error:
+                return VerificationResult(
+                    "pending",
+                    {
+                        **result.evidence,
+                        "conclusion_recorded": False,
+                        "reviewer_request_current": False,
+                        "owner_error_code": error.code,
+                    },
+                    result.links,
+                )
+            reviewer_task = reviewer_detail.get("task")
+            reviewer_turn_id = result.evidence.get("reviewer_turn_id")
+            expected_marker = self._semantic_review_marker(
+                target,
+                source,
+                variant=variant,
+            )
+            try:
+                reviewer_request_current = (
+                    isinstance(reviewer_task, Mapping)
+                    and reviewer_task.get("id") == reviewer_task_id
+                    and isinstance(reviewer_turn_id, str)
+                    and self._review_turn_has_marker(
+                        reviewer_task,
+                        turn_id=reviewer_turn_id,
+                        expected=expected_marker,
+                    )
+                )
+            except OperationError:
+                reviewer_request_current = False
+            if not reviewer_request_current:
+                return VerificationResult(
+                    "pending",
+                    {
+                        **result.evidence,
+                        "conclusion_recorded": False,
+                        "reviewer_request_current": False,
+                        "matching_record_id": records[-1].get("record_id"),
+                    },
+                    result.links,
+                )
+            conclusion = records[-1]
+            source_line = conclusion["source"]["line"]
+
+            def supersedes(event: Mapping[str, Any]) -> bool:
+                event_source = event.get("source")
+                line = event_source.get("line") if isinstance(event_source, Mapping) else None
+                timestamp = event.get("timestamp")
+                if (
+                    type(line) is not int
+                    or line <= source_line
+                    or event.get("record_id") != f"EVT-{line:06d}"
+                    or not isinstance(timestamp, str)
+                    or not timestamp
+                    or not isinstance(event.get("status"), str)
+                    or not event["status"]
+                    or event.get("mission_root") != source.evidence["mission_root"]
+                    or event.get("kind") != source.evidence["expected_kind"]
+                ):
+                    return False
+                try:
+                    recorded_at = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                except ValueError:
+                    return False
+                if recorded_at.tzinfo is None:
+                    return False
+                incident_id = source.evidence.get("incident_id")
+                if incident_id is None:
+                    return event.get("incident_id") in (None, "")
+                return (
+                    event.get("incident_id") == incident_id
+                    and event.get("category") == "notice-outcome"
+                )
+
+            later = [
+                event
+                for event in run.get("timeline", [])
+                if supersedes(event)
+            ]
+            superseded_by = later[-1].get("record_id") if later else None
+            status = str(conclusion["status"])
+            rejected = any(
+                token in status.lower()
+                for token in ("reject", "fail", "insufficient", "ineffective")
+            )
+            links = (
+                *result.links,
+                OperationLink(
+                    "Conclusion",
+                    f"/runs/{target.id}#{conclusion['record_id']}",
+                ),
+            )
+            return VerificationResult(
+                "applied",
+                {
+                    **result.evidence,
+                    "conclusion_recorded": True,
+                    "conclusion_record_id": conclusion.get("record_id"),
+                    "conclusion_timestamp": conclusion.get("timestamp"),
+                    "conclusion_kind": conclusion.get("kind"),
+                    "conclusion_status": conclusion.get("status"),
+                    "conclusion_current": superseded_by is None,
+                    "conclusion_superseded_by": superseded_by,
+                    "conclusion_rejected": rejected,
+                    "conclusion_actor_attribution": "unavailable",
+                    "eligible_reviewer_task_requested": True,
+                    "reviewer_request_current": True,
+                    "reviewer_turn_correlated": True,
+                    "request_delivery_is_conclusion": False,
+                    "implementation_accepted_by_dashboard": False,
+                },
+                links,
+            )
+
+        return OperationDefinition(
+            operation_type=str(config["operation_type"]),
+            target_kind="run",
+            input_schema=schema,
+            owner="maintained semantic reviewer task + canonical supervision ledger",
+            authority=(
+                "explicit operator confirmation",
+                f"exact current {config['role']} task binding",
+                f"maintained {config['purpose']} route gate",
+            ),
+            ordinary_consequences=(
+                f"Starts one bounded {config['label']} turn on the exact idle reviewer task.",
+                "A separately recorded canonical semantic conclusion may later satisfy the postcondition.",
+            ),
+            failure_consequences=(
+                "Active, missing, stale, duplicate, or denied reviewer state sends no second request.",
+                "Message delivery or task terminality without the exact canonical conclusion remains unverified.",
+            ),
+            confirmation=ConfirmationContract(
+                f"semantic-review-{variant}",
+                f"Type REVIEW to request one {config['label']}.",
+                "REVIEW",
+            ),
+            idempotency="One consumed preview starts at most one reviewer turn; no automatic retry.",
+            expected_postcondition=(
+                f"One newer current-mission {config['expected_kind']} record matches the exact state, source, route purpose, reviewer task, and preview."
+            ),
+            timeout_seconds=30,
+            limitations=(
+                "A delivered or terminal reviewer turn is not itself a semantic conclusion.",
+                "Canonical events do not expose emitting-task identity; exact reviewer-task correlation is retained as request evidence, not actor attribution.",
+                "The dashboard never accepts implementation from this request.",
+            ),
+            resolve_source=resolve,
+            describe_effect=lambda target, inputs, source: PreviewEffect(
+                f"Request one {config['label']} for run {target.id}.",
+                "This starts one bounded turn on the exact maintained reviewer; no conclusion is inferred from delivery.",
+                recipient=str(source.evidence["reviewer_task_id"]),
+            ),
+            route_gate_request=self._review_route_request,
             route_gate=self.route_gate,
             dispatch=dispatch,
             verify=verify,

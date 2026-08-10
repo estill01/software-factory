@@ -19,6 +19,7 @@ vi.mock("@/lib/admin-operations-api", async (importOriginal) => ({
 import {
   ProjectWorkflowActions,
   RunCheckAction,
+  RunSupervisionActions,
   TaskWorkflowActions,
   TrackerWorkflowActions,
 } from "@/features/admin/factory-workflow-actions"
@@ -217,6 +218,41 @@ describe("Factory workflow action strips", () => {
       input: {},
     })
     expect(await screen.findByText("One mechanical watcher check · no semantic conclusion")).toBeVisible()
+  })
+
+  it("previews closed checkpoint, meta, and exact-incident review variants", async () => {
+    const user = userEvent.setup()
+    renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={["INC-ONE", "INC-TWO"]}
+      />,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Checkpoint review" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledTimes(1))
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.supervision-review-checkpoint",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: {},
+    })
+    await user.click(screen.getByRole("button", { name: "Close operation preview" }))
+
+    await user.click(screen.getByRole("button", { name: "Meta-review" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledTimes(2))
+    expect(mocks.previewOperation.mock.calls[1][0].operation_type).toBe("factory.supervision-review-meta")
+    await user.click(screen.getByRole("button", { name: "Close operation preview" }))
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Issue for follow-up" }), "INC-TWO")
+    await user.click(screen.getByRole("button", { name: "Issue follow-up" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledTimes(3))
+    expect(mocks.previewOperation.mock.calls[2][0]).toEqual({
+      operation_type: "factory.supervision-review-issue",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: { incident_id: "INC-TWO" },
+    })
+    expect(await screen.findByText("One exact reviewer task · conclusion remains separate from delivery")).toBeVisible()
   })
 
   it("previews only the selected eligible implementation range and exact Stop", async () => {

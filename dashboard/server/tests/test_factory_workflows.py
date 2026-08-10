@@ -16,6 +16,7 @@ from test_tracker import FULL_TRACKER
 from dashboard.server.tests.fake_app_server import write_contract
 from software_factory_dashboard.admin_operations import (
     OperationError,
+    OperationOwnerError,
     OperationTarget,
     RouteGateRequest,
     RouteGateResult,
@@ -254,9 +255,12 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(duplicate_status, 409)
         self.assertEqual(duplicate["error"]["code"], "authoring_owner_conflict")
         self.assertEqual(executed["data"]["operation"]["state"], "applied")
-        self.assertEqual(len(supported), 11)
+        self.assertEqual(len(supported), 14)
         self.assertIn("factory.blocks-implement", supported)
         self.assertIn("factory.supervision-check-now", supported)
+        self.assertIn("factory.supervision-review-checkpoint", supported)
+        self.assertIn("factory.supervision-review-meta", supported)
+        self.assertIn("factory.supervision-review-issue", supported)
         self.assertIn("task.input-respond", supported)
         self.assertEqual(unavailable[0]["type"], "factory.tracker-authoring-supervision")
         prompt = task["turns"][0]["items"][0]["summary"]
@@ -1159,6 +1163,320 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         with self.assertRaises(OperationError) as missing_automation:
             definition.resolve_source(target, {})
         self.assertEqual(missing_automation.exception.code, "watcher_binding_unavailable")
+
+    def test_semantic_review_requests_bind_role_source_conclusion_and_supersession(self) -> None:
+        project = ProjectRecord(
+            id="workflow",
+            label="Workflow",
+            root=str(self.repository),
+        )
+        role_workspace = self.root / "reviewer-workspace"
+        role_workspace.mkdir()
+        target_task = {
+            "id": "task-fake-001",
+            "status": {"type": "idle"},
+            "project_binding": {
+                "status": "bound",
+                "project_id": "workflow",
+                "candidates": ["workflow"],
+            },
+        }
+        tasks = {
+            "reviewer-workflow-001": {
+                "id": "reviewer-workflow-001",
+                "status": {"type": "idle"},
+                "cwd": str(role_workspace),
+                "project_binding": {
+                    "status": "unregistered",
+                    "project_id": None,
+                    "candidates": [],
+                },
+                "preview": "Semantic reviewer",
+                "turns": [],
+            },
+            "notice-workflow-001": {
+                "id": "notice-workflow-001",
+                "status": {"type": "idle"},
+                "cwd": str(role_workspace),
+                "project_binding": {
+                    "status": "unregistered",
+                    "project_id": None,
+                    "candidates": [],
+                },
+                "preview": "Notice reviewer",
+                "turns": [],
+            },
+        }
+        run = {
+            "status": "available",
+            "target_thread_id": "task-fake-001",
+            "fingerprint": "c" * 64,
+            "event_count": 4,
+            "current_mission": {"root": "a" * 64},
+            "project_binding": {"status": "bound", "project_id": "workflow"},
+            "lifecycle": {"status": None},
+            "last_check": {"record_id": "EVT-000003"},
+            "latest_activity": {"record_id": "EVT-000004"},
+            "latest_conclusion": None,
+            "source": {
+                "policy_head_sha256": "b" * 64,
+                "event_head_sha256": "d" * 64,
+            },
+            "topology": {
+                "binding_integrity": "valid",
+                "roles": [
+                    {
+                        "role": "reviewer",
+                        "thread_id": "reviewer-workflow-001",
+                        "binding_status": "bound",
+                        "automation": None,
+                    },
+                    {
+                        "role": "notice_reviewer",
+                        "thread_id": "notice-workflow-001",
+                        "binding_status": "bound",
+                        "automation": None,
+                    },
+                ],
+            },
+            "incidents": [
+                {
+                    "incident_id": "INC-20260810-TEST",
+                    "open": True,
+                    "head": {
+                        "record_id": "EVT-000004",
+                        "status": "open",
+                        "summary": "Exact open test incident.",
+                    },
+                }
+            ],
+            "timeline": [],
+        }
+
+        class OperationsStub:
+            def run(self, _projects, target_thread_id):
+                if target_thread_id != run["target_thread_id"]:
+                    raise AssertionError("wrong target")
+                return {"selected_run": run}
+
+        class AppServerStub:
+            prompts: dict[str, str] = {}
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": "task_read", "status": "supported"},
+                        {"capability": "task_resume", "status": "supported"},
+                        {"capability": "turn_start", "status": "supported"},
+                    ]
+                }
+
+            @staticmethod
+            def read_task(_projects, task_id, *, include_turns):
+                if task_id == target_task["id"] and not include_turns:
+                    return {"task": target_task}
+                if task_id not in tasks or not include_turns:
+                    raise AssertionError("wrong reviewer read")
+                return {"task": tasks[task_id]}
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                role_stat = role_workspace.stat()
+                if (
+                    task_id not in tasks
+                    or expected_cwd != str(role_workspace)
+                    or expected_cwd_identity != (role_stat.st_dev, role_stat.st_ino)
+                ):
+                    raise AssertionError("wrong reviewer dispatch")
+                self.prompts[task_id] = text
+                tasks[task_id]["turns"] = [
+                    {
+                        "id": f"turn-{task_id}",
+                        "status": "completed",
+                        "items": [{"type": "userMessage", "summary": text}],
+                    }
+                ]
+                return {
+                    "turn": {"id": f"turn-{task_id}"},
+                    "task_resumed": False,
+                }
+
+        app_server = AppServerStub()
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = app_server
+        owner.route_gate = lambda request: RouteGateResult(
+            allowed=True,
+            action_hash="f" * 64,
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint="b" * 64,
+            target_thread=request.target_thread,
+        )
+        owner._review_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), "9" * 64)  # type: ignore[method-assign]
+        target = OperationTarget(kind="run", id="task-fake-001", project_id="workflow")
+
+        checkpoint = owner._semantic_review_definition("checkpoint")
+        source = checkpoint.resolve_source(target, {})
+        route = checkpoint.route_gate_request(target, {}, source)
+        self.assertEqual(route.recipient, "reviewer-workflow-001")
+        self.assertEqual(route.purpose, "semantic-escalation")
+        dispatched = checkpoint.dispatch(target, {}, source)
+        self.assertTrue(dispatched.evidence["review_task_started"])
+        self.assertIn(f"dashboard-preview:{source.fingerprint}", app_server.prompts[route.recipient])
+        pending = checkpoint.verify(target, {}, source, dispatched)
+        self.assertEqual(pending.state, "pending")
+        self.assertFalse(pending.evidence["request_delivery_is_conclusion"])
+        tasks["reviewer-workflow-001"]["turns"].append(
+            {
+                "id": "turn-unrelated-later",
+                "status": "completed",
+                "items": [{"type": "userMessage", "summary": "Unrelated role message."}],
+            }
+        )
+        with self.assertRaises(OperationError) as duplicate:
+            checkpoint.resolve_source(target, {})
+        self.assertEqual(duplicate.exception.code, "review_unverified_active")
+
+        run["event_count"] = 5
+        run["timeline"] = [
+            {
+                "record_id": "EVT-000005",
+                "timestamp": "2026-08-10T00:02:00Z",
+                "kind": "checkpoint-review",
+                "status": "accepted",
+                "category": "checkpoint-retrospective",
+                "state_fingerprint": "c" * 64,
+                "mission_root": "a" * 64,
+                "policy_sha256": "b" * 64,
+                "evidence": [
+                    "dashboard-route-purpose:semantic-escalation",
+                    f"dashboard-preview:{source.fingerprint}",
+                    "dashboard-review-task:reviewer-workflow-001",
+                    "dashboard-source-record:EVT-000004",
+                ],
+                "source": {"line": 5},
+            }
+        ]
+        run["timeline"][0]["mission_root"] = "e" * 64
+        self.assertEqual(checkpoint.verify(target, {}, source, dispatched).state, "pending")
+        run["timeline"][0]["mission_root"] = "a" * 64
+        run["timeline"][0]["evidence"][0] = "dashboard-route-purpose:watcher-action"
+        self.assertEqual(checkpoint.verify(target, {}, source, dispatched).state, "pending")
+        run["timeline"][0]["evidence"][0] = "dashboard-route-purpose:semantic-escalation"
+        tasks["reviewer-workflow-001"]["turns"][0]["id"] = "turn-unrelated"
+        uncorrelated = checkpoint.verify(target, {}, source, dispatched)
+        self.assertEqual(uncorrelated.state, "pending")
+        self.assertFalse(uncorrelated.evidence["reviewer_request_current"])
+        self.assertEqual(uncorrelated.evidence["matching_record_id"], "EVT-000005")
+        tasks["reviewer-workflow-001"]["turns"][0]["id"] = "turn-reviewer-workflow-001"
+        concluded = checkpoint.verify(target, {}, source, dispatched)
+        self.assertEqual(concluded.state, "applied")
+        self.assertTrue(concluded.evidence["conclusion_recorded"])
+        self.assertTrue(concluded.evidence["conclusion_current"])
+        self.assertEqual(concluded.evidence["conclusion_record_id"], "EVT-000005")
+        self.assertEqual(concluded.evidence["conclusion_actor_attribution"], "unavailable")
+        self.assertTrue(concluded.evidence["reviewer_turn_correlated"])
+        self.assertFalse(concluded.evidence["implementation_accepted_by_dashboard"])
+
+        run["event_count"] = 6
+        run["timeline"].append(
+            {
+                "record_id": "EVT-000006",
+                "timestamp": "2026-08-10T00:03:00Z",
+                "kind": "checkpoint-review",
+                "status": "superseding-review",
+                "category": "checkpoint-retrospective",
+                "state_fingerprint": "e" * 64,
+                "mission_root": "a" * 64,
+                "policy_sha256": "b" * 64,
+                "evidence": ["independent-later-review"],
+                "source": {"line": 6},
+            }
+        )
+        run["timeline"][-1]["timestamp"] = None
+        malformed_later = checkpoint.verify(target, {}, source, dispatched)
+        self.assertTrue(malformed_later.evidence["conclusion_current"])
+        run["timeline"][-1]["timestamp"] = "2026-08-10T00:03:00Z"
+        superseded = checkpoint.verify(target, {}, source, dispatched)
+        self.assertFalse(superseded.evidence["conclusion_current"])
+        self.assertEqual(superseded.evidence["conclusion_superseded_by"], "EVT-000006")
+
+        meta = owner._semantic_review_definition("meta")
+        meta_source = meta.resolve_source(target, {})
+        meta_route = meta.route_gate_request(target, {}, meta_source)
+        self.assertEqual(meta_route.recipient, "reviewer-workflow-001")
+        self.assertEqual(meta_route.purpose, "semantic-escalation")
+        run["fingerprint"] = "f" * 64
+        with self.assertRaises(OperationOwnerError) as stale_meta:
+            meta.dispatch(target, {}, meta_source)
+        self.assertEqual(stale_meta.exception.code, "review_source_changed")
+        run["fingerprint"] = "c" * 64
+
+        issue = owner._semantic_review_definition("issue")
+        issue_input = {"incident_id": "INC-20260810-TEST"}
+        issue_source = issue.resolve_source(target, issue_input)
+        issue_route = issue.route_gate_request(target, issue_input, issue_source)
+        self.assertEqual(issue_route.recipient, "notice-workflow-001")
+        self.assertEqual(issue_route.purpose, "incident-review")
+        self.assertEqual(issue_route.source_record, "EVT-000004")
+        issue_dispatched = issue.dispatch(target, issue_input, issue_source)
+        issue_pending = issue.verify(target, issue_input, issue_source, issue_dispatched)
+        self.assertEqual(issue_pending.state, "pending")
+        self.assertFalse(issue_pending.evidence["conclusion_recorded"])
+
+        run["event_count"] = 7
+        run["timeline"].append(
+            {
+                "record_id": "EVT-000007",
+                "timestamp": "2026-08-10T00:04:00+00:00",
+                "kind": "resolution",
+                "status": "awaiting-target-evidence",
+                "category": "notice-outcome",
+                "incident_id": "INC-20260810-TEST",
+                "state_fingerprint": "c" * 64,
+                "mission_root": "a" * 64,
+                "policy_sha256": "b" * 64,
+                "evidence": [
+                    "dashboard-route-purpose:incident-review",
+                    f"dashboard-preview:{issue_source.fingerprint}",
+                    "dashboard-review-task:notice-workflow-001",
+                    "dashboard-source-record:EVT-000004",
+                ],
+                "source": {"line": 7},
+            }
+        )
+        issue_concluded = issue.verify(target, issue_input, issue_source, issue_dispatched)
+        self.assertEqual(issue_concluded.state, "applied")
+        self.assertEqual(issue_concluded.evidence["conclusion_kind"], "resolution")
+
+        latest_activity = run.pop("latest_activity")
+        last_check = run.pop("last_check")
+        with self.assertRaises(OperationError) as missing_source:
+            meta.resolve_source(target, {})
+        self.assertEqual(missing_source.exception.code, "review_source_record_unavailable")
+        run["latest_activity"] = latest_activity
+        run["last_check"] = last_check
+
+        with self.assertRaises(OperationError) as missing_issue:
+            issue.resolve_source(target, {"incident_id": "INC-20260810-MISSING"})
+        self.assertEqual(missing_issue.exception.code, "review_issue_unavailable")
+
+        notice_role = run["topology"]["roles"].pop()
+        with self.assertRaises(OperationError) as wrong_role:
+            issue.resolve_source(target, issue_input)
+        self.assertEqual(wrong_role.exception.code, "reviewer_binding_unavailable")
+        run["topology"]["roles"].append(notice_role)
 
     def test_routed_steer_interrupt_approval_and_input_use_exact_owner_records(self) -> None:
         self.init_supervision()
