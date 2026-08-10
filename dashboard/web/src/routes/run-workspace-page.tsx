@@ -86,6 +86,9 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
   if (runQuery.isError) return <QueryState kind="error" message={runQuery.error.message} retry={() => void runQuery.refetch()} />
 
   const run = runQuery.data.data.run
+  if (requestedRoot !== null && !run.mission_segments.some((candidate) => candidate.mission_root === requestedRoot)) {
+    return <QueryState kind="error" message="Requested mission is not present in this run's canonical history" />
+  }
   const currentRoot = run.current_mission?.root ?? run.mission_segments.find((segment) => segment.posture === "current")?.mission_root
   const segment = run.mission_segments.find((candidate) => candidate.mission_root === requestedRoot)
     ?? run.mission_segments.find((candidate) => candidate.mission_root === currentRoot)
@@ -347,7 +350,7 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
             </option>
           ))}
         </select>
-        <Identity value={segment?.policy_sha256s.at(-1) ?? run.current_mission?.policy_sha256} />
+        <Identity value={isCurrent ? segment?.policy_sha256s.at(-1) ?? run.current_mission?.policy_sha256 : segment?.policy_sha256s.at(-1)} />
       </div>
 
       {!isCurrent && (

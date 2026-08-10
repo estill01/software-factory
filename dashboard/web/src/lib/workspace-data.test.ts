@@ -7,6 +7,8 @@ import {
   newestTimestamp,
   newestPage,
   runBelongsToProject,
+  runProjectClaims,
+  safeGitOrigin,
   safeReturnPath,
   safeTaskItemSummary,
 } from "@/lib/workspace-data"
@@ -28,6 +30,19 @@ describe("workspace source boundaries", () => {
 
     expect(runBelongsToProject(run as never, exact as never, "alpha")).toBe(true)
     expect(runBelongsToProject(run as never, sameCwdButDifferentId as never, "alpha")).toBe(false)
+  })
+
+  it("keeps conflicting run and target-task project claims separate", () => {
+    const run = { target_thread_id: "target-1", project_binding: { status: "bound", project_id: "beta" } }
+    const task = [{ id: "target-1", project_binding: { status: "bound", project_id: "alpha" } }]
+
+    expect(runBelongsToProject(run as never, task as never, "alpha")).toBe(false)
+    expect(runBelongsToProject(run as never, task as never, "beta")).toBe(true)
+    expect(runProjectClaims(run as never, task as never, "alpha")).toEqual([
+      { source: "run binding", projectId: "beta" },
+      { source: "target task", projectId: "alpha" },
+      { source: "Factory Floor", projectId: "alpha" },
+    ])
   })
 
   it("keeps predecessor events and entities outside the current mission", () => {
@@ -59,6 +74,12 @@ describe("workspace source boundaries", () => {
     expect(safeTaskItemSummary("userMessage", "password=hunter2")).toBe("user message · content withheld in dashboard")
     expect(safeTaskItemSummary("mcpToolCall", "mcp__owner__read")).toBe("Tool · mcp__owner__read")
     expect(safeTaskItemSummary("mcpToolCall", "tool secret-argument")).toBe("Tool call recorded")
+    expect(safeGitOrigin("https://operator:SUPERSECRET@example.com/private/repo.git"))
+      .toBe("https://example.com · path and credentials withheld")
+    expect(safeGitOrigin("ssh://deploy:SECRET@example.com/private/repo.git"))
+      .toBe("example.com · path and credentials withheld")
+    expect(safeGitOrigin("git@example.com:private/repo.git"))
+      .toBe("example.com · path and credentials withheld")
   })
 
   it("pages bounded records from the newest window without reordering them", () => {

@@ -42,6 +42,12 @@ export function ProjectInventory() {
     () => projects.data?.data.projects.filter((project) => showArchived || !project.archived) ?? [],
     [projects.data, showArchived],
   )
+  const runById = new Map((runs.data?.data.runs ?? []).map((run) => [run.target_thread_id, run]))
+  const hasProjectBindingDisagreement = floor.data?.data.rows.some((row) => {
+    const run = row.supervision.run_id ? runById.get(row.supervision.run_id) : undefined
+    return run?.project_binding.status === "bound"
+      && run.project_binding.project_id !== row.project.project_id
+  }) ?? false
   const exactlyAssociatedRunIds = new Set([
     ...(floor.data?.data.rows.flatMap((row) => row.supervision.run_id ? [row.supervision.run_id] : []) ?? []),
     ...(runs.data?.data.runs.flatMap((run) => run.project_binding.status === "bound" ? [run.target_thread_id] : []) ?? []),
@@ -75,7 +81,17 @@ export function ProjectInventory() {
         <div className="project-operations-list">
           {visible.map((project) => {
             const composedRows = floor.data?.data.rows.filter((row) => row.project.project_id === project.id) ?? []
-            const composedRunIds = new Set(composedRows.flatMap((row) => row.supervision.run_id ? [row.supervision.run_id] : []))
+            const projectHasBindingDisagreement = composedRows.some((row) => {
+              const run = row.supervision.run_id ? runById.get(row.supervision.run_id) : undefined
+              return run?.project_binding.status === "bound" && run.project_binding.project_id !== project.id
+            })
+            const composedRunIds = new Set(composedRows.flatMap((row) => {
+              if (!row.supervision.run_id) return []
+              const run = runById.get(row.supervision.run_id)
+              return run?.project_binding.status === "bound" && run.project_binding.project_id !== project.id
+                ? []
+                : [row.supervision.run_id]
+            }))
             const boundRunIds = new Set(runs.data?.data.runs.flatMap((run) =>
               run.project_binding.status === "bound" && run.project_binding.project_id === project.id
                 ? [run.target_thread_id]
@@ -115,10 +131,10 @@ export function ProjectInventory() {
 
                 <dl className="project-row-counts">
                   <div><dt>Active tasks</dt><dd><Count loading={floor.isPending} value={floor.isError ? null : activeTaskIds.size} bounded={Boolean(floor.data?.data.rows_truncated) && activeTaskIds.size > 0} /></dd></div>
-                  <div><dt>Runs</dt><dd><Count loading={floor.isPending || runs.isPending} value={floor.isError && runs.isError ? null : projectRunIds.size} bounded={floor.isError || runs.isError} /></dd></div>
+                  <div><dt>Runs</dt><dd><Count loading={floor.isPending || runs.isPending} value={floor.isError && runs.isError ? null : projectRunIds.size} bounded={floor.isError || runs.isError || projectHasBindingDisagreement} /></dd></div>
                   <div><dt>Attention</dt><dd><Count loading={floor.isPending} value={floor.isError ? null : attention} /></dd></div>
                   <div><dt>Trackers</dt><dd><Count loading={trackers.isPending} value={trackers.isError ? null : trackerRows.length} /></dd></div>
-                  <div><dt>Reports</dt><dd><Count loading={reports.isPending || floor.isPending || runs.isPending} value={reports.isError || (floor.isError && runs.isError) ? null : reportRows.length} bounded={floor.isError || runs.isError || unresolvedReportAssociation} /></dd></div>
+                  <div><dt>Reports</dt><dd><Count loading={reports.isPending || floor.isPending || runs.isPending} value={reports.isError || (floor.isError && runs.isError) ? null : reportRows.length} bounded={floor.isError || runs.isError || unresolvedReportAssociation || projectHasBindingDisagreement} /></dd></div>
                 </dl>
 
                 <div className="project-row-recent">
@@ -139,7 +155,7 @@ export function ProjectInventory() {
         </div>
       )}
 
-      {([trackers, reports, runs, floor].some((query) => query.isError) || unresolvedReportAssociation) && (
+      {([trackers, reports, runs, floor].some((query) => query.isError) || unresolvedReportAssociation || hasProjectBindingDisagreement) && (
         <div className="workspace-partial" role="status">
           <RefreshCw aria-hidden="true" />Some owner panels or exact report-to-project associations are unavailable. Counts remain unavailable or visibly lower-bounded rather than becoming false zeroes.
         </div>

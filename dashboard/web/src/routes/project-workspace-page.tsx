@@ -19,6 +19,7 @@ import { fetchTrackers } from "@/lib/trackers-api"
 import {
   newestTimestamp,
   runBelongsToProject,
+  runProjectClaims,
   safeReturnPath,
   taskBelongsToProject,
 } from "@/lib/workspace-data"
@@ -63,11 +64,24 @@ export function Component() {
   const composedRunIds = new Set(composedRows.flatMap((row) => row.supervision.run_id ? [row.supervision.run_id] : []))
   const listedTaskIds = new Set(taskRows.map((task) => task.id))
   const composedOnlyRows = composedRows.filter((row) => !listedTaskIds.has(row.implementation.task_id))
-  const runRows = runs.data?.data.runs.filter((run) =>
-    runBelongsToProject(run, tasks.data?.data.tasks ?? [], projectId)
-    || composedRunIds.has(run.target_thread_id),
-  ) ?? []
-  const listedRunIds = new Set(runRows.map((run) => run.target_thread_id))
+  const allRuns = runs.data?.data.runs ?? []
+  const allTasks = tasks.data?.data.tasks ?? []
+  const claimsByRun = new Map(allRuns.map((run) => {
+    const composedProject = floor.data?.data.rows.find((row) => row.supervision.run_id === run.target_thread_id)?.project.project_id
+    return [run.target_thread_id, runProjectClaims(run, allTasks, composedProject)]
+  }))
+  const disagreements = allRuns.filter((run) => new Set((claimsByRun.get(run.target_thread_id) ?? []).map((claim) => claim.projectId)).size > 1)
+  const runRows = allRuns.filter((run) =>
+    runBelongsToProject(run, allTasks, projectId)
+    || (run.project_binding.status !== "bound" && composedRunIds.has(run.target_thread_id)),
+  )
+  const projectDisagreements = disagreements.filter((run) =>
+    (claimsByRun.get(run.target_thread_id) ?? []).some((claim) => claim.projectId === projectId),
+  )
+  const conflictOnlyRows = projectDisagreements.filter((run) =>
+    !runRows.some((candidate) => candidate.target_thread_id === run.target_thread_id),
+  )
+  const listedRunIds = new Set(allRuns.map((run) => run.target_thread_id))
   const composedOnlyRunRows = composedRows.filter((row) => row.supervision.run_id && !listedRunIds.has(row.supervision.run_id))
   const trackerRows = trackers.data?.data.trackers.filter((tracker) => tracker.project_id === projectId) ?? []
   const reportProject = (targetId: string): string | null => {
@@ -103,8 +117,8 @@ export function Component() {
               key={row.id}
             >
               <div><strong>{row.implementation.name ?? "Unnamed task"}</strong><Identity value={row.implementation.task_id} /></div>
-              <StatusMark status={row.light.label} />
-              <span>{row.work.active_block ? `Block ${row.work.active_block}` : "Block unavailable"} · {row.issues.total} open</span>
+              <StatusMark status={row.disagreements.length || projectDisagreements.some((run) => run.target_thread_id === row.supervision.run_id) ? "degraded" : row.light.label} />
+              <span>{projectDisagreements.some((run) => run.target_thread_id === row.supervision.run_id) ? "Project binding disagreement" : row.work.active_block ? `Block ${row.work.active_block}` : "Block unavailable"} · {row.issues.total} open</span>
               <TimeValue value={row.freshness.observed_at} />
             </Link>
           ))}
@@ -143,24 +157,36 @@ export function Component() {
       </section>
 
       <section className="workspace-panel" aria-labelledby="project-runs-heading">
-        <div className="workspace-panel-heading"><h2 id="project-runs-heading">Runs</h2><span>{runSourcesPending ? "Loading" : runs.isError && floor.isError ? "Unavailable" : runRows.length + composedOnlyRunRows.length}</span></div>
-        {runSourcesPending ? <QueryState kind="loading" message="Loading run sources" /> : runs.isError && floor.isError ? <QueryState kind="error" message={runs.error.message} retry={() => void runs.refetch()} /> : runRows.length || composedOnlyRunRows.length ? (
+        <div className="workspace-panel-heading"><h2 id="project-runs-heading">Runs</h2><span>{runSourcesPending ? "Loading" : runs.isError && floor.isError ? "Unavailable" : `${runRows.length + composedOnlyRunRows.length} exact${projectDisagreements.length ? ` · ${projectDisagreements.length} disagreement${projectDisagreements.length === 1 ? "" : "s"}` : ""}`}</span></div>
+        {runSourcesPending ? <QueryState kind="loading" message="Loading run sources" /> : runs.isError && floor.isError ? <QueryState kind="error" message={runs.error.message} retry={() => void runs.refetch()} /> : runRows.length || composedOnlyRunRows.length || conflictOnlyRows.length ? (
           <div className="workspace-record-list">
             {runRows.map((run) => {
-              const association = run.project_binding.status === "bound"
-                ? "Run binding"
-                : composedRunIds.has(run.target_thread_id)
-                  ? "Factory Floor composition"
-                  : "Exact target task"
+              const claims = claimsByRun.get(run.target_thread_id) ?? []
+              const disagreement = new Set(claims.map((claim) => claim.projectId)).size > 1
+              const association = disagreement
+                ? `Binding disagreement · ${claims.map((claim) => `${claim.source}: ${claim.projectId}`).join(" · ")}`
+                : run.project_binding.status === "bound"
+                  ? "Run binding"
+                  : composedRunIds.has(run.target_thread_id)
+                    ? "Factory Floor composition"
+                    : "Exact target task"
               return (
                 <Link className="workspace-record" to={`/runs/${encodeURIComponent(run.target_thread_id)}${returnQuery}`} key={run.target_thread_id}>
                   <div><strong>{run.target_label}</strong><Identity value={run.target_thread_id} /></div>
-                  <StatusMark status={run.light.label} />
+                  <StatusMark status={disagreement ? "degraded" : run.light.label} />
                   <span>{association} · {run.counts ? `${run.counts.open_incidents + run.counts.open_decisions + run.counts.open_successor_transitions} open` : "Open state unavailable"}</span>
                   <TimeValue value={run.latest_activity?.timestamp ?? run.observed_at} />
                 </Link>
               )
             })}
+            {conflictOnlyRows.map((run) => (
+              <Link className="workspace-record" to={`/runs/${encodeURIComponent(run.target_thread_id)}${returnQuery}`} key={`conflict:${run.target_thread_id}`}>
+                <div><strong>{run.target_label}</strong><Identity value={run.target_thread_id} /></div>
+                <StatusMark status="degraded" />
+                <span>Binding disagreement · {(claimsByRun.get(run.target_thread_id) ?? []).map((claim) => `${claim.source}: ${claim.projectId}`).join(" · ")}</span>
+                <TimeValue value={run.latest_activity?.timestamp ?? run.observed_at} />
+              </Link>
+            ))}
             {composedOnlyRunRows.map((row) => (
               <Link className="workspace-record" to={`/runs/${encodeURIComponent(row.supervision.run_id!)}${returnQuery}`} key={`composed-run:${row.supervision.run_id}`}>
                 <div><strong>{row.implementation.name ?? "Unnamed run"}</strong><Identity value={row.supervision.run_id} /></div>

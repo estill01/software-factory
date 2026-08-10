@@ -8,13 +8,30 @@ export function runBelongsToProject(
   tasks: readonly ListedTask[],
   projectId: string,
 ): boolean {
-  if (run.project_binding.status === "bound" && run.project_binding.project_id === projectId) {
-    return true
-  }
+  if (run.project_binding.status === "bound") return run.project_binding.project_id === projectId
   return tasks.some(
     (task) => task.id === run.target_thread_id
       && task.project_binding.status === "bound"
       && task.project_binding.project_id === projectId,
+  )
+}
+
+export function runProjectClaims(
+  run: RunSummary,
+  tasks: readonly ListedTask[],
+  composedProjectId?: string | null,
+): { source: "run binding" | "target task" | "Factory Floor"; projectId: string }[] {
+  const claims: { source: "run binding" | "target task" | "Factory Floor"; projectId: string }[] = []
+  if (run.project_binding.status === "bound" && run.project_binding.project_id) {
+    claims.push({ source: "run binding", projectId: run.project_binding.project_id })
+  }
+  const task = tasks.find((candidate) => candidate.id === run.target_thread_id)
+  if (task?.project_binding.status === "bound" && task.project_binding.project_id) {
+    claims.push({ source: "target task", projectId: task.project_binding.project_id })
+  }
+  if (composedProjectId) claims.push({ source: "Factory Floor", projectId: composedProjectId })
+  return claims.filter((claim, index) =>
+    claims.findIndex((candidate) => candidate.source === claim.source && candidate.projectId === claim.projectId) === index,
   )
 }
 
@@ -105,6 +122,21 @@ export function safeTaskItemSummary(type: string, summary: string | null | undef
     return `${type.replace(/([A-Z])/g, " $1").toLowerCase()} · content withheld in dashboard`
   }
   return "Item details withheld in dashboard"
+}
+
+export function safeGitOrigin(value: string | null | undefined): string {
+  if (!value) return "Unavailable"
+  try {
+    const parsed = new URL(value)
+    if (["http:", "https:"].includes(parsed.protocol)) {
+      return `${parsed.protocol}//${parsed.host} · path and credentials withheld`
+    }
+    if (parsed.protocol === "ssh:") return `${parsed.hostname} · path and credentials withheld`
+    return "Origin recorded · sensitive detail withheld"
+  } catch {
+    const scp = value.match(/^(?:[^@\s]+@)?([^:\s]+):([^?\s#]+)$/)
+    return scp ? `${scp[1]} · path and credentials withheld` : "Origin recorded · sensitive detail withheld"
+  }
 }
 
 export function newestPage<T>(values: readonly T[], page: number, pageSize: number) {

@@ -351,6 +351,11 @@ test("live project, run, supervisor, and task drill-downs preserve mission bound
   await eventPages.getByRole("button", { name: "Older" }).click()
   await expect(eventPages.getByRole("button", { name: "Newer" })).toBeEnabled()
 
+  await page.goto(`/runs/${target}?mission=${"9".repeat(64)}&return=${encodeURIComponent(returnPath)}`)
+  await expect(page.getByText("Requested mission is not present in this run's canonical history")).toBeVisible()
+  await expect(page.getByText("Tracker watcher - SF dashboard plan", { exact: true })).toHaveCount(0)
+  await expect(page.getByText("Action required", { exact: true })).toHaveCount(0)
+
   await page.goto(`/runs/${target}?mission=${predecessor}&return=${encodeURIComponent(returnPath)}`)
   await expect(page.getByText("Historical mission", { exact: true })).toBeVisible()
   await expect(page.getByText(/Current topology, role tasks, automations, checks, and bindings are intentionally suppressed/)).toBeVisible()

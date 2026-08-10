@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button"
 import { fetchRuns } from "@/lib/operations-api"
 import { fetchTask, fetchTaskIntegration, fetchTasks } from "@/lib/task-api"
 import { fetchTrackers } from "@/lib/trackers-api"
-import { newestPage, safeReturnPath, safeTaskItemSummary } from "@/lib/workspace-data"
+import { newestPage, safeGitOrigin, safeReturnPath, safeTaskItemSummary } from "@/lib/workspace-data"
 
 export function Component() {
   const { taskId = "" } = useParams()
@@ -144,7 +144,7 @@ export function Component() {
           <FactGrid facts={[
             ["Branch", task.git.branch ?? "Unavailable"],
             ["Revision", <Identity value={task.git.revision} />],
-            ["Origin", task.git.origin ?? "Unavailable"],
+            ["Origin", safeGitOrigin(task.git.origin)],
             ["Parent task", <Identity value={task.parent_task_id} />],
             ["Forked from", <Identity value={task.forked_from_id} />],
           ]} />

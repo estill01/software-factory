@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen, waitFor } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router"
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const mocks = vi.hoisted(() => ({
   fetchRun: vi.fn(),
@@ -134,8 +134,14 @@ const run = {
 }
 
 describe("run mission-history boundary", () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
   it("does not render current-only supervision projections in predecessor mode", async () => {
-    mocks.fetchRun.mockResolvedValue({ data: { run }, source: {}, observed_at: run.observed_at, fingerprint: hash("9"), coverage: {}, limitations: [], error: null })
+    const historicalRun = structuredClone(run)
+    historicalRun.mission_segments[0].policy_sha256s = []
+    mocks.fetchRun.mockResolvedValue({ data: { run: historicalRun }, source: {}, observed_at: run.observed_at, fingerprint: hash("9"), coverage: {}, limitations: [], error: null })
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
 
     render(
@@ -150,6 +156,7 @@ describe("run mission-history boundary", () => {
     expect(screen.getByText("HISTORICAL-EVENT-ONLY")).toBeVisible()
     expect(screen.getAllByText("HISTORICAL-SOURCE-RECORD").length).toBeGreaterThan(0)
     expect(screen.getAllByText("Suppressed at succession boundary").length).toBe(2)
+    expect(screen.queryByTitle(hash("f"))).not.toBeInTheDocument()
 
     for (const sentinel of [
       "CURRENT-LIGHT",
@@ -163,6 +170,27 @@ describe("run mission-history boundary", () => {
     ]) {
       expect(screen.queryByText(sentinel, { exact: false })).not.toBeInTheDocument()
     }
+    await waitFor(() => {
+      expect(mocks.fetchTask).not.toHaveBeenCalled()
+      expect(mocks.fetchTasks).not.toHaveBeenCalled()
+    })
+  })
+
+  it("fails closed when a requested mission is not in canonical history", async () => {
+    mocks.fetchRun.mockResolvedValue({ data: { run }, source: {}, observed_at: run.observed_at, fingerprint: hash("9"), coverage: {}, limitations: [], error: null })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+    render(
+      <MemoryRouter initialEntries={[`/runs/target-thread-1?mission=${hash("9")}`]}>
+        <QueryClientProvider client={client}>
+          <Routes><Route path="/runs/:targetId" element={<RunWorkspace />} /></Routes>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText("Requested mission is not present in this run's canonical history")).toBeVisible()
+    expect(screen.queryByText("CURRENT-LIGHT", { exact: false })).not.toBeInTheDocument()
+    expect(screen.queryByText("CURRENT-ROLE", { exact: false })).not.toBeInTheDocument()
     await waitFor(() => {
       expect(mocks.fetchTask).not.toHaveBeenCalled()
       expect(mocks.fetchTasks).not.toHaveBeenCalled()
