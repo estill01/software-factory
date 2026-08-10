@@ -505,7 +505,7 @@ the relevant authority and evidence contract.
 | 7 | Project and run workspaces | 6 | `accepted` |
 | 8 | Tracker review and progress workspace | 3, 6 | `accepted` |
 | 9 | Metrics and report history workspace | 4, 6 | `accepted` |
-| 10 | Gated administrative operation framework | 2, 4, 5 | `not-started` |
+| 10 | Gated administrative operation framework | 2, 4, 5 | `in-progress` |
 | 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `not-started` |
 | 12 | On-demand mechanical supervision checks | 7, 10, 11 | `not-started` |
 | 13 | Semantic supervision review requests | 7, 10, 11 | `not-started` |
@@ -2870,7 +2870,7 @@ administration controls.
 
 ## Block 10 — Gated administrative operation framework
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -3000,7 +3000,36 @@ widening or repeating.
 
 ### Completion evidence
 
-Pending.
+- Activation: Block 10 started from accepted Block 9 checkpoint
+  `ade88f49c8b97df5144762c3580a3483c781bb34`; required Blocks 2, 4, and 5
+  remain accepted, the checkout and upstream were exact at `0 0`, and Blocks
+  11–25 remain unopened.
+- Governing implementation authority: direct-user item 44 at
+  `codex:019fe547-e054-7ca0-9940-ec4aa146df78:019fe572-0536-7692-8505-c8624eefa7ab:item-44`
+  under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+- Product-capability review activation:
+  - Trigger: Block 10 is consequential because it creates the shared boundary
+    for all later consequence-bearing dashboard controls.
+  - Frame identity: this tracker, Block 10, target-product frame SHA-256
+    `ed469a767d27fce1b6d63a10fd34dc55d2d5ba32d0cf53ff216dd9a2a1447ab9`.
+  - Capability selected: one typed preview/confirmation/request/verification
+    seam that preserves exact domain-owner writes and truthful postconditions.
+  - Paths compared: direct per-route mutation endpoints; a bounded shared
+    registry and ephemeral correlation seam; the existing domain owners alone.
+  - Selected level and owner: the bounded-general dashboard safety seam over
+    existing domain owners, demonstrated only by a deterministic test owner in
+    this Block. Direct endpoints would duplicate safety rules, while domain
+    owners alone do not supply the browser-facing preview/token/replay boundary.
+  - Protected-capability posture: preview is non-mutating, execution remains
+    allowlisted and same-origin, no durable dashboard ledger is introduced, and
+    canonical effects/postconditions remain with maintained owners.
+  - Rejected alternatives: no generic workflow DSL, arbitrary App Server or
+    shell dispatch, second authority system, durable queue, or prematurely
+    registered tracker/task/supervision/report/lifecycle operation.
+  - Tradeoff: the extra preview and canonical-verification round trip is
+    accepted to prevent stale, replayed, cross-target, or HTTP-success-only
+    mutations; frozen-candidate proof remains pending.
 
 ### Stop
 
