@@ -505,7 +505,7 @@ the relevant authority and evidence contract.
 | 7 | Project and run workspaces | 6 | `accepted` |
 | 8 | Tracker review and progress workspace | 3, 6 | `accepted` |
 | 9 | Metrics and report history workspace | 4, 6 | `accepted` |
-| 10 | Gated administrative operation framework | 2, 4, 5 | `in-progress` |
+| 10 | Gated administrative operation framework | 2, 4, 5 | `accepted` |
 | 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `not-started` |
 | 12 | On-demand mechanical supervision checks | 7, 10, 11 | `not-started` |
 | 13 | Semantic supervision review requests | 7, 10, 11 | `not-started` |
@@ -2870,7 +2870,7 @@ administration controls.
 
 ## Block 10 — Gated administrative operation framework
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -3149,8 +3149,19 @@ widening or repeating.
   proof from the first successor remain current because no frontend blob
   changed. The branch and remote were exact at `0 0`, and the restarted server
   on `127.0.0.1:8787` again exposed zero registered operations and activity.
-- Fresh independent exact-revision safety/authority review: pending; Block 11
-  remains unopened.
+- Fresh independent exact-revision safety/authority review: `ACCEPTED` for
+  evidence revision `7e15f44d85e5a120aa2219683a329158d88a79e3`, tree
+  `8c4a1e7643898088bd5012b57447dadc9b9bce8d`, with no material finding. The
+  reviewer independently proved collision-safe opaque handling even when
+  hostile `__str__` raised and a normal key collided with the first placeholder;
+  rejected all four reproduced traversal forms plus dot segments, repeated
+  slashes, queries, fragments, external URLs, and sensitive labels; preserved a
+  canonical internal path; and reproduced coordinator 11/11, HTTP 17/17,
+  Ruff, diff, full-profile verifier 0 errors/warnings, and verifier tests 30/30.
+  The exact checkout and remote were `0 0`, the live production registry and
+  activity were empty, and the Block 10 Stop held. Block 10 is accepted; task,
+  tracker, supervision, report, evolution, and lifecycle operations remain
+  unregistered until their dependency-ordered Blocks.
 
 ### Stop
 
