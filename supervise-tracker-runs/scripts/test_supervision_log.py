@@ -777,6 +777,46 @@ class EventHeadReconcileTests(unittest.TestCase):
                     ]
                 )
 
+    def test_owner_root_enforcement_is_refused_without_repairing_it(self) -> None:
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        directory_fd = os.open(self.directory, flags)
+        try:
+            with supervision_log.append_lock_at(directory_fd):
+                supervision_log.ensure_owner_root_history_at(directory_fd)
+            owner_root = self.directory / supervision_log.OWNER_ROOT_HISTORY_NAME
+            key = supervision_log.owner_root_key_path_at(directory_fd)
+            external_state = supervision_log.owner_root_state_path_at(directory_fd)
+            preserved = {
+                path: path.read_bytes()
+                for path in (
+                    self.ledger,
+                    self.anchor,
+                    self.directory / "policy.json",
+                    self.directory / "policy-history.jsonl",
+                    owner_root,
+                    key,
+                    external_state,
+                )
+            }
+
+            with (
+                supervision_log.append_lock_at(directory_fd),
+                self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "maintained owner-root recovery path",
+                ),
+            ):
+                supervision_log.reconcile_event_ledger_anchor_at(directory_fd)
+        finally:
+            os.close(directory_fd)
+
+        for path, expected in preserved.items():
+            self.assertEqual(path.read_bytes(), expected)
+
 
 class SuccessorTransitionContractTests(unittest.TestCase):
     target = "target-1234"
