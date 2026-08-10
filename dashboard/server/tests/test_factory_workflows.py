@@ -1453,6 +1453,11 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(issue_route.purpose, "incident-review")
         self.assertEqual(issue_route.source_record, "EVT-000004")
         issue_dispatched = issue.dispatch(target, issue_input, issue_source)
+        self.assertIn(
+            "Record status as exactly one supported semantic conclusion:",
+            app_server.prompts[issue_route.recipient],
+        )
+        self.assertIn("resolved", app_server.prompts[issue_route.recipient])
         issue_pending = issue.verify(target, issue_input, issue_source, issue_dispatched)
         self.assertEqual(issue_pending.state, "pending")
         self.assertFalse(issue_pending.evidence["conclusion_recorded"])
@@ -1481,6 +1486,11 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         issue_concluded = issue.verify(target, issue_input, issue_source, issue_dispatched)
         self.assertEqual(issue_concluded.state, "applied")
         self.assertEqual(issue_concluded.evidence["conclusion_kind"], "resolution")
+        run["timeline"][-1]["status"] = "resolved"
+        self.assertEqual(
+            issue.verify(target, issue_input, issue_source, issue_dispatched).state,
+            "applied",
+        )
 
         latest_activity = run.pop("latest_activity")
         last_check = run.pop("last_check")

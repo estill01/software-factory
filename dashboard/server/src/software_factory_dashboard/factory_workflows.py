@@ -110,6 +110,7 @@ REVIEW_CONCLUSION_STATUSES = {
             "insufficient-evidence",
             "needs-user-decision",
             "observing",
+            "resolved",
             "steered",
             "superseded",
             "uncertainty",
