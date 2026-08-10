@@ -508,7 +508,7 @@ the relevant authority and evidence contract.
 | 10 | Gated administrative operation framework | 2, 4, 5 | `accepted` |
 | 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `accepted` |
 | 12 | On-demand mechanical supervision checks | 7, 10, 11 | `accepted` |
-| 13 | Semantic supervision review requests | 7, 10, 11 | `in-progress` |
+| 13 | Semantic supervision review requests | 7, 10, 11 | `accepted` |
 | 14 | Supervision policy and cadence administration | 7, 10, 11 | `not-started` |
 | 15 | Mission and target/tracker binding repair | 7, 10, 11 | `not-started` |
 | 16 | Role-task binding repair | 7, 10, 11 | `not-started` |
@@ -3751,7 +3751,7 @@ continuity, report, or evolution operation.
 
 ## Block 13 — Semantic supervision review requests
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -4007,6 +4007,19 @@ only its named conclusion source until the bounded timeout, then retain
   passed 11/11 with `ResourceWarning` fatal, Ruff and diff checks passed, and
   the closed workflow-state, category, and exact-binding rows remain unchanged.
   This successor remains unaccepted pending fresh exact delta review.
+- Fresh exact acceptance: independent review accepted exact evidence revision
+  `bca16feff3fb9eb47f8f53f9b38bf5e49791f8f0`, tree
+  `c8c8c433eecb2f3839b8735312caa04a3f187fad`, and product revision
+  `9542332c8a9fb884bd0dbe56038df843ae0d1cbd`, tree
+  `895ef49637ddc9953a3ec1e6a88aea7a00fdd80d`, with no material finding.
+  The exact adversarial probe returned one match for maintained terminal status
+  `resolved`, and the bounded owner prompt explicitly exposed it. `request`,
+  `awaiting`, `unverified`, `routed`, `active`, and `denied` all returned zero;
+  actual incident categories still matched and conflicting reserved bindings
+  did not. The reviewer reproduced backend 11/11 with `ResourceWarning` fatal,
+  Ruff, full-profile verification for all 26 Blocks with 0 errors/warnings,
+  verifier tests 30/30, diff checks, exact remote identity at `0 0`, and the
+  Block 13 Stop. No canonical or supervision record was created.
 
 ### Stop
 
