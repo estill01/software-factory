@@ -534,6 +534,21 @@ continuation executes immediately. This is a control-plane guarantee, not a
 claim that the adaptive implementation paths in later tracker Blocks already
 exist.
 
+Immediately before any final response or terminal posture, independently reread
+the exact direct requested Block range and current tracker. Reconcile them
+against the current accepted Blocks, remaining requested Blocks,
+dependency-safe frontier, required producer transitions, and safe coordination
+frontier. A missing or unavailable optional supervision binding, helper, or gate
+does not relax this local evidence-bound reconciliation. While requested work, a
+required producer transition, or a safe coordination frontier remains, final
+return is forbidden: continue automatically within the existing authority and
+do not ask the user to press Resume.
+
+This local reconciliation never fabricates supervision authority, creates a
+parallel ledger, narrows the exact direct scope, or authorizes overlapping
+producer writes. When supervision is available, its maintained gates remain an
+additional constraint and its single-writer ownership remains controlling.
+
 Immediately before any final response, rerun the same canonical gate. It
 rehydrates the policy-pinned tracker, requested and accepted Block sets, policy
 and event heads, ordinary effects, and observable outcome through the governing

@@ -7,6 +7,7 @@
 - [Factory capability-evolution workflow](#factory-capability-evolution-workflow)
 - [Mission binding and authority provenance](#mission-binding-and-authority-provenance)
 - [Continuation-first decision resolution](#continuation-first-decision-resolution)
+- [Same-target mission activation](#same-target-mission-activation)
 - [Target-state fingerprint](#target-state-fingerprint)
 - [Cross-thread action routing](#cross-thread-action-routing)
 - [Gmail notification and closed-loop review](#gmail-notification-channel)
@@ -241,6 +242,22 @@ direct source class, record, hash, and target thread. It never invents missing
 project semantics. Use its derived binding by default for new groups; retain an
 explicit root only for exact legacy or externally derived bindings.
 
+A long-lived target thread may move to a materially different direct mission.
+Do not rewrite the prior binding, reuse its terminal evidence, force the new
+goal into a tracker identity, or create a parallel supervision ledger. After
+the predecessor mission is complete or explicitly superseded and all incidents,
+decisions, and successor-task transitions are closed, use the helper's
+`mission-successor` command with the exact predecessor root, exact new direct
+source record and hash, and operator or reviewer evidence. The helper appends a
+policy-history version and makes only the new binding active. Every later check,
+decision, containment, completion claim, role prompt, and automation must use
+that active root; earlier events remain historical evidence for the predecessor
+only. The call also requires the exact first eligible work identity and appends
+one derived pending same-target mission activation under the resulting policy
+SHA. This prospective obligation applies only to successful future
+`mission-successor` calls; initial bindings and already-current or completed
+missions are never retroactively blocked.
+
 Terminal `completed` is an independently gated outcome claim. Before a
 completed lifecycle event may enter the ledger, a Sol XHigh or Max reviewer
 must reconstruct the current primary outcome from direct sources and inspect
@@ -458,6 +475,34 @@ a separate terminal posture. The `control-posture-gate` result is the sole
 required target posture. A task, group, Block, handoff, acknowledgement,
 tracker, test, review, or commit boundary cannot substitute for current outcome
 completion or an exact valid stop.
+
+## Same-target mission activation
+
+A successful `mission-successor` changes the mission bound to the same target;
+it does not complete the handoff merely by updating policy. Under the same
+append lock, the helper derives one stable activation identity from the target,
+successor mission root and source, resulting policy SHA, and exact first eligible
+work identity, then appends phase `pending` to the canonical event ledger. The
+caller does not choose an activation or workflow ID.
+
+Immediately route the current target to that exact first work and keep its
+posture `in-progress`. After a later current-mission watcher/reviewer record
+contains the exact target evidence that work began, close the obligation with
+`mission-activation-start`, citing that post-binding source record and its exact
+evidence. The helper rejects stale mission or activation-policy identities,
+changed first-work identity, pre-binding source records, missing/dangling
+evidence, and a divergent second closure. Exact duplicate closure is
+idempotent.
+
+`status` exposes the current and open activation, required `in-progress`
+posture, and action `start-current-mission-first-eligible-work`.
+`lifecycle-gate` returns `source_stop_permitted=false` and that same action for
+`completed`, `paused`, or `stopped` while the activation remains pending.
+`failed` and `blocked` retain their existing decision/authority handling. Never
+create a successor task, parallel ledger, mission root, user scheduling step, or
+manual Resume requirement from this same-target activation. The distinct
+successor-task transition below remains the owner only when implementation must
+continue in a different task.
 
 ## Successor transition and failure-mode control
 
@@ -1348,7 +1393,7 @@ supervision; retain a retryable delivery posture.
 Replace every angle-bracket placeholder before use.
 
 ```text
-You are the bounded Terra Max routine watcher for implementation-tracker thread
+You are the bounded Terra Max routine watcher for monitored Codex thread
 <TARGET_THREAD_ID>. Your independent base reviewer is Sol XHigh thread
 <BASE_REVIEWER_THREAD_ID>. Your escalation/checkpoint/meta reviewer is Sol Max
 thread <REVIEWER_THREAD_ID>. Your event-driven notice-outcome reviewer is Sol
@@ -1360,10 +1405,12 @@ except that you may call <LOG_HELPER> for records and send concise messages to
 the target or reviewer threads after `thread-route-gate` permits the exact
 recipient, purpose, source record, and required action. Never edit files, run
 tests, invoke repository commands, create subagents, or take over the target.
-The sole read exception is a bounded read of the active Block's heading,
-Objective, and Stop from the already identified tracker when required to write a
-user-facing Block-purpose summary; do not inspect implementation or patent
-content through that exception.
+When the active mission is tracker-governed, the sole read exception is a
+bounded read of the active Block's heading, Objective, and Stop from that
+identified tracker when required for a user-facing Block-purpose summary. For a
+direct-user main-thread mission, use the exact direct source and current work
+boundary; do not invent a tracker or Block identity. Do not inspect
+implementation or patent content through this exception.
 
 Preserve any containment's exact authority source, operation/Block scope,
 content-minimized identity, expiry, non-carry-forward, and successor posture in
@@ -1378,7 +1425,13 @@ prefer the narrowest correction that gets the intended implementation outcome.
 
 At each scheduled wake:
 1. Read only the target's compact listing/status markers and call the helper's
-   gate command. Before stopping on unchanged state, reconcile any exact
+   gate command. Read helper status for an open same-target mission activation.
+   When one is pending, gate `target-action` and route the current target to its
+   exact `first_eligible_work` immediately, keeping posture `in-progress`.
+   Record `mission-activation-start` only after an exact later current-mission
+   source record contains the cited target work-start evidence. Never create a
+   successor task or request manual Resume for this obligation. Before stopping
+   on unchanged state, reconcile any exact
    `completed`, `paused`, `blocked`, `failed`, or explicit `stopped` compact status against the helper's last
    lifecycle record and notification ledger. If unchanged and no lifecycle
    repair is needed, record one compact no-intervention check and stop without
@@ -1518,7 +1571,7 @@ eligible priority phase notices, and target-resume verification.
 
 ```text
 You are the bounded Sol XHigh semantic base reviewer for every materially changed
-state of implementation-tracker thread <TARGET_THREAD_ID>. The mechanical gate is
+state of monitored Codex thread <TARGET_THREAD_ID>. The mechanical gate is
 <WATCHER_THREAD_ID>; the Sol Max escalation, checkpoint, and sample reviewer is
 <REVIEWER_THREAD_ID>.
 
@@ -1606,7 +1659,7 @@ avoid feature creep, and stop when the changed-state question is resolved.
 
 ```text
 You are the bounded Sol Max escalation, checkpoint-retrospective,
-and supervisor-effectiveness reviewer for implementation-tracker thread
+and supervisor-effectiveness reviewer for monitored Codex thread
 <TARGET_THREAD_ID>. The watcher is <WATCHER_THREAD_ID>. The independent base
 reviewer is <BASE_REVIEWER_THREAD_ID>. The bounded supervisor fix executor is
 <FIX_EXECUTOR_THREAD_ID>. The event-driven notice-outcome reviewer is
@@ -1615,7 +1668,7 @@ reviewer is <BASE_REVIEWER_THREAD_ID>. The bounded supervisor fix executor is
 You inspect and advise/steer; you do not implement. You are read-only except for
 <LOG_HELPER> and concise thread messages allowed by `thread-route-gate`. Never
 edit repositories or patent workspaces, run tests, create subagents, take over
-the target, or treat your review as the tracker's required implementation audit.
+the target, or treat your review as the target's required implementation audit.
 
 You are running at Max reasoning. Avoid feature creep. Focus on getting the
 precise review or correction decision done well: solve the actual bounded
@@ -1860,6 +1913,14 @@ If `blocking_permitted=false`, require target posture `in-progress` and repair
 any target-emitted terminal block immediately. After acknowledgement, treat an
 old application `Goal blocked` card as stale and never request a manual Resume
 action.
+Inspect `open_mission_activations`. For each pending same-target activation,
+require the current target to remain `in-progress` and begin its exact first
+eligible work immediately. Accept `mission-activation-start` only from exact
+later target evidence bound by a post-activation current-mission source record.
+Repair a terminal `completed`, `paused`, or `stopped` posture through the
+helper's exact `start-current-mission-first-eligible-work` action. Do not create
+a successor task, reuse the distinct successor-transition workflow, or request
+manual Resume.
 Also reconcile the latest explicit target lifecycle posture against
 `last_lifecycle` and the outbound ledger. Immediately repair any missing
 completed/noncritical-paused primary status or blocked/failed/stopped priority
@@ -1924,6 +1985,28 @@ python3 <LOG_HELPER> bind --target-thread <TARGET> \
   --notice-reviewer-thread <NOTICE_REVIEWER> \
   --fix-executor-thread <FIX_EXECUTOR> \
   --routine-automation <AUTOMATION> --meta-automation <AUTOMATION>
+```
+
+Move the same target to a new mission and then bind exact later first-work
+evidence. Use the returned activation policy SHA and do not invent an activation
+ID:
+
+```bash
+python3 <LOG_HELPER> mission-successor --target-thread <TARGET> \
+  --from-mission-root <PREDECESSOR_ROOT> \
+  --mission-source-class <direct-user|system|repository|tracker> \
+  --mission-source-record <SUCCESSOR_SOURCE> \
+  --mission-source-sha256 <SUCCESSOR_SOURCE_SHA256> \
+  --predecessor-disposition <completed|superseded> \
+  --first-eligible-work <EXACT_FIRST_WORK_IDENTITY> \
+  --reason <EXACT_REASON> --evidence <EXACT_SUCCESSION_EVIDENCE>
+
+python3 <LOG_HELPER> mission-activation-start --target-thread <TARGET> \
+  --mission-root <SUCCESSOR_ROOT> \
+  --activation-policy-sha256 <RETURNED_ACTIVATION_POLICY_SHA256> \
+  --first-eligible-work <EXACT_FIRST_WORK_IDENTITY> \
+  --source-record <POST_BINDING_CURRENT_MISSION_RECORD> \
+  --evidence <EXACT_LATER_TARGET_WORK_START_EVIDENCE>
 ```
 
 Upgrade a readable legacy policy only with an exact mission binding:
@@ -2276,3 +2359,7 @@ terminal PDFs attached to that email, its exact delivery receipt, and
 bound automation with `terminal-shutdown`.
 Do not pause for an open decision. Continue the timed resolution state machine,
 priority phase delivery, safe-frontier verification, and target acknowledgement.
+Do not pause or accept `completed`, `paused`, or `stopped` while a prospective
+same-target mission activation is pending. Keep the target `in-progress`, start
+the exact current mission first work, and close the activation only from exact
+later target evidence. This never requires a successor task or manual Resume.
