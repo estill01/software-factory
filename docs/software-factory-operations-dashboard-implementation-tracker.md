@@ -3457,6 +3457,39 @@ not full reports/event histories; owners can fetch exact referenced sources.
   diff checks passed. Fresh independent exact-revision review of the successor
   evidence revision is pending; Block 11 remains `in-progress` and Block 12
   remains `not-started`.
+- First successor audit disposition: the independent audit confirmed exact
+  `229e8f83a911825522577027a106a411ee1e8b60`, tree
+  `8d8dc0dee6d49585192f0cbe401690039e769a4f`, parent/product
+  `a0ef88b98edaecac09c4447d8d92320b3b15d3b6`, exact origin, and source-level
+  closure of all four rejected rows, but its final verdict was interrupted by a
+  platform safety filter. No acceptance was inferred. Its last evidence-bound
+  checkpoint identified two residual currentness probes: the child process
+  could reread a mutable open helper descriptor after digest verification, and
+  an older task preview marker could outrank a later exact turn marker. Block 11
+  stayed unaccepted and Block 12 stayed closed.
+- Residual currentness successor: commit
+  `945ad6f0dd692806493f4b5bb6fc5542421e911d`, tree
+  `566a58adf966b538fe32181ee75c6f1b4ddbe7f4`, parent
+  `229e8f83a911825522577027a106a411ee1e8b60`, changes only the workflow owner,
+  source-bound control parser, and their focused tests. Exact blobs are
+  `347216a22dcbd25288518f54977a7bde00251155` for the owner,
+  `be7025d99619916d068ad385f5001fbc6d6badff` for backend proof,
+  `07cdb5d65e975c4df810e61883222441ecd63852` for the UI parser, and
+  `069b10179eebdf363cbccddebd986032e3d00b57` for component proof. The owner
+  process reads and verifies the no-follow helper descriptor once, then gives
+  the child those immutable in-memory bytes; changing the pathname or
+  regular-file bytes
+  before child execution cannot alter the executed program. Backend and UI
+  marker selection now inspect newest turns first and use preview only as a
+  fallback, so a stale preview cannot mask a later exact binding.
+- Residual validation: the exact backend suite remained 95/95 with
+  `ResourceWarning` fatal, all 18 Vitest files/73 tests and the production build
+  passed, full backend Ruff passed, the full-profile tracker verifier remained
+  26 Blocks with 0 errors/warnings, all 30 verifier tests passed, and diff checks
+  passed. Focused proof replaces the helper file immediately after the verified
+  byte read and confirms the original bytes execute, and supplies conflicting
+  preview/newer-turn mission markers to both backend and UI and confirms the
+  newer turn controls. Fresh exact review remains required before acceptance.
 
 ### Stop
 
