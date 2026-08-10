@@ -501,7 +501,7 @@ the relevant authority and evidence contract.
 | 3 | Tracker truth and Git-currentness projection | 2 | `accepted` |
 | 4 | Supervision, automation, report, and metrics projection | 2 | `accepted` |
 | 5 | Codex task and App Server adapter | 1 | `accepted` |
-| 6 | Cross-project factory floor | 3, 4, 5 | `in-progress` |
+| 6 | Cross-project factory floor | 3, 4, 5 | `accepted` |
 | 7 | Project and run workspaces | 6 | `not-started` |
 | 8 | Tracker review and progress workspace | 3, 6 | `not-started` |
 | 9 | Metrics and report history workspace | 4, 6 | `not-started` |
@@ -1788,7 +1788,7 @@ Stop before exposing workflow-start or lifecycle mutation controls.
 
 ## Block 6 — Cross-project factory floor
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -1960,8 +1960,90 @@ do not trigger deep source validation on every render.
   detail is implemented here. The accepted tradeoff is a maintained composed
   response schema in exchange for one bounded request and one canonical place
   for display-only association rules.
-- Candidate implementation, validation, exact review, and acceptance evidence:
-  pending.
+- Accepted implementation: exact pushed successor
+  `585467f49cc31d63758bddcd0f6c8d3133c69018`, tree
+  `4ada75e537d139bef776e662f34cab992c9cd1f1`, parent
+  `dad075c725fd22524811415a890c378b5eb42a67`. The cumulative Block 6
+  implementation is fifteen files: one read-only Python composer and route,
+  closed Zod/query/filter state, the four-region React Factory Floor and
+  inspector, responsive styling, exact owner/three-project fixtures, mapped
+  Python/frontend/browser tests, README, and changelog. Authoritative blobs
+  include composer `2d501f45301bbb4c1ef914ef9e9332d418acb7ac`, HTTP owner
+  `050f0c7230771f928dd7c71f6016205f3d329508`, Zod contract
+  `83b8d3dc74541198280de2b5a7852ec85bf5ea74`, page
+  `7a5c553e0ca1d2ae3e10bfd8e9d13067dd6d955a`, browser proof
+  `e0f52f969af2416a3952b3dd1af28bdd051562b8`, README
+  `9c85b804b02d299eabf25e64744d1c08acf36778`, and changelog
+  `27a1e29076bfe2180d932c76eba5e6a383598aff`.
+- Delivered behavior: `/api/v1/factory-floor` composes the unchanged catalog,
+  tracker/Git, supervision/report/metric, and version-gated Codex task owners
+  behind one loopback read. It stores no operational state and preserves
+  exact/candidate/ambiguous/unavailable associations, cross-source
+  disagreements, partial failures, source coverage, unmonitored work, orphaned
+  supervisors, semantic conclusions, accepted tracker outcomes, and
+  non-completion operating lights. The default page has exactly the four
+  functional regions required by this Block, no marketing subheader, bounded
+  filters and inspectors, hidden-critical disclosure, exact metric
+  period/coverage, and source-bearing routes for every operational card.
+- Supervisor and bound integrity: every row now exposes the supervisor-group
+  identity plus the complete role-label summary. One obvious inspector retains
+  each role type/label, thread ID, binding, live task posture, and automation
+  posture alongside the exact supervised target. The attention contract
+  carries total, returned, truncated, critical-total, critical-returned, and
+  critical-omitted counts; summary totals use the uncapped composition and the
+  UI visibly reports any critical item omitted by the API bound. Row-derived
+  metrics likewise calculate over all composed rows before the display bound.
+- Revision and cache integrity: the composed semantic revision includes every
+  consumed task name, status, project binding, and recency field plus owner
+  revisions/coverage, while excluding read-observation timestamps. Focused
+  probes proved status/name/project/recency changes alter the revision and
+  read-time-only refreshes do not. One two-second in-process cache coalesces
+  simultaneous reads without becoming a canonical source or hiding an
+  independent failure.
+- Preserved rejection history: initial candidate
+  `dad075c725fd22524811415a890c378b5eb42a67`, tree
+  `afaee0a2dfd2f2d577f89cac3441c9f61f0243c7`, passed its mapped suites but was
+  rejected because group/role identity was not rendered, the 80-item attention
+  bound could silently omit critical work, and the task portion of the
+  advertised semantic revision hashed IDs only. Successor `585467f` changed
+  only the eight composer/schema/UI/test files at those reproduced boundaries;
+  the rejected candidate remains diagnostic history, not acceptance evidence.
+- Validation: final exact Ruff and Python validation passed 67 tests with
+  `ResourceWarning` promoted to errors. TypeScript/Vitest passed 35 tests, the
+  production build passed, and Playwright passed 24/24 across 1440x900,
+  768x1024, and 390x844. The browser matrix covers populated three-project,
+  loading, empty, partial, stale-source, error, dark-mode, filter, refresh,
+  keyboard, inspector, accessibility, and overflow states. Full-profile
+  verification passed Blocks 0-25 with 0 errors/warnings, all 30 verifier tests
+  passed, 20 exact-review relative Markdown links resolved, and
+  `git diff --check` passed.
+- Live proof: the exact server on `http://127.0.0.1:8787/` projected the current
+  registered project, six supervisor groups/rows, partial owner coverage,
+  ranked attention, 24 bounded semantic conclusions, 13 accepted outcomes,
+  and four trackers. The current dashboard row exposed its exact four-role
+  group in the overview and every role/thread/binding/task/automation value in
+  one inspector. The maintained three-project closed fixture separately proves
+  cross-project row, issue, accepted-outcome, filter, and responsive behavior
+  without mutating the canonical project catalog.
+- Independent exact-revision review: `block6_exact_review` rejected
+  `dad075c`, replayed each finding against successor `585467f`, and accepted
+  exact commit/tree/parent `585467f` / `4ada75e` / `dad075c` with no material
+  finding or unclosed uncertainty. It independently reproduced the 81-critical
+  bound, semantic revision changes/stability, complete live supervisor-role
+  inspection, exact frontend/backend suites, remote identity, and Block 6 Stop.
+- Resource and Stop posture: one aggregate envelope, 80 displayed rows and
+  attention records with exact omitted counts, 24 displayed conclusions and
+  outcomes, a bounded 100-task source page, two-second cache, 20-second
+  visible-tab polling, and drill-down-only detail are preserved. No project/run
+  workspace, tracker/report detail, mutation, lifecycle control, workflow
+  start, acceptance path, or canonical owner write was added.
+- Post-block audit: `accepted`; the five operator questions are answerable from
+  the overview or one obvious inspector, every acceptance and negative-test
+  condition has exact proof, and no green/task/test/commit/report proxy is
+  treated as implementation completion.
+- Git durability: both rejected `dad075c` and accepted `585467f` were
+  non-force pushed to `origin/codex/evolution-mvp`; local and remote matched at
+  `0 0` divergence before this evidence-only acceptance checkpoint.
 
 ### Stop
 
