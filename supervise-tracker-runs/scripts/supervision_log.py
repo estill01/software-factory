@@ -1966,6 +1966,151 @@ def ensure_event_ledger_anchor_at(directory_fd: int) -> None:
     )
 
 
+def reconcile_event_ledger_anchor_at(
+    directory_fd: int,
+    *,
+    expected_policy: Mapping[str, Any] | None = None,
+    expected_policy_snapshot: tuple[int, int, int, int] | None = None,
+) -> dict[str, Any]:
+    directory = directory_path_from_fd(directory_fd)
+    directory_snapshot = file_snapshot(os.fstat(directory_fd))
+    if owner_root_enabled_at(directory_fd):
+        raise SupervisionLogError(
+            "Event-head reconciliation is unavailable while owner-root enforcement is active; "
+            "use the maintained owner-root recovery path"
+        )
+    try:
+        event_text, event_snapshot = read_text_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+    except OSError as exc:
+        raise SupervisionLogError(
+            "Canonical supervision event ledger is missing or unsafe"
+        ) from exc
+    if event_snapshot is None:
+        raise SupervisionLogError("Canonical supervision event ledger is missing")
+    all_events = parse_events(event_text, ledger_name="events.jsonl")
+
+    try:
+        anchor_text, anchor_snapshot = read_text_snapshot(
+            Path(EVENT_LEDGER_ANCHOR_NAME), directory_fd=directory_fd
+        )
+        anchor = json.loads(anchor_text)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise SupervisionLogError(
+            "Canonical supervision event-ledger head is missing, malformed, or unsafe"
+        ) from exc
+    if not isinstance(anchor, dict) or anchor_snapshot is None:
+        raise SupervisionLogError(
+            "Canonical supervision event-ledger head is malformed"
+        )
+
+    anchor_count = anchor.get("event_count")
+    if isinstance(anchor_count, bool) or not isinstance(anchor_count, int):
+        raise SupervisionLogError(
+            "Canonical supervision event-ledger head has an invalid event count"
+        )
+    if anchor_count < 0:
+        raise SupervisionLogError(
+            "Canonical supervision event-ledger head has an invalid event count"
+        )
+    if anchor_count > len(all_events):
+        raise SupervisionLogError(
+            "Canonical supervision event-ledger head is ahead of the ledger"
+        )
+    if all_events and anchor_count == 0:
+        raise SupervisionLogError(
+            "Canonical supervision event-ledger head does not bind the ledger genesis"
+        )
+    try:
+        validate_event_ledger_anchor_value(anchor, all_events[:anchor_count])
+    except SupervisionLogError as exc:
+        raise SupervisionLogError(
+            "Canonical supervision event-ledger head is not an exact ledger prefix"
+        ) from exc
+    if anchor_count == len(all_events):
+        raise SupervisionLogError(
+            "Canonical supervision event-ledger head is already current"
+        )
+
+    current_event_text, current_event_snapshot = read_text_snapshot(
+        Path("events.jsonl"), directory_fd=directory_fd
+    )
+    current_anchor_text, current_anchor_snapshot = read_text_snapshot(
+        Path(EVENT_LEDGER_ANCHOR_NAME), directory_fd=directory_fd
+    )
+    current_policy: dict[str, Any] | None = None
+    current_policy_snapshot: tuple[int, int, int, int] | None = None
+    if expected_policy is not None:
+        current_policy, current_policy_snapshot = read_json_snapshot(
+            Path("policy.json"), directory_fd=directory_fd
+        )
+        validate_policy(current_policy)
+    if (
+        path_snapshot(directory) != directory_snapshot
+        or current_event_snapshot != event_snapshot
+        or current_event_text != event_text
+        or current_anchor_snapshot != anchor_snapshot
+        or current_anchor_text != anchor_text
+        or path_snapshot_at(directory_fd, "events.jsonl") != event_snapshot
+        or path_snapshot_at(directory_fd, EVENT_LEDGER_ANCHOR_NAME)
+        != anchor_snapshot
+        or (
+            expected_policy is not None
+            and (
+                current_policy != dict(expected_policy)
+                or current_policy_snapshot != expected_policy_snapshot
+            )
+        )
+    ):
+        raise SupervisionLogError(
+            "Supervision owner, policy, event ledger, or anchor changed during reconciliation"
+        )
+
+    repaired_anchor = event_ledger_anchor(all_events)
+    atomic_json_at(directory_fd, EVENT_LEDGER_ANCHOR_NAME, repaired_anchor)
+
+    installed_event_text, installed_event_snapshot = read_text_snapshot(
+        Path("events.jsonl"), directory_fd=directory_fd
+    )
+    installed_anchor, _installed_anchor_snapshot = read_json_snapshot(
+        Path(EVENT_LEDGER_ANCHOR_NAME), directory_fd=directory_fd
+    )
+    installed_policy: dict[str, Any] | None = None
+    installed_policy_snapshot: tuple[int, int, int, int] | None = None
+    if expected_policy is not None:
+        installed_policy, installed_policy_snapshot = read_json_snapshot(
+            Path("policy.json"), directory_fd=directory_fd
+        )
+        validate_policy(installed_policy)
+    if (
+        installed_event_snapshot != event_snapshot
+        or installed_event_text != event_text
+        or installed_anchor != repaired_anchor
+        or (
+            expected_policy is not None
+            and (
+                installed_policy != dict(expected_policy)
+                or installed_policy_snapshot != expected_policy_snapshot
+            )
+        )
+    ):
+        raise SupervisionLogError(
+            "Event-head reconciliation lost canonical currentness"
+        )
+    validate_event_ledger_anchor_value(installed_anchor, all_events)
+    return {
+        "reconciled": True,
+        "previous_event_count": anchor_count,
+        "previous_event_head_sha256": anchor.get("event_head_sha256"),
+        "event_count": len(all_events),
+        "genesis_record_sha256": repaired_anchor["genesis_record_sha256"],
+        "event_head_sha256": repaired_anchor["event_head_sha256"],
+        "anchor_sha256": repaired_anchor["anchor_sha256"],
+        "events_unchanged": True,
+    }
+
+
 def owner_root_material(
     policy_history: list[dict[str, Any]], all_events: list[dict[str, Any]]
 ) -> dict[str, Any]:
@@ -8475,6 +8620,34 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
     print(json.dumps(result, sort_keys=True))
 
 
+def cmd_event_head_reconcile(args: argparse.Namespace) -> None:
+    root = root_from(args)
+    directory, policy, policy_snapshot, directory_snapshot = (
+        load_policy_directory_snapshot(args)
+    )
+    opened_directory, directory_fd, opened_directory_snapshot = (
+        open_member_directory(root, args.target_thread)
+    )
+    try:
+        with append_lock_at(directory_fd):
+            if (
+                opened_directory != directory
+                or opened_directory_snapshot != directory_snapshot
+                or path_snapshot(directory) != directory_snapshot
+            ):
+                raise SupervisionLogError(
+                    "Supervision owner directory changed during reconciliation"
+                )
+            result = reconcile_event_ledger_anchor_at(
+                directory_fd,
+                expected_policy=policy,
+                expected_policy_snapshot=policy_snapshot,
+            )
+    finally:
+        os.close(directory_fd)
+    print(json.dumps(result, sort_keys=True))
+
+
 def cmd_adjust(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     reason = clean(args.reason, label="reason")
@@ -11839,6 +12012,10 @@ def parser() -> argparse.ArgumentParser:
         "--now", help="Override current ISO-8601 time for deterministic verification"
     )
     gmail_cadence.set_defaults(func=cmd_gmail_cadence)
+
+    event_head_reconcile = subparsers.add_parser("event-head-reconcile")
+    event_head_reconcile.add_argument("--target-thread", required=True)
+    event_head_reconcile.set_defaults(func=cmd_event_head_reconcile)
 
     adjust = subparsers.add_parser("adjust")
     adjust.add_argument("--target-thread", required=True)
