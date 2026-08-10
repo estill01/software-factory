@@ -2793,7 +2793,44 @@ ordinary chart interaction; widen only on explicit source drill-down.
   Artifact reads remain same-origin, bounded, currently verified, and
   read-only; no report generation, evolution adoption, outcome acceptance, or
   lifecycle administration control was added.
-- Independent exact-revision review and acceptance: pending.
+- Independent exact review of evidence revision
+  `e147202f60fceb494a5ea979fce218eddf43d4b2` was `REJECTED`. The reviewer
+  found four material rows: incompatible schema/coverage contracts were
+  silently aggregated, wholly unavailable projections became numeric zero,
+  trend rows had no exact metric/event source drill-down, and headline cards
+  omitted the definition/period/denominator/observed-time/limitation plus
+  supported role/category/decision/transition context. The rejected commit,
+  tree, complete passing proportional evidence, and four findings remain
+  preserved as immutable history; Block 10 did not start.
+- Bounded corrective implementation successor:
+  `129457a8983338836ac696e1f13e33cf3d5c3ad6`, tree
+  `03177a85dc6490e0a228670cb4d08f30d68e7d0e`, parent
+  `e147202f60fceb494a5ea979fce218eddf43d4b2`. Its 11-file affected diff makes
+  server aggregates a three-state `available`/`incompatible`/`unavailable`
+  contract: numeric headline, resource, and availability totals exist only
+  when every included run shares one exact schema, definition, coverage
+  interval, timezone, calendar-day set, partial-window posture, and denominator.
+  The UI applies the same filtered-cohort rule, renders `Incomparable` or
+  `Unavailable` instead of `0`/`$0`, and preserves per-run values independently.
+- Explainability/source closure: compact metric cards now state their measured
+  definition, while one functional contract panel exposes exact definition and
+  schema, period, denominator, observed time, limitations, configured review
+  roles, bounded category posture, current conclusions/transitions, metric IDs,
+  source roots, and first/latest canonical event IDs. Every trend-table source
+  links to the exact run metric anchor and canonical event range; per-run rows
+  expose their own decisions, resolutions, conclusions, median/P90, coverage,
+  generated time, metric identity, and source route. No actor, compatible
+  aggregate, uptime, billing, or outcome posture is inferred.
+- Corrective proof: four affected Python tests passed with `ResourceWarning`
+  fatal and Ruff passed; the focused Reports/API suite passed 11/11,
+  TypeScript and production build passed, and the two affected live browser
+  scenarios passed 6/6 across desktop, tablet, and mobile. The live corrected
+  API exposed six incompatible contracts with `headline: null`, resource totals
+  `null`, and aggregate availability values `null`; selecting one run restored
+  its exact metric/table/source views. Full-profile tracker verification remained
+  Blocks 0–25 with 0 errors/warnings, all 30 verifier tests passed, diff checks
+  passed, and the remote resolved to the exact successor.
+- Fresh independent exact-revision review and acceptance: pending.
 
 ### Stop
 
