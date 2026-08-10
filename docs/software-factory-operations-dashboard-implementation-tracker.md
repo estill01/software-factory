@@ -2252,7 +2252,7 @@ historical App Server turns or ledger events across projects.
   hash, conflicting run/task project bindings were silently merged and labeled
   as one run binding, and a credential-bearing Git origin was rendered raw.
   The candidate remains reusable history and is not acceptance evidence.
-- Focused successor: pushed commit
+- First focused successor: pushed commit
   `df51788203113701a8cf18c9eea2e375b5b98a1d`, tree
   `f2ede4d45ee0d782c5f9065e74bdc53a58188041`, parent
   `8613225745d079cea97c7c64446b333568b38a03`, workspace-data blob
@@ -2268,9 +2268,46 @@ historical App Server turns or ledger events across projects.
   use unknown roots, empty historical hash arrays, contradictory `alpha`/`beta`
   bindings, and HTTP/SSH/SCP origins containing `SUPERSECRET`/`SECRET`. The
   non-force push reread local/upstream at `0 0`.
+- Second rejected review history: exact candidate
+  `21c6e621982ca975854ed70515ad45c7671ad601`, tree
+  `61d814deda13a9fff81a518449d0234aa9c05163`, parent
+  `df51788203113701a8cf18c9eea2e375b5b98a1d`, and tracker blob
+  `4bd4bcb3ab386e84a8337b3a247ffb6795bd4da8` was independently rejected
+  after the reviewer reproduced a canonical run binding to `beta` beside an
+  exact task/Factory Floor claim to `software-factory`. Project Overview
+  incorrectly reported one exact run while Work correctly reported `0 exact ·
+  1 disagreement`. Unknown-mission, hashless-predecessor, detailed Work/report
+  association, and credential-safe Git-origin rows all passed. This candidate
+  remains immutable diagnostic evidence and is not acceptance evidence.
+- Project-count successor: pushed commit
+  `b9281d42fd4dfbe0fc44e569b6d0471d184dbf89`, tree
+  `677604e36c908e9e60d9957721f0020a95a320f1`, parent
+  `21c6e621982ca975854ed70515ad45c7671ad601`, workspace-data blob
+  `69b99cf5dacc8724841a37bd170cb6f359ceb33c`, and project-workspace blob
+  `b6cb1a7dbbec14eb2c4f081d5dd4804481723df8` introduce one shared
+  `exactProjectRunIds` association boundary for Projects inventory, Project
+  Overview, Work, and report counts. The contradictory fixture now assigns the
+  canonical `beta` run to `beta` and zero exact runs to `alpha`, while retaining
+  the `alpha` task/Floor claim only as an explicit disagreement.
+- Run-claim correction: source incident `INC-20260810-043221-389CE7` identified
+  that a current Run breadcrumb still followed a contradictory target-task
+  project while the run/topology binding remained visually bound/valid. Pushed
+  successor `aa05e88e5691df135dfe750bd72836cd90efc0c3`, tree
+  `a1a275558d3f49e2bf2406bd9b14507ad2bd70ef`, parent
+  `b9281d42fd4dfbe0fc44e569b6d0471d184dbf89`, run-workspace blob
+  `1a19c06438e1ef34cddf82bab5e03ff82b8e1b0f`, focused-test blob
+  `bb636fd5071de8025ae4bf7491ef49b47ca9709d`, and Playwright-config blob
+  `305fefe5381929ad5bf60c7565de86f04ad6408e` reuse the same source-separated
+  claim helper on the Run route. Contradictory run/task projects now render an
+  unlinked `Binding disagreement` breadcrumb, both labeled exact claims, and
+  degraded project/topology integrity with no valid marker. The focused route
+  test seeds `CURRENT-PROJECT` versus `TASK-PROJECT` and proves that neither
+  becomes a project link. Maintained viewport projects run serially against the
+  single loopback adapter, preserving all 27 cases without concurrent adapter
+  starvation.
 - Validation: the dashboard Python suite passed 67/67 with `ResourceWarning`
   promoted to errors (the sole collection warning is the pre-existing
-  dataclass named `TestResponse`), Ruff passed, TypeScript/Vitest passed 43/43,
+  dataclass named `TestResponse`), Ruff passed, TypeScript/Vitest passed 44/44,
   the production build passed, and Playwright passed 27/27 across desktop,
   tablet, and mobile with accessibility and horizontal-overflow checks. The
   full tracker verifier passed Blocks 0-25 with 0 errors and 0 warnings, all 30
