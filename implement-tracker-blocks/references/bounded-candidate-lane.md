@@ -16,7 +16,7 @@ boundary without creating a second controller or ledger.
 
 All of the following are required before a lane exists:
 
-- a source-backed material-better-path trigger;
+- a source-backed Block 4 `compare-candidate` / `material-better-path` trigger;
 - a named outcome uncertainty that read-only evidence cannot resolve;
 - implementation behavior identified as the missing evidence;
 - a checkpointed coherent incumbent and exact comparison basis;
@@ -46,7 +46,9 @@ scope and exclusions, positive resource ceilings, Stop, and cleanup posture.
 Every JSON integer is an integer rather than a boolean or string; every ID,
 root, list, and object has a closed shape. Paths are normalized absolute paths,
 contain no `.` or `..`, and, when they name real artifacts, are resolved under
-the exact target or isolated owner before use.
+the exact target or isolated owner before use. JSON parsing rejects duplicate
+keys, floats, non-finite values, non-NFC strings, unknown keys, and noncanonical
+array order before applying the bounded RFC 8785 projection.
 
 ## Exact lane record
 
@@ -85,6 +87,14 @@ mapped result additionally binds the incumbent, the already-frozen focused
 result, its later timestamp, command, exit, output, and raw metrics. Mapped work
 cannot begin or become current before a coherent focused pass.
 
+Retained focused and mapped claims are checked by executing the bounded
+candidate bytes with a restricted embedded runtime. Output identity, protected
+API posture, eager-input behavior, changed lines, decision points, exact
+compatibility obligations, and named protected regressions are derived from
+those bytes; fixture strings cannot override a different observable result.
+File count, changed lines, executed commands, reviewer passes, and elapsed time
+are likewise recomputed and bound into resource/currentness evidence.
+
 The raw comparison is a six-record ordered array. Each record has exactly
 `dimension`, `unit`, `incumbent_evidence_root`, `candidate_evidence_root`,
 `incumbent_value`, `candidate_value`, and `relation`; relation is exactly
@@ -92,9 +102,11 @@ The raw comparison is a six-record ordered array. Each record has exactly
 derived from the retained raw values. The review input binds the target,
 incumbent, candidate, focused, mapped, comparison, capability, and protected
 roots while excluding case labels, expected actions, expected dispositions,
-and implementer preference. A distinct reviewer owns a separately retained
-review result; the method verifies that its disposition follows the raw six
-dimensions before using it.
+and implementer preference. A distinct reviewer owns a separately retained,
+content-bound result containing the exact input root, reviewer identity,
+timestamp, comparison disposition, Block 4 review disposition, retirement
+posture, and result root; the method verifies that its disposition follows the
+raw six dimensions before using it.
 
 The immutable common stage order is `selected`, `implementing`, `validated`,
 then `reviewed`. A `candidate-better` result stops this Block at
@@ -156,7 +168,11 @@ review currentness loss. Mapped failure and hypothesis falsification are also
 terminal retirement results, distinct from an actual focused-before-mapped
 order violation. Each post-creation Stop emits a complete closed Block 4
 record with the exact failed/stale evidence, immutable currentness, cleanup and
-retirement posture; it emits no handoff or production authority. Preserve the
+retirement posture. Its externally owned review input binds cause-specific
+evidence: exceeded derived resources, changed incumbent/isolation/review roots,
+cancellation authority, failed focused/mapped roots, named protected
+regressions, or the falsifying comparison. It emits no handoff or production
+authority. Preserve the
 incumbent and unrelated work. Reuse valid
 candidate evidence after interruption only when the exact hypothesis, roots,
 scope, ceiling, and current comparison basis remain unchanged; otherwise retire

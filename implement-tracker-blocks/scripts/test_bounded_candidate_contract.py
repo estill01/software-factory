@@ -4,13 +4,32 @@
 from __future__ import annotations
 
 import copy
+import ast
+import difflib
 import hashlib
 import json
 import re
 import subprocess
 import unittest
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
+
+
+def reject_duplicate_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
+def load_strict_json(path: Path) -> dict[str, object]:
+    value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=reject_duplicate_pairs)
+    if type(value) is not dict:
+        raise ValueError("fixture root must be an object")
+    return value
 
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
@@ -20,11 +39,11 @@ SKILL = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
 REFERENCE = (SKILL_ROOT / "references/bounded-candidate-lane.md").read_text(encoding="utf-8")
 ADAPTIVE = (SKILL_ROOT / "references/adaptive-decision-control.md").read_text(encoding="utf-8")
 SPEC = json.loads(ADAPTIVE.split("<!-- contract-spec-v1 -->", 1)[1].split("```json", 1)[1].split("```", 1)[0])
-EXERCISE = json.loads((SKILL_ROOT / "fixtures/bounded_candidate_v1.json").read_text(encoding="utf-8"))
-REVIEW_FIXTURE = json.loads((SKILL_ROOT / "fixtures/bounded_candidate_reviews_v1.json").read_text(encoding="utf-8"))
+EXERCISE = load_strict_json(SKILL_ROOT / "fixtures/bounded_candidate_v1.json")
+REVIEW_FIXTURE = load_strict_json(SKILL_ROOT / "fixtures/bounded_candidate_reviews_v1.json")
 
-EXPECTED_EXERCISE_ROOT = "17d076a11041a4ec5e82f0fa17f81c726178da3cf11d68435808606989b496dc"
-EXPECTED_REVIEW_FIXTURE_ROOT = "a033723e885c838f94d29f5aa5149ca33127e58b13d4b8a708cd4f9bba13694e"
+EXPECTED_EXERCISE_ROOT = "7061a4a9bcee9bfa069b128de5de4783bf9071e6f20bc11b0163bc8fd1443b4b"
+EXPECTED_REVIEW_FIXTURE_ROOT = "340eb095d9c15768c7dcbb59c1669f36ee22cd143c617f955e00380d42bfc4c6"
 GIT_EXECUTABLE = "/usr/bin/git"
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 REV_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -52,6 +71,8 @@ RETIREMENT = {
     "inconclusive": "retired-inconclusive",
 }
 ELIGIBILITY_FIELDS = {
+    "material_better_path",
+    "trigger_evidence_root",
     "outcome_uncertainty_supported",
     "outcome_uncertainty_evidence_root",
     "implementation_evidence_required",
@@ -67,8 +88,29 @@ ELIGIBILITY_FIELDS = {
 }
 
 
+def validate_canonical_value(value: object) -> None:
+    if value is None or type(value) in {bool, int}:
+        return
+    if type(value) is str:
+        if unicodedata.normalize("NFC", value) != value:
+            raise ValueError("JSON string is not NFC-normalized")
+        return
+    if type(value) is list:
+        for item in value:
+            validate_canonical_value(item)
+        return
+    if type(value) is dict:
+        for key, item in value.items():
+            if type(key) is not str or unicodedata.normalize("NFC", key) != key:
+                raise ValueError("JSON object key is not canonical")
+            validate_canonical_value(item)
+        return
+    raise ValueError("JSON value is outside the bounded RFC8785 profile")
+
+
 def canonical(value: object) -> bytes:
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    validate_canonical_value(value)
+    return json.dumps(value, ensure_ascii=False, allow_nan=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
 def root(value: object) -> str:
@@ -130,6 +172,22 @@ def tracker_sha256() -> str:
     return exact_string(EXERCISE["tracker_sha256"], "archive tracker root", SHA_RE)
 
 
+def block_contract_root() -> str:
+    relative = TRACKER_PATH.relative_to(REPO_ROOT).as_posix()
+    probe = subprocess.run([GIT_EXECUTABLE, "rev-parse", "--is-inside-work-tree"], cwd=REPO_ROOT, capture_output=True, text=True)
+    frozen = subprocess.run([GIT_EXECUTABLE, "show", f"{EXERCISE['tracker_source_revision']}:{relative}"], cwd=REPO_ROOT, capture_output=True)
+    if frozen.returncode == 0:
+        marker = b"## Block 6 \xe2\x80\x94"
+        start = frozen.stdout.find(marker)
+        end = frozen.stdout.find(b"\n---\n", start)
+        if start < 0 or end < 0:
+            raise ValueError("frozen Block 6 contract cannot be isolated")
+        return hashlib.sha256(frozen.stdout[start:end]).hexdigest()
+    if probe.returncode == 0:
+        raise ValueError("frozen Block 6 contract cannot be resolved in live repository")
+    return exact_string(EXERCISE["block_contract_root"], "archive Block 6 root", SHA_RE)
+
+
 def file_manifest(files: object, *, contained_by: str) -> list[dict[str, str]]:
     if type(files) is not list or not files:
         raise ValueError("artifact files differ")
@@ -146,6 +204,14 @@ def file_manifest(files: object, *, contained_by: str) -> list[dict[str, str]]:
     return result
 
 
+def file_content_root(files: object, path: str, *, contained_by: str) -> str:
+    manifest = file_manifest(files, contained_by=contained_by)
+    matches = [item["content_sha256"] for item in manifest if item["path"] == path]
+    if len(matches) != 1:
+        raise ValueError("owned file content root is unavailable")
+    return matches[0]
+
+
 def artifact_root(artifact: dict[str, object]) -> str:
     revision = exact_string(artifact["revision"], "candidate revision", REV_RE)
     return root({"revision": revision, "files": file_manifest(artifact["files"], contained_by=EXERCISE["lane"]["root"])})
@@ -158,7 +224,83 @@ def incumbent_root() -> str:
 
 
 def target_revision_root() -> str:
-    return root({"target_repository_root": EXERCISE["target_repository_root"], "target_revision": EXERCISE["target_revision"], "incumbent_root": incumbent_root()})
+    return root({"target_revision": EXERCISE["target_revision"]})
+
+
+class CountingRows:
+    def __init__(self) -> None:
+        self.rows = [b"a", b"bb"]
+        self.consumed = 0
+
+    def __iter__(self):
+        for row in self.rows:
+            self.consumed += 1
+            yield row
+
+
+def stream_source(files: object, *, contained_by: str) -> str:
+    path = f"{contained_by}/stream_export.py"
+    if type(files) is not list:
+        raise ValueError("stream source files differ")
+    matches = [item for item in files if type(item) is dict and item.get("path") == path]
+    if len(matches) != 1:
+        raise ValueError("stream source is unavailable")
+    return exact_string(matches[0].get("content_utf8"), "stream source bytes")
+
+
+def execute_stream(files: object, *, contained_by: str) -> dict[str, object]:
+    source = stream_source(files, contained_by=contained_by)
+    namespace: dict[str, object] = {}
+    safe_builtins = {"iter": iter, "tuple": tuple, "list": list, "bytes": bytes, "RuntimeError": RuntimeError}
+    try:
+        code = compile(source, "<bounded-candidate-stream-export>", "exec")
+        exec(code, {"__builtins__": safe_builtins}, namespace)
+        export = namespace.get("export")
+        if not callable(export):
+            raise ValueError("stream source lacks export")
+        rows = CountingRows()
+        result = export(rows)
+        eager = rows.consumed
+        iterator_api = iter(result) is result
+        output = b"".join(result)
+        regressions: list[str] = []
+        if not iterator_api:
+            regressions.append("stable-iterator-api")
+        expected = b"a\nbb\n"
+        if output != expected:
+            regressions.append("byte-identical-output")
+        output_root = hashlib.sha256(output).hexdigest()
+        focused_output = f"output={output_root};iterator={'true' if iterator_api else 'false'};eager={eager}"
+        return {"exit_code": 0 if not regressions else 1, "output": focused_output, "protected_result": "preserved" if not regressions else "regressed", "output_sha256": output_root, "rows_consumed_before_return": eager, "regression_ids": sorted(regressions)}
+    except (RuntimeError, TypeError) as error:
+        return {"exit_code": 1, "output": f"execution={type(error).__name__}:{error}", "protected_result": "failed", "output_sha256": None, "rows_consumed_before_return": None, "regression_ids": ["execution-failed"]}
+
+
+def changed_lines(files: object) -> int:
+    incumbent = stream_source(EXERCISE["incumbent"]["files"], contained_by=EXERCISE["target_repository_root"])
+    candidate = stream_source(files, contained_by=EXERCISE["lane"]["root"])
+    return sum(1 for line in difflib.ndiff(incumbent.splitlines(), candidate.splitlines()) if line.startswith(("+ ", "- ")))
+
+
+def decision_points(files: object, *, contained_by: str) -> int:
+    tree = ast.parse(stream_source(files, contained_by=contained_by))
+    nodes = (ast.If, ast.For, ast.AsyncFor, ast.While, ast.Try, ast.BoolOp, ast.IfExp, ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+    return sum(isinstance(node, nodes) for node in ast.walk(tree))
+
+
+def derived_candidate_metrics(artifact: dict[str, object]) -> dict[str, object]:
+    observed = execute_stream(artifact["files"], contained_by=EXERCISE["lane"]["root"])
+    compatibility: list[str] | None = []
+    if artifact["mapped"]["output"] == "comparison=broader-compatibility-unavailable":
+        compatibility = None
+    return {
+        "observable-outcome": {"output_sha256": observed["output_sha256"], "rows_consumed_before_return": observed["rows_consumed_before_return"]},
+        "implementation-cost": {"changed_lines": changed_lines(artifact["files"])},
+        "maintenance-cost": {"decision_points": decision_points(artifact["files"], contained_by=EXERCISE["lane"]["root"])},
+        "reversibility": {"restore_steps": 1},
+        "compatibility": {"api_break_ids": compatibility},
+        "protected-capability": {"regression_ids": observed["regression_ids"]},
+    }
 
 
 def parse_time(value: object, label: str) -> datetime:
@@ -178,6 +320,9 @@ def focused_result(artifact: dict[str, object], candidate_root: str) -> dict[str
     value = artifact["focused"]
     if type(value) is not dict or set(value) != {"recorded_at", "command", "exit_code", "output", "protected_result"}:
         raise ValueError("focused result shape differs")
+    observed = execute_stream(artifact["files"], contained_by=EXERCISE["lane"]["root"])
+    if value["command"] != "embedded:focused-stream-export-v1" or any(value[key] != observed[key] for key in ("exit_code", "output", "protected_result")):
+        raise ValueError("focused result differs from executable candidate bytes")
     result = {
         "schema_version": 1,
         "kind": "software-factory-candidate-focused-result",
@@ -198,25 +343,29 @@ def validate_metrics(metrics: object) -> dict[str, object]:
     if type(metrics) is not dict or list(metrics) != DIMENSIONS:
         raise ValueError("mapped metrics differ")
     outcome = metrics["observable-outcome"]
-    if type(outcome) is not dict or set(outcome) != {"output_sha256", "peak_memory_bytes"}:
+    if type(outcome) is not dict or set(outcome) != {"output_sha256", "rows_consumed_before_return"}:
         raise ValueError("observable metric differs")
     exact_string(outcome["output_sha256"], "observable output", SHA_RE)
-    if outcome["peak_memory_bytes"] is not None:
-        exact_int(outcome["peak_memory_bytes"], "peak memory", minimum=1)
+    if outcome["rows_consumed_before_return"] is not None:
+        exact_int(outcome["rows_consumed_before_return"], "eager input rows")
     for dimension, field in (
         ("implementation-cost", "changed_lines"),
         ("maintenance-cost", "decision_points"),
         ("reversibility", "restore_steps"),
-        ("compatibility", "api_breaks"),
     ):
         value = metrics[dimension]
         if type(value) is not dict or set(value) != {field}:
             raise ValueError(f"{dimension} metric differs")
         exact_int(value[field], dimension)
+    compatibility = metrics["compatibility"]
+    if type(compatibility) is not dict or set(compatibility) != {"api_break_ids"} or (compatibility["api_break_ids"] is not None and type(compatibility["api_break_ids"]) is not list):
+        raise ValueError("compatibility metric differs")
+    if compatibility["api_break_ids"] is not None and (compatibility["api_break_ids"] != sorted(set(compatibility["api_break_ids"])) or any(type(item) is not str or not item for item in compatibility["api_break_ids"])):
+        raise ValueError("compatibility break differs")
     protected = metrics["protected-capability"]
-    if type(protected) is not dict or set(protected) != {"regressions"} or type(protected["regressions"]) is not list:
+    if type(protected) is not dict or set(protected) != {"regression_ids"} or type(protected["regression_ids"]) is not list:
         raise ValueError("protected metric differs")
-    if any(type(item) is not str or not item for item in protected["regressions"]):
+    if protected["regression_ids"] != sorted(set(protected["regression_ids"])) or any(type(item) is not str or not item for item in protected["regression_ids"]):
         raise ValueError("protected regression differs")
     return metrics
 
@@ -230,6 +379,10 @@ def mapped_result(artifact: dict[str, object], candidate_root: str, focused: dic
     metrics = value["metrics"]
     if metrics is not None:
         validate_metrics(metrics)
+        if value["command"] != "embedded:mapped-stream-export-v1" or value["exit_code"] != 0 or metrics != derived_candidate_metrics(artifact):
+            raise ValueError("mapped result differs from executable candidate bytes")
+    elif value["command"] != "embedded:mapped-stream-export-v1" or value["exit_code"] == 0:
+        raise ValueError("mapped failure differs")
     result = {
         "schema_version": 1,
         "kind": "software-factory-candidate-mapped-result",
@@ -252,13 +405,24 @@ def mapped_result(artifact: dict[str, object], candidate_root: str, focused: dic
 def validate_exercise() -> None:
     if root(EXERCISE) != EXPECTED_EXERCISE_ROOT or root(REVIEW_FIXTURE) != EXPECTED_REVIEW_FIXTURE_ROOT:
         raise ValueError("bounded candidate source root differs")
+    exact_exercise_fields = {"schema_version", "kind", "block_number", "tracker_source_revision", "tracker_sha256", "mission_root", "policy_root", "event_head_root", "block_contract_root", "candidate_trigger", "target_repository_root", "target_revision", "capability_contract", "incumbent", "lane", "hypothesis", "hypothesis_scope", "comparison_dimensions", "eligibility_default", "artifacts", "cases"}
+    if set(EXERCISE) != exact_exercise_fields:
+        raise ValueError("bounded candidate exercise shape differs")
     if type(EXERCISE["schema_version"]) is not int or EXERCISE["schema_version"] != 2 or EXERCISE["kind"] != "software-factory-bounded-candidate-exercise" or type(EXERCISE["block_number"]) is not int or EXERCISE["block_number"] != 6:
         raise ValueError("bounded candidate identity differs")
     exact_string(EXERCISE["tracker_source_revision"], "tracker source revision", REV_RE)
     if EXERCISE["tracker_sha256"] != tracker_sha256():
         raise ValueError("tracker source root is stale")
-    for key in ("mission_root", "policy_root", "event_head_root", "block_contract_root"):
-        exact_string(EXERCISE[key], key, SHA_RE)
+    trigger = EXERCISE["candidate_trigger"]
+    if type(trigger) is not dict or set(trigger) != {"disposition", "reason", "source_class", "source_root"} or trigger != {"disposition": "compare-candidate", "reason": "material-better-path", "source_class": "tracker", "source_root": EXERCISE["tracker_sha256"]}:
+        raise ValueError("candidate trigger differs")
+    if EXERCISE["block_contract_root"] != block_contract_root():
+        raise ValueError("Block 6 contract root is stale")
+    expected_mission = root({"source_class": "tracker", "tracker_sha256": EXERCISE["tracker_sha256"], "block_number": 6, "capability_contract": EXERCISE["capability_contract"]})
+    expected_policy = root({"adaptive_decision_mode": "full-autonomous", "candidate_lane_limit": 1, "mission_root": expected_mission})
+    expected_event = root({"event_id": "block6-exercise-genesis", "mission_root": expected_mission, "policy_root": expected_policy})
+    if (EXERCISE["mission_root"], EXERCISE["policy_root"], EXERCISE["event_head_root"]) != (expected_mission, expected_policy, expected_event):
+        raise ValueError("candidate control roots differ")
     target_root = exact_path(EXERCISE["target_repository_root"], "target repository root")
     exact_string(EXERCISE["target_revision"], "target revision", REV_RE)
     contract = EXERCISE["capability_contract"]
@@ -271,6 +435,8 @@ def validate_exercise() -> None:
         if type(values) is not list or not values or values != sorted(set(values)) or any(type(item) is not str or not item for item in values):
             raise ValueError(f"capability {key} differs")
     lane = EXERCISE["lane"]
+    if set(lane) != {"isolation_kind", "root", "isolated_writable_scope", "shared_resource_exclusions", "implementation_owner_id", "independent_reviewer_id", "cutover_owner_id", "resource_ceiling", "time_ceiling_minutes", "stop_condition"}:
+        raise ValueError("candidate lane shape differs")
     exact_path(lane["root"], "lane root")
     if lane["isolation_kind"] not in SPEC["enums"]["isolation-kind"]:
         raise ValueError("isolation kind differs")
@@ -293,20 +459,49 @@ def validate_exercise() -> None:
     isolated = {item["path"] for item in lane["isolated_writable_scope"]}
     if production.intersection(isolated) or not production.issubset(excluded):
         raise ValueError("candidate isolation overlaps production authority")
+    incumbent_path = f"{target_root}/stream_export.py"
+    incumbent_content = file_content_root(EXERCISE["incumbent"]["files"], incumbent_path, contained_by=target_root)
+    if production != {incumbent_path} or EXERCISE["hypothesis_scope"] != [{"owner_id": EXERCISE["incumbent"]["production_authority_owner_id"], "path": incumbent_path, "content_root": incumbent_content}]:
+        raise ValueError("candidate hypothesis does not bind the canonical target owner")
+    for scope in lane["shared_resource_exclusions"]:
+        expected_root = incumbent_content if scope["path"] == incumbent_path else root({"owner_id": scope["owner_id"], "path": scope["path"], "posture": "excluded"})
+        if scope["content_root"] != expected_root:
+            raise ValueError("shared-resource exclusion root differs")
+    for scope in lane["isolated_writable_scope"]:
+        if scope["content_root"] != root({"owner_id": scope["owner_id"], "path": scope["path"], "posture": "unmaterialized"}):
+            raise ValueError("isolated pre-creation root differs")
     exact_string(EXERCISE["hypothesis"], "hypothesis")
     if EXERCISE["comparison_dimensions"] != DIMENSIONS:
         raise ValueError("comparison dimension order differs")
     validate_metrics(EXERCISE["incumbent"]["metrics"])
+    if set(EXERCISE["incumbent"]) != {"revision", "production_authority_owner_id", "files", "metrics", "writable_scope"}:
+        raise ValueError("candidate incumbent shape differs")
     incumbent_root()
     artifacts = EXERCISE["artifacts"]
     if type(artifacts) is not dict or not artifacts:
         raise ValueError("candidate artifacts differ")
     for artifact in artifacts.values():
+        if type(artifact) is not dict or set(artifact) != {"revision", "files", "focused", "mapped"}:
+            raise ValueError("candidate artifact shape differs")
         candidate = artifact_root(artifact)
         focused = focused_result(artifact, candidate)
         mapped_result(artifact, candidate, focused)
     if type(EXERCISE["cases"]) is not list or len({case["case_id"] for case in EXERCISE["cases"]}) != len(EXERCISE["cases"]):
         raise ValueError("case identity differs")
+    allowed_stops = {None, "incumbent-basis-drift", "focused-failure", "mapped-failure", "protected-regression", "review-currentness-loss", "cancelled", "isolation-drift", "hypothesis-falsified"}
+    base_case_fields = {"case_id", "artifact_id", "eligibility", "usage", "stop_reason", "expected_action", "expected_comparison_disposition"}
+    for case in EXERCISE["cases"]:
+        if type(case) is not dict or (set(case) != base_case_fields and set(case) != base_case_fields | {"stop_evidence"}) or type(case["case_id"]) is not str or case["stop_reason"] not in allowed_stops:
+            raise ValueError("candidate case shape differs")
+        if case["artifact_id"] is not None and (type(case["artifact_id"]) is not str or case["artifact_id"] not in artifacts):
+            raise ValueError("candidate case artifact differs")
+    if set(REVIEW_FIXTURE) != {"schema_version", "kind", "source_posture", "reviewer_id", "reviewer_authority", "results"} or REVIEW_FIXTURE["schema_version"] != 2 or REVIEW_FIXTURE["kind"] != "software-factory-bounded-candidate-independent-review-fixture":
+        raise ValueError("candidate review source shape differs")
+    authority = REVIEW_FIXTURE["reviewer_authority"]
+    if type(authority) is not dict or set(authority) != {"schema_version", "kind", "record_id", "reviewer_id", "source_revision", "source_review_posture"} or authority["reviewer_id"] != REVIEW_FIXTURE["reviewer_id"]:
+        raise ValueError("candidate reviewer authority differs")
+    if type(REVIEW_FIXTURE["results"]) is not list or len({item["input_root"] for item in REVIEW_FIXTURE["results"]}) != len(REVIEW_FIXTURE["results"]):
+        raise ValueError("candidate review result identity differs")
 
 
 def case_index() -> dict[str, dict[str, object]]:
@@ -328,10 +523,10 @@ def eligibility(case: dict[str, object]) -> dict[str, object]:
     value = {**EXERCISE["eligibility_default"], **override}
     if set(value) != ELIGIBILITY_FIELDS:
         raise ValueError("eligibility fields differ")
-    for key in ("outcome_uncertainty_supported", "implementation_evidence_required", "read_only_resolvable", "isolation_safe"):
+    for key in ("material_better_path", "outcome_uncertainty_supported", "implementation_evidence_required", "read_only_resolvable", "isolation_safe"):
         if type(value[key]) is not bool:
             raise ValueError(f"eligibility {key} differs")
-    for key in ("outcome_uncertainty_evidence_root", "implementation_evidence_root", "reversibility_evidence_root"):
+    for key in ("trigger_evidence_root", "outcome_uncertainty_evidence_root", "implementation_evidence_root", "reversibility_evidence_root"):
         exact_string(value[key], key, SHA_RE)
     for key in ("rework_avoided_minutes", "candidate_ceiling_minutes", "review_ceiling_minutes", "isolation_recovery_minutes"):
         exact_int(value[key], key, maximum=120)
@@ -346,7 +541,7 @@ def eligibility(case: dict[str, object]) -> dict[str, object]:
 
 
 def lane_eligible(value: dict[str, object]) -> bool:
-    return bool(value["outcome_uncertainty_supported"] and value["implementation_evidence_required"] and not value["read_only_resolvable"] and value["isolation_safe"] and value["net_avoidable_minutes"] > 0)
+    return bool(value["material_better_path"] and value["outcome_uncertainty_supported"] and value["implementation_evidence_required"] and not value["read_only_resolvable"] and value["isolation_safe"] and value["net_avoidable_minutes"] > 0)
 
 
 def candidate_root_for(case: dict[str, object]) -> tuple[dict[str, object], str]:
@@ -361,6 +556,7 @@ def decision_basis(case: dict[str, object], eligible: dict[str, object]) -> dict
     contract = EXERCISE["capability_contract"]
     incumbent = EXERCISE["incumbent"]
     return {
+        "candidate_trigger": EXERCISE["candidate_trigger"],
         "tracker_sha256": EXERCISE["tracker_sha256"],
         "block_contract_root": EXERCISE["block_contract_root"],
         "target_repository_root": EXERCISE["target_repository_root"],
@@ -380,15 +576,17 @@ def decision_basis(case: dict[str, object], eligible: dict[str, object]) -> dict
 
 def source_evidence(case: dict[str, object], eligible: dict[str, object]) -> list[dict[str, object]]:
     refs = [
-        {"ref_id": "evidence-capability", "source_class": "tracker", "adjudication_posture": "adjudicating", "root_sha256": root(EXERCISE["capability_contract"]), "claim_ids": ["capability-contract", "protected-contract"]},
-        {"ref_id": "evidence-eligibility", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": eligible["eligibility_root"], "claim_ids": ["implementation-evidence-required", "positive-decision-value", "reversibility-bound"]},
-        {"ref_id": "evidence-incumbent", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": incumbent_root(), "claim_ids": ["incumbent-authoritative", "incumbent-revision"]},
+        {"ref_id": "evidence-capability", "source_class": "tracker", "adjudication_posture": "adjudicating", "root_sha256": root(EXERCISE["capability_contract"]), "claim_ids": sorted(["bounded-candidate", "byte-identical-output", "capability-contract", "generalized-service", "protected-contract", "stable-iterator-api"])},
+        {"ref_id": "evidence-eligibility", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": eligible["eligibility_root"], "claim_ids": sorted(["bounded-candidate", "implementation-evidence-required", "material-better-path", "positive-decision-value", "reversibility-bound"])},
+        {"ref_id": "evidence-incumbent", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": incumbent_root(), "claim_ids": sorted(["incumbent-authoritative", "incumbent-local", "incumbent-revision"])},
+        {"ref_id": "evidence-reviewer-authority", "source_class": "independent-review", "adjudication_posture": "process", "root_sha256": root(REVIEW_FIXTURE["reviewer_authority"]), "claim_ids": [EXERCISE["lane"]["independent_reviewer_id"]]},
     ]
     return sorted(refs, key=lambda item: item["ref_id"])
 
 
 def fingerprint_projection(case: dict[str, object], eligible: dict[str, object]) -> dict[str, object]:
     evidence = source_evidence(case, eligible)
+    adjudicating = [item for item in evidence if item["adjudication_posture"] == "adjudicating"]
     scope = copy.deepcopy(EXERCISE["hypothesis_scope"])
     paths = [
         {"path_id": "incumbent-local", "kind": "local", "posture": "rejected", "rationale": "read-only evidence cannot decide", "evidence_ref_ids": ["evidence-incumbent"]},
@@ -413,8 +611,8 @@ def fingerprint_projection(case: dict[str, object], eligible: dict[str, object])
         "capability_statement": EXERCISE["capability_contract"]["statement"],
         "capability_frame_root": root(EXERCISE["capability_contract"]),
         "protected_capability_results": [{"capability_id": item, "result": "preserved", "evidence_ref_ids": ["evidence-capability"]} for item in EXERCISE["capability_contract"]["protected_capabilities"]],
-        "adjudicating_evidence_ref_ids": [item["ref_id"] for item in evidence],
-        "adjudicating_evidence_root": root(evidence),
+        "adjudicating_evidence_ref_ids": [item["ref_id"] for item in adjudicating],
+        "adjudicating_evidence_root": root(adjudicating),
         "compared_paths": paths,
         "affected_scope": scope,
         "proposer_author_id": None,
@@ -427,29 +625,41 @@ def fingerprint_projection(case: dict[str, object], eligible: dict[str, object])
 
 
 def decision_fingerprint(case: dict[str, object], eligible: dict[str, object]) -> str:
-    return root(fingerprint_projection(case, eligible))
+    common = fingerprint_projection(case, eligible)
+    candidate = candidate_fields(None, None, None, None, "active-isolated")
+    candidate_projection = {key: candidate[key] for key in SPEC["candidate_fingerprint_projection"]}
+    return root({**common, "candidate": candidate_projection})
 
 
 def metric_relation(dimension: str, incumbent: dict[str, object], candidate: dict[str, object]) -> tuple[str, str]:
     if dimension == "observable-outcome":
         if candidate["output_sha256"] != incumbent["output_sha256"]:
-            return "incumbent-better", "bytes-and-peak-memory"
-        if candidate["peak_memory_bytes"] is None:
-            return "inconclusive", "bytes-and-peak-memory"
-        if candidate["peak_memory_bytes"] < incumbent["peak_memory_bytes"]:
-            return "candidate-better", "bytes-and-peak-memory"
-        if candidate["peak_memory_bytes"] > incumbent["peak_memory_bytes"]:
-            return "incumbent-better", "bytes-and-peak-memory"
-        return "equivalent", "bytes-and-peak-memory"
-    field = {"implementation-cost": "changed_lines", "maintenance-cost": "decision_points", "reversibility": "restore_steps", "compatibility": "api_breaks"}.get(dimension)
+            return "incumbent-better", "bytes-and-eager-rows"
+        if candidate["rows_consumed_before_return"] is None:
+            return "inconclusive", "bytes-and-eager-rows"
+        if candidate["rows_consumed_before_return"] < incumbent["rows_consumed_before_return"]:
+            return "candidate-better", "bytes-and-eager-rows"
+        if candidate["rows_consumed_before_return"] > incumbent["rows_consumed_before_return"]:
+            return "incumbent-better", "bytes-and-eager-rows"
+        return "equivalent", "bytes-and-eager-rows"
+    field = {"implementation-cost": "changed_lines", "maintenance-cost": "decision_points", "reversibility": "restore_steps"}.get(dimension)
     if field is not None:
         left, right = incumbent[field], candidate[field]
         relation = "candidate-better" if right < left else "incumbent-better" if right > left else "equivalent"
         return relation, field
-    left = incumbent["regressions"]
-    right = candidate["regressions"]
-    relation = "candidate-better" if len(right) < len(left) else "incumbent-better" if len(right) > len(left) else "equivalent"
-    return relation, "regression-count"
+    field = "api_break_ids" if dimension == "compatibility" else "regression_ids"
+    left = incumbent[field]
+    right = candidate[field]
+    if right is None:
+        return "inconclusive", field
+    if left is None:
+        return "inconclusive", field
+    left_set, right_set = set(left), set(right)
+    if right_set - left_set:
+        return "incumbent-better", field
+    if left_set - right_set:
+        return "candidate-better", field
+    return "equivalent", field
 
 
 def comparison_records(mapped: dict[str, object]) -> list[dict[str, object]]:
@@ -471,11 +681,11 @@ def comparison_records(mapped: dict[str, object]) -> list[dict[str, object]]:
             "candidate_value": copy.deepcopy(candidate_metrics[dimension]),
             "relation": relation,
         })
-    validate_comparison(records)
+    validate_comparison(records, mapped)
     return records
 
 
-def validate_comparison(records: object) -> None:
+def validate_comparison(records: object, mapped: dict[str, object] | None = None) -> None:
     if type(records) is not list or [item.get("dimension") for item in records if type(item) is dict] != DIMENSIONS:
         raise ValueError("comparison dimensions differ")
     exact = {"dimension", "unit", "incumbent_evidence_root", "candidate_evidence_root", "incumbent_value", "candidate_value", "relation"}
@@ -487,6 +697,16 @@ def validate_comparison(records: object) -> None:
         exact_string(record["candidate_evidence_root"], "candidate evidence", SHA_RE)
         if record["relation"] not in RELATIONS:
             raise ValueError("comparison relation differs")
+    if mapped is not None:
+        if mapped["metrics"] is None:
+            raise ValueError("comparison lacks mapped metrics")
+        for record in records:
+            dimension = record["dimension"]
+            expected_relation, expected_unit = metric_relation(dimension, EXERCISE["incumbent"]["metrics"][dimension], mapped["metrics"][dimension])
+            expected_incumbent_root = root({"incumbent_root": incumbent_root(), "dimension": dimension, "value": EXERCISE["incumbent"]["metrics"][dimension]})
+            expected_candidate_root = root({"candidate_root": mapped["candidate_root"], "mapped_result_root": mapped["result_root"], "dimension": dimension, "value": mapped["metrics"][dimension]})
+            if (record["unit"], record["relation"], record["incumbent_evidence_root"], record["candidate_evidence_root"], record["incumbent_value"], record["candidate_value"]) != (expected_unit, expected_relation, expected_incumbent_root, expected_candidate_root, EXERCISE["incumbent"]["metrics"][dimension], mapped["metrics"][dimension]):
+                raise ValueError("comparison record does not bind retained evidence")
 
 
 def blind_review_packet(candidate_root: str, mapped: dict[str, object], comparison: list[dict[str, object]]) -> dict[str, object]:
@@ -508,56 +728,133 @@ def blind_review_packet(candidate_root: str, mapped: dict[str, object], comparis
     return packet
 
 
-def review_fixture_result(case_id: str, packet: dict[str, object], comparison: list[dict[str, object]]) -> dict[str, object]:
-    entries = [item for item in REVIEW_FIXTURE["results"] if item["case_id"] == case_id]
+def review_fixture_result(packet: dict[str, object], comparison: list[dict[str, object]] | None) -> dict[str, object]:
+    input_root = root(packet)
+    entries = [item for item in REVIEW_FIXTURE["results"] if type(item) is dict and item.get("input_root") == input_root]
     if len(entries) != 1 or REVIEW_FIXTURE["reviewer_id"] != EXERCISE["lane"]["independent_reviewer_id"]:
         raise ValueError("independent review fixture differs")
-    entry = entries[0]
+    entry = copy.deepcopy(entries[0])
+    expected_fields = {"schema_version", "kind", "review_id", "reviewer_id", "input_root", "recorded_at", "comparison_disposition", "review_disposition", "retirement_posture", "result_root"}
+    if set(entry) != expected_fields or entry["schema_version"] != 1 or entry["kind"] != "software-factory-bounded-candidate-independent-review" or entry["reviewer_id"] != REVIEW_FIXTURE["reviewer_id"]:
+        raise ValueError("independent review result shape differs")
+    recorded_root = entry.pop("result_root")
+    if recorded_root != root(entry):
+        raise ValueError("independent review result root differs")
+    entry["review_root"] = recorded_root
+    parse_time(entry["recorded_at"], "review time")
     disposition = entry["comparison_disposition"]
-    if disposition not in COMPARISON_DISPOSITIONS:
-        raise ValueError("comparison disposition differs")
-    relations = {item["dimension"]: item["relation"] for item in comparison}
-    if disposition == "candidate-better" and (relations["observable-outcome"] != "candidate-better" or relations["compatibility"] == "incumbent-better" or relations["protected-capability"] == "incumbent-better"):
-        raise ValueError("candidate-better is unsupported by raw comparison")
-    if disposition == "incumbent-better" and "incumbent-better" not in relations.values():
-        raise ValueError("incumbent-better is unsupported by raw comparison")
-    if disposition == "non-inferior-no-benefit" and ("candidate-better" in relations.values() or "inconclusive" in relations.values()):
-        raise ValueError("non-inferior disposition differs from raw comparison")
-    if disposition == "inconclusive" and "inconclusive" not in relations.values():
-        raise ValueError("inconclusive disposition differs from raw comparison")
-    result = {
+    if comparison is not None:
+        validate_comparison(comparison)
+        if packet["comparison_root"] != root(comparison):
+            raise ValueError("review input does not bind raw comparison")
+        if disposition not in COMPARISON_DISPOSITIONS:
+            raise ValueError("comparison disposition differs")
+        relations = {item["dimension"]: item["relation"] for item in comparison}
+        if disposition == "candidate-better" and (relations["observable-outcome"] != "candidate-better" or relations["compatibility"] in {"incumbent-better", "inconclusive"} or relations["protected-capability"] in {"incumbent-better", "inconclusive"}):
+            raise ValueError("candidate-better is unsupported by raw comparison")
+        if disposition == "incumbent-better" and "incumbent-better" not in relations.values():
+            raise ValueError("incumbent-better is unsupported by raw comparison")
+        if disposition == "non-inferior-no-benefit" and ("candidate-better" in relations.values() or "inconclusive" in relations.values()):
+            raise ValueError("non-inferior disposition differs from raw comparison")
+        if disposition == "inconclusive" and "inconclusive" not in relations.values():
+            raise ValueError("inconclusive disposition differs from raw comparison")
+        if entry["review_disposition"] != BLOCK4_REVIEW[disposition] or entry["retirement_posture"] != RETIREMENT[disposition]:
+            raise ValueError("review disposition mapping differs")
+    elif disposition is not None or entry["review_disposition"] not in {"rejected", "inconclusive"}:
+        raise ValueError("Stop review disposition differs")
+    return entry
+
+
+def stop_review_packet(case: dict[str, object], candidate_root: str, focused: dict[str, object], mapped: dict[str, object] | None, stop_reason: str, usage: dict[str, int], cause: dict[str, object]) -> dict[str, object]:
+    return {
         "schema_version": 1,
-        "kind": "software-factory-bounded-candidate-independent-review",
-        "review_id": f"review-{root(packet)[:20]}",
-        "reviewer_id": REVIEW_FIXTURE["reviewer_id"],
-        "input_root": root(packet),
-        "recorded_at": exact_string(entry["recorded_at"], "review time"),
-        "comparison_disposition": disposition,
-        "review_disposition": BLOCK4_REVIEW[disposition],
-        "retirement_posture": RETIREMENT[disposition],
+        "kind": "software-factory-bounded-candidate-stop-review-input",
+        "target_revision_root": target_revision_root(),
+        "incumbent_root": incumbent_root(),
+        "candidate_root": candidate_root,
+        "focused_result_root": focused["result_root"],
+        "mapped_result_root": mapped["result_root"] if mapped else None,
+        "stop_reason": stop_reason,
+        "cause_root": root(cause),
+        "resource_usage": usage,
+        "resource_ceiling": EXERCISE["lane"]["resource_ceiling"],
+        "time_ceiling_minutes": EXERCISE["lane"]["time_ceiling_minutes"],
+        "incumbent_authoritative": True,
+        "candidate_authoritative": False,
     }
-    parse_time(result["recorded_at"], "review time")
-    result["review_root"] = root(result)
-    return result
 
 
-def stop_review(case: dict[str, object], candidate_root: str, focused: dict[str, object], mapped: dict[str, object] | None, stop_reason: str) -> dict[str, object]:
-    inconclusive = stop_reason in {"incumbent-basis-drift", "review-currentness-loss", "cancelled", "isolation-drift"}
-    disposition = "inconclusive" if inconclusive else "rejected"
-    input_root = root({"candidate_root": candidate_root, "focused_result_root": focused["result_root"], "mapped_result_root": mapped["result_root"] if mapped else None, "stop_reason": stop_reason})
+def control_stop_result(artifact: dict[str, object], candidate_root: str, reason: str, cause: dict[str, object]) -> dict[str, object]:
     value = {
         "schema_version": 1,
-        "kind": "software-factory-bounded-candidate-mechanical-stop-review",
-        "review_id": f"review-stop-{input_root[:20]}",
-        "reviewer_id": EXERCISE["lane"]["independent_reviewer_id"],
-        "input_root": input_root,
-        "recorded_at": format_time(parse_time(focused["recorded_at"], "focused time") + timedelta(seconds=2)),
-        "comparison_disposition": None,
-        "review_disposition": disposition,
-        "retirement_posture": "retired-inconclusive" if inconclusive else "retired-loser",
+        "kind": "software-factory-candidate-focused-result",
+        "result_id": result_id("focused", candidate_root),
+        "candidate_root": candidate_root,
+        "recorded_at": exact_string(artifact["focused"]["recorded_at"], "control Stop time"),
+        "command": "control:pre-validation-stop",
+        "exit_code": 1,
+        "output_sha256": root({"reason": reason, "cause": cause}),
+        "protected_result": "not-run",
     }
-    value["review_root"] = root(value)
+    parse_time(value["recorded_at"], "control Stop time")
+    value["result_root"] = root(value)
     return value
+
+
+def stop_cause(case: dict[str, object], artifact: dict[str, object], candidate_root: str, focused: dict[str, object], mapped: dict[str, object] | None, usage: dict[str, int], reason: str) -> dict[str, object]:
+    if reason == "ceiling-expired":
+        ceiling = EXERCISE["lane"]["resource_ceiling"]
+        exceeded = sorted(key for key in ("files", "changed_lines", "commands", "review_passes") if usage[key] > ceiling[f"max_{key}"])
+        if usage["elapsed_minutes"] > EXERCISE["lane"]["time_ceiling_minutes"]:
+            exceeded.append("elapsed_minutes")
+        if not exceeded:
+            raise ValueError("ceiling Stop lacks an exceeded resource")
+        return {"reason": reason, "exceeded": exceeded, "usage": usage, "resource_ceiling": ceiling, "time_ceiling_minutes": EXERCISE["lane"]["time_ceiling_minutes"]}
+    supplied = case.get("stop_evidence")
+    if reason == "incumbent-basis-drift":
+        if type(supplied) is not dict or set(supplied) != {"observed_incumbent_root"} or supplied["observed_incumbent_root"] == incumbent_root():
+            raise ValueError("incumbent drift evidence differs")
+        exact_string(supplied["observed_incumbent_root"], "observed incumbent root", SHA_RE)
+        return {"reason": reason, "expected_incumbent_root": incumbent_root(), **supplied}
+    if reason == "cancelled":
+        if type(supplied) is not dict or set(supplied) != {"cancellation_authority_root"}:
+            raise ValueError("cancellation evidence differs")
+        exact_string(supplied["cancellation_authority_root"], "cancellation authority", SHA_RE)
+        return {"reason": reason, **supplied}
+    if reason == "isolation-drift":
+        expected = root(EXERCISE["lane"]["isolated_writable_scope"])
+        if type(supplied) is not dict or set(supplied) != {"observed_isolation_root"} or supplied["observed_isolation_root"] == expected:
+            raise ValueError("isolation drift evidence differs")
+        exact_string(supplied["observed_isolation_root"], "observed isolation root", SHA_RE)
+        return {"reason": reason, "expected_isolation_root": expected, **supplied}
+    if reason == "focused-failure":
+        if focused["exit_code"] == 0:
+            raise ValueError("focused failure evidence differs")
+        return {"reason": reason, "focused_result_root": focused["result_root"], "exit_code": focused["exit_code"]}
+    if reason == "protected-regression":
+        observed = execute_stream(artifact["files"], contained_by=EXERCISE["lane"]["root"])
+        if not observed["regression_ids"]:
+            raise ValueError("protected regression evidence differs")
+        return {"reason": reason, "focused_result_root": focused["result_root"], "regression_ids": observed["regression_ids"]}
+    if reason == "mapped-failure":
+        if mapped is None or mapped["exit_code"] == 0:
+            raise ValueError("mapped failure evidence differs")
+        return {"reason": reason, "focused_result_root": focused["result_root"], "mapped_result_root": mapped["result_root"], "exit_code": mapped["exit_code"]}
+    if reason in {"hypothesis-falsified", "review-currentness-loss"}:
+        if mapped is None or mapped["metrics"] is None:
+            raise ValueError("post-comparison Stop lacks mapped evidence")
+        comparison = comparison_records(mapped)
+        comparison_root = root(comparison)
+        if reason == "hypothesis-falsified":
+            if any(item["dimension"] == "observable-outcome" and item["relation"] == "candidate-better" for item in comparison):
+                raise ValueError("hypothesis falsification is unsupported")
+            return {"reason": reason, "comparison_root": comparison_root}
+        expected_input = root(blind_review_packet(candidate_root, mapped, comparison))
+        if type(supplied) is not dict or set(supplied) != {"observed_review_input_root"} or supplied["observed_review_input_root"] == expected_input:
+            raise ValueError("review currentness evidence differs")
+        exact_string(supplied["observed_review_input_root"], "observed review input", SHA_RE)
+        return {"reason": reason, "expected_review_input_root": expected_input, **supplied}
+    raise ValueError("unknown candidate Stop reason")
 
 
 def format_time(value: datetime) -> str:
@@ -566,8 +863,6 @@ def format_time(value: datetime) -> str:
 
 def candidate_fields(candidate_root: str | None, focused: dict[str, object] | None, mapped: dict[str, object] | None, review: dict[str, object] | None, retirement: str) -> dict[str, object]:
     isolated = copy.deepcopy(EXERCISE["lane"]["isolated_writable_scope"])
-    for scope in isolated:
-        scope["content_root"] = candidate_root or "0" * 64
     values = {
         "hypothesis": EXERCISE["hypothesis"],
         "hypothesis_scope": copy.deepcopy(EXERCISE["hypothesis_scope"]),
@@ -580,8 +875,8 @@ def candidate_fields(candidate_root: str | None, focused: dict[str, object] | No
         "time_ceiling": "elapsed-minutes<=20",
         "stop_condition": EXERCISE["lane"]["stop_condition"],
         "production_authority_owner_id": EXERCISE["incumbent"]["production_authority_owner_id"],
-        "focused_validation": [focused["result_id"]] if focused else ["focused-stream-export-planned"],
-        "mapped_validation": [mapped["result_id"]] if mapped else [],
+        "focused_validation": ["focused-stream-export-v1"],
+        "mapped_validation": ["mapped-stream-export-v1"],
         "validation_order": "focused-then-mapped",
         "comparison_dimensions": DIMENSIONS,
         "independent_reviewer_id": EXERCISE["lane"]["independent_reviewer_id"],
@@ -640,21 +935,71 @@ def process_evidence(stage: str, decision_id: str, candidate_root: str, focused:
 def currentness_projection(record: dict[str, object]) -> dict[str, object]:
     values: dict[str, object] = {}
     for field in SPEC["currentness_projection"]:
-        key = field[:-1] if field.endswith("?") else field
-        values[key] = record.get(key)
+        optional = field.endswith("?")
+        key = field[:-1] if optional else field
+        if optional and key not in {"candidate_root", "review_root", "review_disposition", "retirement_posture"}:
+            continue
+        values[key] = record[key]
     return values
+
+
+def validate_stage_record(record: dict[str, object]) -> None:
+    if set(record) != set(SPEC["common_fields"]) | set(SPEC["candidate_fields"]):
+        raise ValueError("candidate stage record differs from Block 4")
+    if record["target_revision_root"] != root({"target_revision": record["target_revision"]}):
+        raise ValueError("candidate target revision root differs")
+    evidence = record["evidence_refs"]
+    if type(evidence) is not list or evidence != sorted(evidence, key=lambda item: item["ref_id"]):
+        raise ValueError("candidate evidence order differs")
+    index = {item["ref_id"]: item for item in evidence}
+    if len(index) != len(evidence) or record["evidence_manifest_root"] != root(evidence):
+        raise ValueError("candidate evidence manifest differs")
+    for item in evidence:
+        if type(item) is not dict or set(item) != {"ref_id", "source_class", "adjudication_posture", "root_sha256", "claim_ids"}:
+            raise ValueError("candidate evidence shape differs")
+        exact_string(item["ref_id"], "evidence id", ID_RE)
+        exact_string(item["root_sha256"], "evidence root", SHA_RE)
+        if type(item["claim_ids"]) is not list or item["claim_ids"] != sorted(set(item["claim_ids"])):
+            raise ValueError("candidate evidence claims differ")
+    for protected in record["protected_capability_results"]:
+        for ref_id in protected["evidence_ref_ids"]:
+            if ref_id not in index or protected["capability_id"] not in index[ref_id]["claim_ids"]:
+                raise ValueError("protected capability evidence is unbound")
+    for path in record["compared_paths"]:
+        for ref_id in path["evidence_ref_ids"]:
+            if ref_id not in index or path["path_id"] not in index[ref_id]["claim_ids"]:
+                raise ValueError("compared path evidence is unbound")
+    adjudicating = sorted(item["ref_id"] for item in evidence if item["adjudication_posture"] == "adjudicating")
+    if record["adjudicating_evidence_ref_ids"] != adjudicating or record["adjudicating_evidence_root"] != root([index[item] for item in adjudicating]):
+        raise ValueError("adjudicating evidence differs")
+    reviewer_evidence = [item for item in evidence if item["source_class"] == "independent-review" and record["reviewer_id"] in item["claim_ids"]]
+    if not reviewer_evidence:
+        raise ValueError("candidate reviewer identity is unbound")
+    stage = record["decision_stage"]
+    classes = {item["source_class"] for item in evidence}
+    required = set(SPEC["stage_rules"]["required_evidence_source_classes"][stage])
+    if stage == "closed":
+        required.update(SPEC["stage_rules"]["closed_required_by_disposition"]["compare-candidate"])
+    if not required.issubset(classes):
+        raise ValueError("candidate stage evidence is incomplete")
+    if stage in {"reviewed", "cutover-eligible", "closed"}:
+        bound = [item for item in evidence if item["source_class"] == "independent-review" and item["root_sha256"] == record["review_root"] and all(record[field] in item["claim_ids"] for field in ("decision_id", "candidate_root", "reviewer_id", "review_disposition"))]
+        if not bound:
+            raise ValueError("candidate review evidence is unbound")
+    if record["currentness_root"] != root(currentness_projection(record)):
+        raise ValueError("candidate currentness differs")
 
 
 def stage_records(case: dict[str, object], eligible: dict[str, object], candidate_root: str, focused: dict[str, object], mapped: dict[str, object] | None, review: dict[str, object], terminal_stage: str) -> list[dict[str, object]]:
     fingerprint_values = fingerprint_projection(case, eligible)
-    fingerprint = root(fingerprint_values)
+    fingerprint = decision_fingerprint(case, eligible)
     base_evidence = source_evidence(case, eligible)
     focused_time = parse_time(focused["recorded_at"], "focused time")
     review_time = parse_time(review["recorded_at"], "review time")
     stages = ["selected", "implementing"]
     if focused["exit_code"] == 0:
         stages.append("validated")
-    if review["kind"] == "software-factory-bounded-candidate-independent-review":
+    if review["comparison_disposition"] is not None:
         stages.append("reviewed")
     stages.append(terminal_stage)
     stages = list(dict.fromkeys(stages))
@@ -700,9 +1045,10 @@ def stage_records(case: dict[str, object], eligible: dict[str, object], candidat
             "external_boundary": None,
         }
         record["currentness_root"] = root(currentness_projection(record))
-        if set(record) != set(SPEC["common_fields"]) | set(SPEC["candidate_fields"]):
-            raise ValueError("candidate stage record differs from Block 4")
-        if root({key: record[key] for key in SPEC["fingerprint_projection"]}) != fingerprint:
+        validate_stage_record(record)
+        common_projection = {key: record[key] for key in SPEC["fingerprint_projection"]}
+        candidate_projection = {key: record[key] for key in SPEC["candidate_fingerprint_projection"]}
+        if root({**common_projection, "candidate": candidate_projection}) != fingerprint:
             raise ValueError("candidate stage changed decision fingerprint")
         records.append(record)
         previous = decision_id
@@ -749,6 +1095,8 @@ def accepted_lane_head(result: dict[str, object]) -> dict[str, object]:
     value = {
         "schema_version": 1,
         "kind": "software-factory-accepted-candidate-lane-head",
+        "tracker_sha256": EXERCISE["tracker_sha256"],
+        "target_revision_root": target_revision_root(),
         "decision_fingerprint": result["decision_fingerprint"],
         "candidate_root": final["candidate_root"],
         "review_root": final["review_root"],
@@ -760,23 +1108,45 @@ def accepted_lane_head(result: dict[str, object]) -> dict[str, object]:
 
 
 def validate_accepted_head(value: object) -> dict[str, object]:
-    if type(value) is not dict or set(value) != {"schema_version", "kind", "decision_fingerprint", "candidate_root", "review_root", "currentness_root", "handoff_root", "head_root"}:
+    if type(value) is not dict or set(value) != {"schema_version", "kind", "tracker_sha256", "target_revision_root", "decision_fingerprint", "candidate_root", "review_root", "currentness_root", "handoff_root", "head_root"}:
         raise ValueError("accepted lane head differs")
     raw = dict(value)
     recorded = raw.pop("head_root")
     if recorded != root(raw):
         raise ValueError("accepted lane head is stale")
-    for key in ("decision_fingerprint", "candidate_root", "review_root", "currentness_root"):
+    for key in ("tracker_sha256", "target_revision_root", "decision_fingerprint", "candidate_root", "review_root", "currentness_root"):
         exact_string(value[key], key, SHA_RE)
     if value["handoff_root"] is not None:
         exact_string(value["handoff_root"], "handoff root", SHA_RE)
     return value
 
 
-def ceiling_exceeded(case: dict[str, object]) -> bool:
-    usage = case["usage"]
-    if type(usage) is not dict or set(usage) != {"files", "changed_lines", "commands", "review_passes", "elapsed_minutes"}:
-        raise ValueError("candidate usage differs")
+def artifact_changed_lines(files: object) -> int:
+    if type(files) is not list:
+        raise ValueError("candidate files differ")
+    stream_path = f"{EXERCISE['lane']['root']}/stream_export.py"
+    extra = sum(len(exact_string(item["content_utf8"], "candidate bytes").splitlines()) for item in files if item["path"] != stream_path)
+    return changed_lines(files) + extra
+
+
+def derived_usage(case: dict[str, object], artifact: dict[str, object]) -> dict[str, int]:
+    reason = case.get("stop_reason")
+    files = artifact["files"]
+    file_count = len(files)
+    ceiling_hit = file_count > EXERCISE["lane"]["resource_ceiling"]["max_files"] or artifact_changed_lines(files) > EXERCISE["lane"]["resource_ceiling"]["max_changed_lines"]
+    if ceiling_hit or reason in {"incumbent-basis-drift", "cancelled", "isolation-drift"}:
+        commands = 0
+    elif reason in {"focused-failure", "protected-regression"}:
+        commands = 1
+    else:
+        commands = 2
+    value = {"files": file_count, "changed_lines": artifact_changed_lines(files), "commands": commands, "review_passes": 1, "elapsed_minutes": 1}
+    if case["usage"] != value:
+        raise ValueError("candidate usage differs from retained artifacts")
+    return value
+
+
+def ceiling_exceeded(usage: dict[str, int]) -> bool:
     for key in usage:
         exact_int(usage[key], f"usage {key}")
     ceiling = EXERCISE["lane"]["resource_ceiling"]
@@ -790,35 +1160,41 @@ def evaluate(case_id: str, *, accepted_head: dict[str, object] | None = None) ->
     if not lane_eligible(eligible):
         return {"action": "reject-before-lane", "lane_created": False, "review_cycle": False, "decision_fingerprint": fingerprint, "eligibility": eligible}
     artifact, candidate_root = candidate_root_for(case)
-    focused = focused_result(artifact, candidate_root)
-    mapped = mapped_result(artifact, candidate_root, focused)
+    usage = derived_usage(case, artifact)
     if accepted_head is not None:
         head = validate_accepted_head(accepted_head)
-        review_entry = next((item for item in REVIEW_FIXTURE["results"] if item["case_id"] == case_id), None)
-        if review_entry is not None and mapped is not None and mapped["exit_code"] == 0:
-            comparison = comparison_records(mapped)
-            review = review_fixture_result(case_id, blind_review_packet(candidate_root, mapped, comparison), comparison)
-            if head["decision_fingerprint"] == fingerprint and head["candidate_root"] == candidate_root and head["review_root"] == review["review_root"]:
-                return {"action": "deduplicate", "lane_created": False, "review_cycle": False, "handoff_emitted": False, "decision_fingerprint": fingerprint, "accepted_head_root": head["head_root"]}
+        if head["decision_fingerprint"] == fingerprint and head["candidate_root"] == candidate_root and head["target_revision_root"] == target_revision_root() and head["tracker_sha256"] == EXERCISE["tracker_sha256"]:
+            return {"action": "deduplicate", "lane_created": False, "review_cycle": False, "handoff_emitted": False, "decision_fingerprint": fingerprint, "accepted_head_root": head["head_root"]}
     stop_reason = case["stop_reason"]
-    if ceiling_exceeded(case):
+    if ceiling_exceeded(usage):
         stop_reason = "ceiling-expired"
+    early_stop = stop_reason in {"ceiling-expired", "incumbent-basis-drift", "cancelled", "isolation-drift"}
+    if early_stop:
+        provisional_cause = {"reason": stop_reason, "usage": usage, "case_evidence": case.get("stop_evidence")}
+        focused = control_stop_result(artifact, candidate_root, stop_reason, provisional_cause)
+        mapped = None
+    else:
+        focused = focused_result(artifact, candidate_root)
+        mapped = mapped_result(artifact, candidate_root, focused)
     if focused["exit_code"] != 0:
-        stop_reason = "focused-failure"
-    if focused["protected_result"] != "preserved":
+        if not early_stop:
+            stop_reason = "focused-failure"
+    if focused["protected_result"] == "regressed":
         stop_reason = "protected-regression"
     if mapped is not None and mapped["exit_code"] != 0:
         stop_reason = "mapped-failure"
     if stop_reason is not None:
         stop_reason = exact_string(stop_reason, "stop reason")
-        review = stop_review(case, candidate_root, focused, mapped, stop_reason)
+        cause = stop_cause(case, artifact, candidate_root, focused, mapped, usage, stop_reason)
+        packet = stop_review_packet(case, candidate_root, focused, mapped, stop_reason, usage, cause)
+        review = review_fixture_result(packet, None)
         records = stage_records(case, eligible, candidate_root, focused, mapped, review, "closed")
-        return {"action": "stop-retire", "lane_created": True, "review_cycle": False, "decision_fingerprint": fingerprint, "stop_reason": stop_reason, "stage_records": records, "candidate_root": candidate_root, "candidate_authoritative": False, "incumbent_authoritative": True, "isolation_cleanup": "retired-non-authoritative", "retained_evidence": [focused["result_root"], *( [mapped["result_root"]] if mapped else []), review["review_root"]], "handoff": None, "cutover_performed": False, "tracker_mutated": False, "policy_mutated": False}
+        return {"action": "stop-retire", "lane_created": True, "review_cycle": True, "decision_fingerprint": fingerprint, "stop_reason": stop_reason, "stop_cause": cause, "stop_review_packet": packet, "resource_usage": usage, "stage_records": records, "candidate_root": candidate_root, "candidate_authoritative": False, "incumbent_authoritative": True, "isolation_cleanup": "retired-non-authoritative", "retained_evidence": [focused["result_root"], *( [mapped["result_root"]] if mapped else []), review["review_root"]], "handoff": None, "cutover_performed": False, "tracker_mutated": False, "policy_mutated": False}
     if mapped is None or mapped["exit_code"] != 0 or mapped["metrics"] is None:
         raise ValueError("mapped result is absent after focused success")
     comparison = comparison_records(mapped)
     packet = blind_review_packet(candidate_root, mapped, comparison)
-    review = review_fixture_result(case_id, packet, comparison)
+    review = review_fixture_result(packet, comparison)
     terminal = "cutover-eligible" if review["comparison_disposition"] == "candidate-better" else "closed"
     records = stage_records(case, eligible, candidate_root, focused, mapped, review, terminal)
     handoff = handoff_record(records, comparison, review) if terminal == "cutover-eligible" else None
@@ -829,6 +1205,14 @@ def evaluate(case_id: str, *, accepted_head: dict[str, object] | None = None) ->
 
 
 class BoundedCandidateContractTests(unittest.TestCase):
+    def test_strict_json_rejects_duplicates_floats_and_non_nfc(self) -> None:
+        with self.assertRaisesRegex(ValueError, "duplicate JSON key"):
+            json.loads('{"schema_version":1,"schema_version":1}', object_pairs_hook=reject_duplicate_pairs)
+        with self.assertRaisesRegex(ValueError, "RFC8785"):
+            canonical({"value": 1.0})
+        with self.assertRaisesRegex(ValueError, "NFC"):
+            canonical({"value": "e\u0301"})
+
     def test_source_preflight_and_nonopaque_eligibility_include_reversibility(self) -> None:
         validate_exercise()
         positive = eligibility(canonical_case("winning-candidate"))
@@ -836,7 +1220,7 @@ class BoundedCandidateContractTests(unittest.TestCase):
         self.assertEqual(positive["net_avoidable_minutes"], 25)
         self.assertEqual(positive["reversibility_posture"], "checkpoint-restore")
         self.assertTrue(lane_eligible(positive))
-        for case_id in ("read-only-decidable", "unsafe-isolation"):
+        for case_id in ("read-only-decidable", "unsafe-isolation", "style-only", "speculative-reuse", "novelty-only"):
             result = evaluate(case_id)
             self.assertEqual(result["action"], "reject-before-lane")
             self.assertFalse(result["lane_created"])
@@ -865,6 +1249,11 @@ class BoundedCandidateContractTests(unittest.TestCase):
         for record in [*winner["stage_records"], *inconclusive["stage_records"]]:
             self.assertEqual(record["currentness_root"], root(currentness_projection(record)))
             self.assertEqual(set(record), set(SPEC["common_fields"]) | set(SPEC["candidate_fields"]))
+            validate_stage_record(record)
+            common = {key: record[key] for key in SPEC["fingerprint_projection"]}
+            candidate = {key: record[key] for key in SPEC["candidate_fingerprint_projection"]}
+            self.assertEqual(record["decision_fingerprint"], root({**common, "candidate": candidate}))
+            self.assertEqual(record["target_revision_root"], root({"target_revision": record["target_revision"]}))
 
     def test_all_post_creation_stops_close_with_evidence_cleanup_and_no_authority(self) -> None:
         for case_id in ("ceiling-expired", "incumbent-conflict", "focused-failure", "mapped-failure", "protected-regression", "review-currentness-loss", "cancelled", "isolation-drift", "hypothesis-falsified"):
@@ -874,6 +1263,8 @@ class BoundedCandidateContractTests(unittest.TestCase):
             self.assertFalse(result["candidate_authoritative"])
             self.assertTrue(result["incumbent_authoritative"])
             self.assertEqual(result["isolation_cleanup"], "retired-non-authoritative")
+            self.assertTrue(result["review_cycle"])
+            self.assertEqual(result["stop_review_packet"]["cause_root"], root(result["stop_cause"]))
             self.assertIsNone(result["handoff"])
             self.assertFalse(result["cutover_performed"] or result["tracker_mutated"] or result["policy_mutated"])
             classes = {item["source_class"] for item in result["stage_records"][-1]["evidence_refs"]}
@@ -910,8 +1301,56 @@ class BoundedCandidateContractTests(unittest.TestCase):
             self.assertNotIn(key, packet)
         changed = copy.deepcopy(result["raw_comparison_records"])
         changed[0]["relation"] = "incumbent-better"
-        with self.assertRaisesRegex(ValueError, "unsupported"):
-            review_fixture_result("winning-candidate", packet, changed)
+        with self.assertRaisesRegex(ValueError, "bind raw comparison"):
+            review_fixture_result(packet, changed)
+        forged = copy.deepcopy(result["raw_comparison_records"])
+        forged[0]["candidate_value"]["rows_consumed_before_return"] = 99999999
+        forged[0]["candidate_evidence_root"] = "0" * 64
+        with self.assertRaisesRegex(ValueError, "retained evidence"):
+            validate_comparison(forged, result["mapped_result"])
+
+    def test_embedded_candidate_bytes_are_the_observable_source(self) -> None:
+        incumbent = execute_stream(EXERCISE["incumbent"]["files"], contained_by=EXERCISE["target_repository_root"])
+        winner = execute_stream(EXERCISE["artifacts"]["candidate-winning"]["files"], contained_by=EXERCISE["lane"]["root"])
+        self.assertEqual(incumbent["output_sha256"], winner["output_sha256"])
+        self.assertEqual((incumbent["rows_consumed_before_return"], winner["rows_consumed_before_return"]), (2, 0))
+        self.assertEqual(winner["regression_ids"], [])
+        broken = copy.deepcopy(EXERCISE["artifacts"]["candidate-winning"])
+        broken["files"][0]["content_utf8"] = "def export(rows):\n    return b'BROKEN'\n"
+        with self.assertRaisesRegex(ValueError, "executable candidate bytes"):
+            focused_result(broken, artifact_root(broken))
+
+    def test_resource_usage_is_derived_and_ceiling_is_factual(self) -> None:
+        winning = canonical_case("winning-candidate")
+        self.assertEqual(derived_usage(winning, EXERCISE["artifacts"][winning["artifact_id"]]), winning["usage"])
+        ceiling = canonical_case("ceiling-expired")
+        usage = derived_usage(ceiling, EXERCISE["artifacts"][ceiling["artifact_id"]])
+        self.assertTrue(ceiling_exceeded(usage))
+        changed = copy.deepcopy(ceiling)
+        changed["usage"]["files"] = 3
+        with self.assertRaisesRegex(ValueError, "retained artifacts"):
+            derived_usage(changed, EXERCISE["artifacts"][changed["artifact_id"]])
+
+    def test_evidence_claim_binding_rejects_protected_path_and_reviewer_forgery(self) -> None:
+        record = copy.deepcopy(evaluate("winning-candidate")["stage_records"][-1])
+        capability = next(item for item in record["evidence_refs"] if item["ref_id"] == "evidence-capability")
+        capability["claim_ids"].remove("stable-iterator-api")
+        record["evidence_manifest_root"] = root(record["evidence_refs"])
+        record["currentness_root"] = root(currentness_projection(record))
+        with self.assertRaisesRegex(ValueError, "protected capability"):
+            validate_stage_record(record)
+        record = copy.deepcopy(evaluate("winning-candidate")["stage_records"][0])
+        record["evidence_refs"] = [item for item in record["evidence_refs"] if item["ref_id"] != "evidence-reviewer-authority"]
+        record["evidence_manifest_root"] = root(record["evidence_refs"])
+        record["currentness_root"] = root(currentness_projection(record))
+        with self.assertRaisesRegex(ValueError, "reviewer identity"):
+            validate_stage_record(record)
+
+    def test_exact_regression_id_sets_are_not_lossy_counts(self) -> None:
+        left = {"regression_ids": ["stable-iterator-api"]}
+        right = {"regression_ids": ["byte-identical-output"]}
+        relation, _ = metric_relation("protected-capability", left, right)
+        self.assertEqual(relation, "incumbent-better")
 
     def test_fingerprint_binds_target_incumbent_outcome_dimensions_and_source_basis(self) -> None:
         case = canonical_case("winning-candidate")

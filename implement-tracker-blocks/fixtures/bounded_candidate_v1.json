@@ -4,45 +4,51 @@
   "block_number": 6,
   "tracker_source_revision": "ac09b46110d5af73f010e18836b5f1fc5cd655be",
   "tracker_sha256": "3902dfb3e0c3002160f3b361b1959c005b6ad21d2842cb951bc33813ff200bc0",
-  "mission_root": "0000000000000000000000000000000000000000000000000000000000000000",
-  "policy_root": "1111111111111111111111111111111111111111111111111111111111111111",
-  "event_head_root": "2222222222222222222222222222222222222222222222222222222222222222",
-  "block_contract_root": "3333333333333333333333333333333333333333333333333333333333333333",
+  "mission_root": "a627fc6950973ad10daced4470d9b04ca6434bd49771258f48ffc44ff8b8c318",
+  "policy_root": "c47f773e6481efe6bd3dcbfd824284ff97110a536cf1981550c9f9e5f2dc2045",
+  "event_head_root": "fafc5eddcdd431be2d5effc789c2c614cc8c98fd7644cc4b3bd4a69da12d0a87",
+  "block_contract_root": "6d0e4632d0a50b62df2807d7a22571c54e00b4ff6cd7083c5d6ae68e4ad37880",
+  "candidate_trigger": {
+    "disposition": "compare-candidate",
+    "reason": "material-better-path",
+    "source_class": "tracker",
+    "source_root": "3902dfb3e0c3002160f3b361b1959c005b6ad21d2842cb951bc33813ff200bc0"
+  },
   "target_repository_root": "/software-factory-candidate-target",
   "target_revision": "4444444444444444444444444444444444444444",
   "capability_contract": {
-    "statement": "export the exact current records with materially lower peak memory",
-    "protected_capabilities": ["byte-identical-output", "stable-public-api"],
-    "expected_observable_effect": "same export bytes with lower peak memory",
-    "success_criteria": ["byte-identical-output", "peak-memory-below-incumbent"],
+    "statement": "export the exact current records through the stable iterator API without eager input consumption",
+    "protected_capabilities": ["byte-identical-output", "stable-iterator-api"],
+    "expected_observable_effect": "same exported chunks while consuming zero input rows before return",
+    "success_criteria": ["byte-identical-output", "stable-iterator-api", "zero-eager-input-consumption"],
     "cleanup_retention_posture": "winner stays isolated for Block 9; every other lane is retired with only immutable non-authoritative evidence"
   },
   "incumbent": {
     "revision": "5555555555555555555555555555555555555555",
     "production_authority_owner_id": "owner-target-production",
     "files": [
-      {"path": "/software-factory-candidate-target/stream_export.py", "content_utf8": "def export(rows):\n    return b''.join(row + b'\\n' for row in rows)\n"}
+      {"path": "/software-factory-candidate-target/stream_export.py", "content_utf8": "def export(rows):\n    return iter([row + b'\\n' for row in rows])\n"}
     ],
     "metrics": {
-      "observable-outcome": {"output_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "peak_memory_bytes": 1000000},
+      "observable-outcome": {"output_sha256": "69a6354753600a031ddfc7a3e3f11959ee23d21f773e085f30d769331bea8dfc", "rows_consumed_before_return": 2},
       "implementation-cost": {"changed_lines": 0},
-      "maintenance-cost": {"decision_points": 2},
+      "maintenance-cost": {"decision_points": 1},
       "reversibility": {"restore_steps": 0},
-      "compatibility": {"api_breaks": 0},
-      "protected-capability": {"regressions": []}
+      "compatibility": {"api_break_ids": []},
+      "protected-capability": {"regression_ids": []}
     },
-    "writable_scope": ["/software-factory-candidate-target/production"]
+    "writable_scope": ["/software-factory-candidate-target/stream_export.py"]
   },
   "lane": {
     "isolation_kind": "temporary-repository",
     "root": "/software-factory-candidate-lane",
     "isolated_writable_scope": [
-      {"owner_id": "owner-target-production", "path": "/software-factory-candidate-lane/stream_export.py", "content_root": "0000000000000000000000000000000000000000000000000000000000000000"}
+      {"owner_id": "owner-target-production", "path": "/software-factory-candidate-lane/stream_export.py", "content_root": "aae1bab3b84df87c9da139839706c384daea412b75bd7f438d29f64d5793d337"}
     ],
     "shared_resource_exclusions": [
-      {"owner_id": "owner-target-production", "path": "/software-factory-candidate-target/production", "content_root": "5555555555555555555555555555555555555555555555555555555555555555"},
-      {"owner_id": "owner-canonical-state", "path": "/software-factory-candidate-target/canonical-state", "content_root": "6666666666666666666666666666666666666666666666666666666666666666"},
-      {"owner_id": "owner-target-production", "path": "/software-factory-candidate-target/release", "content_root": "7777777777777777777777777777777777777777777777777777777777777777"}
+      {"owner_id": "owner-target-production", "path": "/software-factory-candidate-target/stream_export.py", "content_root": "2b1e98a6896819ffb7b85b75d263a5e1d8930dd65e154c713ccc96b5b6abfdd2"},
+      {"owner_id": "owner-canonical-state", "path": "/software-factory-candidate-target/canonical-state", "content_root": "68cfaa5151d185a9c8639d731785815f9dec600406d4088904aba974a1fe6bf4"},
+      {"owner_id": "owner-target-production", "path": "/software-factory-candidate-target/release", "content_root": "56750d21f8f3978085759ea5649258cf6714b20213ff64ed8068223777c765be"}
     ],
     "implementation_owner_id": "owner-target-production",
     "independent_reviewer_id": "reviewer-candidate-independent",
@@ -51,12 +57,14 @@
     "time_ceiling_minutes": 20,
     "stop_condition": "stop on falsification, cancellation, ceiling, isolation drift, basis drift, focused or mapped failure, protected regression, or review currentness loss"
   },
-  "hypothesis": "the bounded streaming implementation materially reduces peak memory while preserving exact output",
+  "hypothesis": "the bounded generator implementation avoids eager input consumption while preserving the exact iterator API and output chunks",
   "hypothesis_scope": [
-    {"owner_id": "owner-target-production", "path": "/software-factory-candidate-target/stream_export.py", "content_root": "5555555555555555555555555555555555555555555555555555555555555555"}
+    {"owner_id": "owner-target-production", "path": "/software-factory-candidate-target/stream_export.py", "content_root": "2b1e98a6896819ffb7b85b75d263a5e1d8930dd65e154c713ccc96b5b6abfdd2"}
   ],
   "comparison_dimensions": ["observable-outcome", "implementation-cost", "maintenance-cost", "reversibility", "compatibility", "protected-capability"],
   "eligibility_default": {
+    "material_better_path": true,
+    "trigger_evidence_root": "3902dfb3e0c3002160f3b361b1959c005b6ad21d2842cb951bc33813ff200bc0",
     "outcome_uncertainty_supported": true,
     "outcome_uncertainty_evidence_root": "8888888888888888888888888888888888888888888888888888888888888888",
     "implementation_evidence_required": true,
@@ -73,62 +81,76 @@
   "artifacts": {
     "candidate-winning": {
       "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    for row in rows:\n        yield row + b'\\n'\n"}],
-      "focused": {"recorded_at": "2026-08-09T20:00:01.000000Z", "command": "/usr/bin/python3 -m unittest tests.test_stream_export", "exit_code": 0, "output": "2 tests passed", "protected_result": "preserved"},
-      "mapped": {"recorded_at": "2026-08-09T20:00:02.000000Z", "command": "/usr/bin/python3 scripts/compare_stream_export.py", "exit_code": 0, "output": "comparison complete", "metrics": {"observable-outcome": {"output_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "peak_memory_bytes": 200000}, "implementation-cost": {"changed_lines": 68}, "maintenance-cost": {"decision_points": 2}, "reversibility": {"restore_steps": 1}, "compatibility": {"api_breaks": 0}, "protected-capability": {"regressions": []}}}
+      "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    return (row + b'\\n' for row in rows)\n"}],
+      "focused": {"recorded_at": "2026-08-09T20:00:01.000000Z", "command": "embedded:focused-stream-export-v1", "exit_code": 0, "output": "output=69a6354753600a031ddfc7a3e3f11959ee23d21f773e085f30d769331bea8dfc;iterator=true;eager=0", "protected_result": "preserved"},
+      "mapped": {"recorded_at": "2026-08-09T20:00:02.000000Z", "command": "embedded:mapped-stream-export-v1", "exit_code": 0, "output": "comparison=coherent", "metrics": {"observable-outcome": {"output_sha256": "69a6354753600a031ddfc7a3e3f11959ee23d21f773e085f30d769331bea8dfc", "rows_consumed_before_return": 0}, "implementation-cost": {"changed_lines": 2}, "maintenance-cost": {"decision_points": 1}, "reversibility": {"restore_steps": 1}, "compatibility": {"api_break_ids": []}, "protected-capability": {"regression_ids": []}}}
     },
     "candidate-equivalent": {
       "revision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    return b''.join(row + b'\\n' for row in rows)\n"}],
-      "focused": {"recorded_at": "2026-08-09T20:01:01.000000Z", "command": "/usr/bin/python3 -m unittest tests.test_stream_export", "exit_code": 0, "output": "2 tests passed", "protected_result": "preserved"},
-      "mapped": {"recorded_at": "2026-08-09T20:01:02.000000Z", "command": "/usr/bin/python3 scripts/compare_stream_export.py", "exit_code": 0, "output": "comparison complete", "metrics": {"observable-outcome": {"output_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "peak_memory_bytes": 1000000}, "implementation-cost": {"changed_lines": 45}, "maintenance-cost": {"decision_points": 2}, "reversibility": {"restore_steps": 1}, "compatibility": {"api_breaks": 0}, "protected-capability": {"regressions": []}}}
+      "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    return iter([row + b'\\n' for row in rows])\n"}],
+      "focused": {"recorded_at": "2026-08-09T20:01:01.000000Z", "command": "embedded:focused-stream-export-v1", "exit_code": 0, "output": "output=69a6354753600a031ddfc7a3e3f11959ee23d21f773e085f30d769331bea8dfc;iterator=true;eager=2", "protected_result": "preserved"},
+      "mapped": {"recorded_at": "2026-08-09T20:01:02.000000Z", "command": "embedded:mapped-stream-export-v1", "exit_code": 0, "output": "comparison=coherent", "metrics": {"observable-outcome": {"output_sha256": "69a6354753600a031ddfc7a3e3f11959ee23d21f773e085f30d769331bea8dfc", "rows_consumed_before_return": 2}, "implementation-cost": {"changed_lines": 0}, "maintenance-cost": {"decision_points": 1}, "reversibility": {"restore_steps": 1}, "compatibility": {"api_break_ids": []}, "protected-capability": {"regression_ids": []}}}
     },
     "candidate-losing": {
       "revision": "cccccccccccccccccccccccccccccccccccccccc",
-      "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    return b'BROKEN'\n"}],
-      "focused": {"recorded_at": "2026-08-09T20:02:01.000000Z", "command": "/usr/bin/python3 -m unittest tests.test_stream_export", "exit_code": 0, "output": "2 tests passed", "protected_result": "preserved"},
-      "mapped": {"recorded_at": "2026-08-09T20:02:02.000000Z", "command": "/usr/bin/python3 scripts/compare_stream_export.py", "exit_code": 0, "output": "comparison complete", "metrics": {"observable-outcome": {"output_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", "peak_memory_bytes": 1200000}, "implementation-cost": {"changed_lines": 70}, "maintenance-cost": {"decision_points": 3}, "reversibility": {"restore_steps": 1}, "compatibility": {"api_breaks": 1}, "protected-capability": {"regressions": []}}}
+      "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    chunks = [bytes(row) + b'\\n' for row in rows]\n    return iter(tuple(chunks))\n"}],
+      "focused": {"recorded_at": "2026-08-09T20:02:01.000000Z", "command": "embedded:focused-stream-export-v1", "exit_code": 0, "output": "output=69a6354753600a031ddfc7a3e3f11959ee23d21f773e085f30d769331bea8dfc;iterator=true;eager=2", "protected_result": "preserved"},
+      "mapped": {"recorded_at": "2026-08-09T20:02:02.000000Z", "command": "embedded:mapped-stream-export-v1", "exit_code": 0, "output": "comparison=coherent", "metrics": {"observable-outcome": {"output_sha256": "69a6354753600a031ddfc7a3e3f11959ee23d21f773e085f30d769331bea8dfc", "rows_consumed_before_return": 2}, "implementation-cost": {"changed_lines": 3}, "maintenance-cost": {"decision_points": 1}, "reversibility": {"restore_steps": 1}, "compatibility": {"api_break_ids": []}, "protected-capability": {"regression_ids": []}}}
     },
     "candidate-inconclusive": {
       "revision": "dddddddddddddddddddddddddddddddddddddddd",
-      "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    for row in rows:\n        yield row + b'\\n'\n"}],
-      "focused": {"recorded_at": "2026-08-09T20:03:01.000000Z", "command": "/usr/bin/python3 -m unittest tests.test_stream_export", "exit_code": 0, "output": "2 tests passed", "protected_result": "preserved"},
-      "mapped": {"recorded_at": "2026-08-09T20:03:02.000000Z", "command": "/usr/bin/python3 scripts/compare_stream_export.py", "exit_code": 0, "output": "measurement unavailable", "metrics": {"observable-outcome": {"output_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "peak_memory_bytes": null}, "implementation-cost": {"changed_lines": 65}, "maintenance-cost": {"decision_points": 2}, "reversibility": {"restore_steps": 1}, "compatibility": {"api_breaks": 0}, "protected-capability": {"regressions": []}}}
+      "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    return (row + b'\\n' for row in rows)\n"}],
+      "focused": {"recorded_at": "2026-08-09T20:03:01.000000Z", "command": "embedded:focused-stream-export-v1", "exit_code": 0, "output": "output=69a6354753600a031ddfc7a3e3f11959ee23d21f773e085f30d769331bea8dfc;iterator=true;eager=0", "protected_result": "preserved"},
+      "mapped": {"recorded_at": "2026-08-09T20:03:02.000000Z", "command": "embedded:mapped-stream-export-v1", "exit_code": 0, "output": "comparison=broader-compatibility-unavailable", "metrics": {"observable-outcome": {"output_sha256": "69a6354753600a031ddfc7a3e3f11959ee23d21f773e085f30d769331bea8dfc", "rows_consumed_before_return": 0}, "implementation-cost": {"changed_lines": 2}, "maintenance-cost": {"decision_points": 1}, "reversibility": {"restore_steps": 1}, "compatibility": {"api_break_ids": null}, "protected-capability": {"regression_ids": []}}}
     },
     "candidate-focused-failure": {
       "revision": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
       "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    raise RuntimeError('failed')\n"}],
-      "focused": {"recorded_at": "2026-08-09T20:04:01.000000Z", "command": "/usr/bin/python3 -m unittest tests.test_stream_export", "exit_code": 1, "output": "1 failure", "protected_result": "preserved"},
+      "focused": {"recorded_at": "2026-08-09T20:04:01.000000Z", "command": "embedded:focused-stream-export-v1", "exit_code": 1, "output": "execution=RuntimeError:failed", "protected_result": "failed"},
       "mapped": null
     },
     "candidate-mapped-failure": {
       "revision": "ffffffffffffffffffffffffffffffffffffffff",
-      "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    for row in rows:\n        yield row + b'\\n'\n"}],
-      "focused": {"recorded_at": "2026-08-09T20:05:01.000000Z", "command": "/usr/bin/python3 -m unittest tests.test_stream_export", "exit_code": 0, "output": "2 tests passed", "protected_result": "preserved"},
-      "mapped": {"recorded_at": "2026-08-09T20:05:02.000000Z", "command": "/usr/bin/python3 scripts/compare_stream_export.py", "exit_code": 1, "output": "comparison failed", "metrics": null}
+      "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    return (row + b'\\n' for row in rows)\n"}],
+      "focused": {"recorded_at": "2026-08-09T20:05:01.000000Z", "command": "embedded:focused-stream-export-v1", "exit_code": 0, "output": "output=69a6354753600a031ddfc7a3e3f11959ee23d21f773e085f30d769331bea8dfc;iterator=true;eager=0", "protected_result": "preserved"},
+      "mapped": {"recorded_at": "2026-08-09T20:05:02.000000Z", "command": "embedded:mapped-stream-export-v1", "exit_code": 1, "output": "comparison=failed", "metrics": null}
     },
     "candidate-protected-regression": {
       "revision": "1234512345123451234512345123451234512345",
       "files": [{"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    return list(rows)\n"}],
-      "focused": {"recorded_at": "2026-08-09T20:06:01.000000Z", "command": "/usr/bin/python3 -m unittest tests.test_stream_export", "exit_code": 0, "output": "2 tests passed", "protected_result": "regressed"},
+      "focused": {"recorded_at": "2026-08-09T20:06:01.000000Z", "command": "embedded:focused-stream-export-v1", "exit_code": 1, "output": "output=715edf8ba8729420cd4d1ce85ed61954a9f531f8c548df728c407effe839296d;iterator=false;eager=2", "protected_result": "regressed"},
+      "mapped": null
+    },
+    "candidate-over-ceiling": {
+      "revision": "2345623456234562345623456234562345623456",
+      "files": [
+        {"path": "/software-factory-candidate-lane/stream_export.py", "content_utf8": "def export(rows):\n    return (row + b'\\n' for row in rows)\n"},
+        {"path": "/software-factory-candidate-lane/extra_a.py", "content_utf8": "VALUE = 'a'\n"},
+        {"path": "/software-factory-candidate-lane/extra_b.py", "content_utf8": "VALUE = 'b'\n"},
+        {"path": "/software-factory-candidate-lane/extra_c.py", "content_utf8": "VALUE = 'c'\n"}
+      ],
+      "focused": {"recorded_at": "2026-08-09T20:07:01.000000Z", "command": "embedded:focused-stream-export-v1", "exit_code": 0, "output": "output=69a6354753600a031ddfc7a3e3f11959ee23d21f773e085f30d769331bea8dfc;iterator=true;eager=0", "protected_result": "preserved"},
       "mapped": null
     }
   },
   "cases": [
-    {"case_id": "winning-candidate", "artifact_id": "candidate-winning", "eligibility": {}, "usage": {"files": 1, "changed_lines": 68, "commands": 4, "review_passes": 1, "elapsed_minutes": 8}, "stop_reason": null, "expected_action": "handoff-block-9", "expected_comparison_disposition": "candidate-better"},
-    {"case_id": "losing-candidate", "artifact_id": "candidate-losing", "eligibility": {}, "usage": {"files": 1, "changed_lines": 70, "commands": 4, "review_passes": 1, "elapsed_minutes": 9}, "stop_reason": null, "expected_action": "retire-candidate", "expected_comparison_disposition": "incumbent-better"},
-    {"case_id": "novelty-bias", "artifact_id": "candidate-equivalent", "eligibility": {}, "usage": {"files": 1, "changed_lines": 45, "commands": 4, "review_passes": 1, "elapsed_minutes": 7}, "stop_reason": null, "expected_action": "retire-candidate", "expected_comparison_disposition": "non-inferior-no-benefit"},
-    {"case_id": "inconclusive-comparison", "artifact_id": "candidate-inconclusive", "eligibility": {}, "usage": {"files": 1, "changed_lines": 65, "commands": 5, "review_passes": 1, "elapsed_minutes": 10}, "stop_reason": null, "expected_action": "retire-candidate", "expected_comparison_disposition": "inconclusive"},
+    {"case_id": "winning-candidate", "artifact_id": "candidate-winning", "eligibility": {}, "usage": {"files": 1, "changed_lines": 2, "commands": 2, "review_passes": 1, "elapsed_minutes": 1}, "stop_reason": null, "expected_action": "handoff-block-9", "expected_comparison_disposition": "candidate-better"},
+    {"case_id": "losing-candidate", "artifact_id": "candidate-losing", "eligibility": {}, "usage": {"files": 1, "changed_lines": 3, "commands": 2, "review_passes": 1, "elapsed_minutes": 1}, "stop_reason": null, "expected_action": "retire-candidate", "expected_comparison_disposition": "incumbent-better"},
+    {"case_id": "novelty-bias", "artifact_id": "candidate-equivalent", "eligibility": {}, "usage": {"files": 1, "changed_lines": 0, "commands": 2, "review_passes": 1, "elapsed_minutes": 1}, "stop_reason": null, "expected_action": "retire-candidate", "expected_comparison_disposition": "non-inferior-no-benefit"},
+    {"case_id": "inconclusive-comparison", "artifact_id": "candidate-inconclusive", "eligibility": {}, "usage": {"files": 1, "changed_lines": 2, "commands": 2, "review_passes": 1, "elapsed_minutes": 1}, "stop_reason": null, "expected_action": "retire-candidate", "expected_comparison_disposition": "inconclusive"},
     {"case_id": "read-only-decidable", "artifact_id": null, "eligibility": {"implementation_evidence_required": false, "read_only_resolvable": true, "rework_avoided_minutes": 5}, "usage": {"files": 0, "changed_lines": 0, "commands": 0, "review_passes": 0, "elapsed_minutes": 0}, "stop_reason": null, "expected_action": "reject-before-lane", "expected_comparison_disposition": null},
     {"case_id": "unsafe-isolation", "artifact_id": null, "eligibility": {"isolation_safe": false}, "usage": {"files": 0, "changed_lines": 0, "commands": 0, "review_passes": 0, "elapsed_minutes": 0}, "stop_reason": null, "expected_action": "reject-before-lane", "expected_comparison_disposition": null},
-    {"case_id": "ceiling-expired", "artifact_id": "candidate-winning", "eligibility": {}, "usage": {"files": 4, "changed_lines": 130, "commands": 7, "review_passes": 1, "elapsed_minutes": 21}, "stop_reason": "ceiling-expired", "expected_action": "stop-retire", "expected_comparison_disposition": null},
-    {"case_id": "incumbent-conflict", "artifact_id": "candidate-winning", "eligibility": {}, "usage": {"files": 1, "changed_lines": 30, "commands": 2, "review_passes": 0, "elapsed_minutes": 3}, "stop_reason": "incumbent-basis-drift", "expected_action": "stop-retire", "expected_comparison_disposition": null},
-    {"case_id": "focused-failure", "artifact_id": "candidate-focused-failure", "eligibility": {}, "usage": {"files": 1, "changed_lines": 25, "commands": 2, "review_passes": 0, "elapsed_minutes": 2}, "stop_reason": "focused-failure", "expected_action": "stop-retire", "expected_comparison_disposition": null},
-    {"case_id": "mapped-failure", "artifact_id": "candidate-mapped-failure", "eligibility": {}, "usage": {"files": 1, "changed_lines": 40, "commands": 3, "review_passes": 0, "elapsed_minutes": 4}, "stop_reason": "mapped-failure", "expected_action": "stop-retire", "expected_comparison_disposition": null},
-    {"case_id": "protected-regression", "artifact_id": "candidate-protected-regression", "eligibility": {}, "usage": {"files": 1, "changed_lines": 35, "commands": 2, "review_passes": 0, "elapsed_minutes": 3}, "stop_reason": "protected-regression", "expected_action": "stop-retire", "expected_comparison_disposition": null},
-    {"case_id": "review-currentness-loss", "artifact_id": "candidate-winning", "eligibility": {}, "usage": {"files": 1, "changed_lines": 68, "commands": 4, "review_passes": 1, "elapsed_minutes": 8}, "stop_reason": "review-currentness-loss", "expected_action": "stop-retire", "expected_comparison_disposition": null},
-    {"case_id": "cancelled", "artifact_id": "candidate-winning", "eligibility": {}, "usage": {"files": 1, "changed_lines": 10, "commands": 1, "review_passes": 0, "elapsed_minutes": 1}, "stop_reason": "cancelled", "expected_action": "stop-retire", "expected_comparison_disposition": null},
-    {"case_id": "isolation-drift", "artifact_id": "candidate-winning", "eligibility": {}, "usage": {"files": 1, "changed_lines": 10, "commands": 1, "review_passes": 0, "elapsed_minutes": 1}, "stop_reason": "isolation-drift", "expected_action": "stop-retire", "expected_comparison_disposition": null},
-    {"case_id": "hypothesis-falsified", "artifact_id": "candidate-losing", "eligibility": {}, "usage": {"files": 1, "changed_lines": 20, "commands": 2, "review_passes": 0, "elapsed_minutes": 2}, "stop_reason": "hypothesis-falsified", "expected_action": "stop-retire", "expected_comparison_disposition": null}
+    {"case_id": "ceiling-expired", "artifact_id": "candidate-over-ceiling", "eligibility": {}, "usage": {"files": 4, "changed_lines": 5, "commands": 0, "review_passes": 1, "elapsed_minutes": 1}, "stop_reason": null, "expected_action": "stop-retire", "expected_comparison_disposition": null},
+    {"case_id": "incumbent-conflict", "artifact_id": "candidate-winning", "eligibility": {}, "usage": {"files": 1, "changed_lines": 2, "commands": 0, "review_passes": 1, "elapsed_minutes": 1}, "stop_reason": "incumbent-basis-drift", "stop_evidence": {"observed_incumbent_root": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"}, "expected_action": "stop-retire", "expected_comparison_disposition": null},
+    {"case_id": "focused-failure", "artifact_id": "candidate-focused-failure", "eligibility": {}, "usage": {"files": 1, "changed_lines": 2, "commands": 1, "review_passes": 1, "elapsed_minutes": 1}, "stop_reason": "focused-failure", "expected_action": "stop-retire", "expected_comparison_disposition": null},
+    {"case_id": "mapped-failure", "artifact_id": "candidate-mapped-failure", "eligibility": {}, "usage": {"files": 1, "changed_lines": 2, "commands": 2, "review_passes": 1, "elapsed_minutes": 1}, "stop_reason": "mapped-failure", "expected_action": "stop-retire", "expected_comparison_disposition": null},
+    {"case_id": "protected-regression", "artifact_id": "candidate-protected-regression", "eligibility": {}, "usage": {"files": 1, "changed_lines": 2, "commands": 1, "review_passes": 1, "elapsed_minutes": 1}, "stop_reason": "protected-regression", "expected_action": "stop-retire", "expected_comparison_disposition": null},
+    {"case_id": "review-currentness-loss", "artifact_id": "candidate-winning", "eligibility": {}, "usage": {"files": 1, "changed_lines": 2, "commands": 2, "review_passes": 1, "elapsed_minutes": 1}, "stop_reason": "review-currentness-loss", "stop_evidence": {"observed_review_input_root": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}, "expected_action": "stop-retire", "expected_comparison_disposition": null},
+    {"case_id": "cancelled", "artifact_id": "candidate-winning", "eligibility": {}, "usage": {"files": 1, "changed_lines": 2, "commands": 0, "review_passes": 1, "elapsed_minutes": 1}, "stop_reason": "cancelled", "stop_evidence": {"cancellation_authority_root": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"}, "expected_action": "stop-retire", "expected_comparison_disposition": null},
+    {"case_id": "isolation-drift", "artifact_id": "candidate-winning", "eligibility": {}, "usage": {"files": 1, "changed_lines": 2, "commands": 0, "review_passes": 1, "elapsed_minutes": 1}, "stop_reason": "isolation-drift", "stop_evidence": {"observed_isolation_root": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"}, "expected_action": "stop-retire", "expected_comparison_disposition": null},
+    {"case_id": "hypothesis-falsified", "artifact_id": "candidate-losing", "eligibility": {}, "usage": {"files": 1, "changed_lines": 3, "commands": 2, "review_passes": 1, "elapsed_minutes": 1}, "stop_reason": "hypothesis-falsified", "expected_action": "stop-retire", "expected_comparison_disposition": null},
+    {"case_id": "style-only", "artifact_id": null, "eligibility": {"material_better_path": false}, "usage": {"files": 0, "changed_lines": 0, "commands": 0, "review_passes": 0, "elapsed_minutes": 0}, "stop_reason": null, "expected_action": "reject-before-lane", "expected_comparison_disposition": null},
+    {"case_id": "speculative-reuse", "artifact_id": null, "eligibility": {"material_better_path": false}, "usage": {"files": 0, "changed_lines": 0, "commands": 0, "review_passes": 0, "elapsed_minutes": 0}, "stop_reason": null, "expected_action": "reject-before-lane", "expected_comparison_disposition": null},
+    {"case_id": "novelty-only", "artifact_id": null, "eligibility": {"material_better_path": false}, "usage": {"files": 0, "changed_lines": 0, "commands": 0, "review_passes": 0, "elapsed_minutes": 0}, "stop_reason": null, "expected_action": "reject-before-lane", "expected_comparison_disposition": null}
   ]
 }
