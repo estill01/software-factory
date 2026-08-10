@@ -634,7 +634,7 @@ continuous cognition the price of ordinary execution.
 | 2 | Stage, pin, activate, and roll back one accepted three-skill release | 1 | `completed` |
 | 3 | Replay observed failures and prove control-plane convergence | 0, 1, 2 | `completed` |
 | 4 | Freeze the three-path adaptive decision-control contract | 3 | `completed` |
-| 5 | Correct bad implementation decisions inline and continue | 4 | `not-started` |
+| 5 | Correct bad implementation decisions inline and continue | 4 | `completed` |
 | 6 | Build and independently compare one bounded parallel candidate | 5 | `not-started` |
 | 7 | Add configurable adaptive authority, budgets, and human-input posture | 5, 6 | `not-started` |
 | 8 | Amend and apply the tracker only for structural invalidation | 4, 7 | `not-started` |
@@ -1574,7 +1574,7 @@ Stop before changing inline execution behavior.
 
 ## Block 5 — Correct bad implementation decisions inline and continue
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -1690,7 +1690,54 @@ owner selection, justified incumbent retention, and preservation of valid work.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: `75a3f3e4f39bcdaaa809951e9c15db91af3d7de2` on
+  `codex/control-plane-foundation`, pushed to `origin`; active signed release
+  `75a3f3e4f39b-3adc588d1dbb`, installed verification root
+  `bf6e129d1d532ce3eac24178f06cce1e4e09f01f005475f418da444c94976b5b`.
+- Implementation: the installed execution method now performs the bounded
+  three-path inline comparison, preserves valid work, records exact
+  `selected` through `closed` currentness, deduplicates accepted unchanged
+  decisions, and resumes the current Block without tracker, candidate,
+  supervision, or human scheduling work.
+- Focused proof: inline-correction suite `8/8`; full implementation suite
+  `43/43`; full-profile tracker verifier found Blocks 0–17 with no errors or
+  warnings; all three fixed Skill Creator validators, `py_compile`, isolated
+  archive rebuild, and diff checks passed.
+- Exact source review: `/root/block2_review` accepted
+  `75a3f3e4f39bcdaaa809951e9c15db91af3d7de2` with no findings after rejecting
+  stale/caller-owned source, currentness, closure, path, and accepted-snapshot
+  identities. Signed release-review root:
+  `126c4588bfe71021c79360af8cc783e52e2edda1e5b0b27f205387bfde5ee8ac`;
+  sequence-5 operator permit head:
+  `bb0ae09d084682382f00b3bf14afa0cc756f4c9983f66d043bf569f54e105878`.
+- Current operator-visible proof: fresh installed-skill exercise at
+  `/private/tmp/software-factory-block5-truthful-target.KO7bGA`; initial
+  `7ed05f79fb045a3d828722c737828381e4e5da29`, pre-edit decision checkpoint
+  `ae18cfa04db986e91661014a476f4332c43a97e3`, scoped production
+  `9169eb03d4d386f098c0667c5fc0a26ef93fc232`, accepted closure
+  `6b4683ac1c87d54d8536619c5bfcc0ccf475add2`, and verifier-only exact successor
+  `166821cb21d42553b7e1ca0c0dd4f4b1e2ca8673`.
+- Dogfood result: selected existing `artifact_naming.slugify` owner; rejected
+  local lower/replace duplication and an unsupported naming-strategy registry;
+  changed only the owner and its focused tests; preserved the tracker, later
+  adapter, and canonical slug function; produced current
+  `quarterly-report.json`; focused tests passed `5/5`.
+- Retained decision: tracker/non-authority prompt root
+  `519dc58cb4348093dca26d62127286157341b1e4b2ed8826faf97f90d3641c39`,
+  tracker-derived mission root
+  `d3334a835ab212fd1523a75fac4b43257b3fe8a60c33d900a9f404ff053b5411`,
+  fingerprint `e48b57585fcc4841da1c4fc53b78245cac32f0ea37dbab227a0f73728cc2e1bb`,
+  and package root `aac3f4c999e31626a6dcab28e39da5d502824215a1939ce246efb574571a2b8d`.
+- Independent dogfood review: `/root/block2_review` found no issues at exact
+  successor `166821cb21d42553b7e1ca0c0dd4f4b1e2ca8673`; nominal fixed-runtime proof
+  and `25/25` adversarial retained-evidence attacks passed. The earlier target
+  ending at `b2e16bcfc9d84f4dfa57bb9f53beb93ea938356c` remains rejected history for
+  transient records, false chronology/provenance, pseudo-paths, and missing
+  retained-payload cross-binding.
+- Protected/economy posture: no candidate lane, tracker mutation, policy
+  change, separate supervisor lifecycle, user prompt, or unrelated target
+  write occurred. The sound/unchanged fixture returns with no extra review or
+  model cycle; the full-tracker requested range continues to Block 6.
 
 ### Stop
 

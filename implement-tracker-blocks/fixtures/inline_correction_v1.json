@@ -6,6 +6,7 @@
     5,
     6
   ],
+  "tracker_source_revision": "75a3f3e4f39bcdaaa809951e9c15db91af3d7de2",
   "tracker_sha256": "4e677d5e6d0cc4a116110c5891f0df3f9b789f52dad9c490709066781629a318",
   "target_revision": "fixture-rev-1",
   "target_revision_root": "60eed009637d2f85fe43c8f9cfa268620b8d05ec03df3d5a82b77a51df10d194",

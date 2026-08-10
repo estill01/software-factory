@@ -77,6 +77,20 @@ the completed program materially changes Software Factory.
   contract is installed in active release `96974ea056a9-bd814c616698` with
   verification root
   `e1f16091e78fd438423ceef7bc830773570b44cc686e744907375a7b0d293f19`.
+- **Autonomous inline correction during implementation.** The active
+  implementation skill now detects a source-backed wrong owner, lower-power
+  shortcut, unnecessary abstraction, wasteful retry, invalid validation, or
+  protected-capability regression that remains inside the current Block;
+  preserves valid work; compares the local, bounded-general, and architectural
+  owner paths; implements the lowest-complexity complete path; retains exact
+  staged decision/currentness evidence; and continues the Block automatically.
+  A sound or equivalent decision takes the O(1) no-review fast path. Fresh
+  installed-skill dogfood selected an existing naming owner over both duplicated
+  logic and an unsupported registry, produced the current observable filename,
+  preserved the later adapter, and passed independent retained-evidence review
+  plus 25 adversarial probes. Active release:
+  `75a3f3e4f39b-3adc588d1dbb`; accepted source:
+  `75a3f3e4f39bcdaaa809951e9c15db91af3d7de2`.
 
 - **Successor-transition continuity and structured failure-mode records.** A
   requested implementation that must cross into a distinct task now remains an

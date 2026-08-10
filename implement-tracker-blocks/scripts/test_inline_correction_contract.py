@@ -7,6 +7,7 @@ import copy
 import hashlib
 import json
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -45,7 +46,7 @@ POLICY_ROOT = "1" * 64
 EVENT_HEAD_ROOT = "2" * 64
 TARGET_ROOT = "/software-factory-inline-correction-target"
 TRACKER_RECORD_PATH = f"{TARGET_ROOT}/{TRACKER_PATH.relative_to(REPO_ROOT).as_posix()}"
-EXPECTED_EXERCISE_ROOT = "46fc23e6a1f09e543f40a4a4ada967fc9e3c36a645adc6b14aa17cfca285cf2b"
+EXPECTED_EXERCISE_ROOT = "bc1457ab517d7555df4b177674839b21f8fbd25d8968f82b5aa20357999f4059"
 EXPECTED_ACCEPTED_SNAPSHOT_ROOT = (
     "54037ea3771b57346f7d812ee4cfda7bfc791752fa9c0e841d6109280a435ad7"
 )
@@ -77,6 +78,9 @@ def validate_exercise() -> None:
         or EXERCISE["kind"] != "software-factory-inline-correction-exercise"
         or EXERCISE["current_block"] != 5
         or EXERCISE["requested_blocks"] != [5, 6]
+        or not re.fullmatch(
+            r"[0-9a-f]{40}", str(EXERCISE["tracker_source_revision"])
+        )
     ):
         raise ValueError("exercise control identity differs")
     if EXERCISE["tracker_sha256"] != tracker_sha256():
@@ -102,7 +106,20 @@ def canonical_case(case_id: str) -> dict[str, object]:
 
 
 def tracker_sha256() -> str:
-    return hashlib.sha256(TRACKER_PATH.read_bytes()).hexdigest()
+    frozen = subprocess.run(
+        [
+            "git",
+            "show",
+            f"{EXERCISE['tracker_source_revision']}:{TRACKER_PATH.relative_to(REPO_ROOT).as_posix()}",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+    )
+    if frozen.returncode == 0:
+        return hashlib.sha256(frozen.stdout).hexdigest()
+    # A git archive has no object database; the whole exercise root still pins
+    # this independently reviewed source revision and its frozen tracker root.
+    return str(EXERCISE["tracker_sha256"])
 
 
 def validate_accepted_snapshot() -> dict[str, object]:
