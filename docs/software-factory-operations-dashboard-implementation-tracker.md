@@ -2552,11 +2552,43 @@ from the browser or on every selection rerender.
   covers each boundary; one cross-suite concurrent run that exceeded unrelated
   five-second unit-test budgets is retained as diagnostic only, and the exact
   suites passed without cross-suite contention.
-- Candidate freeze and durability: the implementation candidate was pushed to
-  `origin/codex/evolution-mvp` with local/upstream at `0 0`; no implementation
-  source changed after the recorded aggregate validation. Exact independent
-  review is pending, so Block 8 remains `in-progress`, no acceptance is claimed,
-  and no later Block is active.
+- First exact review: reviewer `/root/block6_exact_review` rejected evidence
+  revision `0e339cf170058ca321e2d10f24da1b21a8256440`, tree
+  `1b50399239481608930fc45ba00981d1a9c1e234`, because the dependency view did
+  not derive blocked ancestry, unavailable Git could fall through to a false
+  clean claim, partial composed-owner coverage could imply exact absence,
+  completed rows counted as active mappings, and invalid zero-Block input
+  produced a blank workspace. The review otherwise reproduced Python 67/67,
+  Ruff, Vitest 50/50, build, Playwright 33/33, verifier 0/0 plus 30/30 tests,
+  links, diff, clean, remote, and Stop proof; those passing results remain
+  diagnostic for the rejected revision rather than successor acceptance.
+- Corrected implementation candidate: commit
+  `59729ebb73c1ab8ed457b529256bcff0edd0835a`, tree
+  `77d96ab9a1d7665e7239d6545891d9b6d1e05df5`, parent
+  `0e339cf170058ca321e2d10f24da1b21a8256440`; representative blobs are tracker
+  projection `06620d5e916f1ec057371f1414fde7adacc42deb`, tracker workspace
+  `58e1b7650c1953c4b213f4c74ba799f7c3d0fbd2`, shared status display
+  `8e51c05c89863196f45e3995604a16521c9186db`, and focused browser proof
+  `7e7fbbcbfc8fe4d5ea2ecdbfe8529292564008e2`. The correction adds transitive
+  blocked-ancestor projection, danger and descendant labels, coverage-aware
+  lower-bound/absence language, active implementation-or-supervision filtering,
+  separate Git-versus-HEAD and run-bound comparisons, and explicit invalid
+  zero-Block review state. It introduces no editor, acceptance, or start path.
+- Corrected affected proof: exact Python owner/API aggregation passed 68/68
+  with `ResourceWarning` fatal and Ruff passed; the affected TypeScript/Zod/
+  component selection passed 12/12 and production build passed. Six focused
+  browser cases passed across desktop, tablet, and mobile for blocked ancestry,
+  unavailable Git/binding, partial coverage, completed-row exclusion, and
+  zero-Block invalid state. The full-profile verifier passed Blocks 0–25 with
+  0 errors/warnings and its 30 tests passed. Two broader frontend attempts are
+  retained as environment-timing diagnostics after unrelated five-second tests
+  exceeded their budgets; all affected tests passed independently and the
+  unchanged pre-correction aggregate proof remains diagnostic only.
+- Corrected freeze and durability: `59729ebb73c1ab8ed457b529256bcff0edd0835a`
+  is pushed to `origin/codex/evolution-mvp`, remote identity matches, and its
+  exact diff check is clean. Fresh exact independent review is pending, so
+  Block 8 remains `in-progress`, no acceptance is claimed, and no later Block
+  is active.
 
 ### Stop
 
