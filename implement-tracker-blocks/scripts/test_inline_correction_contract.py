@@ -10,6 +10,7 @@ import re
 import subprocess
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +45,7 @@ SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 MISSION_ROOT = "0" * 64
 POLICY_ROOT = "1" * 64
 EVENT_HEAD_ROOT = "2" * 64
+GIT_EXECUTABLE = "/usr/bin/git"
 TARGET_ROOT = "/software-factory-inline-correction-target"
 TRACKER_RECORD_PATH = f"{TARGET_ROOT}/{TRACKER_PATH.relative_to(REPO_ROOT).as_posix()}"
 EXPECTED_EXERCISE_ROOT = "bc1457ab517d7555df4b177674839b21f8fbd25d8968f82b5aa20357999f4059"
@@ -106,9 +108,15 @@ def canonical_case(case_id: str) -> dict[str, object]:
 
 
 def tracker_sha256() -> str:
+    repository_probe = subprocess.run(
+        [GIT_EXECUTABLE, "rev-parse", "--is-inside-work-tree"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
     frozen = subprocess.run(
         [
-            "git",
+            GIT_EXECUTABLE,
             "show",
             f"{EXERCISE['tracker_source_revision']}:{TRACKER_PATH.relative_to(REPO_ROOT).as_posix()}",
         ],
@@ -117,8 +125,10 @@ def tracker_sha256() -> str:
     )
     if frozen.returncode == 0:
         return hashlib.sha256(frozen.stdout).hexdigest()
-    # A git archive has no object database; the whole exercise root still pins
-    # this independently reviewed source revision and its frozen tracker root.
+    if repository_probe.returncode == 0:
+        raise ValueError("frozen tracker source cannot be resolved in live repository")
+    # A Git-less archive has no object database; the whole exercise root still
+    # pins this independently reviewed source revision and frozen tracker root.
     return str(EXERCISE["tracker_sha256"])
 
 
@@ -859,6 +869,17 @@ class InlineCorrectionContractTests(unittest.TestCase):
         self.assertNotIn(str(REPO_ROOT), result["stage_records"][0]["tracker_path"])
         with self.assertRaises((TypeError, ValueError)):
             decide(999)  # type: ignore[arg-type]
+
+    def test_frozen_tracker_fails_closed_in_live_git_and_falls_back_only_in_archive(self) -> None:
+        live = subprocess.CompletedProcess([], 0, stdout="true\n", stderr="")
+        absent = subprocess.CompletedProcess([], 128, stdout=b"", stderr=b"missing")
+        with mock.patch.object(subprocess, "run", side_effect=[live, absent]):
+            with self.assertRaisesRegex(ValueError, "cannot be resolved"):
+                tracker_sha256()
+
+        no_repository = subprocess.CompletedProcess([], 128, stdout="", stderr="missing")
+        with mock.patch.object(subprocess, "run", side_effect=[no_repository, absent]):
+            self.assertEqual(tracker_sha256(), EXERCISE["tracker_sha256"])
 
     def test_method_preserves_work_rejects_meta_flow_and_escalates_exactly(self) -> None:
         for phrase in (
