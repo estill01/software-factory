@@ -18,6 +18,12 @@ from unittest.mock import patch
 
 from test_tracker import FULL_TRACKER
 from dashboard.server.tests.fake_app_server import write_contract
+from test_admin_operations import (
+    DeterministicOwner,
+    execute_payload,
+    preview_payload,
+    test_definition,
+)
 
 from software_factory_dashboard.server import (
     DashboardConfigurationError,
@@ -25,6 +31,7 @@ from software_factory_dashboard.server import (
     ServerConfig,
     create_server,
 )
+from software_factory_dashboard.admin_operations import OperationRegistry
 from software_factory_dashboard.operations import (
     DEFAULT_SUPERVISION_OWNER,
     OperationsProjectionService,
@@ -44,6 +51,7 @@ def running_server(
     automations_root: Path | None = None,
     codex_command: tuple[str, ...] = (),
     codex_compatibility_path: Path | None = None,
+    operation_registry: OperationRegistry | None = None,
 ) -> Iterator[str]:
     server = create_server(
         ServerConfig(
@@ -62,6 +70,7 @@ def running_server(
             quiet=True,
         ),
         nonce="test-launch-nonce",
+        operation_registry=operation_registry,
     )
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -354,6 +363,79 @@ class DashboardServerTests(unittest.TestCase):
         )
         self.assertEqual(restart_without_nonce.status, 403)
         self.assertEqual(json.loads(restart_without_nonce.body)["error"]["code"], "nonce_rejected")
+
+    def test_operation_api_binds_preview_origin_nonce_request_and_postcondition(self) -> None:
+        owner = DeterministicOwner()
+        registry = OperationRegistry((test_definition(owner),))
+        request_payload = preview_payload()
+        with running_server(self.static_dir, operation_registry=registry) as origin:
+            framework = json.loads(response(f"{origin}/api/v1/operations").body)
+            missing_nonce = response(
+                Request(
+                    f"{origin}/api/v1/operations/preview",
+                    data=json.dumps(request_payload).encode("utf-8"),
+                    method="POST",
+                    headers={"Content-Type": "application/json", "Origin": origin},
+                )
+            )
+            preview_response = self.catalog_request(
+                origin,
+                "/api/v1/operations/preview",
+                request_payload,
+            )
+            preview_data = json.loads(preview_response.body)["data"]
+            operation_id = preview_data["operation"]["id"]
+            status_before = json.loads(
+                response(f"{origin}/api/v1/operations/{operation_id}").body
+            )
+
+            changed_request = execute_payload(preview_data, request_payload)
+            changed_request["target"] = {
+                "kind": "test-fixture",
+                "id": "fixture-2",
+                "project_id": "test",
+            }
+            changed = self.catalog_request(
+                origin,
+                "/api/v1/operations/execute",
+                changed_request,
+            )
+            executed = self.catalog_request(
+                origin,
+                "/api/v1/operations/execute",
+                execute_payload(preview_data, request_payload),
+            )
+            replayed = self.catalog_request(
+                origin,
+                "/api/v1/operations/execute",
+                execute_payload(preview_data, request_payload),
+            )
+            cancel_after_request = self.catalog_request(
+                origin,
+                f"/api/v1/operations/{operation_id}/cancel",
+                {"confirmation": "cancel-before-request"},
+            )
+
+        self.assertEqual(
+            framework["data"]["framework"]["registered_operations"][0]["type"],
+            "test.fixture-set",
+        )
+        self.assertTrue(framework["data"]["framework"]["ephemeral"])
+        self.assertEqual(missing_nonce.status, 403)
+        self.assertEqual(preview_response.status, 201)
+        self.assertEqual(status_before["data"]["operation"]["state"], "previewed")
+        self.assertEqual(owner.dispatches, 1)
+        self.assertEqual(changed.status, 409)
+        self.assertEqual(json.loads(changed.body)["error"]["code"], "preview_request_changed")
+        self.assertEqual(executed.status, 200)
+        self.assertEqual(json.loads(executed.body)["data"]["operation"]["state"], "applied")
+        self.assertEqual(replayed.status, 409)
+        self.assertEqual(json.loads(replayed.body)["error"]["code"], "preview_token_replayed")
+        self.assertEqual(cancel_after_request.status, 409)
+        self.assertEqual(
+            json.loads(cancel_after_request.body)["error"]["code"],
+            "cancel_boundary_crossed",
+        )
 
     def test_task_request_is_visible_without_premature_response_control(self) -> None:
         root = self.make_repo("approval-api")

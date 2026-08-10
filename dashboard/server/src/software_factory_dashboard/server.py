@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from hashlib import sha256
 import json
 import mimetypes
 from pathlib import Path, PurePosixPath
@@ -16,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Sequence
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
+from .admin_operations import OperationCoordinator, OperationError, OperationRegistry
 from .app_server import COMPATIBILITY_PATH, AppServerError, CodexAppServerClient
 
 from .catalog import (
@@ -108,7 +110,12 @@ class DashboardHTTPServer(ThreadingHTTPServer):
     daemon_threads = True
     allow_reuse_address = True
 
-    def __init__(self, config: ServerConfig, nonce: str | None = None):
+    def __init__(
+        self,
+        config: ServerConfig,
+        nonce: str | None = None,
+        operation_registry: OperationRegistry | None = None,
+    ):
         self.config = config.validated()
         self.mutation_nonce = nonce or secrets.token_urlsafe(32)
         self.catalog_store = CatalogStore(self.config.catalog_path)
@@ -117,6 +124,7 @@ class DashboardHTTPServer(ThreadingHTTPServer):
             supervision_root=self.config.supervision_root,
             automations_root=self.config.automations_root,
         )
+        self.operation_coordinator = OperationCoordinator(operation_registry)
         self.floor_cache_lock = Lock()
         self.floor_cache: tuple[float, dict[str, Any]] | None = None
         super().__init__((self.config.host, self.config.port), DashboardRequestHandler)
@@ -1523,6 +1531,139 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             ),
         )
 
+    def _operation_envelope(
+        self,
+        *,
+        identity: str,
+        data: dict[str, Any],
+        limitations: list[str] | None = None,
+    ) -> dict[str, Any]:
+        framework = self.server.operation_coordinator.framework()
+        revision = sha256(
+            json.dumps(
+                {
+                    "registered_operations": framework["registered_operations"],
+                    "activity": framework["activity"],
+                },
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        return envelope(
+            data=data,
+            source={
+                "kind": "administrative-operation",
+                "identity": identity,
+                "revision": revision,
+            },
+            coverage={
+                "status": "partial",
+                "observed": ["ephemeral-operation-state", "closed-operation-registry"],
+                "missing": ["prior-server-session-operation-state"],
+            },
+            limitations=(
+                limitations
+                or [
+                    "Operation activity is process-local and is not a second durable ledger.",
+                    "An applied operation postcondition is not eventual workflow or implementation completion.",
+                ]
+            ),
+        )
+
+    def _write_operation_framework(self) -> None:
+        framework = self.server.operation_coordinator.framework()
+        self._write_json(
+            HTTPStatus.OK,
+            self._operation_envelope(
+                identity="software-factory-dashboard/operations",
+                data={"framework": framework},
+            ),
+        )
+
+    def _write_operation(self, operation_id: str) -> None:
+        try:
+            operation = self.server.operation_coordinator.get(operation_id)
+        except OperationError as error:
+            self._error(
+                HTTPStatus(error.status),
+                error.code,
+                str(error),
+                retryable=error.retryable,
+            )
+            return
+        self._write_json(
+            HTTPStatus.OK,
+            self._operation_envelope(
+                identity=f"software-factory-dashboard/operations/{operation_id}",
+                data=operation,
+            ),
+        )
+
+    def _handle_admin_operation_mutation(self, decoded_path: str) -> bool:
+        preview_path = f"/api/{API_VERSION}/operations/preview"
+        execute_path = f"/api/{API_VERSION}/operations/execute"
+        operation_prefix = f"/api/{API_VERSION}/operations/"
+        try:
+            if self.command == "POST" and decoded_path == preview_path:
+                payload = self._read_json_body()
+                if payload is None:
+                    return True
+                data = self.server.operation_coordinator.preview(payload)
+                self._write_json(
+                    HTTPStatus.CREATED,
+                    self._operation_envelope(
+                        identity="software-factory-dashboard/operations/preview",
+                        data=data,
+                        limitations=[
+                            "Preview resolves current sources and route gates but performs no owner mutation.",
+                            "The token expires and is bound to the exact operation, target, input, source fingerprint, and route-gate result.",
+                        ],
+                    ),
+                )
+                return True
+            if self.command == "POST" and decoded_path == execute_path:
+                payload = self._read_json_body()
+                if payload is None:
+                    return True
+                data = self.server.operation_coordinator.execute(payload)
+                self._write_json(
+                    HTTPStatus.OK,
+                    self._operation_envelope(
+                        identity="software-factory-dashboard/operations/execute",
+                        data=data,
+                    ),
+                )
+                return True
+            if (
+                self.command == "POST"
+                and decoded_path.startswith(operation_prefix)
+                and decoded_path.endswith("/cancel")
+            ):
+                operation_id = decoded_path[len(operation_prefix) : -len("/cancel")]
+                if not operation_id or "/" in operation_id:
+                    raise OperationError("invalid_operation_id", "Operation ID is invalid.")
+                payload = self._read_json_body()
+                if payload is None:
+                    return True
+                data = self.server.operation_coordinator.cancel(operation_id, payload)
+                self._write_json(
+                    HTTPStatus.OK,
+                    self._operation_envelope(
+                        identity=f"software-factory-dashboard/operations/{operation_id}/cancel",
+                        data=data,
+                    ),
+                )
+                return True
+            return False
+        except OperationError as error:
+            self._error(
+                HTTPStatus(error.status),
+                error.code,
+                str(error),
+                retryable=error.retryable,
+            )
+            return True
+
     def _handle_task_mutation(self, decoded_path: str) -> bool:
         try:
             if self.command == "POST" and decoded_path == f"/api/{API_VERSION}/task-integration/restart":
@@ -1852,6 +1993,33 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             else:
                 self._write_metrics()
             return
+        if decoded_path == f"/api/{API_VERSION}/operations":
+            if urlsplit(self.path).query:
+                self._error(
+                    HTTPStatus.BAD_REQUEST,
+                    "invalid_query",
+                    "Operations does not accept query parameters.",
+                )
+            else:
+                self._write_operation_framework()
+            return
+        operation_prefix = f"/api/{API_VERSION}/operations/"
+        if decoded_path.startswith(operation_prefix):
+            operation_id = decoded_path[len(operation_prefix) :]
+            if (
+                not operation_id
+                or "/" in operation_id
+                or operation_id in {"preview", "execute"}
+                or urlsplit(self.path).query
+            ):
+                self._error(
+                    HTTPStatus.BAD_REQUEST,
+                    "invalid_operation_id",
+                    "Operation ID is invalid.",
+                )
+            else:
+                self._write_operation(operation_id)
+            return
         if decoded_path == f"/api/{API_VERSION}/trackers":
             if urlsplit(self.path).query:
                 self._error(
@@ -1922,6 +2090,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         if decoded_path is None:
             self._error(HTTPStatus.BAD_REQUEST, "invalid_path", "Request path is invalid.")
             return
+        if self._handle_admin_operation_mutation(decoded_path):
+            return
         if self._handle_task_mutation(decoded_path):
             return
         if self._handle_catalog_mutation(decoded_path):
@@ -1953,8 +2123,17 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
         self._handle_mutation()
 
 
-def create_server(config: ServerConfig, *, nonce: str | None = None) -> DashboardHTTPServer:
-    return DashboardHTTPServer(config, nonce=nonce)
+def create_server(
+    config: ServerConfig,
+    *,
+    nonce: str | None = None,
+    operation_registry: OperationRegistry | None = None,
+) -> DashboardHTTPServer:
+    return DashboardHTTPServer(
+        config,
+        nonce=nonce,
+        operation_registry=operation_registry,
+    )
 
 
 def _port(value: str) -> int:

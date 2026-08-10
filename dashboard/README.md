@@ -186,6 +186,33 @@ tracker, supervision, report, or task data remain visible. The endpoint accepts
 no query parameters and exposes no mutation, lifecycle, workflow-start, or
 acceptance control.
 
+## Use the administrative operation boundary
+
+Consequence-bearing dashboard controls use one same-origin, nonce-protected
+operation protocol:
+
+```text
+GET  /api/v1/operations
+GET  /api/v1/operations/{operation-id}
+POST /api/v1/operations/preview
+POST /api/v1/operations/execute
+POST /api/v1/operations/{operation-id}/cancel
+```
+
+The closed registry binds every preview to an exact operation type, target,
+project, input, current source fingerprint, named owner, confirmation contract,
+and route-gate result where cross-task routing is required. Execution consumes
+the token once and reports `applied` only after the operation-specific canonical
+postcondition is verified. Request acceptance, awaiting approval/input,
+verification timeout, owner failure, and eventual workflow completion remain
+distinct.
+
+Correlation and activity are process-local; the dashboard does not create a
+second durable operation ledger. After restart, a later owner-backed operation
+must reconstruct its result from its canonical task, ledger, automation, report,
+or catalog source. No tracker, task, supervision, report, evolution, or lifecycle
+operation is registered in the generic framework slice itself.
+
 ## Inspect and control Codex tasks
 
 At process start the server resolves the configured `codex` executable,

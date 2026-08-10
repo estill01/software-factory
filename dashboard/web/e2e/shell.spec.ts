@@ -35,6 +35,31 @@ const integrationEnvelope = {
   error: null,
 }
 
+const operationFrameworkEnvelope = {
+  data: {
+    framework: {
+      ephemeral: true,
+      registered_operations: [],
+      activity: [],
+      restart_posture: "Reconstruct prior results from their canonical owners.",
+    },
+  },
+  source: {
+    kind: "administrative-operation",
+    identity: "software-factory-dashboard/operations",
+    revision: "2".repeat(64),
+  },
+  observed_at: "2026-08-09T10:00:00.000Z",
+  fingerprint: "3".repeat(64),
+  coverage: {
+    status: "partial",
+    observed: ["ephemeral-operation-state", "closed-operation-registry"],
+    missing: ["prior-server-session-operation-state"],
+  },
+  limitations: ["Operation activity is process-local."],
+  error: null,
+}
+
 function project(id: string, status: "available" | "unavailable", archived = false) {
   const available = status === "available"
   return {
@@ -410,6 +435,9 @@ test("catalog views preserve bounded discovery, failures, and archive consequenc
   await page.route("**/api/v1/task-integration", (route) =>
     route.fulfill({ json: integrationEnvelope }),
   )
+  await page.route("**/api/v1/operations", (route) =>
+    route.fulfill({ json: operationFrameworkEnvelope }),
+  )
 
   await page.goto("/admin")
   await expect(page.getByRole("heading", { name: "Admin", level: 1 })).toBeVisible()
@@ -421,6 +449,11 @@ test("catalog views preserve bounded discovery, failures, and archive consequenc
     integrationPanel.getByRole("listitem").filter({ hasText: "Raw Protocol" }),
   ).toContainText("Unavailable")
   await expect(integrationPanel.getByRole("alert")).toHaveCount(0)
+  const operationsPanel = page.getByRole("region", { name: "Operations" })
+  await expect(operationsPanel).toContainText("0 available")
+  await expect(operationsPanel).toContainText("No owner-backed administrative operations are currently available.")
+  await expect(operationsPanel).toContainText("No operations requested in this server session.")
+  await expect(operationsPanel.getByRole("button", { name: /execute|start|pause|stop|accept/i })).toHaveCount(0)
   await expect(page.getByText(/dashboard (lets|allows|helps) you/i)).toHaveCount(0)
   await expect(page.getByRole("heading", { name: "Register a repository" })).toBeVisible()
   await expect(page.getByText("Registered project root is missing.")).toBeVisible()
