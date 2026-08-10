@@ -2210,8 +2210,52 @@ historical App Server turns or ledger events across projects.
   and Block 10 owns mutations; none is pulled into this slice. The accepted
   tradeoff is visibly separate task/run/source panels instead of one synthetic
   lifecycle badge.
-- Candidate implementation, validation, exact review, and acceptance evidence:
-  pending.
+- Implementation checkpoint: pushed commit
+  `898070849fa9d09b136ae10d93f375f3fefd6df5`, tree
+  `5b76df56520650bd47ad6a3498c240f4cf0a4cc7`, parent
+  `64b6cbb193090c46ab6040fdf30065da9c4c4f4f`, changelog blob
+  `d72df2c68f6bb096ba48b1184fe4deb7bda31500`, run-workspace blob
+  `192000ba5a90cdf54ee13d7eb8d96498fac36dad`, and focused
+  mission-boundary-test blob `7c3094c4c8ed9fbabee1b350269a242d0f24589a`
+  add only the Block 7 read-only project/run/supervisor/task workspaces,
+  Factory Floor navigation/filter preservation, compact shared workspace UI,
+  and mapped tests/changelog evidence. Local and upstream reread at `0 0`
+  after the non-force push.
+- Mission-history correction: source record `EVT-000075` identified that the
+  selected predecessor could be rendered beside current run light/topology.
+  The preserved successor keeps exact mission-scoped events, incidents,
+  conclusions, policy hashes, source record, and timestamps, while current
+  lifecycle/light, project/tracker binding, supervisor group, roles/tasks,
+  automations, operating history, report association, metrics, source heads,
+  owner revision, limitations, and current task reads are suppressed or
+  explicitly unavailable. The focused component test seeds unique current-only
+  sentinels and proves none render or trigger task API calls in predecessor
+  mode; live predecessor `bc955bd48e01db90aeb98fa27256546e2ce1eaf289fd6f630f36374d3c89d810`
+  displayed its 13-event segment and two historical incident records without
+  current role, automation, light, project, report, or source-head carry-over.
+- Delivered behavior: Projects exposes exact/lower-bound operational counts
+  and contextual Overview/Work/Trackers/Reports/Sources tabs; run and supervisor
+  routes expose mission segments, lifecycle/checkpoint evidence, issues,
+  decisions, transitions, role and automation topology, policy hashes/bodies,
+  derived operating history, conclusions, filters, stable anchors, reports,
+  metrics, and source integrity; task routes expose bounded App Server,
+  association, approval/input, turn, item, and capability state. Event/turn
+  windows page newest-first without reordering, long text stays bounded, and
+  command arguments, message/reasoning bodies, and raw errors remain withheld
+  from the dashboard. Tracker/report deep review and every mutation remain
+  outside the slice.
+- Validation: the dashboard Python suite passed 67/67 with `ResourceWarning`
+  promoted to errors (the sole collection warning is the pre-existing
+  dataclass named `TestResponse`), Ruff passed, TypeScript/Vitest passed 41/41,
+  the production build passed, and Playwright passed 27/27 across desktop,
+  tablet, and mobile with accessibility and horizontal-overflow checks. The
+  full tracker verifier passed Blocks 0-25 with 0 errors and 0 warnings, all 30
+  verifier tests passed, five changed-document relative links resolved, and
+  `git diff --check` passed. Live loopback `127.0.0.1:8787` exercised project,
+  current run, paged event, predecessor run, historical supervisor, and task
+  deep links with one functional route heading and no marketing subheader.
+- Exact independent review and acceptance evidence: pending; Block 7 remains
+  `in-progress` and no later Block is active.
 
 ### Stop
 
