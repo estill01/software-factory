@@ -3866,6 +3866,63 @@ only its named conclusion source until the bounded timeout, then retain
   internal role-turn owner. Keep delivery, active work, and canonical semantic
   conclusion as separate states; introduce no generic prompt, second review
   ledger, dashboard acceptance authority, or later-Block control.
+- Product-capability review: the three closed operation variants are the
+  minimally sufficient extension of the accepted operation coordinator. A
+  generic reviewer prompt, direct App Server bridge, dashboard review ledger,
+  or inferred actor field would weaken owner and truth boundaries. The selected
+  path preserves exact target/task/cwd identity, current mission/policy/state,
+  variant-specific route purpose and reviewer role, bounded confirmation,
+  at-most-one dispatch, canonical conclusion matching, and explicit
+  unavailable actor attribution.
+- Implementation candidate: commit
+  `cfe9bd7dffe3414820a018dd6bb11bd05694f3ff`, tree
+  `a0bcceb406d3e5000a2cb067238abbdfcd7e7595`, parent
+  `3cc3e1708378d79492b91e25032518aa514ad514`, is pushed exactly to
+  `origin/codex/evolution-mvp` at `0 0` divergence. Its exact product diff root
+  is `618a54cad97240a075c22104bebac8f738e94ac09b21d150f380aa0ece09b573`.
+  Principal blobs are `477ee286c708d5ab396ba6394a025089dab7a3b7` for the owner,
+  `2c015487a4d314487f596001c958c065b8260031` for its focused backend proof,
+  `564c5251026ece4c4588af2fc647f9646e09fc28` for run actions,
+  `56742e60df92d272ff8ee62884bc23c42ef56aeb` for operation truth/preview,
+  and `53723b3240d8fe2cb147630ed264e7bcdb001666` for responsive browser proof.
+  This revision remains unaccepted pending independent exact-revision review.
+- Implemented owner path: checkpoint and meta variants bind only the exact
+  current `reviewer` task through `semantic-escalation`; issue follow-up binds
+  only one exact open incident and the current `notice_reviewer` task through
+  `incident-review`. Each preview exposes the target, state root, source record,
+  reviewer role, expected conclusion kind, recipient, route purpose, gate, and
+  currentness fingerprint. Dispatch re-resolves all sources and exact cwd
+  identity under one lock, starts one bounded role turn, and never retries.
+- Conclusion truth: delivery and terminal task state remain request evidence,
+  not a conclusion. A postcondition requires a newer canonical record with
+  exact source-line identity, timezone-aware timestamp, mission, policy, state,
+  variant kind, purpose, preview, source, task and incident evidence. The exact
+  dispatched reviewer turn must still contain the request marker before the
+  record is correlated. Canonical events do not expose the emitting actor, so
+  actor attribution remains `unavailable`; the UI states the exact-turn
+  correlation separately. Malformed, wrong-root, wrong-purpose, wrong-role,
+  stale, duplicate, missing-source, uncorrelated and identityless records remain
+  pending/disabled. Only a later canonical same-kind conclusion can supersede
+  the matched conclusion.
+- Validation: Ruff passed and the affected workflow-owner module passed 11/11
+  with `ResourceWarning` fatal. The three affected frontend files passed 14/14
+  Vitest cases, TypeScript and the production Vite build passed, and the focused
+  live run/supervisor/task flow passed 3/3 serially across desktop, tablet, and
+  mobile. Full-profile tracker verification reported all 26 Blocks with 0
+  errors and 0 warnings; all 30 verifier tests and diff checks passed.
+- Live non-mutation proof: on the rebuilt exact source served at loopback port
+  8787, current checkpoint and meta-review previews resolved to the maintained
+  reviewer task and `semantic-escalation` gate, exposed their exact operational
+  facts, and were cancelled before dispatch. Issue follow-up remained disabled
+  for the current run and its direct invalid example failed closed because no
+  current notice-reviewer/open-incident binding exists. The maintained focused
+  fixture covers the supported open-incident path. Historical mission views
+  exposed none of the four supervision actions. No reviewer turn or supervision
+  record was created by live validation.
+- Stop proof: the candidate adds no generic reviewer prompt, direct target edit,
+  dashboard review ledger, automatic retry, implementation acceptance,
+  policy/cadence or binding mutation, lifecycle/continuity control, report
+  operation, or Factory-evolution action. Blocks 14–25 remain unopened.
 
 ### Stop
 
