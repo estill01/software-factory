@@ -3954,6 +3954,35 @@ only its named conclusion source until the bounded timeout, then retain
   `ResourceWarning` fatal, Ruff and diff checks passed, and the rejected
   review's unaffected frontend/build/browser/tracker/Stop evidence remains
   current. This successor remains unaccepted pending fresh exact delta review.
+- Rejected corrective review: exact evidence revision
+  `5c5ea030a7f3cc114d941ace39498792ae20a953`, tree
+  `36464230c5e32c005b693b8360de58471044474b`, and product revision
+  `196145e5a713997cb71c4a22048005ae20b98b7f` remain immutable rejected
+  evidence. Fresh independent review confirmed that the actual incident
+  category and exact reserved-binding rows were closed, but rejected the
+  status matcher because its finite non-conclusion denylist still treated the
+  exact states `request`, `awaiting`, and `unverified` as conclusions and later
+  superseders. The reviewer reproduced the affected 11/11 backend tests with
+  `ResourceWarning` fatal, Ruff, the 26-Block verifier at 0 errors/warnings,
+  all 30 verifier tests, clean exact diffs, exact remote identity, and the Stop.
+  Block 13 remained in progress and Block 14 stayed closed.
+- Closed-taxonomy successor: commit
+  `ece13b46f667383b16554c4b884a80a525d1ba61`, tree
+  `a6e82b59ab75fd2793c66b9cf652ffcf40a4c490`, parent
+  `5c5ea030a7f3cc114d941ace39498792ae20a953`, is pushed exactly to
+  `origin/codex/evolution-mvp`. Its two-file diff root is
+  `d13a342dcd22adfb6c0cf241740f49313118d2e098b2f6576fe897f47f67c9cd`;
+  corrected blobs are `ec4d4a1d146d1ceef1b36d69810f2eb851ee8cf4`
+  for the owner and `0213cf3aa228be9543064c8e32322405c9813976` for
+  focused proof. The matcher now fails closed through a kind-specific semantic
+  conclusion allowlist rather than trying to enumerate non-conclusions, and
+  the bounded reviewer request names the exact supported statuses. Initial
+  matching and later supersession both reject `routed`, `request`, `awaiting`,
+  and `unverified`; maintained checkpoint, meta-review, and incident outcomes
+  remain explicit. The affected backend module again passed 11/11 with
+  `ResourceWarning` fatal, Ruff and diff checks passed, and no frontend,
+  operation-route, tracker-status, or later-Block product surface changed. This
+  successor remains unaccepted pending fresh exact delta review.
 
 ### Stop
 
