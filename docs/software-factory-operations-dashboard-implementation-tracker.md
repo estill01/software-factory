@@ -502,7 +502,7 @@ the relevant authority and evidence contract.
 | 4 | Supervision, automation, report, and metrics projection | 2 | `accepted` |
 | 5 | Codex task and App Server adapter | 1 | `accepted` |
 | 6 | Cross-project factory floor | 3, 4, 5 | `accepted` |
-| 7 | Project and run workspaces | 6 | `not-started` |
+| 7 | Project and run workspaces | 6 | `in-progress` |
 | 8 | Tracker review and progress workspace | 3, 6 | `not-started` |
 | 9 | Metrics and report history workspace | 4, 6 | `not-started` |
 | 10 | Gated administrative operation framework | 2, 4, 5 | `not-started` |
@@ -2043,7 +2043,11 @@ do not trigger deep source validation on every render.
   treated as implementation completion.
 - Git durability: both rejected `dad075c` and accepted `585467f` were
   non-force pushed to `origin/codex/evolution-mvp`; local and remote matched at
-  `0 0` divergence before this evidence-only acceptance checkpoint.
+  `0 0` divergence before the evidence-only acceptance checkpoint
+  `c5426acec56788b9995398a843ded95251337304`, tree
+  `0e648e9f3a4de1ec049bf53f835c59d4e7b7f6d2`, tracker blob
+  `670a25bfb8bca6c47a1085444f366fe5668e6107`. That checkpoint was also
+  non-force pushed and local/remote re-read at `0 0` before Block 7 began.
 
 ### Stop
 
@@ -2053,7 +2057,7 @@ Stop before adding project/run, tracker, report, or admin detail functionality.
 
 ## Block 7 — Project and run workspaces
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -2184,7 +2188,30 @@ historical App Server turns or ledger events across projects.
 
 ### Completion evidence
 
-Pending.
+- Activation: began automatically from accepted and pushed Block 6 acceptance
+  checkpoint `c5426acec56788b9995398a843ded95251337304`, tree
+  `0e648e9f3a4de1ec049bf53f835c59d4e7b7f6d2`, tracker blob
+  `670a25bfb8bca6c47a1085444f366fe5668e6107`, with local and remote at
+  `0 0` divergence. Direct-user item 44, mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`,
+  and the user's later `continue` preserve the full-tracker request; no routed
+  packet, successor task, manual resume, or range contraction is used.
+- Product-capability review: `consequential`; the exact capability frame remains
+  the 54-line source hashed
+  `26664146d46f0880752bad3252c562232fa8d6a2a19adb7804908d2ee1b562ec`.
+  A dashboard database/denormalized history store, a generic cross-owner query
+  engine, and expansion of the bounded Factory Floor envelope into full detail
+  were rejected because each would duplicate current project, tracker, Git,
+  supervision, report, metric, or Codex task authority. The selected bounded
+  option uses route-owned TanStack queries and contextual inspectors over the
+  already closed Block 2-5 list/detail contracts, preserving exact IDs,
+  mission segments, source disagreement, pagination/truncation, and independent
+  failures. Block 8 owns tracker deep review, Block 9 owns report analytics,
+  and Block 10 owns mutations; none is pulled into this slice. The accepted
+  tradeoff is visibly separate task/run/source panels instead of one synthetic
+  lifecycle badge.
+- Candidate implementation, validation, exact review, and acceptance evidence:
+  pending.
 
 ### Stop
 
