@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import ast
+import base64
 import difflib
 import hashlib
 import json
@@ -13,6 +14,7 @@ import platform
 import re
 import subprocess
 import sys
+import tempfile
 import unittest
 import unicodedata
 import zlib
@@ -48,10 +50,21 @@ SPEC = json.loads(ADAPTIVE.split("<!-- contract-spec-v1 -->", 1)[1].split("```js
 EXERCISE = load_strict_json(SKILL_ROOT / "fixtures/bounded_candidate_v1.json")
 REVIEW_FIXTURE = load_strict_json(SKILL_ROOT / "fixtures/bounded_candidate_reviews_v1.json")
 PRE_RUN = load_strict_json(SKILL_ROOT / "fixtures/bounded_candidate_prerun_v1.json")
+ACCEPTED_SNAPSHOT_PATH = SKILL_ROOT / "fixtures/bounded_candidate_accepted_v1.json"
+ACCEPTED_SNAPSHOT = load_strict_json(ACCEPTED_SNAPSHOT_PATH)
+EXACT_REVIEW_PATH = SKILL_ROOT / "fixtures/bounded_candidate_exact_review_v1.json"
+EXACT_REVIEW_BYTES = EXACT_REVIEW_PATH.read_bytes()
+EXACT_REVIEW = load_strict_json(EXACT_REVIEW_PATH)
+REVIEWER_PUBLIC_KEY_PATH = SKILL_ROOT / "fixtures/software_factory_release_reviewer_v1.pem"
 
 EXPECTED_EXERCISE_ROOT = "a039c787cb15df11e7fd1c2dbfd904a4b908540f5aa2ffea4900f359df383337"
 EXPECTED_REVIEW_FIXTURE_ROOT = "3bbf84c0823cecdd73110f60ff990f541bb20c14a9deeda868463a54811804e0"
 EXPECTED_PRE_RUN_ROOT = "f3fc594b4eca93ff75db127234a18ed494377575df82373695ac8754a9231bbb"
+EXPECTED_ACCEPTED_SNAPSHOT_ROOT = "c5af9febeae85773f106d3a761689e88e7756f75666e4f613de5c38615ea2252"
+EXPECTED_EXACT_REVIEW_SHA256 = "83d8a3efc7c5492884499f2ebb5e124901ca85b5f7af59f79613c5f90f4cc811"
+EXPECTED_REVIEWER_KEY_SHA256 = "e6ace9dfbbf97ec65800d1da146c4b59b20a2aef86ad706b174b9837bcb41a02"
+TRUSTED_OPENSSL_PATH = Path("/opt/homebrew/Cellar/openssl@3/3.6.2/bin/openssl")
+TRUSTED_OPENSSL_SHA256 = "bf63843e6856e1994ca71092ff3b46834236eb2144dd9b6ceb85d511128b836e"
 GIT_EXECUTABLE = "/usr/bin/git"
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 REV_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -1403,6 +1416,222 @@ def validate_accepted_head(value: object) -> dict[str, object]:
     return value
 
 
+def verify_exact_review_signature() -> None:
+    if (
+        ACCEPTED_SNAPSHOT_PATH.is_symlink()
+        or EXACT_REVIEW_PATH.is_symlink()
+        or REVIEWER_PUBLIC_KEY_PATH.is_symlink()
+        or not REVIEWER_PUBLIC_KEY_PATH.is_file()
+        or hashlib.sha256(EXACT_REVIEW_BYTES).hexdigest() != EXPECTED_EXACT_REVIEW_SHA256
+        or EXACT_REVIEW_BYTES != canonical(EXACT_REVIEW) + b"\n"
+        or hashlib.sha256(REVIEWER_PUBLIC_KEY_PATH.read_bytes()).hexdigest() != EXPECTED_REVIEWER_KEY_SHA256
+    ):
+        raise ValueError("exact independent review bytes differ")
+    root_material = {
+        key: value
+        for key, value in EXACT_REVIEW.items()
+        if key not in {"evidence_root_sha256", "signature_base64"}
+    }
+    signed_material = {
+        key: value for key, value in EXACT_REVIEW.items() if key != "signature_base64"
+    }
+    if EXACT_REVIEW.get("evidence_root_sha256") != root(root_material):
+        raise ValueError("exact independent review root differs")
+    if (
+        TRUSTED_OPENSSL_PATH.is_symlink()
+        or not TRUSTED_OPENSSL_PATH.is_file()
+        or hashlib.sha256(TRUSTED_OPENSSL_PATH.read_bytes()).hexdigest() != TRUSTED_OPENSSL_SHA256
+    ):
+        raise ValueError("trusted signature verifier differs")
+    try:
+        signature = base64.b64decode(
+            exact_string(EXACT_REVIEW.get("signature_base64"), "review signature"),
+            validate=True,
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError("exact independent review signature differs") from error
+    with tempfile.TemporaryDirectory(prefix="software-factory-block6-review-") as raw:
+        temporary = Path(raw)
+        material_path = temporary / "material.json"
+        signature_path = temporary / "signature.bin"
+        material_path.write_bytes(canonical(signed_material))
+        signature_path.write_bytes(signature)
+        result = subprocess.run(
+            [
+                str(TRUSTED_OPENSSL_PATH),
+                "pkeyutl",
+                "-verify",
+                "-pubin",
+                "-inkey",
+                str(REVIEWER_PUBLIC_KEY_PATH),
+                "-rawin",
+                "-in",
+                str(material_path),
+                "-sigfile",
+                str(signature_path),
+            ],
+            check=False,
+            capture_output=True,
+        )
+    if result.returncode:
+        raise ValueError("exact independent review signature differs")
+
+
+def validate_accepted_snapshot() -> dict[str, object]:
+    expected_fields = {
+        "schema_version",
+        "kind",
+        "record_id",
+        "source_revision",
+        "source_files",
+        "exact_review",
+        "exercise_root",
+        "review_fixture_root",
+        "pre_run_contract_root",
+        "tracker_sha256",
+        "case_id",
+        "resource_usage",
+        "handoff",
+        "lane_head",
+    }
+    if (
+        set(ACCEPTED_SNAPSHOT) != expected_fields
+        or type(ACCEPTED_SNAPSHOT.get("schema_version")) is not int
+        or ACCEPTED_SNAPSHOT["schema_version"] != 1
+        or ACCEPTED_SNAPSHOT["kind"] != "software-factory-accepted-candidate-lane"
+        or root(ACCEPTED_SNAPSHOT) != EXPECTED_ACCEPTED_SNAPSHOT_ROOT
+    ):
+        raise ValueError("accepted candidate snapshot differs")
+    source_revision = exact_string(
+        ACCEPTED_SNAPSHOT["source_revision"], "accepted source revision", REV_RE
+    )
+    source_files = ACCEPTED_SNAPSHOT["source_files"]
+    if type(source_files) is not list or not source_files or len(source_files) > 16:
+        raise ValueError("accepted source manifest differs")
+    git_probe = subprocess.run(
+        [GIT_EXECUTABLE, "rev-parse", "--is-inside-work-tree"],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+    )
+    seen_paths: set[str] = set()
+    for entry in source_files:
+        if type(entry) is not dict or set(entry) != {"path", "sha256"}:
+            raise ValueError("accepted source entry differs")
+        relative = exact_string(entry["path"], "accepted source path")
+        expected_sha256 = exact_string(entry["sha256"], "accepted source root", SHA_RE)
+        pure_relative = PurePosixPath(relative)
+        if pure_relative.is_absolute() or any(part in {".", ".."} for part in pure_relative.parts):
+            raise ValueError("accepted source path escapes repository")
+        path = REPO_ROOT / relative
+        try:
+            resolved = path.resolve(strict=True)
+            resolved.relative_to(REPO_ROOT.resolve(strict=True))
+        except ValueError as error:
+            raise ValueError("accepted source path escapes repository") from error
+        if relative in seen_paths or path.is_symlink() or resolved != path.absolute() or not path.is_file():
+            raise ValueError("accepted source path differs")
+        seen_paths.add(relative)
+        if hashlib.sha256(path.read_bytes()).hexdigest() != expected_sha256:
+            raise ValueError("accepted source content changed")
+        frozen = subprocess.run(
+            [GIT_EXECUTABLE, "show", f"{source_revision}:{relative}"],
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+        )
+        if frozen.returncode == 0:
+            if hashlib.sha256(frozen.stdout).hexdigest() != expected_sha256:
+                raise ValueError("accepted source revision differs")
+        elif git_probe.returncode == 0:
+            raise ValueError("accepted source revision cannot be resolved")
+    review = ACCEPTED_SNAPSHOT["exact_review"]
+    if type(review) is not dict or set(review) != {
+        "record_id",
+        "file_sha256",
+        "evidence_root",
+        "authority_key_sha256",
+        "review_disposition",
+        "finding_count",
+    }:
+        raise ValueError("accepted exact review identity differs")
+    if review != {
+        "record_id": EXACT_REVIEW["record_id"],
+        "file_sha256": EXPECTED_EXACT_REVIEW_SHA256,
+        "evidence_root": EXACT_REVIEW["evidence_root_sha256"],
+        "authority_key_sha256": EXPECTED_REVIEWER_KEY_SHA256,
+        "review_disposition": "accepted",
+        "finding_count": 0,
+    }:
+        raise ValueError("accepted exact review identity differs")
+    verify_exact_review_signature()
+    lane_head = validate_accepted_head(ACCEPTED_SNAPSHOT["lane_head"])
+    handoff = ACCEPTED_SNAPSHOT["handoff"]
+    if type(handoff) is not dict or handoff.get("handoff_root") != lane_head["handoff_root"]:
+        raise ValueError("accepted Block 9 handoff differs")
+    raw_handoff = dict(handoff)
+    handoff_root = raw_handoff.pop("handoff_root")
+    if handoff_root != root(raw_handoff):
+        raise ValueError("accepted Block 9 handoff is stale")
+    resource_usage = ACCEPTED_SNAPSHOT["resource_usage"]
+    if type(resource_usage) is not dict or set(resource_usage) != {
+        "files",
+        "changed_lines",
+        "commands",
+        "review_passes",
+        "elapsed_minutes",
+    }:
+        raise ValueError("accepted resource usage differs")
+    for key, value in resource_usage.items():
+        exact_int(value, f"accepted usage {key}")
+    result_roots = [item["result_root"] for item in REVIEW_FIXTURE["results"]]
+    candidate_projection = EXACT_REVIEW["candidate_projection"]
+    lifecycle = EXACT_REVIEW["winning_lifecycle"]
+    if (
+        ACCEPTED_SNAPSHOT["case_id"] != "winning-candidate"
+        or ACCEPTED_SNAPSHOT["exercise_root"] != root(EXERCISE)
+        or ACCEPTED_SNAPSHOT["review_fixture_root"] != root(REVIEW_FIXTURE)
+        or ACCEPTED_SNAPSHOT["pre_run_contract_root"] != root(PRE_RUN)
+        or ACCEPTED_SNAPSHOT["tracker_sha256"] != tracker_sha256()
+        or lane_head["tracker_sha256"] != tracker_sha256()
+        or lane_head["resource_usage_root"] != resource_usage_root(resource_usage)
+        or handoff["resource_usage"] != resource_usage
+        or handoff["resource_usage_root"] != lane_head["resource_usage_root"]
+        or handoff["decision_fingerprint"] != lane_head["decision_fingerprint"]
+        or handoff["candidate_root"] != lane_head["candidate_root"]
+        or handoff["review_root"] != lane_head["review_root"]
+        or handoff["currentness_root"] != lane_head["currentness_root"]
+        or handoff["target_revision_root"] != lane_head["target_revision_root"]
+        or EXACT_REVIEW["source_revision"] != source_revision
+        or EXACT_REVIEW["exercise_root"] != ACCEPTED_SNAPSHOT["exercise_root"]
+        or EXACT_REVIEW["review_fixture_root"] != ACCEPTED_SNAPSHOT["review_fixture_root"]
+        or EXACT_REVIEW["pre_run_contract_root"] != ACCEPTED_SNAPSHOT["pre_run_contract_root"]
+        or EXACT_REVIEW["review_disposition"] != "accepted"
+        or EXACT_REVIEW["finding_count"] != 0
+        or EXACT_REVIEW["external_result_roots"] != result_roots
+        or type(candidate_projection) is not dict
+        or candidate_projection.get("source_commit") != source_revision
+        or candidate_projection.get("candidate_root_sha256") != EXACT_REVIEW["candidate_root_sha256"]
+        or EXACT_REVIEW["reviewer_id"] != "software-factory-release-reviewer-v1"
+        or EXACT_REVIEW["winning_candidate_root"] != lane_head["candidate_root"]
+        or EXACT_REVIEW["winning_decision_fingerprint"] != lane_head["decision_fingerprint"]
+        or EXACT_REVIEW["winning_review_root"] != lane_head["review_root"]
+        or EXACT_REVIEW["winning_final_currentness_root"] != lane_head["currentness_root"]
+        or EXACT_REVIEW["winning_handoff_root"] != lane_head["handoff_root"]
+        or EXACT_REVIEW["winning_comparison_root"] != handoff["comparison_root"]
+        or EXACT_REVIEW["winning_lane_head_root"] != lane_head["head_root"]
+        or EXACT_REVIEW["winning_resource_usage"] != resource_usage
+        or EXACT_REVIEW["winning_resource_usage_root"] != lane_head["resource_usage_root"]
+        or type(lifecycle) is not list
+        or not lifecycle
+        or lifecycle[-1].get("currentness_root") != lane_head["currentness_root"]
+        or lifecycle[-1].get("candidate_root") != lane_head["candidate_root"]
+        or lifecycle[-1].get("review_root") != lane_head["review_root"]
+    ):
+        raise ValueError("accepted candidate evidence is not current")
+    return copy.deepcopy(ACCEPTED_SNAPSHOT)
+
+
 def artifact_changed_lines(files: object) -> int:
     if type(files) is not list:
         raise ValueError("candidate files differ")
@@ -1473,7 +1702,7 @@ def ceiling_exceeded(usage: dict[str, int]) -> bool:
     return usage["files"] > ceiling["max_files"] or usage["changed_lines"] > ceiling["max_changed_lines"] or usage["commands"] > ceiling["max_commands"] or usage["review_passes"] > ceiling["max_review_passes"] or usage["elapsed_minutes"] > EXERCISE["lane"]["time_ceiling_minutes"]
 
 
-def evaluate(case_id: str, *, accepted_head: dict[str, object] | None = None) -> dict[str, object]:
+def evaluate_unaccepted(case_id: str, *, accepted_head: dict[str, object] | None = None) -> dict[str, object]:
     case = canonical_case(case_id)
     eligible = eligibility(case)
     fingerprint = decision_fingerprint(case, eligible)
@@ -1544,6 +1773,39 @@ def evaluate(case_id: str, *, accepted_head: dict[str, object] | None = None) ->
     return result
 
 
+def evaluate(case_id: str, *, accepted_head: dict[str, object] | None = None) -> dict[str, object]:
+    """Evaluate current work, deduplicating only against the canonical accepted lane."""
+    if accepted_head is not None:
+        raise ValueError("caller-supplied accepted lane heads are not authority")
+    if case_id == ACCEPTED_SNAPSHOT.get("case_id"):
+        accepted = validate_accepted_snapshot()
+        head = accepted["lane_head"]
+        return {
+            "action": "deduplicate",
+            "lane_created": False,
+            "review_cycle": False,
+            "decision_fingerprint": head["decision_fingerprint"],
+            "candidate_root": head["candidate_root"],
+            "resource_usage": accepted["resource_usage"],
+            "lane_head": head,
+            "handoff": None,
+            "existing_handoff": accepted["handoff"],
+            "existing_handoff_root": accepted["handoff"]["handoff_root"],
+            "candidate_authoritative": False,
+            "incumbent_authoritative": True,
+            "cutover_performed": False,
+            "tracker_mutated": False,
+            "policy_mutated": False,
+            "next_action": "continue-with-existing-block-9-handoff",
+        }
+    case = canonical_case(case_id)
+    eligible = eligibility(case)
+    fingerprint = decision_fingerprint(case, eligible)
+    if not lane_eligible(eligible):
+        return evaluate_unaccepted(case_id)
+    return evaluate_unaccepted(case_id)
+
+
 class BoundedCandidateContractTests(unittest.TestCase):
     def test_strict_json_rejects_duplicates_floats_and_non_nfc(self) -> None:
         with self.assertRaisesRegex(ValueError, "duplicate JSON key"):
@@ -1568,14 +1830,14 @@ class BoundedCandidateContractTests(unittest.TestCase):
         self.assertIn("compressed-size delta", EXERCISE["eligibility_evidence"]["outcome_uncertainty"]["claim"])
         self.assertEqual(EXERCISE["eligibility_default"]["implementation_evidence_root"], root(EXERCISE["eligibility_evidence"]["implementation_evidence"]))
         for case_id in ("read-only-decidable", "unsafe-isolation", "style-only", "speculative-reuse", "novelty-only"):
-            result = evaluate(case_id)
+            result = evaluate_unaccepted(case_id)
             self.assertEqual(result["action"], "reject-before-lane")
             self.assertFalse(result["lane_created"])
 
     def test_coherent_cases_bind_bytes_validation_comparison_and_external_review(self) -> None:
         for case_id in ("winning-candidate", "losing-candidate", "novelty-bias", "inconclusive-comparison"):
             case = canonical_case(case_id)
-            result = evaluate(case_id)
+            result = evaluate_unaccepted(case_id)
             self.assertEqual(result["action"], case["expected_action"])
             self.assertEqual(result["review_result"]["comparison_disposition"], case["expected_comparison_disposition"])
             self.assertEqual(result["candidate_root"], artifact_root(EXERCISE["artifacts"][case["artifact_id"]]))
@@ -1585,15 +1847,15 @@ class BoundedCandidateContractTests(unittest.TestCase):
             self.assertEqual(result["review_result"]["input_root"], root(result["blind_review_packet"]))
 
     def test_block4_lifecycle_winner_and_inconclusive_are_valid(self) -> None:
-        winner = evaluate("winning-candidate")
+        winner = evaluate_unaccepted("winning-candidate")
         self.assertEqual([item["decision_stage"] for item in winner["stage_records"]], ["selected", "implementing", "validated", "reviewed", "cutover-eligible"])
         self.assertEqual(winner["stage_records"][-1]["review_disposition"], "accepted")
         self.assertEqual(winner["stage_records"][-1]["retirement_posture"], "eligible-cutover")
-        inconclusive = evaluate("inconclusive-comparison")
+        inconclusive = evaluate_unaccepted("inconclusive-comparison")
         self.assertEqual(inconclusive["stage_records"][-1]["decision_stage"], "closed")
         self.assertEqual(inconclusive["stage_records"][-1]["review_disposition"], "inconclusive")
         self.assertEqual(inconclusive["stage_records"][-1]["retirement_posture"], "retired-inconclusive")
-        loser = evaluate("losing-candidate")
+        loser = evaluate_unaccepted("losing-candidate")
         for index in (0, 1):
             self.assertIsNone(winner["stage_records"][index]["candidate_root"])
             self.assertIsNone(loser["stage_records"][index]["candidate_root"])
@@ -1619,7 +1881,7 @@ class BoundedCandidateContractTests(unittest.TestCase):
 
     def test_all_post_creation_stops_close_with_evidence_cleanup_and_no_authority(self) -> None:
         for case_id in ("ceiling-expired", "incumbent-conflict", "focused-failure", "mapped-failure", "protected-regression", "review-currentness-loss", "cancelled", "isolation-drift", "hypothesis-falsified", "review-timeout"):
-            result = evaluate(case_id)
+            result = evaluate_unaccepted(case_id)
             self.assertEqual(result["action"], "stop-retire")
             self.assertEqual(result["stage_records"][-1]["decision_stage"], "closed")
             self.assertFalse(result["candidate_authoritative"])
@@ -1633,7 +1895,7 @@ class BoundedCandidateContractTests(unittest.TestCase):
             self.assertTrue({"validation", "independent-review", "observed-outcome"}.issubset(classes))
 
     def test_caller_cannot_fabricate_an_accepted_head_to_suppress_work(self) -> None:
-        first = evaluate("winning-candidate")
+        first = evaluate_unaccepted("winning-candidate")
         with self.assertRaisesRegex(ValueError, "not authority"):
             evaluate("winning-candidate", accepted_head=first["lane_head"])
         forged = copy.deepcopy(first["lane_head"])
@@ -1645,8 +1907,49 @@ class BoundedCandidateContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "not authority"):
             evaluate("winning-candidate", accepted_head=forged)
 
+    def test_exact_accepted_lane_deduplicates_without_new_lane_review_or_handoff(self) -> None:
+        historical = evaluate_unaccepted("winning-candidate")
+        review_producer = globals()["review_fixture_result"]
+        globals()["review_fixture_result"] = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("deduplication invoked the independent review producer")
+        )
+        try:
+            first = evaluate("winning-candidate")
+            second = evaluate("winning-candidate")
+        finally:
+            globals()["review_fixture_result"] = review_producer
+        self.assertEqual(first, second)
+        self.assertEqual(first["action"], "deduplicate")
+        self.assertFalse(first["lane_created"] or first["review_cycle"])
+        self.assertIsNone(first["handoff"])
+        self.assertEqual(first["lane_head"], historical["lane_head"])
+        self.assertEqual(first["existing_handoff"], historical["handoff"])
+        self.assertEqual(first["existing_handoff_root"], historical["handoff"]["handoff_root"])
+        self.assertEqual(first["next_action"], "continue-with-existing-block-9-handoff")
+        self.assertFalse(first["candidate_authoritative"] or first["cutover_performed"])
+        self.assertTrue(first["incumbent_authoritative"])
+        first["lane_head"]["review_root"] = "0" * 64
+        self.assertEqual(evaluate("winning-candidate")["lane_head"], historical["lane_head"])
+
+    def test_accepted_snapshot_and_signed_review_fail_closed_on_replacement(self) -> None:
+        validate_accepted_snapshot()
+        original_head = ACCEPTED_SNAPSHOT["lane_head"]
+        ACCEPTED_SNAPSHOT["lane_head"] = {**original_head, "review_root": "0" * 64}
+        try:
+            with self.assertRaisesRegex(ValueError, "snapshot differs"):
+                validate_accepted_snapshot()
+        finally:
+            ACCEPTED_SNAPSHOT["lane_head"] = original_head
+        original_disposition = EXACT_REVIEW["review_disposition"]
+        EXACT_REVIEW["review_disposition"] = "rejected"
+        try:
+            with self.assertRaisesRegex(ValueError, "review bytes differ"):
+                validate_accepted_snapshot()
+        finally:
+            EXACT_REVIEW["review_disposition"] = original_disposition
+
     def test_winner_emits_one_frozen_nonmutating_block9_handoff(self) -> None:
-        result = evaluate("winning-candidate")
+        result = evaluate_unaccepted("winning-candidate")
         handoff = result["handoff"]
         self.assertEqual(handoff["source_block"], 6)
         self.assertEqual(handoff["destination_block"], 9)
@@ -1658,7 +1961,7 @@ class BoundedCandidateContractTests(unittest.TestCase):
         self.assertEqual(recorded_root, root(raw))
 
     def test_blind_review_input_excludes_preference_and_disposition_follows_raw_evidence(self) -> None:
-        result = evaluate("winning-candidate")
+        result = evaluate_unaccepted("winning-candidate")
         packet = result["blind_review_packet"]
         for key in ("case_id", "expected_action", "expected_comparison_disposition", "implementer_preference"):
             self.assertNotIn(key, packet)
@@ -1686,7 +1989,7 @@ class BoundedCandidateContractTests(unittest.TestCase):
 
     def test_resource_usage_is_derived_and_ceiling_is_factual(self) -> None:
         winning = canonical_case("winning-candidate")
-        result = evaluate("winning-candidate")
+        result = evaluate_unaccepted("winning-candidate")
         self.assertEqual(result["resource_usage"], winning["usage"])
         self.assertEqual(derived_usage(winning, EXERCISE["artifacts"][winning["artifact_id"]])["review_passes"], 0)
         ceiling = canonical_case("ceiling-expired")
@@ -1698,7 +2001,7 @@ class BoundedCandidateContractTests(unittest.TestCase):
             derived_usage(changed, EXERCISE["artifacts"][changed["artifact_id"]], focused=result["focused_result"], mapped=result["mapped_result"], review=result["review_result"])
 
     def test_resource_usage_is_bound_to_currentness_handoff_and_accepted_head(self) -> None:
-        result = evaluate("winning-candidate")
+        result = evaluate_unaccepted("winning-candidate")
         baseline_currentness = result["stage_records"][-1]["currentness_root"]
         baseline_handoff = result["handoff"]["handoff_root"]
         baseline_head = result["lane_head"]["head_root"]
@@ -1733,7 +2036,7 @@ class BoundedCandidateContractTests(unittest.TestCase):
         slow = copy.deepcopy(derived_candidate_metrics(EXERCISE["artifacts"]["candidate-winning"])["observable-outcome"])
         slow["performance_posture"] = "candidate-materially-slower"
         self.assertEqual(metric_relation("observable-outcome", incumbent, slow)[0], "incumbent-better")
-        winning = evaluate("winning-candidate")
+        winning = evaluate_unaccepted("winning-candidate")
         self.assertEqual(winning["blind_review_packet"]["representative_workload_root"], root(EXERCISE["representative_workload"]))
         self.assertEqual(winning["blind_review_packet"]["validation_runtime_root"], validation_runtime_root())
         performance = EXERCISE["artifacts"]["candidate-winning"]["mapped"]["performance_evidence"]
@@ -1765,7 +2068,7 @@ class BoundedCandidateContractTests(unittest.TestCase):
         delayed = copy.deepcopy(review)
         delayed["recorded_at"] = format_time(parse_time(mapped["recorded_at"], "mapped") + timedelta(minutes=11))
         self.assertTrue(review_exceeds_ceiling(delayed, mapped))
-        timeout = evaluate("review-timeout")
+        timeout = evaluate_unaccepted("review-timeout")
         self.assertEqual(timeout["action"], "stop-retire")
         self.assertEqual(timeout["stop_reason"], "review-ceiling-expired")
         self.assertEqual(timeout["resource_usage"]["review_passes"], 2)
@@ -1779,19 +2082,19 @@ class BoundedCandidateContractTests(unittest.TestCase):
             ("cancelled", "cancellation_authority", "cancellation_authority_root"),
             ("isolation-drift", "observed_isolation_scope", "observed_isolation_root"),
         ):
-            result = evaluate(case_id)
+            result = evaluate_unaccepted(case_id)
             self.assertIn(retained_key, result["stop_cause"])
             self.assertEqual(result["stop_cause"][derived_key], root(result["stop_cause"][retained_key]))
 
     def test_evidence_claim_binding_rejects_protected_path_and_reviewer_forgery(self) -> None:
-        record = copy.deepcopy(evaluate("winning-candidate")["stage_records"][-1])
+        record = copy.deepcopy(evaluate_unaccepted("winning-candidate")["stage_records"][-1])
         capability = next(item for item in record["evidence_refs"] if item["ref_id"] == "evidence-capability")
         capability["claim_ids"].remove("stable-bytes-api")
         record["evidence_manifest_root"] = root(record["evidence_refs"])
         record["currentness_root"] = root(currentness_projection(record))
         with self.assertRaisesRegex(ValueError, "protected capability"):
             validate_stage_record(record)
-        record = copy.deepcopy(evaluate("winning-candidate")["stage_records"][0])
+        record = copy.deepcopy(evaluate_unaccepted("winning-candidate")["stage_records"][0])
         record["evidence_refs"] = [item for item in record["evidence_refs"] if item["ref_id"] != "evidence-reviewer-authority"]
         record["evidence_manifest_root"] = root(record["evidence_refs"])
         record["currentness_root"] = root(currentness_projection(record))
@@ -1824,7 +2127,7 @@ class BoundedCandidateContractTests(unittest.TestCase):
             self.assertNotEqual(root(changed), baseline_root, key)
 
     def test_strict_schema_types_and_paths_reject_coercion_empty_scope_and_escape(self) -> None:
-        fields = evaluate("winning-candidate")["stage_records"][-1]
+        fields = evaluate_unaccepted("winning-candidate")["stage_records"][-1]
         for key, value in (("isolation_kind", "invented"), ("hypothesis_scope", []), ("isolated_writable_scope", []), ("production_authority_owner_id", True), ("independent_reviewer_id", 123), ("focused_validation", [123])):
             invalid = {name: copy.deepcopy(fields[name]) for name in SPEC["candidate_fields"]}
             invalid[key] = value
