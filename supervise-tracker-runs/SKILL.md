@@ -354,6 +354,7 @@ python3 scripts/supervision_log.py adjust \
   --target-thread <target-thread-id> \
   --adaptive-decision-mode <fixed|recommend|reviewed-autonomous|full-autonomous> \
   --adaptive-target-class <target-repository|software-factory> \
+  --adaptive-target-repository-root <canonical-absolute-repository-root> \
   --candidate-max-active-lanes 1 \
   --candidate-max-files <n> \
   --candidate-max-changed-lines <n> \
@@ -375,6 +376,10 @@ substitute a weaker target/effect permission. Candidate dispositions also
 require one bounded canonical
 `--candidate-evidence` JSON object that binds owner, source revision, candidate,
 usage, protected-capability, validation, comparison, and currentness roots.
+The repository root is canonical policy state: bind it at `init`, or exactly
+once while migrating an older policy, and never widen or replace it. Candidate
+source revision must equal the decision target revision, and candidate
+protected-capability evidence must cover all and only the decision contract.
 Never replace it with caller flags or counts. The gate records the decision in
 the existing event ledger. When it returns `automated-independent-review-required`,
 the external reviewer signs the complete source-decision identity, fingerprint,
@@ -382,7 +387,8 @@ currentness, semantics, candidate/owner, disposition, policy, and evidence
 result with the sealed reviewer authority. Import it exactly once through
 `adaptive-decision-review --review-json`, then rerun the gate with that canonical
 event ID. Software Factory mutations, including inline correction, additionally
-require a distinct accepted evaluator identity/result in that signed object.
+require a separately signed accepted evaluator result from the sealed evaluator
+authority; the reviewer signature then binds that exact evaluator result.
 Neither a boolean, caller ID, self-hash, nor reviewer prose proves review. In
 `full-autonomous`, the
 adaptive gate and the existing decision/notification owner both reject or

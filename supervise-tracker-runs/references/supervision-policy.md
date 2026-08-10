@@ -232,6 +232,7 @@ python3 scripts/supervision_log.py adjust \
   --target-thread <target-thread-id> \
   --adaptive-decision-mode full-autonomous \
   --adaptive-target-class <target-repository|software-factory> \
+  --adaptive-target-repository-root <canonical-absolute-repository-root> \
   --candidate-max-active-lanes 1 \
   --candidate-max-files 3 \
   --candidate-max-changed-lines 120 \
@@ -266,12 +267,19 @@ python3 scripts/supervision_log.py status \
 
 The decision evidence is exact canonical JSON; the helper recomputes rather
 than accepts its fingerprint and derives target/effect from canonical policy.
+The exact repository root is bound in policy at initialization or one legacy
+migration and is thereafter immutable; realpath containment rejects widened or
+symlink-escaped affected scopes.
 The candidate evidence is canonical JSON binding the decision, candidate owner
-and source revision, candidate and usage roots,
-protected-capability results, validation/comparison roots, and currentness. Its
+and exact decision target revision, candidate and usage roots, all-and-only
+decision-contract protected-capability results, validation/comparison roots,
+and currentness. Its
 review-pass use is zero; the separately owned canonical review event contributes
-the one review pass only after a sealed external signature binds the complete
-reviewed semantics/currentness. Equivalent fingerprints deduplicate before a
+the one review pass only after a sealed reviewer signature binds the complete
+reviewed semantics/currentness. A Software Factory mutation additionally needs
+a distinct sealed evaluator signature over the same source decision and its
+evaluation result; the reviewer cannot author or rewrite that result. Equivalent
+fingerprints and adjudicating semantics deduplicate before a
 second decision or reviewer cycle. `status` exposes the current mode and budget, legacy
 posture, decision and human-request counts across adaptive and existing decision
 paths, independent reviews, reserved deferrals, latest candidate use, safe

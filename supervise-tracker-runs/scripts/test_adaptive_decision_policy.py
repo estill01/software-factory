@@ -28,9 +28,13 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.target = "adaptive-target-1234"
-        self.repository_root = "/tmp/software-factory-adaptive-target"
+        repository = self.root / "target-repository"
+        repository.mkdir()
+        self.repository_root = str(repository.resolve())
         self.private_key = self.root / "review-private.pem"
         self.public_key = self.root / "review-public.pem"
+        self.evaluator_private_key = self.root / "evaluator-private.pem"
+        self.evaluator_public_key = self.root / "evaluator-public.pem"
         openssl = str(supervision_log.ADAPTIVE_REVIEW_OPENSSL_PATH)
         subprocess.run(
             [openssl, "genpkey", "-algorithm", "ED25519", "-out", str(self.private_key)],
@@ -46,6 +50,46 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         )
         self.public_key.chmod(0o444)
         self.public_key_sha = hashlib.sha256(self.public_key.read_bytes()).hexdigest()
+        subprocess.run(
+            [
+                openssl,
+                "genpkey",
+                "-algorithm",
+                "ED25519",
+                "-out",
+                str(self.evaluator_private_key),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        subprocess.run(
+            [
+                openssl,
+                "pkey",
+                "-in",
+                str(self.evaluator_private_key),
+                "-pubout",
+                "-out",
+                str(self.evaluator_public_key),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.evaluator_public_key.chmod(0o444)
+        self.evaluator_public_key_sha = hashlib.sha256(
+            self.evaluator_public_key.read_bytes()
+        ).hexdigest()
+        for name, value in (
+            ("ADAPTIVE_REVIEW_PUBLIC_KEY_PATH", self.public_key),
+            ("ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256", self.public_key_sha),
+            ("ADAPTIVE_EVALUATOR_PUBLIC_KEY_PATH", self.evaluator_public_key),
+            ("ADAPTIVE_EVALUATOR_PUBLIC_KEY_SHA256", self.evaluator_public_key_sha),
+        ):
+            patcher = mock.patch.object(supervision_log, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def policy(
         self,
@@ -70,7 +114,9 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
             },
             "permissions": permissions,
             "adaptive_decision_control": supervision_log.adaptive_decision_control_contract(
-                mode, target_class=target_class
+                mode,
+                target_class=target_class,
+                target_repository_root=self.repository_root,
             ),
         }
 
@@ -175,11 +221,26 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         )
         if usage_updates:
             usage.update(usage_updates)
+        candidate_root = "c" * 64
+        validation_root = "d" * 64
+        source_protected = {
+            "capability_id": "public-contract-1234",
+            "result": "preserved",
+            "evidence_ref_ids": ["evidence-1234"],
+        }
         protected = [
             {
                 "capability_id": "public-contract-1234",
                 "result": protected_result,
-                "evidence_root": "a" * 64,
+                "evidence_root": supervision_log.digest(
+                    {
+                        "capability_id": "public-contract-1234",
+                        "result": protected_result,
+                        "source_contract_root": supervision_log.digest(source_protected),
+                        "candidate_root": candidate_root,
+                        "validation_root": validation_root,
+                    }
+                ),
             }
         ]
         value: dict[str, object] = {
@@ -187,13 +248,15 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
             "kind": "software-factory-adaptive-candidate-evidence",
             "decision_id": decision_id,
             "owner_id": owner_id or self.target,
-            "source_revision_root": "b" * 64,
-            "candidate_root": "c" * 64,
+            "source_revision_root": supervision_log.digest(
+                {"target_revision": "revision-1234"}
+            ),
+            "candidate_root": candidate_root,
             "candidate_budget_use": usage,
             "candidate_budget_use_root": supervision_log.digest(usage),
             "protected_capability_results": protected,
             "protected_capability_root": supervision_log.digest(protected),
-            "validation_root": "d" * 64,
+            "validation_root": validation_root,
             "comparison_root": "e" * 64,
             "currentness_root": "",
             "evidence_root": "",
@@ -249,32 +312,14 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         pending = supervision_log.adaptive_decision_posture(
             policy, self.packet(policy, evidence=evidence, candidate=candidate)
         )
-        software_factory = pending["target_class"] == "software-factory"
-        return {
-            "record_id": "review-record-1234",
-            "source_decision_record": "source-decision-1234",
-            "source_decision_sha256": "1" * 64,
-            "decision_id": pending["decision_id"],
-            "decision_fingerprint": pending["decision_fingerprint"],
-            "decision_currentness_root": pending["decision_currentness_root"],
-            "decision_semantics_root": pending["decision_semantics_root"],
-            "disposition": pending["disposition"],
-            "target_class": pending["target_class"],
-            "effect_class": pending["effect_class"],
-            "candidate_evidence_root": pending["candidate_evidence_root"],
-            "candidate_owner_id": pending["candidate_owner_id"],
-            "reviewer_id": supervision_log.ADAPTIVE_REVIEWER_ID,
-            "evaluator_id": (
-                supervision_log.ADAPTIVE_EVALUATOR_ID if software_factory else None
-            ),
-            "evaluation_evidence_root": "4" * 64 if software_factory else None,
-            "review_disposition": disposition,
-            "evaluation_disposition": "accepted" if software_factory else None,
-            "evidence_root": "2" * 64,
-            "review_root": "3" * 64,
-            "authority_key_sha256": supervision_log.ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256,
-            "policy_sha256": policy["policy_sha256"],
+        source = {
+            **pending,
+            "record_id": "source-decision-1234",
+            "record_sha256": "1" * 64,
         }
+        return self.signed_review_json(
+            source, review_disposition=disposition
+        )
 
     def write_json(self, name: str, value: dict[str, object]) -> Path:
         path = self.root / name
@@ -293,6 +338,7 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
                 "--mission-source-class", "direct-user",
                 "--mission-source-record", "direct-item-1234",
                 "--mission-source-sha256", "c" * 64,
+                "--adaptive-target-repository-root", self.repository_root,
             ]
         )
         output = io.StringIO()
@@ -374,6 +420,11 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
                 supervision_log.ADAPTIVE_EVALUATOR_ID if software_factory else None
             ),
             "evaluation_evidence_root": "4" * 64 if software_factory else None,
+            "evaluator_authority_key_sha256": (
+                self.evaluator_public_key_sha if software_factory else None
+            ),
+            "evaluation_root": None,
+            "evaluation_signature_base64": None,
             "review_disposition": review_disposition,
             "evaluation_disposition": "accepted" if software_factory else None,
             "evidence_root": supervision_log.digest(
@@ -386,6 +437,40 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         }
         if mutate:
             value.update(mutate)
+        if software_factory:
+            value["evaluation_root"] = supervision_log.digest(
+                supervision_log.adaptive_external_evaluation_root_material(value)
+            )
+            evaluation_content = self.root / "evaluation-to-sign.json"
+            evaluation_signature = self.root / "evaluation.sig"
+            evaluation_content.write_bytes(
+                supervision_log.canonical(
+                    supervision_log.adaptive_external_evaluation_signed_material(value)
+                )
+            )
+            subprocess.run(
+                [
+                    str(supervision_log.ADAPTIVE_REVIEW_OPENSSL_PATH),
+                    "pkeyutl",
+                    "-sign",
+                    "-inkey",
+                    str(self.evaluator_private_key),
+                    "-rawin",
+                    "-in",
+                    str(evaluation_content),
+                    "-out",
+                    str(evaluation_signature),
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            value["evaluation_signature_base64"] = base64.b64encode(
+                evaluation_signature.read_bytes()
+            ).decode()
+        return self.sign_outer_review(value)
+
+    def sign_outer_review(self, value: dict[str, object]) -> dict[str, object]:
         value["review_root"] = supervision_log.digest(
             supervision_log.adaptive_external_review_root_material(value)
         )
@@ -551,22 +636,67 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         path = self.write_json("candidate.json", candidate)
         loaded = supervision_log.load_adaptive_candidate_evidence(
             str(path),
-            decision_id="adaptive-decision-1234",
-            implementation_owner_id=self.target,
+            decision_evidence=self.decision_evidence(
+                disposition="compare-candidate",
+                candidate_evidence_root=str(candidate["evidence_root"]),
+            ),
         )
         self.assertEqual(loaded["evidence_root"], candidate["evidence_root"])
         path.write_bytes(supervision_log.canonical(candidate) + b" \n")
         with self.assertRaisesRegex(supervision_log.SupervisionLogError, "exact canonical"):
             supervision_log.load_adaptive_candidate_evidence(
                 str(path),
-                decision_id="adaptive-decision-1234",
-                implementation_owner_id=self.target,
+                decision_evidence=self.decision_evidence(
+                    disposition="compare-candidate",
+                    candidate_evidence_root=str(candidate["evidence_root"]),
+                ),
             )
         with self.assertRaisesRegex(supervision_log.SupervisionLogError, "owner differs"):
             supervision_log.validate_adaptive_candidate_evidence(
                 self.candidate(owner_id="invented-owner-1234"),
-                decision_id="adaptive-decision-1234",
-                implementation_owner_id=self.target,
+                decision_evidence=self.decision_evidence(
+                    disposition="compare-candidate",
+                    candidate_evidence_root=str(candidate["evidence_root"]),
+                ),
+            )
+        stale_source = self.candidate()
+        stale_source["source_revision_root"] = "0" * 64
+        stale_currentness = {
+            "decision_id": stale_source["decision_id"],
+            "owner_id": stale_source["owner_id"],
+            "source_revision_root": stale_source["source_revision_root"],
+            "candidate_root": stale_source["candidate_root"],
+            "candidate_budget_use_root": stale_source["candidate_budget_use_root"],
+            "protected_capability_root": stale_source["protected_capability_root"],
+            "validation_root": stale_source["validation_root"],
+            "comparison_root": stale_source["comparison_root"],
+        }
+        stale_source["currentness_root"] = supervision_log.digest(stale_currentness)
+        stale_material = dict(stale_source)
+        stale_material.pop("evidence_root")
+        stale_source["evidence_root"] = supervision_log.digest(stale_material)
+        with self.assertRaisesRegex(supervision_log.SupervisionLogError, "source revision"):
+            supervision_log.validate_adaptive_candidate_evidence(
+                stale_source,
+                decision_evidence=self.decision_evidence(
+                    disposition="compare-candidate",
+                    candidate_evidence_root=str(stale_source["evidence_root"]),
+                ),
+            )
+        renamed = self.candidate()
+        renamed["protected_capability_results"][0]["capability_id"] = "renamed-contract"  # type: ignore[index]
+        renamed["protected_capability_root"] = supervision_log.digest(
+            renamed["protected_capability_results"]
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "decision contract"
+        ):
+            supervision_log.validate_adaptive_candidate_evidence(
+                renamed,
+                decision_evidence=self.decision_evidence(
+                    disposition="compare-candidate",
+                    candidate_evidence_root=str(renamed["evidence_root"]),
+                ),
             )
         over = self.candidate(usage_updates={"files": 4})
         source = self.decision_evidence(
@@ -633,6 +763,35 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         ):
             supervision_log.cmd_adaptive_decision_review(args)
 
+    def test_software_factory_public_review_persists_two_verified_authorities(self) -> None:
+        self.init()
+        self.adjust(
+            "--adaptive-target-class",
+            "software-factory",
+            "--adaptive-decision-mode",
+            "recommend",
+        )
+        evidence = self.decision_evidence(
+            decision_id="factory-signed-decision-1234",
+            target_class="software-factory",
+        )
+        source = self.run_gate(self.gate_args(evidence))["record"]
+        review = self.run_review(source)["record"]
+        self.assertEqual(review["reviewer_id"], supervision_log.ADAPTIVE_REVIEWER_ID)
+        self.assertEqual(review["evaluator_id"], supervision_log.ADAPTIVE_EVALUATOR_ID)
+        self.assertNotEqual(
+            review["authority_key_sha256"],
+            review["evaluator_authority_key_sha256"],
+        )
+        reviewed = self.run_gate(
+            self.gate_args(evidence, review_record=str(review["record_id"]))
+        )["record"]
+        self.assertEqual(reviewed["independent_review_record"], review["record_id"])
+        self.assertEqual(
+            reviewed["independent_evaluation_root"], review["evaluation_root"]
+        )
+        self.assertEqual(reviewed["application_posture"], "recommendation-only")
+
     def test_post_review_candidate_or_decision_currentness_change_rejects(self) -> None:
         self.init()
         self.adjust("--adaptive-decision-mode", "recommend")
@@ -666,7 +825,8 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         source_material.pop("source_root")
         changed_evidence["source_root"] = supervision_log.digest(source_material)
         with self.assertRaisesRegex(
-            supervision_log.SupervisionLogError, "bind the current decision|canonical decision"
+            supervision_log.SupervisionLogError,
+            "bind the current decision|canonical decision|source revision",
         ):
             self.run_gate(
                 self.gate_args(
@@ -694,6 +854,13 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         ]
         self.assertEqual(sum(item.get("kind") == "adaptive-decision" for item in events), 1)
         self.assertEqual(sum(item.get("kind") == "adaptive-decision-review" for item in events), 0)
+        changed_semantics = self.decision_evidence(
+            decision_id="decision-three-1234", consequence_class="consequential"
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "canonical decision ID"
+        ):
+            self.run_gate(self.gate_args(changed_semantics))
 
     def test_fingerprint_is_recomputed_from_exact_evidence_not_caller_sha(self) -> None:
         policy = self.policy()
@@ -734,17 +901,61 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
             policy, self.packet(policy, evidence=evidence, review=review)
         )
         self.assertTrue(applied["application_authorized"])
+        reviewer_rewrites_evaluator = copy.deepcopy(review)
+        reviewer_rewrites_evaluator["evaluation_disposition"] = "rejected"
+        reviewer_rewrites_evaluator["evaluation_root"] = supervision_log.digest(
+            supervision_log.adaptive_external_evaluation_root_material(
+                reviewer_rewrites_evaluator
+            )
+        )
+        reviewer_rewrites_evaluator = self.sign_outer_review(
+            reviewer_rewrites_evaluator
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "evaluation signature"
+        ):
+            supervision_log.adaptive_decision_posture(
+                policy,
+                self.packet(
+                    policy,
+                    evidence=evidence,
+                    review=reviewer_rewrites_evaluator,
+                ),
+            )
         bad = copy.deepcopy(review)
         bad["evaluator_id"] = bad["reviewer_id"]
-        with self.assertRaisesRegex(supervision_log.SupervisionLogError, "roles are not distinct"):
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "evaluator|roles are not distinct"
+        ):
             supervision_log.adaptive_decision_posture(
                 policy, self.packet(policy, evidence=evidence, review=bad)
             )
-        self_review = copy.deepcopy(review)
-        self_review["reviewer_id"] = self.target
-        with self.assertRaisesRegex(supervision_log.SupervisionLogError, "not independently owned"):
+        unsigned = {
+            "record_id": "unsigned-review-1234",
+            "source_decision_record": "source-decision-1234",
+            "source_decision_sha256": "1" * 64,
+            "decision_id": pending["decision_id"],
+            "decision_fingerprint": pending["decision_fingerprint"],
+            "decision_currentness_root": pending["decision_currentness_root"],
+            "decision_semantics_root": pending["decision_semantics_root"],
+            "disposition": pending["disposition"],
+            "target_class": pending["target_class"],
+            "effect_class": pending["effect_class"],
+            "candidate_evidence_root": None,
+            "candidate_owner_id": None,
+            "reviewer_id": supervision_log.ADAPTIVE_REVIEWER_ID,
+            "evaluator_id": supervision_log.ADAPTIVE_EVALUATOR_ID,
+            "evaluation_evidence_root": "4" * 64,
+            "review_disposition": "accepted",
+            "evaluation_disposition": "accepted",
+            "evidence_root": "2" * 64,
+            "review_root": "3" * 64,
+            "authority_key_sha256": self.public_key_sha,
+            "policy_sha256": policy["policy_sha256"],
+        }
+        with self.assertRaisesRegex(supervision_log.SupervisionLogError, "shape"):
             supervision_log.adaptive_decision_posture(
-                policy, self.packet(policy, evidence=evidence, review=self_review)
+                policy, self.packet(policy, evidence=evidence, review=unsigned)
             )
 
     def test_structural_target_class_change_requires_evidence_and_is_append_only(self) -> None:
@@ -758,6 +969,15 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         self.assertEqual(adjusted["permissions"], initial_permissions)
         self.assertEqual(adjusted["adaptive_decision_control"]["target_class"], "software-factory")
         self.assertTrue((self.root / self.target / "policy-history.jsonl").read_bytes().startswith(first_history))
+        other_repository = self.root / "other-repository"
+        other_repository.mkdir()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "repository root is immutable"
+        ):
+            self.adjust(
+                "--adaptive-target-repository-root",
+                str(other_repository.resolve()),
+            )
 
     def test_status_reports_adaptive_and_legacy_human_requests_truthfully(self) -> None:
         policy = self.policy("recommend")
@@ -789,6 +1009,24 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         escaped["source_root"] = supervision_log.digest(material)
         with self.assertRaisesRegex(supervision_log.SupervisionLogError, "normalized"):
             supervision_log.validate_adaptive_decision_evidence(escaped, policy=policy)
+        widened = self.decision_evidence()
+        widened["target_repository_root"] = "/"
+        widened_material = dict(widened)
+        widened_material.pop("source_root")
+        widened["source_root"] = supervision_log.digest(widened_material)
+        with self.assertRaisesRegex(supervision_log.SupervisionLogError, "canonical policy"):
+            supervision_log.validate_adaptive_decision_evidence(widened, policy=policy)
+        outside = self.root / "outside"
+        outside.mkdir()
+        link = Path(self.repository_root) / "linked-outside"
+        link.symlink_to(outside, target_is_directory=True)
+        linked = self.decision_evidence()
+        linked["affected_scope"][0]["path"] = str(link / "owned.py")  # type: ignore[index]
+        linked_material = dict(linked)
+        linked_material.pop("source_root")
+        linked["source_root"] = supervision_log.digest(linked_material)
+        with self.assertRaisesRegex(supervision_log.SupervisionLogError, "escapes"):
+            supervision_log.validate_adaptive_decision_evidence(linked, policy=policy)
         duplicate_path = self.root / "duplicate.json"
         duplicate_path.write_text('{"schema_version":1,"schema_version":1}\n', encoding="utf-8")
         with self.assertRaisesRegex(supervision_log.SupervisionLogError, "Duplicate"):
@@ -808,7 +1046,8 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         text += MODULE_PATH.parent.parent.joinpath("references", "supervision-policy.md").read_text(encoding="utf-8")
         for token in (
             "adaptive-decision-review", "--decision-evidence", "--review-json",
-            "adaptive-target-class", "full-autonomous",
+            "adaptive-target-class", "adaptive-target-repository-root",
+            "separately signed", "full-autonomous",
         ):
             self.assertIn(token, text)
 
