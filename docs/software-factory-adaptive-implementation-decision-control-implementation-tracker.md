@@ -2814,15 +2814,21 @@ tracker, skill, and target writers separate.
   a tracker is the required normal owner; use `implement-tracker-blocks` for a
   bounded implementation program; use `supervise-tracker-runs` for its owned
   policy/evidence surfaces.
-- Route by exact selected candidate type and the maintained owner map, not by a
-  detector, free-text classifier, or model-created owner. `skill-method` and
-  direct implementation-method candidates route to `implement-tracker-blocks`;
-  `tracker-method` routes to `author-implementation-trackers` plus its accepted
-  independent authoring supervision when consequential; supervision policy or
-  evidence-method changes route to `supervise-tracker-runs`. An absent,
-  conflicting, or unsupported type/owner binding returns revise/reject with no
-  target write; it never invents a generalized detector or asks a human to
-  choose an ordinary owner.
+- Route by the exact current Factory candidate-type enum and maintained owners,
+  not by a detector, free-text classifier, model-created owner, or new registry.
+  The complete non-detector map is: `correction`, `exculpator`, `supervision`,
+  and `resource-policy` route to `supervise-tracker-runs`; `skill-method`,
+  `execution`, `evaluation`, `architecture`, `removal`, and `experiment` route
+  to `implement-tracker-blocks` for the bounded accepted Factory source scope;
+  and `tracker-method` routes to `author-implementation-trackers` plus its
+  accepted independent authoring supervision when consequential. The existing
+  `detector` type, when selected separately, remains owned by
+  `supervise-tracker-runs`; it is not a prerequisite or routing mechanism for
+  any of the eleven non-detector types. A type/scope mismatch, absent type,
+  unknown type, or conflicting owner claim returns revise/reject with no target
+  write. An `architecture`, `removal`, or other implementation candidate whose
+  live evidence invalidates the active program contract follows the existing
+  Loop 1 structural trigger into Loop 2 rather than changing owners by prose.
 - Apply Blocks 4–6 to the Factory-as-target implementation itself: leave a
   sound owner path unchanged, correct a bad local approach inline, use one
   isolated candidate lane only when implementation evidence is necessary, and
@@ -2836,8 +2842,9 @@ tracker, skill, and target writers separate.
   unacknowledged owner results, or candidate writes that bypass the owner.
 - Add focused and interrupted-resume tests for direct skill-method, tracker-
   method, supervision, removal/simplification, rejected owner, inline
-  correction during candidate implementation, candidate-lane escalation,
-  deterministic non-detector routing, unknown candidate type, and conflicting
+  correction during candidate implementation, candidate-lane escalation, all
+  eleven non-detector enum members, detector independence, full-map
+  completeness, unknown candidate type, type/scope mismatch, and conflicting
   owner claims.
 
 ### Scope and non-goals
@@ -2883,6 +2890,8 @@ owner/architecture is proportional before broad validation.
 - Every supported candidate type resolves deterministically to one existing
   authoritative owner, while unknown/conflicting bindings stop before mutation
   without starting a detector framework or human routing gate.
+- Every current non-detector enum member is covered exactly once by the owner
+  map, and none depends on first creating or running a detector candidate.
 - Inline correction remains the normal response to a bad candidate-
   implementation approach, and structural authoring remains exceptional.
 - Duplicate, stale, interrupted, or rejected handoffs cannot create a second
@@ -2896,6 +2905,8 @@ owner/architecture is proportional before broad validation.
   owner.
 - Reject routing based only on hypothesis prose, model preference, a fabricated
   candidate type, or a duplicate owner registry.
+- Reject a partial owner map, duplicate type mapping, valid-type/scope mismatch,
+  or silently treating an unmapped non-detector type as `detector`.
 - Reject a second candidate for an unchanged admitted root.
 - Reject implementation beyond the experiment scope, ceiling, or Stop.
 
