@@ -504,7 +504,7 @@ the relevant authority and evidence contract.
 | 6 | Cross-project factory floor | 3, 4, 5 | `accepted` |
 | 7 | Project and run workspaces | 6 | `accepted` |
 | 8 | Tracker review and progress workspace | 3, 6 | `accepted` |
-| 9 | Metrics and report history workspace | 4, 6 | `in-progress` |
+| 9 | Metrics and report history workspace | 4, 6 | `accepted` |
 | 10 | Gated administrative operation framework | 2, 4, 5 | `not-started` |
 | 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `not-started` |
 | 12 | On-demand mechanical supervision checks | 7, 10, 11 | `not-started` |
@@ -2606,7 +2606,7 @@ state.
 
 ## Block 9 — Metrics and report history workspace
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -2849,9 +2849,17 @@ ordinary chart interaction; widen only on explicit source drill-down.
   desktop, tablet, and mobile, and each browser case proved that the destination
   hash resolved to a mounted element rather than checking the URL alone. Diff
   checks passed and the remote resolved to the exact successor.
-- Fresh independent exact-revision review and acceptance: pending for the one
-  residual source-navigation row; the three previously closed rows are not
-  reopened.
+- Fresh independent exact-revision review: `block6_exact_review` accepted exact
+  evidence revision `8d667b629b72ff3f17ff89d19367d9b76573d1cf`, tree
+  `df2ef3c1c17f6260585289bf3c9772ea16676ece`, with no material finding. The
+  reviewer reproduced exact live range `EVT-001150–EVT-001301`, followed its
+  link to `#EVT-001301`, and proved the destination element was mounted in all
+  three maintained viewports. Focused component proof passed 8/8, the production
+  build passed, focused live Playwright passed 3/3, full-profile verification
+  remained Blocks 0–25 with 0 errors/warnings, all 30 verifier tests passed,
+  diff and isolated-checkout checks passed, and remote identity matched. The
+  sole residual navigation row and all three previously closed metric rows are
+  therefore accepted; Block 9 is accepted without extending past its Stop.
 
 ### Stop
 
