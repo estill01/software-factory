@@ -777,6 +777,22 @@ class EventHeadReconcileTests(unittest.TestCase):
                     ]
                 )
 
+    def test_owner_root_enforcement_is_refused_without_repairing_it(self) -> None:
+        event_bytes = self.ledger.read_bytes()
+        anchor_bytes = self.anchor.read_bytes()
+        owner_root = self.directory / supervision_log.OWNER_ROOT_HISTORY_NAME
+        owner_root.write_bytes(b"")
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "unavailable while owner-root enforcement is active",
+        ):
+            self.reconcile()
+
+        self.assertEqual(self.ledger.read_bytes(), event_bytes)
+        self.assertEqual(self.anchor.read_bytes(), anchor_bytes)
+        self.assertEqual(owner_root.read_bytes(), b"")
+
 
 class SuccessorTransitionContractTests(unittest.TestCase):
     target = "target-1234"

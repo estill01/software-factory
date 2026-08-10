@@ -1746,6 +1746,10 @@ def reconcile_event_ledger_anchor_at(
 ) -> dict[str, Any]:
     directory = directory_path_from_fd(directory_fd)
     directory_snapshot = file_snapshot(os.fstat(directory_fd))
+    if owner_root_enabled_at(directory_fd):
+        raise SupervisionLogError(
+            "Event-head reconciliation is unavailable while owner-root enforcement is active"
+        )
     try:
         event_text, event_snapshot = read_text_snapshot(
             Path("events.jsonl"), directory_fd=directory_fd
