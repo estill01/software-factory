@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "kind": "software-factory-bounded-candidate-independent-review-fixture",
+  "reviewer_id": "reviewer-candidate-independent",
+  "results": [
+    {"case_id": "winning-candidate", "recorded_at": "2026-08-09T20:00:03.000000Z", "comparison_disposition": "candidate-better"},
+    {"case_id": "losing-candidate", "recorded_at": "2026-08-09T20:02:03.000000Z", "comparison_disposition": "incumbent-better"},
+    {"case_id": "novelty-bias", "recorded_at": "2026-08-09T20:01:03.000000Z", "comparison_disposition": "non-inferior-no-benefit"},
+    {"case_id": "inconclusive-comparison", "recorded_at": "2026-08-09T20:03:03.000000Z", "comparison_disposition": "inconclusive"}
+  ]
+}

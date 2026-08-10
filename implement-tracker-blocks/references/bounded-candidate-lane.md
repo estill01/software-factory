@@ -5,6 +5,13 @@ shared identity, evidence, currentness, role, and terminal rules remain defined
 by `adaptive-decision-control.md`; this reference defines the executable lane
 boundary without creating a second controller or ledger.
 
+## Contents
+
+- [Eligibility](#eligibility)
+- [Exact lane record](#exact-lane-record)
+- [Authority and disposition](#authority-and-disposition)
+- [Recovery and Stop](#recovery-and-stop)
+
 ## Eligibility
 
 All of the following are required before a lane exists:
@@ -21,6 +28,25 @@ All of the following are required before a lane exists:
 
 Failure of any condition returns to the incumbent without creating a lane.
 Repeated equivalent decision, candidate, or review roots are a no-op.
+
+Eligibility is a transparent comparison, not a confidence score. The retained
+record contains exact boolean findings for source-backed uncertainty,
+implementation-evidence necessity, read-only resolvability, and isolation;
+exact evidence roots for those findings and reversibility; and integer minutes
+for avoidable rework, the candidate ceiling, review ceiling, and isolation
+recovery. The lane may open only when all boolean gates pass and
+`rework_avoided_minutes` is greater than the sum of those three bounded costs.
+Reversibility is therefore an input to admission, not a fact added after work
+starts.
+
+The lane source freezes the accepted tracker revision and blob root, target and
+incumbent revisions, canonical content manifests, capability contract,
+hypothesis and affected scope, six-dimension order, role identities, writable
+scope and exclusions, positive resource ceilings, Stop, and cleanup posture.
+Every JSON integer is an integer rather than a boolean or string; every ID,
+root, list, and object has a closed shape. Paths are normalized absolute paths,
+contain no `.` or `..`, and, when they name real artifacts, are resolved under
+the exact target or isolated owner before use.
 
 ## Exact lane record
 
@@ -52,12 +78,45 @@ inserted into that distinct enum field or smuggled into narrative. The
 disposition-to-retirement mapping below is derived by the method, not copied
 from an implementer-supplied expected result.
 
-The immutable stage order is `selected`, `implementing`, `validated`,
-`reviewed`, then `closed`. Candidate and current target roots are absent until
-their evidence exists, and later stages refresh currentness without changing
-the adjudicating decision fingerprint. `focused_validation` must pass before
-`mapped_validation` or review becomes eligible. Review evidence binds the
-candidate root, reviewer identity, disposition, and raw comparison root.
+Candidate identity is the SHA-256 root of its revision and sorted file manifest;
+each file entry binds its canonical path and exact byte root. A focused result
+binds the candidate root, command, time, exit, output, and protected result. A
+mapped result additionally binds the incumbent, the already-frozen focused
+result, its later timestamp, command, exit, output, and raw metrics. Mapped work
+cannot begin or become current before a coherent focused pass.
+
+The raw comparison is a six-record ordered array. Each record has exactly
+`dimension`, `unit`, `incumbent_evidence_root`, `candidate_evidence_root`,
+`incumbent_value`, `candidate_value`, and `relation`; relation is exactly
+`candidate-better`, `incumbent-better`, `equivalent`, or `inconclusive` and is
+derived from the retained raw values. The review input binds the target,
+incumbent, candidate, focused, mapped, comparison, capability, and protected
+roots while excluding case labels, expected actions, expected dispositions,
+and implementer preference. A distinct reviewer owns a separately retained
+review result; the method verifies that its disposition follows the raw six
+dimensions before using it.
+
+The immutable common stage order is `selected`, `implementing`, `validated`,
+then `reviewed`. A `candidate-better` result stops this Block at
+`cutover-eligible` with `retirement_posture=eligible-cutover`; it cannot be
+`closed` until Block 9 actually cuts over or retires it. Every losing,
+non-beneficial, or inconclusive result proceeds from `reviewed` to `closed`
+with its exact retirement posture. Candidate and current target roots are
+absent until their evidence exists, and later stages refresh currentness
+without changing the adjudicating decision fingerprint. `focused_validation`
+must pass before `mapped_validation` or review becomes eligible. Review evidence
+binds the candidate root, reviewer identity, comparison conclusion, and raw
+comparison root.
+
+Every stage is the complete Block 4 record, not a lane-specific summary. The
+record uses the Block 4 fingerprint and currentness projections, exact
+evidence-manifest and stage-linked validation/review/outcome claims, and
+`currentness_refresh_of` linkage. The fingerprint binds the accepted
+tracker/Block source, target owner and revision, incumbent revision/content,
+capability and expected effect, hypothesis/scope, comparison order,
+eligibility, isolation, and Stop. Candidate, validation, review, outcome, and
+retirement facts advance currentness without silently replacing that decision
+identity.
 
 ## Authority and disposition
 
@@ -79,11 +138,26 @@ losing or inconclusive lane cannot remain active, become an alternate
 production owner, or be retained as a second implementation. Useful evidence
 may remain immutable and explicitly non-authoritative.
 
+The Block 9 handoff is one canonical, rooted, non-mutating record binding the
+decision fingerprint/currentness, target/incumbent/candidate, review and raw
+comparison, target owner, protected results, exact destination Block, and
+cutover preconditions. It explicitly grants no cutover, publish, tracker, or
+policy authority. Equivalent current fingerprint, candidate, and review roots
+are compared to the independently accepted lane head before lane creation; an
+exact match emits no new lane, review, or handoff. The accepted head must be
+frozen outside the candidate source that consumes it, so a caller cannot label
+its own duplicate or coordinate a source-and-head rewrite.
+
 ## Recovery and Stop
 
 Stop the lane immediately on isolation drift, comparison-basis drift, ceiling
 expiry, focused failure, protected-capability regression, cancellation, or
-review currentness loss. Preserve the incumbent and unrelated work. Reuse valid
+review currentness loss. Mapped failure and hypothesis falsification are also
+terminal retirement results, distinct from an actual focused-before-mapped
+order violation. Each post-creation Stop emits a complete closed Block 4
+record with the exact failed/stale evidence, immutable currentness, cleanup and
+retirement posture; it emits no handoff or production authority. Preserve the
+incumbent and unrelated work. Reuse valid
 candidate evidence after interruption only when the exact hypothesis, roots,
 scope, ceiling, and current comparison basis remain unchanged; otherwise retire
 it as stale. A merge conflict is candidate evidence, never permission to mutate
