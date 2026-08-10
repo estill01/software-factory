@@ -55,7 +55,9 @@ ACCEPTED_SNAPSHOT = load_strict_json(ACCEPTED_SNAPSHOT_PATH)
 EXACT_REVIEW_PATH = SKILL_ROOT / "fixtures/bounded_candidate_exact_review_v1.json"
 EXACT_REVIEW_BYTES = EXACT_REVIEW_PATH.read_bytes()
 EXACT_REVIEW = load_strict_json(EXACT_REVIEW_PATH)
-REVIEWER_PUBLIC_KEY_PATH = SKILL_ROOT / "fixtures/software_factory_release_reviewer_v1.pem"
+REVIEWER_AUTHORITY_ROOT = Path("/Users/ethanstillman/.codex/software-factory-release-authority")
+REVIEWER_AUTHORITY_DIRECTORY = REVIEWER_AUTHORITY_ROOT / "reviewers"
+REVIEWER_PUBLIC_KEY_PATH = REVIEWER_AUTHORITY_DIRECTORY / "software-factory-release-reviewer-v1.pem"
 
 EXPECTED_EXERCISE_ROOT = "a039c787cb15df11e7fd1c2dbfd904a4b908540f5aa2ffea4900f359df383337"
 EXPECTED_REVIEW_FIXTURE_ROOT = "3bbf84c0823cecdd73110f60ff990f541bb20c14a9deeda868463a54811804e0"
@@ -1420,8 +1422,15 @@ def verify_exact_review_signature() -> None:
     if (
         ACCEPTED_SNAPSHOT_PATH.is_symlink()
         or EXACT_REVIEW_PATH.is_symlink()
+        or REVIEWER_AUTHORITY_ROOT.is_symlink()
+        or not REVIEWER_AUTHORITY_ROOT.is_dir()
+        or REVIEWER_AUTHORITY_ROOT.stat().st_mode & 0o222
+        or REVIEWER_AUTHORITY_DIRECTORY.is_symlink()
+        or not REVIEWER_AUTHORITY_DIRECTORY.is_dir()
+        or REVIEWER_AUTHORITY_DIRECTORY.stat().st_mode & 0o222
         or REVIEWER_PUBLIC_KEY_PATH.is_symlink()
         or not REVIEWER_PUBLIC_KEY_PATH.is_file()
+        or REVIEWER_PUBLIC_KEY_PATH.stat().st_mode & 0o222
         or hashlib.sha256(EXACT_REVIEW_BYTES).hexdigest() != EXPECTED_EXACT_REVIEW_SHA256
         or EXACT_REVIEW_BYTES != canonical(EXACT_REVIEW) + b"\n"
         or hashlib.sha256(REVIEWER_PUBLIC_KEY_PATH.read_bytes()).hexdigest() != EXPECTED_REVIEWER_KEY_SHA256
@@ -1477,6 +1486,64 @@ def verify_exact_review_signature() -> None:
         raise ValueError("exact independent review signature differs")
 
 
+def validate_accepted_source_manifest(repo_root: Path) -> None:
+    source_revision = exact_string(
+        ACCEPTED_SNAPSHOT["source_revision"], "accepted source revision", REV_RE
+    )
+    source_files = ACCEPTED_SNAPSHOT["source_files"]
+    if type(source_files) is not list or not source_files or len(source_files) > 16:
+        raise ValueError("accepted source manifest differs")
+    git_probe = subprocess.run(
+        [GIT_EXECUTABLE, "rev-parse", "--is-inside-work-tree"],
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
+    )
+    git_available = git_probe.returncode == 0
+    tracker_relative = "docs/software-factory-adaptive-implementation-decision-control-implementation-tracker.md"
+    seen_paths: set[str] = set()
+    for entry in source_files:
+        if type(entry) is not dict or set(entry) != {"path", "sha256"}:
+            raise ValueError("accepted source entry differs")
+        relative = exact_string(entry["path"], "accepted source path")
+        expected_sha256 = exact_string(entry["sha256"], "accepted source root", SHA_RE)
+        pure_relative = PurePosixPath(relative)
+        if pure_relative.is_absolute() or any(part in {".", ".."} for part in pure_relative.parts):
+            raise ValueError("accepted source path escapes repository")
+        if relative in seen_paths:
+            raise ValueError("accepted source path differs")
+        seen_paths.add(relative)
+        path = repo_root / relative
+        if not path.exists():
+            if (
+                not git_available
+                and relative == tracker_relative
+                and expected_sha256 == ACCEPTED_SNAPSHOT["tracker_sha256"]
+            ):
+                continue
+            raise ValueError("accepted source path differs")
+        try:
+            resolved = path.resolve(strict=True)
+            resolved.relative_to(repo_root.resolve(strict=True))
+        except (FileNotFoundError, ValueError) as error:
+            raise ValueError("accepted source path escapes repository") from error
+        if path.is_symlink() or resolved != repo_root.resolve(strict=True) / relative or not path.is_file():
+            raise ValueError("accepted source path differs")
+        if hashlib.sha256(path.read_bytes()).hexdigest() != expected_sha256:
+            raise ValueError("accepted source content changed")
+        frozen = subprocess.run(
+            [GIT_EXECUTABLE, "show", f"{source_revision}:{relative}"],
+            cwd=repo_root,
+            check=False,
+            capture_output=True,
+        )
+        if frozen.returncode == 0:
+            if hashlib.sha256(frozen.stdout).hexdigest() != expected_sha256:
+                raise ValueError("accepted source revision differs")
+        elif git_available:
+            raise ValueError("accepted source revision cannot be resolved")
+
+
 def validate_accepted_snapshot() -> dict[str, object]:
     expected_fields = {
         "schema_version",
@@ -1505,46 +1572,7 @@ def validate_accepted_snapshot() -> dict[str, object]:
     source_revision = exact_string(
         ACCEPTED_SNAPSHOT["source_revision"], "accepted source revision", REV_RE
     )
-    source_files = ACCEPTED_SNAPSHOT["source_files"]
-    if type(source_files) is not list or not source_files or len(source_files) > 16:
-        raise ValueError("accepted source manifest differs")
-    git_probe = subprocess.run(
-        [GIT_EXECUTABLE, "rev-parse", "--is-inside-work-tree"],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-    )
-    seen_paths: set[str] = set()
-    for entry in source_files:
-        if type(entry) is not dict or set(entry) != {"path", "sha256"}:
-            raise ValueError("accepted source entry differs")
-        relative = exact_string(entry["path"], "accepted source path")
-        expected_sha256 = exact_string(entry["sha256"], "accepted source root", SHA_RE)
-        pure_relative = PurePosixPath(relative)
-        if pure_relative.is_absolute() or any(part in {".", ".."} for part in pure_relative.parts):
-            raise ValueError("accepted source path escapes repository")
-        path = REPO_ROOT / relative
-        try:
-            resolved = path.resolve(strict=True)
-            resolved.relative_to(REPO_ROOT.resolve(strict=True))
-        except ValueError as error:
-            raise ValueError("accepted source path escapes repository") from error
-        if relative in seen_paths or path.is_symlink() or resolved != path.absolute() or not path.is_file():
-            raise ValueError("accepted source path differs")
-        seen_paths.add(relative)
-        if hashlib.sha256(path.read_bytes()).hexdigest() != expected_sha256:
-            raise ValueError("accepted source content changed")
-        frozen = subprocess.run(
-            [GIT_EXECUTABLE, "show", f"{source_revision}:{relative}"],
-            cwd=REPO_ROOT,
-            check=False,
-            capture_output=True,
-        )
-        if frozen.returncode == 0:
-            if hashlib.sha256(frozen.stdout).hexdigest() != expected_sha256:
-                raise ValueError("accepted source revision differs")
-        elif git_probe.returncode == 0:
-            raise ValueError("accepted source revision cannot be resolved")
+    validate_accepted_source_manifest(REPO_ROOT)
     review = ACCEPTED_SNAPSHOT["exact_review"]
     if type(review) is not dict or set(review) != {
         "record_id",
@@ -1947,6 +1975,24 @@ class BoundedCandidateContractTests(unittest.TestCase):
                 validate_accepted_snapshot()
         finally:
             EXACT_REVIEW["review_disposition"] = original_disposition
+
+    def test_installed_release_may_omit_only_the_signed_tracker_blob(self) -> None:
+        tracker_relative = "docs/software-factory-adaptive-implementation-decision-control-implementation-tracker.md"
+        with tempfile.TemporaryDirectory(prefix="software-factory-block6-installed-") as raw:
+            installed_root = Path(raw)
+            copied: list[Path] = []
+            for entry in ACCEPTED_SNAPSHOT["source_files"]:
+                if entry["path"] == tracker_relative:
+                    continue
+                source = REPO_ROOT / entry["path"]
+                destination = installed_root / entry["path"]
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(source.read_bytes())
+                copied.append(destination)
+            validate_accepted_source_manifest(installed_root)
+            copied[0].unlink()
+            with self.assertRaisesRegex(ValueError, "source path differs"):
+                validate_accepted_source_manifest(installed_root)
 
     def test_winner_emits_one_frozen_nonmutating_block9_handoff(self) -> None:
         result = evaluate_unaccepted("winning-candidate")
