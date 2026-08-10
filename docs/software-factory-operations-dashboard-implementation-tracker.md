@@ -3374,12 +3374,17 @@ not full reports/event histories; owners can fetch exact referenced sources.
   conflicting author/revise/implementation ownership, partial task/turn start,
   route absence/denial, stale one-use approval/input, and incomplete
   supervision setup all fail closed or remain explicit partial/unverified
-  attention. The maintained route helper rejects symlink substitution; task
-  conflict reads fail closed on a partial first page. Supervision is `applied`
-  only after the exact mission source, project binding, role bindings, and an
-  automation are all current. Continue, steer, respond, and interrupt use only
-  their typed App Server methods; interruption records no supervision pause,
-  mission stop, or work acceptance.
+  attention. The corrected route adapter opens the maintained helper with
+  no-follow semantics, pins its exact bytes, and executes that open descriptor;
+  replacement or symlink substitution fails closed. Active unmarked repository
+  tasks and every live same-tracker implementation/revision owner block a second
+  writer because no supported handoff exists. Supervision is `applied` only
+  after the exact implementation-task tracker/range/mission marker, canonical
+  current policy, mission/project binding, complete four-role family, exact live
+  role tasks, lifecycle posture, and both distinct ACTIVE watcher/reviewer
+  heartbeat manifests at policy cadence are current. Continue, steer, respond,
+  and interrupt use only their typed App Server methods; interruption records no
+  supervision pause, mission stop, or work acceptance.
 - Operator-interface proof: compact action strips sit directly in project,
   tracker, and task workspaces without a marketing title/subheader row. Typed
   confirmation shows exact target, owner, recipient/gate, source, supplied
@@ -3410,8 +3415,48 @@ not full reports/event histories; owners can fetch exact referenced sources.
   full-matrix passes plus the corrected affected mobile 1/1. Full-profile
   tracker verification reports Blocks 0–25 with 0 errors/warnings, all 30
   verifier tests pass, and diff checks pass. Independent exact-revision review
-  is pending; Block 11 remains `in-progress` until the evidence revision is
-  independently accepted.
+  was therefore requested without advancing Block 11.
+- Exact rejected evidence revision: commit
+  `3e307c6235d0176f0b17c3b9503aedcea5fe139b`, tree
+  `a1059a974ae65b6b8a6c86c14d0af0ba6007390d`, parent
+  `f78dcdd37f1c0208fa2c97480a3409760b1b2382`, was independently `REJECTED`.
+  The review reproduced four material rows: an active unmarked task and a
+  nonoverlapping same-tracker implementation could become second writers; the
+  route helper could be replaced by a symlink after construction; one arbitrary
+  bound role plus one merely readable automation could be reported attached;
+  and a committed tracker filename containing newlines could place hidden
+  instruction lines in generated skill prompts. The review otherwise confirmed
+  exact remote identity, clean diff, Python 92/92, Ruff, build, affected Vitest,
+  browser 3/3 plus the corrected mobile case, full-profile verifier 0/0, and
+  verifier tests 30/30. Block 12 remained closed.
+- Bounded correction successor: commit
+  `a0ef88b98edaecac09c4447d8d92320b3b15d3b6`, tree
+  `4f0623cfcc15e658077a3c2b555b7d92a0f15983`, parent/rejected evidence
+  `3e307c6235d0176f0b17c3b9503aedcea5fe139b`, changes only the workflow owner,
+  tracker path boundary, workflow controls, and their mapped backend/frontend
+  tests. Representative exact blobs are
+  `bdac5c46a7b2d3ca727c44ec5a98424b3547244a` for the corrected owner,
+  `a034f8665b87ef83bed0477426923c0a49d76050` for tracker path validation,
+  `ba846d5cf7b4cde8bd413253be402ece3ed0b555` for the source-bound controls,
+  `67b322d1f361204c98d8bb0546c3149f40e0e985` for backend proof, and
+  `35817dcd9a8229ea307909be43ce7c33a8e64c09` for component proof. Structured
+  tracker facts and Stops are canonical JSON data in generated turns, and
+  control-character tracker paths are rejected before projection or prompt
+  construction. Attachment inputs are derived from the implementation task's
+  own mission marker in the UI and revalidated by the backend at preview,
+  execute, and owner postcondition.
+- Correction validation: the exact backend suite passed 95/95 with
+  `ResourceWarning` fatal, all 18 Vitest files/73 tests and the production build
+  passed, Ruff passed across the full backend source/test tree, and the affected
+  workflow browser scenario passed 3/3 across desktop/tablet/mobile. The exact
+  full browser replay passed 46/48 in its parallel run; its two unrelated
+  project-drilldown and metrics/Axe timeouts then each passed 1/1 in the exact
+  failed viewport with invocation-scoped `--workers=1`, preserving a complete
+  48-case result without changing the global harness. The full tracker verifier
+  remained Blocks 0–25 with 0 errors/warnings, all 30 verifier tests passed, and
+  diff checks passed. Fresh independent exact-revision review of the successor
+  evidence revision is pending; Block 11 remains `in-progress` and Block 12
+  remains `not-started`.
 
 ### Stop
 
