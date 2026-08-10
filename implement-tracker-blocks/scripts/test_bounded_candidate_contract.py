@@ -12,6 +12,7 @@ import re
 import subprocess
 import unittest
 import unicodedata
+import zlib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 
@@ -42,8 +43,8 @@ SPEC = json.loads(ADAPTIVE.split("<!-- contract-spec-v1 -->", 1)[1].split("```js
 EXERCISE = load_strict_json(SKILL_ROOT / "fixtures/bounded_candidate_v1.json")
 REVIEW_FIXTURE = load_strict_json(SKILL_ROOT / "fixtures/bounded_candidate_reviews_v1.json")
 
-EXPECTED_EXERCISE_ROOT = "7061a4a9bcee9bfa069b128de5de4783bf9071e6f20bc11b0163bc8fd1443b4b"
-EXPECTED_REVIEW_FIXTURE_ROOT = "340eb095d9c15768c7dcbb59c1669f36ee22cd143c617f955e00380d42bfc4c6"
+EXPECTED_EXERCISE_ROOT = "11dd76684c2a76a0ba973a77550f2d687fc8861c8cf181078a0104e32196ca64"
+EXPECTED_REVIEW_FIXTURE_ROOT = "16a75918936bd51db2db9d75742f0f8f980547dcc7067fde9789adf289b682b1"
 GIT_EXECUTABLE = "/usr/bin/git"
 SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 REV_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -227,17 +228,6 @@ def target_revision_root() -> str:
     return root({"target_revision": EXERCISE["target_revision"]})
 
 
-class CountingRows:
-    def __init__(self) -> None:
-        self.rows = [b"a", b"bb"]
-        self.consumed = 0
-
-    def __iter__(self):
-        for row in self.rows:
-            self.consumed += 1
-            yield row
-
-
 def stream_source(files: object, *, contained_by: str) -> str:
     path = f"{contained_by}/stream_export.py"
     if type(files) is not list:
@@ -251,29 +241,32 @@ def stream_source(files: object, *, contained_by: str) -> str:
 def execute_stream(files: object, *, contained_by: str) -> dict[str, object]:
     source = stream_source(files, contained_by=contained_by)
     namespace: dict[str, object] = {}
-    safe_builtins = {"iter": iter, "tuple": tuple, "list": list, "bytes": bytes, "RuntimeError": RuntimeError}
+    safe_builtins = {"bytes": bytes, "RuntimeError": RuntimeError}
     try:
         code = compile(source, "<bounded-candidate-stream-export>", "exec")
-        exec(code, {"__builtins__": safe_builtins}, namespace)
+        exec(code, {"__builtins__": safe_builtins, "zlib": zlib}, namespace)
         export = namespace.get("export")
         if not callable(export):
             raise ValueError("stream source lacks export")
-        rows = CountingRows()
+        rows = [(b"row-%04d-" % index) + (b"ABCD" * 64) + (bytes([65 + index % 26]) * 32) for index in range(1000)]
+        payload = b"\n".join(rows)
         result = export(rows)
-        eager = rows.consumed
-        iterator_api = iter(result) is result
-        output = b"".join(result)
+        bytes_api = type(result) is bytes
         regressions: list[str] = []
-        if not iterator_api:
-            regressions.append("stable-iterator-api")
-        expected = b"a\nbb\n"
-        if output != expected:
-            regressions.append("byte-identical-output")
-        output_root = hashlib.sha256(output).hexdigest()
-        focused_output = f"output={output_root};iterator={'true' if iterator_api else 'false'};eager={eager}"
-        return {"exit_code": 0 if not regressions else 1, "output": focused_output, "protected_result": "preserved" if not regressions else "regressed", "output_sha256": output_root, "rows_consumed_before_return": eager, "regression_ids": sorted(regressions)}
-    except (RuntimeError, TypeError) as error:
-        return {"exit_code": 1, "output": f"execution={type(error).__name__}:{error}", "protected_result": "failed", "output_sha256": None, "rows_consumed_before_return": None, "regression_ids": ["execution-failed"]}
+        if not bytes_api:
+            regressions.append("stable-bytes-api")
+        try:
+            restored = zlib.decompress(result) if bytes_api else b""
+        except zlib.error:
+            restored = b""
+        if restored != payload:
+            regressions.append("semantic-roundtrip")
+        payload_root = hashlib.sha256(restored).hexdigest()
+        artifact_bytes = len(result) if bytes_api else None
+        focused_output = f"roundtrip={payload_root};bytes={artifact_bytes};api={'bytes' if bytes_api else type(result).__name__}"
+        return {"exit_code": 0 if not regressions else 1, "output": focused_output, "protected_result": "preserved" if not regressions else "regressed", "decompressed_sha256": payload_root, "artifact_bytes": artifact_bytes, "api_type": "bytes" if bytes_api else type(result).__name__, "regression_ids": sorted(regressions)}
+    except (RuntimeError, TypeError, ValueError) as error:
+        return {"exit_code": 1, "output": f"execution={type(error).__name__}:{error}", "protected_result": "failed", "decompressed_sha256": None, "artifact_bytes": None, "api_type": None, "regression_ids": ["execution-failed"]}
 
 
 def changed_lines(files: object) -> int:
@@ -294,7 +287,7 @@ def derived_candidate_metrics(artifact: dict[str, object]) -> dict[str, object]:
     if artifact["mapped"]["output"] == "comparison=broader-compatibility-unavailable":
         compatibility = None
     return {
-        "observable-outcome": {"output_sha256": observed["output_sha256"], "rows_consumed_before_return": observed["rows_consumed_before_return"]},
+        "observable-outcome": {"decompressed_sha256": observed["decompressed_sha256"], "artifact_bytes": observed["artifact_bytes"]},
         "implementation-cost": {"changed_lines": changed_lines(artifact["files"])},
         "maintenance-cost": {"decision_points": decision_points(artifact["files"], contained_by=EXERCISE["lane"]["root"])},
         "reversibility": {"restore_steps": 1},
@@ -321,7 +314,7 @@ def focused_result(artifact: dict[str, object], candidate_root: str) -> dict[str
     if type(value) is not dict or set(value) != {"recorded_at", "command", "exit_code", "output", "protected_result"}:
         raise ValueError("focused result shape differs")
     observed = execute_stream(artifact["files"], contained_by=EXERCISE["lane"]["root"])
-    if value["command"] != "embedded:focused-stream-export-v1" or any(value[key] != observed[key] for key in ("exit_code", "output", "protected_result")):
+    if value["command"] != "embedded:focused-compressed-export-v1" or any(value[key] != observed[key] for key in ("exit_code", "output", "protected_result")):
         raise ValueError("focused result differs from executable candidate bytes")
     result = {
         "schema_version": 1,
@@ -343,11 +336,11 @@ def validate_metrics(metrics: object) -> dict[str, object]:
     if type(metrics) is not dict or list(metrics) != DIMENSIONS:
         raise ValueError("mapped metrics differ")
     outcome = metrics["observable-outcome"]
-    if type(outcome) is not dict or set(outcome) != {"output_sha256", "rows_consumed_before_return"}:
+    if type(outcome) is not dict or set(outcome) != {"decompressed_sha256", "artifact_bytes"}:
         raise ValueError("observable metric differs")
-    exact_string(outcome["output_sha256"], "observable output", SHA_RE)
-    if outcome["rows_consumed_before_return"] is not None:
-        exact_int(outcome["rows_consumed_before_return"], "eager input rows")
+    exact_string(outcome["decompressed_sha256"], "observable output", SHA_RE)
+    if outcome["artifact_bytes"] is not None:
+        exact_int(outcome["artifact_bytes"], "artifact bytes")
     for dimension, field in (
         ("implementation-cost", "changed_lines"),
         ("maintenance-cost", "decision_points"),
@@ -379,9 +372,9 @@ def mapped_result(artifact: dict[str, object], candidate_root: str, focused: dic
     metrics = value["metrics"]
     if metrics is not None:
         validate_metrics(metrics)
-        if value["command"] != "embedded:mapped-stream-export-v1" or value["exit_code"] != 0 or metrics != derived_candidate_metrics(artifact):
+        if value["command"] != "embedded:mapped-compressed-export-v1" or value["exit_code"] != 0 or metrics != derived_candidate_metrics(artifact):
             raise ValueError("mapped result differs from executable candidate bytes")
-    elif value["command"] != "embedded:mapped-stream-export-v1" or value["exit_code"] == 0:
+    elif value["command"] != "embedded:mapped-compressed-export-v1" or value["exit_code"] == 0:
         raise ValueError("mapped failure differs")
     result = {
         "schema_version": 1,
@@ -405,7 +398,7 @@ def mapped_result(artifact: dict[str, object], candidate_root: str, focused: dic
 def validate_exercise() -> None:
     if root(EXERCISE) != EXPECTED_EXERCISE_ROOT or root(REVIEW_FIXTURE) != EXPECTED_REVIEW_FIXTURE_ROOT:
         raise ValueError("bounded candidate source root differs")
-    exact_exercise_fields = {"schema_version", "kind", "block_number", "tracker_source_revision", "tracker_sha256", "mission_root", "policy_root", "event_head_root", "block_contract_root", "candidate_trigger", "target_repository_root", "target_revision", "capability_contract", "incumbent", "lane", "hypothesis", "hypothesis_scope", "comparison_dimensions", "eligibility_default", "artifacts", "cases"}
+    exact_exercise_fields = {"schema_version", "kind", "block_number", "tracker_source_revision", "tracker_sha256", "mission_root", "policy_root", "event_head_root", "block_contract_root", "candidate_trigger", "target_repository_root", "target_revision", "capability_contract", "incumbent", "lane", "hypothesis", "hypothesis_scope", "comparison_dimensions", "eligibility_evidence", "eligibility_default", "artifacts", "cases"}
     if set(EXERCISE) != exact_exercise_fields:
         raise ValueError("bounded candidate exercise shape differs")
     if type(EXERCISE["schema_version"]) is not int or EXERCISE["schema_version"] != 2 or EXERCISE["kind"] != "software-factory-bounded-candidate-exercise" or type(EXERCISE["block_number"]) is not int or EXERCISE["block_number"] != 6:
@@ -473,6 +466,15 @@ def validate_exercise() -> None:
     exact_string(EXERCISE["hypothesis"], "hypothesis")
     if EXERCISE["comparison_dimensions"] != DIMENSIONS:
         raise ValueError("comparison dimension order differs")
+    eligibility_records = EXERCISE["eligibility_evidence"]
+    if type(eligibility_records) is not dict or set(eligibility_records) != {"outcome_uncertainty", "implementation_evidence", "reversibility"}:
+        raise ValueError("eligibility evidence differs")
+    for record in eligibility_records.values():
+        if type(record) is not dict:
+            raise ValueError("eligibility evidence record differs")
+    defaults = EXERCISE["eligibility_default"]
+    if (defaults["outcome_uncertainty_evidence_root"], defaults["implementation_evidence_root"], defaults["reversibility_evidence_root"]) != (root(eligibility_records["outcome_uncertainty"]), root(eligibility_records["implementation_evidence"]), root(eligibility_records["reversibility"])):
+        raise ValueError("eligibility evidence roots differ")
     validate_metrics(EXERCISE["incumbent"]["metrics"])
     if set(EXERCISE["incumbent"]) != {"revision", "production_authority_owner_id", "files", "metrics", "writable_scope"}:
         raise ValueError("candidate incumbent shape differs")
@@ -576,7 +578,7 @@ def decision_basis(case: dict[str, object], eligible: dict[str, object]) -> dict
 
 def source_evidence(case: dict[str, object], eligible: dict[str, object]) -> list[dict[str, object]]:
     refs = [
-        {"ref_id": "evidence-capability", "source_class": "tracker", "adjudication_posture": "adjudicating", "root_sha256": root(EXERCISE["capability_contract"]), "claim_ids": sorted(["bounded-candidate", "byte-identical-output", "capability-contract", "generalized-service", "protected-contract", "stable-iterator-api"])},
+        {"ref_id": "evidence-capability", "source_class": "tracker", "adjudication_posture": "adjudicating", "root_sha256": root(EXERCISE["capability_contract"]), "claim_ids": sorted(["bounded-candidate", "capability-contract", "generalized-service", "protected-contract", "semantic-roundtrip", "stable-bytes-api"])},
         {"ref_id": "evidence-eligibility", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": eligible["eligibility_root"], "claim_ids": sorted(["bounded-candidate", "implementation-evidence-required", "material-better-path", "positive-decision-value", "reversibility-bound"])},
         {"ref_id": "evidence-incumbent", "source_class": "repository", "adjudication_posture": "adjudicating", "root_sha256": incumbent_root(), "claim_ids": sorted(["incumbent-authoritative", "incumbent-local", "incumbent-revision"])},
         {"ref_id": "evidence-reviewer-authority", "source_class": "independent-review", "adjudication_posture": "process", "root_sha256": root(REVIEW_FIXTURE["reviewer_authority"]), "claim_ids": [EXERCISE["lane"]["independent_reviewer_id"]]},
@@ -633,15 +635,15 @@ def decision_fingerprint(case: dict[str, object], eligible: dict[str, object]) -
 
 def metric_relation(dimension: str, incumbent: dict[str, object], candidate: dict[str, object]) -> tuple[str, str]:
     if dimension == "observable-outcome":
-        if candidate["output_sha256"] != incumbent["output_sha256"]:
-            return "incumbent-better", "bytes-and-eager-rows"
-        if candidate["rows_consumed_before_return"] is None:
-            return "inconclusive", "bytes-and-eager-rows"
-        if candidate["rows_consumed_before_return"] < incumbent["rows_consumed_before_return"]:
-            return "candidate-better", "bytes-and-eager-rows"
-        if candidate["rows_consumed_before_return"] > incumbent["rows_consumed_before_return"]:
-            return "incumbent-better", "bytes-and-eager-rows"
-        return "equivalent", "bytes-and-eager-rows"
+        if candidate["decompressed_sha256"] != incumbent["decompressed_sha256"]:
+            return "incumbent-better", "roundtrip-sha256-and-artifact-bytes"
+        if candidate["artifact_bytes"] is None:
+            return "inconclusive", "roundtrip-sha256-and-artifact-bytes"
+        if candidate["artifact_bytes"] < incumbent["artifact_bytes"]:
+            return "candidate-better", "roundtrip-sha256-and-artifact-bytes"
+        if candidate["artifact_bytes"] > incumbent["artifact_bytes"]:
+            return "incumbent-better", "roundtrip-sha256-and-artifact-bytes"
+        return "equivalent", "roundtrip-sha256-and-artifact-bytes"
     field = {"implementation-cost": "changed_lines", "maintenance-cost": "decision_points", "reversibility": "restore_steps"}.get(dimension)
     if field is not None:
         left, right = incumbent[field], candidate[field]
@@ -812,21 +814,34 @@ def stop_cause(case: dict[str, object], artifact: dict[str, object], candidate_r
         return {"reason": reason, "exceeded": exceeded, "usage": usage, "resource_ceiling": ceiling, "time_ceiling_minutes": EXERCISE["lane"]["time_ceiling_minutes"]}
     supplied = case.get("stop_evidence")
     if reason == "incumbent-basis-drift":
-        if type(supplied) is not dict or set(supplied) != {"observed_incumbent_root"} or supplied["observed_incumbent_root"] == incumbent_root():
+        if type(supplied) is not dict or set(supplied) != {"observed_incumbent"} or type(supplied["observed_incumbent"]) is not dict:
             raise ValueError("incumbent drift evidence differs")
-        exact_string(supplied["observed_incumbent_root"], "observed incumbent root", SHA_RE)
-        return {"reason": reason, "expected_incumbent_root": incumbent_root(), **supplied}
+        observed = supplied["observed_incumbent"]
+        if set(observed) != {"schema_version", "kind", "revision", "files"} or observed["schema_version"] != 1 or observed["kind"] != "software-factory-candidate-incumbent-observation":
+            raise ValueError("incumbent observation shape differs")
+        revision = exact_string(observed["revision"], "observed incumbent revision", REV_RE)
+        observed_root = root({"revision": revision, "files": file_manifest(observed["files"], contained_by=EXERCISE["target_repository_root"])})
+        if observed_root == incumbent_root():
+            raise ValueError("incumbent drift evidence is unchanged")
+        return {"reason": reason, "expected_incumbent_root": incumbent_root(), "observed_incumbent": observed, "observed_incumbent_record_root": root(observed), "observed_incumbent_root": observed_root}
     if reason == "cancelled":
-        if type(supplied) is not dict or set(supplied) != {"cancellation_authority_root"}:
+        if type(supplied) is not dict or set(supplied) != {"cancellation_authority"} or type(supplied["cancellation_authority"]) is not dict:
             raise ValueError("cancellation evidence differs")
-        exact_string(supplied["cancellation_authority_root"], "cancellation authority", SHA_RE)
-        return {"reason": reason, **supplied}
+        authority = supplied["cancellation_authority"]
+        if set(authority) != {"schema_version", "kind", "record_id", "authority_class", "reason"} or authority["schema_version"] != 1 or authority["kind"] != "software-factory-candidate-cancellation" or authority["authority_class"] != "repository-policy":
+            raise ValueError("cancellation authority shape differs")
+        exact_string(authority["record_id"], "cancellation record", ID_RE)
+        exact_string(authority["reason"], "cancellation reason")
+        return {"reason": reason, "cancellation_authority": authority, "cancellation_authority_root": root(authority)}
     if reason == "isolation-drift":
         expected = root(EXERCISE["lane"]["isolated_writable_scope"])
-        if type(supplied) is not dict or set(supplied) != {"observed_isolation_root"} or supplied["observed_isolation_root"] == expected:
+        if type(supplied) is not dict or set(supplied) != {"observed_isolation_scope"}:
             raise ValueError("isolation drift evidence differs")
-        exact_string(supplied["observed_isolation_root"], "observed isolation root", SHA_RE)
-        return {"reason": reason, "expected_isolation_root": expected, **supplied}
+        observed = validate_scope_refs(supplied["observed_isolation_scope"], "observed isolation scope", contained_by=EXERCISE["lane"]["root"], min_items=1)
+        observed_root = root(observed)
+        if observed_root == expected:
+            raise ValueError("isolation drift evidence is unchanged")
+        return {"reason": reason, "expected_isolation_root": expected, "observed_isolation_scope": observed, "observed_isolation_root": observed_root}
     if reason == "focused-failure":
         if focused["exit_code"] == 0:
             raise ValueError("focused failure evidence differs")
@@ -850,10 +865,16 @@ def stop_cause(case: dict[str, object], artifact: dict[str, object], candidate_r
                 raise ValueError("hypothesis falsification is unsupported")
             return {"reason": reason, "comparison_root": comparison_root}
         expected_input = root(blind_review_packet(candidate_root, mapped, comparison))
-        if type(supplied) is not dict or set(supplied) != {"observed_review_input_root"} or supplied["observed_review_input_root"] == expected_input:
+        if type(supplied) is not dict or set(supplied) != {"observed_review_input"} or type(supplied["observed_review_input"]) is not dict:
             raise ValueError("review currentness evidence differs")
-        exact_string(supplied["observed_review_input_root"], "observed review input", SHA_RE)
-        return {"reason": reason, "expected_review_input_root": expected_input, **supplied}
+        observed = supplied["observed_review_input"]
+        if set(observed) != {"schema_version", "kind", "target_revision", "posture"} or observed["schema_version"] != 1 or observed["kind"] != "software-factory-candidate-review-input-observation" or observed["posture"] != "stale-target-basis":
+            raise ValueError("review input observation differs")
+        exact_string(observed["target_revision"], "observed review target revision", REV_RE)
+        observed_root = root(observed)
+        if observed_root == expected_input:
+            raise ValueError("review currentness evidence is unchanged")
+        return {"reason": reason, "expected_review_input_root": expected_input, "observed_review_input": observed, "observed_review_input_root": observed_root}
     raise ValueError("unknown candidate Stop reason")
 
 
@@ -875,8 +896,8 @@ def candidate_fields(candidate_root: str | None, focused: dict[str, object] | No
         "time_ceiling": "elapsed-minutes<=20",
         "stop_condition": EXERCISE["lane"]["stop_condition"],
         "production_authority_owner_id": EXERCISE["incumbent"]["production_authority_owner_id"],
-        "focused_validation": ["focused-stream-export-v1"],
-        "mapped_validation": ["mapped-stream-export-v1"],
+        "focused_validation": ["focused-compressed-export-v1"],
+        "mapped_validation": ["mapped-compressed-export-v1"],
         "validation_order": "focused-then-mapped",
         "comparison_dimensions": DIMENSIONS,
         "independent_reviewer_id": EXERCISE["lane"]["independent_reviewer_id"],
@@ -1220,6 +1241,8 @@ class BoundedCandidateContractTests(unittest.TestCase):
         self.assertEqual(positive["net_avoidable_minutes"], 25)
         self.assertEqual(positive["reversibility_posture"], "checkpoint-restore")
         self.assertTrue(lane_eligible(positive))
+        self.assertIn("compressed-size delta", EXERCISE["eligibility_evidence"]["outcome_uncertainty"]["claim"])
+        self.assertEqual(EXERCISE["eligibility_default"]["implementation_evidence_root"], root(EXERCISE["eligibility_evidence"]["implementation_evidence"]))
         for case_id in ("read-only-decidable", "unsafe-isolation", "style-only", "speculative-reuse", "novelty-only"):
             result = evaluate(case_id)
             self.assertEqual(result["action"], "reject-before-lane")
@@ -1304,7 +1327,7 @@ class BoundedCandidateContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "bind raw comparison"):
             review_fixture_result(packet, changed)
         forged = copy.deepcopy(result["raw_comparison_records"])
-        forged[0]["candidate_value"]["rows_consumed_before_return"] = 99999999
+        forged[0]["candidate_value"]["artifact_bytes"] = 99999999
         forged[0]["candidate_evidence_root"] = "0" * 64
         with self.assertRaisesRegex(ValueError, "retained evidence"):
             validate_comparison(forged, result["mapped_result"])
@@ -1312,9 +1335,10 @@ class BoundedCandidateContractTests(unittest.TestCase):
     def test_embedded_candidate_bytes_are_the_observable_source(self) -> None:
         incumbent = execute_stream(EXERCISE["incumbent"]["files"], contained_by=EXERCISE["target_repository_root"])
         winner = execute_stream(EXERCISE["artifacts"]["candidate-winning"]["files"], contained_by=EXERCISE["lane"]["root"])
-        self.assertEqual(incumbent["output_sha256"], winner["output_sha256"])
-        self.assertEqual((incumbent["rows_consumed_before_return"], winner["rows_consumed_before_return"]), (2, 0))
+        self.assertEqual(incumbent["decompressed_sha256"], winner["decompressed_sha256"])
+        self.assertEqual((incumbent["artifact_bytes"], winner["artifact_bytes"]), (4619, 4480))
         self.assertEqual(winner["regression_ids"], [])
+        self.assertEqual(metric_relation("observable-outcome", EXERCISE["incumbent"]["metrics"]["observable-outcome"], derived_candidate_metrics(EXERCISE["artifacts"]["candidate-winning"])["observable-outcome"])[0], "candidate-better")
         broken = copy.deepcopy(EXERCISE["artifacts"]["candidate-winning"])
         broken["files"][0]["content_utf8"] = "def export(rows):\n    return b'BROKEN'\n"
         with self.assertRaisesRegex(ValueError, "executable candidate bytes"):
@@ -1331,10 +1355,21 @@ class BoundedCandidateContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "retained artifacts"):
             derived_usage(changed, EXERCISE["artifacts"][changed["artifact_id"]])
 
+    def test_stop_observations_are_retained_objects_not_unresolved_roots(self) -> None:
+        for case_id, retained_key, derived_key in (
+            ("incumbent-conflict", "observed_incumbent", "observed_incumbent_record_root"),
+            ("review-currentness-loss", "observed_review_input", "observed_review_input_root"),
+            ("cancelled", "cancellation_authority", "cancellation_authority_root"),
+            ("isolation-drift", "observed_isolation_scope", "observed_isolation_root"),
+        ):
+            result = evaluate(case_id)
+            self.assertIn(retained_key, result["stop_cause"])
+            self.assertEqual(result["stop_cause"][derived_key], root(result["stop_cause"][retained_key]))
+
     def test_evidence_claim_binding_rejects_protected_path_and_reviewer_forgery(self) -> None:
         record = copy.deepcopy(evaluate("winning-candidate")["stage_records"][-1])
         capability = next(item for item in record["evidence_refs"] if item["ref_id"] == "evidence-capability")
-        capability["claim_ids"].remove("stable-iterator-api")
+        capability["claim_ids"].remove("stable-bytes-api")
         record["evidence_manifest_root"] = root(record["evidence_refs"])
         record["currentness_root"] = root(currentness_projection(record))
         with self.assertRaisesRegex(ValueError, "protected capability"):
@@ -1347,8 +1382,8 @@ class BoundedCandidateContractTests(unittest.TestCase):
             validate_stage_record(record)
 
     def test_exact_regression_id_sets_are_not_lossy_counts(self) -> None:
-        left = {"regression_ids": ["stable-iterator-api"]}
-        right = {"regression_ids": ["byte-identical-output"]}
+        left = {"regression_ids": ["stable-bytes-api"]}
+        right = {"regression_ids": ["semantic-roundtrip"]}
         relation, _ = metric_relation("protected-capability", left, right)
         self.assertEqual(relation, "incumbent-better")
 

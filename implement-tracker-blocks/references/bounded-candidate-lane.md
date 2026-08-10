@@ -28,6 +28,10 @@ All of the following are required before a lane exists:
 
 Failure of any condition returns to the incumbent without creating a lane.
 Repeated equivalent decision, candidate, or review roots are a no-op.
+Source semantics that already decide the result route to inline correction;
+the retained compression exercise opens a lane only because the representative
+artifact-size delta and its exact protected-capability result require executing
+the bounded alternatives.
 
 Eligibility is a transparent comparison, not a confidence score. The retained
 record contains exact boolean findings for source-backed uncertainty,
@@ -88,8 +92,8 @@ result, its later timestamp, command, exit, output, and raw metrics. Mapped work
 cannot begin or become current before a coherent focused pass.
 
 Retained focused and mapped claims are checked by executing the bounded
-candidate bytes with a restricted embedded runtime. Output identity, protected
-API posture, eager-input behavior, changed lines, decision points, exact
+candidate bytes with a restricted embedded runtime. Semantic output identity,
+artifact size, protected API posture, changed lines, decision points, exact
 compatibility obligations, and named protected regressions are derived from
 those bytes; fixture strings cannot override a different observable result.
 File count, changed lines, executed commands, reviewer passes, and elapsed time
