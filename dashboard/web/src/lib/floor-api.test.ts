@@ -18,6 +18,14 @@ describe("Factory Floor API contract", () => {
     expect(parsed.data.rows.map((row) => row.light.posture)).toEqual(["red", "green", "neutral"])
     expect(parsed.data.conclusions[0].author_status).toBe("unavailable")
     expect(parsed.data.accepted_outcomes[0].accepted_at).toBeNull()
+    expect(parsed.data.attention_summary).toEqual({
+      total: 2,
+      returned: 2,
+      truncated: false,
+      critical_total: 1,
+      critical_returned: 1,
+      critical_omitted: 0,
+    })
     expect(parsed.data.metrics.find((metric) => metric.key === "api-equivalent")).toMatchObject({
       label: "API-equivalent estimate",
       unit: "USD estimate",

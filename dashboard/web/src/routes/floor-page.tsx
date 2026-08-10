@@ -136,6 +136,7 @@ function Inspector({ data, selected, close }: {
       ["Task", row.implementation.task_id],
       ["Task state", row.implementation.status_label],
       ["Supervision", row.supervision.status_label],
+      ["Supervisor group", row.supervision.group_id],
       ["Roles", row.supervision.role_count],
       ["Binding", row.supervision.binding_integrity],
       ["Tracker", row.work.tracker.title ?? row.work.tracker.status],
@@ -146,6 +147,19 @@ function Inspector({ data, selected, close }: {
       ["Reason", row.light.reason],
       ["Observed", row.light.observed_at],
     )
+    row.supervision.roles.forEach((role, index) => {
+      const roleName = role.label ?? role.role ?? `Role ${index + 1}`
+      facts.push([
+        `Role · ${roleName}`,
+        [
+          role.role ?? "type unavailable",
+          role.thread_id ?? "task unavailable",
+          `binding ${role.binding_status ?? "unavailable"}`,
+          `task ${role.task_status}`,
+          `automation ${role.automation_status ?? "unavailable"}`,
+        ].join(" · "),
+      ])
+    })
     const preferred = row.detail.source_refs[0]
     identity = preferred?.identity ?? row.detail.id
     revision = preferred?.revision ?? null
@@ -229,8 +243,8 @@ function Inspector({ data, selected, close }: {
         </Button>
       </div>
       <dl className="floor-inspector-facts">
-        {facts.map(([label, value]) => (
-          <div key={label}>
+        {facts.map(([label, value], index) => (
+          <div key={`${label}:${index}`}>
             <dt>{label}</dt>
             <dd>{value === null || value === "" ? "Unavailable" : String(value)}</dd>
           </div>
@@ -248,6 +262,9 @@ function Inspector({ data, selected, close }: {
 
 function FloorRow({ row, inspect }: { row: FactoryFloorRow; inspect: (route: string) => void }) {
   const tracker = row.work.tracker
+  const roleSummary = row.supervision.roles
+    .map((role) => role.label ?? role.role ?? shortId(role.thread_id))
+    .join(" · ")
   return (
     <article className={`factory-row posture-${row.light.posture}`}>
       <div className="factory-row-implementation">
@@ -267,7 +284,12 @@ function FloorRow({ row, inspect }: { row: FactoryFloorRow; inspect: (route: str
       <div className="factory-row-supervision">
         <span className="cell-label">Supervisor</span>
         <strong>{row.supervision.status_label}</strong>
-        <span>{row.supervision.role_count} role{row.supervision.role_count === 1 ? "" : "s"}</span>
+        <span title={roleSummary || undefined}>
+          {roleSummary || `${row.supervision.role_count} role${row.supervision.role_count === 1 ? "" : "s"}`}
+        </span>
+        <span className="row-meta">
+          Group <code title={row.supervision.group_id ?? undefined}>{shortId(row.supervision.group_id)}</code>
+        </span>
         <span className="row-meta">Target <code>{shortId(row.supervision.target_thread_id)}</code></span>
         <span>{row.supervision.binding_integrity === "valid" ? "Bindings valid" : `Bindings ${row.supervision.binding_integrity}`}</span>
       </div>
@@ -377,9 +399,11 @@ function FactoryFloor({ data, isFetching, refresh }: {
     matchesProject(item.project_id)
     && withinTime(item.observed_at, timeFilter, now)
   )
-  const totalCritical = data.attention.filter((item) => item.severity !== "neutral").length
   const visibleCritical = attentionMatches.filter((item) => item.severity !== "neutral").length
-  const hiddenCritical = Math.max(0, totalCritical - visibleCritical)
+  const hiddenCritical = Math.max(
+    0,
+    data.attention_summary.critical_returned - visibleCritical,
+  )
   const attention = attentionMatches.slice(0, 10)
   const boundedCritical = attentionMatches
     .slice(attention.length)
@@ -504,6 +528,19 @@ function FactoryFloor({ data, isFetching, refresh }: {
         {boundedCritical > 0 && (
           <div className="bounded-note critical-note" role="status">
             {boundedCritical} critical item{boundedCritical === 1 ? "" : "s"} outside the bounded view.
+          </div>
+        )}
+        {data.attention_summary.truncated && (
+          <div
+            className={`bounded-note ${data.attention_summary.critical_omitted ? "critical-note" : ""}`}
+            role="status"
+          >
+            {data.attention_summary.total - data.attention_summary.returned} attention item
+            {data.attention_summary.total - data.attention_summary.returned === 1 ? "" : "s"}
+            {" omitted by the API bound"}
+            {data.attention_summary.critical_omitted > 0
+              ? ` · ${data.attention_summary.critical_omitted} critical`
+              : ""}.
           </div>
         )}
       </section>

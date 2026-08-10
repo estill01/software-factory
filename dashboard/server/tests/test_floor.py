@@ -271,6 +271,12 @@ class FactoryFloorCompositionTests(unittest.TestCase):
         self.assertEqual(alpha["work"]["active_block"], "6")
         self.assertEqual(alpha["light"]["posture"], "green")
         self.assertFalse(alpha["light"]["completion_claim"])
+        self.assertEqual(alpha["supervision"]["group_id"], "group-target-alpha")
+        self.assertEqual(alpha["supervision"]["roles"][0]["label"], "Watcher")
+        self.assertEqual(
+            alpha["supervision"]["roles"][0]["thread_id"],
+            "watcher-target-alpha",
+        )
 
         beta = rows["run:target-beta"]
         self.assertEqual(beta["project"]["status"], "ambiguous")
@@ -335,6 +341,57 @@ class FactoryFloorCompositionTests(unittest.TestCase):
         self.assertEqual(row["light"]["posture"], "neutral")
         self.assertEqual(row["light"]["label"], "Paused")
         self.assertFalse(row["light"]["completion_claim"])
+
+    def test_attention_bound_reports_every_omitted_critical_item(self) -> None:
+        self.operations["attention"] = [
+            {
+                "rank": index + 1,
+                "rule": "open-incident",
+                "severity": "red",
+                "target_thread_id": "target-alpha",
+                "detail": f"Critical item {index + 1}.",
+                "source_identity": "supervise-tracker-runs/incidents",
+                "source_record_id": f"INC-{index + 1:03d}",
+                "source_path": "events.jsonl",
+                "source_line": index + 1,
+                "observed_at": OBSERVED,
+            }
+            for index in range(81)
+        ]
+
+        floor = self.compose()
+
+        self.assertEqual(len(floor["attention"]), 80)
+        self.assertEqual(
+            floor["attention_summary"],
+            {
+                "total": 85,
+                "returned": 80,
+                "truncated": True,
+                "critical_total": 82,
+                "critical_returned": 80,
+                "critical_omitted": 2,
+            },
+        )
+        self.assertEqual(floor["summary"]["action_required"], 82)
+
+    def test_semantic_fingerprint_tracks_task_state_not_read_time(self) -> None:
+        initial = self.compose()
+        first_task = self.tasks["tasks"][0]
+        first_task["status"] = {"type": "idle", "active_flags": []}
+
+        changed = self.compose()
+        later_read = compose_factory_floor(
+            projects=self.projects,
+            operations=self.operations,
+            trackers=self.trackers,
+            task_data=self.tasks,
+            source_health=self.sources,
+            observed_at="2026-08-09T18:05:00.000Z",
+        )
+
+        self.assertNotEqual(initial["fingerprint"], changed["fingerprint"])
+        self.assertEqual(changed["fingerprint"], later_read["fingerprint"])
 
 
 if __name__ == "__main__":

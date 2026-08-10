@@ -10,6 +10,26 @@ function row(
 ): FactoryFloorRow {
   const supervised = options.supervised ?? true
   const issues = options.issues ?? 0
+  const roles: FactoryFloorRow["supervision"]["roles"] = supervised
+    ? [
+        {
+          role: "routine_watcher",
+          label: "Watcher",
+          thread_id: `watcher-${id}`,
+          binding_status: "bound",
+          task_status: "idle",
+          automation_status: "available",
+        },
+        {
+          role: "semantic_reviewer",
+          label: "Reviewer",
+          thread_id: `reviewer-${id}`,
+          binding_status: "bound",
+          task_status: "idle",
+          automation_status: "unavailable",
+        },
+      ]
+    : []
   return {
     id: `${supervised ? "run" : "task"}:${id}`,
     project: {
@@ -33,17 +53,8 @@ function row(
       status: supervised ? "active" : "unmonitored",
       status_label: supervised ? "Supervising" : "Unmonitored",
       binding_integrity: supervised ? "valid" : "unavailable",
-      roles: supervised
-        ? [{
-            role: "routine_watcher",
-            label: "Watcher",
-            thread_id: `watcher-${id}`,
-            binding_status: "bound",
-            task_status: "idle",
-            automation_status: "available",
-          }]
-        : [],
-      role_count: supervised ? 1 : 0,
+      roles,
+      role_count: roles.length,
       last_check: supervised
         ? {
             record_id: `check-${id}`,
@@ -202,6 +213,14 @@ export function makeFactoryFloorEnvelope(): FactoryFloorEnvelope {
           },
         },
       ],
+      attention_summary: {
+        total: 2,
+        returned: 2,
+        truncated: false,
+        critical_total: 1,
+        critical_returned: 1,
+        critical_omitted: 0,
+      },
       conclusions: [{
         id: "conclusion:target-alpha:review-1",
         target_thread_id: "target-alpha",

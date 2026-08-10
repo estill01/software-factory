@@ -289,6 +289,16 @@ export const floorDataSchema = z
     rows: z.array(floorRowSchema),
     rows_truncated: z.boolean(),
     attention: z.array(floorAttentionSchema),
+    attention_summary: z
+      .object({
+        total: nonnegativeInteger,
+        returned: nonnegativeInteger,
+        truncated: z.boolean(),
+        critical_total: nonnegativeInteger,
+        critical_returned: nonnegativeInteger,
+        critical_omitted: nonnegativeInteger,
+      })
+      .strict(),
     conclusions: z.array(floorConclusionSchema),
     accepted_outcomes: z.array(floorOutcomeSchema),
     metrics: z.array(floorMetricSchema),

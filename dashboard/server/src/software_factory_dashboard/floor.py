@@ -8,7 +8,6 @@ from typing import Any, Mapping, Sequence
 
 
 MAX_FLOOR_ROWS = 80
-MAX_TASK_ONLY_ROWS = 32
 MAX_ATTENTION = 80
 MAX_CONCLUSIONS = 24
 MAX_OUTCOMES = 24
@@ -637,7 +636,7 @@ def _attention(
             }
         )
         next_rank += 1
-    return sorted(items, key=lambda item: (int(item["rank"]), str(item["id"])))[:MAX_ATTENTION]
+    return sorted(items, key=lambda item: (int(item["rank"]), str(item["id"])))
 
 
 def _conclusions(operations: Mapping[str, Any] | None) -> list[dict[str, Any]]:
@@ -831,7 +830,7 @@ def compose_factory_floor(
         or datetime.min.replace(tzinfo=UTC),
         reverse=True,
     )
-    rows.extend(task_only[:MAX_TASK_ONLY_ROWS])
+    rows.extend(task_only)
     posture_order = {"red": 0, "amber": 1, "green": 2, "neutral": 3}
     rows.sort(
         key=lambda row: (
@@ -841,23 +840,33 @@ def compose_factory_floor(
         )
     )
     row_count = len(rows)
-    rows = rows[:MAX_FLOOR_ROWS]
-    posture_counts = Counter(row["light"]["posture"] for row in rows)
+    all_rows = rows
+    rows = all_rows[:MAX_FLOOR_ROWS]
+    posture_counts = Counter(row["light"]["posture"] for row in all_rows)
     conclusions = _conclusions(operations)
     outcomes = _outcomes(trackers)
-    attention = _attention(operations, task_only[:MAX_TASK_ONLY_ROWS], source_health, observed_at)
+    all_attention = _attention(operations, task_only, source_health, observed_at)
+    attention = all_attention[:MAX_ATTENTION]
+    critical_attention = [
+        item for item in all_attention if item["severity"] in {"red", "amber"}
+    ]
+    returned_critical_attention = [
+        item for item in attention if item["severity"] in {"red", "amber"}
+    ]
     run_count = len(operations.get("runs", [])) if operations else None
-    active_tasks = sum(1 for row in rows if row["implementation"]["status"] == "active")
+    active_tasks = sum(
+        1 for row in all_rows if row["implementation"]["status"] == "active"
+    )
     active_implementations = sum(
         1
-        for row in rows
+        for row in all_rows
         if row["implementation"]["status"] == "active"
         or row["supervision"]["status"] == "active"
     )
     active_projects = len(
         {
             row["project"]["project_id"]
-            for row in rows
+            for row in all_rows
             if row["project"]["project_id"]
             and (
                 row["implementation"]["status"] in {"active", "idle"}
@@ -867,11 +876,11 @@ def compose_factory_floor(
     )
     degraded_groups = sum(
         1
-        for row in rows
+        for row in all_rows
         if row["supervision"]["run_id"]
         and row["supervision"]["binding_integrity"] != "valid"
     )
-    open_issues = sum(int(row["issues"]["total"]) for row in rows)
+    open_issues = sum(int(row["issues"]["total"]) for row in all_rows)
     accepted_blocks = sum(
         int(tracker.get("counts", {}).get("accepted", 0))
         for tracker in trackers
@@ -890,11 +899,11 @@ def compose_factory_floor(
         len(operations.get("orphan_automations", [])) if operations else None
     )
     unmonitored_implementations = sum(
-        1 for row in rows if row["supervision"]["status"] == "unmonitored"
+        1 for row in all_rows if row["supervision"]["status"] == "unmonitored"
     )
-    incident_count = sum(int(row["issues"]["incidents"]) for row in rows)
-    decision_count = sum(int(row["issues"]["decisions"]) for row in rows)
-    transition_count = sum(int(row["issues"]["transitions"]) for row in rows)
+    incident_count = sum(int(row["issues"]["incidents"]) for row in all_rows)
+    decision_count = sum(int(row["issues"]["decisions"]) for row in all_rows)
+    transition_count = sum(int(row["issues"]["transitions"]) for row in all_rows)
     aggregate = operations.get("metrics", {}).get("aggregate") if operations else None
     aggregate = aggregate if isinstance(aggregate, Mapping) else {}
     per_run = operations.get("metrics", {}).get("per_run") if operations else None
@@ -1077,9 +1086,7 @@ def compose_factory_floor(
                 active_implementations if operations or task_data else None
             ),
             "supervisor_groups": run_count,
-            "action_required": sum(
-                1 for item in attention if item["severity"] in {"red", "amber"}
-            ),
+            "action_required": len(critical_attention),
             "postures": {
                 posture: int(posture_counts.get(posture, 0))
                 for posture in ("red", "amber", "green", "neutral")
@@ -1092,6 +1099,15 @@ def compose_factory_floor(
         "rows": rows,
         "rows_truncated": row_count > MAX_FLOOR_ROWS,
         "attention": attention,
+        "attention_summary": {
+            "total": len(all_attention),
+            "returned": len(attention),
+            "truncated": len(all_attention) > len(attention),
+            "critical_total": len(critical_attention),
+            "critical_returned": len(returned_critical_attention),
+            "critical_omitted": len(critical_attention)
+            - len(returned_critical_attention),
+        },
         "conclusions": conclusions,
         "accepted_outcomes": outcomes,
         "metrics": metrics,
@@ -1101,8 +1117,24 @@ def compose_factory_floor(
                 "projects": [project.get("id") for project in projects],
                 "operations": operations.get("fingerprint") if operations else None,
                 "trackers": [tracker.get("fingerprint") for tracker in trackers],
-                "tasks": [task.get("id") for task in tasks],
-                "sources": source_health,
+                "tasks": [
+                    {
+                        "id": task.get("id"),
+                        "name": task.get("name"),
+                        "status": task.get("status"),
+                        "project_binding": task.get("project_binding"),
+                        "recency_at": task.get("recency_at"),
+                    }
+                    for task in tasks
+                ],
+                "sources": [
+                    {
+                        key: value
+                        for key, value in source.items()
+                        if key != "observed_at"
+                    }
+                    for source in source_health
+                ],
             }
         ),
     }

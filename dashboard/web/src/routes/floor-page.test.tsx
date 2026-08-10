@@ -64,6 +64,10 @@ describe("Factory Floor", () => {
     expect(screen.getByText("Alpha implementation")).toBeVisible()
     expect(screen.getByText("Beta implementation")).toBeVisible()
     expect(screen.getByText("Gamma implementation")).toBeVisible()
+    const alphaRow = screen.getByText("Alpha implementation").closest("article")
+    expect(alphaRow).not.toBeNull()
+    expect(alphaRow).toHaveTextContent("Watcher · Reviewer")
+    expect(alphaRow).toHaveTextContent("group-ta…alpha")
     expect(screen.getByText("A current incident remains open.", { selector: ".attention-item strong" })).toBeVisible()
     expect(screen.getByText("The current review accepted the predecessor.", { selector: ".outcome-item strong" })).toBeVisible()
     expect(screen.getByText("Typed owner adapter")).toBeVisible()
@@ -94,7 +98,13 @@ describe("Factory Floor", () => {
     const betaRow = screen.getByText("Beta implementation").closest("article")
     expect(betaRow).not.toBeNull()
     await user.click(within(betaRow!).getByRole("link", { name: "Inspect" }))
-    expect(screen.getByRole("complementary", { name: "Factory source inspector" })).toBeVisible()
+    const runInspector = screen.getByRole("complementary", { name: "Factory source inspector" })
+    expect(runInspector).toBeVisible()
+    expect(runInspector).toHaveTextContent("group-target-beta")
+    expect(runInspector).toHaveTextContent("Role · Watcher")
+    expect(runInspector).toHaveTextContent("watcher-target-beta")
+    expect(runInspector).toHaveTextContent("Role · Reviewer")
+    expect(runInspector).toHaveTextContent("reviewer-target-beta")
     expect(window.location.search).toContain("inspect=run%3Atarget-beta")
     await user.click(screen.getByRole("button", { name: "Close inspector" }))
     await waitFor(() => expect(screen.queryByRole("complementary")).not.toBeInTheDocument())
@@ -112,5 +122,27 @@ describe("Factory Floor", () => {
 
     await user.click(screen.getByRole("button", { name: "Refresh" }))
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+  })
+
+  it("keeps API-bound omitted critical attention visible", async () => {
+    const envelope = makeFactoryFloorEnvelope()
+    envelope.data.attention_summary = {
+      total: 3,
+      returned: 2,
+      truncated: true,
+      critical_total: 2,
+      critical_returned: 1,
+      critical_omitted: 1,
+    }
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => envelope,
+    }))
+
+    renderFloor()
+
+    expect(await screen.findByText("1 attention item omitted by the API bound · 1 critical."))
+      .toBeVisible()
   })
 })
