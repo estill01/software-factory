@@ -376,11 +376,21 @@ substitute a weaker target/effect permission. Candidate dispositions also
 require one bounded canonical
 `--candidate-evidence` JSON object that binds owner, source revision, candidate,
 usage, protected-capability, validation, comparison, and currentness roots.
-The repository root is canonical policy state: bind it at `init`, or exactly
-once while migrating an older policy, and never widen or replace it. Candidate
-source revision must equal the decision target revision, and candidate
-protected-capability evidence must cover all and only the decision contract.
-Never replace it with caller flags or counts. The gate records the decision in
+The repository root is canonical policy state: it must be the exact existing
+Git top level (never `/`, an ancestor, or a symlink), bind it at `init` or
+exactly once while migrating an older policy, and never widen or replace it.
+Candidate source revision and decision-basis root must bind the exact target
+revision, Block/capability/state, affected paths/content, and protected contract;
+candidate protected-capability evidence must cover all and only that contract.
+The gate rehydrates the policy-pinned tracker, exact Git HEAD, affected regular
+file bytes, candidate after-bytes, focused-before-mapped result sequence, six
+comparison dimensions, and elapsed/resource use. A separately sealed evaluator
+signature accepts that retained candidate packet. The canonical event ledger,
+not a candidate counter, supplies the one-active-lane-per-target frontier.
+Software Factory proposer and implementation-owner identities come from the
+configured owner roles and remain explicit in both reviewer/evaluator signatures
+and canonical events. Never replace any of these with caller flags or counts.
+The gate records the decision in
 the existing event ledger. When it returns `automated-independent-review-required`,
 the external reviewer signs the complete source-decision identity, fingerprint,
 currentness, semantics, candidate/owner, disposition, policy, and evidence

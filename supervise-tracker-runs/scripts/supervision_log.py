@@ -5,6 +5,7 @@ import argparse
 import base64
 import binascii
 import datetime as dt
+import difflib
 import fcntl
 import hashlib
 import hmac
@@ -607,8 +608,23 @@ def validate_adaptive_decision_control(value: Mapping[str, Any]) -> None:
             resolved_root = root_path.resolve(strict=True)
         except OSError as exc:
             raise SupervisionLogError("Adaptive target repository root is unavailable") from exc
-        if resolved_root != root_path or not root_path.is_dir():
+        if resolved_root != root_path or root_path == Path("/") or not root_path.is_dir():
             raise SupervisionLogError("Adaptive target repository root is not canonical")
+        git_result = subprocess.run(
+            ["/usr/bin/git", "-C", str(root_path), "rev-parse", "--show-toplevel"],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+        )
+        if (
+            git_result.returncode != 0
+            or Path(git_result.stdout.strip()).resolve(strict=True) != root_path
+        ):
+            raise SupervisionLogError(
+                "Adaptive target repository root is not the exact Git top level"
+            )
     budget = value.get("candidate_budget")
     expected_budget_keys = set(adaptive_candidate_budget_contract())
     if not isinstance(budget, Mapping) or set(budget) != expected_budget_keys:
@@ -2860,6 +2876,7 @@ def cmd_init(args: argparse.Namespace) -> None:
         print(json.dumps({"created": False, "policy": policy}, sort_keys=True))
         return
     policy = default_policy(args)
+    validate_adaptive_decision_control(policy["adaptive_decision_control"])
     atomic_json(policy_path, policy)
     append_raw(
         directory / "policy-history.jsonl",
@@ -5455,7 +5472,8 @@ def implementation_tracker_snapshot(
     for index, match in enumerate(block_matches):
         number = int(match.group(1))
         end = block_matches[index + 1].start() if index + 1 < len(block_matches) else len(text)
-        section_lines = text[match.start():end].splitlines()
+        section_text = text[match.start():end]
+        section_lines = section_text.splitlines()
         normalized_lines: list[str] = []
         in_completion_evidence = False
         for line in section_lines:
@@ -5470,14 +5488,29 @@ def implementation_tracker_snapshot(
                 in_completion_evidence = False
             if not in_completion_evidence:
                 normalized_lines.append(line.rstrip())
+        contract_sha256 = hashlib.sha256(
+            "\n".join(normalized_lines).strip().encode("utf-8")
+        ).hexdigest()
+        capability_match = re.search(
+            r"^### Target-product capability delta\s*$\n(.*?)(?=^###\s+)",
+            section_text,
+            re.M | re.S,
+        )
+        capability_frame_sha256 = (
+            hashlib.sha256(
+                capability_match.group(1).strip().encode("utf-8")
+            ).hexdigest()
+            if capability_match is not None
+            else ""
+        )
+        rows[number]["contract_sha256"] = contract_sha256
+        rows[number]["capability_frame_sha256"] = capability_frame_sha256
         block_contract_roots.append(
             {
                 "number": number,
                 "scope": rows[number]["scope"],
                 "dependencies": rows[number]["dependencies"],
-                "contract_sha256": hashlib.sha256(
-                    "\n".join(normalized_lines).strip().encode("utf-8")
-                ).hexdigest(),
+                "contract_sha256": contract_sha256,
             }
         )
     structure_sha256 = digest(
@@ -8709,6 +8742,35 @@ def cmd_adjust(args: argparse.Namespace) -> None:
             raise SupervisionLogError(
                 "An adaptive target or repository-root change requires exact operator or review evidence"
             )
+        if (
+            requested["adaptive_target_repository_root"] is not None
+            and adaptive.get("target_repository_root") is None
+        ):
+            contract = implementation_range_contract(policy)
+            if contract is None:
+                raise SupervisionLogError(
+                    "Adaptive repository-root migration requires a canonical implementation range"
+                )
+            validate_implementation_range_contract(contract)
+            candidate_root = adaptive_git_top_level(
+                str(Path(requested["adaptive_target_repository_root"]).resolve(strict=True))
+            )
+            tracker_path, tracker_sha, tracker_structure, _blocks = (
+                implementation_tracker_snapshot(str(contract["tracker_path"]))
+            )
+            try:
+                tracker_path.relative_to(candidate_root)
+            except ValueError as exc:
+                raise SupervisionLogError(
+                    "Adaptive repository-root migration does not own the canonical tracker"
+                ) from exc
+            if (
+                tracker_sha != contract["tracker_sha256"]
+                or tracker_structure != contract["tracker_structure_sha256"]
+            ):
+                raise SupervisionLogError(
+                    "Adaptive repository-root migration tracker is stale"
+                )
         budget_updates = {
             "max_active_lanes_per_decision": requested["candidate_max_active_lanes"],
             "max_active_lanes_per_target": requested["candidate_max_active_lanes"],
@@ -8769,6 +8831,21 @@ def validate_adaptive_candidate_usage(value: Any) -> dict[str, int]:
             raise SupervisionLogError(f"Adaptive candidate usage {field} is invalid")
         result[field] = item
     return result
+
+
+def adaptive_candidate_decision_basis(
+    decision_evidence: Mapping[str, Any]
+) -> dict[str, Any]:
+    return {
+        "block_number": decision_evidence["block_number"],
+        "block_contract_root": decision_evidence["block_contract_root"],
+        "capability_frame_root": decision_evidence["capability_frame_root"],
+        "target_repository_root": decision_evidence["target_repository_root"],
+        "target_revision_root": decision_evidence["target_revision_root"],
+        "decision_target_state_root": decision_evidence["decision_target_state_root"],
+        "affected_scope": decision_evidence["affected_scope"],
+        "protected_capability_root": decision_evidence["protected_capability_root"],
+    }
 
 
 def reject_duplicate_json_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -8871,6 +8948,372 @@ def adaptive_scope_entry(value: Any, *, label: str) -> dict[str, str]:
     return {"owner_id": owner_id, "path": path_value, "content_root": content_root}
 
 
+def adaptive_git_top_level(repository_root: str) -> Path:
+    root = Path(repository_root)
+    try:
+        resolved = root.resolve(strict=True)
+    except OSError as exc:
+        raise SupervisionLogError("Adaptive target repository is unavailable") from exc
+    if resolved != root or root == Path("/") or not root.is_dir():
+        raise SupervisionLogError("Adaptive target repository root is not canonical")
+    result = subprocess.run(
+        ["/usr/bin/git", "-C", str(root), "rev-parse", "--show-toplevel"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+    )
+    if result.returncode != 0:
+        raise SupervisionLogError("Adaptive target repository is not a Git worktree")
+    try:
+        top = Path(result.stdout.strip()).resolve(strict=True)
+    except OSError as exc:
+        raise SupervisionLogError("Adaptive Git top level is unavailable") from exc
+    if top != root:
+        raise SupervisionLogError("Adaptive target repository is not the exact Git top level")
+    return root
+
+
+def adaptive_git_revision(repository_root: str) -> str:
+    root = adaptive_git_top_level(repository_root)
+    result = subprocess.run(
+        ["/usr/bin/git", "-C", str(root), "rev-parse", "--verify", "HEAD^{commit}"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+    )
+    revision = result.stdout.strip()
+    if result.returncode != 0 or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
+        raise SupervisionLogError("Adaptive target revision is not a current Git commit")
+    return revision
+
+
+def adaptive_path_has_symlink(root: Path, path: Path) -> bool:
+    relative = path.relative_to(root)
+    current = root
+    for part in relative.parts:
+        current = current / part
+        try:
+            if stat.S_ISLNK(current.lstat().st_mode):
+                return True
+        except FileNotFoundError:
+            break
+    return False
+
+
+def adaptive_scope_content_root(
+    repository_root: str, path_value: str, *, target_revision_root: str
+) -> str:
+    root = adaptive_git_top_level(repository_root)
+    path = Path(path_value)
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise SupervisionLogError("Adaptive affected scope escapes the target repository") from exc
+    if adaptive_path_has_symlink(root, path):
+        raise SupervisionLogError("Adaptive affected scope traverses a symlink")
+    if path.exists():
+        try:
+            resolved = path.resolve(strict=True)
+            resolved.relative_to(root)
+            descriptor = os.open(resolved, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            try:
+                before = os.fstat(descriptor)
+                if not stat.S_ISREG(before.st_mode) or before.st_size > MAX_ADAPTIVE_CANDIDATE_EVIDENCE_BYTES:
+                    raise SupervisionLogError("Adaptive affected scope is not a bounded regular file")
+                with os.fdopen(descriptor, "rb") as handle:
+                    descriptor = -1
+                    content = handle.read(MAX_ADAPTIVE_CANDIDATE_EVIDENCE_BYTES + 1)
+                    after = os.fstat(handle.fileno())
+                if file_snapshot(before) != file_snapshot(after) or path_snapshot(resolved) != file_snapshot(after):
+                    raise SupervisionLogError("Adaptive affected file changed while reading")
+            finally:
+                if descriptor >= 0:
+                    os.close(descriptor)
+        except OSError as exc:
+            raise SupervisionLogError("Adaptive affected file cannot be read safely") from exc
+        if len(content) > MAX_ADAPTIVE_CANDIDATE_EVIDENCE_BYTES:
+            raise SupervisionLogError("Adaptive affected file exceeds its byte bound")
+        return hashlib.sha256(content).hexdigest()
+    parent = path.parent
+    try:
+        resolved_parent = parent.resolve(strict=True)
+        resolved_parent.relative_to(root)
+    except (OSError, ValueError) as exc:
+        raise SupervisionLogError("Adaptive planned file parent is not current") from exc
+    if adaptive_path_has_symlink(root, parent):
+        raise SupervisionLogError("Adaptive planned file parent traverses a symlink")
+    return digest(
+        {
+            "path": str(path),
+            "posture": "planned-new-file",
+            "target_revision_root": target_revision_root,
+        }
+    )
+
+
+def adaptive_tracker_block_context(
+    policy: Mapping[str, Any], block_number: int
+) -> tuple[dict[str, Any], Path, str, dict[str, Any]]:
+    contract = implementation_range_contract(policy)
+    if contract is None:
+        raise SupervisionLogError("Adaptive decision requires a canonical implementation range")
+    validate_implementation_range_contract(contract)
+    tracker_path, tracker_sha, tracker_structure, blocks = implementation_tracker_snapshot(
+        str(contract["tracker_path"])
+    )
+    if (
+        tracker_sha != contract["tracker_sha256"]
+        or tracker_structure != contract["tracker_structure_sha256"]
+        or sorted(blocks) != contract["tracker_blocks"]
+    ):
+        raise SupervisionLogError("Adaptive decision tracker is stale for the canonical range")
+    block = blocks.get(block_number)
+    if block is None:
+        raise SupervisionLogError("Adaptive decision Block is outside the canonical tracker")
+    if SHA256.fullmatch(str(block.get("capability_frame_sha256", ""))) is None:
+        raise SupervisionLogError("Adaptive decision Block lacks a canonical capability frame")
+    requested = (
+        set(contract["tracker_blocks"])
+        if contract["range_intent"] == "full-tracker"
+        else set(contract["explicit_blocks"])
+    )
+    if block_number not in requested:
+        raise SupervisionLogError("Adaptive decision Block is outside the requested range")
+    repository_root = adaptive_git_top_level(
+        str(policy["adaptive_decision_control"]["target_repository_root"])
+    )
+    try:
+        tracker_path.relative_to(repository_root)
+    except ValueError as exc:
+        raise SupervisionLogError(
+            "Adaptive canonical tracker is outside the target repository"
+        ) from exc
+    return contract, tracker_path, tracker_sha, block
+
+
+def adaptive_changed_line_count(before: bytes, after: bytes) -> int:
+    try:
+        before_lines = before.decode("utf-8").splitlines()
+        after_lines = after.decode("utf-8").splitlines()
+    except UnicodeDecodeError as exc:
+        raise SupervisionLogError("Adaptive candidate artifacts must be UTF-8") from exc
+    changes = 0
+    for line in difflib.ndiff(before_lines, after_lines):
+        if line.startswith("- ") or line.startswith("+ "):
+            changes += 1
+    return changes
+
+
+ADAPTIVE_COMPARISON_DIMENSIONS = (
+    "correctness",
+    "protected-capability",
+    "maintainability",
+    "performance",
+    "compatibility",
+    "reversibility",
+)
+ADAPTIVE_COMPARISON_RELATIONS = {
+    "candidate-better",
+    "incumbent-better",
+    "equivalent",
+    "inconclusive",
+}
+
+
+def adaptive_candidate_acceptance_material(value: Mapping[str, Any]) -> dict[str, Any]:
+    excluded = {
+        "decision_id",
+        "acceptance_root",
+        "acceptance_signature_base64",
+        "currentness_root",
+        "evidence_root",
+    }
+    return {key: item for key, item in value.items() if key not in excluded}
+
+
+def verify_adaptive_candidate_acceptance(value: Mapping[str, Any]) -> None:
+    if value.get("acceptance_authority_id") != ADAPTIVE_EVALUATOR_ID:
+        raise SupervisionLogError("Adaptive candidate acceptance authority differs")
+    if value.get("acceptance_authority_key_sha256") != ADAPTIVE_EVALUATOR_PUBLIC_KEY_SHA256:
+        raise SupervisionLogError("Adaptive candidate acceptance key differs")
+    material = adaptive_candidate_acceptance_material(value)
+    if value.get("acceptance_root") != digest(material):
+        raise SupervisionLogError("Adaptive candidate acceptance root differs")
+    signature_value = value.get("acceptance_signature_base64")
+    if type(signature_value) is not str:
+        raise SupervisionLogError("Adaptive candidate acceptance signature is required")
+    try:
+        signature = base64.b64decode(signature_value, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise SupervisionLogError("Adaptive candidate acceptance signature is invalid") from exc
+    if len(signature) != 64:
+        raise SupervisionLogError("Adaptive candidate acceptance signature length differs")
+    key_bytes = trusted_adaptive_evaluator_key()
+    openssl = trusted_adaptive_review_openssl()
+    signed = {**material, "acceptance_root": value["acceptance_root"]}
+    with tempfile.TemporaryDirectory(prefix="adaptive-candidate-verify-") as temp_value:
+        temp = Path(temp_value)
+        content = temp / "candidate.json"
+        signature_path = temp / "candidate.sig"
+        key_path = temp / "evaluator.pem"
+        content.write_bytes(canonical(signed))
+        signature_path.write_bytes(signature)
+        key_path.write_bytes(key_bytes)
+        result = subprocess.run(
+            [
+                str(openssl),
+                "pkeyutl",
+                "-verify",
+                "-pubin",
+                "-inkey",
+                str(key_path),
+                "-rawin",
+                "-in",
+                str(content),
+                "-sigfile",
+                str(signature_path),
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+        )
+    if result.returncode != 0:
+        raise SupervisionLogError("Adaptive candidate acceptance signature is invalid")
+
+
+def adaptive_candidate_retained_evidence(
+    value: Mapping[str, Any], *, decision_evidence: Mapping[str, Any]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], dict[str, int]]:
+    repository_root = str(decision_evidence["target_repository_root"])
+    target_revision_root = str(decision_evidence["target_revision_root"])
+    source_scope = {
+        str(item["path"]): item for item in decision_evidence["affected_scope"]
+    }
+    artifacts = value.get("artifact_manifest")
+    if not isinstance(artifacts, list) or not 1 <= len(artifacts) <= 3:
+        raise SupervisionLogError("Adaptive candidate artifact manifest differs")
+    normalized_artifacts: list[dict[str, Any]] = []
+    total_changed = 0
+    for item in artifacts:
+        if not isinstance(item, Mapping) or set(item) != {
+            "path",
+            "before_root",
+            "after_root",
+            "after_content_base64",
+            "changed_lines",
+        }:
+            raise SupervisionLogError("Adaptive candidate artifact shape differs")
+        path_value = item.get("path")
+        if type(path_value) is not str or path_value not in source_scope:
+            raise SupervisionLogError("Adaptive candidate artifact is outside the decision scope")
+        before_root = adaptive_scope_content_root(
+            repository_root, path_value, target_revision_root=target_revision_root
+        )
+        if item.get("before_root") != before_root:
+            raise SupervisionLogError("Adaptive candidate artifact source is stale")
+        content_value = item.get("after_content_base64")
+        if type(content_value) is not str:
+            raise SupervisionLogError("Adaptive candidate artifact content is required")
+        try:
+            after = base64.b64decode(content_value, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            raise SupervisionLogError("Adaptive candidate artifact content is invalid") from exc
+        if len(after) > 32768 or item.get("after_root") != hashlib.sha256(after).hexdigest():
+            raise SupervisionLogError("Adaptive candidate artifact root differs")
+        path = Path(path_value)
+        before = path.read_bytes() if path.exists() else b""
+        changed_lines = adaptive_changed_line_count(before, after)
+        if type(item.get("changed_lines")) is not int or item["changed_lines"] != changed_lines:
+            raise SupervisionLogError("Adaptive candidate changed-line count differs")
+        total_changed += changed_lines
+        normalized_artifacts.append(dict(item))
+    if [item["path"] for item in normalized_artifacts] != sorted(source_scope):
+        raise SupervisionLogError("Adaptive candidate artifacts must cover the exact affected scope")
+
+    commands = value.get("command_results")
+    if not isinstance(commands, list) or not 1 <= len(commands) <= 6:
+        raise SupervisionLogError("Adaptive candidate command results differ")
+    normalized_commands: list[dict[str, Any]] = []
+    prior_finish: dt.datetime | None = None
+    mapped_count = 0
+    for item in commands:
+        if not isinstance(item, Mapping) or set(item) != {
+            "command_id",
+            "kind",
+            "started_at",
+            "finished_at",
+            "exit_code",
+            "result_payload",
+            "result_root",
+        }:
+            raise SupervisionLogError("Adaptive candidate command-result shape differs")
+        if type(item.get("command_id")) is not str:
+            raise SupervisionLogError("Adaptive candidate command ID must be a string")
+        safe_id(item["command_id"], label="adaptive candidate command ID")
+        if item.get("kind") not in {"focused", "mapped", "validation"}:
+            raise SupervisionLogError("Adaptive candidate command kind differs")
+        started = parse_event_time(item.get("started_at"), label="candidate command start")
+        finished = parse_event_time(item.get("finished_at"), label="candidate command finish")
+        if finished < started or (prior_finish is not None and started < prior_finish):
+            raise SupervisionLogError("Adaptive candidate command chronology differs")
+        prior_finish = finished
+        if type(item.get("exit_code")) is not int or item["exit_code"] != 0:
+            raise SupervisionLogError("Adaptive candidate command did not pass")
+        payload = item.get("result_payload")
+        validate_exact_json_value(payload)
+        if item.get("result_root") != digest(payload):
+            raise SupervisionLogError("Adaptive candidate command result root differs")
+        if item["kind"] == "mapped":
+            mapped_count += 1
+        normalized_commands.append(dict(item))
+    if normalized_commands[0]["kind"] != "focused" or mapped_count < 1:
+        raise SupervisionLogError("Adaptive candidate requires focused proof before mapped proof")
+
+    comparisons = value.get("comparison_results")
+    if not isinstance(comparisons, list) or len(comparisons) != len(ADAPTIVE_COMPARISON_DIMENSIONS):
+        raise SupervisionLogError("Adaptive candidate comparison results differ")
+    normalized_comparisons: list[dict[str, Any]] = []
+    command_roots = {str(item["result_root"]) for item in normalized_commands}
+    for expected_dimension, item in zip(ADAPTIVE_COMPARISON_DIMENSIONS, comparisons):
+        if not isinstance(item, Mapping) or set(item) != {"dimension", "relation", "evidence_root"}:
+            raise SupervisionLogError("Adaptive candidate comparison shape differs")
+        if (
+            item.get("dimension") != expected_dimension
+            or item.get("relation") not in ADAPTIVE_COMPARISON_RELATIONS
+            or item.get("evidence_root") not in command_roots
+        ):
+            raise SupervisionLogError("Adaptive candidate comparison result differs")
+        normalized_comparisons.append(dict(item))
+
+    started_at = parse_event_time(value.get("lane_started_at"), label="candidate lane start")
+    observed_at = parse_event_time(value.get("observed_at"), label="candidate observation")
+    first_command = parse_event_time(
+        normalized_commands[0]["started_at"], label="candidate first command"
+    )
+    last_command = parse_event_time(
+        normalized_commands[-1]["finished_at"], label="candidate last command"
+    )
+    if started_at > first_command or observed_at < last_command:
+        raise SupervisionLogError("Adaptive candidate lane chronology differs")
+    elapsed_seconds = max(0.0, (observed_at - started_at).total_seconds())
+    usage = {
+        "active_lanes_for_decision": 1,
+        "active_lanes_for_target": 1,
+        "files": len(normalized_artifacts),
+        "changed_lines": total_changed,
+        "commands": len(normalized_commands),
+        "elapsed_minutes": int((elapsed_seconds + 59) // 60),
+        "mapped_comparisons": mapped_count,
+        "review_passes": 0,
+    }
+    return normalized_artifacts, normalized_commands, normalized_comparisons, usage
+
+
 def validate_adaptive_decision_evidence(
     value: Any, *, policy: Mapping[str, Any]
 ) -> dict[str, Any]:
@@ -8883,6 +9326,7 @@ def validate_adaptive_decision_evidence(
         "consequence_class",
         "reversible",
         "mission_preserving",
+        "block_number",
         "block_contract_root",
         "tracker_sha256",
         "target_repository_root",
@@ -8926,6 +9370,8 @@ def validate_adaptive_decision_evidence(
     for field in ("reversible", "mission_preserving"):
         if type(value.get(field)) is not bool:
             raise SupervisionLogError(f"Adaptive decision {field} must be boolean")
+    if type(value.get("block_number")) is not int or value["block_number"] < 0:
+        raise SupervisionLogError("Adaptive decision Block number is invalid")
     for field in (
         "block_contract_root",
         "tracker_sha256",
@@ -8941,10 +9387,8 @@ def validate_adaptive_decision_evidence(
             raise SupervisionLogError(f"Adaptive decision {field} must be a string")
         exact_sha256(str(value[field]), label=f"adaptive decision {field}")
     target_revision = value.get("target_revision")
-    if type(target_revision) is not str or not clean(
-        target_revision, label="adaptive target revision", maximum=160
-    ):
-        raise SupervisionLogError("Adaptive target revision is required")
+    if type(target_revision) is not str or re.fullmatch(r"[0-9a-f]{40}", target_revision) is None:
+        raise SupervisionLogError("Adaptive target revision must be an exact Git commit")
     if value["target_revision_root"] != digest({"target_revision": target_revision}):
         raise SupervisionLogError("Adaptive target revision root differs")
     repository_root = value.get("target_repository_root")
@@ -8980,12 +9424,26 @@ def validate_adaptive_decision_evidence(
         raise SupervisionLogError(
             "Adaptive target repository root differs from canonical policy"
         )
+    if bound_repository_root is not None:
+        _contract, _tracker_path, tracker_sha, block = adaptive_tracker_block_context(
+            policy, int(value["block_number"])
+        )
+        if value["tracker_sha256"] != tracker_sha:
+            raise SupervisionLogError("Adaptive tracker root differs from canonical tracker")
+        if value["block_contract_root"] != block["contract_sha256"]:
+            raise SupervisionLogError("Adaptive Block contract root differs from canonical tracker")
+        if value["capability_frame_root"] != block["capability_frame_sha256"]:
+            raise SupervisionLogError("Adaptive capability frame differs from canonical tracker")
+        current_revision = adaptive_git_revision(repository_root)
+        if target_revision != current_revision:
+            raise SupervisionLogError("Adaptive target revision is stale")
     if value["disposition"] == "continue-unchanged" and proposer is not None:
         raise SupervisionLogError("Unchanged decision cannot claim a proposer")
     if target_class == "software-factory" and value["disposition"] != "continue-unchanged":
-        if proposer is None or proposer == implementation_owner:
+        canonical_proposer = policy.get("runtime", {}).get("base_reviewer_thread_id")
+        if proposer is None or proposer != canonical_proposer or proposer == implementation_owner:
             raise SupervisionLogError(
-                "Software Factory mutation requires a distinct attributable proposer"
+                "Software Factory mutation requires its canonical distinct proposer"
             )
     elif target_class == "target-repository" and proposer is not None:
         raise SupervisionLogError("Target-repository decision cannot claim a Factory proposer")
@@ -9052,17 +9510,60 @@ def validate_adaptive_decision_evidence(
     ]
     if any(item["owner_id"] != implementation_owner for item in normalized_scope):
         raise SupervisionLogError("Adaptive affected scope has a different owner")
-    root_path = Path(repository_root).resolve(strict=True)
-    if any(
-        not Path(item["path"]).resolve(strict=False).is_relative_to(root_path)
-        for item in normalized_scope
-    ):
-        raise SupervisionLogError("Adaptive affected scope escapes the target repository")
+    actual_scope_roots: list[str] = []
+    for item in normalized_scope:
+        actual_root = adaptive_scope_content_root(
+            repository_root,
+            item["path"],
+            target_revision_root=str(value["target_revision_root"]),
+        )
+        if item["content_root"] != actual_root:
+            raise SupervisionLogError("Adaptive affected scope content is stale")
+        actual_scope_roots.append(actual_root)
     expected_scope_order = sorted(
         normalized_scope, key=lambda item: (item["owner_id"], item["path"], item["content_root"])
     )
     if normalized_scope != expected_scope_order:
         raise SupervisionLogError("Adaptive affected scope must be canonically sorted")
+    current_target_state_root = digest(
+        {
+            "target_revision_root": value["target_revision_root"],
+            "affected_scope": normalized_scope,
+        }
+    )
+    if (
+        value["decision_target_state_root"] != current_target_state_root
+        or value["current_target_state_root"] != current_target_state_root
+    ):
+        raise SupervisionLogError("Adaptive target state root is stale")
+    evidence_roots = {str(item["root_sha256"]) for item in evidence_refs}
+    required_evidence_roots = {
+        value["tracker_sha256"],
+        value["block_contract_root"],
+        value["capability_frame_root"],
+        value["target_revision_root"],
+        *actual_scope_roots,
+    }
+    if not required_evidence_roots.issubset(evidence_roots):
+        raise SupervisionLogError("Adaptive evidence does not cover the canonical source state")
+    capability_id = f"block-{value['block_number']}-capability-frame"
+    capability_frame_refs = {
+        str(item["ref_id"])
+        for item in evidence_refs
+        if item["root_sha256"] == value["capability_frame_root"]
+    }
+    canonical_capability = next(
+        (item for item in protected_results if item["capability_id"] == capability_id),
+        None,
+    )
+    if (
+        canonical_capability is None
+        or canonical_capability["result"] != "preserved"
+        or not capability_frame_refs.intersection(canonical_capability["evidence_ref_ids"])
+    ):
+        raise SupervisionLogError(
+            "Adaptive protected results omit the canonical Block capability frame"
+        )
     for field in ("stop_boundary", "revisit_trigger"):
         if type(value.get(field)) is not str:
             raise SupervisionLogError(f"Adaptive decision {field} must be a string")
@@ -9123,6 +9624,12 @@ def validate_adaptive_candidate_evidence(
         "decision_id",
         "owner_id",
         "source_revision_root",
+        "decision_basis_root",
+        "lane_started_at",
+        "observed_at",
+        "artifact_manifest",
+        "command_results",
+        "comparison_results",
         "candidate_root",
         "candidate_budget_use",
         "candidate_budget_use_root",
@@ -9130,6 +9637,10 @@ def validate_adaptive_candidate_evidence(
         "protected_capability_root",
         "validation_root",
         "comparison_root",
+        "acceptance_authority_id",
+        "acceptance_authority_key_sha256",
+        "acceptance_root",
+        "acceptance_signature_base64",
         "currentness_root",
         "evidence_root",
     }
@@ -9155,25 +9666,47 @@ def validate_adaptive_candidate_evidence(
         raise SupervisionLogError(
             "Adaptive candidate source revision differs from the decision target"
         )
+    if type(value.get("decision_basis_root")) is not str:
+        raise SupervisionLogError("Adaptive candidate decision basis root is required")
+    exact_sha256(value["decision_basis_root"], label="adaptive candidate decision basis root")
+    if value["decision_basis_root"] != digest(
+        adaptive_candidate_decision_basis(decision_evidence)
+    ):
+        raise SupervisionLogError(
+            "Adaptive candidate decision basis differs from the canonical decision"
+        )
     for field in (
         "candidate_root",
         "candidate_budget_use_root",
         "protected_capability_root",
         "validation_root",
         "comparison_root",
+        "acceptance_authority_key_sha256",
+        "acceptance_root",
         "currentness_root",
         "evidence_root",
     ):
         if type(value.get(field)) is not str:
             raise SupervisionLogError(f"Adaptive candidate {field} must be a string")
         exact_sha256(str(value[field]), label=f"adaptive candidate {field}")
+    artifacts, commands, comparisons, derived_usage = adaptive_candidate_retained_evidence(
+        value, decision_evidence=decision_evidence
+    )
     usage = validate_adaptive_candidate_usage(value["candidate_budget_use"])
+    if usage != derived_usage:
+        raise SupervisionLogError("Adaptive candidate usage is not derived from retained evidence")
     if usage["review_passes"] != 0:
         raise SupervisionLogError(
             "Candidate evidence cannot self-assert an independent review pass"
         )
     if value["candidate_budget_use_root"] != digest(usage):
         raise SupervisionLogError("Adaptive candidate usage root differs")
+    if value["candidate_root"] != digest(artifacts):
+        raise SupervisionLogError("Adaptive candidate artifact root differs")
+    if value["validation_root"] != digest(commands):
+        raise SupervisionLogError("Adaptive candidate validation root differs")
+    if value["comparison_root"] != digest(comparisons):
+        raise SupervisionLogError("Adaptive candidate comparison root differs")
     protected = value["protected_capability_results"]
     if not isinstance(protected, list) or not 1 <= len(protected) <= 32:
         raise SupervisionLogError("Adaptive protected-capability evidence differs")
@@ -9229,19 +9762,23 @@ def validate_adaptive_candidate_evidence(
     currentness_material = {
         "owner_id": value["owner_id"],
         "source_revision_root": value["source_revision_root"],
+        "decision_basis_root": value["decision_basis_root"],
         "candidate_root": value["candidate_root"],
         "candidate_budget_use_root": value["candidate_budget_use_root"],
         "protected_capability_root": value["protected_capability_root"],
         "validation_root": value["validation_root"],
         "comparison_root": value["comparison_root"],
+        "acceptance_root": value["acceptance_root"],
     }
     if value["currentness_root"] != digest(currentness_material):
         raise SupervisionLogError("Adaptive candidate currentness root differs")
     evidence_material = dict(value)
     evidence_material.pop("evidence_root")
     evidence_material.pop("decision_id")
+    evidence_material.pop("acceptance_signature_base64")
     if value["evidence_root"] != digest(evidence_material):
         raise SupervisionLogError("Adaptive candidate evidence root differs")
+    verify_adaptive_candidate_acceptance(value)
     return dict(value)
 
 
@@ -9270,11 +9807,22 @@ def adaptive_decision_posture(
         "independent_review",
         "request_human_input",
         "governing_event_head_root",
+        "active_candidate_fingerprints",
     }
     if set(packet) != expected_packet_fields:
         raise SupervisionLogError("Adaptive decision packet shape differs")
     if type(packet["request_human_input"]) is not bool:
         raise SupervisionLogError("Adaptive decision human-request posture must be boolean")
+    active_candidate_fingerprints = packet["active_candidate_fingerprints"]
+    if (
+        not isinstance(active_candidate_fingerprints, list)
+        or any(
+            type(item) is not str or SHA256.fullmatch(item) is None
+            for item in active_candidate_fingerprints
+        )
+        or active_candidate_fingerprints != sorted(set(active_candidate_fingerprints))
+    ):
+        raise SupervisionLogError("Adaptive active-candidate frontier differs")
     evidence = validate_adaptive_decision_evidence(
         packet["decision_evidence"], policy=policy
     )
@@ -9303,7 +9851,9 @@ def adaptive_decision_posture(
         "schema_version": 1,
         "mission_root": mission_root,
         "authority_effect": "mission-preserving" if evidence["mission_preserving"] else "goal-change",
+        "block_number": evidence["block_number"],
         "block_contract_root": evidence["block_contract_root"],
+        "tracker_sha256": evidence["tracker_sha256"],
         "target_class": target_class,
         "target_repository_root": evidence["target_repository_root"],
         "decision_target_state_root": evidence["decision_target_state_root"],
@@ -9333,6 +9883,13 @@ def adaptive_decision_posture(
             item["result"] != "preserved"
             for item in candidate["protected_capability_results"]
         )
+        other_active = set(active_candidate_fingerprints) - {decision_fingerprint}
+        if other_active:
+            raise SupervisionLogError(
+                "Adaptive target already has a different active candidate lane"
+            )
+        usage["active_lanes_for_decision"] = 1
+        usage["active_lanes_for_target"] = 1
     else:
         if candidate is not None:
             raise SupervisionLogError("Candidate evidence requires a candidate disposition")
@@ -9401,6 +9958,8 @@ def adaptive_decision_posture(
             "effect_class": effect_class,
             "candidate_evidence_root": expected_candidate_root,
             "candidate_owner_id": candidate.get("owner_id") if candidate else None,
+            "proposer_author_id": evidence["proposer_author_id"],
+            "implementation_owner_id": evidence["implementation_owner_id"],
         }
         review = validate_external_adaptive_review(
             review, source=review_source, policy=policy
@@ -9416,6 +9975,8 @@ def adaptive_decision_posture(
             or review["candidate_evidence_root"] != expected_candidate_root
             or review["candidate_owner_id"]
             != (candidate.get("owner_id") if candidate else None)
+            or review["proposer_author_id"] != evidence["proposer_author_id"]
+            or review["implementation_owner_id"] != evidence["implementation_owner_id"]
         ):
             raise SupervisionLogError(
                 "Adaptive review does not bind the current decision and candidate"
@@ -9595,6 +10156,8 @@ def adaptive_decision_posture(
         "candidate_evidence_root": candidate.get("evidence_root") if candidate else None,
         "candidate_source_revision": candidate.get("source_revision_root") if candidate else None,
         "candidate_owner_id": candidate.get("owner_id") if candidate else None,
+        "proposer_author_id": evidence["proposer_author_id"],
+        "implementation_owner_id": evidence["implementation_owner_id"],
         "candidate_currentness_root": candidate.get("currentness_root") if candidate else None,
         "candidate_budget": dict(budget),
         "candidate_budget_use": dict(usage),
@@ -9751,6 +10314,8 @@ def adaptive_external_evaluation_root_material(
             "effect_class",
             "candidate_evidence_root",
             "candidate_owner_id",
+            "proposer_author_id",
+            "implementation_owner_id",
             "evaluator_id",
             "evaluation_evidence_root",
             "evaluation_disposition",
@@ -9940,6 +10505,8 @@ def validate_external_adaptive_review(
         "effect_class",
         "candidate_evidence_root",
         "candidate_owner_id",
+        "proposer_author_id",
+        "implementation_owner_id",
         "reviewer_id",
         "evaluator_id",
         "evaluation_evidence_root",
@@ -9999,7 +10566,12 @@ def validate_external_adaptive_review(
                     f"External adaptive review {field} must be a string"
                 )
             exact_sha256(item, label=f"external adaptive review {field}")
-    for field in ("candidate_owner_id", "evaluator_id"):
+    for field in (
+        "candidate_owner_id",
+        "proposer_author_id",
+        "implementation_owner_id",
+        "evaluator_id",
+    ):
         item = value.get(field)
         if item is not None:
             if type(item) is not str:
@@ -10023,6 +10595,8 @@ def validate_external_adaptive_review(
         "effect_class": source.get("effect_class"),
         "candidate_evidence_root": source.get("candidate_evidence_root"),
         "candidate_owner_id": source.get("candidate_owner_id"),
+        "proposer_author_id": source.get("proposer_author_id"),
+        "implementation_owner_id": source.get("implementation_owner_id"),
         "policy_sha256": policy.get("policy_sha256"),
         "authority_key_sha256": ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256,
     }
@@ -10098,6 +10672,8 @@ def adaptive_review_root_material(event: Mapping[str, Any]) -> dict[str, Any]:
             "effect_class",
             "candidate_evidence_root",
             "candidate_owner_id",
+            "proposer_author_id",
+            "implementation_owner_id",
             "reviewer_id",
             "evaluator_id",
             "evaluation_evidence_root",
@@ -10133,7 +10709,8 @@ def resolve_adaptive_review(
         "external_review_record", "source_decision_record", "source_decision_sha256",
         "decision_id", "decision_fingerprint", "decision_currentness_root",
         "decision_semantics_root", "disposition", "target_class", "effect_class",
-        "candidate_evidence_root", "candidate_owner_id", "reviewer_id", "evaluator_id",
+        "candidate_evidence_root", "candidate_owner_id", "proposer_author_id",
+        "implementation_owner_id", "reviewer_id", "evaluator_id",
         "evaluation_evidence_root", "evaluator_authority_key_sha256",
         "evaluation_root", "evaluation_signature_sha256",
         "review_disposition", "evaluation_disposition", "evidence_root", "policy_sha256",
@@ -10165,6 +10742,8 @@ def resolve_adaptive_review(
         or source.get("effect_class") != event["effect_class"]
         or source.get("candidate_evidence_root") != event["candidate_evidence_root"]
         or source.get("candidate_owner_id") != event["candidate_owner_id"]
+        or source.get("proposer_author_id") != event["proposer_author_id"]
+        or source.get("implementation_owner_id") != event["implementation_owner_id"]
         or source.get("independent_review_required") is not True
         or source.get("application_posture") != "automated-independent-review-required"
     ):
@@ -10179,7 +10758,8 @@ def resolve_adaptive_review(
         raise SupervisionLogError("Adaptive review source decision is stale")
     reviewer_id = event.get("reviewer_id")
     disallowed = {
-        policy.get("target_thread_id"),
+        source.get("implementation_owner_id"),
+        source.get("proposer_author_id"),
         source.get("candidate_owner_id"),
     }
     if reviewer_id != ADAPTIVE_REVIEWER_ID or reviewer_id in disallowed:
@@ -10245,6 +10825,28 @@ def resolve_adaptive_review(
     return external_review
 
 
+def adaptive_active_candidate_fingerprints(
+    all_events: Sequence[Mapping[str, Any]],
+) -> list[str]:
+    latest_by_decision: dict[str, Mapping[str, Any]] = {}
+    for item in all_events:
+        if item.get("kind") == "adaptive-decision" and item.get("candidate_evidence_root"):
+            latest_by_decision[str(item.get("decision_id"))] = item
+    inactive = {
+        "stop-and-retire-candidate",
+        "independent-review-rejected",
+        "independent-review-inconclusive",
+    }
+    roots = {
+        str(item["decision_fingerprint"])
+        for item in latest_by_decision.values()
+        if item.get("application_posture") not in inactive
+        and type(item.get("decision_fingerprint")) is str
+        and SHA256.fullmatch(str(item["decision_fingerprint"])) is not None
+    }
+    return sorted(roots)
+
+
 def cmd_adaptive_decision_gate(args: argparse.Namespace) -> None:
     (
         directory,
@@ -10289,6 +10891,9 @@ def cmd_adaptive_decision_gate(args: argparse.Namespace) -> None:
         "request_human_input": args.request_human_input,
         "governing_event_head_root": (
             governing_events[-1].get("record_sha256") if governing_events else None
+        ),
+        "active_candidate_fingerprints": adaptive_active_candidate_fingerprints(
+            all_events
         ),
     }
     result = adaptive_decision_posture(policy, packet)
@@ -10484,6 +11089,8 @@ def cmd_adaptive_decision_review(args: argparse.Namespace) -> None:
         "effect_class": source["effect_class"],
         "candidate_evidence_root": source.get("candidate_evidence_root"),
         "candidate_owner_id": source.get("candidate_owner_id"),
+        "proposer_author_id": source.get("proposer_author_id"),
+        "implementation_owner_id": source.get("implementation_owner_id"),
         "reviewer_id": external_review["reviewer_id"],
         "evaluator_id": external_review["evaluator_id"],
         "evaluation_evidence_root": external_review["evaluation_evidence_root"],

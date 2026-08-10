@@ -30,7 +30,81 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         self.target = "adaptive-target-1234"
         repository = self.root / "target-repository"
         repository.mkdir()
+        subprocess.run(
+            ["/usr/bin/git", "-C", str(repository), "init", "-q"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
         self.repository_root = str(repository.resolve())
+        subprocess.run(
+            ["/usr/bin/git", "-C", self.repository_root, "config", "user.name", "Adaptive Test"],
+            check=True,
+        )
+        subprocess.run(
+            ["/usr/bin/git", "-C", self.repository_root, "config", "user.email", "adaptive@example.invalid"],
+            check=True,
+        )
+        self.owned_path = (repository / "owned.py").resolve()
+        self.owned_path.write_text("VALUE = 1\n", encoding="utf-8")
+        self.tracker_path = (repository / "tracker.md").resolve()
+        self.tracker_path.write_text(
+            """# Adaptive test tracker
+
+| Block | Scope | Depends on | Status |
+|---|---|---|---|
+| 7 | Adaptive decision policy | None | in-progress |
+
+## Block 7 — Adaptive decision policy
+
+Status: in-progress
+
+### Target-product capability delta
+
+- Protected-capability effect: preserve the canonical Block capability frame.
+
+### Inputs
+
+- The canonical repository state.
+
+### Required work
+
+- Apply the bounded adaptive decision.
+
+### Acceptance criteria
+
+- Current evidence is mechanically bound.
+
+### Completion evidence
+
+- Pending.
+
+### Stop
+
+Stop after exact review.
+""",
+            encoding="utf-8",
+        )
+        subprocess.run(
+            ["/usr/bin/git", "-C", self.repository_root, "add", "owned.py", "tracker.md"],
+            check=True,
+        )
+        subprocess.run(
+            ["/usr/bin/git", "-C", self.repository_root, "commit", "-q", "-m", "fixture"],
+            check=True,
+        )
+        self.target_revision = subprocess.run(
+            ["/usr/bin/git", "-C", self.repository_root, "rev-parse", "HEAD"],
+            check=True,
+            stdout=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+        (
+            _tracker_path,
+            self.tracker_sha,
+            self.tracker_structure_sha,
+            self.tracker_blocks,
+        ) = supervision_log.implementation_tracker_snapshot(str(self.tracker_path))
         self.private_key = self.root / "review-private.pem"
         self.public_key = self.root / "review-public.pem"
         self.evaluator_private_key = self.root / "evaluator-private.pem"
@@ -118,6 +192,56 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
                 target_class=target_class,
                 target_repository_root=self.repository_root,
             ),
+            "implementation_range": self.range_contract(),
+        }
+
+    def range_contract(self) -> dict[str, object]:
+        request = "Implement this tracker."
+        authority = {
+            "source_class": "direct-user",
+            "source_record": "direct-item-1234",
+            "source_sha256": hashlib.sha256(request.encode()).hexdigest(),
+        }
+        entry = supervision_log.implementation_range_history_entry(
+            sequence=1,
+            prior_entry_sha256="",
+            operation="bound",
+            request_text=request,
+            tracker_sha256=self.tracker_sha,
+            tracker_structure_sha256=self.tracker_structure_sha,
+            tracker_path=str(self.tracker_path),
+            tracker_blocks=[7],
+            range_intent="full-tracker",
+            explicit_blocks=[],
+            authority=authority,
+            authority_policy_version=1,
+        )
+        genesis = supervision_log.digest(
+            {
+                "range_id": "adaptive-range-1234",
+                "authority": authority,
+                "request_text_sha256": entry["request_text_sha256"],
+                "initial_tracker_sha256": self.tracker_sha,
+                "initial_tracker_structure_sha256": self.tracker_structure_sha,
+                "initial_tracker_blocks": [7],
+                "initial_range_intent": "full-tracker",
+                "initial_explicit_blocks": [],
+            }
+        )
+        return {
+            "schema_version": 1,
+            "kind": "implementation-range-binding",
+            "range_id": "adaptive-range-1234",
+            "genesis_sha256": genesis,
+            "authority": authority,
+            "range_intent": "full-tracker",
+            "explicit_blocks": [],
+            "tracker_path": str(self.tracker_path),
+            "tracker_sha256": self.tracker_sha,
+            "tracker_structure_sha256": self.tracker_structure_sha,
+            "tracker_blocks": [7],
+            "history": [entry],
+            "history_head_sha256": entry["entry_sha256"],
         }
 
     def decision_evidence(
@@ -135,20 +259,39 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         blocked_subjects: list[str] | None = None,
         revisit_trigger: str = "",
     ) -> dict[str, object]:
-        evidence_refs = [
-            {
-                "ref_id": "evidence-1234",
-                "source_class": "repository",
-                "root_sha256": evidence_root,
-            }
-        ]
+        block = self.tracker_blocks[7]
+        target_revision_root = supervision_log.digest(
+            {"target_revision": self.target_revision}
+        )
+        file_root = hashlib.sha256(self.owned_path.read_bytes()).hexdigest()
+        evidence_refs = sorted(
+            [
+                {"ref_id": "block-contract-1234", "source_class": "tracker", "root_sha256": block["contract_sha256"]},
+                {"ref_id": "capability-frame-1234", "source_class": "tracker", "root_sha256": block["capability_frame_sha256"]},
+                {"ref_id": "owned-file-1234", "source_class": "repository", "root_sha256": file_root},
+                {"ref_id": "target-revision-1234", "source_class": "repository", "root_sha256": target_revision_root},
+                {"ref_id": "tracker-content-1234", "source_class": "tracker", "root_sha256": self.tracker_sha},
+                {"ref_id": "supplemental-evidence-1234", "source_class": "repository", "root_sha256": evidence_root},
+            ],
+            key=lambda item: item["ref_id"],
+        )
         protected_results = [
             {
-                "capability_id": "public-contract-1234",
+                "capability_id": "block-7-capability-frame",
                 "result": "preserved",
-                "evidence_ref_ids": ["evidence-1234"],
+                "evidence_ref_ids": ["capability-frame-1234"],
             }
         ]
+        affected_scope = [
+            {
+                "owner_id": self.target,
+                "path": str(self.owned_path),
+                "content_root": file_root,
+            }
+        ]
+        target_state_root = supervision_log.digest(
+            {"target_revision_root": target_revision_root, "affected_scope": affected_scope}
+        )
         value: dict[str, object] = {
             "schema_version": 1,
             "kind": "software-factory-adaptive-decision-source",
@@ -158,29 +301,22 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
             "consequence_class": consequence_class,
             "reversible": reversible,
             "mission_preserving": mission_preserving,
-            "block_contract_root": "2" * 64,
-            "tracker_sha256": "3" * 64,
+            "block_number": 7,
+            "block_contract_root": block["contract_sha256"],
+            "tracker_sha256": self.tracker_sha,
             "target_repository_root": self.repository_root,
-            "target_revision": "revision-1234",
-            "target_revision_root": supervision_log.digest(
-                {"target_revision": "revision-1234"}
-            ),
-            "decision_target_state_root": "4" * 64,
-            "current_target_state_root": "5" * 64,
-            "capability_frame_root": "6" * 64,
+            "target_revision": self.target_revision,
+            "target_revision_root": target_revision_root,
+            "decision_target_state_root": target_state_root,
+            "current_target_state_root": target_state_root,
+            "capability_frame_root": block["capability_frame_sha256"],
             "protected_capability_results": protected_results,
             "protected_capability_root": supervision_log.digest(protected_results),
             "adjudicating_evidence_refs": evidence_refs,
-            "affected_scope": [
-                {
-                    "owner_id": self.target,
-                    "path": f"{self.repository_root}/owned.py",
-                    "content_root": "8" * 64,
-                }
-            ],
+            "affected_scope": affected_scope,
             "implementation_owner_id": self.target,
             "proposer_author_id": (
-                "adaptive-proposer-1234" if target_class == "software-factory" else None
+                "base-reviewer-1234" if target_class == "software-factory" else None
             ),
             "stop_boundary": "Stop after the bounded owner action and validation.",
             "safe_frontier": ["block-7-unaffected-work"],
@@ -204,37 +340,77 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         usage_updates: dict[str, int] | None = None,
         protected_result: str = "preserved",
         owner_id: str | None = None,
+        after_text: str = "VALUE = 2\n",
     ) -> dict[str, object]:
-        usage = {
-            field: 0 for field in supervision_log.ADAPTIVE_CANDIDATE_USAGE_FIELDS
-        }
-        usage.update(
+        after = after_text.encode("utf-8")
+        artifact_manifest = [
             {
-                "active_lanes_for_decision": 1,
-                "active_lanes_for_target": 1,
-                "files": 1,
-                "changed_lines": 12,
-                "commands": 2,
-                "elapsed_minutes": 4,
-                "mapped_comparisons": 1,
+                "path": str(self.owned_path),
+                "before_root": hashlib.sha256(self.owned_path.read_bytes()).hexdigest(),
+                "after_root": hashlib.sha256(after).hexdigest(),
+                "after_content_base64": base64.b64encode(after).decode(),
+                "changed_lines": 2,
             }
-        )
+        ]
+        command_results = [
+            {
+                "command_id": "focused-command-1234",
+                "kind": "focused",
+                "started_at": "2026-08-10T05:00:01Z",
+                "finished_at": "2026-08-10T05:00:02Z",
+                "exit_code": 0,
+                "result_payload": {"status": "passed", "tests": 1},
+                "result_root": supervision_log.digest({"status": "passed", "tests": 1}),
+            },
+            {
+                "command_id": "mapped-command-1234",
+                "kind": "mapped",
+                "started_at": "2026-08-10T05:00:03Z",
+                "finished_at": "2026-08-10T05:00:04Z",
+                "exit_code": 0,
+                "result_payload": {"status": "passed", "tests": 7},
+                "result_root": supervision_log.digest({"status": "passed", "tests": 7}),
+            },
+        ]
+        comparison_results = [
+            {
+                "dimension": dimension,
+                "relation": "candidate-better" if dimension == "correctness" else "equivalent",
+                "evidence_root": command_results[-1]["result_root"],
+            }
+            for dimension in supervision_log.ADAPTIVE_COMPARISON_DIMENSIONS
+        ]
+        usage = {
+            "active_lanes_for_decision": 1,
+            "active_lanes_for_target": 1,
+            "files": 1,
+            "changed_lines": 2,
+            "commands": 2,
+            "elapsed_minutes": 1,
+            "mapped_comparisons": 1,
+            "review_passes": 0,
+        }
         if usage_updates:
             usage.update(usage_updates)
-        candidate_root = "c" * 64
-        validation_root = "d" * 64
+        candidate_root = supervision_log.digest(artifact_manifest)
+        validation_root = supervision_log.digest(command_results)
         source_protected = {
-            "capability_id": "public-contract-1234",
+            "capability_id": "block-7-capability-frame",
             "result": "preserved",
-            "evidence_ref_ids": ["evidence-1234"],
+            "evidence_ref_ids": ["capability-frame-1234"],
         }
+        decision_basis_source = self.decision_evidence(
+            decision_id=decision_id,
+            disposition="compare-candidate",
+            candidate_evidence_root="0" * 64,
+        )
         protected = [
             {
-                "capability_id": "public-contract-1234",
+                "capability_id": "block-7-capability-frame",
                 "result": protected_result,
                 "evidence_root": supervision_log.digest(
                     {
-                        "capability_id": "public-contract-1234",
+                        "capability_id": "block-7-capability-frame",
                         "result": protected_result,
                         "source_contract_root": supervision_log.digest(source_protected),
                         "candidate_root": candidate_root,
@@ -248,32 +424,80 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
             "kind": "software-factory-adaptive-candidate-evidence",
             "decision_id": decision_id,
             "owner_id": owner_id or self.target,
-            "source_revision_root": supervision_log.digest(
-                {"target_revision": "revision-1234"}
+            "source_revision_root": supervision_log.digest({"target_revision": self.target_revision}),
+            "decision_basis_root": supervision_log.digest(
+                supervision_log.adaptive_candidate_decision_basis(
+                    decision_basis_source
+                )
             ),
+            "lane_started_at": "2026-08-10T05:00:00Z",
+            "observed_at": "2026-08-10T05:00:05Z",
+            "artifact_manifest": artifact_manifest,
+            "command_results": command_results,
+            "comparison_results": comparison_results,
             "candidate_root": candidate_root,
             "candidate_budget_use": usage,
             "candidate_budget_use_root": supervision_log.digest(usage),
             "protected_capability_results": protected,
             "protected_capability_root": supervision_log.digest(protected),
             "validation_root": validation_root,
-            "comparison_root": "e" * 64,
+            "comparison_root": supervision_log.digest(comparison_results),
+            "acceptance_authority_id": supervision_log.ADAPTIVE_EVALUATOR_ID,
+            "acceptance_authority_key_sha256": self.evaluator_public_key_sha,
+            "acceptance_root": "",
+            "acceptance_signature_base64": "",
             "currentness_root": "",
             "evidence_root": "",
         }
+        value["acceptance_root"] = supervision_log.digest(
+            supervision_log.adaptive_candidate_acceptance_material(value)
+        )
+        content = self.root / "candidate-to-sign.json"
+        signature = self.root / "candidate.sig"
+        content.write_bytes(
+            supervision_log.canonical(
+                {
+                    **supervision_log.adaptive_candidate_acceptance_material(value),
+                    "acceptance_root": value["acceptance_root"],
+                }
+            )
+        )
+        subprocess.run(
+            [
+                str(supervision_log.ADAPTIVE_REVIEW_OPENSSL_PATH),
+                "pkeyutl",
+                "-sign",
+                "-inkey",
+                str(self.evaluator_private_key),
+                "-rawin",
+                "-in",
+                str(content),
+                "-out",
+                str(signature),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        value["acceptance_signature_base64"] = base64.b64encode(
+            signature.read_bytes()
+        ).decode()
         currentness = {
             "owner_id": value["owner_id"],
             "source_revision_root": value["source_revision_root"],
+            "decision_basis_root": value["decision_basis_root"],
             "candidate_root": value["candidate_root"],
             "candidate_budget_use_root": value["candidate_budget_use_root"],
             "protected_capability_root": value["protected_capability_root"],
             "validation_root": value["validation_root"],
             "comparison_root": value["comparison_root"],
+            "acceptance_root": value["acceptance_root"],
         }
         value["currentness_root"] = supervision_log.digest(currentness)
         material = dict(value)
         material.pop("evidence_root")
         material.pop("decision_id")
+        material.pop("acceptance_signature_base64")
         value["evidence_root"] = supervision_log.digest(material)
         return value
 
@@ -299,6 +523,7 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
             "independent_review": review,
             "request_human_input": request_human_input,
             "governing_event_head_root": "f" * 64,
+            "active_candidate_fingerprints": [],
         }
 
     def normalized_review(
@@ -337,14 +562,33 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
                 "--fix-executor-thread", "fix-executor-1234",
                 "--mission-source-class", "direct-user",
                 "--mission-source-record", "direct-item-1234",
-                "--mission-source-sha256", "c" * 64,
+                "--mission-source-sha256", hashlib.sha256(
+                    b"Implement this tracker."
+                ).hexdigest(),
                 "--adaptive-target-repository-root", self.repository_root,
             ]
         )
         output = io.StringIO()
         with redirect_stdout(output):
             supervision_log.cmd_init(args)
-        return json.loads(output.getvalue())["policy"]
+        bind_args = supervision_log.parser().parse_args(
+            [
+                "--root", str(self.root), "implementation-range-bind",
+                "--target-thread", self.target,
+                "--range-id", "adaptive-range-1234",
+                "--tracker", str(self.tracker_path),
+                "--request-text", "Implement this tracker.",
+                "--authority-source-record", "direct-item-1234",
+                "--authority-source-sha256", hashlib.sha256(
+                    b"Implement this tracker."
+                ).hexdigest(),
+            ]
+        )
+        with redirect_stdout(io.StringIO()):
+            supervision_log.cmd_implementation_range_bind(bind_args)
+        return json.loads(
+            (self.root / self.target / "policy.json").read_text(encoding="utf-8")
+        )
 
     def adjust(self, *extra: str) -> dict[str, object]:
         args = supervision_log.parser().parse_args(
@@ -415,6 +659,8 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
             "effect_class": source["effect_class"],
             "candidate_evidence_root": source["candidate_evidence_root"],
             "candidate_owner_id": source["candidate_owner_id"],
+            "proposer_author_id": source["proposer_author_id"],
+            "implementation_owner_id": source["implementation_owner_id"],
             "reviewer_id": supervision_log.ADAPTIVE_REVIEWER_ID,
             "evaluator_id": (
                 supervision_log.ADAPTIVE_EVALUATOR_ID if software_factory else None
@@ -536,6 +782,23 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         ):
             self.assertIs(policy["permissions"][field], False)
         supervision_log.validate_policy(policy)
+        invalid_args = supervision_log.parser().parse_args(
+            [
+                "--root", str(self.root), "init",
+                "--target-thread", "invalid-root-target-1234",
+                "--target-label", "Invalid root fixture",
+                "--watcher-thread", "watcher-invalid-1234",
+                "--reviewer-thread", "reviewer-invalid-1234",
+                "--mission-source-class", "direct-user",
+                "--mission-source-record", "direct-invalid-1234",
+                "--mission-source-sha256", "d" * 64,
+                "--adaptive-target-repository-root", "/",
+            ]
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "not canonical"
+        ):
+            supervision_log.cmd_init(invalid_args)
 
     def test_legacy_policy_stays_fixed_until_explicit_migration(self) -> None:
         policy = self.policy()
@@ -664,16 +927,19 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         stale_currentness = {
             "owner_id": stale_source["owner_id"],
             "source_revision_root": stale_source["source_revision_root"],
+            "decision_basis_root": stale_source["decision_basis_root"],
             "candidate_root": stale_source["candidate_root"],
             "candidate_budget_use_root": stale_source["candidate_budget_use_root"],
             "protected_capability_root": stale_source["protected_capability_root"],
             "validation_root": stale_source["validation_root"],
             "comparison_root": stale_source["comparison_root"],
+            "acceptance_root": stale_source["acceptance_root"],
         }
         stale_source["currentness_root"] = supervision_log.digest(stale_currentness)
         stale_material = dict(stale_source)
         stale_material.pop("evidence_root")
         stale_material.pop("decision_id")
+        stale_material.pop("acceptance_signature_base64")
         stale_source["evidence_root"] = supervision_log.digest(stale_material)
         with self.assertRaisesRegex(supervision_log.SupervisionLogError, "source revision"):
             supervision_log.validate_adaptive_candidate_evidence(
@@ -698,12 +964,45 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
                     candidate_evidence_root=str(renamed["evidence_root"]),
                 ),
             )
-        over = self.candidate(usage_updates={"files": 4})
+        basis_candidate = self.candidate()
+        changed_basis_source = self.decision_evidence(
+            disposition="compare-candidate",
+            candidate_evidence_root=str(basis_candidate["evidence_root"]),
+        )
+        changed_basis_source["capability_frame_root"] = "0" * 64
+        changed_basis_source["block_contract_root"] = "1" * 64
+        changed_basis_source["decision_target_state_root"] = "2" * 64
+        changed_basis_source["affected_scope"][0]["content_root"] = "3" * 64  # type: ignore[index]
+        changed_basis_material = dict(changed_basis_source)
+        changed_basis_material.pop("source_root")
+        changed_basis_source["source_root"] = supervision_log.digest(
+            changed_basis_material
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "decision basis|canonical tracker|Block contract"
+        ):
+            supervision_log.adaptive_decision_posture(
+                self.policy(),
+                self.packet(
+                    self.policy(),
+                    evidence=changed_basis_source,
+                    candidate=basis_candidate,
+                ),
+            )
+        over = self.candidate()
         source = self.decision_evidence(
             disposition="compare-candidate", candidate_evidence_root=str(over["evidence_root"])
         )
+        over_policy = self.policy()
+        over_budget = dict(over_policy["adaptive_decision_control"]["candidate_budget"])  # type: ignore[index]
+        over_budget["max_changed_lines"] = 1
+        over_policy["adaptive_decision_control"] = supervision_log.adaptive_decision_control_contract(
+            "full-autonomous",
+            candidate_budget=over_budget,
+            target_repository_root=self.repository_root,
+        )
         result = supervision_log.adaptive_decision_posture(
-            self.policy(), self.packet(self.policy(), evidence=source, candidate=over)
+            over_policy, self.packet(over_policy, evidence=source, candidate=over)
         )
         self.assertTrue(result["budget_exceeded"])
         self.assertEqual(result["application_posture"], "stop-and-retire-candidate")
@@ -808,16 +1107,19 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         changed_currentness = {
             "owner_id": changed_candidate["owner_id"],
             "source_revision_root": changed_candidate["source_revision_root"],
+            "decision_basis_root": changed_candidate["decision_basis_root"],
             "candidate_root": changed_candidate["candidate_root"],
             "candidate_budget_use_root": changed_candidate["candidate_budget_use_root"],
             "protected_capability_root": changed_candidate["protected_capability_root"],
             "validation_root": changed_candidate["validation_root"],
             "comparison_root": changed_candidate["comparison_root"],
+            "acceptance_root": changed_candidate["acceptance_root"],
         }
         changed_candidate["currentness_root"] = supervision_log.digest(changed_currentness)
         candidate_material = dict(changed_candidate)
         candidate_material.pop("evidence_root")
         candidate_material.pop("decision_id")
+        candidate_material.pop("acceptance_signature_base64")
         changed_candidate["evidence_root"] = supervision_log.digest(candidate_material)
         changed_evidence = copy.deepcopy(evidence)
         changed_evidence["candidate_evidence_root"] = changed_candidate["evidence_root"]
@@ -995,6 +1297,12 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         self.assertTrue((self.root / self.target / "policy-history.jsonl").read_bytes().startswith(first_history))
         other_repository = self.root / "other-repository"
         other_repository.mkdir()
+        subprocess.run(
+            ["/usr/bin/git", "-C", str(other_repository), "init", "-q"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError, "repository root is immutable"
         ):
@@ -1049,13 +1357,126 @@ class AdaptiveDecisionPolicyTests(unittest.TestCase):
         linked_material = dict(linked)
         linked_material.pop("source_root")
         linked["source_root"] = supervision_log.digest(linked_material)
-        with self.assertRaisesRegex(supervision_log.SupervisionLogError, "escapes"):
+        with self.assertRaisesRegex(supervision_log.SupervisionLogError, "escapes|symlink"):
             supervision_log.validate_adaptive_decision_evidence(linked, policy=policy)
         duplicate_path = self.root / "duplicate.json"
         duplicate_path.write_text('{"schema_version":1,"schema_version":1}\n', encoding="utf-8")
         with self.assertRaisesRegex(supervision_log.SupervisionLogError, "Duplicate"):
             supervision_log.load_bounded_canonical_json(
                 str(duplicate_path), label="adaptive decision evidence", maximum_bytes=1024
+            )
+
+    def test_live_git_tracker_file_and_candidate_acceptance_currentness_fail_closed(self) -> None:
+        policy = self.policy()
+        current = self.decision_evidence()
+        self.owned_path.write_text("VALUE = 9\n", encoding="utf-8")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "content is stale"
+        ):
+            supervision_log.validate_adaptive_decision_evidence(current, policy=policy)
+        subprocess.run(
+            ["/usr/bin/git", "-C", self.repository_root, "checkout", "--", "owned.py"],
+            check=True,
+        )
+        tracker_current = self.decision_evidence()
+        self.tracker_path.write_text(
+            self.tracker_path.read_text(encoding="utf-8") + "\nUnaccepted mutation.\n",
+            encoding="utf-8",
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "tracker is stale"
+        ):
+            supervision_log.validate_adaptive_decision_evidence(
+                tracker_current, policy=policy
+            )
+        subprocess.run(
+            ["/usr/bin/git", "-C", self.repository_root, "checkout", "--", "tracker.md"],
+            check=True,
+        )
+        candidate = self.candidate()
+        candidate["acceptance_signature_base64"] = base64.b64encode(b"x" * 64).decode()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "acceptance signature"
+        ):
+            supervision_log.validate_adaptive_candidate_evidence(
+                candidate,
+                decision_evidence=self.decision_evidence(
+                    disposition="compare-candidate",
+                    candidate_evidence_root=str(candidate["evidence_root"]),
+                ),
+            )
+
+    def test_canonical_event_frontier_rejects_two_distinct_active_candidate_lanes(self) -> None:
+        self.init()
+        directory = self.root / self.target
+        bound_policy = json.loads(
+            (directory / "policy.json").read_text(encoding="utf-8")
+        )
+        bound_policy["permissions"]["repository_write"] = True
+        bound_policy["permissions"]["command_or_test_execution"] = True
+        supervision_log.write_policy_version(
+            directory,
+            bound_policy,
+            kind="policy-change",
+            reason="Enable the bounded candidate fixture.",
+            evidence_values=["active-lane-regression"],
+        )
+        first = self.candidate(decision_id="active-lane-one-1234")
+        first_source = self.decision_evidence(
+            decision_id="active-lane-one-1234",
+            disposition="compare-candidate",
+            candidate_evidence_root=str(first["evidence_root"]),
+        )
+        self.assertFalse(
+            self.run_gate(self.gate_args(first_source, candidate=first))["duplicate"]
+        )
+        second = self.candidate(
+            decision_id="active-lane-two-1234", after_text="VALUE = 3\n"
+        )
+        second_source = self.decision_evidence(
+            decision_id="active-lane-two-1234",
+            disposition="compare-candidate",
+            candidate_evidence_root=str(second["evidence_root"]),
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "different active candidate lane"
+        ):
+            self.run_gate(self.gate_args(second_source, candidate=second))
+        events = [
+            json.loads(line)
+            for line in (self.root / self.target / "events.jsonl").read_text(
+                encoding="utf-8"
+            ).splitlines()
+        ]
+        self.assertEqual(
+            sum(
+                item.get("kind") == "adaptive-decision"
+                and item.get("candidate_evidence_root") is not None
+                for item in events
+            ),
+            1,
+        )
+
+    def test_software_factory_role_identities_are_event_and_signature_bound(self) -> None:
+        policy = self.policy(target_class="software-factory")
+        policy["permissions"]["allowlisted_skill_maintenance"] = True
+        evidence = self.decision_evidence(target_class="software-factory")
+        pending = supervision_log.adaptive_decision_posture(
+            policy, self.packet(policy, evidence=evidence)
+        )
+        self.assertEqual(pending["proposer_author_id"], "base-reviewer-1234")
+        self.assertEqual(pending["implementation_owner_id"], self.target)
+        source = {**pending, "record_id": "role-source-1234", "record_sha256": "1" * 64}
+        review = self.signed_review_json(source)
+        self.assertEqual(review["proposer_author_id"], "base-reviewer-1234")
+        self.assertEqual(review["implementation_owner_id"], self.target)
+        changed = copy.deepcopy(review)
+        changed["proposer_author_id"] = "fabricated-proposer-1234"
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "bind the source decision|signature"
+        ):
+            supervision_log.validate_external_adaptive_review(
+                changed, source=source, policy=policy
             )
 
     def test_cli_and_docs_expose_decision_evidence_signed_review_and_input_avoidance(self) -> None:

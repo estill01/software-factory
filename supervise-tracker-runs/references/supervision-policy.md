@@ -267,13 +267,19 @@ python3 scripts/supervision_log.py status \
 
 The decision evidence is exact canonical JSON; the helper recomputes rather
 than accepts its fingerprint and derives target/effect from canonical policy.
-The exact repository root is bound in policy at initialization or one legacy
-migration and is thereafter immutable; realpath containment rejects widened or
-symlink-escaped affected scopes.
+The exact existing Git-top-level repository root is bound in policy at
+initialization or one legacy migration and is thereafter immutable; `/`, an
+ancestor/wrong worktree, and realpath/symlink-escaped affected scopes reject.
 The candidate evidence is canonical JSON binding the decision, candidate owner
-and exact decision target revision, candidate and usage roots, all-and-only
-decision-contract protected-capability results, validation/comparison roots,
-and currentness. Its
+and exact decision target revision plus a Block/capability/state/scope decision
+basis, candidate and usage roots, all-and-only decision-contract
+protected-capability results, validation/comparison roots,
+and currentness. Candidate roots rehydrate exact before/after file content,
+focused-before-mapped canonical result payloads, the closed six-dimension
+comparison, and lane chronology; usage is derived from those records. The sealed
+evaluator authority signs the complete accepted candidate packet, and the
+canonical owner ledger rejects a second distinct active candidate regardless of
+caller-declared counts. Its
 review-pass use is zero; the separately owned canonical review event contributes
 the one review pass only after a sealed reviewer signature binds the complete
 reviewed semantics/currentness. A Software Factory mutation additionally needs
