@@ -7,6 +7,7 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from test_server import FAKE_APP_SERVER, NONCE_PLACEHOLDER, response, running_server
 from test_tracker import FULL_TRACKER
@@ -594,6 +595,20 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         }
         self.assertEqual(FactoryWorkflowOwner._task_marker(task), marker)
 
+        newer_marker = {**marker, "tracker_id": "b" * 64}
+        task["turns"] = [
+            {
+                "items": [
+                    {
+                        "type": "userMessage",
+                        "summary": "SOFTWARE_FACTORY_DASHBOARD_MISSION "
+                        + json.dumps(newer_marker, separators=(",", ":")),
+                    }
+                ]
+            }
+        ]
+        self.assertEqual(FactoryWorkflowOwner._task_marker(task), newer_marker)
+
         helper = self.root / "helper.py"
         helper.write_text("raise SystemExit(0)\n", encoding="utf-8")
         link = self.root / "helper-link.py"
@@ -623,6 +638,38 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         regular.symlink_to(forged)
         with self.assertRaisesRegex(RuntimeError, "unavailable"):
             replacement_gate(route_request)
+
+        immutable = self.root / "immutable-helper.py"
+        immutable.write_text(
+            "import json\n"
+            "print(json.dumps({'send_allowed': True, 'action_sha256': 'a' * 64, "
+            "'recipient_thread_id': 'task-1', 'purpose': 'target-action', "
+            "'source_record': 'EVT-1', 'policy_sha256': 'b' * 64}))\n",
+            encoding="utf-8",
+        )
+        immutable_gate = SupervisionRouteGate(
+            supervision_root=self.supervision_root,
+            helper_path=immutable,
+        )
+        real_run = subprocess.run
+
+        def replace_before_execution(*args, **kwargs):
+            immutable.write_text(
+                "import json\n"
+                "print(json.dumps({'send_allowed': True, 'action_sha256': 'f' * 64, "
+                "'recipient_thread_id': 'forged-task', 'purpose': 'target-action', "
+                "'source_record': 'EVT-1', 'policy_sha256': 'f' * 64}))\n",
+                encoding="utf-8",
+            )
+            return real_run(*args, **kwargs)
+
+        with patch(
+            "software_factory_dashboard.factory_workflows.subprocess.run",
+            side_effect=replace_before_execution,
+        ):
+            immutable_result = immutable_gate(route_request)
+        self.assertEqual(immutable_result.recipient, "task-1")
+        self.assertEqual(immutable_result.action_hash, "a" * 64)
 
     def test_attachment_requires_exact_role_tasks_active_automations_and_cadence(self) -> None:
         target = OperationTarget(

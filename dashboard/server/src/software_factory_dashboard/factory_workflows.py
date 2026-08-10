@@ -49,8 +49,7 @@ REQUIRED_SUPERVISION_ROLES = (
 )
 SECURE_HELPER_RUNNER = (
     "import os,sys;"
-    "fd=int(sys.argv[1]);filename=sys.argv[2];sys.argv=sys.argv[2:];"
-    "source=open(fd,'rb',closefd=False).read();"
+    "filename=sys.argv[1];sys.argv=sys.argv[1:];source=sys.stdin.buffer.read();"
     "scope={'__name__':'__main__','__file__':filename,'__package__':None,'__cached__':None};"
     "exec(compile(source,filename,'exec'),scope,scope)"
 )
@@ -166,13 +165,11 @@ class SupervisionRouteGate:
                 raise RuntimeError(
                     "The maintained supervision route-gate helper changed; restart before routing"
                 )
-            os.lseek(descriptor, 0, os.SEEK_SET)
             completed = subprocess.run(
                 [
                     sys.executable,
                     "-c",
                     SECURE_HELPER_RUNNER,
-                    str(descriptor),
                     str(self.helper_path),
                     "--root",
                     str(self.supervision_root),
@@ -190,9 +187,8 @@ class SupervisionRouteGate:
                 ],
                 check=False,
                 capture_output=True,
-                text=True,
+                input=content,
                 timeout=5,
-                pass_fds=(descriptor,),
             )
         finally:
             os.close(descriptor)
@@ -626,11 +622,6 @@ class FactoryWorkflowOwner:
 
     @staticmethod
     def _task_marker(task: Mapping[str, Any]) -> Mapping[str, Any] | None:
-        preview = task.get("preview")
-        if isinstance(preview, str):
-            marker = FactoryWorkflowOwner._parse_marker(preview)
-            if marker is not None:
-                return marker
         for turn in reversed(task.get("turns", [])):
             for item in reversed(turn.get("items", [])):
                 summary = item.get("summary")
@@ -639,6 +630,11 @@ class FactoryWorkflowOwner:
                 marker = FactoryWorkflowOwner._parse_marker(summary)
                 if marker is not None:
                     return marker
+        preview = task.get("preview")
+        if isinstance(preview, str):
+            marker = FactoryWorkflowOwner._parse_marker(preview)
+            if marker is not None:
+                return marker
         return None
 
     @staticmethod

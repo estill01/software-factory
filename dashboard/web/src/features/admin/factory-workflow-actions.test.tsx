@@ -298,7 +298,12 @@ describe("Factory workflow action strips", () => {
     }
     const boundTask = {
       ...idleTask,
-      preview: `SOFTWARE_FACTORY_DASHBOARD_MISSION ${JSON.stringify(marker)}`,
+      preview: `SOFTWARE_FACTORY_DASHBOARD_MISSION ${JSON.stringify({ ...marker, tracker_id: "f".repeat(64) })}`,
+      turns: [{
+        id: "turn-binding",
+        status: "completed",
+        items: [{ id: "item-binding", type: "userMessage", summary: `SOFTWARE_FACTORY_DASHBOARD_MISSION ${JSON.stringify(marker)}` }],
+      }],
     } as unknown as typeof task
     rerender(
       <QueryClientProvider client={client}>

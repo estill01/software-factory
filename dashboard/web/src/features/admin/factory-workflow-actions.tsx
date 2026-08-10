@@ -51,10 +51,10 @@ const missionSourcePattern = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,239}$/
 
 function implementationBinding(task: Task): ImplementationBinding | null {
   const candidates = [
-    task.preview,
     ...task.turns.slice().reverse().flatMap((turn) => (
       turn.items.slice().reverse().filter((item) => item.type === "userMessage").map((item) => item.summary)
     )),
+    task.preview,
   ]
   for (const candidate of candidates) {
     const firstLine = candidate?.split(/\r?\n/, 1)[0]
