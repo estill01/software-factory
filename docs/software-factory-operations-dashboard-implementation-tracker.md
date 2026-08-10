@@ -3669,6 +3669,33 @@ poll only for the named newer check until the bounded timeout. Stop at
   test now explicitly requests the active task it asserts, its focused rerun
   passed, and the complete serial backend rerun passed without changing
   production recency behavior.
+- Rejected exact review: evidence revision
+  `7b40cdc1219896818ade1def03eb801365023dd1`, tree
+  `7edfe23382d97b9f29b019b53975807fba0edd89`, was rejected because the
+  postcondition accepted any newer `kind=check` record, including a verified
+  `observable-outcome-completion` record carrying explicit implementation-
+  acceptance action and resolution, while reporting
+  `semantic_conclusion=false`. The review otherwise reproduced backend 98/98
+  with `ResourceWarning` fatal, Ruff, frontend 74/74, production build,
+  Playwright 6/6 across three viewports, the tracker verifier at 0 errors and 0
+  warnings, and all 30 verifier self-tests. The rejected revision remains
+  immutable evidence and does not accept Block 12.
+- Corrective successor: commit
+  `37c66dd1fc7cc0cdbe82ef056ff417b9f3345e93`, tree
+  `55bad865e754264666d065bfaabfd26214aadc02`, parent
+  `7b40cdc1219896818ade1def03eb801365023dd1`, is pushed exactly to
+  `origin/codex/evolution-mvp`. Its four-file staged diff root was
+  `bfbe6cad7f7b8ba4d938313c6dc7698f969e93f4a3fc12f7a6a4167d8432f868`.
+  The owner now accepts only a complete canonical mechanical watcher outcome:
+  either `check/no-intervention` with empty semantic-control fields, or the
+  maintained `escalation/changed-state-review/routed` handoff with its bounded
+  routing fields. Semantic/outcome completion, partial projected records,
+  wrong severity, intervention-bearing records, and unmatched identity or
+  evidence remain pending and never acquire a dashboard-authored conclusion.
+  The affected workflow-owner module passed 10/10 with `ResourceWarning`
+  fatal, the focused UI passed 3/3, Ruff passed, and diff checks were clean;
+  previously valid unaffected proof is preserved. This successor remains
+  unaccepted pending fresh exact-revision review.
 - Exact live/browser proof: on the rebuilt candidate served at loopback port
   8787, the affected Factory Floor and live run/supervisor/task drill-down
   scenarios passed 6/6 serially across desktop, tablet, and mobile. The current
