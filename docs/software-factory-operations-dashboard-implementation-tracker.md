@@ -509,7 +509,7 @@ the relevant authority and evidence contract.
 | 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `accepted` |
 | 12 | On-demand mechanical supervision checks | 7, 10, 11 | `accepted` |
 | 13 | Semantic supervision review requests | 7, 10, 11 | `accepted` |
-| 14 | Supervision policy and cadence administration | 7, 10, 11 | `not-started` |
+| 14 | Supervision policy and cadence administration | 7, 10, 11 | `in-progress` |
 | 15 | Mission and target/tracker binding repair | 7, 10, 11 | `not-started` |
 | 16 | Role-task binding repair | 7, 10, 11 | `not-started` |
 | 17 | Automation binding repair | 7, 10, 11 | `not-started` |
@@ -4030,7 +4030,7 @@ reporting, or Factory evolution.
 
 ## Block 14 — Supervision policy and cadence administration
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -4129,7 +4129,25 @@ automations.
 
 ### Completion evidence
 
-Pending.
+- Activation: Block 14 started automatically from accepted and pushed Block 13
+  checkpoint `9651fc03af2a304ff7cda174155d2e487773ec87`, tree
+  `3bc97b5869ae8a96e6c4671551cd0d8e6ec84834`; dependencies 7, 10, and 11
+  are accepted, the checkout/upstream were exact at `0 0`, and Blocks 15–25
+  remain unopened. The direct-user full-tracker request remains Blocks 0–25;
+  this transition does not contract the remaining range.
+- Governing implementation authority: direct-user item 44 at
+  `codex:019fe547-e054-7ca0-9940-ec4aa146df78:019fe572-0536-7692-8505-c8624eefa7ab:item-44`
+  under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+- Execution brief: add one closed `Adjust supervision` operation over the exact
+  current policy/group, using only fields proven adjustable by the maintained
+  helper and binding schedule fields to their exact affected automations.
+  Preview a minimal before/after diff, preserved fields, next policy version,
+  owner request, actual automation targets/schedules, and compensation posture;
+  verify policy-history and every affected live automation independently. Reuse
+  the accepted operation coordinator and current projections. Do not write
+  policy/history JSON or automation TOML, add a settings store/scheduler, read
+  or send Gmail, or open any Block 15+ control.
 
 ### Stop
 
