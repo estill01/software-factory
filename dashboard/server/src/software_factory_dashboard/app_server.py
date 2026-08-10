@@ -319,6 +319,7 @@ class PendingServerRequest:
     request_id: str
     source_fingerprint: str
     raw_id: str | int
+    generation: int
     family: str
     params: dict[str, Any]
     received_at: str
@@ -532,7 +533,10 @@ class CodexAppServerClient:
                         "app_server_initialize_invalid",
                         "Codex App Server returned an invalid initialize result.",
                     )
-                self._write_message({"method": "initialized", "params": {}})
+                self._write_message(
+                    {"method": "initialized", "params": {}},
+                    expected_generation=generation,
+                )
             except AppServerError as error:
                 self._set_failure(error)
                 return
@@ -629,7 +633,12 @@ class CodexAppServerClient:
             retryable=bool(error and error["retryable"]),
         )
 
-    def _write_message(self, message: Mapping[str, Any]) -> None:
+    def _write_message(
+        self,
+        message: Mapping[str, Any],
+        *,
+        expected_generation: int | None = None,
+    ) -> None:
         encoded = _canonical(message).decode("utf-8")
         if len(encoded.encode("utf-8")) > MAX_PROTOCOL_LINE_BYTES:
             raise AppServerError(
@@ -637,16 +646,26 @@ class CodexAppServerClient:
                 "App Server message exceeds the bounded transport limit.",
                 status=413,
             )
-        with self._state_lock:
-            process = self._process
-        if process is None or process.stdin is None or process.poll() is not None:
-            raise AppServerError(
-                "app_server_disconnected",
-                "Codex App Server transport is disconnected.",
-                retryable=True,
-            )
         try:
             with self._write_lock:
+                with self._state_lock:
+                    if (
+                        expected_generation is not None
+                        and expected_generation != self._generation
+                    ):
+                        raise AppServerError(
+                            "app_server_restarted",
+                            "Codex App Server connection was restarted.",
+                            status=409,
+                            retryable=True,
+                        )
+                    process = self._process
+                if process is None or process.stdin is None or process.poll() is not None:
+                    raise AppServerError(
+                        "app_server_disconnected",
+                        "Codex App Server transport is disconnected.",
+                        retryable=True,
+                    )
                 process.stdin.write(encoded + "\n")
                 process.stdin.flush()
         except (BrokenPipeError, OSError) as exc:
@@ -686,7 +705,10 @@ class CodexAppServerClient:
             pending = PendingCall(family=family, generation=generation)
             self._pending[request_id] = pending
         try:
-            self._write_message({"id": request_id, "method": method, "params": dict(params)})
+            self._write_message(
+                {"id": request_id, "method": method, "params": dict(params)},
+                expected_generation=pending.generation,
+            )
         except AppServerError:
             with self._state_lock:
                 self._pending.pop(request_id, None)
@@ -736,7 +758,7 @@ class CodexAppServerClient:
                         "app_server_message_invalid",
                         "Codex App Server emitted a non-object message.",
                     )
-                self._receive(message)
+                self._receive(message, generation=generation)
         except AppServerError as error:
             with self._state_lock:
                 current = generation == self._generation and not self._closing
@@ -771,9 +793,9 @@ class CodexAppServerClient:
                     return
                 self._diagnostics.append(redacted)
 
-    def _receive(self, message: dict[str, Any]) -> None:
+    def _receive(self, message: dict[str, Any], *, generation: int | None = None) -> None:
         if "id" in message and ("result" in message or "error" in message) and "method" not in message:
-            self._receive_response(message)
+            self._receive_response(message, generation=generation)
             return
         method = message.get("method")
         if not isinstance(method, str):
@@ -782,11 +804,16 @@ class CodexAppServerClient:
                 "Codex App Server message has no valid method or response identifier.",
             )
         if "id" in message:
-            self._receive_server_request(message)
+            self._receive_server_request(message, generation=generation)
         else:
-            self._receive_notification(method, message.get("params"))
+            self._receive_notification(method, message.get("params"), generation=generation)
 
-    def _receive_response(self, message: dict[str, Any]) -> None:
+    def _receive_response(
+        self,
+        message: dict[str, Any],
+        *,
+        generation: int | None = None,
+    ) -> None:
         response_id = message.get("id")
         if not isinstance(response_id, int):
             raise AppServerError(
@@ -794,6 +821,8 @@ class CodexAppServerClient:
                 "Codex App Server returned a non-integer response identifier.",
             )
         with self._state_lock:
+            if generation is not None and generation != self._generation:
+                return
             pending = self._pending.pop(response_id, None)
             duplicate = response_id in self._completed_ids
             if pending is not None:
@@ -842,7 +871,16 @@ class CodexAppServerClient:
             pending.result = message.get("result")
         pending.event.set()
 
-    def _receive_notification(self, method: str, params: Any) -> None:
+    def _receive_notification(
+        self,
+        method: str,
+        params: Any,
+        *,
+        generation: int | None = None,
+    ) -> None:
+        with self._state_lock:
+            if generation is not None and generation != self._generation:
+                return
         mapped = NOTIFICATION_METHODS.get(method)
         if mapped is None:
             with self._state_lock:
@@ -871,7 +909,17 @@ class CodexAppServerClient:
                 else "",
             )
 
-    def _receive_server_request(self, message: dict[str, Any]) -> None:
+    def _receive_server_request(
+        self,
+        message: dict[str, Any],
+        *,
+        generation: int | None = None,
+    ) -> None:
+        with self._state_lock:
+            current_generation = self._generation
+            if generation is not None and generation != current_generation:
+                return
+        request_generation = current_generation if generation is None else generation
         method = message.get("method")
         raw_id = message.get("id")
         if not isinstance(raw_id, (str, int)):
@@ -888,7 +936,8 @@ class CodexAppServerClient:
                         "code": -32601,
                         "message": "Client callback is outside the dashboard capability set.",
                     },
-                }
+                },
+                expected_generation=request_generation,
             )
             with self._state_lock:
                 self._ignored_notifications += 1
@@ -907,17 +956,24 @@ class CodexAppServerClient:
                 "App Server callback parameters are invalid.",
             )
         source_fingerprint = _digest(
-            {"generation": self._generation, "id": raw_id, "family": family, "params": params}
+            {
+                "generation": request_generation,
+                "id": raw_id,
+                "family": family,
+                "params": params,
+            }
         )
         request_id = source_fingerprint[:32]
         record = PendingServerRequest(
             request_id=request_id,
             source_fingerprint=source_fingerprint,
             raw_id=raw_id,
+            generation=request_generation,
             family=family,
             params=params,
             received_at=_observed_at(),
         )
+        buffer_full = False
         with self._state_lock:
             if len(self._server_requests) >= MAX_PENDING_SERVER_REQUESTS:
                 evictable = next(
@@ -931,17 +987,21 @@ class CodexAppServerClient:
                 if evictable is not None:
                     self._server_requests.pop(evictable)
                 else:
-                    self._write_message(
-                        {
-                            "id": raw_id,
-                            "error": {
-                                "code": -32000,
-                                "message": "Dashboard callback buffer is full.",
-                            },
-                        }
-                    )
-                    return
-            self._server_requests[request_id] = record
+                    buffer_full = True
+            if not buffer_full:
+                self._server_requests[request_id] = record
+        if buffer_full:
+            self._write_message(
+                {
+                    "id": raw_id,
+                    "error": {
+                        "code": -32000,
+                        "message": "Dashboard callback buffer is full.",
+                    },
+                },
+                expected_generation=request_generation,
+            )
+            return
         self.events.publish("request", self._server_request_projection(record))
 
     def _notification_projection(
@@ -1063,7 +1123,6 @@ class CodexAppServerClient:
             )
         with self._state_lock:
             request = self._server_requests.get(request_id)
-            generation = self._generation
         if request is None:
             raise AppServerError(
                 "task_request_not_found",
@@ -1125,7 +1184,7 @@ class CodexAppServerClient:
             )
         compatibility.validate(f"server:{request.family}:response", result)
         with self._state_lock:
-            if generation != self._generation or request.status != "pending":
+            if request.generation != self._generation or request.status != "pending":
                 raise AppServerError(
                     "task_request_stale",
                     "The task request became stale before the response was sent.",
@@ -1133,7 +1192,10 @@ class CodexAppServerClient:
                 )
             request.status = "responded"
         try:
-            self._write_message({"id": request.raw_id, "result": result})
+            self._write_message(
+                {"id": request.raw_id, "result": result},
+                expected_generation=request.generation,
+            )
         except AppServerError:
             with self._state_lock:
                 request.status = "stale"

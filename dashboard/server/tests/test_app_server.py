@@ -7,6 +7,7 @@ import sys
 from tempfile import TemporaryDirectory
 from threading import Event, Thread
 import time
+from typing import Any, Mapping
 import unittest
 
 from dashboard.server.tests.fake_app_server import write_contract
@@ -309,6 +310,53 @@ class CodexAppServerClientTests(unittest.TestCase):
             self.assertTrue(stale_failure_entered.wait(2))
         finally:
             release_stale_failure.set()
+            worker.join(timeout=2)
+
+        state = client.integration_state()
+        process = client._process
+        self.assertEqual(restarted["status"], "available")
+        self.assertEqual([error.code for error in request_errors], ["app_server_restarted"])
+        self.assertEqual(state["status"], "available")
+        self.assertIsNone(state["last_error"])
+        self.assertIsNotNone(process)
+        assert process is not None
+        self.assertIsNone(process.poll())
+
+    def test_prior_generation_request_cannot_write_to_the_successor_child(self) -> None:
+        client = self.client("timeout", request_timeout=2)
+        prior_write_entered = Event()
+        release_prior_write = Event()
+        original_write_message = client._write_message
+        request_errors: list[AppServerError] = []
+
+        def delay_prior_write(
+            message: Mapping[str, Any],
+            *,
+            expected_generation: int | None = None,
+        ) -> None:
+            if message.get("method") == "thread/list" and expected_generation == 1:
+                prior_write_entered.set()
+                release_prior_write.wait(2)
+            original_write_message(
+                message,
+                expected_generation=expected_generation,
+            )
+
+        client._write_message = delay_prior_write  # type: ignore[method-assign]
+
+        def list_during_restart() -> None:
+            try:
+                client.list_tasks((self.project,))
+            except AppServerError as error:
+                request_errors.append(error)
+
+        worker = Thread(target=list_during_restart)
+        worker.start()
+        self.assertTrue(prior_write_entered.wait(2))
+        try:
+            restarted = client.restart()
+        finally:
+            release_prior_write.set()
             worker.join(timeout=2)
 
         state = client.integration_state()
