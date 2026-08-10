@@ -38,6 +38,30 @@ class InvocationEnvelopeContractTests(unittest.TestCase):
         self.assertIn("next applicable first invocation", NORMALIZED_SKILL)
         self.assertIn("rerun only proof invalidated by the correction", NORMALIZED_SKILL)
 
+    def test_pre_final_reconciliation_survives_unavailable_supervision(self) -> None:
+        for requirement in (
+            "Immediately before any final response or terminal posture",
+            "exact direct requested Block range and current tracker",
+            "current accepted Blocks, remaining requested Blocks",
+            "dependency-safe frontier, required producer transitions",
+            "safe coordination frontier",
+            "missing or unavailable optional supervision binding, helper, or gate",
+            "local evidence-bound reconciliation",
+            "final return is forbidden: continue automatically",
+            "do not ask the user to press Resume",
+        ):
+            self.assertIn(requirement, NORMALIZED_SKILL)
+
+    def test_pre_final_reconciliation_does_not_invent_or_overlap_authority(self) -> None:
+        for prohibition in (
+            "never fabricates supervision authority",
+            "creates a parallel ledger",
+            "narrows the exact direct scope",
+            "authorizes overlapping producer writes",
+            "single-writer ownership remains controlling",
+        ):
+            self.assertIn(prohibition, NORMALIZED_SKILL)
+
 
 if __name__ == "__main__":
     unittest.main()
