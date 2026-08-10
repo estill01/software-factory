@@ -9,9 +9,11 @@ from threading import Event, Thread
 import time
 from typing import Any, Mapping
 import unittest
+from unittest.mock import patch
 
 from dashboard.server.tests.fake_app_server import write_contract
 
+import software_factory_dashboard.app_server as app_server_module
 from software_factory_dashboard.app_server import (
     MAX_EVENTS,
     AppServerError,
@@ -368,6 +370,99 @@ class CodexAppServerClientTests(unittest.TestCase):
         self.assertIsNotNone(process)
         assert process is not None
         self.assertIsNone(process.poll())
+
+    def test_prior_generation_notifications_and_callbacks_are_not_published(self) -> None:
+        notification_client = self.client()
+        notification_entered = Event()
+        release_notification = Event()
+        original_projection = notification_client._notification_projection
+        notification_sequence = notification_client.events.sequence
+
+        def delay_notification(event_type: str, params: Mapping[str, Any]) -> dict[str, Any]:
+            if event_type == "error":
+                notification_entered.set()
+                release_notification.wait(2)
+            return original_projection(event_type, params)
+
+        notification_client._notification_projection = (  # type: ignore[method-assign]
+            delay_notification
+        )
+        notification = {
+            "threadId": "task-prior",
+            "turnId": "turn-prior",
+            "willRetry": False,
+            "error": {"message": "Prior generation failure", "codexErrorInfo": None},
+        }
+        notification_worker = Thread(
+            target=lambda: notification_client._receive_notification(
+                "error",
+                notification,
+                generation=1,
+            )
+        )
+        notification_worker.start()
+        self.assertTrue(notification_entered.wait(2))
+        try:
+            self.assertEqual(notification_client.restart()["status"], "available")
+        finally:
+            release_notification.set()
+            notification_worker.join(timeout=2)
+        self.assertNotIn(
+            "error",
+            [
+                event["type"]
+                for event in notification_client.events.after(notification_sequence, timeout=0)
+            ],
+        )
+
+        callback_client = self.client()
+        callback_entered = Event()
+        release_callback = Event()
+        original_digest = app_server_module._digest
+        callback_sequence = callback_client.events.sequence
+        callback = {
+            "id": "callback-prior",
+            "method": "item/commandExecution/requestApproval",
+            "params": {
+                "threadId": "task-fake-001",
+                "turnId": "turn-active-001",
+                "itemId": "item-command-prior",
+                "startedAtMs": 1786279000000,
+                "command": "printf safe",
+                "cwd": str(self.project_root),
+                "reason": "Prior generation callback",
+            },
+        }
+
+        def delay_callback(value: Any) -> str:
+            if isinstance(value, dict) and value.get("id") == "callback-prior":
+                callback_entered.set()
+                release_callback.wait(2)
+            return original_digest(value)
+
+        with patch.object(app_server_module, "_digest", delay_callback):
+            callback_worker = Thread(
+                target=lambda: callback_client._receive_server_request(
+                    callback,
+                    generation=1,
+                )
+            )
+            callback_worker.start()
+            self.assertTrue(callback_entered.wait(2))
+            try:
+                self.assertEqual(callback_client.restart()["status"], "available")
+            finally:
+                release_callback.set()
+                callback_worker.join(timeout=2)
+
+        self.assertEqual(callback_client.pending_requests(), [])
+        self.assertNotIn(
+            "request",
+            [
+                event["type"]
+                for event in callback_client.events.after(callback_sequence, timeout=0)
+            ],
+        )
 
     def test_task_not_found_terminal_state_and_unknown_method_are_explicit(self) -> None:
         missing = self.client("task-not-found")

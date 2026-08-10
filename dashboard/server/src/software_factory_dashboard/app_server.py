@@ -879,15 +879,18 @@ class CodexAppServerClient:
         generation: int | None = None,
     ) -> None:
         with self._state_lock:
-            if generation is not None and generation != self._generation:
+            current_generation = self._generation
+            if generation is not None and generation != current_generation:
                 return
+            compatibility = self._compatibility
+        request_generation = current_generation if generation is None else generation
         mapped = NOTIFICATION_METHODS.get(method)
         if mapped is None:
             with self._state_lock:
-                self._ignored_notifications += 1
+                if request_generation == self._generation:
+                    self._ignored_notifications += 1
             return
         event_type, schema_family = mapped
-        compatibility = self._compatibility
         if compatibility is None:
             raise AppServerError(
                 "app_server_contract_unavailable",
@@ -900,14 +903,17 @@ class CodexAppServerClient:
                 "App Server notification parameters are invalid.",
             )
         projected = self._notification_projection(event_type, params)
-        self.events.publish(event_type, projected)
-        if event_type == "turn_completed":
-            self._stale_requests_for_turn(
-                str(params.get("threadId", "")),
-                str(params.get("turn", {}).get("id", ""))
-                if isinstance(params.get("turn"), Mapping)
-                else "",
-            )
+        with self._state_lock:
+            if request_generation != self._generation:
+                return
+            self.events.publish(event_type, projected)
+            if event_type == "turn_completed":
+                self._stale_requests_for_turn(
+                    str(params.get("threadId", "")),
+                    str(params.get("turn", {}).get("id", ""))
+                    if isinstance(params.get("turn"), Mapping)
+                    else "",
+                )
 
     def _receive_server_request(
         self,
@@ -919,6 +925,7 @@ class CodexAppServerClient:
             current_generation = self._generation
             if generation is not None and generation != current_generation:
                 return
+            compatibility = self._compatibility
         request_generation = current_generation if generation is None else generation
         method = message.get("method")
         raw_id = message.get("id")
@@ -940,10 +947,10 @@ class CodexAppServerClient:
                 expected_generation=request_generation,
             )
             with self._state_lock:
-                self._ignored_notifications += 1
+                if request_generation == self._generation:
+                    self._ignored_notifications += 1
             return
         params = message.get("params")
-        compatibility = self._compatibility
         if compatibility is None:
             raise AppServerError(
                 "app_server_contract_unavailable",
@@ -975,6 +982,8 @@ class CodexAppServerClient:
         )
         buffer_full = False
         with self._state_lock:
+            if request_generation != self._generation:
+                return
             if len(self._server_requests) >= MAX_PENDING_SERVER_REQUESTS:
                 evictable = next(
                     (
@@ -990,6 +999,10 @@ class CodexAppServerClient:
                     buffer_full = True
             if not buffer_full:
                 self._server_requests[request_id] = record
+                self.events.publish(
+                    "request",
+                    self._server_request_projection(record),
+                )
         if buffer_full:
             self._write_message(
                 {
@@ -1002,7 +1015,6 @@ class CodexAppServerClient:
                 expected_generation=request_generation,
             )
             return
-        self.events.publish("request", self._server_request_projection(record))
 
     def _notification_projection(
         self, event_type: str, params: Mapping[str, Any]
