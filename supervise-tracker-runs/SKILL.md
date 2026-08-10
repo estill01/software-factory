@@ -347,7 +347,9 @@ policy owner. New groups start `full-autonomous`; a legacy group without the
 field behaves as `fixed` until an explicit `bind` or `adjust` appends the
 migration. Operators may select `fixed`, `recommend`, `reviewed-autonomous`, or
 `full-autonomous` and adjust the one-lane file/change/command/time/mapped/review
-ceilings without changing code:
+ceilings without changing code. The retained candidate interchange has fixed
+absolute caps of three files and six commands, so policy may tighten but cannot
+widen those two ceilings:
 
 ```bash
 python3 scripts/supervision_log.py adjust \

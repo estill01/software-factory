@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import datetime as dt
 import hashlib
 import importlib.util
 import io
@@ -99,6 +100,26 @@ Stop after exact review.
             stdout=subprocess.PIPE,
             text=True,
         ).stdout.strip()
+        self.target_committed_at = dt.datetime.fromtimestamp(
+            int(
+                subprocess.run(
+                    [
+                        "/usr/bin/git",
+                        "-C",
+                        self.repository_root,
+                        "show",
+                        "-s",
+                        "--format=%ct",
+                        self.target_revision,
+                    ],
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    text=True,
+                ).stdout.strip()
+            ),
+            tz=dt.timezone.utc,
+        )
+        self.candidate_observed_at = dt.datetime.now(tz=dt.timezone.utc)
         (
             _tracker_path,
             self.tracker_sha,
@@ -341,7 +362,12 @@ Stop after exact review.
         protected_result: str = "preserved",
         owner_id: str | None = None,
         after_text: str = "VALUE = 2\n",
+        event_time: dt.datetime | None = None,
     ) -> dict[str, object]:
+        lane_time = event_time or self.target_committed_at
+        observed_time = event_time or self.candidate_observed_at
+        lane_time_value = lane_time.isoformat().replace("+00:00", "Z")
+        observed_time_value = observed_time.isoformat().replace("+00:00", "Z")
         after = after_text.encode("utf-8")
         artifact_manifest = [
             {
@@ -356,8 +382,8 @@ Stop after exact review.
             {
                 "command_id": "focused-command-1234",
                 "kind": "focused",
-                "started_at": "2026-08-10T05:00:01Z",
-                "finished_at": "2026-08-10T05:00:02Z",
+                "started_at": lane_time_value,
+                "finished_at": lane_time_value,
                 "exit_code": 0,
                 "result_payload": {"status": "passed", "tests": 1},
                 "result_root": supervision_log.digest({"status": "passed", "tests": 1}),
@@ -365,8 +391,8 @@ Stop after exact review.
             {
                 "command_id": "mapped-command-1234",
                 "kind": "mapped",
-                "started_at": "2026-08-10T05:00:03Z",
-                "finished_at": "2026-08-10T05:00:04Z",
+                "started_at": lane_time_value,
+                "finished_at": lane_time_value,
                 "exit_code": 0,
                 "result_payload": {"status": "passed", "tests": 7},
                 "result_root": supervision_log.digest({"status": "passed", "tests": 7}),
@@ -386,7 +412,13 @@ Stop after exact review.
             "files": 1,
             "changed_lines": 2,
             "commands": 2,
-            "elapsed_minutes": 1,
+            "elapsed_minutes": int(
+                (
+                    max(0.0, (observed_time - lane_time).total_seconds())
+                    + 59
+                )
+                // 60
+            ),
             "mapped_comparisons": 1,
             "review_passes": 0,
         }
@@ -430,8 +462,8 @@ Stop after exact review.
                     decision_basis_source
                 )
             ),
-            "lane_started_at": "2026-08-10T05:00:00Z",
-            "observed_at": "2026-08-10T05:00:05Z",
+            "lane_started_at": lane_time_value,
+            "observed_at": observed_time_value,
             "artifact_manifest": artifact_manifest,
             "command_results": command_results,
             "comparison_results": comparison_results,
@@ -523,8 +555,14 @@ Stop after exact review.
             "independent_review": review,
             "request_human_input": request_human_input,
             "governing_event_head_root": "f" * 64,
-            "active_candidate_fingerprints": [],
         }
+
+    def posture(
+        self, policy: dict[str, object], packet: dict[str, object]
+    ) -> dict[str, object]:
+        return supervision_log._adaptive_decision_posture(
+            policy, packet, active_candidate_fingerprints=[]
+        )
 
     def normalized_review(
         self,
@@ -534,7 +572,7 @@ Stop after exact review.
         candidate: dict[str, object] | None = None,
         disposition: str = "accepted",
     ) -> dict[str, object]:
-        pending = supervision_log.adaptive_decision_posture(
+        pending = self.posture(
             policy, self.packet(policy, evidence=evidence, candidate=candidate)
         )
         source = {
@@ -799,11 +837,20 @@ Stop after exact review.
             supervision_log.SupervisionLogError, "not canonical"
         ):
             supervision_log.cmd_init(invalid_args)
+        for field, value in (
+            ("--candidate-max-files", "4"),
+            ("--candidate-max-commands", "7"),
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "Adaptive candidate budget .* is invalid",
+            ):
+                self.adjust(field, value)
 
     def test_legacy_policy_stays_fixed_until_explicit_migration(self) -> None:
         policy = self.policy()
         del policy["adaptive_decision_control"]
-        result = supervision_log.adaptive_decision_posture(policy, self.packet(policy))
+        result = self.posture(policy, self.packet(policy))
         self.assertEqual(result["adaptive_decision_mode"], "fixed")
         self.assertEqual(result["application_posture"], "record-only")
         self.assertTrue(result["legacy_policy_posture"])
@@ -811,16 +858,16 @@ Stop after exact review.
     def test_modes_preserve_application_and_review_boundaries(self) -> None:
         fixed_policy = self.policy("fixed")
         source = self.decision_evidence()
-        fixed = supervision_log.adaptive_decision_posture(
+        fixed = self.posture(
             fixed_policy, self.packet(fixed_policy, evidence=source)
         )
         self.assertEqual(fixed["application_posture"], "record-only")
         recommend = self.policy("recommend")
-        pending = supervision_log.adaptive_decision_posture(
+        pending = self.posture(
             recommend, self.packet(recommend, evidence=source)
         )
         self.assertEqual(pending["application_posture"], "automated-independent-review-required")
-        reviewed = supervision_log.adaptive_decision_posture(
+        reviewed = self.posture(
             recommend,
             self.packet(
                 recommend,
@@ -830,13 +877,13 @@ Stop after exact review.
         )
         self.assertEqual(reviewed["application_posture"], "recommendation-only")
         full = self.policy()
-        applied = supervision_log.adaptive_decision_posture(
+        applied = self.posture(
             full, self.packet(full, evidence=source)
         )
         self.assertTrue(applied["application_authorized"])
         reviewed_policy = self.policy("reviewed-autonomous")
         consequential = self.decision_evidence(consequence_class="consequential")
-        held = supervision_log.adaptive_decision_posture(
+        held = self.posture(
             reviewed_policy,
             self.packet(reviewed_policy, evidence=consequential),
         )
@@ -845,7 +892,7 @@ Stop after exact review.
     def test_full_autonomy_never_routes_ordinary_judgment_to_a_human(self) -> None:
         policy = self.policy()
         with self.assertRaisesRegex(supervision_log.SupervisionLogError, "forbids a human"):
-            supervision_log.adaptive_decision_posture(
+            self.posture(
                 policy, self.packet(policy, request_human_input=True)
             )
         notification = supervision_log.decision_notification(
@@ -863,7 +910,7 @@ Stop after exact review.
             blocked_subjects=["credential-boundary"],
             revisit_trigger="Credential authority becomes current.",
         )
-        posture = supervision_log.adaptive_decision_posture(
+        posture = self.posture(
             policy, self.packet(policy, evidence=reserved)
         )
         self.assertEqual(posture["application_posture"], "reserved-external")
@@ -879,7 +926,7 @@ Stop after exact review.
             revisit_trigger="Production promotion authority becomes current.",
         )
         review = self.normalized_review(policy, source, candidate=candidate)
-        result = supervision_log.adaptive_decision_posture(
+        result = self.posture(
             policy, self.packet(policy, evidence=source, candidate=candidate, review=review)
         )
         self.assertEqual(result["effect_class"], "production-cutover")
@@ -905,6 +952,22 @@ Stop after exact review.
             ),
         )
         self.assertEqual(loaded["evidence_root"], candidate["evidence_root"])
+        retained_decision = self.decision_evidence(
+            disposition="compare-candidate",
+            candidate_evidence_root=str(candidate["evidence_root"]),
+        )
+        with mock.patch.object(
+            Path,
+            "read_bytes",
+            side_effect=AssertionError("unfenced candidate source reopen"),
+        ):
+            artifacts, _commands, _comparisons, _usage = (
+                supervision_log.adaptive_candidate_retained_evidence(
+                    candidate,
+                    decision_evidence=retained_decision,
+                )
+            )
+        self.assertEqual(artifacts[0]["before_root"], candidate["artifact_manifest"][0]["before_root"])
         path.write_bytes(supervision_log.canonical(candidate) + b" \n")
         with self.assertRaisesRegex(supervision_log.SupervisionLogError, "exact canonical"):
             supervision_log.load_adaptive_candidate_evidence(
@@ -981,7 +1044,7 @@ Stop after exact review.
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError, "decision basis|canonical tracker|Block contract"
         ):
-            supervision_log.adaptive_decision_posture(
+            self.posture(
                 self.policy(),
                 self.packet(
                     self.policy(),
@@ -1001,22 +1064,61 @@ Stop after exact review.
             candidate_budget=over_budget,
             target_repository_root=self.repository_root,
         )
-        result = supervision_log.adaptive_decision_posture(
+        result = self.posture(
             over_policy, self.packet(over_policy, evidence=source, candidate=over)
         )
         self.assertTrue(result["budget_exceeded"])
         self.assertEqual(result["application_posture"], "stop-and-retire-candidate")
+
+    def test_candidate_chronology_is_bound_to_source_commit_and_current_time(self) -> None:
+        for event_time in (
+            self.target_committed_at - dt.timedelta(seconds=1),
+            dt.datetime.now(tz=dt.timezone.utc) + dt.timedelta(minutes=5),
+        ):
+            candidate = self.candidate(event_time=event_time)
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "lane chronology"
+            ):
+                supervision_log.validate_adaptive_candidate_evidence(
+                    candidate,
+                    decision_evidence=self.decision_evidence(
+                        disposition="compare-candidate",
+                        candidate_evidence_root=str(candidate["evidence_root"]),
+                    ),
+                )
 
     def test_protected_regression_stops_candidate_before_review(self) -> None:
         candidate = self.candidate(protected_result="regressed")
         source = self.decision_evidence(
             disposition="compare-candidate", candidate_evidence_root=str(candidate["evidence_root"])
         )
-        result = supervision_log.adaptive_decision_posture(
+        result = self.posture(
             self.policy(), self.packet(self.policy(), evidence=source, candidate=candidate)
         )
         self.assertTrue(result["protected_regression"])
         self.assertEqual(result["application_posture"], "stop-and-retire-candidate")
+
+    def test_source_protected_regression_stops_non_candidate_authorization(self) -> None:
+        source = self.decision_evidence(disposition="correct-inline")
+        source["protected_capability_results"].append(  # type: ignore[union-attr]
+            {
+                "capability_id": "supplemental-protected-1234",
+                "result": "regressed",
+                "evidence_ref_ids": ["supplemental-evidence-1234"],
+            }
+        )
+        source["protected_capability_root"] = supervision_log.digest(
+            source["protected_capability_results"]
+        )
+        material = dict(source)
+        material.pop("source_root")
+        source["source_root"] = supervision_log.digest(material)
+        result = self.posture(
+            self.policy(), self.packet(self.policy(), evidence=source)
+        )
+        self.assertTrue(result["protected_regression"])
+        self.assertFalse(result["application_authorized"])
+        self.assertEqual(result["application_posture"], "stop-protected-regression")
 
     def test_signed_review_is_source_bound_current_and_one_use(self) -> None:
         self.init()
@@ -1190,13 +1292,25 @@ Stop after exact review.
 
     def test_fingerprint_is_recomputed_from_exact_evidence_not_caller_sha(self) -> None:
         policy = self.policy()
-        first = supervision_log.adaptive_decision_posture(
+        for field in ("accepted_decision_head", "accepted_revision_head"):
+            invented_head = self.decision_evidence()
+            invented_head[field] = "9" * 64
+            material = dict(invented_head)
+            material.pop("source_root")
+            invented_head["source_root"] = supervision_log.digest(material)
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "canonical owner"
+            ):
+                supervision_log.validate_adaptive_decision_evidence(
+                    invented_head, policy=policy
+                )
+        first = self.posture(
             policy, self.packet(policy, evidence=self.decision_evidence(decision_id="decision-one-1234"))
         )
-        same = supervision_log.adaptive_decision_posture(
+        same = self.posture(
             policy, self.packet(policy, evidence=self.decision_evidence(decision_id="decision-two-1234"))
         )
-        changed = supervision_log.adaptive_decision_posture(
+        changed = self.posture(
             policy,
             self.packet(
                 policy,
@@ -1217,13 +1331,13 @@ Stop after exact review.
         policy = self.policy(target_class="software-factory")
         policy["permissions"]["allowlisted_skill_maintenance"] = True
         evidence = self.decision_evidence(target_class="software-factory")
-        pending = supervision_log.adaptive_decision_posture(
+        pending = self.posture(
             policy, self.packet(policy, evidence=evidence)
         )
         self.assertTrue(pending["independent_review_required"])
         self.assertEqual(pending["application_posture"], "automated-independent-review-required")
         review = self.normalized_review(policy, evidence)
-        applied = supervision_log.adaptive_decision_posture(
+        applied = self.posture(
             policy, self.packet(policy, evidence=evidence, review=review)
         )
         self.assertTrue(applied["application_authorized"])
@@ -1240,7 +1354,7 @@ Stop after exact review.
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError, "evaluation signature"
         ):
-            supervision_log.adaptive_decision_posture(
+            self.posture(
                 policy,
                 self.packet(
                     policy,
@@ -1253,7 +1367,7 @@ Stop after exact review.
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError, "evaluator|roles are not distinct"
         ):
-            supervision_log.adaptive_decision_posture(
+            self.posture(
                 policy, self.packet(policy, evidence=evidence, review=bad)
             )
         unsigned = {
@@ -1280,7 +1394,7 @@ Stop after exact review.
             "policy_sha256": policy["policy_sha256"],
         }
         with self.assertRaisesRegex(supervision_log.SupervisionLogError, "shape"):
-            supervision_log.adaptive_decision_posture(
+            self.posture(
                 policy, self.packet(policy, evidence=evidence, review=unsigned)
             )
 
@@ -1315,7 +1429,7 @@ Stop after exact review.
         policy = self.policy("recommend")
         evidence = self.decision_evidence()
         review = self.normalized_review(policy, evidence)
-        result = supervision_log.adaptive_decision_posture(
+        result = self.posture(
             policy,
             self.packet(policy, evidence=evidence, review=review, request_human_input=True),
         )
@@ -1406,7 +1520,80 @@ Stop after exact review.
                 ),
             )
 
+    def test_public_gate_rechecks_live_target_inside_append_boundary(self) -> None:
+        self.init()
+        directory = self.root / self.target
+        policy = json.loads((directory / "policy.json").read_text(encoding="utf-8"))
+        policy["permissions"]["repository_write"] = True
+        supervision_log.write_policy_version(
+            directory,
+            policy,
+            kind="policy-change",
+            reason="Enable the append-currentness fixture.",
+            evidence_values=["append-currentness-regression"],
+        )
+        evidence = self.decision_evidence(decision_id="append-currentness-1234")
+        original = supervision_log.validate_adaptive_decision_evidence
+        calls = 0
+
+        def validate_with_drift(value, *, policy):
+            nonlocal calls
+            calls += 1
+            if calls == 3:
+                self.owned_path.write_text("VALUE = 99\n", encoding="utf-8")
+            return original(value, policy=policy)
+
+        with (
+            mock.patch.object(
+                supervision_log,
+                "validate_adaptive_decision_evidence",
+                side_effect=validate_with_drift,
+            ),
+            self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "content is stale|retry current"
+            ),
+        ):
+            self.run_gate(self.gate_args(evidence))
+        event_path = directory / "events.jsonl"
+        events = (
+            [json.loads(line) for line in event_path.read_text(encoding="utf-8").splitlines()]
+            if event_path.exists()
+            else []
+        )
+        self.assertEqual(
+            sum(item.get("kind") == "adaptive-decision" for item in events), 0
+        )
+
     def test_canonical_event_frontier_rejects_two_distinct_active_candidate_lanes(self) -> None:
+        direct_candidate = self.candidate(decision_id="direct-lane-bypass-1234")
+        direct_source = self.decision_evidence(
+            decision_id="direct-lane-bypass-1234",
+            disposition="compare-candidate",
+            candidate_evidence_root=str(direct_candidate["evidence_root"]),
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "canonical owner-bound"
+        ):
+            supervision_log.adaptive_decision_posture(
+                self.policy(),
+                self.packet(
+                    self.policy(), evidence=direct_source, candidate=direct_candidate
+                ),
+            )
+        forged_policy = self.policy()
+        forged_policy["permissions"]["repository_write"] = True
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "canonical owner-bound"
+        ):
+            supervision_log.adaptive_decision_posture(
+                forged_policy,
+                self.packet(
+                    forged_policy,
+                    evidence=self.decision_evidence(
+                        decision_id="direct-policy-bypass-1234"
+                    ),
+                ),
+            )
         self.init()
         directory = self.root / self.target
         bound_policy = json.loads(
@@ -1461,7 +1648,7 @@ Stop after exact review.
         policy = self.policy(target_class="software-factory")
         policy["permissions"]["allowlisted_skill_maintenance"] = True
         evidence = self.decision_evidence(target_class="software-factory")
-        pending = supervision_log.adaptive_decision_posture(
+        pending = self.posture(
             policy, self.packet(policy, evidence=evidence)
         )
         self.assertEqual(pending["proposer_author_id"], "base-reviewer-1234")

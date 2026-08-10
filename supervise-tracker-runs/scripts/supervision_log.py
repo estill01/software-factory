@@ -632,9 +632,9 @@ def validate_adaptive_decision_control(value: Mapping[str, Any]) -> None:
     exact_limits = {
         "max_active_lanes_per_decision": (1, 1),
         "max_active_lanes_per_target": (1, 1),
-        "max_files": (1, 64),
+        "max_files": (1, 3),
         "max_changed_lines": (1, 5000),
-        "max_commands": (1, 100),
+        "max_commands": (1, 6),
         "max_elapsed_minutes": (1, 240),
         "max_mapped_comparisons": (1, 1),
         "max_review_passes": (1, 1),
@@ -8991,6 +8991,29 @@ def adaptive_git_revision(repository_root: str) -> str:
     return revision
 
 
+def adaptive_git_commit_time(
+    repository_root: str, revision: str
+) -> dt.datetime:
+    root = adaptive_git_top_level(repository_root)
+    if re.fullmatch(r"[0-9a-f]{40}", revision) is None:
+        raise SupervisionLogError("Adaptive target revision is not an exact Git commit")
+    result = subprocess.run(
+        ["/usr/bin/git", "-C", str(root), "show", "-s", "--format=%ct", revision],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+    )
+    timestamp = result.stdout.strip()
+    if result.returncode != 0 or re.fullmatch(r"[0-9]+", timestamp) is None:
+        raise SupervisionLogError("Adaptive target revision time is unavailable")
+    try:
+        return dt.datetime.fromtimestamp(int(timestamp), tz=dt.timezone.utc)
+    except (OverflowError, OSError, ValueError) as exc:
+        raise SupervisionLogError("Adaptive target revision time is invalid") from exc
+
+
 def adaptive_path_has_symlink(root: Path, path: Path) -> bool:
     relative = path.relative_to(root)
     current = root
@@ -9004,9 +9027,9 @@ def adaptive_path_has_symlink(root: Path, path: Path) -> bool:
     return False
 
 
-def adaptive_scope_content_root(
+def adaptive_scope_content_snapshot(
     repository_root: str, path_value: str, *, target_revision_root: str
-) -> str:
+) -> tuple[str, bytes]:
     root = adaptive_git_top_level(repository_root)
     path = Path(path_value)
     try:
@@ -9037,7 +9060,7 @@ def adaptive_scope_content_root(
             raise SupervisionLogError("Adaptive affected file cannot be read safely") from exc
         if len(content) > MAX_ADAPTIVE_CANDIDATE_EVIDENCE_BYTES:
             raise SupervisionLogError("Adaptive affected file exceeds its byte bound")
-        return hashlib.sha256(content).hexdigest()
+        return hashlib.sha256(content).hexdigest(), content
     parent = path.parent
     try:
         resolved_parent = parent.resolve(strict=True)
@@ -9046,13 +9069,26 @@ def adaptive_scope_content_root(
         raise SupervisionLogError("Adaptive planned file parent is not current") from exc
     if adaptive_path_has_symlink(root, parent):
         raise SupervisionLogError("Adaptive planned file parent traverses a symlink")
-    return digest(
-        {
-            "path": str(path),
-            "posture": "planned-new-file",
-            "target_revision_root": target_revision_root,
-        }
+    return (
+        digest(
+            {
+                "path": str(path),
+                "posture": "planned-new-file",
+                "target_revision_root": target_revision_root,
+            }
+        ),
+        b"",
     )
+
+
+def adaptive_scope_content_root(
+    repository_root: str, path_value: str, *, target_revision_root: str
+) -> str:
+    return adaptive_scope_content_snapshot(
+        repository_root,
+        path_value,
+        target_revision_root=target_revision_root,
+    )[0]
 
 
 def adaptive_tracker_block_context(
@@ -9211,7 +9247,7 @@ def adaptive_candidate_retained_evidence(
         path_value = item.get("path")
         if type(path_value) is not str or path_value not in source_scope:
             raise SupervisionLogError("Adaptive candidate artifact is outside the decision scope")
-        before_root = adaptive_scope_content_root(
+        before_root, before = adaptive_scope_content_snapshot(
             repository_root, path_value, target_revision_root=target_revision_root
         )
         if item.get("before_root") != before_root:
@@ -9225,8 +9261,6 @@ def adaptive_candidate_retained_evidence(
             raise SupervisionLogError("Adaptive candidate artifact content is invalid") from exc
         if len(after) > 32768 or item.get("after_root") != hashlib.sha256(after).hexdigest():
             raise SupervisionLogError("Adaptive candidate artifact root differs")
-        path = Path(path_value)
-        before = path.read_bytes() if path.exists() else b""
         changed_lines = adaptive_changed_line_count(before, after)
         if type(item.get("changed_lines")) is not int or item["changed_lines"] != changed_lines:
             raise SupervisionLogError("Adaptive candidate changed-line count differs")
@@ -9292,13 +9326,22 @@ def adaptive_candidate_retained_evidence(
 
     started_at = parse_event_time(value.get("lane_started_at"), label="candidate lane start")
     observed_at = parse_event_time(value.get("observed_at"), label="candidate observation")
+    source_committed_at = adaptive_git_commit_time(
+        repository_root, str(decision_evidence["target_revision"])
+    )
+    current_time = dt.datetime.now(tz=dt.timezone.utc)
     first_command = parse_event_time(
         normalized_commands[0]["started_at"], label="candidate first command"
     )
     last_command = parse_event_time(
         normalized_commands[-1]["finished_at"], label="candidate last command"
     )
-    if started_at > first_command or observed_at < last_command:
+    if (
+        started_at < source_committed_at
+        or started_at > first_command
+        or observed_at < last_command
+        or observed_at > current_time
+    ):
         raise SupervisionLogError("Adaptive candidate lane chronology differs")
     elapsed_seconds = max(0.0, (observed_at - started_at).total_seconds())
     usage = {
@@ -9585,12 +9628,13 @@ def validate_adaptive_decision_evidence(
         if type(candidate_root) is not str:
             raise SupervisionLogError("Adaptive candidate evidence root must be a string")
         exact_sha256(candidate_root, label="adaptive candidate evidence root")
-    for field in ("accepted_decision_head", "accepted_revision_head"):
-        item = value.get(field)
-        if item is not None:
-            if type(item) is not str:
-                raise SupervisionLogError(f"Adaptive {field} must be a string or null")
-            exact_sha256(item, label=f"adaptive {field}")
+    if (
+        value.get("accepted_decision_head") is not None
+        or value.get("accepted_revision_head") is not None
+    ):
+        raise SupervisionLogError(
+            "Adaptive accepted heads must be derived by the canonical owner"
+        )
     material = dict(value)
     material.pop("source_root")
     if value["source_root"] != digest(material):
@@ -9798,8 +9842,11 @@ def load_adaptive_candidate_evidence(
     )
 
 
-def adaptive_decision_posture(
-    policy: Mapping[str, Any], packet: Mapping[str, Any]
+def _adaptive_decision_posture(
+    policy: Mapping[str, Any],
+    packet: Mapping[str, Any],
+    *,
+    active_candidate_fingerprints: Sequence[str],
 ) -> dict[str, Any]:
     expected_packet_fields = {
         "decision_evidence",
@@ -9807,20 +9854,18 @@ def adaptive_decision_posture(
         "independent_review",
         "request_human_input",
         "governing_event_head_root",
-        "active_candidate_fingerprints",
     }
     if set(packet) != expected_packet_fields:
         raise SupervisionLogError("Adaptive decision packet shape differs")
     if type(packet["request_human_input"]) is not bool:
         raise SupervisionLogError("Adaptive decision human-request posture must be boolean")
-    active_candidate_fingerprints = packet["active_candidate_fingerprints"]
     if (
-        not isinstance(active_candidate_fingerprints, list)
-        or any(
+        any(
             type(item) is not str or SHA256.fullmatch(item) is None
             for item in active_candidate_fingerprints
         )
-        or active_candidate_fingerprints != sorted(set(active_candidate_fingerprints))
+        or list(active_candidate_fingerprints)
+        != sorted(set(active_candidate_fingerprints))
     ):
         raise SupervisionLogError("Adaptive active-candidate frontier differs")
     evidence = validate_adaptive_decision_evidence(
@@ -9869,6 +9914,10 @@ def adaptive_decision_posture(
     }
     decision_fingerprint = digest(fingerprint_material)
     budget = control["candidate_budget"]
+    source_protected_regression = any(
+        item["result"] != "preserved"
+        for item in evidence["protected_capability_results"]
+    )
     candidate_disposition = disposition in {"compare-candidate", "cutover-candidate"}
     candidate = packet["candidate_evidence"]
     if candidate_disposition:
@@ -9879,7 +9928,7 @@ def adaptive_decision_posture(
         if candidate["evidence_root"] != evidence["candidate_evidence_root"]:
             raise SupervisionLogError("Adaptive candidate differs from decision evidence")
         usage = validate_adaptive_candidate_usage(candidate["candidate_budget_use"])
-        protected_regression = any(
+        protected_regression = source_protected_regression or any(
             item["result"] != "preserved"
             for item in candidate["protected_capability_results"]
         )
@@ -9894,7 +9943,7 @@ def adaptive_decision_posture(
         if candidate is not None:
             raise SupervisionLogError("Candidate evidence requires a candidate disposition")
         usage = {field: 0 for field in ADAPTIVE_CANDIDATE_USAGE_FIELDS}
-        protected_regression = False
+        protected_regression = source_protected_regression
     review = packet["independent_review"]
     event_head_root = packet["governing_event_head_root"]
     if event_head_root is not None:
@@ -10044,7 +10093,11 @@ def adaptive_decision_posture(
             "Full-autonomous mode forbids a human request; resolve or reserve externally"
         )
     if budget_exceeded or protected_regression:
-        application_posture = "stop-and-retire-candidate"
+        application_posture = (
+            "stop-and-retire-candidate"
+            if candidate_disposition
+            else "stop-protected-regression"
+        )
         next_action = "continue-unaffected-safe-frontier"
         application_authorized = False
         reserved = False
@@ -10174,6 +10227,27 @@ def adaptive_decision_posture(
         "policy_sha256": policy.get("policy_sha256"),
     }
     result["result_sha256"] = digest(result)
+    return result
+
+
+def adaptive_decision_posture(
+    policy: Mapping[str, Any], packet: Mapping[str, Any]
+) -> dict[str, Any]:
+    evidence = packet.get("decision_evidence")
+    if (
+        isinstance(evidence, Mapping)
+        and evidence.get("disposition") in {"compare-candidate", "cutover-candidate"}
+    ):
+        raise SupervisionLogError(
+            "Candidate posture requires the canonical owner-bound decision gate"
+        )
+    result = _adaptive_decision_posture(
+        policy, packet, active_candidate_fingerprints=[]
+    )
+    if result["application_authorized"] is True:
+        raise SupervisionLogError(
+            "Adaptive application authorization requires the canonical owner-bound decision gate"
+        )
     return result
 
 
@@ -10892,11 +10966,14 @@ def cmd_adaptive_decision_gate(args: argparse.Namespace) -> None:
         "governing_event_head_root": (
             governing_events[-1].get("record_sha256") if governing_events else None
         ),
-        "active_candidate_fingerprints": adaptive_active_candidate_fingerprints(
+    }
+    result = _adaptive_decision_posture(
+        policy,
+        packet,
+        active_candidate_fingerprints=adaptive_active_candidate_fingerprints(
             all_events
         ),
-    }
-    result = adaptive_decision_posture(policy, packet)
+    )
     if review is not None:
         result["independent_review_record"] = args.independent_review_record
         result["result_sha256"] = digest(
@@ -10925,6 +11002,21 @@ def cmd_adaptive_decision_gate(args: argparse.Namespace) -> None:
             raise SupervisionLogError(
                 "Adaptive decision event head changed; retry current decision state"
             )
+        rechecked_decision = validate_adaptive_decision_evidence(
+            decision_evidence, policy=policy
+        )
+        if rechecked_decision != decision_evidence:
+            raise SupervisionLogError(
+                "Adaptive target state changed; retry current decision state"
+            )
+        if candidate is not None:
+            rechecked_candidate = validate_adaptive_candidate_evidence(
+                candidate, decision_evidence=rechecked_decision
+            )
+            if rechecked_candidate != candidate:
+                raise SupervisionLogError(
+                    "Adaptive candidate state changed; retry current decision state"
+                )
         same_fingerprint = [
             item
             for item in current_events

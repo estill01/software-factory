@@ -201,7 +201,9 @@ Candidate budgets admit at most one active lane per decision and target and
 bound files, changed lines, commands, elapsed minutes, mapped comparisons, and
 review passes. Independent review, resource-exhaustion Stop, and protected-
 regression Stop cannot be disabled. Exceeding a ceiling retires the candidate
-and continues unaffected safe work. The mode never changes repository-write,
+and continues unaffected safe work. The canonical retained-candidate envelope
+supports at most three files and six commands; an operator may tighten but may
+not configure a wider file or command ceiling. The mode never changes repository-write,
 command, skill-maintenance, Gmail, credential, spend, destructive, deployment,
 release, or promotion permissions. Each mutating disposition cites an exact
 effect class that deterministically expands to every applicable existing
