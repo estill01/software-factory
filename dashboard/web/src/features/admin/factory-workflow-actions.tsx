@@ -100,6 +100,7 @@ function useOperationRunner() {
     for (const key of [
       ["administrative-operations"],
       ["factory-floor"],
+      ["run"],
       ["runs"],
       ["task"],
       ["tasks"],
@@ -359,6 +360,45 @@ export function ProjectWorkflowActions({ project }: { project: ProjectProjection
           <TextField label="Non-goals · one per line" value={nonGoals} onChange={setNonGoals} multiline />
         </InputDialog>
       )}
+      {runner.confirmation}
+    </>
+  )
+}
+
+export function RunCheckAction({
+  targetId,
+  projectId,
+  inline = false,
+}: {
+  targetId: string
+  projectId: string | null
+  inline?: boolean
+}) {
+  const runner = useOperationRunner()
+  const launch = () => {
+    if (!projectId) return
+    runner.launch({
+      request: {
+        operation_type: "factory.supervision-check-now",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: {},
+      },
+      suppliedFacts: [
+        ["Run target", targetId],
+        ["Project", projectId],
+        ["Scope", "One mechanical watcher check · no semantic conclusion"],
+      ],
+    })
+  }
+  const button = <Button size="compact" variant="outline" disabled={!projectId || runner.busy} onClick={launch}>Check now</Button>
+  return inline ? (
+    <>
+      <div className="workflow-check-inline print-hide">{button}{runner.feedback}</div>
+      {runner.confirmation}
+    </>
+  ) : (
+    <>
+      <ActionStrip feedback={runner.feedback}>{button}</ActionStrip>
       {runner.confirmation}
     </>
   )

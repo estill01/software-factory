@@ -31,6 +31,7 @@ const operation = {
     source_evidence: { version: 1 },
     route_gate: {
       status: "allowed" as const,
+      target_thread: "fixture-target",
       recipient: "test-recipient",
       purpose: "deterministic-owner-proof",
       source_record: "TEST-1",

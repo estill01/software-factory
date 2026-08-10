@@ -2643,6 +2643,18 @@ h3 {
   flex-wrap: wrap;
 }
 
+.workflow-check-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.workflow-check-inline .workflow-action-result,
+.workflow-check-inline .workflow-action-error {
+  flex-basis: 100%;
+}
+
 .workflow-action-result {
   flex-wrap: wrap;
 }

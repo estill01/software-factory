@@ -9,6 +9,7 @@ import re
 import stat
 import subprocess
 import sys
+from threading import RLock
 from typing import Any, Callable, Mapping, Sequence
 
 from .admin_operations import (
@@ -37,6 +38,9 @@ from .tracker import TrackerProjectionError, TrackerProjectionService, tracker_i
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 OWNER_CODE_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,79}\Z")
 MISSION_MARKER = "SOFTWARE_FACTORY_DASHBOARD_MISSION "
+CHECK_MARKER = "SOFTWARE_FACTORY_DASHBOARD_CHECK "
+CHECK_ROUTE_PURPOSE = "watcher-action"
+CHECK_EVIDENCE_PURPOSE = "dashboard-route-purpose:watcher-action"
 MAX_WORKFLOW_PROMPT = 16_000
 MAX_ROUTE_HELPER_BYTES = 2 * 1024 * 1024
 MISSION_SOURCE_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,239}$"
@@ -175,7 +179,7 @@ class SupervisionRouteGate:
                     str(self.supervision_root),
                     "thread-route-gate",
                     "--target-thread",
-                    request.recipient,
+                    request.target_thread or request.recipient,
                     "--recipient-thread",
                     request.recipient,
                     "--purpose",
@@ -206,6 +210,7 @@ class SupervisionRouteGate:
             source_record=payload.get("source_record"),
             policy_fingerprint=payload.get("policy_sha256"),
             reason=None,
+            target_thread=payload.get("target_thread_id"),
         )
 
 
@@ -226,6 +231,7 @@ class FactoryWorkflowOwner:
         self.operations_service = operations_service
         self.app_server_client = app_server_client
         self.route_gate = route_gate
+        self._check_dispatch_lock = RLock()
 
     def registry(self) -> OperationRegistry:
         return OperationRegistry(
@@ -240,6 +246,7 @@ class FactoryWorkflowOwner:
                 self._approval_definition(),
                 self._input_definition(),
                 self._interrupt_definition(),
+                self._check_now_definition(),
                 self._unavailable_authoring_supervision_definition(),
             )
         )
@@ -876,6 +883,7 @@ class FactoryWorkflowOwner:
                 purpose="target-action",
                 source_record=source_record,
                 required_action=action,
+                target_thread=task_id,
             )
 
         return resolve
@@ -2234,6 +2242,527 @@ class FactoryWorkflowOwner:
                 recipient=target.id,
             ),
             route_gate_request=self._route_request(operation_type),
+            route_gate=self.route_gate,
+            dispatch=dispatch,
+            verify=verify,
+        )
+
+    @staticmethod
+    def _latest_check_marker(task: Mapping[str, Any]) -> Mapping[str, Any] | None:
+        """Return a dashboard check marker only when it is the latest user turn."""
+
+        for turn in reversed(task.get("turns", [])):
+            for item in reversed(turn.get("items", [])):
+                summary = item.get("summary")
+                if item.get("type") != "userMessage" or not isinstance(summary, str):
+                    continue
+                first_line = summary.splitlines()[0] if summary else ""
+                if not first_line.startswith(CHECK_MARKER):
+                    return None
+                try:
+                    marker = json.loads(first_line.removeprefix(CHECK_MARKER))
+                except json.JSONDecodeError as error:
+                    raise OperationError(
+                        "check_marker_invalid",
+                        "The watcher task's latest dashboard check marker is malformed.",
+                        status=409,
+                    ) from error
+                if not isinstance(marker, Mapping):
+                    raise OperationError(
+                        "check_marker_invalid",
+                        "The watcher task's latest dashboard check marker is malformed.",
+                        status=409,
+                    )
+                if (
+                    set(marker)
+                    != {
+                        "kind",
+                        "target_thread_id",
+                        "mission_root",
+                        "policy_sha256",
+                        "preview_fingerprint",
+                        "prior_event_count",
+                        "route_purpose",
+                    }
+                    or marker.get("kind") != "watcher-check"
+                    or not isinstance(marker.get("target_thread_id"), str)
+                    or not isinstance(marker.get("mission_root"), str)
+                    or not SHA256_PATTERN.fullmatch(str(marker["mission_root"]))
+                    or not isinstance(marker.get("policy_sha256"), str)
+                    or not SHA256_PATTERN.fullmatch(str(marker["policy_sha256"]))
+                    or not isinstance(marker.get("preview_fingerprint"), str)
+                    or not SHA256_PATTERN.fullmatch(str(marker["preview_fingerprint"]))
+                    or not isinstance(marker.get("prior_event_count"), int)
+                    or marker["prior_event_count"] < 0
+                    or marker.get("route_purpose") != CHECK_ROUTE_PURPOSE
+                ):
+                    raise OperationError(
+                        "check_marker_invalid",
+                        "The watcher task's latest dashboard check marker is malformed.",
+                        status=409,
+                    )
+                return marker
+        return None
+
+    @staticmethod
+    def _check_record(
+        run: Mapping[str, Any],
+        *,
+        preview_fingerprint: str,
+        prior_event_count: int,
+        mission_root: str,
+        policy_sha256: str,
+    ) -> Mapping[str, Any] | None:
+        preview_evidence = f"dashboard-preview:{preview_fingerprint}"
+        matches = [
+            event
+            for event in run.get("timeline", [])
+            if event.get("kind") == "check"
+            and event.get("state_fingerprint") == preview_fingerprint
+            and event.get("mission_root") == mission_root
+            and event.get("policy_sha256") == policy_sha256
+            and isinstance(event.get("source"), Mapping)
+            and isinstance(event["source"].get("line"), int)
+            and event["source"]["line"] > prior_event_count
+            and CHECK_EVIDENCE_PURPOSE in event.get("evidence", [])
+            and preview_evidence in event.get("evidence", [])
+        ]
+        return matches[0] if len(matches) == 1 else None
+
+    def _check_source(
+        self,
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+    ) -> SourceSnapshot:
+        del inputs
+        projects, catalog_fingerprint = self._active_projects()
+        project = self._project_from(projects, target)
+        self._require_capabilities("task_read", "task_resume", "turn_start")
+        try:
+            target_detail = self.app_server_client.read_task(
+                projects,
+                target.id,
+                include_turns=False,
+            )
+        except AppServerError as error:
+            raise _operation_error(error, fallback="target_task_unavailable") from error
+        target_task = target_detail["task"]
+        target_project = target_task.get("project_binding")
+        if (
+            target_task.get("id") != target.id
+            or not isinstance(target_project, Mapping)
+            or target_project.get("status") != "bound"
+            or target_project.get("project_id") != project.id
+        ):
+            raise OperationError(
+                "check_project_mismatch",
+                "The selected run target is not bound to the exact registered project.",
+                status=409,
+            )
+        try:
+            snapshot = self.operations_service.run(projects, target.id)
+        except OperationsProjectionError as error:
+            raise _operation_error(error, fallback="check_source_unavailable") from error
+        run = snapshot["selected_run"]
+        if run.get("status") != "available" or not isinstance(
+            run.get("current_mission"), Mapping
+        ):
+            raise OperationError(
+                "check_source_unavailable",
+                "The selected run has no current canonical mission.",
+                status=409,
+            )
+        project_binding = run.get("project_binding")
+        if not isinstance(project_binding, Mapping) or project_binding.get("status") in {
+            "ambiguous",
+        } or (
+            project_binding.get("status") == "bound"
+            and project_binding.get("project_id") != project.id
+        ):
+            raise OperationError(
+                "check_project_mismatch",
+                "The selected run and exact target task disagree about their registered project.",
+                status=409,
+            )
+        lifecycle = run.get("lifecycle")
+        lifecycle_status = lifecycle.get("status") if isinstance(lifecycle, Mapping) else None
+        if lifecycle_status in {"paused", "completed", "stopped", "failed", "blocked"}:
+            raise OperationError(
+                "check_lifecycle_inactive",
+                f"Immediate checks are unavailable while the run lifecycle is {lifecycle_status}.",
+                status=409,
+            )
+        topology = run.get("topology")
+        if not isinstance(topology, Mapping):
+            raise OperationError(
+                "watcher_binding_unavailable",
+                "The selected run's supervisor topology is unavailable.",
+                status=409,
+            )
+        roles = topology.get("roles", [])
+        watchers = [role for role in roles if role.get("role") == "watcher"]
+        if len(watchers) != 1:
+            raise OperationError(
+                "watcher_binding_unavailable",
+                "The selected run does not have one exact watcher binding.",
+                status=409,
+            )
+        watcher = watchers[0]
+        watcher_task_id = watcher.get("thread_id")
+        automation = watcher.get("automation")
+        schedule = run.get("policy", {}).get("schedule", {})
+        routine_minutes = schedule.get("routine_minutes") if isinstance(schedule, Mapping) else None
+        expected_rrule = (
+            f"RRULE:FREQ=MINUTELY;INTERVAL={routine_minutes}"
+            if isinstance(routine_minutes, int) and routine_minutes > 0
+            else None
+        )
+        if (
+            watcher.get("binding_status") != "bound"
+            or not isinstance(watcher_task_id, str)
+            or not isinstance(automation, Mapping)
+            or automation.get("status") != "available"
+            or automation.get("owner_status") != "ACTIVE"
+            or automation.get("kind") != "heartbeat"
+            or expected_rrule is None
+            or automation.get("rrule") != expected_rrule
+            or automation.get("target_thread_id") != watcher_task_id
+        ):
+            raise OperationError(
+                "watcher_binding_unavailable",
+                "The selected run's watcher task and active automation binding are not current.",
+                status=409,
+            )
+        try:
+            watcher_detail = self.app_server_client.read_task(
+                projects,
+                watcher_task_id,
+                include_turns=True,
+            )
+        except AppServerError as error:
+            raise _operation_error(error, fallback="watcher_task_unavailable") from error
+        watcher_task = watcher_detail["task"]
+        watcher_cwd = watcher_task.get("cwd")
+        try:
+            canonical_watcher_cwd = str(
+                Path(str(watcher_cwd)).expanduser().resolve(strict=True)
+            )
+        except (OSError, RuntimeError) as error:
+            raise OperationError(
+                "watcher_task_unavailable",
+                "The exact configured watcher task cwd is unavailable.",
+                status=409,
+            ) from error
+        canonical_watcher_path = Path(canonical_watcher_cwd)
+        if not canonical_watcher_path.is_dir():
+            raise OperationError(
+                "watcher_task_unavailable",
+                "The exact configured watcher task cwd is not a directory.",
+                status=409,
+            )
+        watcher_cwd_stat = canonical_watcher_path.stat()
+        watcher_status = watcher_task.get("status", {}).get("type")
+        if watcher_status == "active":
+            raise OperationError(
+                "check_active",
+                "The exact watcher already has an active turn; no duplicate wake was sent.",
+                status=409,
+            )
+        if watcher_status not in {"idle", "notLoaded"}:
+            raise OperationError(
+                "watcher_task_unavailable",
+                "The exact watcher task is not idle and available for one check.",
+                status=409,
+            )
+        mission_root = run["current_mission"].get("root")
+        policy_sha256 = run.get("source", {}).get("policy_head_sha256")
+        event_count = run.get("event_count")
+        if (
+            not isinstance(mission_root, str)
+            or not SHA256_PATTERN.fullmatch(mission_root)
+            or not isinstance(policy_sha256, str)
+            or not SHA256_PATTERN.fullmatch(policy_sha256)
+            or not isinstance(event_count, int)
+        ):
+            raise OperationError(
+                "check_source_unavailable",
+                "The selected run's mission, policy, or event head is incomplete.",
+                status=409,
+            )
+        prior_marker = self._latest_check_marker(watcher_task)
+        if prior_marker is not None:
+            prior_fingerprint = prior_marker.get("preview_fingerprint")
+            prior_count = prior_marker.get("prior_event_count")
+            prior_mission = prior_marker.get("mission_root")
+            prior_policy = prior_marker.get("policy_sha256")
+            if (
+                isinstance(prior_fingerprint, str)
+                and isinstance(prior_count, int)
+                and isinstance(prior_mission, str)
+                and isinstance(prior_policy, str)
+                and self._check_record(
+                    run,
+                    preview_fingerprint=prior_fingerprint,
+                    prior_event_count=prior_count,
+                    mission_root=prior_mission,
+                    policy_sha256=prior_policy,
+                )
+                is None
+            ):
+                raise OperationError(
+                    "check_unverified_active",
+                    "The latest watcher turn is an unverified dashboard check request; no duplicate wake was sent.",
+                    status=409,
+                )
+        source_record = next(
+            (
+                record.get("record_id")
+                for record in (run.get("latest_activity"), run.get("last_check"))
+                if isinstance(record, Mapping) and isinstance(record.get("record_id"), str)
+            ),
+            None,
+        )
+        if source_record is None:
+            raise OperationError(
+                "route_source_unavailable",
+                "The selected run has no exact current source record for watcher routing.",
+                status=409,
+            )
+        evidence = {
+            "catalog_fingerprint": catalog_fingerprint,
+            "project_id": project.id,
+            "target_thread_id": target.id,
+            "mission_root": mission_root,
+            "policy_sha256": policy_sha256,
+            "run_fingerprint": run.get("fingerprint"),
+            "event_head_sha256": run.get("source", {}).get("event_head_sha256"),
+            "prior_event_count": event_count,
+            "last_check": run.get("last_check"),
+            "routine_minutes": routine_minutes,
+            "watcher_task_id": watcher_task_id,
+            "watcher_task_status": watcher_status,
+            "watcher_task_cwd": canonical_watcher_cwd,
+            "watcher_cwd_device": watcher_cwd_stat.st_dev,
+            "watcher_cwd_inode": watcher_cwd_stat.st_ino,
+            "watcher_resume_required": watcher_status == "notLoaded",
+            "watcher_automation_id": automation.get("id"),
+            "watcher_automation_rrule": automation.get("rrule"),
+            "route_source_record": source_record,
+            "route_purpose": CHECK_ROUTE_PURPOSE,
+        }
+        material = {
+            "catalog": catalog_fingerprint,
+            "run": run.get("fingerprint"),
+            "event_head": evidence["event_head_sha256"],
+            "event_count": event_count,
+            "mission": mission_root,
+            "policy": policy_sha256,
+            "watcher": watcher_task,
+            "target_task": target_task,
+            "automation": {
+                "id": automation.get("id"),
+                "status": automation.get("owner_status"),
+                "rrule": automation.get("rrule"),
+                "manifest": automation.get("manifest_sha256"),
+            },
+        }
+        return SourceSnapshot(fingerprint=fingerprint(material), evidence=evidence)
+
+    @staticmethod
+    def _check_prompt(target: OperationTarget, source: SourceSnapshot) -> str:
+        marker = {
+            "kind": "watcher-check",
+            "target_thread_id": target.id,
+            "mission_root": source.evidence["mission_root"],
+            "policy_sha256": source.evidence["policy_sha256"],
+            "preview_fingerprint": source.fingerprint,
+            "prior_event_count": source.evidence["prior_event_count"],
+            "route_purpose": CHECK_ROUTE_PURPOSE,
+        }
+        return "\n".join(
+            (
+                CHECK_MARKER + _canonical(marker),
+                "The supervision system is initialized. Run one ordinary watcher check now under your role and current policy. This is an immediate check, not a request to modify the target or repository.",
+                "",
+                f"Target thread: {target.id}",
+                f"State fingerprint: {source.fingerprint}",
+                "Record the resulting ordinary mechanical check through the canonical supervision owner with kind check and the exact state fingerprint above.",
+                "Include both exact evidence references:",
+                f"- {CHECK_EVIDENCE_PURPOSE}",
+                f"- dashboard-preview:{source.fingerprint}",
+                "Do not record a semantic approval, implementation acceptance, lifecycle conclusion, or green outcome merely because this turn was started.",
+            )
+        )
+
+    def _check_route_request(
+        self,
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+        source: SourceSnapshot,
+    ) -> RouteGateRequest:
+        del inputs
+        watcher_task_id = source.evidence.get("watcher_task_id")
+        source_record = source.evidence.get("route_source_record")
+        if not isinstance(watcher_task_id, str) or not isinstance(source_record, str):
+            raise OperationError(
+                "route_gate_unavailable",
+                "The exact watcher route is incomplete.",
+                status=409,
+            )
+        return RouteGateRequest(
+            target_thread=target.id,
+            recipient=watcher_task_id,
+            purpose=CHECK_ROUTE_PURPOSE,
+            source_record=source_record,
+            required_action=(
+                f"Request one immediate mechanical watcher check for target {target.id}; "
+                f"preview SHA-256 {source.fingerprint}."
+            ),
+        )
+
+    def _check_now_definition(self) -> OperationDefinition:
+        schema = _object_schema({}, required=())
+
+        def dispatch(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+        ) -> DispatchResult:
+            with self._check_dispatch_lock:
+                current = self._check_source(target, inputs)
+                if current.fingerprint != source.fingerprint:
+                    raise OperationOwnerError(
+                        "check_source_changed",
+                        "The exact watcher source changed before wake dispatch.",
+                    )
+                projects, _ = self._active_projects()
+                watcher_task_id = str(source.evidence["watcher_task_id"])
+                try:
+                    result = self.app_server_client.start_configured_role_turn(
+                        projects,
+                        watcher_task_id,
+                        self._check_prompt(target, source),
+                        expected_cwd=str(source.evidence["watcher_task_cwd"]),
+                        expected_cwd_identity=(
+                            int(source.evidence["watcher_cwd_device"]),
+                            int(source.evidence["watcher_cwd_inode"]),
+                        ),
+                    )
+                except AppServerError as error:
+                    raise OperationOwnerError(_owner_code(error), str(error)) from error
+            return DispatchResult(
+                evidence={
+                    "target_thread_id": target.id,
+                    "watcher_task_id": watcher_task_id,
+                    "watcher_turn_id": result["turn"]["id"],
+                    "watcher_awakened": True,
+                    "watcher_task_resumed": result["task_resumed"],
+                    "preview_fingerprint": source.fingerprint,
+                    "route_purpose": CHECK_ROUTE_PURPOSE,
+                    "check_recorded": False,
+                },
+                links=(
+                    OperationLink("Run", f"/runs/{target.id}"),
+                    OperationLink("Watcher task", f"/tasks/{watcher_task_id}"),
+                ),
+            )
+
+        def verify(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+            result: DispatchResult,
+        ) -> VerificationResult:
+            del inputs
+            projects, _ = self._active_projects()
+            try:
+                snapshot = self.operations_service.run(projects, target.id)
+            except OperationsProjectionError as error:
+                return VerificationResult(
+                    "pending",
+                    {
+                        **result.evidence,
+                        "check_recorded": False,
+                        "owner_error_code": error.code,
+                    },
+                    result.links,
+                )
+            run = snapshot["selected_run"]
+            check = self._check_record(
+                run,
+                preview_fingerprint=source.fingerprint,
+                prior_event_count=int(source.evidence["prior_event_count"]),
+                mission_root=str(source.evidence["mission_root"]),
+                policy_sha256=str(source.evidence["policy_sha256"]),
+            )
+            if check is None:
+                return VerificationResult(
+                    "pending",
+                    {
+                        **result.evidence,
+                        "check_recorded": False,
+                        "new_event_count": run.get("event_count"),
+                        "unrelated_newer_event": (
+                            isinstance(run.get("event_count"), int)
+                            and run["event_count"] > source.evidence["prior_event_count"]
+                        ),
+                    },
+                    result.links,
+                )
+            return VerificationResult(
+                "applied",
+                {
+                    **result.evidence,
+                    "check_recorded": True,
+                    "check_record_id": check.get("record_id"),
+                    "check_status": check.get("status"),
+                    "check_timestamp": check.get("timestamp"),
+                    "semantic_conclusion": False,
+                    "block_accepted": False,
+                    "outcome_verified": False,
+                },
+                result.links,
+            )
+
+        return OperationDefinition(
+            operation_type="factory.supervision-check-now",
+            target_kind="run",
+            input_schema=schema,
+            owner="maintained watcher task + supervision ledger",
+            authority=(
+                "explicit operator confirmation",
+                "exact current run/watcher/automation binding",
+                "maintained watcher-action route gate",
+            ),
+            ordinary_consequences=(
+                "Starts one immediate-check turn on the exact idle watcher task.",
+                "The watcher may append one ordinary mechanical check through the canonical supervision owner.",
+            ),
+            failure_consequences=(
+                "Active, missing, stale, or denied watcher state sends no duplicate wake.",
+                "A successful wake without the exact newer canonical check remains unverified.",
+            ),
+            confirmation=ConfirmationContract(
+                "watcher-check",
+                "Type CHECK to request one immediate watcher check.",
+                "CHECK",
+            ),
+            idempotency="One consumed preview issues at most one watcher turn; no automatic retry.",
+            expected_postcondition=(
+                "One newer current-mission canonical check matches the target, watcher-action purpose, and preview fingerprint."
+            ),
+            timeout_seconds=30,
+            limitations=(
+                "A watcher wake or turn is not itself a recorded check.",
+                "A mechanical check is not semantic approval, implementation acceptance, or lifecycle completion.",
+            ),
+            resolve_source=self._check_source,
+            describe_effect=lambda target, inputs, source: PreviewEffect(
+                f"Request one immediate mechanical check for run {target.id}.",
+                "This starts one turn on the exact idle watcher; no automatic retry occurs if its canonical check is not recorded.",
+                recipient=str(source.evidence["watcher_task_id"]),
+            ),
+            route_gate_request=self._check_route_request,
             route_gate=self.route_gate,
             dispatch=dispatch,
             verify=verify,

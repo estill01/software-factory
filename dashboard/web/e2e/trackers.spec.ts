@@ -118,6 +118,7 @@ test("factory workflow controls stay compact and preview exact owner scope", asy
       source_evidence: { tracker_path: summary.relative_path },
       route_gate: {
         status: "not-required",
+        target_thread: null,
         recipient: null,
         purpose: null,
         source_record: null,

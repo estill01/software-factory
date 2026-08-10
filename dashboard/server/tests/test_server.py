@@ -245,6 +245,8 @@ class DashboardServerTests(unittest.TestCase):
         command = (
             sys.executable,
             str(FAKE_APP_SERVER),
+            "--mode",
+            "active",
             "--cwd",
             str(root),
         )

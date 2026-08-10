@@ -14,6 +14,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Link } from "react-router"
 
 import { Button } from "@/components/ui/button"
+import { RunCheckAction } from "@/features/admin/factory-workflow-actions"
 import {
   fetchFactoryFloor,
   type FactoryFloorAttention,
@@ -326,6 +327,13 @@ function FloorRow({ row, inspect, returnPath }: {
             ? <Time value={row.supervision.next_check.at} />
             : <span title={row.supervision.next_check.reason}>unavailable</span>}
         </span>
+        {row.supervision.run_id && (
+          <RunCheckAction
+            targetId={row.supervision.run_id}
+            projectId={row.project.project_id}
+            inline
+          />
+        )}
       </div>
 
       <div className="factory-row-light">

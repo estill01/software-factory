@@ -335,7 +335,7 @@ def emit(value: Any) -> None:
 
 
 def run_server(mode: str, cwd: str) -> int:
-    active_turn = mode in {"active", "approval", "user-input"}
+    active_turn = mode in {"active", "approval", "user-input", "large-task-response"}
     terminal_turn = mode == "terminal"
     ephemeral = False
     callback_sent = False
@@ -417,6 +417,11 @@ def run_server(mode: str, cwd: str) -> int:
                     }
                 )
             else:
+                read_turn_text = (
+                    "x" * (5 * 1024 * 1024)
+                    if mode == "large-task-response"
+                    else turn_text
+                )
                 emit(
                     {
                         "id": message["id"],
@@ -426,7 +431,7 @@ def run_server(mode: str, cwd: str) -> int:
                                 active_turn=active_turn,
                                 terminal_turn=terminal_turn,
                                 ephemeral=ephemeral,
-                                turn_text=turn_text,
+                                turn_text=read_turn_text,
                             )
                         },
                     }

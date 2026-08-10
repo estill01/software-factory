@@ -29,6 +29,7 @@ const operationLinkSchema = z
 const routeGateSchema = z
   .object({
     status: z.enum(["not-required", "allowed", "unavailable"]),
+    target_thread: z.string().nullable(),
     recipient: z.string().nullable(),
     purpose: z.string().nullable(),
     source_record: z.string().nullable(),

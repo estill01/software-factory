@@ -11,7 +11,7 @@ from typing import Any, Mapping
 import unittest
 from unittest.mock import patch
 
-from dashboard.server.tests.fake_app_server import write_contract
+from dashboard.server.tests.fake_app_server import fake_thread, write_contract
 
 import software_factory_dashboard.app_server as app_server_module
 from software_factory_dashboard.app_server import (
@@ -140,6 +140,99 @@ class CodexAppServerClientTests(unittest.TestCase):
         outside = ProjectRecord(id="outside", label="Outside", root=str(self.root / "outside"))
         with self.assertRaisesRegex(AppServerError, "registered cwd"):
             client.resume_task((outside,), "task-fake-001")
+
+    def test_long_lived_task_response_remains_bounded_and_does_not_drop_adapter(self) -> None:
+        client = self.client("large-task-response")
+        detail = client.read_task((self.project,), "task-fake-001", include_turns=True)
+
+        self.assertEqual(detail["task"]["id"], "task-fake-001")
+        self.assertEqual(detail["task"]["status"]["type"], "active")
+        self.assertLessEqual(
+            len(detail["task"]["turns"][0]["items"][0]["summary"]),
+            app_server_module.MAX_TEXT,
+        )
+        self.assertEqual(client.integration_state()["status"], "available")
+
+    def test_configured_role_turn_binds_exact_unregistered_cwd_and_resume(self) -> None:
+        client = self.client()
+        role_cwd = self.root / "codex-role-workspace"
+        role_cwd.mkdir()
+        role_id = "watcher-task-001"
+        role_stat = role_cwd.stat()
+        role_identity = (role_stat.st_dev, role_stat.st_ino)
+        projected = {
+            "id": role_id,
+            "cwd": str(role_cwd),
+            "status": {"type": "notLoaded"},
+        }
+        resumed_thread = fake_thread(str(role_cwd))
+        resumed_thread["id"] = role_id
+        resumed_thread["sessionId"] = role_id
+        active_turn = fake_thread(
+            str(role_cwd),
+            active_turn=True,
+            turn_text="Immediate check.",
+        )["turns"][0]
+
+        def request(capability, params):
+            self.assertEqual(params["threadId"], role_id)
+            if capability == "task_resume":
+                return {"thread": resumed_thread}
+            if capability == "turn_start":
+                return {"turn": active_turn}
+            raise AssertionError(f"unexpected capability {capability}")
+
+        with (
+            patch.object(
+                client,
+                "read_task",
+                return_value={"task": projected},
+            ),
+            patch.object(client, "_request", side_effect=request) as owner_request,
+        ):
+            result = client.start_configured_role_turn(
+                (self.project,),
+                role_id,
+                "Immediate check.",
+                expected_cwd=str(role_cwd),
+                expected_cwd_identity=role_identity,
+            )
+        self.assertTrue(result["task_resumed"])
+        self.assertEqual(result["operation"], "role_turn_started")
+        self.assertEqual(owner_request.call_count, 2)
+
+        with patch.object(
+            client,
+            "read_task",
+            return_value={"task": {**projected, "cwd": str(self.project_root)}},
+        ):
+            with self.assertRaisesRegex(AppServerError, "changed after preview"):
+                client.start_configured_role_turn(
+                    (self.project,),
+                    role_id,
+                    "Immediate check.",
+                    expected_cwd=str(role_cwd),
+                    expected_cwd_identity=role_identity,
+                )
+
+        def replace_role_cwd(*_args, **_kwargs):
+            role_cwd.rmdir()
+            role_cwd.mkdir()
+            return {"task": {**projected, "status": {"type": "idle"}}}
+
+        with (
+            patch.object(client, "read_task", side_effect=replace_role_cwd),
+            patch.object(client, "_request") as owner_request,
+        ):
+            with self.assertRaisesRegex(AppServerError, "changed after preview"):
+                client.start_configured_role_turn(
+                    (self.project,),
+                    role_id,
+                    "Immediate check.",
+                    expected_cwd=str(role_cwd),
+                    expected_cwd_identity=role_identity,
+                )
+        owner_request.assert_not_called()
 
     def test_approval_response_is_fingerprinted_and_single_use(self) -> None:
         client = self.client("approval")

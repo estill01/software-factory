@@ -191,6 +191,7 @@ class RouteGateRequest:
     purpose: str
     source_record: str
     required_action: str
+    target_thread: str | None = None
 
     def __post_init__(self) -> None:
         if not all(
@@ -203,6 +204,12 @@ class RouteGateRequest:
             )
         ):
             raise ValueError("Route-gate fields must be nonempty and bounded")
+        if self.target_thread is not None and (
+            not isinstance(self.target_thread, str)
+            or not self.target_thread.strip()
+            or len(self.target_thread) > 240
+        ):
+            raise ValueError("Route-gate target must be nonempty and bounded")
 
 
 @dataclass(frozen=True)
@@ -214,6 +221,7 @@ class RouteGateResult:
     source_record: str | None = None
     policy_fingerprint: str | None = None
     reason: str | None = None
+    target_thread: str | None = None
 
     def __post_init__(self) -> None:
         if self.allowed:
@@ -229,6 +237,10 @@ class RouteGateResult:
                 for value in (self.recipient, self.purpose, self.source_record)
             ):
                 raise ValueError("Allowed route gates must echo their exact request identity")
+            if self.target_thread is not None and (
+                not isinstance(self.target_thread, str) or not self.target_thread.strip()
+            ):
+                raise ValueError("Allowed route-gate target is invalid")
 
 
 @dataclass(frozen=True)
@@ -872,6 +884,10 @@ class OperationCoordinator:
             result.recipient != request.recipient
             or result.purpose != request.purpose
             or result.source_record != request.source_record
+            or (
+                request.target_thread is not None
+                and result.target_thread != request.target_thread
+            )
             or result.action_hash is None
             or not secrets.compare_digest(result.action_hash, expected_action_hash)
             or result.policy_fingerprint is None
@@ -886,6 +902,7 @@ class OperationCoordinator:
     def _route_binding(result: RouteGateResult) -> dict[str, Any]:
         return {
             "allowed": result.allowed,
+            "target_thread": result.target_thread,
             "recipient": result.recipient,
             "purpose": result.purpose,
             "source_record": result.source_record,
@@ -1076,6 +1093,7 @@ class OperationCoordinator:
     def _public(record: _OperationRecord) -> dict[str, Any]:
         route_gate = {
             "status": "not-required",
+            "target_thread": None,
             "recipient": None,
             "purpose": None,
             "source_record": None,
@@ -1092,6 +1110,7 @@ class OperationCoordinator:
             )
             route_gate = {
                 "status": "allowed" if record.route_result and record.route_result.allowed else "unavailable",
+                "target_thread": record.route_request.target_thread,
                 "recipient": record.route_request.recipient,
                 "purpose": record.route_request.purpose,
                 "source_record": record.route_request.source_record,

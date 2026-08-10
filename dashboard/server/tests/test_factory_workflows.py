@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 from tempfile import TemporaryDirectory
+from threading import RLock
 import unittest
 from unittest.mock import patch
 
@@ -17,6 +18,7 @@ from software_factory_dashboard.admin_operations import (
     OperationError,
     OperationTarget,
     RouteGateRequest,
+    RouteGateResult,
 )
 from software_factory_dashboard.catalog import ProjectRecord
 from software_factory_dashboard.factory_workflows import (
@@ -252,8 +254,9 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(duplicate_status, 409)
         self.assertEqual(duplicate["error"]["code"], "authoring_owner_conflict")
         self.assertEqual(executed["data"]["operation"]["state"], "applied")
-        self.assertEqual(len(supported), 10)
+        self.assertEqual(len(supported), 11)
         self.assertIn("factory.blocks-implement", supported)
+        self.assertIn("factory.supervision-check-now", supported)
         self.assertIn("task.input-respond", supported)
         self.assertEqual(unavailable[0]["type"], "factory.tracker-authoring-supervision")
         prompt = task["turns"][0]["items"][0]["summary"]
@@ -821,6 +824,227 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertTrue(exact["supervision_attached"])
         self.assertTrue(exact["role_tasks_current"])
         self.assertTrue(exact["automation_current"])
+
+    def test_check_now_wakes_one_exact_watcher_and_requires_matching_new_record(self) -> None:
+        project = ProjectRecord(
+            id="workflow",
+            label="Workflow",
+            root=str(self.repository),
+        )
+        role_workspace = self.root / "watcher-workspace"
+        role_workspace.mkdir()
+        target_task = {
+            "id": "task-fake-001",
+            "status": {"type": "idle"},
+            "project_binding": {
+                "status": "bound",
+                "project_id": "workflow",
+                "candidates": ["workflow"],
+            },
+        }
+        watcher_task = {
+            "id": "watcher-workflow-001",
+            "status": {"type": "idle"},
+            "cwd": str(role_workspace),
+            "project_binding": {
+                "status": "bound",
+                "project_id": "workflow",
+                "candidates": ["workflow"],
+            },
+            "preview": "Watcher",
+            "turns": [],
+        }
+        run = {
+            "status": "available",
+            "target_thread_id": "task-fake-001",
+            "fingerprint": "c" * 64,
+            "event_count": 4,
+            "current_mission": {"root": "a" * 64},
+            "project_binding": {"status": "bound", "project_id": "workflow"},
+            "lifecycle": {"status": None},
+            "last_check": {"record_id": "EVT-000004", "timestamp": "2026-08-10T00:00:00Z"},
+            "latest_activity": {"record_id": "EVT-000004", "timestamp": "2026-08-10T00:00:00Z"},
+            "policy": {"schedule": {"routine_minutes": 20}},
+            "source": {
+                "policy_head_sha256": "b" * 64,
+                "event_head_sha256": "d" * 64,
+            },
+            "topology": {
+                "binding_integrity": "valid",
+                "roles": [
+                    {
+                        "role": "watcher",
+                        "thread_id": "watcher-workflow-001",
+                        "binding_status": "bound",
+                        "automation": {
+                            "id": "watcher-automation-001",
+                            "status": "available",
+                            "owner_status": "ACTIVE",
+                            "kind": "heartbeat",
+                            "target_thread_id": "watcher-workflow-001",
+                            "rrule": "RRULE:FREQ=MINUTELY;INTERVAL=20",
+                            "manifest_sha256": "e" * 64,
+                        },
+                    }
+                ]
+            },
+            "timeline": [],
+        }
+
+        class OperationsStub:
+            def run(self, _projects, target_thread_id):
+                if target_thread_id != run["target_thread_id"]:
+                    raise AssertionError("wrong target")
+                return {"selected_run": run}
+
+        class AppServerStub:
+            prompt = None
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": "task_read", "status": "supported"},
+                        {"capability": "task_resume", "status": "supported"},
+                        {"capability": "turn_start", "status": "supported"},
+                    ]
+                }
+
+            @staticmethod
+            def read_task(_projects, task_id, *, include_turns):
+                if task_id == target_task["id"] and not include_turns:
+                    return {"task": target_task}
+                if not include_turns or task_id != watcher_task["id"]:
+                    raise AssertionError("wrong watcher read")
+                return {"task": watcher_task}
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                role_stat = role_workspace.stat()
+                if (
+                    task_id != watcher_task["id"]
+                    or expected_cwd != str(role_workspace)
+                    or expected_cwd_identity != (role_stat.st_dev, role_stat.st_ino)
+                ):
+                    raise AssertionError("wrong watcher wake")
+                self.prompt = text
+                return {"turn": {"id": "turn-check-001"}, "task_resumed": False}
+
+        app_server = AppServerStub()
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = app_server
+        owner.route_gate = lambda request: RouteGateResult(
+            allowed=True,
+            action_hash="f" * 64,
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint="b" * 64,
+            target_thread=request.target_thread,
+        )
+        owner._check_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), "9" * 64)  # type: ignore[method-assign]
+        target = OperationTarget(
+            kind="run",
+            id="task-fake-001",
+            project_id="workflow",
+        )
+        definition = owner._check_now_definition()
+        source = definition.resolve_source(target, {})
+        route = definition.route_gate_request(target, {}, source)
+        self.assertEqual(route.target_thread, target.id)
+        self.assertEqual(route.recipient, watcher_task["id"])
+        self.assertEqual(route.purpose, "watcher-action")
+        dispatched = definition.dispatch(target, {}, source)
+        self.assertTrue(dispatched.evidence["watcher_awakened"])
+        self.assertIn(f"dashboard-preview:{source.fingerprint}", app_server.prompt)
+
+        unrelated = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(unrelated.state, "pending")
+        run["event_count"] = 5
+        run["timeline"] = [
+            {
+                "record_id": "EVT-000005",
+                "timestamp": "2026-08-10T00:00:30Z",
+                "kind": "check",
+                "status": "no-intervention",
+                "state_fingerprint": source.fingerprint,
+                "mission_root": "a" * 64,
+                "policy_sha256": "b" * 64,
+                "evidence": [
+                    "dashboard-route-purpose:target-action",
+                    f"dashboard-preview:{source.fingerprint}",
+                ],
+                "source": {"line": 5},
+            },
+        ]
+        unrelated = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(unrelated.state, "pending")
+        self.assertTrue(unrelated.evidence["unrelated_newer_event"])
+        run["event_count"] = 6
+        run["timeline"].append(
+            {
+                "record_id": "EVT-000006",
+                "timestamp": "2026-08-10T00:01:00Z",
+                "kind": "check",
+                "status": "no-intervention",
+                "state_fingerprint": source.fingerprint,
+                "mission_root": "a" * 64,
+                "policy_sha256": "b" * 64,
+                "evidence": [
+                    "dashboard-route-purpose:watcher-action",
+                    f"dashboard-preview:{source.fingerprint}",
+                ],
+                "source": {"line": 6},
+            }
+        )
+        verified = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(verified.state, "applied")
+        self.assertTrue(verified.evidence["check_recorded"])
+        self.assertFalse(verified.evidence["semantic_conclusion"])
+
+        run["event_count"] = 5
+        run["timeline"] = run["timeline"][:1]
+        watcher_task["turns"] = [
+            {
+                "id": "turn-check-001",
+                "status": "completed",
+                "items": [
+                    {
+                        "type": "userMessage",
+                        "summary": app_server.prompt,
+                    }
+                ],
+            }
+        ]
+        with self.assertRaises(OperationError) as duplicate:
+            definition.resolve_source(target, {})
+        self.assertEqual(duplicate.exception.code, "check_unverified_active")
+
+        watcher_task["status"] = {"type": "active"}
+        with self.assertRaises(OperationError) as active:
+            definition.resolve_source(target, {})
+        self.assertEqual(active.exception.code, "check_active")
+
+        watcher_task["status"] = {"type": "idle"}
+        watcher_role = run["topology"]["roles"][0]
+        run["topology"]["roles"] = []
+        with self.assertRaises(OperationError) as missing_watcher:
+            definition.resolve_source(target, {})
+        self.assertEqual(missing_watcher.exception.code, "watcher_binding_unavailable")
+
+        run["topology"]["roles"] = [{**watcher_role, "automation": None}]
+        with self.assertRaises(OperationError) as missing_automation:
+            definition.resolve_source(target, {})
+        self.assertEqual(missing_automation.exception.code, "watcher_binding_unavailable")
 
     def test_routed_steer_interrupt_approval_and_input_use_exact_owner_records(self) -> None:
         self.init_supervision()

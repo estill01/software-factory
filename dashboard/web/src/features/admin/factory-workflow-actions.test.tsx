@@ -18,6 +18,7 @@ vi.mock("@/lib/admin-operations-api", async (importOriginal) => ({
 
 import {
   ProjectWorkflowActions,
+  RunCheckAction,
   TaskWorkflowActions,
   TrackerWorkflowActions,
 } from "@/features/admin/factory-workflow-actions"
@@ -48,6 +49,7 @@ function previewEnvelope(type: string): OperationPreviewEnvelope {
           source_evidence: {},
           route_gate: {
             status: "not-required",
+            target_thread: null,
             recipient: null,
             purpose: null,
             source_record: null,
@@ -192,6 +194,29 @@ describe("Factory workflow action strips", () => {
     expect(await screen.findByText("Preserve this exact objective.")).toBeVisible()
     expect(screen.getByText("README.md · direct-item-1")).toBeVisible()
     expect(screen.queryByText(/dashboard lets you/i)).not.toBeInTheDocument()
+  })
+
+  it("previews one source-bound watcher check and disables unbound runs", async () => {
+    const user = userEvent.setup()
+    const { rerender } = renderActions(
+      <RunCheckAction targetId="task-demo" projectId={null} />,
+    )
+    expect(screen.getByRole("button", { name: "Check now" })).toBeDisabled()
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    rerender(
+      <QueryClientProvider client={client}>
+        <RunCheckAction targetId="task-demo" projectId="demo" />
+      </QueryClientProvider>,
+    )
+    await user.click(screen.getByRole("button", { name: "Check now" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.supervision-check-now",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: {},
+    })
+    expect(await screen.findByText("One mechanical watcher check · no semantic conclusion")).toBeVisible()
   })
 
   it("previews only the selected eligible implementation range and exact Stop", async () => {

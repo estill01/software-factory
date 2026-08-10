@@ -156,15 +156,21 @@ export function OperationFollowUp({ operation }: { operation: OperationRecord })
 
 export function OperationTruthFacts({ operation }: { operation: OperationRecord }) {
   const evidence = operation.verification_evidence
-  if (!evidence) return null
   const facts: string[] = []
-  if (typeof evidence.task_turn_started === "boolean") {
+  if (operation.type === "factory.supervision-check-now") {
+    if (operation.request_evidence?.watcher_awakened === true) facts.push("Watcher awakened")
+    if (evidence?.check_recorded === true) facts.push("Canonical check recorded")
+    else if (operation.request_evidence?.watcher_awakened === true) facts.push("Canonical check not yet verified")
+    if (evidence?.semantic_conclusion === false) facts.push("No semantic conclusion inferred")
+  }
+  if (!evidence && facts.length === 0) return null
+  if (typeof evidence?.task_turn_started === "boolean") {
     facts.push(evidence.task_turn_started ? "Task/turn started" : "Task/turn not verified")
   }
-  if (typeof evidence.block_accepted === "boolean") {
+  if (typeof evidence?.block_accepted === "boolean") {
     facts.push(evidence.block_accepted ? "Block accepted" : "Block not accepted")
   }
-  if (typeof evidence.outcome_verified === "boolean") {
+  if (typeof evidence?.outcome_verified === "boolean") {
     facts.push(evidence.outcome_verified ? "Outcome verified" : "Outcome not verified")
   }
   if (facts.length === 0) return null

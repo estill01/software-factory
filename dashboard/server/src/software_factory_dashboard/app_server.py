@@ -21,7 +21,10 @@ from .catalog import ProjectRecord
 
 
 COMPATIBILITY_PATH = Path(__file__).with_name("app_server_compatibility.json")
-MAX_PROTOCOL_LINE_BYTES = 4 * 1024 * 1024
+# Long-lived supervised tasks can legitimately carry dozens of bounded turns in
+# one thread/read response. Keep the transport bounded while leaving room for
+# the accepted 80-turn/250-item projection to perform its own tighter shaping.
+MAX_PROTOCOL_LINE_BYTES = 32 * 1024 * 1024
 MAX_DIAGNOSTIC_LINE = 2_000
 MAX_DIAGNOSTICS = 40
 MAX_EVENTS = 512
@@ -1455,6 +1458,109 @@ class CodexAppServerClient:
             {"threadId": task_id, "input": [{"type": "text", "text": text}]},
         )
         return {"turn": _turn_projection(result["turn"]), "operation": "turn_started"}
+
+    def start_configured_role_turn(
+        self,
+        projects: Sequence[ProjectRecord],
+        task_id: str,
+        text: str,
+        *,
+        expected_cwd: str,
+        expected_cwd_identity: tuple[int, int],
+    ) -> dict[str, Any]:
+        """Start one turn on an exact route-gated role task.
+
+        Supervision role tasks may live in Codex-owned task workspaces rather
+        than a registered product repository. This method is intentionally not
+        exposed as a generic HTTP task control: its caller must have already
+        resolved the configured role and route gate, and it binds the task to
+        the exact canonical cwd observed in that preview.
+        """
+
+        task_id = _identifier(task_id, "Role task ID")
+        text = _validated_text(text)
+        def current_cwd() -> str:
+            try:
+                canonical = str(Path(expected_cwd).expanduser().resolve(strict=True))
+                cwd_path = Path(canonical)
+                cwd_stat = cwd_path.stat()
+            except (OSError, RuntimeError) as error:
+                raise AppServerError(
+                    "role_task_cwd_unavailable",
+                    "The configured role task cwd is unavailable.",
+                    status=409,
+                ) from error
+            if not cwd_path.is_dir():
+                raise AppServerError(
+                    "role_task_cwd_unavailable",
+                    "The configured role task cwd is not a directory.",
+                    status=409,
+                )
+            if (cwd_stat.st_dev, cwd_stat.st_ino) != expected_cwd_identity:
+                raise AppServerError(
+                    "role_task_cwd_changed",
+                    "The configured role task cwd changed after preview.",
+                    status=409,
+                )
+            return canonical
+
+        canonical_cwd = current_cwd()
+        task = self.read_task(projects, task_id, include_turns=False)["task"]
+        try:
+            observed_cwd = str(Path(task["cwd"]).expanduser().resolve(strict=True))
+        except (OSError, RuntimeError) as error:
+            raise AppServerError(
+                "role_task_cwd_unavailable",
+                "The configured role task cwd is unavailable.",
+                status=409,
+            ) from error
+        if task["id"] != task_id or observed_cwd != canonical_cwd:
+            raise AppServerError(
+                "role_task_identity_changed",
+                "The configured role task identity or cwd changed after preview.",
+                status=409,
+            )
+        status = task["status"]["type"]
+        resumed = False
+        if status == "notLoaded":
+            result = self._request("task_resume", {"threadId": task_id})
+            resumed_task = _task_projection(result["thread"], projects)
+            try:
+                resumed_cwd = str(
+                    Path(resumed_task["cwd"]).expanduser().resolve(strict=True)
+                )
+            except (OSError, RuntimeError) as error:
+                raise AppServerError(
+                    "role_task_cwd_unavailable",
+                    "The resumed role task cwd is unavailable.",
+                    status=409,
+                ) from error
+            if resumed_task["id"] != task_id or resumed_cwd != canonical_cwd:
+                raise AppServerError(
+                    "role_task_identity_changed",
+                    "The resumed role task identity or cwd did not match the preview.",
+                    status=409,
+                )
+            status = resumed_task["status"]["type"]
+            resumed = True
+        if status != "idle":
+            raise AppServerError(
+                "role_task_not_idle",
+                "The configured role task is not idle for an immediate turn.",
+                status=409,
+            )
+        # Bind the owner call to the same directory object as the preview even
+        # if the path was replaced while task state was being re-read/resumed.
+        current_cwd()
+        result = self._request(
+            "turn_start",
+            {"threadId": task_id, "input": [{"type": "text", "text": text}]},
+        )
+        return {
+            "turn": _turn_projection(result["turn"]),
+            "operation": "role_turn_started",
+            "task_resumed": resumed,
+        }
 
     def steer_turn(
         self,

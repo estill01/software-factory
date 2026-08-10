@@ -14,6 +14,7 @@ import {
   WorkspaceBack,
 } from "@/components/workspace-ui"
 import { Button } from "@/components/ui/button"
+import { RunCheckAction } from "@/features/admin/factory-workflow-actions"
 import { fetchRun, type RunDetail } from "@/lib/operations-api"
 import { fetchTask, fetchTasks } from "@/lib/task-api"
 import {
@@ -72,8 +73,8 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
   )
   const allowCurrentSources = requestedRoot === null || requestedSegment?.posture === "current"
   const taskQuery = useQuery({
-    queryKey: ["task", targetId, true],
-    queryFn: ({ signal }) => fetchTask(targetId, true, signal),
+    queryKey: ["task", targetId, false],
+    queryFn: ({ signal }) => fetchTask(targetId, false, signal),
     retry: false,
     enabled: allowCurrentSources,
   })
@@ -358,6 +359,13 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
         <StatusMark status={isCurrent ? run.lifecycle.status ?? "in-progress" : segment?.posture} />
         <TimeValue value={isCurrent ? run.observed_at : segment?.last_recorded_at} />
       </section>
+
+      {isCurrent && (
+        <RunCheckAction
+          targetId={run.target_thread_id}
+          projectId={projectBindingConflict ? null : breadcrumbProjectId}
+        />
+      )}
 
       <div className="mission-selector">
         <label htmlFor="mission-root">Mission</label>
