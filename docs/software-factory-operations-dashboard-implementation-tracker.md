@@ -503,7 +503,7 @@ the relevant authority and evidence contract.
 | 5 | Codex task and App Server adapter | 1 | `accepted` |
 | 6 | Cross-project factory floor | 3, 4, 5 | `accepted` |
 | 7 | Project and run workspaces | 6 | `accepted` |
-| 8 | Tracker review and progress workspace | 3, 6 | `not-started` |
+| 8 | Tracker review and progress workspace | 3, 6 | `in-progress` |
 | 9 | Metrics and report history workspace | 4, 6 | `not-started` |
 | 10 | Gated administrative operation framework | 2, 4, 5 | `not-started` |
 | 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `not-started` |
@@ -2384,7 +2384,7 @@ Stop before adding tracker review, report analytics, or operational controls.
 
 ## Block 8 — Tracker review and progress workspace
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -2500,7 +2500,29 @@ from the browser or on every selection rerender.
 
 ### Completion evidence
 
-Pending.
+- Activation: began automatically from accepted and pushed Block 7 checkpoint
+  `5821f6f62a8a404f8b3f4e929c142fcdfa920b65`, tree
+  `dc016e108964c933165e143ed7998ec52ac22e0e`, parent
+  `bfed4476b51b53a48e8c2f74643644f4150d34e3`, and tracker blob
+  `7250cd60c25997cdf406c861d90d52e6433f7477`, with local/upstream at `0 0`.
+  Direct-user item 44 and mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`
+  retain full-tracker authority; no routed steer is treated as user authority.
+- Product-capability review: `consequential`; the exact 54-line capability
+  frame remains hashed
+  `26664146d46f0880752bad3252c562232fa8d6a2a19adb7804908d2ee1b562ec`.
+  Browser-side raw-Markdown parsing, a duplicate verifier/readiness doctrine,
+  inline editing/acceptance, a dashboard database, and a generalized Markdown
+  CMS were rejected because they would duplicate maintained tracker authority
+  or broaden this read-only workspace. The selected bounded option extends the
+  accepted Block 3 projection with line-addressed, size-capped section bodies,
+  Git diff metadata, and selected-tracker same-origin source access; the route
+  renders a sanitized review view and queries the independent run owner only
+  for exact tracker-binding claims. No operational or tracker state is stored.
+  The accepted tradeoff is a richer typed detail envelope in exchange for one
+  maintained parse and one lazy detail read per tracker fingerprint.
+- Implementation, validation, and exact independent review: pending; Block 8
+  remains `in-progress` and no later Block is active.
 
 ### Stop
 
