@@ -131,3 +131,116 @@ test("unavailable tracker candidates remain independent and explicit", async ({ 
   await expect(page.locator(".workspace-partial")).toContainText("source coverage is partial")
   await expect(page.locator(".tracker-index-row")).toHaveCount(1)
 })
+
+test("dependency, Git, coverage, and active-run truth remain explicit", async ({ page, request }) => {
+  const listPayload = await (await request.get("/api/v1/trackers")).json()
+  const summary = listPayload.data.trackers.find(
+    (tracker: { status: string; relative_path?: string }) =>
+      tracker.status === "available"
+      && tracker.relative_path === "docs/software-factory-operations-dashboard-implementation-tracker.md",
+  )
+  expect(summary).toBeTruthy()
+  const detailPayload = await (await request.get(`/api/v1/trackers/${summary.id}`)).json()
+  const sourceBlocks = detailPayload.data.tracker.blocks
+  expect(sourceBlocks.length).toBeGreaterThanOrEqual(3)
+  detailPayload.data.tracker.current_blocks = []
+  detailPayload.data.tracker.eligible_blocks = []
+  detailPayload.data.tracker.blocks = [
+    { ...sourceBlocks[0], status: "blocked", blocked_ancestors: [] },
+    { ...sourceBlocks[1], status: "not-started", dependencies: [0], dependency_statuses: [{ number: 0, status: "blocked" }], blocked_ancestors: [0], eligible: false },
+    { ...sourceBlocks[2], status: "not-started", dependencies: [1], dependency_statuses: [{ number: 1, status: "not-started" }], blocked_ancestors: [0], eligible: false },
+  ]
+  detailPayload.data.tracker.git = {
+    ...detailPayload.data.tracker.git,
+    status: "unavailable",
+    repository_head: null,
+    binding_status: "unknown",
+    diff: {
+      status: "unavailable",
+      changed: null,
+      base: null,
+      added_lines: null,
+      removed_lines: null,
+      preview: null,
+      truncated: false,
+      error: { code: "git_unavailable", message: "Git owner is unavailable." },
+    },
+  }
+  detailPayload.data.tracker.progress_posture = "unavailable"
+  await page.route(`**/api/v1/trackers/${summary.id}`, (route) =>
+    route.fulfill({ json: detailPayload }),
+  )
+
+  const floor = makeFactoryFloorEnvelope()
+  const terminalRow = {
+    ...floor.data.rows[0],
+    implementation: { ...floor.data.rows[0].implementation, status: "terminal" as const, status_label: "Completed" },
+    supervision: { ...floor.data.rows[0].supervision, status: "completed" as const, status_label: "Completed" },
+    work: {
+      ...floor.data.rows[0].work,
+      tracker: {
+        status: "exact" as const,
+        id: summary.id,
+        title: summary.title,
+        relative_path: summary.relative_path,
+        candidates: [],
+      },
+    },
+  }
+  floor.data.rows = [terminalRow]
+  floor.data.rows_truncated = false
+  floor.coverage = { status: "partial", observed: ["trackers"], missing: ["operations", "tasks"] }
+  await page.route("**/api/v1/factory-floor", (route) => route.fulfill({ json: floor }))
+
+  await page.goto(`/trackers/${summary.id}/blocks`)
+  await expect(page.locator(".workspace-status.status-danger").filter({ hasText: /^blocked$/i }).first()).toBeVisible()
+  await expect(page.getByText("Descendant-blocked · Blocks 0")).toHaveCount(2)
+
+  await page.getByRole("link", { name: "Evidence", exact: true }).click()
+  await expect(page.getByText("Unavailable from Git owner")).toBeVisible()
+  await expect(page.getByText("Unavailable from run owner")).toBeVisible()
+  await expect(page.getByText("Exact absence unavailable · partial coverage")).toBeVisible()
+  await expect(page.getByText(/No active claim was observed, but exact absence is unavailable/)).toBeVisible()
+  await expect(page.getByText("None observed")).toHaveCount(0)
+  await expect(page.getByText(/1 exact active claim/)).toHaveCount(0)
+})
+
+test("an invalid zero-Block projection renders an explicit review state", async ({ page, request }) => {
+  const listPayload = await (await request.get("/api/v1/trackers")).json()
+  const summary = listPayload.data.trackers.find((tracker: { status: string }) => tracker.status === "available")
+  expect(summary).toBeTruthy()
+  const detailPayload = await (await request.get(`/api/v1/trackers/${summary.id}`)).json()
+  detailPayload.data.tracker.blocks = []
+  detailPayload.data.tracker.current_blocks = []
+  detailPayload.data.tracker.eligible_blocks = []
+  detailPayload.data.tracker.verifier = {
+    ...detailPayload.data.tracker.verifier,
+    valid: false,
+    exit_status: 1,
+    blocks: [],
+    errors: ["No Block headings found."],
+  }
+  detailPayload.data.tracker.counts = {
+    total: 0,
+    by_status: {},
+    accepted: 0,
+    open: 0,
+    with_completion_evidence: 0,
+    evidence_by_posture: {},
+  }
+  await page.route(`**/api/v1/trackers/${summary.id}`, (route) =>
+    route.fulfill({ json: detailPayload }),
+  )
+  await page.route("**/api/v1/factory-floor", (route) =>
+    route.fulfill({ json: makeFactoryFloorEnvelope() }),
+  )
+
+  await page.goto(`/trackers/${summary.id}/blocks`)
+
+  await expect(page.getByRole("heading", { name: "Block projection" })).toBeVisible()
+  await expect(page.getByRole("alert")).toContainText("No Blocks could be projected")
+  await expect(page.getByRole("link", { name: "Verifier diagnostics" })).toHaveAttribute(
+    "href",
+    `/trackers/${summary.id}/evidence`,
+  )
+})

@@ -246,6 +246,7 @@ const detail = {
         },
       ],
       dependency_statuses: [],
+      blocked_ancestors: [],
       eligible: false,
     },
   ],

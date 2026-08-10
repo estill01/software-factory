@@ -15,7 +15,7 @@ import subprocess
 import sys
 from threading import RLock
 from types import ModuleType
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from .catalog import ProjectRecord
 
@@ -1086,6 +1086,30 @@ def _document_analysis(
             }
         )
 
+    unique_blocks: dict[int, Mapping[str, Any] | None] = {}
+    for block in raw_blocks:
+        number = block["number"]
+        unique_blocks[number] = block if number not in unique_blocks else None
+
+    def blocked_ancestors(block: Mapping[str, Any]) -> list[int]:
+        """Return exact transitive dependencies whose recorded status is blocked."""
+
+        blocked: set[int] = set()
+        visited: set[int] = set()
+        pending = list(block["dependencies"])
+        while pending:
+            dependency = pending.pop()
+            if dependency in visited:
+                continue
+            visited.add(dependency)
+            dependency_block = unique_blocks.get(dependency)
+            dependency_status = statuses.get(dependency, [])
+            if len(dependency_status) == 1 and dependency_status[0] == "blocked":
+                blocked.add(dependency)
+            if dependency_block is not None:
+                pending.extend(dependency_block["dependencies"])
+        return sorted(blocked)
+
     for block in raw_blocks:
         dependency_statuses = [
             {
@@ -1097,6 +1121,7 @@ def _document_analysis(
             for dependency in block["dependencies"]
         ]
         block["dependency_statuses"] = dependency_statuses
+        block["blocked_ancestors"] = blocked_ancestors(block)
         block["eligible"] = bool(
             verifier_result["valid"]
             and block["status"] == "not-started"

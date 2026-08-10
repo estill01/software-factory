@@ -90,10 +90,10 @@ const tracker = {
   document_sections: [{ title: "Final integrated acceptance", normalized_title: "final integrated acceptance", line: 100, end_line: 105, anchor: "final-integrated-acceptance", markdown_preview: "No final completion until every Block is accepted.", preview_truncated: false, content_sha256: fingerprint("9") }],
   blocks: [
     {
-      number: 0, title: "Base", line: 30, anchor: "block-0-base", status: "accepted", status_line: 32, dependencies: [], dependency_expression: "—", objective: "Establish the base.", stop: "Stop before Block 1.", capability_delta: { posture: "consequential" }, completion_evidence: { present: true, posture: "recorded", line: 60, preview: "Commit recorded." }, sections: [{ title: "Objective", normalized_title: "objective", line: 34, end_line: 37, anchor: "objective", markdown_preview: "Establish the exact base.", preview_truncated: false, content_sha256: fingerprint("a") }], dependency_statuses: [], eligible: false,
+      number: 0, title: "Base", line: 30, anchor: "block-0-base", status: "accepted", status_line: 32, dependencies: [], dependency_expression: "—", objective: "Establish the base.", stop: "Stop before Block 1.", capability_delta: { posture: "consequential" }, completion_evidence: { present: true, posture: "recorded", line: 60, preview: "Commit recorded." }, sections: [{ title: "Objective", normalized_title: "objective", line: 34, end_line: 37, anchor: "objective", markdown_preview: "Establish the exact base.", preview_truncated: false, content_sha256: fingerprint("a") }], dependency_statuses: [], blocked_ancestors: [], eligible: false,
     },
     {
-      number: 1, title: "Successor", line: 70, anchor: "block-1-successor", status: "not-started", status_line: 72, dependencies: [0], dependency_expression: "0", objective: "Add the review workspace.", stop: "Stop before mutation.", capability_delta: { posture: "consequential" }, completion_evidence: { present: false, posture: "open", line: 95, preview: null }, sections: [{ title: "Required work", normalized_title: "required work", line: 80, end_line: 90, anchor: "required-work", markdown_preview: "- Render safely.\n- <script>SECRET</script>", preview_truncated: true, content_sha256: fingerprint("b") }], dependency_statuses: [{ number: 0, status: "accepted" }], eligible: true,
+      number: 1, title: "Successor", line: 70, anchor: "block-1-successor", status: "not-started", status_line: 72, dependencies: [0], dependency_expression: "0", objective: "Add the review workspace.", stop: "Stop before mutation.", capability_delta: { posture: "consequential" }, completion_evidence: { present: false, posture: "open", line: 95, preview: null }, sections: [{ title: "Required work", normalized_title: "required work", line: 80, end_line: 90, anchor: "required-work", markdown_preview: "- Render safely.\n- <script>SECRET</script>", preview_truncated: true, content_sha256: fingerprint("b") }], dependency_statuses: [{ number: 0, status: "accepted" }], blocked_ancestors: [], eligible: true,
     },
   ],
   parser_limitations: ["Exact source ranges remain authoritative."],
@@ -101,12 +101,14 @@ const tracker = {
 }
 
 const floor = {
+  coverage: { status: "complete", observed: ["catalog", "operations", "trackers", "tasks"], missing: [] },
   data: {
+    rows_truncated: false,
     rows: [{
       id: "run:target-1",
       work: { tracker: { status: "exact", id: tracker.id, title: tracker.title, relative_path: tracker.relative_path } },
-      supervision: { run_id: "target-1" },
-      implementation: { task_id: "target-1", name: "Alpha implementation" },
+      supervision: { run_id: "target-1", status: "active" },
+      implementation: { task_id: "target-1", name: "Alpha implementation", status: "active" },
       freshness: { observed_at: "2026-08-09T10:00:00.000Z" },
     }],
     accepted_outcomes: [{ tracker_id: tracker.id }],
@@ -167,6 +169,28 @@ describe("tracker review workspace", () => {
     await waitFor(() => expect(mocks.fetchTrackerSource).toHaveBeenCalledWith(tracker.id, { line: 80, endLine: 90 }, expect.any(AbortSignal)))
   })
 
+  it("marks blocked and transitively descendant-blocked dependency nodes", async () => {
+    const blockedTracker = {
+      ...tracker,
+      current_blocks: [],
+      eligible_blocks: [],
+      blocks: [
+        { ...tracker.blocks[0], status: "blocked", completion_evidence: { ...tracker.blocks[0].completion_evidence, posture: "open" } },
+        { ...tracker.blocks[1], eligible: false, dependency_statuses: [{ number: 0, status: "blocked" }], blocked_ancestors: [0] },
+        { ...tracker.blocks[1], number: 2, title: "Descendant", dependencies: [1], dependency_expression: "1", dependency_statuses: [{ number: 1, status: "not-started" }], blocked_ancestors: [0], eligible: false },
+      ],
+    }
+    mocks.fetchTracker.mockResolvedValue({ data: { tracker: blockedTracker } })
+
+    renderRoute(`/trackers/${tracker.id}/blocks`, <TrackerWorkspace />, "/trackers/:trackerId/:view?")
+
+    expect(await screen.findByRole("heading", { name: "Block 0 · Base" })).toBeVisible()
+    expect(screen.getAllByText("blocked", { exact: true })[0]).toHaveClass("status-danger")
+    expect(screen.getAllByText("Descendant-blocked · Blocks 0")).toHaveLength(2)
+    expect(screen.getByText(/Successor · descendant-blocked by 0/)).toBeVisible()
+    expect(screen.getByText(/Descendant · descendant-blocked by 0/)).toBeVisible()
+  })
+
   it("shows deterministic evidence, lazy diff metadata, and unavailable run-bound hash honestly", async () => {
     const user = userEvent.setup()
     renderRoute(`/trackers/${tracker.id}/evidence`, <TrackerWorkspace />, "/trackers/:trackerId/:view?")
@@ -191,5 +215,65 @@ describe("tracker review workspace", () => {
     expect(screen.getByText("Loading mapped run claims")).toBeVisible()
     expect(screen.getAllByText("Unavailable from composed owner")).toHaveLength(2)
     expect(screen.queryByText("No exact composed tracker/run claim")).not.toBeInTheDocument()
+  })
+
+  it("keeps unavailable Git, partial Floor coverage, and completed rows non-conclusive", async () => {
+    mocks.fetchTracker.mockResolvedValue({
+      data: {
+        tracker: {
+          ...tracker,
+          git: {
+            ...tracker.git,
+            status: "unavailable",
+            repository_head: null,
+            binding_status: "unknown",
+            diff: { status: "unavailable", changed: null, base: null, added_lines: null, removed_lines: null, preview: null, truncated: false, error: { code: "git_unavailable", message: "Git unavailable." } },
+          },
+          progress_posture: "unavailable",
+        },
+      },
+    })
+    mocks.fetchFactoryFloor.mockResolvedValue({
+      ...floor,
+      coverage: { status: "partial", observed: ["trackers"], missing: ["operations", "tasks"] },
+      data: {
+        ...floor.data,
+        rows: [{
+          ...floor.data.rows[0],
+          supervision: { ...floor.data.rows[0].supervision, status: "completed" },
+          implementation: { ...floor.data.rows[0].implementation, status: "terminal" },
+        }],
+      },
+    })
+
+    renderRoute(`/trackers/${tracker.id}/evidence`, <TrackerWorkspace />, "/trackers/:trackerId/:view?")
+
+    expect(await screen.findByText("Unavailable from Git owner")).toBeVisible()
+    expect(screen.getByText("Unavailable from run owner")).toBeVisible()
+    expect(screen.getByText("Exact absence unavailable · partial coverage")).toBeVisible()
+    expect(screen.getByText(/No active claim was observed, but exact absence is unavailable/)).toBeVisible()
+    expect(screen.queryByText(/1 exact active claim/)).not.toBeInTheDocument()
+    expect(screen.queryByText("None observed")).not.toBeInTheDocument()
+  })
+
+  it("renders an explicit invalid state when no Block can be projected", async () => {
+    mocks.fetchTracker.mockResolvedValue({
+      data: {
+        tracker: {
+          ...tracker,
+          verifier: { ...tracker.verifier, valid: false, exit_status: 1, blocks: [], errors: ["No Block headings found."] },
+          counts: { ...tracker.counts, total: 0, accepted: 0, open: 0, by_status: {}, with_completion_evidence: 0, evidence_by_posture: {} },
+          current_blocks: [],
+          eligible_blocks: [],
+          blocks: [],
+        },
+      },
+    })
+
+    renderRoute(`/trackers/${tracker.id}/blocks`, <TrackerWorkspace />, "/trackers/:trackerId/:view?")
+
+    expect(await screen.findByRole("heading", { name: "Block projection" })).toBeVisible()
+    expect(screen.getByRole("alert")).toHaveTextContent("No Blocks could be projected")
+    expect(screen.getByRole("link", { name: "Verifier diagnostics" })).toHaveAttribute("href", `/trackers/${tracker.id}/evidence`)
   })
 })

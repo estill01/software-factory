@@ -14,7 +14,7 @@ import {
   TimeValue,
   WorkspaceBack,
 } from "@/components/workspace-ui"
-import { fetchFactoryFloor } from "@/lib/floor-api"
+import { fetchFactoryFloor, type FactoryFloorRow } from "@/lib/floor-api"
 import {
   fetchTracker,
   fetchTrackerDiff,
@@ -26,6 +26,11 @@ import {
 const views = ["overview", "blocks", "evidence"] as const
 type TrackerView = typeof views[number]
 type TrackerSection = TrackerDetail["document_sections"][number]
+type MappedRunProjection = {
+  rows: FactoryFloorRow[]
+  posture: "complete" | "partial" | "unavailable"
+  missing: string[]
+}
 
 const requiredBlockSections = [
   ["Capability delta", "target-product capability delta"],
@@ -79,7 +84,36 @@ function SectionCard({ trackerId, section }: { trackerId: string; section: Track
   )
 }
 
-function ReadinessFacts({ tracker, mappedRunCount }: { tracker: TrackerDetail; mappedRunCount: number | null }) {
+function isActiveRun(row: FactoryFloorRow) {
+  return row.implementation.status === "active" || row.supervision.status === "active"
+}
+
+function mappedRunSummary(mapping: MappedRunProjection) {
+  if (mapping.posture === "unavailable") return "Unavailable from composed owner"
+  if (mapping.posture === "partial") {
+    return mapping.rows.length
+      ? `${mapping.rows.length} observed active claim${mapping.rows.length === 1 ? "" : "s"} · total unavailable`
+      : "Exact absence unavailable · partial coverage"
+  }
+  return mapping.rows.length
+    ? `${mapping.rows.length} exact active claim${mapping.rows.length === 1 ? "" : "s"}`
+    : "No exact active claim"
+}
+
+function workingSourceSummary(tracker: TrackerDetail) {
+  if (tracker.git.status !== "available" || tracker.git.diff.status !== "available" || tracker.git.diff.changed === null) {
+    return "Unavailable from Git owner"
+  }
+  return tracker.git.diff.changed ? "Working tree differs from HEAD" : "No working-tree changes after HEAD"
+}
+
+function runBoundSourceSummary(tracker: TrackerDetail) {
+  if (tracker.git.binding_status === "current") return "Matches run-bound content hash"
+  if (tracker.git.binding_status === "stale") return "Run-bound content hash is stale"
+  return "Unavailable from run owner"
+}
+
+function ReadinessFacts({ tracker, mapping }: { tracker: TrackerDetail; mapping: MappedRunProjection }) {
   const missingAcceptedEvidence = tracker.blocks.filter((block) => block.status === "accepted" && block.completion_evidence.posture === "missing").length
   return (
     <FactGrid facts={[
@@ -88,7 +122,7 @@ function ReadinessFacts({ tracker, mappedRunCount }: { tracker: TrackerDetail; m
       ["Dependency eligibility", tracker.eligible_blocks.length ? `Blocks ${tracker.eligible_blocks.join(", ")}` : "No eligible Block"],
       ["Current execution", tracker.current_blocks.length ? `Blocks ${tracker.current_blocks.join(", ")}` : "No Block in progress"],
       ["Accepted evidence", missingAcceptedEvidence ? `${missingAcceptedEvidence} accepted Blocks missing evidence` : "No accepted evidence gap"],
-      ["Mapped active run", mappedRunCount === null ? "Unavailable from composed owner" : mappedRunCount ? `${mappedRunCount} exact composed claim${mappedRunCount === 1 ? "" : "s"}` : "No exact composed claim"],
+      ["Mapped active run", mappedRunSummary(mapping)],
     ]} />
   )
 }
@@ -153,6 +187,7 @@ export function Component() {
 
   const tracker = trackerQuery.data.data.tracker
   const mappedRows = floor.data?.data.rows.filter((row) => row.work.tracker.id === tracker.id) ?? []
+  const activeMappedRows = mappedRows.filter(isActiveRun)
   const selectedValue = searchParams.get("block")
   const selectedNumber = selectedValue === null ? null : Number(selectedValue)
   const explicitlySelectedBlock = selectedNumber !== null && Number.isSafeInteger(selectedNumber)
@@ -179,7 +214,17 @@ export function Component() {
   const acceptedOutcomes = floor.data
     ? floor.data.data.accepted_outcomes.filter((outcome) => outcome.tracker_id === tracker.id)
     : null
-  const mappedRunCount = floor.isPending || floor.isError ? null : mappedRows.length
+  const mapping: MappedRunProjection = {
+    rows: activeMappedRows,
+    posture: floor.isPending || floor.isError
+      ? "unavailable"
+      : floor.data.coverage.status === "complete" && !floor.data.data.rows_truncated
+        ? "complete"
+        : "partial",
+    missing: floor.data
+      ? [...floor.data.coverage.missing, ...(floor.data.data.rows_truncated ? ["bounded factory-floor rows"] : [])]
+      : [],
+  }
   const missingSelectedSections = selectedBlock
     ? requiredBlockSections.filter(([, normalized]) =>
       !selectedBlock.sections.some((section) => section.normalized_title === normalized),
@@ -218,7 +263,7 @@ export function Component() {
           <div className="workspace-split">
             <section className="workspace-panel">
               <div className="workspace-panel-heading"><h2>Review readiness</h2><span>Deterministic facts</span></div>
-              <ReadinessFacts tracker={tracker} mappedRunCount={mappedRunCount} />
+              <ReadinessFacts tracker={tracker} mapping={mapping} />
             </section>
             <section className="workspace-panel">
               <div className="workspace-panel-heading"><h2>Contract identity</h2><StatusMark status={tracker.profile} /></div>
@@ -263,7 +308,7 @@ export function Component() {
             <div><strong>Blocks</strong><span>{tracker.blocks.length}</span></div>
             {tracker.blocks.map((block) => (
               <button type="button" key={block.number} className={selectedBlock.number === block.number ? "tracker-block-selected" : ""} onClick={() => selectBlock(block.number)}>
-                <span>Block {block.number}</span><StatusMark status={block.status} /><small>{block.title}</small>
+                <span>Block {block.number}</span><StatusMark status={block.status} /><small>{block.title}{block.blocked_ancestors.length ? ` · descendant-blocked by ${block.blocked_ancestors.join(", ")}` : ""}</small>
               </button>
             ))}
           </aside>
@@ -273,6 +318,7 @@ export function Component() {
               <FactGrid facts={[
                 ["Dependencies", selectedBlock.dependency_expression || "None"],
                 ["Dependency states", selectedBlock.dependency_statuses.length ? selectedBlock.dependency_statuses.map((item) => `${item.number}: ${item.status ?? "unknown"}`).join(" · ") : "None"],
+                ["Blocked ancestors", selectedBlock.blocked_ancestors.length ? `Blocks ${selectedBlock.blocked_ancestors.join(", ")}` : "None"],
                 ["Eligible", selectedBlock.eligible ? "Yes — maintained verifier valid and dependencies accepted" : "No"],
                 ["Objective", selectedBlock.objective ?? "Unavailable"],
                 ["Completion evidence", `${selectedBlock.completion_evidence.posture} · ${selectedBlock.completion_evidence.present ? "present" : "absent"}`],
@@ -289,10 +335,21 @@ export function Component() {
           <section className="workspace-panel tracker-dependency-panel">
             <div className="workspace-panel-heading"><h2>Required order</h2><span>{branching ? "Branching graph" : "Linear dependency list"}</span></div>
             <ol className={`tracker-dependency-list ${branching ? "tracker-dependency-branching" : ""}`}>
-              {tracker.blocks.map((block) => <li key={block.number}><StatusMark status={block.status} /><strong>Block {block.number}</strong><span>{block.dependencies.length ? `after ${block.dependencies.join(", ")}` : "root"}</span>{block.eligible && <span className="workspace-badge">Eligible</span>}</li>)}
+              {tracker.blocks.map((block) => <li key={block.number}><StatusMark status={block.status} /><strong>Block {block.number}</strong><span>{block.dependencies.length ? `after ${block.dependencies.join(", ")}` : "root"}</span>{block.eligible && <span className="workspace-badge">Eligible</span>}{block.blocked_ancestors.length > 0 && <span className="workspace-badge">Descendant-blocked · Blocks {block.blocked_ancestors.join(", ")}</span>}</li>)}
             </ol>
           </section>
         </div>
+      )}
+
+      {activeView === "blocks" && !selectedBlock && (
+        <section className="workspace-panel">
+          <div className="workspace-panel-heading"><h2>Block projection</h2><StatusMark status="invalid" /></div>
+          <QueryState kind="error" message="No Blocks could be projected. Review verifier diagnostics or the read-only source." />
+          <div className="workspace-toolbar">
+            <Button variant="outline" size="compact" asChild><Link to={`${basePath}/evidence`}>Verifier diagnostics</Link></Button>
+            <Button variant="ghost" size="compact" asChild><a href={trackerSourceUrl(tracker.id)} target="_blank" rel="noreferrer">Raw source</a></Button>
+          </div>
+        </section>
       )}
 
       {activeView === "evidence" && (
@@ -334,8 +391,8 @@ export function Component() {
 
           <div className="workspace-split">
             <section className="workspace-panel">
-              <div className="workspace-panel-heading"><h2>Mapped execution</h2><span>{floor.isPending ? "Loading" : floor.isError ? "Unavailable" : mappedRows.length}</span></div>
-              {floor.isPending ? <QueryState kind="loading" message="Loading mapped run claims" /> : floor.isError ? <QueryState kind="error" message={floor.error.message} /> : mappedRows.length ? <div className="workspace-record-list">{mappedRows.map((row) => <Link to={row.supervision.run_id ? `/runs/${encodeURIComponent(row.supervision.run_id)}` : `/tasks/${encodeURIComponent(row.implementation.task_id)}`} className="workspace-record" key={row.id}><div><strong>{row.implementation.name ?? "Unnamed work"}</strong><Identity value={row.supervision.run_id ?? row.implementation.task_id} /></div><StatusMark status={row.work.tracker.status} /><span>{row.work.tracker.relative_path} · bound hash unavailable from run owner</span><TimeValue value={row.freshness.observed_at} /></Link>)}</div> : <QueryState kind="empty" message="No exact composed tracker/run claim" />}
+              <div className="workspace-panel-heading"><h2>Mapped execution</h2><span>{floor.isPending ? "Loading" : floor.isError ? "Unavailable" : mapping.posture === "partial" ? `${activeMappedRows.length} observed · partial` : activeMappedRows.length}</span></div>
+              {floor.isPending ? <QueryState kind="loading" message="Loading mapped run claims" /> : floor.isError ? <QueryState kind="error" message={floor.error.message} /> : activeMappedRows.length ? <><div className="workspace-record-list">{activeMappedRows.map((row) => <Link to={row.supervision.run_id ? `/runs/${encodeURIComponent(row.supervision.run_id)}` : `/tasks/${encodeURIComponent(row.implementation.task_id)}`} className="workspace-record" key={row.id}><div><strong>{row.implementation.name ?? "Unnamed work"}</strong><Identity value={row.supervision.run_id ?? row.implementation.task_id} /></div><StatusMark status={row.work.tracker.status} /><span>{row.work.tracker.relative_path} · bound hash unavailable from run owner</span><TimeValue value={row.freshness.observed_at} /></Link>)}</div>{mapping.posture === "partial" && <div className="workspace-partial" role="status"><AlertTriangle aria-hidden="true" />Observed active claims are a lower bound. Missing: {mapping.missing.join(", ") || "unreported composed-owner coverage"}.</div>}</> : mapping.posture === "partial" ? <div className="workspace-partial" role="status"><AlertTriangle aria-hidden="true" />No active claim was observed, but exact absence is unavailable. Missing: {mapping.missing.join(", ") || "unreported composed-owner coverage"}.</div> : <QueryState kind="empty" message="No exact active tracker/run claim" />}
             </section>
             <section className="workspace-panel">
               <div className="workspace-panel-heading"><h2>Outcome reconciliation</h2><span>{floor.isPending ? "Loading" : floor.isError ? "Unavailable" : acceptedOutcomes?.length ?? 0}</span></div>
@@ -344,7 +401,8 @@ export function Component() {
                 ["Current Blocks", tracker.current_blocks.length ? tracker.current_blocks.join(", ") : "None"],
                 ["Recorded accepted outcomes", floor.isPending || floor.isError ? "Unavailable from composed owner" : acceptedOutcomes?.length ?? 0],
                 ["Header/status conflict", tracker.header_block_status_conflict ? "Yes" : "No"],
-                ["Source changes after evidence", tracker.git.diff.changed ? "Working tree differs from HEAD" : tracker.git.binding_status === "stale" ? "Run-bound hash is stale" : "None observed"],
+                ["Working source after HEAD", workingSourceSummary(tracker)],
+                ["Run-bound source comparison", runBoundSourceSummary(tracker)],
               ]} />
             </section>
           </div>
@@ -367,7 +425,7 @@ export function Component() {
 
           <section className="workspace-panel">
             <div className="workspace-panel-heading"><h2>Review readiness</h2><span>Derived display only</span></div>
-            <ReadinessFacts tracker={tracker} mappedRunCount={mappedRunCount} />
+            <ReadinessFacts tracker={tracker} mapping={mapping} />
             <div className="workspace-bound">These facts do not accept, edit, validate, or start the tracker.</div>
           </section>
         </>

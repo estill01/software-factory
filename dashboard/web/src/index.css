@@ -3186,6 +3186,7 @@ h3 {
 .workspace-status svg { width: 0.65rem; height: 0.65rem; }
 .workspace-status.status-healthy { background: var(--green-soft); color: var(--green); }
 .workspace-status.status-warning { background: var(--amber-soft); color: var(--amber-contrast); }
+.workspace-status.status-danger { background: var(--red-soft); color: var(--red); }
 
 .workspace-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; }
 .workspace-facts > div { min-width: 0; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 0.58rem 0.7rem; }

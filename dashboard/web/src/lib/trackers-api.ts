@@ -227,6 +227,7 @@ const trackerBlockSchema = z
         .object({ number: nonnegativeInteger, status: z.string().nullable() })
         .strict(),
     ),
+    blocked_ancestors: z.array(nonnegativeInteger),
     eligible: z.boolean(),
   })
   .strict()

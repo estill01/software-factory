@@ -37,9 +37,10 @@ export function StatusMark({ status }: { status: string | null | undefined }) {
   const normalized = (status ?? "unavailable").toLowerCase()
   const healthy = ["available", "accepted", "active", "bound", "compatible", "complete", "current", "valid"].includes(normalized)
   const warning = ["partial", "ambiguous", "degraded", "in-progress", "starting", "reconnecting", "unknown"].includes(normalized)
-  const Icon = healthy ? CircleCheck : warning ? AlertTriangle : normalized === "unavailable" ? CircleMinus : Circle
+  const danger = ["blocked", "descendant-blocked", "failed", "invalid"].includes(normalized)
+  const Icon = healthy ? CircleCheck : warning || danger ? AlertTriangle : normalized === "unavailable" ? CircleMinus : Circle
   return (
-    <span className={`workspace-status status-${healthy ? "healthy" : warning ? "warning" : "neutral"}`}>
+    <span className={`workspace-status status-${healthy ? "healthy" : warning ? "warning" : danger ? "danger" : "neutral"}`}>
       <Icon aria-hidden="true" />{status ?? "Unavailable"}
     </span>
   )

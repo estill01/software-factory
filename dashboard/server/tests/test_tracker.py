@@ -240,6 +240,7 @@ class TrackerProjectionTests(unittest.TestCase):
         self.assertFalse(detail["blocks"][1]["completion_evidence"]["present"])
         self.assertEqual(detail["blocks"][1]["completion_evidence"]["posture"], "open")
         self.assertEqual(detail["blocks"][1]["dependency_statuses"], [{"number": 0, "status": "accepted"}])
+        self.assertEqual(detail["blocks"][1]["blocked_ancestors"], [])
         self.assertIn(
             "unrecognized operator note",
             [section["normalized_title"] for section in detail["blocks"][0]["sections"]],
@@ -300,6 +301,42 @@ class TrackerProjectionTests(unittest.TestCase):
         self.assertEqual(open_items["counts"]["accepted"], 1)
         self.assertEqual(open_items["counts"]["open"], 1)
         self.assertEqual(open_items["eligible_blocks"], [])
+
+    def test_blocked_ancestry_is_derived_across_the_dependency_graph(self) -> None:
+        blocked_tracker = FULL_TRACKER.replace("Blocks 0–1", "Blocks 0–2").replace(
+            "| 0 | Accepted base | — | `accepted` |",
+            "| 0 | Accepted base | — | `blocked` |",
+        ).replace(
+            "| 1 | Eligible successor | 0 | `not-started` |",
+            "| 1 | Eligible successor | 0 | `not-started` |\n"
+            "| 2 | Descendant successor | 1 | `not-started` |",
+        ).replace(
+            "Status: `accepted`",
+            "Status: `blocked`",
+            1,
+        ).replace(
+            "## Verification matrix",
+            full_block(
+                2,
+                "not-started",
+                dependency="Block 1",
+                evidence="Pending.",
+            )
+            + "## Verification matrix",
+        )
+        path = self.root / "docs" / "blocked-chain-implementation-tracker.md"
+        path.write_text(blocked_tracker, encoding="utf-8")
+
+        detail = self.service.project(
+            self.project,
+            "docs/blocked-chain-implementation-tracker.md",
+        )
+
+        self.assertTrue(detail["verifier"]["valid"])
+        self.assertEqual(detail["eligible_blocks"], [])
+        self.assertEqual(detail["blocks"][0]["blocked_ancestors"], [])
+        self.assertEqual(detail["blocks"][1]["blocked_ancestors"], [0])
+        self.assertEqual(detail["blocks"][2]["blocked_ancestors"], [0])
 
     def test_cache_core_policy_invalid_default_dirty_untracked_and_stale_binding(self) -> None:
         full_path = self.root / "docs" / "full-implementation-tracker.md"
