@@ -504,7 +504,7 @@ the relevant authority and evidence contract.
 | 6 | Cross-project factory floor | 3, 4, 5 | `accepted` |
 | 7 | Project and run workspaces | 6 | `accepted` |
 | 8 | Tracker review and progress workspace | 3, 6 | `accepted` |
-| 9 | Metrics and report history workspace | 4, 6 | `not-started` |
+| 9 | Metrics and report history workspace | 4, 6 | `in-progress` |
 | 10 | Gated administrative operation framework | 2, 4, 5 | `not-started` |
 | 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `not-started` |
 | 12 | On-demand mechanical supervision checks | 7, 10, 11 | `not-started` |
@@ -2606,7 +2606,7 @@ state.
 
 ## Block 9 — Metrics and report history workspace
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -2725,7 +2725,29 @@ ordinary chart interaction; widen only on explicit source drill-down.
 
 ### Completion evidence
 
-Pending.
+- Activation: Block 9 started from accepted dashboard checkpoint
+  `931ca2d2836d8f981f9684f70ef0e6036ba990a1`; required Blocks 4 and 6 are
+  accepted, and Block 8 remains accepted without reopening.
+- Governing implementation authority: direct-user item 44 at
+  `codex:019fe547-e054-7ca0-9940-ec4aa146df78:019fe572-0536-7692-8505-c8624eefa7ab:item-44`
+  under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+- Range-control diagnostic: the maintained installed
+  `implementation-range-bind` rejected the exact canonical request before
+  classification with `implementation range request text must not contain a
+  local path`. The predecessor mission-successor command is preserved as the
+  source of the stored `5ef3d610...` hash: it hashed the request with a literal
+  escaped `\\n`. The maintained `control-posture-gate` nevertheless returned
+  `next_action: continue-governing-outcome`, `human_input_required: false`, and
+  `manual_resume_required: false`. This control-plane compatibility defect is
+  diagnostic and does not contract or suspend the direct full-tracker request.
+- Future failure-mode/recovery insertion: omitted only that planned addition
+  because ephemeral side task `019fea24-7698-7df2-9dbd-db272c89f427` cannot
+  expose an immutable direct-user turn/item source through the canonical owner.
+  No tracker structure, failure registry, recovery workspace, or new-scope work
+  was created before that omission; the existing Blocks 0–25 remain the active
+  full implementation range.
+- Candidate, validation, exact-revision review, and acceptance: pending.
 
 ### Stop
 
