@@ -3120,6 +3120,35 @@ widening or repeating.
   and Ruff, TypeScript, and the production build passed. Diff checks passed,
   the branch and remote were exact at `0 0`, and the restarted live server on
   `127.0.0.1:8787` returned the closed production registry with zero activity.
+- First successor review: exact evidence revision
+  `858447939cfb277b205e0127f977a91335b0bb53`, tree
+  `1e0f584e7261ea11465e31b96e9312c8fc1b5180`, was rejected on two residual
+  secret/link-boundary cases while accepting the route-gate row. Unsupported
+  mapping keys still invoked owner-controlled `__str__`, and percent-encoded
+  dot/slash or backslash paths could pass server validation before browser URL
+  normalization. The review reproduced four such traversal paths; all other
+  focused proof, the empty production registry, Block status, and Stop held.
+- Second focused successor:
+  `4bde685418e116384829f75dd10011445cab478a`, tree
+  `26a0be6ae39de8701fd4e7f9a663789cc5f67d75`, parent
+  `858447939cfb277b205e0127f977a91335b0bb53`, changes only the coordinator
+  and its focused tests. Its exact blobs are
+  `cc65e1c087d4144a10a4d35a422017a298498474` and
+  `0df8247b7dafc134c12588879af033af5dbae707` respectively. Unsupported
+  mapping keys and values now become collision-safe opaque placeholders without
+  invoking their string or type representation. Result links must match one
+  canonical unescaped internal-path grammar and reject percent escapes,
+  backslashes, dot segments, repeated/authority-leading slashes, queries,
+  fragments, external origins, and secret-bearing labels before rendering.
+- Second-successor focused proof: the exact four traversal reproductions, an
+  owner key and value with secret-bearing `__str__`, a sensitive label, and a
+  representative canonical task/source-style path were added to the existing
+  secret/link regression. The coordinator suite passed 11/11 and the affected
+  HTTP suite passed 17/17, both with `ResourceWarning` fatal; Ruff and diff
+  checks passed. The unchanged strict frontend/API 6/6 and production-build
+  proof from the first successor remain current because no frontend blob
+  changed. The branch and remote were exact at `0 0`, and the restarted server
+  on `127.0.0.1:8787` again exposed zero registered operations and activity.
 - Fresh independent exact-revision safety/authority review: pending; Block 11
   remains unopened.
 
