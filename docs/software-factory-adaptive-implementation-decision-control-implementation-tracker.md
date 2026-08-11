@@ -2604,7 +2604,24 @@ accepted delta without absorbing optional work.
 
 ### Completion evidence
 
-Pending.
+- Rejected implementation checkpoint:
+  `0242c09de9795959809660cd1b615f04773b9eda` (tree
+  `84e2c20b5f867dcc7504420ed1857181afa74868`) passed its focused and mapped
+  suites but did not satisfy consequential acceptance. Independent exact review
+  found that owner/currentness roots and structural routing were caller-owned;
+  accepted target identity and current target proof were not rehydrated; affected
+  staged work and ordinary pre-ref failures were not preserved; current effect
+  and recovery could accept changed or uncommitted bytes; continuation state
+  could be synthetic, stale, or suppress execution; and no independent result
+  bound the generated integration commit/diff. Preserve this commit as rejected
+  history; no release review or installation was produced.
+- Corrective successor posture: prepare a detached candidate/proof commit from
+  canonical supervision and target-owner state; bind the accepted logical
+  target/path, exact current target, full tracker program, target proof
+  transition, commit, changed paths, and diff; require a distinct sealed exact
+  integration review; then promote only that reviewed commit and prove the live
+  committed effect before returning one replay-stable execution key. Exact
+  successor revision and independent review remain pending.
 
 ### Stop
 

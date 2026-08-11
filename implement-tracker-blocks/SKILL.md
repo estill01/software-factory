@@ -274,33 +274,38 @@ and execute its target-owner/currentness contract.
    `candidate-better` decision, candidate bytes, resource root, protected
    results, and handoff. The handoff carries no cutover, publish, tracker, or
    policy authority.
-2. Through the current normal target owner, resolve mission, policy, governing
-   event head, tracker bytes, Block 9 contract, target Git head, affected bytes,
-   and target-state root at the write boundary. Reject caller-selected roots,
-   stale target state, owner mismatch, another active handoff, or an
-   inconclusive/losing disposition.
-3. If the current or future Block contract changes, perform no target write and
-   route the exact structural effect to Block 8. Otherwise integrate only the
-   frozen affected candidate bytes and one `effect-pending` cutover record in a
-   single target-owner Git commit. Preserve unrelated staged, unstaged,
-   untracked, and historical work.
-4. Keep exactly one authoritative implementation. The candidate becomes sole
-   authority only in the integration commit; the incumbent becomes superseded
-   non-authoritative Git history. A failure before that commit restores the
-   exact incumbent. A retry after it resumes effect proof without integrating
-   again.
-5. Invalidate only proof whose subject is the superseded incumbent plus its
-   declared descendants. Retain candidate validation, independent review,
-   policy/tracker evidence, and unrelated proof without rerunning producers.
-6. Execute the retained observable workload against the committed target bytes.
-   Require the accepted artifact size, semantic roundtrip, bytes API, and
-   protected results. Keep the decision open and emit no resume token while
-   that current effect is missing or changed.
-7. Bind the accepted effect to one deterministic resume token over the handoff,
-   integration commit, and effect root. The executor claims that token exactly
-   once; claim replays are no-ops. Cutover replays return the same token with no
-   second integration, review, invalidation, or producer. Continue Block 9
-   automatically; never request a human Resume.
+2. Resolve mission, policy, event-ledger head, target owner, tracker program,
+   target Git head, affected bytes, and target proof graph from the canonical
+   supervision and target owners. Hold both owner locks through the write
+   boundary; a callback, caller-selected root, or self-rooted local record is
+   not ownership or currentness evidence.
+3. Prepare a detached candidate/proof commit without moving the target ref.
+   Bind the accepted logical target/path to the exact current repository, head,
+   path, program root, proof roots, commit, changed paths, and binary diff in
+   one proposal. A distinct reviewer must sign that exact proposal with zero
+   findings before application.
+4. If any current or future Block contract differs from the reviewed program,
+   perform no target write and route the structural effect to Block 8.
+   Otherwise atomically promote only the reviewed detached commit. Reject an
+   affected staged/worktree change; preserve every unrelated staged, unstaged,
+   untracked, and historical path.
+5. Keep exactly one authoritative implementation. Before ref promotion, any
+   exception restores the exact incumbent and index. After promotion, a retry
+   revalidates the reviewed commit rather than integrating again; a failed live
+   effect rolls back only the exact reviewed ref and preserves its evidence.
+6. Read the proof graph from the current target owner. Invalidate only proof
+   whose subject is the superseded incumbent plus its declared descendants,
+   commit that exact reviewed graph with the candidate, and preserve unrelated
+   proof without rerunning producers.
+7. Execute the retained observable workload against the bytes rehydrated from
+   the current committed target. Require the accepted artifact size, semantic
+   roundtrip, bytes API, and protected results. Recheck target and supervision
+   currentness after the effect before recording acceptance.
+8. Bind the current effect to one deterministic execution key over the handoff,
+   reviewed commit, review, and effect. Replays rehydrate the same next action
+   and key without another integration or proof transition, so an interrupted
+   caller cannot lose continuation and the executor can deduplicate by key.
+   Continue Block 9 automatically; never request a human Resume.
 
 This operation is a bounded normal-owner seam, not a deployment service. It
 does not release or install Software Factory skills, alter supervision policy,

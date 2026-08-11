@@ -8,43 +8,51 @@ until the normal target owner completes the atomic integration commit.
 
 - Revalidate the sealed Block 6 review, accepted lane head, candidate bytes,
   comparison, protected capabilities, resource root, and handoff root.
-- Resolve mission, policy, event head, tracker bytes, Block 9 contract, target
-  Git head, affected bytes, and target-state root through the current owner at
-  the write boundary. Caller-supplied roots are not currentness evidence.
-- Require the handoff target owner, cutover owner, and actual Git writer to be
-  the same existing owner. The handoff itself carries no cutover authority.
-- If the Block 9 contract changed, return the exact structural effect to Block
-  8 before any target write.
+- Resolve mission, policy, event-ledger head, owner-root head, tracker program,
+  target Git head, affected bytes, and target proof graph from canonical
+  supervision and target owners. Hold both owner locks through promotion.
+- Rehydrate the accepted logical target revision and isolated candidate path
+  into an explicit current target/path mapping. The handoff and an input
+  callback carry no target-write ownership.
+- Freeze a detached candidate/proof commit, its exact parent, changed paths,
+  binary-diff root, target mapping, supervision roots, program root, and proof
+  transition in one proposal. A distinct sealed reviewer must accept that exact
+  proposal with zero findings before the target ref can move.
+- If any reviewed current or future Block contract changed, return the exact
+  structural effect to Block 8 before any target write.
 
 ## Atomic integration and recovery
 
-The target owner commits the candidate bytes and one `effect-pending` cutover
-record together. The commit preserves the incumbent in Git history, marks it
-superseded and non-authoritative, and marks the candidate as the sole active
-implementation. Unrelated staged, unstaged, and untracked work remains intact.
+The target owner promotes only the reviewed detached commit. It contains the
+candidate and the target-owned selective proof transition, preserves the
+incumbent as its parent, and leaves unrelated staged, unstaged, and untracked
+work intact. An affected staged or worktree change rejects before preparation
+or promotion.
 
-Before the target ref changes, any failure restores the prior affected bytes
-and leaves no cutover record. After the integration commit, retry resumes only
-the missing current-effect proof. It never integrates a second time. A second
-different handoff while the first is authoritative rejects.
+Before the target ref changes, every exception class restores the prior bytes
+and caller index. After ref promotion, retry revalidates the signed proposal,
+current committed bytes, target proof, and missing effect outcome. It never
+creates a second integration. A failed effect rolls back only the exact
+reviewed ref; a concurrent different commit is never labeled authoritative.
 
 ## Selective currentness and continuation
 
-Invalidate exactly proof whose subject is the superseded incumbent plus its
-declared descendants. Preserve candidate validation, independent review,
-policy, tracker, unrelated work, and every proof outside that closure. Do not
-rerun their producers.
+Read current proof from the target repository. Invalidate exactly current proof
+whose subject is the superseded incumbent plus its declared descendants, and
+bind the before/after roots in both proposal and review. Preserve candidate
+validation, policy, tracker, unrelated work, and proof outside that closure.
 
-Execute the retained observable workload against the committed target bytes.
+Rehydrate the source from the current Git commit and execute the retained
+observable workload against those bytes. Recheck the target ref, worktree,
+proof, policy, mission, and event head after execution.
 Require the exact artifact size, semantic roundtrip, bytes API, and protected
 capability results accepted by Block 6. Until that proof is current, the
-decision remains `effect-pending` and no resume token exists.
+decision remains pending and no continuation execution key exists.
 
-The accepted effect produces one deterministic resume token bound to the
-handoff, integration commit, and effect root. The executor claims the token in
-one target-owner record before starting the continuation; a repeated claim is
-a no-op. Replaying the cutover returns the same token and performs no
-integration, review, invalidation, or effect producer twice. Continuation stays
-inside Block 9 until its audit accepts the current effect; no human Resume,
-tracker amendment, release, publication, policy change, or Software Factory
-self-target promotion is authorized.
+The accepted effect produces one deterministic execution key bound to the
+handoff, reviewed commit, integration review, and effect root. Replaying the
+cutover rehydrates the same executable next action and key without another
+integration or proof transition. The downstream executor deduplicates by that
+key; an interrupted return therefore cannot suppress continuation. No human
+Resume, tracker amendment, release, publication, policy change, or Software
+Factory self-target promotion is authorized.
