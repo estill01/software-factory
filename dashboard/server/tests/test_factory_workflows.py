@@ -25,6 +25,7 @@ from software_factory_dashboard.catalog import ProjectRecord
 from software_factory_dashboard.factory_workflows import (
     FactoryWorkflowOwner,
     SupervisionRouteGate,
+    _policy_after_changes,
 )
 from software_factory_dashboard.operations import DEFAULT_SUPERVISION_OWNER
 
@@ -255,9 +256,10 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(duplicate_status, 409)
         self.assertEqual(duplicate["error"]["code"], "authoring_owner_conflict")
         self.assertEqual(executed["data"]["operation"]["state"], "applied")
-        self.assertEqual(len(supported), 14)
+        self.assertEqual(len(supported), 15)
         self.assertIn("factory.blocks-implement", supported)
         self.assertIn("factory.supervision-check-now", supported)
+        self.assertIn("factory.supervision-adjust", supported)
         self.assertIn("factory.supervision-review-checkpoint", supported)
         self.assertIn("factory.supervision-review-meta", supported)
         self.assertIn("factory.supervision-review-issue", supported)
@@ -1163,6 +1165,350 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         with self.assertRaises(OperationError) as missing_automation:
             definition.resolve_source(target, {})
         self.assertEqual(missing_automation.exception.code, "watcher_binding_unavailable")
+
+    def test_policy_adjustment_binds_exact_diff_owner_history_and_automation(self) -> None:
+        project = ProjectRecord(
+            id="workflow",
+            label="Workflow",
+            root=str(self.repository),
+        )
+        reviewer_workspace = self.root / "reviewer-workspace"
+        fix_workspace = self.root / "fix-workspace"
+        reviewer_workspace.mkdir()
+        fix_workspace.mkdir()
+        target_task = {
+            "id": "task-fake-001",
+            "status": {"type": "idle"},
+            "project_binding": {
+                "status": "bound",
+                "project_id": "workflow",
+                "candidates": ["workflow"],
+            },
+        }
+        reviewer_task = {
+            "id": "reviewer-workflow-001",
+            "status": {"type": "idle"},
+            "cwd": str(reviewer_workspace),
+            "turns": [],
+        }
+        fix_task = {
+            "id": "fix-workflow-001",
+            "status": {"type": "idle"},
+            "cwd": str(fix_workspace),
+            "turns": [],
+        }
+        tasks = {
+            target_task["id"]: target_task,
+            reviewer_task["id"]: reviewer_task,
+            fix_task["id"]: fix_task,
+        }
+        policy = {
+            "schema_version": 1,
+            "policy_version": 5,
+            "policy_sha256": "b" * 64,
+            "target_thread_id": target_task["id"],
+            "project_root": str(self.repository),
+            "mission_binding": {
+                "mission_root": "a" * 64,
+                "mission_source_record": "direct-user-item-44",
+            },
+            "schedule": {
+                "routine_minutes": 20,
+                "meta_review_hours": 4,
+                "gmail_poll_minutes": 2,
+                "gmail_quiet_poll_minutes": 2,
+                "gmail_active_poll_minutes": 1,
+                "gmail_active_window_minutes": 30,
+            },
+            "routing": {
+                "max_sample_denominator": 6,
+                "escalation_cooldown_minutes": 60,
+                "max_escalations_per_hour": 1,
+            },
+            "permissions": {"allowlisted_skill_maintenance": False},
+            "skill_maintenance": {"mode": "propose-only"},
+            "execution_economy": {"enabled": True},
+            "runtime": {
+                "watcher_thread_id": "watcher-workflow-001",
+                "reviewer_thread_id": reviewer_task["id"],
+                "fix_executor_thread_id": fix_task["id"],
+                "gmail_gate_thread_id": None,
+                "routine_automation_id": "watcher-automation-001",
+                "meta_automation_id": "reviewer-automation-001",
+                "gmail_poll_automation_id": None,
+            },
+        }
+        contract = {
+            "fields": [
+                {
+                    "field": field,
+                    "kind": "enum" if field == "skill_maintenance_mode" else "integer",
+                    "minimum": {
+                        "routine_minutes": 15,
+                        "meta_review_hours": 2,
+                        "max_sample_denominator": 4,
+                        "cooldown_minutes": 30,
+                        "max_escalations_per_hour": 1,
+                        "gmail_quiet_minutes": 2,
+                        "gmail_active_minutes": 1,
+                        "gmail_active_window_minutes": 5,
+                    }.get(field),
+                    "maximum": {
+                        "routine_minutes": 60,
+                        "meta_review_hours": 24,
+                        "max_sample_denominator": 10,
+                        "cooldown_minutes": 120,
+                        "max_escalations_per_hour": 2,
+                        "gmail_quiet_minutes": 10,
+                        "gmail_active_minutes": 9,
+                        "gmail_active_window_minutes": 120,
+                    }.get(field),
+                    "automation_role": None,
+                }
+                for field in (
+                    "routine_minutes",
+                    "meta_review_hours",
+                    "max_sample_denominator",
+                    "cooldown_minutes",
+                    "max_escalations_per_hour",
+                    "gmail_quiet_minutes",
+                    "gmail_active_minutes",
+                    "gmail_active_window_minutes",
+                    "skill_maintenance_mode",
+                )
+            ],
+            "skill_maintenance_modes": [
+                "apply-allowlisted-skill-maintenance-with-review",
+                "apply-supervision-maintenance",
+                "propose-only",
+            ],
+            "skill_maintenance_contracts": {
+                "propose-only": {"mode": "propose-only"},
+                "apply-supervision-maintenance": {
+                    "mode": "apply-supervision-maintenance"
+                },
+                "apply-allowlisted-skill-maintenance-with-review": {
+                    "mode": "apply-allowlisted-skill-maintenance-with-review"
+                },
+            },
+            "execution_economy_contract": {"enabled": True},
+        }
+        adjustable = {
+            "routine_minutes": 20,
+            "meta_review_hours": 4,
+            "max_sample_denominator": 6,
+            "cooldown_minutes": 60,
+            "max_escalations_per_hour": 1,
+            "gmail_quiet_minutes": 2,
+            "gmail_active_minutes": 1,
+            "gmail_active_window_minutes": 30,
+            "skill_maintenance_mode": "propose-only",
+        }
+        control = {
+            "fingerprint": "c" * 64,
+            "owner_sha256": "d" * 64,
+            "policy_sha256": policy["policy_sha256"],
+            "policy_version": policy["policy_version"],
+            "policy_history_head": "e" * 64,
+            "policy_history_records": [],
+            "source_record": "EVT-000004",
+            "lifecycle_status": None,
+            "policy": policy,
+            "adjustment_contract": contract,
+            "adjustable": adjustable,
+            "runtime": policy["runtime"],
+            "automations_by_role": {
+                "watcher": {
+                    "id": "watcher-automation-001",
+                    "status": "available",
+                    "owner_status": "ACTIVE",
+                    "kind": "heartbeat",
+                    "target_thread_id": "watcher-workflow-001",
+                    "rrule": "RRULE:FREQ=MINUTELY;INTERVAL=20",
+                    "manifest_sha256": "f" * 64,
+                },
+                "reviewer": {
+                    "id": "reviewer-automation-001",
+                    "status": "available",
+                    "owner_status": "ACTIVE",
+                    "kind": "heartbeat",
+                    "target_thread_id": reviewer_task["id"],
+                    "rrule": "RRULE:FREQ=HOURLY;INTERVAL=4",
+                    "manifest_sha256": "1" * 64,
+                },
+                "gmail_gate": None,
+            },
+        }
+
+        class OperationsStub:
+            @staticmethod
+            def policy_control_snapshot(target_thread_id):
+                if target_thread_id != target_task["id"]:
+                    raise AssertionError("wrong target")
+                return control
+
+        class AppServerStub:
+            prompt = None
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": "task_read", "status": "supported"},
+                        {"capability": "task_resume", "status": "supported"},
+                        {"capability": "turn_start", "status": "supported"},
+                    ]
+                }
+
+            @staticmethod
+            def read_task(_projects, task_id, *, include_turns):
+                if task_id not in tasks:
+                    raise AssertionError("wrong task")
+                if task_id == target_task["id"] and include_turns:
+                    raise AssertionError("target task should use summary read")
+                return {"task": tasks[task_id]}
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                reviewer_stat = reviewer_workspace.stat()
+                self.prompt = text
+                if (
+                    task_id != reviewer_task["id"]
+                    or expected_cwd != str(reviewer_workspace)
+                    or expected_cwd_identity
+                    != (reviewer_stat.st_dev, reviewer_stat.st_ino)
+                ):
+                    raise AssertionError("wrong reviewer dispatch")
+                reviewer_task["turns"] = [
+                    {
+                        "id": "turn-policy-adjust-001",
+                        "status": "completed",
+                        "items": [{"type": "userMessage", "summary": text}],
+                    }
+                ]
+                return {
+                    "turn": {"id": "turn-policy-adjust-001"},
+                    "task_resumed": False,
+                }
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = AppServerStub()
+        owner.route_gate = lambda request: RouteGateResult(
+            True,
+            "6" * 64,
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint="7" * 64,
+            target_thread=request.target_thread,
+        )
+        owner._policy_adjust_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), "2" * 64)
+        definition = owner._adjust_supervision_definition()
+        target = OperationTarget(
+            kind="run",
+            id=target_task["id"],
+            project_id=project.id,
+        )
+        inputs = {
+            "reason": "Increase routine observation cadence for the active run.",
+            "routine_minutes": 25,
+        }
+        source = definition.resolve_source(target, inputs)
+        self.assertEqual(source.evidence["before"], {"routine_minutes": 20})
+        self.assertEqual(source.evidence["after"], {"routine_minutes": 25})
+        self.assertEqual(len(source.evidence["affected_automations"]), 1)
+        route = definition.route_gate_request(target, inputs, source)
+        self.assertEqual(route.purpose, "semantic-escalation")
+        self.assertEqual(route.recipient, reviewer_task["id"])
+        dispatched = definition.dispatch(target, inputs, source)
+        self.assertIn("fix-execution", owner.app_server_client.prompt)
+        self.assertIn("never write policy.json", owner.app_server_client.prompt)
+        pending = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(pending.state, "pending")
+        self.assertFalse(pending.evidence["policy_applied"])
+
+        next_policy = _policy_after_changes(policy, {"routine_minutes": 25}, contract)
+        next_policy["updated_at"] = "2026-08-11T00:00:00+00:00"
+        next_policy["policy_sha256"] = "3" * 64
+        record = {
+            "schema_version": 1,
+            "record_id": "POLICY-6",
+            "timestamp": "2026-08-11T00:00:01+00:00",
+            "kind": "policy-adjust",
+            "reason": inputs["reason"],
+            "evidence": [
+                "dashboard-route-purpose:semantic-escalation",
+                f"dashboard-preview:{source.fingerprint}",
+                f"dashboard-adjust-task:{reviewer_task['id']}",
+                "dashboard-source-record:EVT-000004",
+            ],
+            "policy": next_policy,
+            "record_sha256": "4" * 64,
+        }
+        control.update(
+            {
+                "policy": next_policy,
+                "policy_sha256": next_policy["policy_sha256"],
+                "policy_version": 6,
+                "policy_history_head": record["record_sha256"],
+                "policy_history_records": [record],
+            }
+        )
+        control["automations_by_role"]["watcher"] = {
+            **control["automations_by_role"]["watcher"],
+            "rrule": "RRULE:FREQ=MINUTELY;INTERVAL=25",
+            "manifest_sha256": "5" * 64,
+        }
+        applied = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(applied.state, "applied")
+        self.assertTrue(applied.evidence["policy_applied"])
+        self.assertTrue(applied.evidence["automation_reconciled"])
+        self.assertTrue(applied.evidence["fully_reconciled"])
+        self.assertFalse(applied.evidence["direct_policy_write"])
+
+        control["automations_by_role"]["watcher"]["rrule"] = (
+            "RRULE:FREQ=MINUTELY;INTERVAL=20"
+        )
+        partial = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(partial.state, "pending")
+        self.assertTrue(partial.evidence["policy_applied"])
+        self.assertFalse(partial.evidence["automation_reconciled"])
+        self.assertTrue(partial.evidence["partial_reconciliation"])
+
+        with self.assertRaises(OperationError) as unchanged:
+            definition.resolve_source(
+                target,
+                {"reason": "No effective change.", "routine_minutes": 20},
+            )
+        self.assertEqual(unchanged.exception.code, "policy_adjust_no_change")
+        with self.assertRaises(OperationError) as path_reason:
+            definition.resolve_source(
+                target,
+                {
+                    "reason": "Load a policy from /Users/example/policy.json",
+                    "routine_minutes": 30,
+                },
+            )
+        self.assertEqual(path_reason.exception.code, "policy_adjust_reason_invalid")
+
+        drifted = {**next_policy, "unrelated": "changed"}
+        record["policy"] = drifted
+        control["policy"] = drifted
+        control["automations_by_role"]["watcher"]["rrule"] = (
+            "RRULE:FREQ=MINUTELY;INTERVAL=25"
+        )
+        drift = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(drift.state, "failed")
+        self.assertFalse(drift.evidence["policy_applied"])
 
     def test_semantic_review_requests_bind_role_source_conclusion_and_supersession(self) -> None:
         project = ProjectRecord(

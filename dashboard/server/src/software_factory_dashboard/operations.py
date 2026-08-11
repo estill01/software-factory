@@ -79,6 +79,82 @@ SEMANTIC_KINDS = {
     "resolution",
 }
 DECISION_CONCLUSION_PHASES = {"resolved", "safe-deferred"}
+POLICY_ADJUSTABLE_FIELDS = (
+    "routine_minutes",
+    "meta_review_hours",
+    "max_sample_denominator",
+    "cooldown_minutes",
+    "max_escalations_per_hour",
+    "gmail_quiet_minutes",
+    "gmail_active_minutes",
+    "gmail_active_window_minutes",
+    "skill_maintenance_mode",
+)
+POLICY_ADJUSTMENT_FIELD_CONTRACTS = (
+    {
+        "field": "routine_minutes",
+        "kind": "integer",
+        "minimum": 15,
+        "maximum": 60,
+        "automation_role": "watcher",
+    },
+    {
+        "field": "meta_review_hours",
+        "kind": "integer",
+        "minimum": 2,
+        "maximum": 24,
+        "automation_role": "reviewer",
+    },
+    {
+        "field": "max_sample_denominator",
+        "kind": "integer",
+        "minimum": 4,
+        "maximum": 10,
+        "automation_role": None,
+    },
+    {
+        "field": "cooldown_minutes",
+        "kind": "integer",
+        "minimum": 30,
+        "maximum": 120,
+        "automation_role": None,
+    },
+    {
+        "field": "max_escalations_per_hour",
+        "kind": "integer",
+        "minimum": 1,
+        "maximum": 2,
+        "automation_role": None,
+    },
+    {
+        "field": "gmail_quiet_minutes",
+        "kind": "integer",
+        "minimum": 2,
+        "maximum": 10,
+        "automation_role": "gmail_gate",
+    },
+    {
+        "field": "gmail_active_minutes",
+        "kind": "integer",
+        "minimum": 1,
+        "maximum": 9,
+        "automation_role": None,
+    },
+    {
+        "field": "gmail_active_window_minutes",
+        "kind": "integer",
+        "minimum": 5,
+        "maximum": 120,
+        "automation_role": None,
+    },
+    {
+        "field": "skill_maintenance_mode",
+        "kind": "enum",
+        "minimum": None,
+        "maximum": None,
+        "automation_role": None,
+    },
+)
 ACTIVITY_KINDS = {
     "check",
     "escalation",
@@ -147,6 +223,113 @@ def _digest(value: Any) -> str:
 
 def _observed_at() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+
+def policy_adjustable_values(policy: Mapping[str, Any]) -> dict[str, Any]:
+    """Project only fields owned by the maintained bounded `adjust` command."""
+
+    schedule = policy.get("schedule")
+    schedule = schedule if isinstance(schedule, Mapping) else {}
+    routing = policy.get("routing")
+    routing = routing if isinstance(routing, Mapping) else {}
+    maintenance = policy.get("skill_maintenance")
+    maintenance = maintenance if isinstance(maintenance, Mapping) else {}
+    return {
+        "routine_minutes": schedule.get("routine_minutes"),
+        "meta_review_hours": schedule.get("meta_review_hours"),
+        "max_sample_denominator": routing.get("max_sample_denominator"),
+        "cooldown_minutes": routing.get("escalation_cooldown_minutes"),
+        "max_escalations_per_hour": routing.get("max_escalations_per_hour"),
+        "gmail_quiet_minutes": schedule.get("gmail_quiet_poll_minutes"),
+        "gmail_active_minutes": schedule.get("gmail_active_poll_minutes"),
+        "gmail_active_window_minutes": schedule.get("gmail_active_window_minutes"),
+        "skill_maintenance_mode": maintenance.get("mode"),
+    }
+
+
+def policy_adjustment_contract(owner: ModuleType) -> dict[str, Any]:
+    """Freeze the maintained helper's exact bounded field and contract surface."""
+
+    modes = sorted(str(mode) for mode in owner.SKILL_MAINTENANCE_MODES)
+    return {
+        "fields": [dict(item) for item in POLICY_ADJUSTMENT_FIELD_CONTRACTS],
+        "skill_maintenance_modes": modes,
+        "skill_maintenance_contracts": {
+            mode: owner.skill_maintenance_contract(mode) for mode in modes
+        },
+        "execution_economy_contract": owner.execution_economy_contract(),
+    }
+
+
+def policy_automation_reconciliation(
+    policy: Mapping[str, Any],
+    roles: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Compare cadence policy to the actual bound automation owner projection."""
+
+    values = policy_adjustable_values(policy)
+    runtime = policy.get("runtime")
+    runtime = runtime if isinstance(runtime, Mapping) else {}
+    by_role = {
+        str(role.get("role")): role
+        for role in roles
+        if isinstance(role.get("role"), str)
+    }
+    specs = (
+        ("routine_minutes", "watcher", "routine_automation_id", "MINUTELY"),
+        ("meta_review_hours", "reviewer", "meta_automation_id", "HOURLY"),
+        ("gmail_quiet_minutes", "gmail_gate", "gmail_poll_automation_id", "MINUTELY"),
+    )
+    rows: list[dict[str, Any]] = []
+    for field, role_name, automation_key, frequency in specs:
+        automation_id = runtime.get(automation_key)
+        if role_name == "gmail_gate" and not automation_id:
+            continue
+        role = by_role.get(role_name)
+        automation = role.get("automation") if isinstance(role, Mapping) else None
+        value = values[field]
+        expected_rrule = (
+            f"RRULE:FREQ={frequency};INTERVAL={value}"
+            if isinstance(value, int) and value > 0
+            else None
+        )
+        actual_rrule = automation.get("rrule") if isinstance(automation, Mapping) else None
+        owner_status = (
+            automation.get("owner_status") if isinstance(automation, Mapping) else None
+        )
+        target_thread_id = role.get("thread_id") if isinstance(role, Mapping) else None
+        actual_target = (
+            automation.get("target_thread_id") if isinstance(automation, Mapping) else None
+        )
+        if not isinstance(automation, Mapping) or automation.get("status") != "available":
+            state = "unavailable"
+            reason = "The named automation owner projection is unavailable."
+        elif (
+            expected_rrule == actual_rrule
+            and owner_status == "ACTIVE"
+            and automation.get("kind") == "heartbeat"
+            and actual_target == target_thread_id
+            and automation.get("id") == automation_id
+        ):
+            state = "reconciled"
+            reason = "Policy cadence and actual active automation agree."
+        else:
+            state = "partial"
+            reason = "Policy cadence and actual automation state do not fully agree."
+        rows.append(
+            {
+                "field": field,
+                "role": role_name,
+                "automation_id": automation_id if isinstance(automation_id, str) else None,
+                "expected_rrule": expected_rrule,
+                "actual_rrule": actual_rrule,
+                "owner_status": owner_status,
+                "target_thread_id": target_thread_id,
+                "state": state,
+                "reason": reason,
+            }
+        )
+    return rows
 
 
 def _bounded(value: Any, maximum: int = 2_400) -> str | None:
@@ -456,6 +639,132 @@ class OperationsProjectionService:
                     "automation_status": automation_status,
                 }
             ),
+        }
+
+    def policy_control_snapshot(self, target_thread_id: str) -> dict[str, Any]:
+        """Read one validated policy/history head and only its named automations."""
+
+        if not SAFE_ID.fullmatch(target_thread_id):
+            raise OperationsProjectionError("invalid_run_id", "Run target ID is invalid.")
+        unresolved = self.supervision_root / target_thread_id
+        if unresolved.is_symlink():
+            raise OperationsProjectionError(
+                "supervision_target_symlink_rejected",
+                "Supervision target must not be a symlink.",
+                status=422,
+            )
+        try:
+            directory = unresolved.resolve(strict=True)
+        except OSError as error:
+            raise OperationsProjectionError(
+                "run_not_found",
+                "Supervision target is not discoverable.",
+                status=404,
+            ) from error
+        if directory.parent != self.supervision_root or not directory.is_dir():
+            raise OperationsProjectionError(
+                "supervision_target_invalid",
+                "Supervision target escaped its canonical owner root.",
+                status=422,
+            )
+        evidence, cache_status = self._load_target(directory)
+        if not evidence.policy_history:
+            raise OperationsProjectionError(
+                "policy_history_unavailable",
+                "The validated policy has no canonical history record.",
+                status=422,
+            )
+        history_head = evidence.policy_history[-1]
+        history_policy = history_head.get("policy")
+        if (
+            not isinstance(history_policy, Mapping)
+            or history_policy.get("policy_version") != evidence.policy.get("policy_version")
+            or history_policy.get("policy_sha256") != evidence.policy.get("policy_sha256")
+        ):
+            raise OperationsProjectionError(
+                "policy_history_head_mismatch",
+                "The current policy does not match the canonical policy-history head.",
+                status=422,
+            )
+        runtime = evidence.policy.get("runtime")
+        runtime = runtime if isinstance(runtime, Mapping) else {}
+        automation_keys = {
+            "watcher": "routine_automation_id",
+            "reviewer": "meta_automation_id",
+            "gmail_gate": "gmail_poll_automation_id",
+        }
+        automations: dict[str, dict[str, Any] | None] = {}
+        for role, key in automation_keys.items():
+            automation_id = runtime.get(key)
+            automations[role] = (
+                self._load_automation(automation_id)
+                if isinstance(automation_id, str) and automation_id
+                else None
+            )
+        if self._target_key(directory) != evidence.cache_key:
+            raise OperationsProjectionError(
+                "supervision_changed_during_projection",
+                "Supervision source changed during policy-control projection; retry.",
+                status=409,
+                retryable=True,
+            )
+        owner = self.owner_revisions()["supervision"]
+        source_record = next(
+            (
+                item.get("record_id")
+                for item in reversed(evidence.active_events or evidence.events)
+                if isinstance(item.get("record_id"), str)
+            ),
+            None,
+        )
+        lifecycle_status = next(
+            (
+                item.get("status")
+                for item in reversed(evidence.active_events)
+                if item.get("kind") == "lifecycle"
+                and isinstance(item.get("status"), str)
+            ),
+            None,
+        )
+        policy_copy = json.loads(json.dumps(evidence.policy))
+        history_copy = json.loads(json.dumps(history_head))
+        history_records = json.loads(json.dumps(evidence.policy_history))
+        adjustment_contract = policy_adjustment_contract(self._module("supervision"))
+        material = {
+            "target_thread_id": target_thread_id,
+            "owner_sha256": owner["sha256"],
+            "policy_sha256": evidence.policy.get("policy_sha256"),
+            "policy_version": evidence.policy.get("policy_version"),
+            "policy_history_count": len(evidence.policy_history),
+            "policy_history_head": history_head.get("record_sha256"),
+            "source_record": source_record,
+            "event_count": len(evidence.events),
+            "automations": {
+                role: automation.get("manifest_sha256") if automation else None
+                for role, automation in automations.items()
+            },
+        }
+        return {
+            **material,
+            "fingerprint": _digest(material),
+            "cache_status": cache_status,
+            "lifecycle_status": lifecycle_status,
+            "policy": policy_copy,
+            "adjustable": policy_adjustable_values(policy_copy),
+            "policy_history_head_record": history_copy,
+            "policy_history_records": history_records,
+            "adjustment_contract": adjustment_contract,
+            "runtime": {
+                key: runtime.get(key)
+                for key in (
+                    "watcher_thread_id",
+                    "reviewer_thread_id",
+                    "fix_executor_thread_id",
+                    "gmail_gate_thread_id",
+                    *automation_keys.values(),
+                )
+            },
+            "automations_by_role": automations,
         }
 
     def _module(self, family: str) -> ModuleType:
@@ -1723,6 +2032,18 @@ class OperationsProjectionService:
                 "sha256": evidence.policy.get("policy_sha256"),
                 "schedule": evidence.policy.get("schedule", {}),
                 "reports": evidence.policy.get("reports", {}),
+                "adjustable": policy_adjustable_values(evidence.policy),
+                "adjustment_contract": {
+                    key: value
+                    for key, value in policy_adjustment_contract(
+                        self._module("supervision")
+                    ).items()
+                    if key in {"fields", "skill_maintenance_modes"}
+                },
+                "automation_reconciliation": policy_automation_reconciliation(
+                    evidence.policy,
+                    roles,
+                ),
                 "source_path": str(evidence.directory / "policy.json"),
                 "read_only": True,
             },

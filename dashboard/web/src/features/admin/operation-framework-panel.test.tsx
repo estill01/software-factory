@@ -228,5 +228,28 @@ describe("administrative operation UI", () => {
     }]} />)
     expect(screen.getByText("Matching record is not correlated to the exact reviewer turn")).toBeVisible()
     expect(screen.queryByText("Awaiting canonical conclusion")).not.toBeInTheDocument()
+
+    rerender(<OperationActivityPanel operations={[{
+      ...operation,
+      type: "factory.supervision-adjust",
+      state: "unverified",
+      history: [...operation.history, { state: "unverified", observed_at: "2026-08-10T08:04:00.000Z" }],
+      request_evidence: { policy_adjust_requested: true },
+      verification_evidence: {
+        policy_applied: true,
+        policy_version: 6,
+        automation_reconciled: false,
+        partial_reconciliation: true,
+        fully_reconciled: false,
+        direct_policy_write: false,
+        direct_automation_write: false,
+        fix_executor_actor_attribution: "unavailable",
+      },
+    }]} />)
+    expect(screen.getByText("Policy v6 verified")).toBeVisible()
+    expect(screen.getByText("Automation reconciliation pending")).toBeVisible()
+    expect(screen.getByText("Partial reconciliation remains attention")).toBeVisible()
+    expect(screen.getByText("Dashboard direct policy writes excluded")).toBeVisible()
+    expect(screen.getByText("Canonical records do not expose the execution actor")).toBeVisible()
   })
 })

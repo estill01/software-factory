@@ -32,7 +32,11 @@ from .admin_operations import (
 )
 from .app_server import AppServerError, CodexAppServerClient
 from .catalog import CatalogError, CatalogStore, ProjectRecord, discover_project
-from .operations import OperationsProjectionError, OperationsProjectionService
+from .operations import (
+    POLICY_ADJUSTABLE_FIELDS,
+    OperationsProjectionError,
+    OperationsProjectionService,
+)
 from .tracker import TrackerProjectionError, TrackerProjectionService, tracker_identity
 
 
@@ -43,6 +47,11 @@ CHECK_MARKER = "SOFTWARE_FACTORY_DASHBOARD_CHECK "
 CHECK_ROUTE_PURPOSE = "watcher-action"
 CHECK_EVIDENCE_PURPOSE = "dashboard-route-purpose:watcher-action"
 REVIEW_MARKER = "SOFTWARE_FACTORY_DASHBOARD_REVIEW "
+POLICY_ADJUST_MARKER = "SOFTWARE_FACTORY_DASHBOARD_POLICY_ADJUST "
+POLICY_ADJUST_ROUTE_PURPOSE = "semantic-escalation"
+POLICY_ADJUST_EVIDENCE_PURPOSE = (
+    f"dashboard-route-purpose:{POLICY_ADJUST_ROUTE_PURPOSE}"
+)
 REVIEW_VARIANTS = {
     "checkpoint": {
         "operation_type": "factory.supervision-review-checkpoint",
@@ -172,6 +181,71 @@ def _string_list_schema(*, maximum_items: int = 16, maximum_length: int = 500) -
 
 def _owner_code(error: AppServerError) -> str:
     return error.code if OWNER_CODE_PATTERN.fullmatch(error.code) else "owner_rejected"
+
+
+def _normalized_policy_root(policy: Mapping[str, Any]) -> str:
+    material = json.loads(json.dumps(policy))
+    material.pop("policy_sha256", None)
+    material.pop("updated_at", None)
+    return fingerprint(material)
+
+
+def _policy_after_changes(
+    policy: Mapping[str, Any],
+    changes: Mapping[str, Any],
+    contract: Mapping[str, Any],
+) -> dict[str, Any]:
+    result = json.loads(json.dumps(policy))
+    schedule = result.setdefault("schedule", {})
+    routing = result.setdefault("routing", {})
+    if "routine_minutes" in changes:
+        schedule["routine_minutes"] = changes["routine_minutes"]
+    if "meta_review_hours" in changes:
+        schedule["meta_review_hours"] = changes["meta_review_hours"]
+    if "max_sample_denominator" in changes:
+        routing["max_sample_denominator"] = changes["max_sample_denominator"]
+    if "cooldown_minutes" in changes:
+        routing["escalation_cooldown_minutes"] = changes["cooldown_minutes"]
+    if "max_escalations_per_hour" in changes:
+        routing["max_escalations_per_hour"] = changes["max_escalations_per_hour"]
+    if any(field in changes for field in POLICY_ADJUSTABLE_FIELDS if field.startswith("gmail_")):
+        quiet = changes.get(
+            "gmail_quiet_minutes",
+            schedule.get("gmail_quiet_poll_minutes", 2),
+        )
+        active = changes.get(
+            "gmail_active_minutes",
+            schedule.get("gmail_active_poll_minutes", 1),
+        )
+        window = changes.get(
+            "gmail_active_window_minutes",
+            schedule.get("gmail_active_window_minutes", 30),
+        )
+        schedule["gmail_poll_minutes"] = quiet
+        schedule["gmail_quiet_poll_minutes"] = quiet
+        schedule["gmail_active_poll_minutes"] = active
+        schedule["gmail_active_window_minutes"] = window
+    if "skill_maintenance_mode" in changes:
+        mode = str(changes["skill_maintenance_mode"])
+        maintenance = contract.get("skill_maintenance_contracts")
+        economy = contract.get("execution_economy_contract")
+        if not isinstance(maintenance, Mapping) or not isinstance(
+            maintenance.get(mode), Mapping
+        ) or not isinstance(economy, Mapping):
+            raise OperationError(
+                "policy_adjustment_contract_unavailable",
+                "The maintained skill-maintenance contract is unavailable.",
+                status=409,
+            )
+        result["skill_maintenance"] = json.loads(json.dumps(maintenance[mode]))
+        result["execution_economy"] = json.loads(json.dumps(economy))
+        result.setdefault("permissions", {})["allowlisted_skill_maintenance"] = (
+            mode == "apply-allowlisted-skill-maintenance-with-review"
+        )
+    result["policy_version"] = int(result["policy_version"]) + 1
+    result.pop("policy_sha256", None)
+    result.pop("updated_at", None)
+    return result
 
 
 def _operation_error(error: Exception, *, fallback: str) -> OperationError:
@@ -310,6 +384,7 @@ class FactoryWorkflowOwner:
         self.route_gate = route_gate
         self._check_dispatch_lock = RLock()
         self._review_dispatch_lock = RLock()
+        self._policy_adjust_dispatch_lock = RLock()
 
     def registry(self) -> OperationRegistry:
         return OperationRegistry(
@@ -328,6 +403,7 @@ class FactoryWorkflowOwner:
                 self._semantic_review_definition("checkpoint"),
                 self._semantic_review_definition("meta"),
                 self._semantic_review_definition("issue"),
+                self._adjust_supervision_definition(),
                 self._unavailable_authoring_supervision_definition(),
             )
         )
@@ -3708,6 +3784,985 @@ class FactoryWorkflowOwner:
                 recipient=str(source.evidence["reviewer_task_id"]),
             ),
             route_gate_request=self._review_route_request,
+            route_gate=self.route_gate,
+            dispatch=dispatch,
+            verify=verify,
+        )
+
+    @staticmethod
+    def _parse_policy_adjust_marker(summary: str) -> Mapping[str, Any] | None:
+        first_line = summary.splitlines()[0] if summary else ""
+        if not first_line.startswith(POLICY_ADJUST_MARKER):
+            return None
+        try:
+            marker = json.loads(first_line.removeprefix(POLICY_ADJUST_MARKER))
+        except json.JSONDecodeError as error:
+            raise OperationError(
+                "policy_adjust_marker_invalid",
+                "The reviewer's policy-adjustment marker is malformed.",
+                status=409,
+            ) from error
+        required = {
+            "kind",
+            "target_thread_id",
+            "prior_policy_sha256",
+            "prior_policy_version",
+            "expected_policy_version",
+            "expected_normalized_policy_sha256",
+            "preview_fingerprint",
+            "route_purpose",
+            "source_record",
+            "reviewer_task_id",
+            "fix_executor_task_id",
+            "changes_sha256",
+            "reason_sha256",
+        }
+        if (
+            not isinstance(marker, Mapping)
+            or set(marker) != required
+            or marker.get("kind") != "supervision-policy-adjustment"
+            or marker.get("route_purpose") != POLICY_ADJUST_ROUTE_PURPOSE
+            or type(marker.get("prior_policy_version")) is not int
+            or type(marker.get("expected_policy_version")) is not int
+            or marker["prior_policy_version"] < 1
+            or marker["expected_policy_version"] != marker["prior_policy_version"] + 1
+            or not all(
+                isinstance(marker.get(field), str) and marker[field]
+                for field in (
+                    "target_thread_id",
+                    "source_record",
+                    "reviewer_task_id",
+                    "fix_executor_task_id",
+                )
+            )
+            or not all(
+                isinstance(marker.get(field), str)
+                and SHA256_PATTERN.fullmatch(str(marker[field]))
+                for field in (
+                    "prior_policy_sha256",
+                    "expected_normalized_policy_sha256",
+                    "preview_fingerprint",
+                    "changes_sha256",
+                    "reason_sha256",
+                )
+            )
+        ):
+            raise OperationError(
+                "policy_adjust_marker_invalid",
+                "The reviewer's policy-adjustment marker is malformed.",
+                status=409,
+            )
+        return marker
+
+    @staticmethod
+    def _policy_adjust_turn_has_marker(
+        task: Mapping[str, Any],
+        *,
+        turn_id: str,
+        expected: Mapping[str, Any],
+    ) -> bool:
+        turns = [turn for turn in task.get("turns", []) if turn.get("id") == turn_id]
+        if len(turns) != 1:
+            return False
+        markers: list[Mapping[str, Any]] = []
+        for item in turns[0].get("items", []):
+            summary = item.get("summary")
+            if item.get("type") != "userMessage" or not isinstance(summary, str):
+                continue
+            marker = FactoryWorkflowOwner._parse_policy_adjust_marker(summary)
+            if marker is not None:
+                markers.append(marker)
+        return len(markers) == 1 and markers[0] == expected
+
+    @staticmethod
+    def _policy_adjust_marker(
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+        source: SourceSnapshot,
+    ) -> dict[str, Any]:
+        changes = source.evidence["changes"]
+        return {
+            "kind": "supervision-policy-adjustment",
+            "target_thread_id": target.id,
+            "prior_policy_sha256": source.evidence["prior_policy_sha256"],
+            "prior_policy_version": source.evidence["prior_policy_version"],
+            "expected_policy_version": source.evidence["expected_policy_version"],
+            "expected_normalized_policy_sha256": source.evidence[
+                "expected_normalized_policy_sha256"
+            ],
+            "preview_fingerprint": source.fingerprint,
+            "route_purpose": POLICY_ADJUST_ROUTE_PURPOSE,
+            "source_record": source.evidence["source_record"],
+            "reviewer_task_id": source.evidence["reviewer_task_id"],
+            "fix_executor_task_id": source.evidence["fix_executor_task_id"],
+            "changes_sha256": fingerprint(changes),
+            "reason_sha256": sha256(str(inputs["reason"]).encode("utf-8")).hexdigest(),
+        }
+
+    @staticmethod
+    def _validated_role_task(
+        task: Mapping[str, Any],
+        *,
+        task_id: str,
+        role: str,
+    ) -> tuple[str, tuple[int, int], str]:
+        cwd = task.get("cwd")
+        try:
+            path = Path(str(cwd)).expanduser().resolve(strict=True)
+        except (OSError, RuntimeError) as error:
+            raise OperationError(
+                "policy_adjust_owner_unavailable",
+                f"The exact {role} task cwd is unavailable.",
+                status=409,
+            ) from error
+        status = task.get("status", {}).get("type")
+        if task.get("id") != task_id or not path.is_dir():
+            raise OperationError(
+                "policy_adjust_owner_unavailable",
+                f"The exact {role} task identity is unavailable.",
+                status=409,
+            )
+        if status == "active":
+            raise OperationError(
+                "policy_adjust_owner_active",
+                f"The exact {role} already has an active turn.",
+                status=409,
+            )
+        if status not in {"idle", "notLoaded"}:
+            raise OperationError(
+                "policy_adjust_owner_unavailable",
+                f"The exact {role} task is not available for this workflow.",
+                status=409,
+            )
+        metadata = path.stat()
+        return str(path), (metadata.st_dev, metadata.st_ino), str(status)
+
+    def _policy_adjust_source(
+        self,
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+    ) -> SourceSnapshot:
+        projects, catalog_fingerprint = self._active_projects()
+        project = self._project_from(projects, target)
+        self._require_capabilities("task_read", "task_resume", "turn_start")
+        reason = inputs.get("reason")
+        if (
+            not isinstance(reason, str)
+            or not reason.strip()
+            or reason != reason.strip()
+            or len(reason) > 600
+            or "\n" in reason
+            or "\r" in reason
+            or "/Users/" in reason
+            or "file://" in reason
+            or "\\Users\\" in reason
+        ):
+            raise OperationError(
+                "policy_adjust_reason_invalid",
+                "The adjustment reason must be one bounded, path-free line.",
+            )
+        try:
+            target_detail = self.app_server_client.read_task(
+                projects,
+                target.id,
+                include_turns=False,
+            )
+        except AppServerError as error:
+            raise _operation_error(
+                error,
+                fallback="policy_adjust_target_unavailable",
+            ) from error
+        target_task = target_detail.get("task")
+        target_binding = (
+            target_task.get("project_binding")
+            if isinstance(target_task, Mapping)
+            else None
+        )
+        if (
+            not isinstance(target_task, Mapping)
+            or target_task.get("id") != target.id
+            or not isinstance(target_binding, Mapping)
+            or target_binding.get("status") != "bound"
+            or target_binding.get("project_id") != project.id
+        ):
+            raise OperationError(
+                "policy_adjust_project_mismatch",
+                "The selected run target is not bound to the exact registered project.",
+                status=409,
+            )
+        try:
+            control = self.operations_service.policy_control_snapshot(target.id)
+        except OperationsProjectionError as error:
+            raise _operation_error(
+                error,
+                fallback="policy_adjust_source_unavailable",
+            ) from error
+        policy = control.get("policy")
+        contract = control.get("adjustment_contract")
+        adjustable = control.get("adjustable")
+        runtime = control.get("runtime")
+        if not all(
+            isinstance(value, Mapping)
+            for value in (policy, contract, adjustable, runtime)
+        ):
+            raise OperationError(
+                "policy_adjustment_contract_unavailable",
+                "The exact maintained policy-adjustment contract is incomplete.",
+                status=409,
+            )
+        if control.get("lifecycle_status") in {"completed", "stopped"}:
+            raise OperationError(
+                "policy_adjust_lifecycle_terminal",
+                "Policy adjustment is unavailable after a terminal lifecycle record.",
+                status=409,
+            )
+        mission = policy.get("mission_binding")
+        if (
+            not isinstance(mission, Mapping)
+            or not isinstance(mission.get("mission_root"), str)
+            or not SHA256_PATTERN.fullmatch(str(mission["mission_root"]))
+        ):
+            raise OperationError(
+                "policy_adjust_mission_unavailable",
+                "The selected supervision policy has no exact current mission binding.",
+                status=409,
+            )
+        policy_project_root = policy.get("project_root")
+        if isinstance(policy_project_root, str):
+            try:
+                bound_root = Path(policy_project_root).expanduser().resolve(strict=True)
+                registered_root = Path(project.root).expanduser().resolve(strict=True)
+            except (OSError, RuntimeError) as error:
+                raise OperationError(
+                    "policy_adjust_project_mismatch",
+                    "The supervision policy project root is unavailable.",
+                    status=409,
+                ) from error
+            if bound_root != registered_root:
+                raise OperationError(
+                    "policy_adjust_project_mismatch",
+                    "The supervision policy and target task disagree about the project.",
+                    status=409,
+                )
+        field_contracts = contract.get("fields")
+        if not isinstance(field_contracts, list):
+            raise OperationError(
+                "policy_adjustment_contract_unavailable",
+                "The maintained policy field contract is unavailable.",
+                status=409,
+            )
+        contracts_by_field = {
+            item.get("field"): item
+            for item in field_contracts
+            if isinstance(item, Mapping) and isinstance(item.get("field"), str)
+        }
+        if set(contracts_by_field) != set(POLICY_ADJUSTABLE_FIELDS):
+            raise OperationError(
+                "policy_adjustment_contract_unavailable",
+                "The maintained policy field contract differs from the closed operation.",
+                status=409,
+            )
+        changes = {
+            field: inputs[field]
+            for field in POLICY_ADJUSTABLE_FIELDS
+            if field in inputs
+        }
+        if not changes:
+            raise OperationError(
+                "policy_adjust_no_change",
+                "At least one supported policy field must be supplied.",
+            )
+        modes = contract.get("skill_maintenance_modes")
+        for field, value in changes.items():
+            field_contract = contracts_by_field[field]
+            if field_contract.get("kind") == "integer":
+                minimum = field_contract.get("minimum")
+                maximum = field_contract.get("maximum")
+                if (
+                    type(value) is not int
+                    or type(minimum) is not int
+                    or type(maximum) is not int
+                    or not minimum <= value <= maximum
+                ):
+                    raise OperationError(
+                        "policy_adjust_value_invalid",
+                        f"The value for {field} is outside the maintained owner range.",
+                    )
+            elif (
+                field != "skill_maintenance_mode"
+                or not isinstance(modes, list)
+                or value not in modes
+            ):
+                raise OperationError(
+                    "policy_adjust_value_invalid",
+                    f"The value for {field} is not supported by the maintained owner.",
+                )
+            if adjustable.get(field) == value:
+                raise OperationError(
+                    "policy_adjust_no_change",
+                    f"The submitted value for {field} is already current.",
+                    status=409,
+                )
+        after_values = dict(adjustable)
+        after_values.update(changes)
+        quiet = after_values.get("gmail_quiet_minutes")
+        active = after_values.get("gmail_active_minutes")
+        window = after_values.get("gmail_active_window_minutes")
+        if (
+            type(quiet) is not int
+            or type(active) is not int
+            or type(window) is not int
+            or not 2 <= quiet <= 10
+            or not 1 <= active < quiet
+            or not 5 <= window <= 120
+        ):
+            raise OperationError(
+                "policy_adjust_gmail_cadence_invalid",
+                "Gmail active cadence must remain faster than the bounded quiet cadence.",
+            )
+        reviewer_task_id = runtime.get("reviewer_thread_id")
+        fix_executor_task_id = runtime.get("fix_executor_thread_id")
+        if (
+            not isinstance(reviewer_task_id, str)
+            or not reviewer_task_id
+            or not isinstance(fix_executor_task_id, str)
+            or not fix_executor_task_id
+            or reviewer_task_id == fix_executor_task_id
+        ):
+            raise OperationError(
+                "policy_adjust_owner_unavailable",
+                "The policy lacks distinct reviewer and fix-executor task bindings.",
+                status=409,
+            )
+        role_tasks: dict[str, Mapping[str, Any]] = {}
+        role_facts: dict[str, tuple[str, tuple[int, int], str]] = {}
+        for role, task_id in (
+            ("reviewer", reviewer_task_id),
+            ("fix_executor", fix_executor_task_id),
+        ):
+            try:
+                detail = self.app_server_client.read_task(
+                    projects,
+                    task_id,
+                    include_turns=True,
+                )
+            except AppServerError as error:
+                raise _operation_error(
+                    error,
+                    fallback="policy_adjust_owner_unavailable",
+                ) from error
+            task = detail.get("task")
+            if not isinstance(task, Mapping):
+                raise OperationError(
+                    "policy_adjust_owner_unavailable",
+                    f"The exact {role} task projection is unavailable.",
+                    status=409,
+                )
+            role_tasks[role] = task
+            role_facts[role] = self._validated_role_task(
+                task,
+                task_id=task_id,
+                role=role.replace("_", " "),
+            )
+        automation_specs = {
+            "routine_minutes": (
+                "watcher",
+                "watcher_thread_id",
+                "routine_automation_id",
+                "MINUTELY",
+            ),
+            "meta_review_hours": (
+                "reviewer",
+                "reviewer_thread_id",
+                "meta_automation_id",
+                "HOURLY",
+            ),
+            "gmail_quiet_minutes": (
+                "gmail_gate",
+                "gmail_gate_thread_id",
+                "gmail_poll_automation_id",
+                "MINUTELY",
+            ),
+        }
+        if any(field.startswith("gmail_") for field in changes) and not all(
+            isinstance(runtime.get(key), str) and runtime[key]
+            for key in ("gmail_gate_thread_id", "gmail_poll_automation_id")
+        ):
+            raise OperationError(
+                "policy_adjust_gmail_owner_unavailable",
+                "Gmail cadence is read-only until its exact gate and automation are bound.",
+                status=409,
+            )
+        automations = control.get("automations_by_role")
+        automations = automations if isinstance(automations, Mapping) else {}
+        affected_automations: list[dict[str, Any]] = []
+        for field, value in changes.items():
+            spec = automation_specs.get(field)
+            if spec is None:
+                continue
+            role, thread_key, automation_key, frequency = spec
+            thread_id = runtime.get(thread_key)
+            automation_id = runtime.get(automation_key)
+            automation = automations.get(role)
+            if (
+                not isinstance(thread_id, str)
+                or not thread_id
+                or not isinstance(automation_id, str)
+                or not automation_id
+                or not isinstance(automation, Mapping)
+                or automation.get("id") != automation_id
+                or automation.get("status") != "available"
+                or automation.get("owner_status") != "ACTIVE"
+                or automation.get("kind") != "heartbeat"
+                or automation.get("target_thread_id") != thread_id
+                or not isinstance(automation.get("manifest_sha256"), str)
+                or not SHA256_PATTERN.fullmatch(str(automation["manifest_sha256"]))
+            ):
+                raise OperationError(
+                    "policy_adjust_automation_unavailable",
+                    f"The exact active {role} automation owner is unavailable.",
+                    status=409,
+                )
+            affected_automations.append(
+                {
+                    "field": field,
+                    "role": role,
+                    "automation_id": automation_id,
+                    "target_thread_id": thread_id,
+                    "before_rrule": automation.get("rrule"),
+                    "before_manifest_sha256": automation["manifest_sha256"],
+                    "expected_rrule": f"RRULE:FREQ={frequency};INTERVAL={value}",
+                    "expected_owner_status": "ACTIVE",
+                }
+            )
+        expected_policy = _policy_after_changes(policy, changes, contract)
+        expected_policy_root = _normalized_policy_root(expected_policy)
+        preserved_fields = [
+            field for field in POLICY_ADJUSTABLE_FIELDS if field not in changes
+        ]
+        source_record = control.get("source_record")
+        prior_policy_sha256 = policy.get("policy_sha256")
+        prior_policy_version = policy.get("policy_version")
+        if (
+            not isinstance(source_record, str)
+            or not source_record
+            or not isinstance(prior_policy_sha256, str)
+            or not SHA256_PATTERN.fullmatch(prior_policy_sha256)
+            or type(prior_policy_version) is not int
+            or prior_policy_version < 1
+        ):
+            raise OperationError(
+                "policy_adjust_source_unavailable",
+                "The current policy has no exact version, hash, or source record.",
+                status=409,
+            )
+        reviewer_cwd, reviewer_identity, reviewer_status = role_facts["reviewer"]
+        fix_cwd, fix_identity, fix_status = role_facts["fix_executor"]
+        evidence = {
+            "catalog_fingerprint": catalog_fingerprint,
+            "project_id": project.id,
+            "target_thread_id": target.id,
+            "mission_root": mission["mission_root"],
+            "source_record": source_record,
+            "owner_sha256": control["owner_sha256"],
+            "prior_policy_sha256": prior_policy_sha256,
+            "prior_policy_version": prior_policy_version,
+            "prior_policy_history_head": control["policy_history_head"],
+            "expected_policy_version": prior_policy_version + 1,
+            "expected_normalized_policy_sha256": expected_policy_root,
+            "changes": changes,
+            "before": {field: adjustable[field] for field in changes},
+            "after": {field: after_values[field] for field in changes},
+            "preserved_fields": preserved_fields,
+            "preserved_field_values": {
+                field: adjustable[field] for field in preserved_fields
+            },
+            "affected_automations": affected_automations,
+            "reviewer_task_id": reviewer_task_id,
+            "reviewer_task_status": reviewer_status,
+            "reviewer_task_cwd": reviewer_cwd,
+            "reviewer_cwd_device": reviewer_identity[0],
+            "reviewer_cwd_inode": reviewer_identity[1],
+            "fix_executor_task_id": fix_executor_task_id,
+            "fix_executor_task_status": fix_status,
+            "fix_executor_task_cwd": fix_cwd,
+            "fix_executor_cwd_device": fix_identity[0],
+            "fix_executor_cwd_inode": fix_identity[1],
+            "compensation_posture": (
+                "No automatic rollback. Recover only through a new bounded owner request "
+                "that restores the exact prior values and re-verifies every affected automation."
+            ),
+            "unsupported_fields": [],
+        }
+        material = {
+            "catalog": catalog_fingerprint,
+            "project": project.id,
+            "target": target.id,
+            "policy_control": control["fingerprint"],
+            "mission": mission["mission_root"],
+            "source_record": source_record,
+            "changes": changes,
+            "reason_sha256": sha256(reason.encode("utf-8")).hexdigest(),
+            "expected_policy": expected_policy_root,
+            "affected_automations": affected_automations,
+            "reviewer": {
+                "task_id": reviewer_task_id,
+                "status": reviewer_status,
+                "cwd": reviewer_cwd,
+                "cwd_identity": reviewer_identity,
+            },
+            "fix_executor": {
+                "task_id": fix_executor_task_id,
+                "status": fix_status,
+                "cwd": fix_cwd,
+                "cwd_identity": fix_identity,
+            },
+        }
+        return SourceSnapshot(fingerprint=fingerprint(material), evidence=evidence)
+
+    @staticmethod
+    def _policy_adjust_prompt(
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+        source: SourceSnapshot,
+    ) -> str:
+        marker = FactoryWorkflowOwner._policy_adjust_marker(target, inputs, source)
+        evidence = (
+            POLICY_ADJUST_EVIDENCE_PURPOSE,
+            f"dashboard-preview:{source.fingerprint}",
+            f"dashboard-adjust-task:{source.evidence['reviewer_task_id']}",
+            f"dashboard-source-record:{source.evidence['source_record']}",
+        )
+        facts = {
+            "target_thread_id": target.id,
+            "mission_root": source.evidence["mission_root"],
+            "prior_policy_sha256": source.evidence["prior_policy_sha256"],
+            "prior_policy_version": source.evidence["prior_policy_version"],
+            "expected_policy_version": source.evidence["expected_policy_version"],
+            "expected_normalized_policy_sha256": source.evidence[
+                "expected_normalized_policy_sha256"
+            ],
+            "reason": inputs["reason"],
+            "before": source.evidence["before"],
+            "after": source.evidence["after"],
+            "preserved_fields": source.evidence["preserved_fields"],
+            "affected_automations": source.evidence["affected_automations"],
+            "fix_executor_task_id": source.evidence["fix_executor_task_id"],
+            "helper_evidence": evidence,
+        }
+        return FactoryWorkflowOwner._bounded_prompt(
+            (
+                POLICY_ADJUST_MARKER + _canonical(marker),
+                "Review only this operator-confirmed bounded supervision policy diff.",
+                "Use $supervise-tracker-runs. If and only if the exact diff is supported, produce an evidence-bound correction plan and route the exact configured fix executor through the maintained fix-execution gate.",
+                "The fix executor must invoke the maintained supervision_log.py adjust helper with exactly the supplied changed fields, exact reason, and four evidence values below.",
+                "Any schedule reconciliation must use the Codex automation owner for only the named automation IDs; never write policy.json, policy-history.jsonl, or automation.toml directly.",
+                "Do not alter models, spend, bindings, lifecycle, reports, Gmail messages, unlisted policy fields, unrelated automations, or later controls.",
+                "Do not claim reconciliation until the next policy-history record and every affected active automation match the exact expected values.",
+                "If either owner cannot complete, preserve the policy/automation split truthfully and report the exact recovery boundary; do not simulate success or perform an automatic rollback.",
+                "",
+                *FactoryWorkflowOwner._prompt_facts(facts),
+            )
+        )
+
+    def _policy_adjust_route_request(
+        self,
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+        source: SourceSnapshot,
+    ) -> RouteGateRequest:
+        del inputs
+        return RouteGateRequest(
+            target_thread=target.id,
+            recipient=str(source.evidence["reviewer_task_id"]),
+            purpose=POLICY_ADJUST_ROUTE_PURPOSE,
+            source_record=str(source.evidence["source_record"]),
+            required_action=(
+                f"Review one bounded policy diff for target {target.id[:80]} and, if supported, "
+                f"route its exact fix executor; preview {source.fingerprint}."
+            ),
+        )
+
+    @staticmethod
+    def _matching_policy_adjust_record(
+        control: Mapping[str, Any],
+        *,
+        inputs: Mapping[str, Any],
+        source: SourceSnapshot,
+    ) -> Mapping[str, Any] | None:
+        required_evidence = {
+            POLICY_ADJUST_EVIDENCE_PURPOSE,
+            f"dashboard-preview:{source.fingerprint}",
+            f"dashboard-adjust-task:{source.evidence['reviewer_task_id']}",
+            f"dashboard-source-record:{source.evidence['source_record']}",
+        }
+        matches: list[Mapping[str, Any]] = []
+        for record in control.get("policy_history_records", []):
+            policy = record.get("policy") if isinstance(record, Mapping) else None
+            evidence = record.get("evidence") if isinstance(record, Mapping) else None
+            timestamp = record.get("timestamp") if isinstance(record, Mapping) else None
+            if (
+                not isinstance(record, Mapping)
+                or not isinstance(policy, Mapping)
+                or record.get("kind") != "policy-adjust"
+                or record.get("record_id")
+                != f"POLICY-{source.evidence['expected_policy_version']}"
+                or policy.get("policy_version")
+                != source.evidence["expected_policy_version"]
+                or record.get("reason") != inputs["reason"]
+                or not isinstance(evidence, list)
+                or len(evidence) != len(required_evidence)
+                or set(evidence) != required_evidence
+                or not isinstance(timestamp, str)
+                or not timestamp
+                or _normalized_policy_root(policy)
+                != source.evidence["expected_normalized_policy_sha256"]
+            ):
+                continue
+            try:
+                observed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if observed.tzinfo is not None:
+                matches.append(record)
+        return matches[0] if len(matches) == 1 else None
+
+    def _adjust_supervision_definition(self) -> OperationDefinition:
+        integer_fields = {
+            "routine_minutes": (15, 60),
+            "meta_review_hours": (2, 24),
+            "max_sample_denominator": (4, 10),
+            "cooldown_minutes": (30, 120),
+            "max_escalations_per_hour": (1, 2),
+            "gmail_quiet_minutes": (2, 10),
+            "gmail_active_minutes": (1, 9),
+            "gmail_active_window_minutes": (5, 120),
+        }
+        properties: dict[str, Any] = {
+            "reason": _text_schema(600),
+            **{
+                field: {
+                    "type": "integer",
+                    "minimum": minimum,
+                    "maximum": maximum,
+                }
+                for field, (minimum, maximum) in integer_fields.items()
+            },
+            "skill_maintenance_mode": {
+                "type": "string",
+                "enum": [
+                    "apply-allowlisted-skill-maintenance-with-review",
+                    "apply-supervision-maintenance",
+                    "propose-only",
+                ],
+            },
+        }
+        schema = _object_schema(properties, required=("reason",))
+        schema["anyOf"] = [
+            {"required": [field]} for field in POLICY_ADJUSTABLE_FIELDS
+        ]
+
+        def dispatch(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+        ) -> DispatchResult:
+            with self._policy_adjust_dispatch_lock:
+                current = self._policy_adjust_source(target, inputs)
+                if current.fingerprint != source.fingerprint:
+                    raise OperationOwnerError(
+                        "policy_adjust_source_changed",
+                        "The exact policy or owner state changed before dispatch.",
+                    )
+                projects, _ = self._active_projects()
+                reviewer_task_id = str(source.evidence["reviewer_task_id"])
+                prompt = self._policy_adjust_prompt(target, inputs, source)
+                try:
+                    result = self.app_server_client.start_configured_role_turn(
+                        projects,
+                        reviewer_task_id,
+                        prompt,
+                        expected_cwd=str(source.evidence["reviewer_task_cwd"]),
+                        expected_cwd_identity=(
+                            int(source.evidence["reviewer_cwd_device"]),
+                            int(source.evidence["reviewer_cwd_inode"]),
+                        ),
+                    )
+                except AppServerError as error:
+                    raise OperationOwnerError(_owner_code(error), str(error)) from error
+                return DispatchResult(
+                    evidence={
+                        "target_thread_id": target.id,
+                        "reviewer_task_id": reviewer_task_id,
+                        "reviewer_turn_id": result["turn"]["id"],
+                        "reviewer_task_resumed": result["task_resumed"],
+                        "fix_executor_task_id": source.evidence[
+                            "fix_executor_task_id"
+                        ],
+                        "policy_adjust_requested": True,
+                        "policy_applied": False,
+                        "automation_reconciled": False,
+                        "expected_policy_version": source.evidence[
+                            "expected_policy_version"
+                        ],
+                        "affected_automations": source.evidence[
+                            "affected_automations"
+                        ],
+                        "preview_fingerprint": source.fingerprint,
+                    },
+                    links=(
+                        OperationLink("Run", f"/runs/{target.id}"),
+                        OperationLink("Reviewer task", f"/tasks/{reviewer_task_id}"),
+                        OperationLink(
+                            "Fix executor task",
+                            f"/tasks/{source.evidence['fix_executor_task_id']}",
+                        ),
+                    ),
+                )
+
+        def verify(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+            result: DispatchResult,
+        ) -> VerificationResult:
+            try:
+                control = self.operations_service.policy_control_snapshot(target.id)
+            except OperationsProjectionError as error:
+                return VerificationResult(
+                    "pending",
+                    {
+                        **result.evidence,
+                        "policy_applied": False,
+                        "automation_reconciled": False,
+                        "owner_error_code": error.code,
+                    },
+                    result.links,
+                )
+            projects, _ = self._active_projects()
+            reviewer_task_id = str(source.evidence["reviewer_task_id"])
+            try:
+                detail = self.app_server_client.read_task(
+                    projects,
+                    reviewer_task_id,
+                    include_turns=True,
+                )
+            except AppServerError as error:
+                return VerificationResult(
+                    "pending",
+                    {
+                        **result.evidence,
+                        "policy_applied": False,
+                        "automation_reconciled": False,
+                        "reviewer_request_current": False,
+                        "owner_error_code": error.code,
+                    },
+                    result.links,
+                )
+            reviewer_task = detail.get("task")
+            turn_id = result.evidence.get("reviewer_turn_id")
+            expected_marker = self._policy_adjust_marker(target, inputs, source)
+            try:
+                reviewer_request_current = (
+                    isinstance(reviewer_task, Mapping)
+                    and reviewer_task.get("id") == reviewer_task_id
+                    and isinstance(turn_id, str)
+                    and self._policy_adjust_turn_has_marker(
+                        reviewer_task,
+                        turn_id=turn_id,
+                        expected=expected_marker,
+                    )
+                )
+            except OperationError:
+                reviewer_request_current = False
+            record = self._matching_policy_adjust_record(
+                control,
+                inputs=inputs,
+                source=source,
+            )
+            current_version = control.get("policy_version")
+            if record is None:
+                if current_version == source.evidence["prior_policy_version"]:
+                    return VerificationResult(
+                        "pending",
+                        {
+                            **result.evidence,
+                            "policy_applied": False,
+                            "automation_reconciled": False,
+                            "reviewer_request_current": reviewer_request_current,
+                            "current_policy_version": current_version,
+                            "recovery": source.evidence["compensation_posture"],
+                        },
+                        result.links,
+                    )
+                return VerificationResult(
+                    "failed",
+                    {
+                        **result.evidence,
+                        "policy_applied": False,
+                        "automation_reconciled": False,
+                        "reviewer_request_current": reviewer_request_current,
+                        "current_policy_version": current_version,
+                        "failure_boundary": (
+                            "Policy history changed without the exact requested next record."
+                        ),
+                        "recovery": source.evidence["compensation_posture"],
+                    },
+                    result.links,
+                )
+            record_policy = record.get("policy")
+            policy_head_current = (
+                isinstance(record_policy, Mapping)
+                and control.get("policy_version")
+                == source.evidence["expected_policy_version"]
+                and control.get("policy_sha256") == record_policy.get("policy_sha256")
+                and control.get("policy_history_head") == record.get("record_sha256")
+                and _normalized_policy_root(record_policy)
+                == source.evidence["expected_normalized_policy_sha256"]
+            )
+            if not policy_head_current or not reviewer_request_current:
+                return VerificationResult(
+                    "pending" if not reviewer_request_current else "unverified",
+                    {
+                        **result.evidence,
+                        "policy_applied": bool(policy_head_current),
+                        "automation_reconciled": False,
+                        "reviewer_request_current": reviewer_request_current,
+                        "policy_record_id": record.get("record_id"),
+                        "policy_head_current": bool(policy_head_current),
+                        "recovery": source.evidence["compensation_posture"],
+                    },
+                    result.links,
+                )
+            automations = control.get("automations_by_role")
+            automations = automations if isinstance(automations, Mapping) else {}
+            reconciliation: list[dict[str, Any]] = []
+            for expected in source.evidence["affected_automations"]:
+                actual = automations.get(expected["role"])
+                mismatches: list[str] = []
+                if not isinstance(actual, Mapping):
+                    mismatches.append("owner projection unavailable")
+                else:
+                    comparisons = {
+                        "automation ID": actual.get("id")
+                        == expected["automation_id"],
+                        "status": actual.get("status") == "available",
+                        "owner status": actual.get("owner_status")
+                        == expected["expected_owner_status"],
+                        "kind": actual.get("kind") == "heartbeat",
+                        "target": actual.get("target_thread_id")
+                        == expected["target_thread_id"],
+                        "schedule": actual.get("rrule")
+                        == expected["expected_rrule"],
+                        "manifest change": (
+                            expected["before_rrule"] == expected["expected_rrule"]
+                            or actual.get("manifest_sha256")
+                            != expected["before_manifest_sha256"]
+                        ),
+                    }
+                    mismatches.extend(
+                        label for label, matched in comparisons.items() if not matched
+                    )
+                reconciliation.append(
+                    {
+                        "field": expected["field"],
+                        "role": expected["role"],
+                        "automation_id": expected["automation_id"],
+                        "state": "reconciled" if not mismatches else "pending",
+                        "mismatches": mismatches,
+                        "expected_rrule": expected["expected_rrule"],
+                        "actual_rrule": (
+                            actual.get("rrule") if isinstance(actual, Mapping) else None
+                        ),
+                    }
+                )
+            automation_reconciled = all(
+                item["state"] == "reconciled" for item in reconciliation
+            )
+            evidence = {
+                **result.evidence,
+                "policy_applied": True,
+                "policy_record_id": record.get("record_id"),
+                "policy_record_timestamp": record.get("timestamp"),
+                "policy_version": control.get("policy_version"),
+                "policy_sha256": control.get("policy_sha256"),
+                "policy_head_current": True,
+                "preserved_fields": source.evidence["preserved_fields"],
+                "reviewer_request_current": True,
+                "automation_reconciled": automation_reconciled,
+                "partial_reconciliation": not automation_reconciled,
+                "reconciliation": reconciliation,
+                "fully_reconciled": automation_reconciled,
+                "recovery": (
+                    None
+                    if automation_reconciled
+                    else source.evidence["compensation_posture"]
+                ),
+                "direct_policy_write": False,
+                "direct_automation_write": False,
+                "fix_executor_actor_attribution": "unavailable",
+            }
+            return VerificationResult(
+                "applied" if automation_reconciled else "pending",
+                evidence,
+                result.links,
+            )
+
+        return OperationDefinition(
+            operation_type="factory.supervision-adjust",
+            target_kind="run",
+            input_schema=schema,
+            owner=(
+                "maintained reviewer plan + fix executor + supervision adjust and "
+                "Codex automation owners"
+            ),
+            authority=(
+                "explicit operator confirmation",
+                "exact current policy/history and role-task bindings",
+                "maintained semantic-escalation and fix-execution route gates",
+                "maintained supervision adjust and Codex automation owners",
+            ),
+            ordinary_consequences=(
+                "Starts one bounded reviewer turn for the exact policy diff.",
+                "The routed fix executor may apply one next policy version and reconcile only named automations through maintained owners.",
+            ),
+            failure_consequences=(
+                "Stale, unsupported, denied, active-owner, or mismatched source sends no request.",
+                "Policy-only success remains pending or unverified until every affected automation reconciles.",
+                "No automatic rollback occurs; recovery is another exact bounded owner request.",
+            ),
+            confirmation=ConfirmationContract(
+                "supervision-policy-adjust",
+                "Type ADJUST to request this exact policy diff.",
+                "ADJUST",
+            ),
+            idempotency=(
+                "One consumed preview starts at most one exact reviewer turn; neither the dashboard nor coordinator retries owner writes."
+            ),
+            expected_postcondition=(
+                "One exact next policy-adjust history record is current and every affected named automation has the expected active schedule and task binding."
+            ),
+            timeout_seconds=30,
+            limitations=(
+                "The dashboard never writes policy, history, or automation manifests directly.",
+                "A policy record alone is not a reconciled configuration change.",
+                "Gmail message content, sending, and mailbox integration remain outside this operation.",
+                "Binding, lifecycle, report, evolution, and terminal controls remain outside this operation.",
+            ),
+            resolve_source=self._policy_adjust_source,
+            describe_effect=lambda target, inputs, source: PreviewEffect(
+                (
+                    f"Request {len(source.evidence['changes'])} exact policy field "
+                    f"change{'s' if len(source.evidence['changes']) != 1 else ''} for run {target.id}."
+                ),
+                (
+                    "The maintained owners may create one next policy version and update only "
+                    f"{len(source.evidence['affected_automations'])} named automation schedule"
+                    f"{'s' if len(source.evidence['affected_automations']) != 1 else ''}; no automatic rollback occurs."
+                ),
+                recipient=str(source.evidence["reviewer_task_id"]),
+            ),
+            route_gate_request=self._policy_adjust_route_request,
             route_gate=self.route_gate,
             dispatch=dispatch,
             verify=verify,

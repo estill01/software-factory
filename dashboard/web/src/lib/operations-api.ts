@@ -275,6 +275,70 @@ const policySchema = z
     sha256: fingerprintSchema,
     schedule: jsonMapSchema,
     reports: jsonMapSchema,
+    adjustable: z
+      .object({
+        routine_minutes: nonnegativeInteger.nullable(),
+        meta_review_hours: nonnegativeInteger.nullable(),
+        max_sample_denominator: nonnegativeInteger.nullable(),
+        cooldown_minutes: nonnegativeInteger.nullable(),
+        max_escalations_per_hour: nonnegativeInteger.nullable(),
+        gmail_quiet_minutes: nonnegativeInteger.nullable(),
+        gmail_active_minutes: nonnegativeInteger.nullable(),
+        gmail_active_window_minutes: nonnegativeInteger.nullable(),
+        skill_maintenance_mode: nullableString,
+      })
+      .strict(),
+    adjustment_contract: z
+      .object({
+        fields: z.array(
+          z
+            .object({
+              field: z.enum([
+                "routine_minutes",
+                "meta_review_hours",
+                "max_sample_denominator",
+                "cooldown_minutes",
+                "max_escalations_per_hour",
+                "gmail_quiet_minutes",
+                "gmail_active_minutes",
+                "gmail_active_window_minutes",
+                "skill_maintenance_mode",
+              ]),
+              kind: z.enum(["integer", "enum"]),
+              minimum: nonnegativeInteger.nullable(),
+              maximum: nonnegativeInteger.nullable(),
+              automation_role: z
+                .enum(["watcher", "reviewer", "gmail_gate"])
+                .nullable(),
+            })
+            .strict(),
+        ).length(9),
+        skill_maintenance_modes: z.array(z.enum([
+          "apply-allowlisted-skill-maintenance-with-review",
+          "apply-supervision-maintenance",
+          "propose-only",
+        ])).length(3),
+      })
+      .strict(),
+    automation_reconciliation: z.array(
+      z
+        .object({
+          field: z.enum([
+            "routine_minutes",
+            "meta_review_hours",
+            "gmail_quiet_minutes",
+          ]),
+          role: z.enum(["watcher", "reviewer", "gmail_gate"]),
+          automation_id: nullableString,
+          expected_rrule: nullableString,
+          actual_rrule: nullableString,
+          owner_status: nullableString,
+          target_thread_id: nullableString,
+          state: z.enum(["reconciled", "partial", "unavailable"]),
+          reason: z.string().min(1),
+        })
+        .strict(),
+    ),
     source_path: z.string().min(1),
     read_only: z.literal(true),
   })

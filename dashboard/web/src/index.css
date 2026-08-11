@@ -2735,6 +2735,64 @@ h3 {
   resize: vertical;
 }
 
+.policy-adjust-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.55rem;
+}
+
+.policy-adjust-field {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(7rem, 0.65fr);
+  align-items: center;
+  gap: 0.25rem 0.55rem;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 0.52rem 0.58rem;
+}
+
+.policy-adjust-field:nth-child(2n) {
+  border-right: 0;
+}
+
+.policy-adjust-field > label {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.18rem 0.38rem;
+  font-size: 0.64rem;
+  font-weight: 650;
+}
+
+.policy-adjust-field > label small {
+  grid-column: 2;
+  color: var(--text-faint);
+  font-size: 0.54rem;
+  font-weight: 500;
+}
+
+.policy-adjust-field > input,
+.policy-adjust-field > select {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.4rem;
+  background: var(--panel-solid);
+  padding: 0.38rem 0.45rem;
+  color: var(--text);
+  font-size: 0.62rem;
+}
+
+.policy-adjust-field > small {
+  grid-column: 2;
+  color: var(--text-faint);
+  font-size: 0.52rem;
+}
+
 .workflow-input-field input:focus,
 .workflow-input-field textarea:focus,
 .workflow-input-field select:focus {
@@ -4079,6 +4137,13 @@ h3 {
 .policy-source-grid > div:last-child { border-right: 0; }
 .policy-source-grid strong { font-size: 0.62rem; }
 .policy-source-grid code { display: block; max-height: 7.5rem; overflow: auto; color: var(--text-faint); font-size: 0.55rem; overflow-wrap: anywhere; white-space: pre-wrap; }
+.policy-reconciliation-list { display: grid; border-top: 1px solid var(--border); }
+.policy-reconciliation-list > div { display: grid; grid-template-columns: auto minmax(8rem, 1fr) auto minmax(7rem, auto) minmax(10rem, auto); align-items: center; gap: 0.45rem; border-bottom: 1px solid var(--border); padding: 0.48rem 0.7rem; }
+.policy-reconciliation-list > div:last-child { border-bottom: 0; }
+.policy-reconciliation-list strong { font-size: 0.61rem; }
+.policy-reconciliation-list span,
+.policy-reconciliation-list code,
+.policy-reconciliation-list small { min-width: 0; overflow: hidden; color: var(--text-faint); font-size: 0.55rem; text-overflow: ellipsis; white-space: nowrap; }
 
 .operating-timeline,
 .event-timeline { margin: 0; padding: 0; list-style: none; }
@@ -4224,6 +4289,12 @@ h3 {
   .policy-source-grid { grid-template-columns: 1fr; }
   .policy-source-grid > div { border-right: 0; border-bottom: 1px solid var(--border); }
   .policy-source-grid > div:last-child { border-bottom: 0; }
+  .policy-adjust-fields { grid-template-columns: 1fr; }
+  .policy-adjust-field,
+  .policy-adjust-field:nth-child(2n) { border-right: 0; }
+  .policy-reconciliation-list > div { grid-template-columns: auto minmax(8rem, 1fr) auto; }
+  .policy-reconciliation-list > div code,
+  .policy-reconciliation-list > div small { grid-column: 2 / -1; }
 }
 
 @media (max-width: 74rem) {

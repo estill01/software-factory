@@ -474,6 +474,44 @@ const detail = {
     sha256: hash("2"),
     schedule: { routine_minutes: 20 },
     reports: {},
+    adjustable: {
+      routine_minutes: 20,
+      meta_review_hours: 4,
+      max_sample_denominator: 6,
+      cooldown_minutes: 60,
+      max_escalations_per_hour: 1,
+      gmail_quiet_minutes: 2,
+      gmail_active_minutes: 1,
+      gmail_active_window_minutes: 30,
+      skill_maintenance_mode: "propose-only",
+    },
+    adjustment_contract: {
+      fields: [
+        { field: "routine_minutes", kind: "integer", minimum: 15, maximum: 60, automation_role: "watcher" },
+        { field: "meta_review_hours", kind: "integer", minimum: 2, maximum: 24, automation_role: "reviewer" },
+        { field: "max_sample_denominator", kind: "integer", minimum: 4, maximum: 10, automation_role: null },
+        { field: "cooldown_minutes", kind: "integer", minimum: 30, maximum: 120, automation_role: null },
+        { field: "max_escalations_per_hour", kind: "integer", minimum: 1, maximum: 2, automation_role: null },
+        { field: "gmail_quiet_minutes", kind: "integer", minimum: 2, maximum: 10, automation_role: "gmail_gate" },
+        { field: "gmail_active_minutes", kind: "integer", minimum: 1, maximum: 9, automation_role: null },
+        { field: "gmail_active_window_minutes", kind: "integer", minimum: 5, maximum: 120, automation_role: null },
+        { field: "skill_maintenance_mode", kind: "enum", minimum: null, maximum: null, automation_role: null },
+      ],
+      skill_maintenance_modes: ["apply-allowlisted-skill-maintenance-with-review", "apply-supervision-maintenance", "propose-only"],
+    },
+    automation_reconciliation: [
+      {
+        field: "routine_minutes",
+        role: "watcher",
+        automation_id: "watcher-automation",
+        expected_rrule: "RRULE:FREQ=MINUTELY;INTERVAL=20",
+        actual_rrule: "RRULE:FREQ=MINUTELY;INTERVAL=20",
+        owner_status: "ACTIVE",
+        target_thread_id: "watcher-task",
+        state: "reconciled",
+        reason: "Policy cadence and actual active automation agree.",
+      },
+    ],
     source_path: "/supervision/target-thread-1/policy.json",
     read_only: true,
   },
@@ -733,6 +771,15 @@ describe("operations API contracts", () => {
     expect(parsedDetail.data.run.activities[0].kind).toBe("meta-review")
     expect(parsedDetail.data.run.conclusions[0].kind).toBe("meta-review")
     expect(parsedDetail.data.run.light).toMatchObject({ posture: "red", completion_claim: false })
+    expect(parsedDetail.data.run.policy?.automation_reconciliation[0]).toMatchObject({
+      role: "watcher",
+      state: "reconciled",
+    })
+    const malformedPolicy = structuredClone(runDetailEnvelope) as unknown as {
+      data: { run: { policy: { adjustment_contract: { fields: Array<{ field: string }> } } } }
+    }
+    malformedPolicy.data.run.policy.adjustment_contract.fields[0].field = "arbitrary_path"
+    expect(() => runDetailEnvelopeSchema.parse(malformedPolicy)).toThrow()
   })
 
   it("validates report manifests and API-equivalent estimate labels without widening", () => {

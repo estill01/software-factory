@@ -340,7 +340,40 @@ class OperationsProjectionTests(unittest.TestCase):
             current["topology"]["roles"][0]["automation"]["owner_status"],
             "ACTIVE",
         )
+        self.assertEqual(current["policy"]["adjustable"]["routine_minutes"], 20)
+        self.assertEqual(
+            current["policy"]["automation_reconciliation"][0]["state"],
+            "reconciled",
+        )
+        self.assertEqual(
+            len(current["policy"]["adjustment_contract"]["fields"]),
+            9,
+        )
         serialized = json.dumps(snapshot)
+        self.assertNotIn("PRIVATE PROMPT", serialized)
+        self.assertNotIn('"prompt"', serialized)
+
+    def test_policy_control_snapshot_is_targeted_and_owner_exact(self) -> None:
+        control = self.service.policy_control_snapshot(TARGET)
+
+        self.assertEqual(control["target_thread_id"], TARGET)
+        self.assertEqual(control["policy_version"], 3)
+        self.assertEqual(control["policy_history_count"], 3)
+        self.assertEqual(control["policy_history_head_record"]["record_id"], "POLICY-3")
+        self.assertEqual(len(control["policy_history_records"]), 3)
+        self.assertEqual(control["adjustable"]["routine_minutes"], 20)
+        self.assertEqual(len(control["adjustment_contract"]["fields"]), 9)
+        self.assertEqual(
+            control["automations_by_role"]["watcher"]["manifest_sha256"],
+            sha256(
+                (
+                    self.automations_root
+                    / "watcher-automation-demo"
+                    / "automation.toml"
+                ).read_bytes()
+            ).hexdigest(),
+        )
+        serialized = json.dumps(control)
         self.assertNotIn("PRIVATE PROMPT", serialized)
         self.assertNotIn('"prompt"', serialized)
 

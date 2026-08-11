@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { AlertTriangle, ArrowRight, Filter, ShieldCheck } from "lucide-react"
-import { useState } from "react"
+import { type ReactNode, useState } from "react"
 import { Link, useParams, useSearchParams } from "react-router"
 
 import {
@@ -30,6 +30,10 @@ type RunEvent = RunDetail["timeline"][number]
 
 function eventLabel(event: RunEvent): string {
   return event.summary ?? event.action ?? event.resolution ?? event.status ?? "No summary recorded"
+}
+
+function policyLabel(value: string): string {
+  return value.replaceAll("_", " ").replace(/^./, (letter) => letter.toUpperCase())
 }
 
 function eventMatches(
@@ -231,7 +235,10 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
       )}
 
       <section className="workspace-panel">
-        <div className="workspace-panel-heading"><h2>Policy</h2><span>Read only</span></div>
+        <div className="workspace-panel-heading">
+          <h2>Policy</h2>
+          <span>{isCurrent && run.policy ? `${run.policy.automation_reconciliation.filter((row) => row.state === "reconciled").length}/${run.policy.automation_reconciliation.length} schedules reconciled` : "Historical hashes only"}</span>
+        </div>
         {isCurrent && run.policy ? (
           <>
             <FactGrid facts={[
@@ -239,11 +246,25 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
               ["SHA-256", <Identity value={run.policy.sha256} />],
               ["Source", <code>{run.policy.source_path}</code>],
               ["Mission records", currentPolicyHistory.length],
+              ...Object.entries(run.policy.adjustable).map(([field, value]) => [
+                policyLabel(field),
+                value ?? "Unavailable",
+              ] as [string, ReactNode]),
             ]} />
-            <div className="policy-source-grid">
-              <div><strong>Schedule</strong><code>{JSON.stringify(run.policy.schedule)}</code></div>
-              <div><strong>Reports</strong><code>{JSON.stringify(run.policy.reports)}</code></div>
-            </div>
+            {run.policy.automation_reconciliation.length > 0 && (
+              <div className="policy-reconciliation-list" aria-label="Automation reconciliation">
+                {run.policy.automation_reconciliation.map((row) => (
+                  <div key={`${row.field}:${row.automation_id}`}>
+                    <StatusMark status={row.state} />
+                    <strong>{policyLabel(row.field)}</strong>
+                    <span>{row.role}</span>
+                    <Identity value={row.automation_id} />
+                    <code>{row.actual_rrule ?? "Unavailable"}</code>
+                    {row.actual_rrule !== row.expected_rrule && <small>Expected {row.expected_rrule ?? "unavailable"}</small>}
+                  </div>
+                ))}
+              </div>
+            )}
           </>
         ) : (
           <QueryState kind="empty" message={`Historical policy body is unavailable; ${segment?.policy_sha256s.length ?? 0} exact policy hash${segment?.policy_sha256s.length === 1 ? "" : "es"} retained`} />
@@ -365,6 +386,7 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
           targetId={run.target_thread_id}
           projectId={projectBindingConflict ? null : breadcrumbProjectId}
           openIncidentIds={missionIncidents.filter((incident) => incident.open).map((incident) => incident.incident_id)}
+          policy={run.policy}
         />
       )}
 

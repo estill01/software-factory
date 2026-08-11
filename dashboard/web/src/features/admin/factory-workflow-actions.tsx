@@ -18,6 +18,7 @@ import {
   type OperationRecord,
 } from "@/lib/admin-operations-api"
 import { DashboardApiError } from "@/lib/api"
+import type { RunDetail } from "@/lib/operations-api"
 import type { ProjectProjection } from "@/lib/projects-api"
 import type { TaskDetailEnvelope } from "@/lib/task-api"
 import type { TrackerDetail, TrackerSummary } from "@/lib/trackers-api"
@@ -32,6 +33,8 @@ type PendingRequest = TaskDetailEnvelope["data"]["pending_requests"][number]
 type InputQuestion = Extract<PendingRequest, { family: "user_input" }>["details"]["questions"][number]
 type ListedRun = { target_thread_id: string } | undefined
 type TrackerBlock = TrackerDetail["blocks"][number]
+type RunPolicy = NonNullable<RunDetail["policy"]>
+type PolicyField = keyof RunPolicy["adjustable"]
 
 type ImplementationBinding = {
   kind: "implement-blocks"
@@ -48,6 +51,17 @@ const defaultReviewScope = "Full tracker contract, dependency order, acceptance,
 const missionMarkerPrefix = "SOFTWARE_FACTORY_DASHBOARD_MISSION "
 const fingerprintPattern = /^[0-9a-f]{64}$/
 const missionSourcePattern = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,239}$/
+const policyFieldLabels: Record<PolicyField, string> = {
+  routine_minutes: "Routine minutes",
+  meta_review_hours: "Meta-review hours",
+  max_sample_denominator: "Max sample denominator",
+  cooldown_minutes: "Escalation cooldown minutes",
+  max_escalations_per_hour: "Max escalations per hour",
+  gmail_quiet_minutes: "Gmail quiet minutes",
+  gmail_active_minutes: "Gmail active minutes",
+  gmail_active_window_minutes: "Gmail active window minutes",
+  skill_maintenance_mode: "Skill maintenance mode",
+}
 
 function implementationBinding(task: Task): ImplementationBinding | null {
   const candidates = [
@@ -408,17 +422,23 @@ export function RunSupervisionActions({
   targetId,
   projectId,
   openIncidentIds,
+  policy,
 }: {
   targetId: string
   projectId: string | null
   openIncidentIds: string[]
+  policy: RunPolicy | null
 }) {
   const runner = useOperationRunner()
   const [selectedIncident, setSelectedIncident] = useState("")
+  const [adjustOpen, setAdjustOpen] = useState(false)
+  const [adjustReason, setAdjustReason] = useState("")
+  const [adjustEnabled, setAdjustEnabled] = useState<Partial<Record<PolicyField, boolean>>>({})
+  const [adjustValues, setAdjustValues] = useState<Partial<Record<PolicyField, string>>>({})
   const incidentId = openIncidentIds.includes(selectedIncident)
     ? selectedIncident
     : openIncidentIds[0] ?? ""
-  const launch = (
+  const launchReview = (
     operationType: string,
     label: string,
     input: Record<string, unknown> = {},
@@ -438,13 +458,92 @@ export function RunSupervisionActions({
       ],
     })
   }
+  const openAdjustment = () => {
+    if (!policy) return
+    setAdjustEnabled({})
+    setAdjustValues(Object.fromEntries(
+      Object.entries(policy.adjustable).map(([field, value]) => [field, value === null ? "" : String(value)]),
+    ) as Partial<Record<PolicyField, string>>)
+    setAdjustReason("")
+    setAdjustOpen(true)
+  }
+  const selectedPolicyFields = policy?.adjustment_contract.fields.filter(
+    (contract) => adjustEnabled[contract.field],
+  ) ?? []
+  const parsedAdjustment = policy
+    ? Object.fromEntries(selectedPolicyFields.map((contract) => {
+      const value = adjustValues[contract.field] ?? ""
+      return [contract.field, contract.kind === "integer" ? Number(value) : value]
+    })) as Partial<Record<PolicyField, number | string>>
+    : {}
+  const mergedGmail = policy ? {
+    quiet: typeof parsedAdjustment.gmail_quiet_minutes === "number"
+      ? parsedAdjustment.gmail_quiet_minutes
+      : policy.adjustable.gmail_quiet_minutes,
+    active: typeof parsedAdjustment.gmail_active_minutes === "number"
+      ? parsedAdjustment.gmail_active_minutes
+      : policy.adjustable.gmail_active_minutes,
+    window: typeof parsedAdjustment.gmail_active_window_minutes === "number"
+      ? parsedAdjustment.gmail_active_window_minutes
+      : policy.adjustable.gmail_active_window_minutes,
+  } : null
+  const adjustmentValid = Boolean(
+    policy
+    && adjustReason.trim()
+    && adjustReason === adjustReason.trim()
+    && selectedPolicyFields.length > 0
+    && selectedPolicyFields.every((contract) => {
+      const parsed = parsedAdjustment[contract.field]
+      const current = policy.adjustable[contract.field]
+      if (contract.kind === "enum") return typeof parsed === "string" && parsed.length > 0 && parsed !== current
+      return typeof parsed === "number"
+        && Number.isInteger(parsed)
+        && contract.minimum !== null
+        && contract.maximum !== null
+        && parsed >= contract.minimum
+        && parsed <= contract.maximum
+        && parsed !== current
+    })
+    && mergedGmail
+    && typeof mergedGmail.quiet === "number"
+    && typeof mergedGmail.active === "number"
+    && typeof mergedGmail.window === "number"
+    && mergedGmail.active < mergedGmail.quiet
+  )
+  const submitAdjustment = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!policy || !projectId || !adjustmentValid) return
+    const changes = Object.fromEntries(
+      selectedPolicyFields.map((contract) => [contract.field, parsedAdjustment[contract.field]]),
+    )
+    const affectedRoles = selectedPolicyFields
+      .flatMap((contract) => contract.automation_role ? [contract.automation_role] : [])
+    runner.launch({
+      request: {
+        operation_type: "factory.supervision-adjust",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: { reason: adjustReason, ...changes },
+      },
+      suppliedFacts: [
+        ["Diff", selectedPolicyFields.map((contract) => (
+          `${policyFieldLabels[contract.field]}: ${String(policy.adjustable[contract.field])} → ${String(parsedAdjustment[contract.field])}`
+        )).join(" · ")],
+        ["Preserved", `${policy.adjustment_contract.fields.length - selectedPolicyFields.length} adjustable fields plus every unlisted policy field`],
+        ["Automation owners", affectedRoles.length ? affectedRoles.join(" · ") : "No schedule owner affected"],
+        ["Recovery", "No automatic rollback · restore prior values through a new bounded owner request"],
+        ["Reason", adjustReason],
+      ],
+    })
+    setAdjustOpen(false)
+  }
   const unavailable = !projectId || runner.busy
+  const gmailBound = policy?.automation_reconciliation.some((row) => row.role === "gmail_gate") ?? false
   return (
     <>
       <ActionStrip feedback={runner.feedback}>
-        <Button size="compact" variant="outline" disabled={unavailable} onClick={() => launch("factory.supervision-check-now", "Mechanical check")}>Check now</Button>
-        <Button size="compact" variant="outline" disabled={unavailable} onClick={() => launch("factory.supervision-review-checkpoint", "Checkpoint review")}>Checkpoint review</Button>
-        <Button size="compact" variant="outline" disabled={unavailable} onClick={() => launch("factory.supervision-review-meta", "Meta-review")}>Meta-review</Button>
+        <Button size="compact" variant="outline" disabled={unavailable} onClick={() => launchReview("factory.supervision-check-now", "Mechanical check")}>Check now</Button>
+        <Button size="compact" variant="outline" disabled={unavailable} onClick={() => launchReview("factory.supervision-review-checkpoint", "Checkpoint review")}>Checkpoint review</Button>
+        <Button size="compact" variant="outline" disabled={unavailable} onClick={() => launchReview("factory.supervision-review-meta", "Meta-review")}>Meta-review</Button>
         {openIncidentIds.length > 0 && (
           <select
             aria-label="Issue for follow-up"
@@ -459,7 +558,7 @@ export function RunSupervisionActions({
           size="compact"
           variant="outline"
           disabled={unavailable || !incidentId}
-          onClick={() => launch(
+          onClick={() => launchReview(
             "factory.supervision-review-issue",
             "Issue follow-up",
             { incident_id: incidentId },
@@ -467,7 +566,63 @@ export function RunSupervisionActions({
         >
           Issue follow-up
         </Button>
+        <Button size="compact" disabled={unavailable || !policy} onClick={openAdjustment}>Adjust supervision</Button>
       </ActionStrip>
+      {adjustOpen && policy && (
+        <InputDialog
+          title="Adjust supervision"
+          submitDisabled={!adjustmentValid}
+          onClose={() => setAdjustOpen(false)}
+          onSubmit={submitAdjustment}
+        >
+          <div className="policy-adjust-fields">
+            {policy.adjustment_contract.fields.map((contract) => {
+              const gmailUnavailable = contract.field.startsWith("gmail_") && !gmailBound
+              const enabled = Boolean(adjustEnabled[contract.field])
+              return (
+                <div className="policy-adjust-field" key={contract.field}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={enabled}
+                      disabled={gmailUnavailable}
+                      onChange={(event) => setAdjustEnabled((current) => ({
+                        ...current,
+                        [contract.field]: event.target.checked,
+                      }))}
+                    />
+                    <span>{policyFieldLabels[contract.field]}</span>
+                    <small>Current {String(policy.adjustable[contract.field] ?? "unavailable")}</small>
+                  </label>
+                  {contract.kind === "enum" ? (
+                    <select
+                      aria-label={`New ${policyFieldLabels[contract.field]}`}
+                      value={adjustValues[contract.field] ?? ""}
+                      disabled={!enabled || gmailUnavailable}
+                      onChange={(event) => setAdjustValues((current) => ({ ...current, [contract.field]: event.target.value }))}
+                    >
+                      {policy.adjustment_contract.skill_maintenance_modes.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
+                    </select>
+                  ) : (
+                    <input
+                      aria-label={`New ${policyFieldLabels[contract.field]}`}
+                      type="number"
+                      min={contract.minimum ?? undefined}
+                      max={contract.maximum ?? undefined}
+                      value={adjustValues[contract.field] ?? ""}
+                      disabled={!enabled || gmailUnavailable}
+                      onChange={(event) => setAdjustValues((current) => ({ ...current, [contract.field]: event.target.value }))}
+                    />
+                  )}
+                  {gmailUnavailable && <small>Gmail owner not bound</small>}
+                  {contract.automation_role && !gmailUnavailable && <small>{contract.automation_role} schedule</small>}
+                </div>
+              )
+            })}
+          </div>
+          <TextField label="Reason" value={adjustReason} onChange={setAdjustReason} />
+        </InputDialog>
+      )}
       {runner.confirmation}
     </>
   )

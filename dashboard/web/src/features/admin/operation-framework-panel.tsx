@@ -207,6 +207,19 @@ export function OperationTruthFacts({ operation }: { operation: OperationRecord 
     if (evidence?.request_delivery_is_conclusion === false) facts.push("Delivery is not a conclusion")
     if (evidence?.implementation_accepted_by_dashboard === false) facts.push("Dashboard did not accept implementation")
   }
+  if (operation.type === "factory.supervision-adjust") {
+    if (operation.request_evidence?.policy_adjust_requested === true) facts.push("Policy diff requested")
+    if (evidence?.policy_applied === true) {
+      facts.push(typeof evidence.policy_version === "number" ? `Policy v${evidence.policy_version} verified` : "Policy version verified")
+    } else if (operation.request_evidence?.policy_adjust_requested === true) facts.push("Policy version not yet verified")
+    if (evidence?.automation_reconciled === true) facts.push("Affected automations reconciled")
+    else if (evidence?.policy_applied === true) facts.push("Automation reconciliation pending")
+    if (evidence?.partial_reconciliation === true) facts.push("Partial reconciliation remains attention")
+    if (evidence?.fully_reconciled === true) facts.push("Configuration fully reconciled")
+    if (evidence?.direct_policy_write === false) facts.push("Dashboard direct policy writes excluded")
+    if (evidence?.direct_automation_write === false) facts.push("Dashboard direct automation writes excluded")
+    if (evidence?.fix_executor_actor_attribution === "unavailable") facts.push("Canonical records do not expose the execution actor")
+  }
   if (!evidence && facts.length === 0) return null
   if (typeof evidence?.task_turn_started === "boolean") {
     facts.push(evidence.task_turn_started ? "Task/turn started" : "Task/turn not verified")

@@ -24,12 +24,81 @@ import {
   TrackerWorkflowActions,
 } from "@/features/admin/factory-workflow-actions"
 import type { OperationPreviewEnvelope } from "@/lib/admin-operations-api"
+import type { RunDetail } from "@/lib/operations-api"
 import type { ProjectProjection } from "@/lib/projects-api"
 import type { TaskDetailEnvelope } from "@/lib/task-api"
 import type { TrackerDetail, TrackerSummary } from "@/lib/trackers-api"
 
 const hash = "a".repeat(64)
 const head = "b".repeat(40)
+
+const policy = {
+  version: 5,
+  sha256: hash,
+  schedule: { routine_minutes: 20, meta_review_hours: 4 },
+  reports: {},
+  adjustable: {
+    routine_minutes: 20,
+    meta_review_hours: 4,
+    max_sample_denominator: 6,
+    cooldown_minutes: 60,
+    max_escalations_per_hour: 1,
+    gmail_quiet_minutes: 2,
+    gmail_active_minutes: 1,
+    gmail_active_window_minutes: 30,
+    skill_maintenance_mode: "propose-only",
+  },
+  adjustment_contract: {
+    fields: [
+      ["routine_minutes", "integer", 15, 60, "watcher"],
+      ["meta_review_hours", "integer", 2, 24, "reviewer"],
+      ["max_sample_denominator", "integer", 4, 10, null],
+      ["cooldown_minutes", "integer", 30, 120, null],
+      ["max_escalations_per_hour", "integer", 1, 2, null],
+      ["gmail_quiet_minutes", "integer", 2, 10, "gmail_gate"],
+      ["gmail_active_minutes", "integer", 1, 9, null],
+      ["gmail_active_window_minutes", "integer", 5, 120, null],
+      ["skill_maintenance_mode", "enum", null, null, null],
+    ].map(([field, kind, minimum, maximum, automation_role]) => ({
+      field,
+      kind,
+      minimum,
+      maximum,
+      automation_role,
+    })),
+    skill_maintenance_modes: [
+      "apply-allowlisted-skill-maintenance-with-review",
+      "apply-supervision-maintenance",
+      "propose-only",
+    ],
+  },
+  automation_reconciliation: [
+    {
+      field: "routine_minutes",
+      role: "watcher",
+      automation_id: "watcher-automation",
+      expected_rrule: "RRULE:FREQ=MINUTELY;INTERVAL=20",
+      actual_rrule: "RRULE:FREQ=MINUTELY;INTERVAL=20",
+      owner_status: "ACTIVE",
+      target_thread_id: "watcher-task",
+      state: "reconciled",
+      reason: "Policy cadence and actual active automation agree.",
+    },
+    {
+      field: "meta_review_hours",
+      role: "reviewer",
+      automation_id: "reviewer-automation",
+      expected_rrule: "RRULE:FREQ=HOURLY;INTERVAL=4",
+      actual_rrule: "RRULE:FREQ=HOURLY;INTERVAL=4",
+      owner_status: "ACTIVE",
+      target_thread_id: "reviewer-task",
+      state: "reconciled",
+      reason: "Policy cadence and actual active automation agree.",
+    },
+  ],
+  source_path: "/supervision/task-demo/policy.json",
+  read_only: true,
+} as unknown as NonNullable<RunDetail["policy"]>
 
 function previewEnvelope(type: string): OperationPreviewEnvelope {
   return {
@@ -227,6 +296,7 @@ describe("Factory workflow action strips", () => {
         targetId="task-demo"
         projectId="demo"
         openIncidentIds={["INC-ONE", "INC-TWO"]}
+        policy={policy}
       />,
     )
 
@@ -253,6 +323,40 @@ describe("Factory workflow action strips", () => {
       input: { incident_id: "INC-TWO" },
     })
     expect(await screen.findByText("One exact reviewer task · conclusion remains separate from delivery")).toBeVisible()
+  })
+
+  it("previews one exact policy diff and keeps unbound Gmail cadence unavailable", async () => {
+    const user = userEvent.setup()
+    renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+      />,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Adjust supervision" }))
+    expect(screen.getByRole("checkbox", { name: /Gmail quiet minutes/ })).toBeDisabled()
+    await user.click(screen.getByRole("checkbox", { name: /Routine minutes/ }))
+    const value = screen.getByRole("spinbutton", { name: "New Routine minutes" })
+    await user.clear(value)
+    await user.type(value, "25")
+    await user.type(screen.getByLabelText("Reason"), "Increase the bounded routine interval.")
+    await user.click(screen.getByRole("button", { name: "Preview" }))
+
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.supervision-adjust",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: {
+        reason: "Increase the bounded routine interval.",
+        routine_minutes: 25,
+      },
+    })
+    expect(await screen.findByText("Routine minutes: 20 → 25")).toBeVisible()
+    expect(screen.getByText(/8 adjustable fields/)).toBeVisible()
+    expect(screen.getByText("watcher")).toBeVisible()
   })
 
   it("previews only the selected eligible implementation range and exact Stop", async () => {
