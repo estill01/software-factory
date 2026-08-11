@@ -1669,9 +1669,14 @@ def _source_label(value: Any) -> str:
 def _item_projection(item: Mapping[str, Any]) -> dict[str, Any]:
     item_type = _bounded(item.get("type"), 100) or "unknown"
     summary: str | None = None
+    summary_content: str | None = None
     status: str | None = None
+    user_content: str | None = None
+    user_input_classification: str | None = None
+    user_authority_status: str | None = None
     if item_type in {"agentMessage", "plan"}:
-        summary = _bounded(item.get("text"))
+        summary_content = item.get("text") if isinstance(item.get("text"), str) else None
+        summary = _bounded(summary_content)
     elif item_type == "userMessage":
         texts = [
             value.get("text")
@@ -1680,7 +1685,22 @@ def _item_projection(item: Mapping[str, Any]) -> dict[str, Any]:
             and value.get("type") == "text"
             and isinstance(value.get("text"), str)
         ]
-        summary = _bounded("\n".join(texts))
+        user_content = "\n".join(texts)
+        summary_content = user_content
+        summary = _bounded(user_content)
+        normalized = user_content.lstrip().casefold()
+        if "<codex_delegation" in normalized or "&lt;codex_delegation" in normalized:
+            user_input_classification = "routed-delegation"
+            user_authority_status = "ineligible"
+        elif normalized.startswith("software_factory_dashboard_"):
+            user_input_classification = "dashboard-generated-marker"
+            user_authority_status = "ineligible"
+        else:
+            # The transport exposes a user message and client ID, but not an
+            # authority class. Consequential consumers must keep authority
+            # unverified until its maintained reviewer independently proves it.
+            user_input_classification = "ordinary-user-message"
+            user_authority_status = "unverified"
     elif item_type == "commandExecution":
         summary = _bounded(item.get("command"), 2_000)
         status = _bounded(item.get("status"), 100)
@@ -1702,6 +1722,25 @@ def _item_projection(item: Mapping[str, Any]) -> dict[str, Any]:
         "type": item_type,
         "status": status,
         "summary": summary,
+        "summary_sha256": (
+            sha256(summary_content.encode("utf-8")).hexdigest()
+            if summary_content is not None
+            else None
+        ),
+        "summary_truncated": (
+            len(summary_content) > MAX_TEXT if summary_content is not None else None
+        ),
+        "client_id": _bounded(item.get("clientId"), 256),
+        "user_content_sha256": (
+            sha256(user_content.encode("utf-8")).hexdigest()
+            if user_content is not None
+            else None
+        ),
+        "user_content_truncated": (
+            len(user_content) > MAX_TEXT if user_content is not None else None
+        ),
+        "user_input_classification": user_input_classification,
+        "user_authority_status": user_authority_status,
     }
 
 

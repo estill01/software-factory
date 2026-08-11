@@ -359,6 +359,7 @@ describe("Factory workflow action strips", () => {
       input: {},
     })
     expect(await screen.findByText("Missing mission binding only")).toBeVisible()
+    expect(screen.getByText(/authority unverified until independent reviewer proof/)).toBeVisible()
     expect(screen.getByText(/Mission overwrite/)).toBeVisible()
   })
 

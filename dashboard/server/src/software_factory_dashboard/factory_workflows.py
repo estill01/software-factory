@@ -53,6 +53,9 @@ POLICY_ADJUST_EVIDENCE_PURPOSE = (
     f"dashboard-route-purpose:{POLICY_ADJUST_ROUTE_PURPOSE}"
 )
 BINDING_REPAIR_MARKER = "SOFTWARE_FACTORY_DASHBOARD_BINDING_REPAIR "
+BINDING_AUTHORITY_REVIEW_MARKER = (
+    "SOFTWARE_FACTORY_DASHBOARD_BINDING_AUTHORITY_REVIEW "
+)
 BINDING_REPAIR_ROUTE_PURPOSE = "semantic-escalation"
 REVIEW_VARIANTS = {
     "checkpoint": {
@@ -4845,7 +4848,7 @@ class FactoryWorkflowOwner:
         ):
             raise OperationError(
                 "binding_repair_source_unavailable",
-                "The implementation binding does not name one exact direct-user item in the selected target.",
+                "The implementation binding does not name one exact user item in the selected target.",
                 status=409,
             )
         return parts[2], parts[3]
@@ -4865,9 +4868,76 @@ class FactoryWorkflowOwner:
         ):
             raise OperationError(
                 "binding_repair_task_history_partial",
-                "The implementation task history is partial, so the current binding and direct-user source cannot be proved.",
+                "The implementation task history is partial, so the current binding and source cannot be proved.",
                 status=409,
             )
+
+    @staticmethod
+    def _binding_source_item(
+        task: Mapping[str, Any],
+        *,
+        source_record: str,
+        target_thread_id: str,
+    ) -> dict[str, Any]:
+        FactoryWorkflowOwner._require_exact_binding_task_history(task)
+        source_turn_id, source_item_id = FactoryWorkflowOwner._binding_source_parts(
+            source_record,
+            target_thread_id=target_thread_id,
+        )
+        matching_turns = [
+            turn for turn in task.get("turns", []) if turn.get("id") == source_turn_id
+        ]
+        if len(matching_turns) != 1:
+            raise OperationError(
+                "binding_repair_source_unavailable",
+                "The exact mission source turn is unavailable.",
+                status=409,
+            )
+        source_items = [
+            item
+            for item in matching_turns[0].get("items", [])
+            if item.get("id") == source_item_id and item.get("type") == "userMessage"
+        ]
+        if len(source_items) != 1:
+            raise OperationError(
+                "binding_repair_source_unavailable",
+                "The exact mission source item is unavailable.",
+                status=409,
+            )
+        item = source_items[0]
+        summary = item.get("summary")
+        content_sha256 = item.get("user_content_sha256")
+        client_id = item.get("client_id")
+        normalized = summary.lstrip().casefold() if isinstance(summary, str) else ""
+        if (
+            not isinstance(summary, str)
+            or not summary
+            or not isinstance(content_sha256, str)
+            or not SHA256_PATTERN.fullmatch(content_sha256)
+            or sha256(summary.encode("utf-8")).hexdigest() != content_sha256
+            or item.get("user_content_truncated") is not False
+            or item.get("user_input_classification") != "ordinary-user-message"
+            or item.get("user_authority_status") != "unverified"
+            or "<codex_delegation" in normalized
+            or "&lt;codex_delegation" in normalized
+            or normalized.startswith("software_factory_dashboard_")
+            or not isinstance(client_id, str)
+            or not client_id
+        ):
+            raise OperationError(
+                "binding_repair_source_ineligible",
+                "The source is routed, generated, truncated, incomplete, or lacks the exact user-input identity required for independent authority review.",
+                status=409,
+            )
+        return {
+            "turn_id": source_turn_id,
+            "item_id": source_item_id,
+            "summary": summary,
+            "content_sha256": content_sha256,
+            "client_id": client_id,
+            "classification": "ordinary-user-message",
+            "authority_status": "unverified-reviewer-verification-required",
+        }
 
     @staticmethod
     def _validated_binding_role_task(
@@ -4966,35 +5036,35 @@ class FactoryWorkflowOwner:
                 status=409,
             )
         mission_source_record = str(task_marker["mission_source_record"])
-        source_turn_id, source_item_id = self._binding_source_parts(
-            mission_source_record,
+        source_item = self._binding_source_item(
+            task,
+            source_record=mission_source_record,
             target_thread_id=target.id,
         )
-        matching_turns = [
-            turn for turn in task.get("turns", []) if turn.get("id") == source_turn_id
-        ]
-        if len(matching_turns) != 1 or matching_turns[0].get("items_truncated") is True:
-            raise OperationError(
-                "binding_repair_source_unavailable",
-                "The exact direct-user source turn is unavailable or partial.",
-                status=409,
+        source_turn_id = str(source_item["turn_id"])
+        source_item_id = str(source_item["item_id"])
+        source_sha256 = str(source_item["content_sha256"])
+        try:
+            run_project_binding = self.operations_service.project_binding_snapshot(
+                projects,
+                target.id,
             )
-        source_items = [
-            item
-            for item in matching_turns[0].get("items", [])
-            if item.get("id") == source_item_id and item.get("type") == "userMessage"
-        ]
+        except OperationsProjectionError as error:
+            raise _operation_error(
+                error,
+                fallback="binding_repair_project_claim_unavailable",
+            ) from error
+        project_claim = run_project_binding.get("project_binding")
         if (
-            len(source_items) != 1
-            or not isinstance(source_items[0].get("summary"), str)
-            or not source_items[0]["summary"]
+            not isinstance(project_claim, Mapping)
+            or project_claim.get("status") != "bound"
+            or project_claim.get("project_id") != project.id
         ):
             raise OperationError(
-                "binding_repair_source_unavailable",
-                "The exact direct-user source item is unavailable.",
+                "binding_repair_project_claim_mismatch",
+                "The canonical run path claim does not match the target task and tracker project.",
                 status=409,
             )
-        source_sha256 = sha256(source_items[0]["summary"].encode("utf-8")).hexdigest()
         try:
             plan = self.operations_service.preview_mission_bind(
                 target.id,
@@ -5021,7 +5091,7 @@ class FactoryWorkflowOwner:
         ):
             raise OperationError(
                 "binding_repair_mission_semantics_differ",
-                "The implementation task and exact direct-user source derive different mission semantics; use mission succession instead.",
+                "The implementation task and exact source candidate derive different mission semantics; use mission succession instead.",
                 status=409,
             )
         tracker_target = OperationTarget(
@@ -5140,6 +5210,11 @@ class FactoryWorkflowOwner:
             "mission_source_turn_id": source_turn_id,
             "mission_source_item_id": source_item_id,
             "mission_source_sha256": source_sha256,
+            "mission_source_client_id": source_item["client_id"],
+            "mission_source_classification": source_item["classification"],
+            "mission_source_authority_status": source_item["authority_status"],
+            "run_project_binding": dict(project_claim),
+            "run_project_binding_fingerprint": run_project_binding["fingerprint"],
             "expected_mission_binding": dict(expected_mission),
             "expected_mission_root": expected_mission["mission_root"],
             "source_record": source_record,
@@ -5188,7 +5263,11 @@ class FactoryWorkflowOwner:
             "mission_source": {
                 "record": mission_source_record,
                 "sha256": source_sha256,
+                "client_id": source_item["client_id"],
+                "classification": source_item["classification"],
+                "authority_status": source_item["authority_status"],
             },
+            "run_project_binding": run_project_binding["fingerprint"],
             "bind_plan": {
                 "control_fingerprint": control.get("fingerprint"),
                 "owner_sha256": plan["owner_sha256"],
@@ -5228,6 +5307,14 @@ class FactoryWorkflowOwner:
             "mission_root": source.evidence["expected_mission_root"],
             "mission_source_record": source.evidence["mission_source_record"],
             "mission_source_sha256": source.evidence["mission_source_sha256"],
+            "mission_source_client_id": source.evidence["mission_source_client_id"],
+            "mission_source_classification": source.evidence[
+                "mission_source_classification"
+            ],
+            "mission_source_authority_status": source.evidence[
+                "mission_source_authority_status"
+            ],
+            "run_project_binding": source.evidence["run_project_binding"],
             "prior_policy_sha256": source.evidence["prior_policy_sha256"],
             "prior_policy_version": source.evidence["prior_policy_version"],
             "expected_policy_version": source.evidence["expected_policy_version"],
@@ -5239,6 +5326,30 @@ class FactoryWorkflowOwner:
             "source_record": source.evidence["source_record"],
             "reviewer_task_id": source.evidence["reviewer_task_id"],
             "fix_executor_task_id": source.evidence["fix_executor_task_id"],
+        }
+
+    @staticmethod
+    def _binding_authority_review_marker(
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> dict[str, Any]:
+        """Reviewer-owned assertion after independent exact-byte/intent review."""
+
+        return {
+            "kind": "mission-binding-source-authority-review",
+            "status": "verified",
+            "target_thread_id": target.id,
+            "project_id": source.evidence["project_id"],
+            "tracker_id": source.evidence["tracker_id"],
+            "tracker_content_sha256": source.evidence["tracker_content_sha256"],
+            "mission_root": source.evidence["expected_mission_root"],
+            "mission_source_record": source.evidence["mission_source_record"],
+            "mission_source_sha256": source.evidence["mission_source_sha256"],
+            "mission_source_client_id": source.evidence["mission_source_client_id"],
+            "verified_source_class": "direct-user",
+            "verified_intent": "matches-implementation-mission",
+            "preview_fingerprint": source.fingerprint,
+            "reviewer_task_id": source.evidence["reviewer_task_id"],
         }
 
     @staticmethod
@@ -5268,11 +5379,53 @@ class FactoryWorkflowOwner:
         return len(markers) == 1 and markers[0] == expected
 
     @staticmethod
+    def _binding_authority_review_verified(
+        task: Mapping[str, Any],
+        *,
+        turn_id: str,
+        expected: Mapping[str, Any],
+    ) -> bool:
+        try:
+            FactoryWorkflowOwner._require_exact_binding_task_history(task)
+        except OperationError:
+            return False
+        turns = [turn for turn in task.get("turns", []) if turn.get("id") == turn_id]
+        if len(turns) != 1 or turns[0].get("status") != "completed":
+            return False
+        markers: list[Mapping[str, Any]] = []
+        for item in turns[0].get("items", []):
+            summary = item.get("summary")
+            if (
+                item.get("type") != "agentMessage"
+                or not isinstance(summary, str)
+                or item.get("summary_truncated") is not False
+                or item.get("summary_sha256")
+                != sha256(summary.encode("utf-8")).hexdigest()
+            ):
+                continue
+            first_line = summary.splitlines()[0] if summary else ""
+            if not first_line.startswith(BINDING_AUTHORITY_REVIEW_MARKER):
+                continue
+            try:
+                marker = json.loads(
+                    first_line.removeprefix(BINDING_AUTHORITY_REVIEW_MARKER)
+                )
+            except json.JSONDecodeError:
+                return False
+            if isinstance(marker, Mapping):
+                markers.append(marker)
+        return len(markers) == 1 and markers[0] == expected
+
+    @staticmethod
     def _binding_repair_prompt(
         target: OperationTarget,
         source: SourceSnapshot,
     ) -> str:
         marker = FactoryWorkflowOwner._binding_repair_marker(target, source)
+        authority_marker = FactoryWorkflowOwner._binding_authority_review_marker(
+            target,
+            source,
+        )
         facts = {
             "target_thread_id": target.id,
             "project_id": source.evidence["project_id"],
@@ -5283,6 +5436,13 @@ class FactoryWorkflowOwner:
             "mission_root": source.evidence["expected_mission_root"],
             "mission_source_record": source.evidence["mission_source_record"],
             "mission_source_sha256": source.evidence["mission_source_sha256"],
+            "mission_source_client_id": source.evidence["mission_source_client_id"],
+            "mission_source_classification": source.evidence[
+                "mission_source_classification"
+            ],
+            "mission_source_authority_status": source.evidence[
+                "mission_source_authority_status"
+            ],
             "prior_policy_sha256": source.evidence["prior_policy_sha256"],
             "prior_policy_version": source.evidence["prior_policy_version"],
             "expected_policy_version": source.evidence["expected_policy_version"],
@@ -5295,9 +5455,14 @@ class FactoryWorkflowOwner:
         return FactoryWorkflowOwner._bounded_prompt(
             (
                 BINDING_REPAIR_MARKER + _canonical(marker),
-                "Review only this operator-confirmed missing-mission binding repair.",
-                "Use $supervise-tracker-runs. Reproduce the exact missing field and verify the target task, implementation marker, direct-user source item, tracker path/content root, policy head, and single-group check before acting.",
-                "If and only if every supplied identity is current, route the exact configured fix executor through the maintained fix-execution gate.",
+                "Review only this bounded missing-mission binding candidate.",
+                "The operator confirmation requested this review. It is not source attestation, provenance, direct-user proof, or permission to bind.",
+                "Use $supervise-tracker-runs. Reproduce the exact missing field and verify the target task, implementation marker, complete source item/hash, canonical run/project claim, tracker path/content root, policy head, and single-group check before acting.",
+                "Source authority is unverified. Independently inspect the exact full source bytes, item identity, client identity, transport classification, and mission intent; do not infer authority from the request marker or operator action.",
+                "Routed, generated, truncated, partial, unverifiable, or intent-incompatible evidence must produce no verification marker and no bind.",
+                "Only after independently verifying direct-user source authority, compatible intent, and every supplied identity may you route the exact configured fix executor through the maintained fix-execution gate.",
+                "When and only when that independent verification succeeds, begin your final response with this exact reviewer-owned marker:",
+                BINDING_AUTHORITY_REVIEW_MARKER + _canonical(authority_marker),
                 "The fix executor must invoke the maintained supervision_log.py bind owner with only --target-thread, --mission-source-class direct-user, --mission-source-record, and --mission-source-sha256 using the exact values below.",
                 "Do not pass tracker, role, automation, Gmail, model, spend, policy-field, or lifecycle arguments. Never write policy.json or policy-history.jsonl directly.",
                 "If a mission binding now exists, any identity differs, the bind owner would normalize another field, or intent is materially different, stop without mutation; different intent belongs to mission succession.",
@@ -5404,6 +5569,12 @@ class FactoryWorkflowOwner:
                         ],
                         "binding_repair_requested": True,
                         "binding_repaired": False,
+                        "source_classification": source.evidence[
+                            "mission_source_classification"
+                        ],
+                        "source_authority_status": (
+                            "unverified-reviewer-verification-required"
+                        ),
                         "expected_policy_version": source.evidence[
                             "expected_policy_version"
                         ],
@@ -5446,6 +5617,7 @@ class FactoryWorkflowOwner:
             projects, catalog_fingerprint = self._active_projects()
             reviewer_task_id = str(source.evidence["reviewer_task_id"])
             reviewer_request_current = False
+            reviewer_authority_verified = False
             try:
                 reviewer_detail = self.app_server_client.read_task(
                     projects,
@@ -5464,8 +5636,20 @@ class FactoryWorkflowOwner:
                         expected=self._binding_repair_marker(target, source),
                     )
                 )
+                reviewer_authority_verified = (
+                    reviewer_request_current
+                    and self._binding_authority_review_verified(
+                        reviewer_task,
+                        turn_id=reviewer_turn_id,
+                        expected=self._binding_authority_review_marker(
+                            target,
+                            source,
+                        ),
+                    )
+                )
             except (AppServerError, OperationError):
                 reviewer_request_current = False
+                reviewer_authority_verified = False
             record = self._matching_binding_repair_record(control, source=source)
             current_version = control.get("policy_version")
             if record is None:
@@ -5476,6 +5660,14 @@ class FactoryWorkflowOwner:
                             **result.evidence,
                             "binding_repaired": False,
                             "reviewer_request_current": reviewer_request_current,
+                            "reviewer_authority_verified": (
+                                reviewer_authority_verified
+                            ),
+                            "source_authority_status": (
+                                "reviewer-verified"
+                                if reviewer_authority_verified
+                                else "unverified-reviewer-verification-required"
+                            ),
                             "current_policy_version": current_version,
                             "recovery": "Await the exact reviewer/fix-executor owner chain or cancel and re-preview if any bound source changes.",
                         },
@@ -5487,6 +5679,12 @@ class FactoryWorkflowOwner:
                         **result.evidence,
                         "binding_repaired": False,
                         "reviewer_request_current": reviewer_request_current,
+                        "reviewer_authority_verified": reviewer_authority_verified,
+                        "source_authority_status": (
+                            "reviewer-verified"
+                            if reviewer_authority_verified
+                            else "unverified-reviewer-verification-required"
+                        ),
                         "current_policy_version": current_version,
                         "failure_boundary": "Policy history changed without the exact missing-mission bind postcondition.",
                         "recovery": "Inspect the current policy/history; use mission succession for different intent and never overwrite it as repair.",
@@ -5522,6 +5720,8 @@ class FactoryWorkflowOwner:
             )
             target_current = False
             tracker_current = False
+            source_current = False
+            run_project_current = False
             try:
                 target_detail = self.app_server_client.read_task(
                     projects,
@@ -5534,10 +5734,36 @@ class FactoryWorkflowOwner:
                     if isinstance(target_task, Mapping)
                     else None
                 )
+                current_source = (
+                    self._binding_source_item(
+                        target_task,
+                        source_record=str(source.evidence["mission_source_record"]),
+                        target_thread_id=target.id,
+                    )
+                    if isinstance(target_task, Mapping)
+                    else None
+                )
+                source_current = (
+                    isinstance(current_source, Mapping)
+                    and current_source.get("turn_id")
+                    == source.evidence["mission_source_turn_id"]
+                    and current_source.get("item_id")
+                    == source.evidence["mission_source_item_id"]
+                    and current_source.get("content_sha256")
+                    == source.evidence["mission_source_sha256"]
+                    and current_source.get("client_id")
+                    == source.evidence["mission_source_client_id"]
+                    and current_source.get("classification")
+                    == source.evidence["mission_source_classification"]
+                    and current_source.get("authority_status")
+                    == source.evidence["mission_source_authority_status"]
+                )
                 target_current = (
                     catalog_fingerprint == source.evidence["catalog_fingerprint"]
                     and isinstance(target_task, Mapping)
                     and target_task.get("id") == target.id
+                    and target_task.get("status", {}).get("type")
+                    in LIVE_TASK_STATES
                     and isinstance(target_binding, Mapping)
                     and target_binding.get("status") == "bound"
                     and target_binding.get("project_id")
@@ -5554,6 +5780,7 @@ class FactoryWorkflowOwner:
                     )
                     and self._task_marker(target_task)
                     == source.evidence["implementation_binding"]
+                    and source_current
                 )
                 tracker_target = OperationTarget(
                     kind="tracker",
@@ -5571,16 +5798,35 @@ class FactoryWorkflowOwner:
                     )
                     == source.evidence["tracker_content_sha256"]
                 )
-            except (AppServerError, OperationError):
+                current_run_binding = self.operations_service.project_binding_snapshot(
+                    projects,
+                    target.id,
+                )
+                run_project_current = (
+                    current_run_binding.get("fingerprint")
+                    == source.evidence["run_project_binding_fingerprint"]
+                    and current_run_binding.get("project_binding")
+                    == source.evidence["run_project_binding"]
+                    and source.evidence["run_project_binding"].get("status")
+                    == "bound"
+                    and source.evidence["run_project_binding"].get("project_id")
+                    == source.evidence["project_id"]
+                )
+            except (AppServerError, OperationError, OperationsProjectionError):
                 target_current = False
                 tracker_current = False
+                source_current = False
+                run_project_current = False
             tuple_current = (
                 policy_head_current
                 and owner_current
                 and prior_head_preserved
                 and reviewer_request_current
+                and reviewer_authority_verified
                 and target_current
                 and tracker_current
+                and source_current
+                and run_project_current
                 and group_ids == [target.id]
             )
             if not tuple_current:
@@ -5588,13 +5834,22 @@ class FactoryWorkflowOwner:
                     "unverified" if policy_head_current else "pending",
                     {
                         **result.evidence,
-                        "binding_repaired": bool(policy_head_current),
+                        "binding_repaired": False,
+                        "policy_binding_observed": bool(policy_head_current),
                         "policy_head_current": bool(policy_head_current),
                         "owner_current": owner_current,
                         "prior_history_preserved": prior_head_preserved,
                         "reviewer_request_current": reviewer_request_current,
+                        "reviewer_authority_verified": reviewer_authority_verified,
+                        "source_authority_status": (
+                            "reviewer-verified"
+                            if reviewer_authority_verified
+                            else "unverified-reviewer-verification-required"
+                        ),
                         "target_binding_current": target_current,
                         "tracker_binding_current": tracker_current,
+                        "mission_source_current": source_current,
+                        "run_project_binding_current": run_project_current,
                         "single_group_current": group_ids == [target.id],
                         "group_ids": group_ids,
                         "recovery": "Re-read the exact current tuple; do not retry or overwrite a changed source.",
@@ -5618,8 +5873,12 @@ class FactoryWorkflowOwner:
                     "owner_current": True,
                     "prior_history_preserved": True,
                     "reviewer_request_current": True,
+                    "reviewer_authority_verified": True,
+                    "source_authority_status": "reviewer-verified",
                     "target_binding_current": True,
                     "tracker_binding_current": True,
+                    "mission_source_current": True,
+                    "run_project_binding_current": True,
                     "single_group_current": True,
                     "group_ids": group_ids,
                     "mission_semantics_changed": False,
@@ -5637,8 +5896,9 @@ class FactoryWorkflowOwner:
             input_schema=schema,
             owner="maintained reviewer plan + fix executor + supervision bind/policy owner",
             authority=(
-                "explicit operator confirmation",
-                "exact live implementation task and direct-user source item",
+                "explicit operator confirmation to request one bounded review, not source authority",
+                "independent reviewer verification of the exact source bytes and mission intent",
+                "exact live implementation task and complete source content root",
                 "exact current tracker path/content and missing-mission policy head",
                 "maintained semantic-escalation and fix-execution route gates",
                 "maintained supervision bind/policy owner",
@@ -5653,21 +5913,22 @@ class FactoryWorkflowOwner:
             ),
             confirmation=ConfirmationContract(
                 "supervision-binding-repair",
-                "Type REPAIR to request this exact missing-mission binding repair.",
-                "REPAIR",
+                "Type REQUEST BINDING REVIEW to request review of this exact candidate. This does not attest source authority.",
+                "REQUEST BINDING REVIEW",
             ),
             idempotency="One consumed preview starts at most one reviewer turn; the dashboard never retries or writes the binding itself.",
-            expected_postcondition="One exact next policy-bind record adds only the source-derived mission binding while the target/tracker tuple, history, and single-group identity remain current.",
+            expected_postcondition="An independent reviewer verifies the exact source bytes and intent, and one exact next policy-bind record adds only the source-derived mission binding while the live target, source item, run/project claim, tracker tuple, history, owner, and single-group identity remain current.",
             timeout_seconds=30,
             limitations=(
                 "Only a missing mission binding in an otherwise exact dashboard-started implementation tuple is supported.",
+                "App Server user-message transport and operator confirmation do not prove authority; the source remains unverified until the independent reviewer records the exact verification marker after inspecting full bytes and intent.",
                 "Tracker drift, target mismatch, an existing different mission, arbitrary paths, or owner normalization beyond the mission field fail closed.",
                 "The dashboard never writes policy or ledger files and does not expose role-task, automation, lifecycle, report, evolution, or terminal controls here.",
             ),
             resolve_source=self._mission_binding_repair_source,
             describe_effect=lambda target, inputs, source: PreviewEffect(
-                f"Request one source-derived missing mission binding for run {target.id}.",
-                "The maintained owner may add one mission binding and next policy-history record; target and tracker identity must remain unchanged.",
+                f"Request independent review of one missing mission binding candidate for run {target.id}.",
+                "Only after independent authority verification may the maintained owner add one mission binding and next policy-history record; target and tracker identity must remain unchanged.",
                 recipient=str(source.evidence["reviewer_task_id"]),
             ),
             route_gate_request=self._binding_repair_route_request,

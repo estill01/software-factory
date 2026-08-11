@@ -632,15 +632,21 @@ test("missing mission binding exposes only the source-derived repair preview", a
     target: { kind: "run", id: target, project_id: "software-factory" },
     state: "previewed",
     owner: "maintained reviewer plan + fix executor + supervision bind/policy owner",
-    authority: ["exact live implementation task and direct-user source item"],
+    authority: ["operator confirmation requests review; independent reviewer verifies source authority"],
     preview: {
-      effect: `Request one source-derived missing mission binding for run ${target}.`,
-      risk: "The maintained owner may add one mission binding and next policy-history record; target and tracker identity must remain unchanged.",
+      effect: `Request independent review of one missing mission binding candidate for run ${target}.`,
+      risk: "Only after independent authority verification may the maintained owner add one mission binding and next policy-history record; target and tracker identity must remain unchanged.",
       recipient: "019fe54d-acd4-7653-825e-4d710eaeae7b",
       source_fingerprint: "8".repeat(64),
       source_evidence: {
         source_record: "EVT-000139",
         tracker_path: "docs/software-factory-operations-dashboard-implementation-tracker.md",
+        mission_source_record: `codex:${target}:turn-source-001:item-source-001`,
+        mission_source_sha256: "c".repeat(64),
+        mission_source_client_id: "client-source-001",
+        mission_source_classification: "ordinary-user-message",
+        mission_source_authority_status: "unverified-reviewer-verification-required",
+        run_project_binding: { status: "bound", project_id: "software-factory" },
       },
       route_gate: {
         status: "allowed",
@@ -659,10 +665,10 @@ test("missing mission binding exposes only the source-derived repair preview", a
       },
       confirmation: {
         class: "supervision-binding-repair",
-        prompt: "Type REPAIR to request this exact missing-mission binding repair.",
-        expected_value: "REPAIR",
+        prompt: "Type REQUEST BINDING REVIEW to request review of this exact candidate. This does not attest source authority.",
+        expected_value: "REQUEST BINDING REVIEW",
       },
-      expected_postcondition: "One exact next policy-bind record adds only the source-derived mission binding while target/tracker identity remains current.",
+      expected_postcondition: "One exact next policy-bind record adds only the source-derived mission binding while the live target, complete source item, run/project claim, tracker tuple, history, owner, and single-group identity remain current.",
       idempotency: "One consumed preview starts at most one reviewer turn.",
       limitations: ["Only a missing mission binding is supported."],
       expires_at: "2026-08-11T03:00:00.000Z",
@@ -702,7 +708,13 @@ test("missing mission binding exposes only the source-derived repair preview", a
   await repair.click()
   const preview = page.getByRole("dialog")
   await expect(preview).toContainText("Missing mission binding only")
-  await expect(preview).toContainText("Exact direct-user item")
+  await expect(preview).toContainText("authority unverified until independent reviewer proof")
+  await expect(preview).toContainText("REQUEST BINDING REVIEW")
+  await expect(preview).toContainText(`codex:${target}:turn-source-001:item-source-001`)
+  await expect(preview).toContainText("c".repeat(64))
+  await expect(preview).toContainText("ordinary user message")
+  await expect(preview).toContainText("unverified reviewer verification required")
+  await expect(preview).not.toContainText(/attested source|attest the displayed|operator attestation/i)
   await expect(preview).toContainText("Current path and content root")
   await expect(preview).toContainText("semantic-escalation")
   await expect(preview).toContainText("target and tracker identity must remain unchanged")

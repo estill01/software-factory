@@ -251,5 +251,23 @@ describe("administrative operation UI", () => {
     expect(screen.getByText("Partial reconciliation remains attention")).toBeVisible()
     expect(screen.getByText("Dashboard direct policy writes excluded")).toBeVisible()
     expect(screen.getByText("Canonical records do not expose the execution actor")).toBeVisible()
+
+    rerender(<OperationActivityPanel operations={[{
+      ...operation,
+      type: "factory.supervision-repair-mission-binding",
+      state: "unverified",
+      history: [...operation.history, { state: "unverified", observed_at: "2026-08-10T08:05:00.000Z" }],
+      request_evidence: {
+        binding_repair_requested: true,
+        source_authority_status: "unverified-reviewer-verification-required",
+      },
+      verification_evidence: {
+        binding_repaired: false,
+        reviewer_authority_verified: false,
+      },
+    }]} />)
+    expect(screen.getByText("Missing-mission repair requested")).toBeVisible()
+    expect(screen.getByText("Source authority unverified; independent review required")).toBeVisible()
+    expect(screen.queryByText(/attested by operator/i)).not.toBeInTheDocument()
   })
 })

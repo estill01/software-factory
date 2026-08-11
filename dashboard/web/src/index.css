@@ -3070,6 +3070,15 @@ h3 {
   white-space: nowrap;
 }
 
+.operation-preview-facts dd code.operation-exact-value {
+  max-width: 100%;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+  word-break: break-word;
+}
+
 .operation-preview-consequences {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

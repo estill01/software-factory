@@ -153,6 +153,75 @@ class CodexAppServerClientTests(unittest.TestCase):
         )
         self.assertEqual(client.integration_state()["status"], "available")
 
+    def test_user_item_projection_preserves_full_hash_and_never_infers_direct_authority(self) -> None:
+        direct_text = "Implement the exact tracker."
+        direct = app_server_module._item_projection(
+            {
+                "id": "item-direct-001",
+                "type": "userMessage",
+                "clientId": "client-direct-001",
+                "content": [{"type": "text", "text": direct_text}],
+            }
+        )
+        self.assertEqual(
+            direct["user_content_sha256"],
+            app_server_module.sha256(direct_text.encode("utf-8")).hexdigest(),
+        )
+        self.assertFalse(direct["user_content_truncated"])
+        self.assertEqual(
+            direct["user_input_classification"],
+            "ordinary-user-message",
+        )
+        self.assertEqual(direct["user_authority_status"], "unverified")
+        self.assertEqual(direct["client_id"], "client-direct-001")
+
+        routed = app_server_module._item_projection(
+            {
+                "id": "item-routed-001",
+                "type": "userMessage",
+                "clientId": "client-routed-001",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "<codex_delegation><input>steer</input></codex_delegation>",
+                    }
+                ],
+            }
+        )
+        self.assertEqual(routed["user_input_classification"], "routed-delegation")
+        self.assertEqual(routed["user_authority_status"], "ineligible")
+
+        long_text = "x" * (app_server_module.MAX_TEXT + 1)
+        shortened = app_server_module._item_projection(
+            {
+                "id": "item-long-001",
+                "type": "userMessage",
+                "clientId": "client-long-001",
+                "content": [{"type": "text", "text": long_text}],
+            }
+        )
+        self.assertTrue(shortened["user_content_truncated"])
+        self.assertEqual(len(shortened["summary"]), app_server_module.MAX_TEXT)
+        self.assertEqual(
+            shortened["user_content_sha256"],
+            app_server_module.sha256(long_text.encode("utf-8")).hexdigest(),
+        )
+
+        reviewer_text = "SOFTWARE_FACTORY_DASHBOARD_BINDING_AUTHORITY_REVIEW {}"
+        reviewer = app_server_module._item_projection(
+            {
+                "id": "item-reviewer-001",
+                "type": "agentMessage",
+                "text": reviewer_text,
+            }
+        )
+        self.assertEqual(reviewer["summary"], reviewer_text)
+        self.assertEqual(
+            reviewer["summary_sha256"],
+            app_server_module.sha256(reviewer_text.encode("utf-8")).hexdigest(),
+        )
+        self.assertFalse(reviewer["summary_truncated"])
+
     def test_configured_role_turn_binds_exact_unregistered_cwd_and_resume(self) -> None:
         client = self.client()
         role_cwd = self.root / "codex-role-workspace"

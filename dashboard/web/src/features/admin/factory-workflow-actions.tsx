@@ -555,7 +555,7 @@ export function RunSupervisionActions({
       },
       suppliedFacts: [
         ["Repair", "Missing mission binding only"],
-        ["Source", "Exact direct-user item from the live implementation binding"],
+        ["Source", "Exact complete user item · authority unverified until independent reviewer proof"],
         ["Tracker", "Current path and content root from the registered project"],
         ["Excluded", "Mission overwrite · tracker mutation · role or automation rebinding"],
       ],

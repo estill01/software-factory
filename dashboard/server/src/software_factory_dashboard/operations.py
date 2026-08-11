@@ -904,6 +904,48 @@ class OperationsProjectionService:
         # unrelated groups.
         return [target_thread_id]
 
+    def project_binding_snapshot(
+        self,
+        projects: Sequence[ProjectRecord],
+        target_thread_id: str,
+    ) -> dict[str, Any]:
+        """Project the canonical path claim for one exact supervision target."""
+
+        if not SAFE_ID.fullmatch(target_thread_id):
+            raise OperationsProjectionError("invalid_run_id", "Run target ID is invalid.")
+        unresolved = self.supervision_root / target_thread_id
+        if unresolved.is_symlink():
+            raise OperationsProjectionError(
+                "supervision_target_symlink_rejected",
+                "Supervision target must not be a symlink.",
+                status=422,
+            )
+        try:
+            directory = unresolved.resolve(strict=True)
+        except OSError as error:
+            raise OperationsProjectionError(
+                "run_not_found",
+                "Supervision target is not discoverable.",
+                status=404,
+            ) from error
+        if directory.parent != self.supervision_root or not directory.is_dir():
+            raise OperationsProjectionError(
+                "supervision_target_invalid",
+                "Supervision target escaped its canonical owner root.",
+                status=422,
+            )
+        evidence, cache_status = self._load_target(directory)
+        binding = self._project_binding(evidence, projects)
+        material = {
+            "target_thread_id": target_thread_id,
+            "project_binding": binding,
+        }
+        return {
+            **material,
+            "fingerprint": _digest(material),
+            "cache_status": cache_status,
+        }
+
     def preview_mission_bind(
         self,
         target_thread_id: str,

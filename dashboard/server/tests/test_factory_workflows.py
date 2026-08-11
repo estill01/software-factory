@@ -1699,6 +1699,11 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                             "id": source_item_id,
                             "type": "userMessage",
                             "summary": source_text,
+                            "client_id": "client-source-001",
+                            "user_content_sha256": source_sha,
+                            "user_content_truncated": False,
+                            "user_input_classification": "ordinary-user-message",
+                            "user_authority_status": "unverified",
                         }
                     ],
                 },
@@ -1789,6 +1794,23 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             "expected_history_evidence": [],
             "group_ids": [target_id],
         }
+        run_project_binding = {
+            "target_thread_id": target_id,
+            "project_binding": {
+                "status": "bound",
+                "project_id": project.id,
+                "evidence": [
+                    {
+                        "source_record": "policy",
+                        "field": "project_root",
+                        "value": str(self.repository),
+                    }
+                ],
+                "limitations": [],
+            },
+            "fingerprint": "a" * 64,
+            "cache_status": "fresh",
+        }
 
         class OperationsStub:
             @staticmethod
@@ -1817,6 +1839,12 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                 if selected_target != target_id:
                     raise AssertionError("wrong target")
                 return [target_id]
+
+            @staticmethod
+            def project_binding_snapshot(_projects, selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong target")
+                return run_project_binding
 
         class AppServerStub:
             prompt = None
@@ -1892,6 +1920,10 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         owner._active_projects = lambda: ((project,), selection.catalog_fingerprint)
         owner._tracker_selection = lambda target: selection
         definition = owner._mission_binding_repair_definition()
+        self.assertEqual(
+            definition.confirmation.expected_value,
+            "REQUEST BINDING REVIEW",
+        )
         target = OperationTarget(
             kind="run",
             id=target_id,
@@ -1901,10 +1933,35 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(source.evidence["repair_scope"], "missing-mission-binding-only")
         self.assertEqual(source.evidence["tracker_content_sha256"], tracker_content)
         self.assertEqual(source.evidence["mission_source_sha256"], source_sha)
+        self.assertEqual(
+            source.evidence["mission_source_classification"],
+            "ordinary-user-message",
+        )
+        self.assertEqual(
+            source.evidence["mission_source_authority_status"],
+            "unverified-reviewer-verification-required",
+        )
+        self.assertEqual(
+            source.evidence["run_project_binding"]["project_id"],
+            project.id,
+        )
         route = definition.route_gate_request(target, {}, source)
         self.assertEqual(route.purpose, "semantic-escalation")
         self.assertEqual(route.recipient, reviewer_task["id"])
         dispatched = definition.dispatch(target, {}, source)
+        self.assertEqual(
+            dispatched.evidence["source_authority_status"],
+            "unverified-reviewer-verification-required",
+        )
+        self.assertNotIn("source_attestation", dispatched.evidence)
+        self.assertIn(
+            "The operator confirmation requested this review",
+            owner.app_server_client.prompt,
+        )
+        self.assertIn(
+            "It is not source attestation, provenance, direct-user proof",
+            owner.app_server_client.prompt,
+        )
         self.assertIn("--mission-source-sha256", owner.app_server_client.prompt)
         self.assertIn("Never write policy.json", owner.app_server_client.prompt)
         pending = definition.verify(target, {}, source, dispatched)
@@ -1930,21 +1987,160 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                 "policy_history_records": [prior_record, next_record],
             }
         )
+        unverified_without_review = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(unverified_without_review.state, "unverified")
+        self.assertFalse(unverified_without_review.evidence["binding_repaired"])
+        self.assertTrue(
+            unverified_without_review.evidence["policy_binding_observed"]
+        )
+        self.assertFalse(
+            unverified_without_review.evidence["reviewer_authority_verified"]
+        )
+
+        authority_marker = owner._binding_authority_review_marker(target, source)
+        authority_text = (
+            "SOFTWARE_FACTORY_DASHBOARD_BINDING_AUTHORITY_REVIEW "
+            + json.dumps(authority_marker, separators=(",", ":"), sort_keys=True)
+        )
+        reviewer_task["turns"][0]["items"].append(
+            {
+                "id": "item-binding-review-result-001",
+                "type": "agentMessage",
+                "summary": authority_text,
+                "summary_sha256": sha256(authority_text.encode("utf-8")).hexdigest(),
+                "summary_truncated": False,
+            }
+        )
         applied = definition.verify(target, {}, source, dispatched)
         self.assertEqual(applied.state, "applied")
         self.assertTrue(applied.evidence["binding_repaired"])
         self.assertTrue(applied.evidence["target_binding_current"])
         self.assertTrue(applied.evidence["tracker_binding_current"])
+        self.assertTrue(applied.evidence["mission_source_current"])
+        self.assertTrue(applied.evidence["run_project_binding_current"])
+        self.assertTrue(applied.evidence["reviewer_authority_verified"])
+        self.assertEqual(applied.evidence["source_authority_status"], "reviewer-verified")
         self.assertTrue(applied.evidence["prior_history_preserved"])
         self.assertTrue(applied.evidence["single_group_current"])
         self.assertTrue(applied.evidence["owner_current"])
         self.assertFalse(applied.evidence["direct_policy_write"])
+
+        reviewer_task["turns"][0]["items"][-1]["summary_truncated"] = True
+        incomplete_review = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(incomplete_review.state, "unverified")
+        self.assertFalse(incomplete_review.evidence["reviewer_authority_verified"])
+        self.assertFalse(incomplete_review.evidence["binding_repaired"])
+        reviewer_task["turns"][0]["items"][-1]["summary_truncated"] = False
 
         control["owner_sha256"] = "9" * 64
         changed_owner = definition.verify(target, {}, source, dispatched)
         self.assertEqual(changed_owner.state, "unverified")
         self.assertFalse(changed_owner.evidence["owner_current"])
         control["owner_sha256"] = plan["owner_sha256"]
+
+        target_task["status"] = {"type": "notLoaded"}
+        non_live = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(non_live.state, "unverified")
+        self.assertFalse(non_live.evidence["target_binding_current"])
+        target_task["status"] = {"type": "idle"}
+
+        source_turn = target_task["turns"][0]
+        source_turn["items"] = []
+        missing_source = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(missing_source.state, "unverified")
+        self.assertFalse(missing_source.evidence["mission_source_current"])
+        source_turn["items"] = [
+            {
+                "id": source_item_id,
+                "type": "userMessage",
+                "summary": source_text,
+                "client_id": "client-source-001",
+                "user_content_sha256": source_sha,
+                "user_content_truncated": False,
+                "user_input_classification": "ordinary-user-message",
+                "user_authority_status": "unverified",
+            }
+        ]
+
+        run_project_binding["project_binding"] = {
+            "status": "bound",
+            "project_id": "different-project",
+            "evidence": [],
+            "limitations": [],
+        }
+        changed_project = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(changed_project.state, "unverified")
+        self.assertFalse(
+            changed_project.evidence["run_project_binding_current"]
+        )
+        with self.assertRaises(OperationError) as project_mismatch:
+            definition.resolve_source(target, {})
+        self.assertEqual(
+            project_mismatch.exception.code,
+            "binding_repair_project_claim_mismatch",
+        )
+        run_project_binding["project_binding"] = source.evidence[
+            "run_project_binding"
+        ]
+
+        routed_text = "<codex_delegation><input>steer</input></codex_delegation>"
+        source_turn["items"][0].update(
+            {
+                "summary": routed_text,
+                "user_content_sha256": sha256(routed_text.encode("utf-8")).hexdigest(),
+                "user_input_classification": "routed-delegation",
+                "user_authority_status": "ineligible",
+            }
+        )
+        with self.assertRaises(OperationError) as routed_source:
+            definition.resolve_source(target, {})
+        self.assertEqual(
+            routed_source.exception.code,
+            "binding_repair_source_ineligible",
+        )
+        source_turn["items"][0].update(
+            {
+                "summary": source_text,
+                "user_content_sha256": source_sha,
+                "user_input_classification": "ordinary-user-message",
+                "user_authority_status": "unverified",
+            }
+        )
+
+        generated_text = "SOFTWARE_FACTORY_DASHBOARD_MISSION {}"
+        source_turn["items"][0].update(
+            {
+                "summary": generated_text,
+                "user_content_sha256": sha256(
+                    generated_text.encode("utf-8")
+                ).hexdigest(),
+                "user_input_classification": "dashboard-generated-marker",
+                "user_authority_status": "ineligible",
+            }
+        )
+        with self.assertRaises(OperationError) as generated_source:
+            definition.resolve_source(target, {})
+        self.assertEqual(
+            generated_source.exception.code,
+            "binding_repair_source_ineligible",
+        )
+        source_turn["items"][0].update(
+            {
+                "summary": source_text,
+                "user_content_sha256": source_sha,
+                "user_input_classification": "ordinary-user-message",
+                "user_authority_status": "unverified",
+            }
+        )
+
+        source_turn["items"][0]["user_content_truncated"] = True
+        with self.assertRaises(OperationError) as truncated_source:
+            definition.resolve_source(target, {})
+        self.assertEqual(
+            truncated_source.exception.code,
+            "binding_repair_source_ineligible",
+        )
+        source_turn["items"][0]["user_content_truncated"] = False
 
         target_task["turns_truncated"] = True
         partial_verification = definition.verify(target, {}, source, dispatched)

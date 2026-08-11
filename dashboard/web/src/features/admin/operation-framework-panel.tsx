@@ -58,6 +58,34 @@ export function OperationConfirmationDialog({
   const incidentId = typeof sourceEvidence.incident_id === "string"
     ? sourceEvidence.incident_id
     : null
+  const isBindingRepair = operation.type === "factory.supervision-repair-mission-binding"
+  const bindingSourceRecord = isBindingRepair
+    && typeof sourceEvidence.mission_source_record === "string"
+    ? sourceEvidence.mission_source_record
+    : null
+  const bindingSourceSha256 = isBindingRepair
+    && typeof sourceEvidence.mission_source_sha256 === "string"
+    ? sourceEvidence.mission_source_sha256
+    : null
+  const bindingSourceClient = isBindingRepair
+    && typeof sourceEvidence.mission_source_client_id === "string"
+    ? sourceEvidence.mission_source_client_id
+    : null
+  const bindingSourceClassification = isBindingRepair
+    && typeof sourceEvidence.mission_source_classification === "string"
+    ? sourceEvidence.mission_source_classification
+    : null
+  const bindingSourceAuthority = isBindingRepair
+    && typeof sourceEvidence.mission_source_authority_status === "string"
+    ? sourceEvidence.mission_source_authority_status
+    : null
+  const bindingProject = isBindingRepair
+    && typeof sourceEvidence.run_project_binding === "object"
+    && sourceEvidence.run_project_binding !== null
+    && "project_id" in sourceEvidence.run_project_binding
+    && typeof sourceEvidence.run_project_binding.project_id === "string"
+    ? sourceEvidence.run_project_binding.project_id
+    : null
   const matches = value === confirmation.expected_value
 
   useEffect(() => {
@@ -98,6 +126,12 @@ export function OperationConfirmationDialog({
             </dd>
           </div>
           <div><dt>Source</dt><dd><Identity value={operation.preview.source_fingerprint} /></dd></div>
+          {bindingSourceRecord && <div><dt>Source candidate item</dt><dd><code className="operation-exact-value">{bindingSourceRecord}</code></dd></div>}
+          {bindingSourceSha256 && <div><dt>Source content root</dt><dd><code className="operation-exact-value">{bindingSourceSha256}</code></dd></div>}
+          {bindingSourceClient && <div><dt>Transport client ID</dt><dd><code className="operation-exact-value">{bindingSourceClient}</code></dd></div>}
+          {bindingSourceClassification && <div><dt>Transport classification</dt><dd>{bindingSourceClassification.replaceAll("-", " ")}</dd></div>}
+          {bindingSourceAuthority && <div><dt>Source authority</dt><dd>{bindingSourceAuthority.replaceAll("-", " ")}</dd></div>}
+          {bindingProject && <div><dt>Canonical run project</dt><dd><Identity value={bindingProject} /></dd></div>}
           {reviewState && <div><dt>State</dt><dd><Identity value={reviewState} /></dd></div>}
           {reviewSource && <div><dt>Source record</dt><dd><Identity value={reviewSource} /></dd></div>}
           {(reviewerRole || expectedKind) && (
@@ -222,10 +256,14 @@ export function OperationTruthFacts({ operation }: { operation: OperationRecord 
   }
   if (operation.type === "factory.supervision-repair-mission-binding") {
     if (operation.request_evidence?.binding_repair_requested === true) facts.push("Missing-mission repair requested")
+    if (operation.request_evidence?.source_authority_status === "unverified-reviewer-verification-required") facts.push("Source authority unverified; independent review required")
+    if (evidence?.reviewer_authority_verified === true) facts.push("Independent source authority review verified")
     if (evidence?.binding_repaired === true) facts.push("Canonical mission binding verified")
     else if (operation.request_evidence?.binding_repair_requested === true) facts.push("Canonical binding not yet verified")
     if (evidence?.target_binding_current === true) facts.push("Target identity unchanged")
     if (evidence?.tracker_binding_current === true) facts.push("Tracker identity unchanged")
+    if (evidence?.mission_source_current === true) facts.push("Mission source item and content root current")
+    if (evidence?.run_project_binding_current === true) facts.push("Canonical run/project claim current")
     if (evidence?.prior_history_preserved === true) facts.push("Prior policy history preserved")
     if (evidence?.single_group_current === true) facts.push("Single canonical group verified")
     if (evidence?.mission_semantics_changed === false) facts.push("Mission semantics unchanged")

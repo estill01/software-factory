@@ -426,6 +426,12 @@ class OperationsProjectionTests(unittest.TestCase):
         self.assertEqual(preview["expected_history_kind"], "policy-bind")
         self.assertEqual(preview["expected_history_evidence"], [])
         self.assertEqual(preview["group_ids"], [missing_target])
+        project_binding = self.service.project_binding_snapshot(
+            self.projects,
+            missing_target,
+        )
+        self.assertEqual(project_binding["project_binding"]["status"], "bound")
+        self.assertEqual(project_binding["project_binding"]["project_id"], "demo")
         self.assertEqual((directory / "policy.json").read_bytes(), before_policy)
         self.assertEqual(
             (directory / "policy-history.jsonl").read_bytes(),
