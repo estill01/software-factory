@@ -3,21 +3,25 @@
 - Tracker status: `in-progress`
 - Tracker sequence: Blocks 0–29
 - Repository: `https://github.com/estill01/software-factory.git`
-- Governing objective: direct user request in Codex task
-  `019fe547-e054-7ca0-9940-ec4aa146df78`, 2026-08-08: provide a dashboard
-  that monitors current and historical Software Factory work and metrics across
+- Governing objective: direct-user item
+  `codex:019fe547-e054-7ca0-9940-ec4aa146df78:019fe572-0536-7692-8505-c8624eefa7ab:item-44`
+  under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`
+  governs the dashboard request first stated in Codex task
+  `019fe547-e054-7ca0-9940-ec4aa146df78`, 2026-08-08: provide a dashboard that
+  monitors current and historical Software Factory work and metrics across
   projects, supports administration and operation, and makes implementation
   trackers and progress reviewable; use the frontend stack recovered from task
   `019fc4d5-2791-7823-997e-e7a38163ef2a`. Direct refinement in the same task,
   2026-08-09: make the center a factory floor that shows running
   implementations and supervisors, what each supervises, overall state/issues,
   red/green-style operating posture, actions, conclusions, and history at a
-  glance. Direct design refinement routed from task
-  `019fef2b-3f0d-7d02-96d5-d1bf3ff1a62d`, 2026-08-10: selectively adapt the
-  supplied Beautiful UI Task Rows, Filter Table, and Diff Table source into the
-  existing sparse shell while preserving exact data/owner contracts; show the
-  maintained-verifier total Block count and every current active-Block claim on
-  Factory Floor and tracker surfaces without coalescing conflicts.
+  glance. Routed design provenance from task
+  `019fef2b-3f0d-7d02-96d5-d1bf3ff1a62d`, 2026-08-10, corroborates selective
+  adaptation of the supplied Beautiful UI Task Rows, Filter Table, and Diff
+  Table source into the existing sparse shell; it is not authority. Exact
+  tracker totals and separate current active-Block claims refine the already
+  accepted Block 6 Factory Floor truth and Block 8 tracker-progress contracts.
 - Planning baseline: repository commit
   `c7d4efce3e3bf5fb3a8dbc4d9ab0db0ef2cd89bd`. The audit began at predecessor
   `e2b7064a7a226409518a883ecec88661469309b8` while unrelated supervision work
@@ -586,18 +590,24 @@ current completion proof.
 Beautiful UI source-baseline amendment note: the 2026-08-10 direct design
 steer first produced rejected authoring commit `8fb09cc9dfe2d5207f9cc3992e7a90924bee0689`,
 whose Block 18 combined independently acceptable tracker queue/count discovery
-and selected-tracker source-diff inspection. The corrected revision keeps the
-Factory Floor surface in current Block 17, splits tracker queue/count review and
-tracker source diffs into current Blocks 18 and 19, and keeps owner-backed
-operation diffs in current Block 21. The former Block 17 moved to current Block
-20, former Blocks 18–25 moved to current Blocks 22–29, and accepted Blocks 0–16
-remain substantively unchanged except mechanically affected forward references
-and range language. The exact-total and plural active-Block additions are bound
-to the direct requirement routed from task
-`019fef2b-3f0d-7d02-96d5-d1bf3ff1a62d` under allowed route action SHA-256
-`54ff49b846b7fcf7628c458f1d83b890f2dec5512574a2a0871b31dbd5e87148`.
-Historical evidence that names a then-current range or old Block numbers remains
-evidence for that exact revision, not current numbering.
+and selected-tracker source-diff inspection. Successor
+`027848a591ba78a28a14bccea11382865b230ec3` closed that structural finding but
+its diagnostic exact review rejected the routed side-task/action SHA as an
+authority basis. The corrected revision keeps the Factory Floor surface in
+current Block 17, splits tracker queue/count review and tracker source diffs into
+current Blocks 18 and 19, and keeps owner-backed operation diffs in current
+Block 21. The former Block 17 moved to current Block 20, former Blocks 18–25
+moved to current Blocks 22–29, and accepted Blocks 0–16 remain substantively
+unchanged except mechanically affected forward references and range language.
+Exact-total and plural active-claim presentation is a narrow
+refinement of accepted Block 6's current Block/checkpoint, exact status-count,
+source-disagreement, and source-drill-down requirements and accepted Block 8's
+exact status counts, current/eligible Block, mapped-active-run, and active-node
+truth requirements. Its authority remains direct-user item 44 and mission root
+`45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`;
+routed side-task provenance supplies no authority. Historical evidence that
+names a then-current range or old Block numbers remains evidence for that exact
+revision, not current numbering.
 
 Data-backing clarification: the direct 2026-08-09 operator request to ensure
 that the application is backed by primary Software Factory functionality and
@@ -5015,8 +5025,7 @@ Block claims, and status-filter counts.
   disagree, show each claim and degrade the row as `Conflict`; never coalesce
   them or carry a predecessor mission's active Block into the current row.
   Render `None active`, `Unavailable`, or `Partial` when those are the exact
-  source postures. Show accepted/total only when parsed coverage is complete;
-  do not synthesize a percentage.
+  source postures.
 - Make expansion show only source-backed checkpoints, exact open issues and
   bounded recovery, maintained-owner actions, current conclusions, and safe
   workspace/source links, including the exact tracker heading/status plus the
@@ -5165,9 +5174,8 @@ claims, and filter counts remain exact, bounded, and read-only.
   degrade to `Conflict` on disagreement. Exclude predecessor-only claims and
   render `None active`, `Unavailable`, or `Partial` exactly when warranted.
 - Provide drill-down from every active claim to the exact tracker heading and
-  status plus the task/supervision evidence supporting it. Show accepted/total
-  only with complete parsed coverage; never fabricate a percentage or equate
-  accepted count with active work.
+  status plus the task/supervision evidence supporting it; never equate the
+  existing accepted-status count with active work.
 - Keep the workspace read-only: no content editing, author/review/implement
   start, status mutation, acceptance, staging, or direct Git write. Preserve
   sparse page chrome and avoid redundant page-explaining headers.
