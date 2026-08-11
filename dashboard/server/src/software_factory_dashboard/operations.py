@@ -76,6 +76,17 @@ ROLE_LABELS = {
     "gmail_processor_thread_id": "Gmail reply processor",
     "roundup_thread_id": "Report writer",
 }
+ROLE_BIND_FIELDS = {
+    "base_reviewer": ("base_reviewer_thread_id", "base_reviewer_thread"),
+    "notice_reviewer": ("notice_reviewer_thread_id", "notice_reviewer_thread"),
+    "fix_executor": ("fix_executor_thread_id", "fix_executor_thread"),
+    "gmail_processor": ("gmail_processor_thread_id", "gmail_processor_thread"),
+    "roundup_writer": ("roundup_thread_id", "roundup_thread"),
+}
+ROLE_MODEL_CONTRACTS = {
+    role: {"model": "gpt-5.6-sol", "reasoning": "xhigh"}
+    for role in ROLE_BIND_FIELDS
+}
 SEMANTIC_KINDS = {
     "checkpoint-review",
     "meta-review",
@@ -877,9 +888,14 @@ class OperationsProjectionService:
                 key: runtime.get(key)
                 for key in (
                     "watcher_thread_id",
+                    "base_reviewer_thread_id",
                     "reviewer_thread_id",
+                    "notice_reviewer_thread_id",
                     "fix_executor_thread_id",
                     "gmail_gate_thread_id",
+                    "gmail_processor_thread_id",
+                    "roundup_thread_id",
+                    "roundup_automation_id",
                     *automation_keys.values(),
                 )
             },
@@ -1125,6 +1141,355 @@ class OperationsProjectionService:
             "expected_history_evidence": [],
             "group_ids": group_ids,
         }
+
+    @staticmethod
+    def _role_bind_arguments(
+        target_thread_id: str,
+        *,
+        role: str,
+        candidate_task_id: str,
+        root: Path,
+    ) -> argparse.Namespace:
+        binding = ROLE_BIND_FIELDS.get(role)
+        if binding is None:
+            raise OperationsProjectionError(
+                "role_binding_owner_unavailable",
+                "The maintained bind owner cannot assign the selected role.",
+                status=409,
+            )
+        values: dict[str, Any] = {
+            "root": str(root),
+            "target_thread": target_thread_id,
+            "base_reviewer_thread": None,
+            "notice_reviewer_thread": None,
+            "fix_executor_thread": None,
+            "routine_automation": None,
+            "meta_automation": None,
+            "gmail_gate_thread": None,
+            "gmail_processor_thread": None,
+            "gmail_poll_automation": None,
+            "roundup_thread": None,
+            "roundup_automation": None,
+            "gmail_reply_message_id": None,
+            "gmail_project_key": None,
+            "gmail_subject": None,
+            "gmail_priority_reply_message_id": None,
+            "gmail_priority_project_key": None,
+            "gmail_priority_subject": None,
+            "gmail_priority_decision_context": False,
+            "gmail_roundup_reply_message_id": None,
+            "gmail_roundup_project_key": None,
+            "gmail_roundup_subject": None,
+            "mission_root": None,
+            "mission_source_record": None,
+            "mission_source_class": None,
+            "mission_source_sha256": None,
+        }
+        values[binding[1]] = candidate_task_id
+        return argparse.Namespace(**values)
+
+    def preview_role_bind(
+        self,
+        target_thread_id: str,
+        *,
+        role: str,
+    ) -> dict[str, Any]:
+        """Derive one prior exact role task and exercise bind on an ephemeral copy."""
+
+        binding = ROLE_BIND_FIELDS.get(role)
+        if binding is None:
+            raise OperationsProjectionError(
+                "role_binding_owner_unavailable",
+                "The maintained bind owner cannot assign the selected role.",
+                status=409,
+            )
+        field, _ = binding
+        control = self.policy_control_snapshot(target_thread_id)
+        policy = control.get("policy")
+        history = control.get("policy_history_records")
+        runtime = policy.get("runtime") if isinstance(policy, Mapping) else None
+        if (
+            not isinstance(policy, Mapping)
+            or not isinstance(history, list)
+            or not isinstance(runtime, Mapping)
+        ):
+            raise OperationsProjectionError(
+                "role_binding_source_unavailable",
+                "The current policy or policy history is unavailable.",
+                status=422,
+            )
+        if control.get("lifecycle_status") in {"completed", "stopped"}:
+            raise OperationsProjectionError(
+                "role_binding_target_terminal",
+                "Role binding repair is unavailable for a terminal supervision group.",
+                status=409,
+            )
+        if runtime.get(field) is not None:
+            raise OperationsProjectionError(
+                "role_binding_owner_cannot_replace",
+                "The maintained bind owner only fills a missing role and cannot replace a differing binding.",
+                status=409,
+            )
+        expected_model = ROLE_MODEL_CONTRACTS[role]
+        models = policy.get("models")
+        if not isinstance(models, Mapping) or models.get(role) != expected_model:
+            raise OperationsProjectionError(
+                "role_binding_model_contract_mismatch",
+                "The selected role's governed model and reasoning contract is unavailable or differs.",
+                status=409,
+            )
+
+        prior_candidates: list[tuple[str, str]] = []
+        candidate_other_roles: dict[str, set[str]] = {}
+        for record in history[:-1]:
+            snapshot = record.get("policy") if isinstance(record, Mapping) else None
+            historical_runtime = (
+                snapshot.get("runtime") if isinstance(snapshot, Mapping) else None
+            )
+            if not isinstance(historical_runtime, Mapping):
+                raise OperationsProjectionError(
+                    "role_binding_source_unavailable",
+                    "Canonical policy history contains an incomplete runtime snapshot.",
+                    status=422,
+                )
+            candidate = historical_runtime.get(field)
+            record_id = record.get("record_id") if isinstance(record, Mapping) else None
+            if isinstance(candidate, str) and candidate and isinstance(record_id, str):
+                prior_candidates.append((candidate, record_id))
+            for other_role, (other_field, _) in ROLE_BIND_FIELDS.items():
+                other_value = historical_runtime.get(other_field)
+                if isinstance(other_value, str) and other_value:
+                    candidate_other_roles.setdefault(other_value, set()).add(other_role)
+            for other_role, other_field in (
+                ("watcher", "watcher_thread_id"),
+                ("reviewer", "reviewer_thread_id"),
+                ("gmail_gate", "gmail_gate_thread_id"),
+            ):
+                other_value = historical_runtime.get(other_field)
+                if isinstance(other_value, str) and other_value:
+                    candidate_other_roles.setdefault(other_value, set()).add(other_role)
+        unique_candidates = sorted({item[0] for item in prior_candidates})
+        if len(unique_candidates) != 1:
+            raise OperationsProjectionError(
+                "role_binding_candidate_ambiguous"
+                if unique_candidates
+                else "role_binding_task_authority_unavailable",
+                (
+                    "Canonical policy history names more than one prior task for the selected role."
+                    if unique_candidates
+                    else "No exact prior role task exists and generic task creation is not authorized."
+                ),
+                status=409,
+            )
+        candidate_task_id = unique_candidates[0]
+        source_records = [
+            record_id
+            for candidate, record_id in prior_candidates
+            if candidate == candidate_task_id
+        ]
+        current_role_ids = {
+            str(value): role_name
+            for role_name, role_field in (
+                ("watcher", "watcher_thread_id"),
+                ("base_reviewer", "base_reviewer_thread_id"),
+                ("reviewer", "reviewer_thread_id"),
+                ("notice_reviewer", "notice_reviewer_thread_id"),
+                ("fix_executor", "fix_executor_thread_id"),
+                ("gmail_gate", "gmail_gate_thread_id"),
+                ("gmail_processor", "gmail_processor_thread_id"),
+                ("roundup_writer", "roundup_thread_id"),
+            )
+            if isinstance((value := runtime.get(role_field)), str) and value
+        }
+        if candidate_task_id == target_thread_id or candidate_task_id in current_role_ids:
+            raise OperationsProjectionError(
+                "role_binding_candidate_conflict",
+                "The prior task is already the target or a currently configured role.",
+                status=409,
+            )
+        historical_roles = candidate_other_roles.get(candidate_task_id, set())
+        if historical_roles - {role}:
+            raise OperationsProjectionError(
+                "role_binding_candidate_ambiguous",
+                "The prior task has canonical history under another role.",
+                status=409,
+            )
+
+        owner = self._module("supervision")
+        with TemporaryDirectory(prefix="sf-dashboard-role-bind-preview-") as temporary:
+            preview_root = Path(temporary).resolve() / "tracker-runs"
+            preview_directory = preview_root / target_thread_id
+            preview_directory.mkdir(parents=True)
+            os.chmod(preview_directory, 0o700)
+            owner.atomic_json(
+                preview_directory / "policy.json",
+                json.loads(json.dumps(policy)),
+            )
+            for record in history:
+                if not isinstance(record, Mapping):
+                    raise OperationsProjectionError(
+                        "role_binding_source_unavailable",
+                        "Canonical policy history contains a non-record value.",
+                        status=422,
+                    )
+                material = {
+                    key: json.loads(json.dumps(value))
+                    for key, value in record.items()
+                    if key not in {"previous_record_sha256", "record_sha256"}
+                }
+                owner.append_raw(preview_directory / "policy-history.jsonl", material)
+            output = StringIO()
+            try:
+                arguments = self._role_bind_arguments(
+                    target_thread_id,
+                    role=role,
+                    candidate_task_id=candidate_task_id,
+                    root=preview_root,
+                )
+                with redirect_stdout(output):
+                    owner.cmd_bind(arguments)
+                result = json.loads(output.getvalue())
+                expected_policy = owner.read_json(preview_directory / "policy.json")
+                expected_history = owner.events(
+                    preview_directory / "policy-history.jsonl"
+                )
+            except Exception as error:
+                raise OperationsProjectionError(
+                    "role_binding_owner_preview_failed",
+                    "The maintained bind owner rejected the ephemeral role repair preview.",
+                    status=422,
+                ) from error
+        expected_record = expected_history[-1] if expected_history else None
+        if (
+            result.get("changed") is not True
+            or not isinstance(expected_record, Mapping)
+            or expected_policy.get("runtime", {}).get(field) != candidate_task_id
+            or expected_policy.get("policy_version")
+            != int(policy.get("policy_version", 0)) + 1
+            or expected_record.get("kind") != "policy-bind"
+            or expected_record.get("reason")
+            != "Bound live identifiers and current routing defaults."
+            or expected_record.get("evidence") != []
+            or expected_record.get("policy") != expected_policy
+        ):
+            raise OperationsProjectionError(
+                "role_binding_owner_preview_failed",
+                "The maintained bind owner returned an incompatible role repair postcondition.",
+                status=422,
+            )
+
+        def preserved_material(value: Mapping[str, Any]) -> dict[str, Any]:
+            material = json.loads(json.dumps(value))
+            for key in ("policy_version", "policy_sha256", "updated_at"):
+                material.pop(key, None)
+            selected_runtime = material.get("runtime")
+            if isinstance(selected_runtime, dict):
+                selected_runtime.pop(field, None)
+            return material
+
+        if preserved_material(policy) != preserved_material(expected_policy):
+            raise OperationsProjectionError(
+                "role_binding_owner_would_expand_scope",
+                "The maintained bind owner would change fields beyond the selected missing role.",
+                status=409,
+            )
+        normalized = json.loads(json.dumps(expected_policy))
+        normalized.pop("policy_sha256", None)
+        normalized.pop("updated_at", None)
+        return {
+            "control": control,
+            "owner_sha256": self.owner_revisions()["supervision"]["sha256"],
+            "role": role,
+            "runtime_field": field,
+            "candidate_task_id": candidate_task_id,
+            "candidate_source_records": source_records,
+            "expected_model": dict(expected_model),
+            "expected_policy_version": expected_policy["policy_version"],
+            "expected_normalized_policy_sha256": _digest(normalized),
+            "expected_history_kind": "policy-bind",
+            "expected_history_reason": "Bound live identifiers and current routing defaults.",
+            "expected_history_evidence": [],
+            "preserved_runtime": {
+                key: value for key, value in runtime.items() if key != field
+            },
+            "group_ids": self.binding_group_ids(target_thread_id),
+        }
+
+    def apply_role_bind(
+        self,
+        target_thread_id: str,
+        *,
+        role: str,
+        candidate_task_id: str,
+        prior_policy_sha256: str,
+        prior_policy_version: int,
+        expected_normalized_policy_sha256: str,
+    ) -> dict[str, Any]:
+        """Invoke one exact maintained bind assignment after revalidating its plan."""
+
+        with self._lock:
+            plan = self.preview_role_bind(target_thread_id, role=role)
+            control = plan.get("control")
+            if (
+                not isinstance(control, Mapping)
+                or plan.get("candidate_task_id") != candidate_task_id
+                or control.get("policy_sha256") != prior_policy_sha256
+                or control.get("policy_version") != prior_policy_version
+                or plan.get("expected_normalized_policy_sha256")
+                != expected_normalized_policy_sha256
+            ):
+                raise OperationsProjectionError(
+                    "role_binding_source_stale",
+                    "The role, candidate task, or policy head changed before assignment.",
+                    status=409,
+                    retryable=True,
+                )
+            owner = self._module("supervision")
+            output = StringIO()
+            try:
+                arguments = self._role_bind_arguments(
+                    target_thread_id,
+                    role=role,
+                    candidate_task_id=candidate_task_id,
+                    root=self.supervision_root,
+                )
+                with redirect_stdout(output):
+                    owner.cmd_bind(arguments)
+                result = json.loads(output.getvalue())
+            except Exception as error:
+                raise OperationsProjectionError(
+                    "role_binding_owner_failed",
+                    "The maintained bind owner rejected the exact role assignment.",
+                    status=409,
+                ) from error
+            current = self.policy_control_snapshot(target_thread_id)
+            current_policy = current.get("policy")
+            normalized = (
+                json.loads(json.dumps(current_policy))
+                if isinstance(current_policy, Mapping)
+                else None
+            )
+            if isinstance(normalized, dict):
+                normalized.pop("policy_sha256", None)
+                normalized.pop("updated_at", None)
+            if (
+                result.get("changed") is not True
+                or current.get("policy_version") != plan["expected_policy_version"]
+                or not isinstance(normalized, dict)
+                or _digest(normalized) != expected_normalized_policy_sha256
+                or current.get("runtime", {}).get(plan["runtime_field"])
+                != candidate_task_id
+            ):
+                raise OperationsProjectionError(
+                    "role_binding_owner_postcondition_unverified",
+                    "The maintained owner returned without the exact expected role assignment.",
+                    status=409,
+                )
+            return {
+                "owner_result": result,
+                "control": current,
+                "plan": plan,
+            }
 
     def _module(self, family: str) -> ModuleType:
         paths = {

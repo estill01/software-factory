@@ -446,6 +446,81 @@ class OperationsProjectionTests(unittest.TestCase):
             )
         self.assertEqual(healthy.exception.code, "binding_repair_not_missing")
 
+    def test_role_bind_preview_and_apply_use_one_prior_exact_task(self) -> None:
+        directory = self.supervision_root / TARGET
+        candidate = "base-reviewer-prior-0001"
+        policy = self.owner.read_json(directory / "policy.json")
+        prior = json.loads(json.dumps(policy))
+        prior["runtime"]["base_reviewer_thread_id"] = candidate
+        prior["policy_version"] += 1
+        prior["policy_sha256"] = self.owner.digest(self.owner.policy_material(prior))
+        self.owner.atomic_json(directory / "policy.json", prior)
+        self.owner.append_raw(
+            directory / "policy-history.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": "POLICY-ROLE-PRIOR",
+                "timestamp": "2026-08-09T10:20:00+00:00",
+                "kind": "policy-bind",
+                "policy": prior,
+            },
+        )
+        missing = json.loads(json.dumps(prior))
+        missing["runtime"]["base_reviewer_thread_id"] = None
+        missing["policy_version"] += 1
+        missing["policy_sha256"] = self.owner.digest(
+            self.owner.policy_material(missing)
+        )
+        self.owner.atomic_json(directory / "policy.json", missing)
+        self.owner.append_raw(
+            directory / "policy-history.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": "POLICY-ROLE-MISSING",
+                "timestamp": "2026-08-09T10:21:00+00:00",
+                "kind": "policy-recovery",
+                "policy": missing,
+            },
+        )
+
+        before_policy = (directory / "policy.json").read_bytes()
+        preview = self.service.preview_role_bind(TARGET, role="base_reviewer")
+
+        self.assertEqual(preview["candidate_task_id"], candidate)
+        self.assertEqual(preview["candidate_source_records"], ["POLICY-ROLE-PRIOR"])
+        self.assertEqual(preview["expected_policy_version"], missing["policy_version"] + 1)
+        self.assertEqual(
+            preview["expected_model"],
+            {"model": "gpt-5.6-sol", "reasoning": "xhigh"},
+        )
+        self.assertEqual((directory / "policy.json").read_bytes(), before_policy)
+
+        applied = self.service.apply_role_bind(
+            TARGET,
+            role="base_reviewer",
+            candidate_task_id=candidate,
+            prior_policy_sha256=missing["policy_sha256"],
+            prior_policy_version=missing["policy_version"],
+            expected_normalized_policy_sha256=preview[
+                "expected_normalized_policy_sha256"
+            ],
+        )
+
+        current = applied["control"]
+        self.assertEqual(
+            current["runtime"]["base_reviewer_thread_id"],
+            candidate,
+        )
+        self.assertEqual(current["policy_version"], preview["expected_policy_version"])
+        self.assertEqual(
+            current["policy_history_head_record"]["kind"],
+            "policy-bind",
+        )
+        self.assertEqual(current["policy_history_head_record"]["evidence"], [])
+        with self.assertRaises(OperationsProjectionError) as healthy:
+            self.service.preview_role_bind(TARGET, role="base_reviewer")
+        self.assertEqual(healthy.exception.code, "role_binding_owner_cannot_replace")
+
     def test_gmail_cadence_uses_active_owner_result_for_all_three_fields(self) -> None:
         self._command(
             "bind",

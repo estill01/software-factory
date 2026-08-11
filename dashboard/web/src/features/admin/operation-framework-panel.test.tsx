@@ -126,6 +126,37 @@ describe("administrative operation UI", () => {
     expect(screen.queryByText(/workflow complete/i)).not.toBeInTheDocument()
   })
 
+  it("shows exact role-task and route facts for a binding repair preview", () => {
+    const roleOperation = {
+      ...operation,
+      type: "factory.supervision-repair-role-task-binding",
+      preview: {
+        ...operation.preview,
+        source_evidence: {
+          role_label: "Notice reviewer",
+          expected_task_id: "task-notice-001",
+          candidate_task_status: "idle",
+          expected_model: { model: "gpt-5.6-sol", reasoning: "xhigh" },
+          route_purpose: "incident-review",
+        },
+      },
+    }
+    render(
+      <OperationConfirmationDialog
+        preview={{ ...frameworkEnvelope, data: { operation: roleOperation, preview_token: "p".repeat(32) } }}
+        request={{ operation_type: roleOperation.type, target: roleOperation.target, input: { role: "notice_reviewer" } }}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByText("Notice reviewer")).toBeVisible()
+    expect(screen.getByText("task-notice-001")).toBeVisible()
+    expect(screen.getByText("idle")).toBeVisible()
+    expect(screen.getByText("gpt-5.6-sol · xhigh")).toBeVisible()
+    expect(screen.getByText("incident-review")).toBeVisible()
+  })
+
   it("offers re-preview for stale tokens and renders approval/input/unverified distinctly", async () => {
     const user = userEvent.setup()
     const refresh = vi.fn()
@@ -269,5 +300,35 @@ describe("administrative operation UI", () => {
     expect(screen.getByText("Missing-mission repair requested")).toBeVisible()
     expect(screen.getByText("Source authority unverified; independent review required")).toBeVisible()
     expect(screen.queryByText(/attested by operator/i)).not.toBeInTheDocument()
+
+    rerender(<OperationActivityPanel operations={[{
+      ...operation,
+      type: "factory.supervision-repair-role-task-binding",
+      state: "applied",
+      history: [...operation.history, { state: "applied", observed_at: "2026-08-10T08:06:00.000Z" }],
+      request_evidence: {
+        role_binding_requested: true,
+        task_created: false,
+      },
+      verification_evidence: {
+        task_postcondition_current: true,
+        policy_postcondition_current: true,
+        single_role_current: true,
+        unrelated_roles_preserved: true,
+        automations_preserved: true,
+        route_gate_accepted: true,
+        route_purpose: "incident-review",
+        direct_policy_write: false,
+      },
+    }]} />)
+    expect(screen.getByText("Exact missing-role bind requested")).toBeVisible()
+    expect(screen.getByText("No task created")).toBeVisible()
+    expect(screen.getByText("Eligible task identity and lifecycle current")).toBeVisible()
+    expect(screen.getByText("Canonical role binding verified")).toBeVisible()
+    expect(screen.getByText("Single-role assignment verified")).toBeVisible()
+    expect(screen.getByText("Unrelated roles preserved")).toBeVisible()
+    expect(screen.getByText("Automations preserved")).toBeVisible()
+    expect(screen.getByText("Route accepted: incident-review")).toBeVisible()
+    expect(screen.getByText("Maintained bind owner used")).toBeVisible()
   })
 })

@@ -59,6 +59,7 @@ export function OperationConfirmationDialog({
     ? sourceEvidence.incident_id
     : null
   const isBindingRepair = operation.type === "factory.supervision-repair-mission-binding"
+  const isRoleBindingRepair = operation.type === "factory.supervision-repair-role-task-binding"
   const bindingSourceRecord = isBindingRepair
     && typeof sourceEvidence.mission_source_record === "string"
     ? sourceEvidence.mission_source_record
@@ -89,6 +90,27 @@ export function OperationConfirmationDialog({
     && "project_id" in sourceEvidence.run_project_binding
     && typeof sourceEvidence.run_project_binding.project_id === "string"
     ? sourceEvidence.run_project_binding.project_id
+    : null
+  const roleBindingRole = isRoleBindingRepair && typeof sourceEvidence.role_label === "string"
+    ? sourceEvidence.role_label
+    : null
+  const roleBindingTask = isRoleBindingRepair && typeof sourceEvidence.expected_task_id === "string"
+    ? sourceEvidence.expected_task_id
+    : null
+  const roleBindingStatus = isRoleBindingRepair && typeof sourceEvidence.candidate_task_status === "string"
+    ? sourceEvidence.candidate_task_status
+    : null
+  const roleBindingPurpose = isRoleBindingRepair && typeof sourceEvidence.route_purpose === "string"
+    ? sourceEvidence.route_purpose
+    : null
+  const roleBindingModel = isRoleBindingRepair
+    && typeof sourceEvidence.expected_model === "object"
+    && sourceEvidence.expected_model !== null
+    && "model" in sourceEvidence.expected_model
+    && "reasoning" in sourceEvidence.expected_model
+    && typeof sourceEvidence.expected_model.model === "string"
+    && typeof sourceEvidence.expected_model.reasoning === "string"
+    ? `${sourceEvidence.expected_model.model} · ${sourceEvidence.expected_model.reasoning}`
     : null
   const matches = value === confirmation.expected_value
 
@@ -137,6 +159,11 @@ export function OperationConfirmationDialog({
           {bindingSourceClassification && <div><dt>Transport classification</dt><dd>{bindingSourceClassification.replaceAll("-", " ")}</dd></div>}
           {bindingSourceAuthority && <div><dt>Source authority</dt><dd>{bindingSourceAuthority.replaceAll("-", " ")}</dd></div>}
           {bindingProject && <div><dt>Canonical run project</dt><dd><Identity value={bindingProject} /></dd></div>}
+          {roleBindingRole && <div><dt>Role</dt><dd>{roleBindingRole}</dd></div>}
+          {roleBindingTask && <div><dt>Exact prior task</dt><dd><Identity value={roleBindingTask} /></dd></div>}
+          {roleBindingStatus && <div><dt>Task lifecycle</dt><dd>{roleBindingStatus}</dd></div>}
+          {roleBindingModel && <div><dt>Governed model</dt><dd>{roleBindingModel}</dd></div>}
+          {roleBindingPurpose && <div><dt>Post-bind route</dt><dd>{roleBindingPurpose}</dd></div>}
           {reviewState && <div><dt>State</dt><dd><Identity value={reviewState} /></dd></div>}
           {reviewSource && <div><dt>Source record</dt><dd><Identity value={reviewSource} /></dd></div>}
           {(reviewerRole || expectedKind) && (
@@ -275,6 +302,19 @@ export function OperationTruthFacts({ operation }: { operation: OperationRecord 
     if (evidence?.direct_policy_write === false) facts.push("Dashboard direct policy writes excluded")
     if (evidence?.direct_ledger_write === false) facts.push("Dashboard direct ledger writes excluded")
     if (evidence?.fix_executor_actor_attribution === "unavailable") facts.push("Canonical records do not expose the execution actor")
+  }
+  if (operation.type === "factory.supervision-repair-role-task-binding") {
+    if (operation.request_evidence?.role_binding_requested === true) facts.push("Exact missing-role bind requested")
+    if (operation.request_evidence?.task_created === false) facts.push("No task created")
+    if (evidence?.task_postcondition_current === true) facts.push("Eligible task identity and lifecycle current")
+    else if (operation.request_evidence?.role_binding_requested === true) facts.push("Task postcondition not verified")
+    if (evidence?.policy_postcondition_current === true) facts.push("Canonical role binding verified")
+    else if (operation.request_evidence?.role_binding_requested === true) facts.push("Policy postcondition not verified")
+    if (evidence?.single_role_current === true) facts.push("Single-role assignment verified")
+    if (evidence?.unrelated_roles_preserved === true) facts.push("Unrelated roles preserved")
+    if (evidence?.automations_preserved === true) facts.push("Automations preserved")
+    if (evidence?.route_gate_accepted === true && typeof evidence?.route_purpose === "string") facts.push(`Route accepted: ${evidence.route_purpose}`)
+    if (evidence?.direct_policy_write === false) facts.push("Maintained bind owner used")
   }
   if (!evidence && facts.length === 0) return null
   if (typeof evidence?.task_turn_started === "boolean") {

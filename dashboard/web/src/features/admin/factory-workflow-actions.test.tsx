@@ -363,6 +363,36 @@ describe("Factory workflow action strips", () => {
     expect(screen.getByText(/Mission overwrite/)).toBeVisible()
   })
 
+  it("offers only projected missing owner-backed roles and submits one exact role", async () => {
+    const user = userEvent.setup()
+    renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+        roleRepairRoles={["notice_reviewer", "watcher", "fix_executor"]}
+      />,
+    )
+
+    const selector = screen.getByRole("combobox", { name: "Role binding to repair" })
+    expect(selector).toHaveTextContent("Notice reviewer")
+    expect(selector).toHaveTextContent("Fix executor")
+    expect(selector).not.toHaveTextContent("Watcher")
+    await user.selectOptions(selector, "fix_executor")
+    await user.click(screen.getByRole("button", { name: "Repair role" }))
+
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.supervision-repair-role-task-binding",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: { role: "fix_executor" },
+    })
+    expect(await screen.findByText("Exact prior task ID from canonical policy history")).toBeVisible()
+    expect(screen.getByText(/no create, resume, turn, or relabel/i)).toBeVisible()
+    expect(screen.getByText(/Task \+ policy record \+ maintained purpose gate/)).toBeVisible()
+  })
+
   it("previews one exact policy diff and keeps unbound Gmail cadence unavailable", async () => {
     const user = userEvent.setup()
     renderActions(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from hashlib import sha256
+import importlib.util
 import json
 from pathlib import Path
 import subprocess
@@ -21,6 +22,7 @@ from software_factory_dashboard.admin_operations import (
     OperationTarget,
     RouteGateRequest,
     RouteGateResult,
+    route_action_fingerprint,
 )
 from software_factory_dashboard.catalog import ProjectRecord
 from software_factory_dashboard.factory_workflows import (
@@ -229,6 +231,22 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             )
             self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
 
+    @staticmethod
+    def supervision_owner_module():
+        spec = importlib.util.spec_from_file_location(
+            "test_factory_workflow_supervision_owner",
+            DEFAULT_SUPERVISION_OWNER,
+        )
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        scripts = str(DEFAULT_SUPERVISION_OWNER.parent)
+        sys.path.insert(0, scripts)
+        try:
+            spec.loader.exec_module(module)
+        finally:
+            sys.path.pop(0)
+        return module
+
     def test_closed_registry_and_author_prompt_preserve_exact_scope(self) -> None:
         with self.server() as origin:
             self.register(origin)
@@ -258,11 +276,12 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(duplicate_status, 409)
         self.assertEqual(duplicate["error"]["code"], "authoring_owner_conflict")
         self.assertEqual(executed["data"]["operation"]["state"], "applied")
-        self.assertEqual(len(supported), 16)
+        self.assertEqual(len(supported), 17)
         self.assertIn("factory.blocks-implement", supported)
         self.assertIn("factory.supervision-check-now", supported)
         self.assertIn("factory.supervision-adjust", supported)
         self.assertIn("factory.supervision-repair-mission-binding", supported)
+        self.assertIn("factory.supervision-repair-role-task-binding", supported)
         self.assertIn("factory.supervision-review-checkpoint", supported)
         self.assertIn("factory.supervision-review-meta", supported)
         self.assertIn("factory.supervision-review-issue", supported)
@@ -275,6 +294,93 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertIn("Do not implement it.", prompt)
         self.assertFalse(executed["data"]["operation"]["verification_evidence"]["block_accepted"])
         self.assertNotIn("smallest exact demo", json.dumps(executed["data"]["operation"]))
+
+    def test_http_role_binding_repair_uses_disposable_policy_and_existing_task(self) -> None:
+        target_id = "target-role-repair-001"
+        candidate_id = "task-fake-001"
+        self.init_supervision(target_id)
+        owner = self.supervision_owner_module()
+        directory = self.supervision_root / target_id
+        initial = owner.read_json(directory / "policy.json")
+        prior = json.loads(json.dumps(initial))
+        prior["project_root"] = str(self.repository)
+        prior["runtime"]["notice_reviewer_thread_id"] = candidate_id
+        prior["policy_version"] += 1
+        prior["policy_sha256"] = owner.digest(owner.policy_material(prior))
+        owner.atomic_json(directory / "policy.json", prior)
+        owner.append_raw(
+            directory / "policy-history.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": "POLICY-ROLE-PRIOR",
+                "timestamp": "2026-08-11T04:10:00+00:00",
+                "kind": "policy-bind",
+                "policy": prior,
+            },
+        )
+        missing = json.loads(json.dumps(prior))
+        missing["runtime"]["notice_reviewer_thread_id"] = None
+        missing["policy_version"] += 1
+        missing["policy_sha256"] = owner.digest(owner.policy_material(missing))
+        owner.atomic_json(directory / "policy.json", missing)
+        owner.append_raw(
+            directory / "policy-history.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": "POLICY-ROLE-MISSING",
+                "timestamp": "2026-08-11T04:11:00+00:00",
+                "kind": "policy-recovery",
+                "policy": missing,
+            },
+        )
+        request_payload = {
+            "operation_type": "factory.supervision-repair-role-task-binding",
+            "target": {
+                "kind": "run",
+                "id": target_id,
+                "project_id": "workflow",
+            },
+            "input": {"role": "notice_reviewer"},
+        }
+
+        with self.server() as origin:
+            self.register(origin)
+            task_before = json.loads(
+                response(f"{origin}/api/v1/tasks/{candidate_id}?include_turns=true").body
+            )["data"]["task"]
+            preview_status, previewed = preview(origin, request_payload)
+            self.assertEqual(preview_status, 201, previewed)
+            execute_status, executed = execute(origin, request_payload, previewed)
+            task_after = json.loads(
+                response(f"{origin}/api/v1/tasks/{candidate_id}?include_turns=true").body
+            )["data"]["task"]
+
+        self.assertEqual(execute_status, 200, executed)
+        operation = executed["data"]["operation"]
+        self.assertEqual(operation["state"], "applied", executed)
+        self.assertEqual(
+            operation["preview"]["source_evidence"]["expected_task_id"],
+            candidate_id,
+        )
+        self.assertEqual(
+            operation["preview"]["source_evidence"]["identity_source"],
+            "canonical-policy-history-exact-task-id",
+        )
+        self.assertTrue(
+            operation["verification_evidence"]["task_postcondition_current"]
+        )
+        self.assertTrue(
+            operation["verification_evidence"]["policy_postcondition_current"]
+        )
+        self.assertTrue(operation["verification_evidence"]["route_gate_accepted"])
+        self.assertEqual(task_before, task_after)
+        current = owner.read_json(directory / "policy.json")
+        self.assertEqual(
+            current["runtime"]["notice_reviewer_thread_id"],
+            candidate_id,
+        )
+        self.assertEqual(current["runtime"]["watcher_thread_id"], initial["runtime"]["watcher_thread_id"])
+        self.assertEqual(current["runtime"]["reviewer_thread_id"], initial["runtime"]["reviewer_thread_id"])
 
     def test_review_is_read_only_and_implement_enforces_range_conflict_and_tracker_truth(self) -> None:
         tracker_path = self.add_tracker()
@@ -2235,6 +2341,261 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             different.exception.code,
             "binding_repair_mission_semantics_differ",
         )
+
+    def test_role_task_binding_repair_requires_task_policy_and_route_postconditions(self) -> None:
+        project = ProjectRecord(
+            id="workflow",
+            label="Workflow",
+            root=str(self.repository),
+        )
+        target_id = "task-fake-001"
+        candidate_id = "notice-reviewer-prior-001"
+        candidate_workspace = self.root / "notice-role-workspace"
+        candidate_workspace.mkdir()
+        candidate_task = {
+            "id": candidate_id,
+            "session_id": "session-notice-001",
+            "parent_task_id": None,
+            "forked_from_id": None,
+            "name": "A title that is never an identity source",
+            "preview": "Unstructured prior prompt",
+            "cwd": str(candidate_workspace),
+            "project_binding": {
+                "status": "unregistered",
+                "project_id": None,
+                "candidates": [],
+            },
+            "status": {"type": "idle"},
+            "created_at": "2026-08-10T10:00:00Z",
+            "updated_at": "2026-08-10T10:30:00Z",
+            "source": "appServer",
+            "model_provider": "openai",
+            "cli_version": "0.145.0",
+            "ephemeral": False,
+            "git": {"revision": None, "branch": None, "origin": None},
+            "turns": [],
+            "turns_truncated": False,
+        }
+        mission_binding = {
+            "contract_version": 3,
+            "mission_root": "a" * 64,
+            "mission_source_record": "direct-user-item-44",
+        }
+        runtime = {
+            "watcher_thread_id": "watcher-workflow-001",
+            "base_reviewer_thread_id": "base-reviewer-workflow-001",
+            "reviewer_thread_id": "reviewer-workflow-001",
+            "notice_reviewer_thread_id": None,
+            "fix_executor_thread_id": "fix-workflow-001",
+            "gmail_gate_thread_id": None,
+            "gmail_processor_thread_id": None,
+            "roundup_thread_id": None,
+            "routine_automation_id": "watcher-automation-001",
+            "meta_automation_id": "reviewer-automation-001",
+            "gmail_poll_automation_id": None,
+        }
+        policy = {
+            "schema_version": 1,
+            "policy_version": 7,
+            "policy_sha256": "b" * 64,
+            "target_thread_id": target_id,
+            "mission_binding": mission_binding,
+            "runtime": runtime,
+        }
+        prior_record = {
+            "record_id": "POLICY-ROLE-MISSING",
+            "record_sha256": "c" * 64,
+            "policy": policy,
+        }
+        control = {
+            "policy": policy,
+            "policy_sha256": policy["policy_sha256"],
+            "policy_version": policy["policy_version"],
+            "policy_history_head": prior_record["record_sha256"],
+            "policy_history_records": [prior_record],
+            "runtime": runtime,
+            "automations_by_role": {
+                "watcher": {"manifest_sha256": "d" * 64},
+                "reviewer": {"manifest_sha256": "e" * 64},
+                "gmail_gate": None,
+            },
+        }
+        next_policy = json.loads(json.dumps(policy))
+        next_policy["policy_version"] = 8
+        next_policy["policy_sha256"] = "f" * 64
+        next_policy["updated_at"] = "2026-08-11T04:00:00+00:00"
+        next_policy["runtime"]["notice_reviewer_thread_id"] = candidate_id
+        expected_root = _normalized_policy_root(next_policy)
+        plan = {
+            "control": control,
+            "owner_sha256": "1" * 64,
+            "role": "notice_reviewer",
+            "runtime_field": "notice_reviewer_thread_id",
+            "candidate_task_id": candidate_id,
+            "candidate_source_records": ["POLICY-NOTICE-BOUND"],
+            "expected_model": {"model": "gpt-5.6-sol", "reasoning": "xhigh"},
+            "expected_policy_version": 8,
+            "expected_normalized_policy_sha256": expected_root,
+            "expected_history_kind": "policy-bind",
+            "expected_history_reason": "Bound live identifiers and current routing defaults.",
+            "expected_history_evidence": [],
+            "preserved_runtime": {
+                key: value
+                for key, value in runtime.items()
+                if key != "notice_reviewer_thread_id"
+            },
+            "group_ids": [target_id],
+        }
+        project_binding = {
+            "fingerprint": "2" * 64,
+            "project_binding": {
+                "status": "bound",
+                "project_id": project.id,
+                "evidence": [],
+                "limitations": [],
+            },
+        }
+
+        class OperationsStub:
+            @staticmethod
+            def project_binding_snapshot(_projects, selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong target")
+                return project_binding
+
+            @staticmethod
+            def preview_role_bind(selected_target, *, role):
+                if selected_target != target_id or role != "notice_reviewer":
+                    raise AssertionError("wrong role bind preview")
+                return plan
+
+            @staticmethod
+            def apply_role_bind(
+                selected_target,
+                *,
+                role,
+                candidate_task_id,
+                prior_policy_sha256,
+                prior_policy_version,
+                expected_normalized_policy_sha256,
+            ):
+                if (
+                    selected_target != target_id
+                    or role != "notice_reviewer"
+                    or candidate_task_id != candidate_id
+                    or prior_policy_sha256 != policy["policy_sha256"]
+                    or prior_policy_version != 7
+                    or expected_normalized_policy_sha256 != expected_root
+                ):
+                    raise AssertionError("wrong role bind apply")
+                next_record = {
+                    "record_id": "POLICY-8",
+                    "record_sha256": "3" * 64,
+                    "timestamp": "2026-08-11T04:00:01+00:00",
+                    "kind": "policy-bind",
+                    "reason": "Bound live identifiers and current routing defaults.",
+                    "evidence": [],
+                    "policy": next_policy,
+                }
+                control.update(
+                    {
+                        "policy": next_policy,
+                        "policy_sha256": next_policy["policy_sha256"],
+                        "policy_version": 8,
+                        "policy_history_head": next_record["record_sha256"],
+                        "policy_history_records": [prior_record, next_record],
+                        "runtime": next_policy["runtime"],
+                    }
+                )
+                return {
+                    "owner_result": {"changed": True},
+                    "control": control,
+                    "plan": plan,
+                }
+
+            @staticmethod
+            def policy_control_snapshot(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong target")
+                return control
+
+        class AppServerStub:
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [{"capability": "task_read", "status": "supported"}]
+                }
+
+            @staticmethod
+            def read_task(_projects, task_id, *, include_turns):
+                if task_id != candidate_id or not include_turns:
+                    raise AssertionError("wrong role task read")
+                return {"task": candidate_task}
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = AppServerStub()
+        owner.route_gate = lambda request: RouteGateResult(
+            True,
+            route_action_fingerprint(request.required_action),
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint=control["policy_sha256"],
+            target_thread=request.target_thread,
+        )
+        owner._role_binding_repair_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), "4" * 64)
+        definition = owner._role_binding_repair_definition()
+        target = OperationTarget(
+            kind="run",
+            id=target_id,
+            project_id=project.id,
+        )
+        inputs = {"role": "notice_reviewer"}
+
+        source = definition.resolve_source(target, inputs)
+
+        self.assertEqual(source.evidence["current_task_id"], None)
+        self.assertEqual(source.evidence["expected_task_id"], candidate_id)
+        self.assertEqual(source.evidence["identity_source"], "canonical-policy-history-exact-task-id")
+        self.assertFalse(source.evidence["title_matching"])
+        self.assertEqual(source.evidence["route_purpose"], "incident-review")
+        self.assertEqual(source.evidence["task_creation_authority"], "unavailable-not-used")
+        self.assertIsNone(definition.route_gate_request)
+
+        before_task = json.loads(json.dumps(candidate_task))
+        dispatched = definition.dispatch(target, inputs, source)
+        self.assertTrue(dispatched.evidence["policy_owner_changed"])
+        self.assertFalse(dispatched.evidence["task_created"])
+        self.assertEqual(candidate_task, before_task)
+        applied = definition.verify(target, inputs, source, dispatched)
+
+        self.assertEqual(applied.state, "applied")
+        self.assertTrue(applied.evidence["role_binding_applied"])
+        self.assertTrue(applied.evidence["task_postcondition_current"])
+        self.assertTrue(applied.evidence["policy_postcondition_current"])
+        self.assertTrue(applied.evidence["route_gate_accepted"])
+        self.assertTrue(applied.evidence["single_role_current"])
+        self.assertTrue(applied.evidence["unrelated_roles_preserved"])
+        self.assertTrue(applied.evidence["automations_preserved"])
+        self.assertFalse(applied.evidence["direct_policy_write"])
+
+        candidate_task["status"] = {"type": "active"}
+        changed_task = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(changed_task.state, "unverified")
+        self.assertFalse(changed_task.evidence["task_postcondition_current"])
+        candidate_task["status"] = {"type": "idle"}
+
+        owner.route_gate = lambda request: RouteGateResult(
+            False,
+            None,
+            reason="purpose denied",
+        )
+        denied = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(denied.state, "unverified")
+        self.assertFalse(denied.evidence["route_gate_accepted"])
+
     def test_semantic_review_requests_bind_role_source_conclusion_and_supersession(self) -> None:
         project = ProjectRecord(
             id="workflow",

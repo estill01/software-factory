@@ -735,3 +735,141 @@ test("missing mission binding exposes only the source-derived repair preview", a
   await expect(page.getByText("Historical mission", { exact: true })).toBeVisible()
   await expect(page.getByRole("button", { name: "Repair binding" })).toHaveCount(0)
 })
+
+test("missing role binding exposes one exact prior-task repair preview", async ({ page, request }) => {
+  const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const candidate = "019fe5aa-4d5f-75f0-a28d-425367111f3d"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  runEnvelope.data.run.project_binding = {
+    status: "bound",
+    project_id: "software-factory",
+    evidence: [{ source_record: "policy", field: "project_root", value: "/fixture/software_factory" }],
+    limitations: [],
+  }
+  runEnvelope.data.run.topology.roles = runEnvelope.data.run.topology.roles.map(
+    (role: { role: string; binding_status: string; thread_id: string | null }) => ({
+      ...role,
+      thread_id: role.role === "notice_reviewer" ? null : role.thread_id,
+      binding_status: role.role === "notice_reviewer" ? "missing-thread" : "bound",
+    }),
+  )
+  if (!runEnvelope.data.run.topology.roles.some((role: { role: string }) => role.role === "notice_reviewer")) {
+    const roleTemplate = runEnvelope.data.run.topology.roles[0]
+    runEnvelope.data.run.topology.roles.push({
+      ...roleTemplate,
+      role: "notice_reviewer",
+      label: "Incident outcome reviewer",
+      thread_id: null,
+      binding_status: "missing-thread",
+      automation: null,
+      last_activity: null,
+    })
+  }
+  runEnvelope.data.run.topology.binding_integrity = "degraded"
+  if (!runEnvelope.data.run.topology.anomalies.includes("notice reviewer task is missing")) {
+    runEnvelope.data.run.topology.anomalies.push("notice reviewer task is missing")
+  }
+  const predecessor = runEnvelope.data.run.mission_segments.find(
+    (segment: { posture: string }) => segment.posture === "predecessor",
+  )?.mission_root
+  expect(predecessor).toBeTruthy()
+  const operation = {
+    id: "op_e2e_role_binding_repair_preview",
+    type: "factory.supervision-repair-role-task-binding",
+    target: { kind: "run", id: target, project_id: "software-factory" },
+    state: "previewed",
+    owner: "maintained Codex task reader + supervision bind/policy and route-gate owners",
+    authority: ["one exact prior canonical role-task binding"],
+    preview: {
+      effect: `Assign task ${candidate} to the missing Notice reviewer role for run ${target}.`,
+      risk: "One canonical policy version may be created; no task or automation is created, resumed, messaged, or relabeled.",
+      recipient: null,
+      source_fingerprint: "4".repeat(64),
+      source_evidence: {
+        role: "notice_reviewer",
+        role_label: "Notice reviewer",
+        current_task_id: null,
+        expected_task_id: candidate,
+        candidate_task_status: "idle",
+        expected_model: { model: "gpt-5.6-sol", reasoning: "xhigh" },
+        observed_model_and_effort: "unavailable-in-frozen-app-server-thread-schema",
+        identity_source: "canonical-policy-history-exact-task-id",
+        title_matching: false,
+        route_purpose: "incident-review",
+      },
+      route_gate: {
+        status: "not-required",
+        target_thread: null,
+        recipient: null,
+        purpose: null,
+        source_record: null,
+        required_action: null,
+        action_hash: null,
+        policy_fingerprint: null,
+        binding_fingerprint: null,
+      },
+      consequences: {
+        ordinary: ["Invokes the maintained bind owner once for the selected missing role."],
+        failure: ["Ambiguous, stale, active, or unsupported tasks send no owner request."],
+      },
+      confirmation: {
+        class: "supervision-role-binding-repair",
+        prompt: "Type BIND ROLE to assign this exact prior task to the selected missing role.",
+        expected_value: "BIND ROLE",
+      },
+      expected_postcondition: "The task, canonical role binding, and maintained purpose gate all agree.",
+      idempotency: "One consumed preview invokes at most one exact bind.",
+      limitations: ["No generic task creation or title matching."],
+      expires_at: "2026-08-11T04:20:00.000Z",
+    },
+    history: [{ state: "previewed", observed_at: "2026-08-11T04:15:00.000Z" }],
+    request_evidence: null,
+    verification_evidence: null,
+    links: [],
+    failure: null,
+  }
+  await page.route(`**/api/v1/runs/${target}`, (route) =>
+    route.fulfill({ json: runEnvelope }),
+  )
+  await page.route("**/api/v1/operations/preview", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      operation_type: "factory.supervision-repair-role-task-binding",
+      target: { kind: "run", id: target, project_id: "software-factory" },
+      input: { role: "notice_reviewer" },
+    })
+    await route.fulfill({
+      json: {
+        data: { operation, preview_token: "q".repeat(32) },
+        source: { kind: "administrative-operation", identity: operation.id, revision: "4".repeat(64) },
+        observed_at: "2026-08-11T04:15:00.000Z",
+        fingerprint: "4".repeat(64),
+        coverage: { status: "partial", observed: ["operation-preview"], missing: ["owner-postcondition"] },
+        limitations: ["Fixture stops before mutation."],
+        error: null,
+      },
+    })
+  })
+
+  await page.goto(`/runs/${target}`)
+  await expect(page.getByRole("combobox", { name: "Role binding to repair" })).toHaveValue("notice_reviewer")
+  await page.getByRole("button", { name: "Repair role" }).click()
+  const preview = page.getByRole("dialog")
+  await expect(preview).toContainText("Notice reviewer")
+  await expect(preview).toContainText(candidate)
+  await expect(preview).toContainText("idle")
+  await expect(preview).toContainText("gpt-5.6-sol · xhigh")
+  await expect(preview).toContainText("incident-review")
+  await expect(preview).toContainText("no create, resume, turn, or relabel")
+  await expect(preview.getByRole("button", { name: "Request operation" })).toBeDisabled()
+  await expect(page.locator("h1")).toHaveCount(1)
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+  await preview.getByRole("button", { name: "Close operation preview" }).click()
+  await page.goto(`/runs/${target}?mission=${predecessor}`)
+  await expect(page.getByRole("button", { name: "Repair role" })).toHaveCount(0)
+})

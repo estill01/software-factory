@@ -35,6 +35,14 @@ type ListedRun = { target_thread_id: string } | undefined
 type TrackerBlock = TrackerDetail["blocks"][number]
 type RunPolicy = NonNullable<RunDetail["policy"]>
 type PolicyField = keyof RunPolicy["adjustable"]
+const roleRepairLabels = {
+  base_reviewer: "Base reviewer",
+  notice_reviewer: "Notice reviewer",
+  fix_executor: "Fix executor",
+  gmail_processor: "Gmail processor",
+  roundup_writer: "Roundup writer",
+} as const
+type RepairableRole = keyof typeof roleRepairLabels
 
 type ImplementationBinding = {
   kind: "implement-blocks"
@@ -424,12 +432,14 @@ export function RunSupervisionActions({
   openIncidentIds,
   policy,
   missionBindingMissing = false,
+  roleRepairRoles = [],
 }: {
   targetId: string
   projectId: string | null
   openIncidentIds: string[]
   policy: RunPolicy | null
   missionBindingMissing?: boolean
+  roleRepairRoles?: string[]
 }) {
   const runner = useOperationRunner()
   const [selectedIncident, setSelectedIncident] = useState("")
@@ -437,6 +447,13 @@ export function RunSupervisionActions({
   const [adjustReason, setAdjustReason] = useState("")
   const [adjustEnabled, setAdjustEnabled] = useState<Partial<Record<PolicyField, boolean>>>({})
   const [adjustValues, setAdjustValues] = useState<Partial<Record<PolicyField, string>>>({})
+  const repairableRoles = roleRepairRoles.filter(
+    (role): role is RepairableRole => role in roleRepairLabels,
+  )
+  const [selectedRepairRole, setSelectedRepairRole] = useState<RepairableRole | "">("")
+  const repairRole = repairableRoles.includes(selectedRepairRole as RepairableRole)
+    ? selectedRepairRole as RepairableRole
+    : repairableRoles[0] ?? ""
   const incidentId = openIncidentIds.includes(selectedIncident)
     ? selectedIncident
     : openIncidentIds[0] ?? ""
@@ -561,6 +578,23 @@ export function RunSupervisionActions({
       ],
     })
   }
+  const launchRoleBindingRepair = () => {
+    if (!projectId || !repairRole) return
+    runner.launch({
+      request: {
+        operation_type: "factory.supervision-repair-role-task-binding",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: { role: repairRole },
+      },
+      suppliedFacts: [
+        ["Role", roleRepairLabels[repairRole]],
+        ["Candidate", "Exact prior task ID from canonical policy history"],
+        ["Task effect", "Read only · no create, resume, turn, or relabel"],
+        ["Policy effect", "Fill this missing role only · preserve mission, roles, and automations"],
+        ["Completion", "Task + policy record + maintained purpose gate must all agree"],
+      ],
+    })
+  }
   return (
     <>
       <ActionStrip feedback={runner.feedback}>
@@ -592,6 +626,21 @@ export function RunSupervisionActions({
         <Button size="compact" disabled={unavailable || !policy} onClick={openAdjustment}>Adjust supervision</Button>
         {missionBindingMissing && (
           <Button size="compact" disabled={unavailable} onClick={launchBindingRepair}>Repair binding</Button>
+        )}
+        {repairableRoles.length > 0 && (
+          <>
+            <select
+              aria-label="Role binding to repair"
+              value={repairRole}
+              disabled={unavailable}
+              onChange={(event) => setSelectedRepairRole(event.target.value as RepairableRole)}
+            >
+              {repairableRoles.map((role) => (
+                <option key={role} value={role}>{roleRepairLabels[role]}</option>
+              ))}
+            </select>
+            <Button size="compact" disabled={unavailable || !repairRole} onClick={launchRoleBindingRepair}>Repair role</Button>
+          </>
         )}
       </ActionStrip>
       {adjustOpen && policy && (

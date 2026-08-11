@@ -29,6 +29,7 @@ from .admin_operations import (
     SourceSnapshot,
     VerificationResult,
     fingerprint,
+    route_action_fingerprint,
 )
 from .app_server import AppServerError, CodexAppServerClient
 from .catalog import CatalogError, CatalogStore, ProjectRecord, discover_project
@@ -57,6 +58,33 @@ BINDING_AUTHORITY_REVIEW_MARKER = (
     "SOFTWARE_FACTORY_DASHBOARD_BINDING_AUTHORITY_REVIEW "
 )
 BINDING_REPAIR_ROUTE_PURPOSE = "semantic-escalation"
+ROLE_BINDING_REPAIR_ROLES = {
+    "base_reviewer": {
+        "label": "Base reviewer",
+        "purpose": "changed-state-review",
+        "runtime_field": "base_reviewer_thread_id",
+    },
+    "notice_reviewer": {
+        "label": "Notice reviewer",
+        "purpose": "incident-review",
+        "runtime_field": "notice_reviewer_thread_id",
+    },
+    "fix_executor": {
+        "label": "Fix executor",
+        "purpose": "fix-execution",
+        "runtime_field": "fix_executor_thread_id",
+    },
+    "gmail_processor": {
+        "label": "Gmail processor",
+        "purpose": "gmail-reply-processing",
+        "runtime_field": "gmail_processor_thread_id",
+    },
+    "roundup_writer": {
+        "label": "Roundup writer",
+        "purpose": "roundup-action",
+        "runtime_field": "roundup_thread_id",
+    },
+}
 REVIEW_VARIANTS = {
     "checkpoint": {
         "operation_type": "factory.supervision-review-checkpoint",
@@ -391,6 +419,7 @@ class FactoryWorkflowOwner:
         self._review_dispatch_lock = RLock()
         self._policy_adjust_dispatch_lock = RLock()
         self._binding_repair_dispatch_lock = RLock()
+        self._role_binding_repair_dispatch_lock = RLock()
 
     def registry(self) -> OperationRegistry:
         return OperationRegistry(
@@ -411,6 +440,7 @@ class FactoryWorkflowOwner:
                 self._semantic_review_definition("issue"),
                 self._adjust_supervision_definition(),
                 self._mission_binding_repair_definition(),
+                self._role_binding_repair_definition(),
                 self._unavailable_authoring_supervision_definition(),
             )
         )
@@ -5969,6 +5999,594 @@ class FactoryWorkflowOwner:
             ),
             route_gate_request=self._binding_repair_route_request,
             route_gate=self.route_gate,
+            dispatch=dispatch,
+            verify=verify,
+        )
+
+    @staticmethod
+    def _role_binding_task_facts(
+        task: Mapping[str, Any],
+        *,
+        task_id: str,
+        project_id: str,
+    ) -> dict[str, Any]:
+        cwd = task.get("cwd")
+        unresolved = Path(str(cwd)).expanduser()
+        if unresolved.is_symlink():
+            raise OperationError(
+                "role_binding_task_unavailable",
+                "The exact candidate task cwd is a symlink.",
+                status=409,
+            )
+        try:
+            path = unresolved.resolve(strict=True)
+        except (OSError, RuntimeError) as error:
+            raise OperationError(
+                "role_binding_task_unavailable",
+                "The exact candidate task cwd is unavailable.",
+                status=409,
+            ) from error
+        status = task.get("status", {}).get("type")
+        project_binding = task.get("project_binding")
+        turns = task.get("turns")
+        if task.get("id") != task_id or not path.is_dir():
+            raise OperationError(
+                "role_binding_task_identity_mismatch",
+                "The App Server returned a different candidate task identity.",
+                status=409,
+            )
+        if status not in {"idle", "notLoaded"}:
+            raise OperationError(
+                "role_binding_task_ineligible",
+                "The candidate task is active, terminal, or otherwise ineligible.",
+                status=409,
+            )
+        if (
+            task.get("ephemeral") is not False
+            or task.get("turns_truncated") is not False
+            or not isinstance(turns, list)
+            or any(turn.get("status") == "inProgress" for turn in turns)
+        ):
+            raise OperationError(
+                "role_binding_task_history_partial",
+                "The candidate task is ephemeral, active, or its exact history is partial.",
+                status=409,
+            )
+        if not isinstance(project_binding, Mapping) or project_binding.get(
+            "status"
+        ) == "ambiguous" or (
+            project_binding.get("status") == "bound"
+            and project_binding.get("project_id") != project_id
+        ):
+            raise OperationError(
+                "role_binding_task_project_conflict",
+                "The candidate task is ambiguously bound or belongs to another registered project.",
+                status=409,
+            )
+        if task.get("model_provider") != "openai":
+            raise OperationError(
+                "role_binding_task_model_provider_mismatch",
+                "The candidate task does not use the governed OpenAI model provider.",
+                status=409,
+            )
+        if FactoryWorkflowOwner._task_marker(task) is not None:
+            raise OperationError(
+                "role_binding_task_purpose_conflict",
+                "The candidate task already carries a dashboard workflow binding.",
+                status=409,
+            )
+        metadata = path.stat()
+        material = {
+            "task_id": task_id,
+            "session_id": task.get("session_id"),
+            "parent_task_id": task.get("parent_task_id"),
+            "forked_from_id": task.get("forked_from_id"),
+            "cwd": str(path),
+            "cwd_device": metadata.st_dev,
+            "cwd_inode": metadata.st_ino,
+            "project_binding": project_binding,
+            "status": status,
+            "created_at": task.get("created_at"),
+            "updated_at": task.get("updated_at"),
+            "source": task.get("source"),
+            "model_provider": task.get("model_provider"),
+            "ephemeral": task.get("ephemeral"),
+            "turn_ids": [turn.get("id") for turn in turns],
+            "turn_statuses": [turn.get("status") for turn in turns],
+        }
+        return {**material, "fingerprint": fingerprint(material)}
+
+    def _role_binding_repair_source(
+        self,
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+    ) -> SourceSnapshot:
+        role = str(inputs["role"])
+        contract = ROLE_BINDING_REPAIR_ROLES[role]
+        projects, catalog_fingerprint = self._active_projects()
+        project = self._project_from(projects, target)
+        self._require_capabilities("task_read")
+        try:
+            project_claim = self.operations_service.project_binding_snapshot(
+                projects,
+                target.id,
+            )
+            plan = self.operations_service.preview_role_bind(target.id, role=role)
+        except OperationsProjectionError as error:
+            raise _operation_error(
+                error,
+                fallback="role_binding_source_unavailable",
+            ) from error
+        run_binding = project_claim.get("project_binding")
+        control = plan.get("control")
+        policy = control.get("policy") if isinstance(control, Mapping) else None
+        mission_binding = (
+            policy.get("mission_binding") if isinstance(policy, Mapping) else None
+        )
+        candidate_task_id = plan.get("candidate_task_id")
+        if (
+            not isinstance(run_binding, Mapping)
+            or run_binding.get("status") != "bound"
+            or run_binding.get("project_id") != project.id
+            or not isinstance(control, Mapping)
+            or not isinstance(policy, Mapping)
+            or not isinstance(mission_binding, Mapping)
+            or not isinstance(candidate_task_id, str)
+            or not candidate_task_id
+            or plan.get("group_ids") != [target.id]
+        ):
+            raise OperationError(
+                "role_binding_source_unavailable",
+                "The exact group, mission, project, or prior role candidate is unavailable.",
+                status=409,
+            )
+        try:
+            candidate_detail = self.app_server_client.read_task(
+                projects,
+                candidate_task_id,
+                include_turns=True,
+            )
+        except AppServerError as error:
+            raise _operation_error(
+                error,
+                fallback="role_binding_task_unavailable",
+            ) from error
+        candidate_task = candidate_detail.get("task")
+        if not isinstance(candidate_task, Mapping):
+            raise OperationError(
+                "role_binding_task_unavailable",
+                "The exact prior role task projection is unavailable.",
+                status=409,
+            )
+        task_facts = self._role_binding_task_facts(
+            candidate_task,
+            task_id=candidate_task_id,
+            project_id=project.id,
+        )
+        source_records = plan.get("candidate_source_records")
+        prior_policy_sha256 = control.get("policy_sha256")
+        prior_policy_version = control.get("policy_version")
+        expected_policy_version = plan.get("expected_policy_version")
+        expected_policy_root = plan.get("expected_normalized_policy_sha256")
+        expected_model = plan.get("expected_model")
+        preserved_runtime = plan.get("preserved_runtime")
+        if (
+            not isinstance(source_records, list)
+            or not source_records
+            or not all(isinstance(item, str) and item for item in source_records)
+            or not isinstance(prior_policy_sha256, str)
+            or not SHA256_PATTERN.fullmatch(prior_policy_sha256)
+            or type(prior_policy_version) is not int
+            or expected_policy_version != prior_policy_version + 1
+            or not isinstance(expected_policy_root, str)
+            or not SHA256_PATTERN.fullmatch(expected_policy_root)
+            or not isinstance(expected_model, Mapping)
+            or not isinstance(preserved_runtime, Mapping)
+        ):
+            raise OperationError(
+                "role_binding_source_unavailable",
+                "The exact role owner plan or postcondition is incomplete.",
+                status=409,
+            )
+        source_record = source_records[-1]
+        route_action = (
+            f"Verify {role} task {candidate_task_id} can receive only its "
+            f"maintained {contract['purpose']} work after the role bind."
+        )
+        evidence = {
+            "catalog_fingerprint": catalog_fingerprint,
+            "project_id": project.id,
+            "target_thread_id": target.id,
+            "group_ids": plan["group_ids"],
+            "mission_binding": json.loads(json.dumps(mission_binding)),
+            "run_project_binding": json.loads(json.dumps(run_binding)),
+            "run_project_binding_fingerprint": project_claim["fingerprint"],
+            "role": role,
+            "role_label": contract["label"],
+            "runtime_field": contract["runtime_field"],
+            "current_task_id": None,
+            "expected_task_id": candidate_task_id,
+            "candidate_source_records": list(source_records),
+            "candidate_task": task_facts,
+            "candidate_task_status": task_facts["status"],
+            "candidate_task_project_binding": task_facts["project_binding"],
+            "candidate_task_model_provider": task_facts["model_provider"],
+            "expected_model": json.loads(json.dumps(expected_model)),
+            "observed_model_and_effort": "unavailable-in-frozen-app-server-thread-schema",
+            "route_purpose": contract["purpose"],
+            "route_source_record": source_record,
+            "route_action": route_action,
+            "route_action_sha256": route_action_fingerprint(route_action),
+            "prior_policy_sha256": prior_policy_sha256,
+            "prior_policy_version": prior_policy_version,
+            "prior_policy_history_head": control.get("policy_history_head"),
+            "prior_policy_history_count": len(
+                control.get("policy_history_records", [])
+            ),
+            "expected_policy_version": expected_policy_version,
+            "expected_normalized_policy_sha256": expected_policy_root,
+            "expected_history_kind": plan.get("expected_history_kind"),
+            "expected_history_reason": plan.get("expected_history_reason"),
+            "expected_history_evidence": plan.get("expected_history_evidence"),
+            "preserved_runtime": json.loads(json.dumps(preserved_runtime)),
+            "preserved_automations": {
+                key: (
+                    value.get("manifest_sha256")
+                    if isinstance(value, Mapping)
+                    else None
+                )
+                for key, value in control.get("automations_by_role", {}).items()
+            },
+            "owner_sha256": plan.get("owner_sha256"),
+            "task_creation_authority": "unavailable-not-used",
+            "identity_source": "canonical-policy-history-exact-task-id",
+            "title_matching": False,
+            "prohibited_effects": [
+                "task creation, resume, turn start, or title-based matching",
+                "mission, target, tracker, other-role, or automation changes",
+                "role replacement or multi-role assignment",
+                "direct policy or history writes",
+            ],
+        }
+        material = {
+            "catalog": catalog_fingerprint,
+            "project": project.id,
+            "target": target.id,
+            "group": plan["group_ids"],
+            "mission": mission_binding,
+            "run_project_binding": project_claim["fingerprint"],
+            "role": role,
+            "candidate": task_facts,
+            "candidate_sources": source_records,
+            "route": {
+                "purpose": contract["purpose"],
+                "source_record": source_record,
+                "action_sha256": evidence["route_action_sha256"],
+            },
+            "policy": {
+                "sha256": prior_policy_sha256,
+                "version": prior_policy_version,
+                "expected_version": expected_policy_version,
+                "expected_root": expected_policy_root,
+                "preserved_runtime": preserved_runtime,
+                "preserved_automations": evidence["preserved_automations"],
+            },
+            "owner": plan.get("owner_sha256"),
+        }
+        return SourceSnapshot(fingerprint=fingerprint(material), evidence=evidence)
+
+    def _role_binding_repair_definition(self) -> OperationDefinition:
+        schema = _object_schema(
+            {
+                "role": {
+                    "type": "string",
+                    "enum": sorted(ROLE_BINDING_REPAIR_ROLES),
+                }
+            }
+        )
+
+        def dispatch(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+        ) -> DispatchResult:
+            with self._role_binding_repair_dispatch_lock:
+                current = self._role_binding_repair_source(target, inputs)
+                if current.fingerprint != source.fingerprint:
+                    raise OperationOwnerError(
+                        "role_binding_source_changed",
+                        "The exact role, candidate task, or policy changed before assignment.",
+                    )
+                try:
+                    applied = self.operations_service.apply_role_bind(
+                        target.id,
+                        role=str(source.evidence["role"]),
+                        candidate_task_id=str(source.evidence["expected_task_id"]),
+                        prior_policy_sha256=str(
+                            source.evidence["prior_policy_sha256"]
+                        ),
+                        prior_policy_version=int(
+                            source.evidence["prior_policy_version"]
+                        ),
+                        expected_normalized_policy_sha256=str(
+                            source.evidence["expected_normalized_policy_sha256"]
+                        ),
+                    )
+                except OperationsProjectionError as error:
+                    raise OperationOwnerError(
+                        error.code
+                        if OWNER_CODE_PATTERN.fullmatch(error.code)
+                        else "role_binding_owner_failed",
+                        str(error),
+                        state=(
+                            "unverified"
+                            if error.code
+                            == "role_binding_owner_postcondition_unverified"
+                            else "failed"
+                        ),
+                    ) from error
+            control = applied.get("control")
+            owner_result = applied.get("owner_result")
+            return DispatchResult(
+                evidence={
+                    "role_binding_requested": True,
+                    "role": source.evidence["role"],
+                    "expected_task_id": source.evidence["expected_task_id"],
+                    "policy_owner_changed": (
+                        isinstance(owner_result, Mapping)
+                        and owner_result.get("changed") is True
+                    ),
+                    "observed_policy_version": (
+                        control.get("policy_version")
+                        if isinstance(control, Mapping)
+                        else None
+                    ),
+                    "task_owner_action": "read-existing-task-only",
+                    "task_created": False,
+                    "task_resumed": False,
+                    "task_turn_started": False,
+                    "preview_fingerprint": source.fingerprint,
+                },
+                links=(
+                    OperationLink("Run", f"/runs/{target.id}"),
+                    OperationLink(
+                        "Role task",
+                        f"/tasks/{source.evidence['expected_task_id']}",
+                    ),
+                ),
+            )
+
+        def verify(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+            result: DispatchResult,
+        ) -> VerificationResult:
+            del inputs
+            projects, _ = self._active_projects()
+            task_current = False
+            task_facts: dict[str, Any] | None = None
+            try:
+                task_detail = self.app_server_client.read_task(
+                    projects,
+                    str(source.evidence["expected_task_id"]),
+                    include_turns=True,
+                )
+                task = task_detail.get("task")
+                if isinstance(task, Mapping):
+                    task_facts = self._role_binding_task_facts(
+                        task,
+                        task_id=str(source.evidence["expected_task_id"]),
+                        project_id=str(source.evidence["project_id"]),
+                    )
+                    task_current = (
+                        task_facts["fingerprint"]
+                        == source.evidence["candidate_task"]["fingerprint"]
+                    )
+            except (AppServerError, OperationError):
+                task_current = False
+            try:
+                control = self.operations_service.policy_control_snapshot(target.id)
+            except OperationsProjectionError as error:
+                return VerificationResult(
+                    "unverified",
+                    {
+                        **result.evidence,
+                        "task_postcondition_current": task_current,
+                        "policy_postcondition_current": False,
+                        "route_gate_accepted": False,
+                        "owner_error_code": error.code,
+                        "recovery": "Inspect the canonical policy head and exact candidate task; do not retry automatically.",
+                    },
+                    result.links,
+                )
+            policy = control.get("policy")
+            runtime = control.get("runtime")
+            history = control.get("policy_history_records")
+            normalized = (
+                json.loads(json.dumps(policy))
+                if isinstance(policy, Mapping)
+                else None
+            )
+            if isinstance(normalized, dict):
+                normalized.pop("policy_sha256", None)
+                normalized.pop("updated_at", None)
+            role_field = str(source.evidence["runtime_field"])
+            preserved_runtime = {
+                key: value
+                for key, value in runtime.items()
+                if key != role_field
+            } if isinstance(runtime, Mapping) else None
+            current_automations = {
+                key: (
+                    value.get("manifest_sha256")
+                    if isinstance(value, Mapping)
+                    else None
+                )
+                for key, value in control.get("automations_by_role", {}).items()
+            }
+            record = history[-1] if isinstance(history, list) and history else None
+            prior_record = (
+                history[-2]
+                if isinstance(history, list) and len(history) >= 2
+                else None
+            )
+            policy_current = bool(
+                isinstance(normalized, dict)
+                and _normalized_policy_root(policy)
+                == source.evidence["expected_normalized_policy_sha256"]
+                and control.get("policy_version")
+                == source.evidence["expected_policy_version"]
+                and isinstance(runtime, Mapping)
+                and runtime.get(role_field) == source.evidence["expected_task_id"]
+                and preserved_runtime == source.evidence["preserved_runtime"]
+                and current_automations == source.evidence["preserved_automations"]
+                and isinstance(record, Mapping)
+                and record.get("kind") == source.evidence["expected_history_kind"]
+                and record.get("reason")
+                == source.evidence["expected_history_reason"]
+                and record.get("evidence")
+                == source.evidence["expected_history_evidence"]
+                and record.get("policy") == policy
+                and isinstance(history, list)
+                and len(history)
+                == source.evidence["prior_policy_history_count"] + 1
+                and isinstance(prior_record, Mapping)
+                and prior_record.get("record_sha256")
+                == source.evidence["prior_policy_history_head"]
+                and isinstance(policy, Mapping)
+                and policy.get("mission_binding")
+                == source.evidence["mission_binding"]
+            )
+            route_accepted = False
+            route_result: RouteGateResult | None = None
+            if task_current and policy_current:
+                request = RouteGateRequest(
+                    recipient=str(source.evidence["expected_task_id"]),
+                    purpose=str(source.evidence["route_purpose"]),
+                    source_record=str(source.evidence["route_source_record"]),
+                    required_action=str(source.evidence["route_action"]),
+                    target_thread=target.id,
+                )
+                try:
+                    route_result = self.route_gate(request)
+                    route_accepted = bool(
+                        route_result.allowed
+                        and route_result.recipient == request.recipient
+                        and route_result.purpose == request.purpose
+                        and route_result.source_record == request.source_record
+                        and route_result.target_thread == request.target_thread
+                        and route_result.action_hash
+                        == source.evidence["route_action_sha256"]
+                        and route_result.policy_fingerprint
+                        == control.get("policy_sha256")
+                    )
+                except Exception:
+                    route_accepted = False
+            applied = task_current and policy_current and route_accepted
+            evidence = {
+                **result.evidence,
+                "role_binding_applied": applied,
+                "task_postcondition_current": task_current,
+                "task_id": source.evidence["expected_task_id"],
+                "task_status": task_facts.get("status") if task_facts else None,
+                "task_history_preserved": task_current,
+                "policy_postcondition_current": policy_current,
+                "policy_version": control.get("policy_version"),
+                "policy_sha256": control.get("policy_sha256"),
+                "single_role_current": (
+                    isinstance(runtime, Mapping)
+                    and [
+                        runtime.get(field)
+                        for field in (
+                            "watcher_thread_id",
+                            "base_reviewer_thread_id",
+                            "reviewer_thread_id",
+                            "notice_reviewer_thread_id",
+                            "fix_executor_thread_id",
+                            "gmail_gate_thread_id",
+                            "gmail_processor_thread_id",
+                            "roundup_thread_id",
+                        )
+                    ].count(source.evidence["expected_task_id"])
+                    == 1
+                ),
+                "mission_binding_preserved": (
+                    isinstance(policy, Mapping)
+                    and policy.get("mission_binding")
+                    == source.evidence["mission_binding"]
+                ),
+                "unrelated_roles_preserved": (
+                    preserved_runtime == source.evidence["preserved_runtime"]
+                ),
+                "automations_preserved": (
+                    current_automations == source.evidence["preserved_automations"]
+                ),
+                "route_gate_accepted": route_accepted,
+                "route_purpose": source.evidence["route_purpose"],
+                "route_policy_sha256": (
+                    route_result.policy_fingerprint if route_result else None
+                ),
+                "task_created": False,
+                "task_resumed": False,
+                "task_turn_started": False,
+                "direct_policy_write": False,
+                "direct_history_write": False,
+                "recovery": (
+                    None
+                    if applied
+                    else "Inspect the exact task, canonical policy assignment, and named route gate; do not retry or replace automatically."
+                ),
+            }
+            return VerificationResult(
+                "applied" if applied else "unverified",
+                evidence,
+                result.links,
+            )
+
+        return OperationDefinition(
+            operation_type="factory.supervision-repair-role-task-binding",
+            target_kind="run",
+            input_schema=schema,
+            owner="maintained Codex task reader + supervision bind/policy and route-gate owners",
+            authority=(
+                "explicit operator confirmation for one exact role repair",
+                "one exact prior canonical role-task binding",
+                "one current eligible durable Codex task",
+                "maintained supervision bind/policy owner",
+                "maintained role-purpose route gate",
+            ),
+            ordinary_consequences=(
+                "Reads one exact prior role task without starting, resuming, or repurposing it.",
+                "Invokes the maintained bind owner once to fill only the selected missing role and create one next policy-bind record.",
+                "Runs the selected role's maintained route gate as a read-only postcondition; it sends no task message.",
+            ),
+            failure_consequences=(
+                "Missing authority, task ambiguity, incompatible purpose, model contract, lifecycle, or project state sends no owner request.",
+                "A task or policy change after confirmation remains unverified and is never retried or replaced automatically.",
+            ),
+            confirmation=ConfirmationContract(
+                "supervision-role-binding-repair",
+                "Type BIND ROLE to assign this exact prior task to the selected missing role.",
+                "BIND ROLE",
+            ),
+            idempotency="One consumed preview invokes at most one exact bind; a current or differing role is rejected and no retry occurs.",
+            expected_postcondition="The same eligible task remains current, one next canonical policy-bind record fills only the selected role, and that exact task passes the role's maintained purpose gate.",
+            timeout_seconds=0,
+            limitations=(
+                "Only base reviewer, notice reviewer, fix executor, Gmail processor, and roundup writer roles supported by both bind and route owners are repairable.",
+                "Watcher, reviewer, target, and Gmail-gate replacement remain unavailable because the maintained bind/route contract does not expose that safe repair.",
+                "No generic task creation, title matching, task resume, turn start, role replacement, automation change, or policy-file write is exposed.",
+                "The frozen App Server task schema exposes provider but not exact model/reasoning; the governed model/effort contract is verified from canonical policy and the observation limitation remains explicit.",
+            ),
+            resolve_source=self._role_binding_repair_source,
+            describe_effect=lambda target, inputs, source: PreviewEffect(
+                (
+                    f"Assign task {source.evidence['expected_task_id']} to the missing "
+                    f"{source.evidence['role_label']} role for run {target.id}."
+                ),
+                "One canonical policy version may be created; no task or automation is created, resumed, messaged, or relabeled.",
+            ),
             dispatch=dispatch,
             verify=verify,
         )
