@@ -377,6 +377,109 @@ class OperationsProjectionTests(unittest.TestCase):
         self.assertNotIn("PRIVATE PROMPT", serialized)
         self.assertNotIn('"prompt"', serialized)
 
+    def test_gmail_cadence_uses_active_owner_result_for_all_three_fields(self) -> None:
+        self._command(
+            "bind",
+            "--target-thread",
+            TARGET,
+            "--gmail-reply-message-id",
+            "gmail-seed-0001",
+            "--gmail-project-key",
+            "demo",
+            "--gmail-subject",
+            "Demo supervision",
+            "--gmail-gate-thread",
+            "gmail-gate-thread-0001",
+            "--gmail-processor-thread",
+            "gmail-processor-thread-0001",
+            "--gmail-poll-automation",
+            "gmail-automation-demo",
+        )
+        automation = self.automations_root / "gmail-automation-demo"
+        automation.mkdir()
+        (automation / "automation.toml").write_text(
+            textwrap.dedent(
+                '''\
+                version = 1
+                id = "gmail-automation-demo"
+                kind = "heartbeat"
+                name = "Demo Gmail gate"
+                prompt = "PRIVATE GMAIL PROMPT MUST NEVER LEAK"
+                status = "ACTIVE"
+                rrule = "RRULE:FREQ=MINUTELY;INTERVAL=1"
+                target_thread_id = "gmail-gate-thread-0001"
+                created_at = 1786270800000
+                updated_at = 1786271400000
+                '''
+            ),
+            encoding="utf-8",
+        )
+        directory = self.supervision_root / TARGET
+        policy = self.owner.read_json(directory / "policy.json")
+        self.owner.append_raw(
+            directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": "EVT-GMAIL-ACTIVE",
+                "timestamp": datetime.now(UTC).isoformat(),
+                "kind": "inbound-message",
+                "target_thread_id": TARGET,
+                "policy_sha256": policy["policy_sha256"],
+                "state_fingerprint": "gmail-active-state",
+                "status": "received",
+                "severity": "info",
+                "category": "gmail",
+                "summary": "Current Gmail activity.",
+                "evidence": ["gmail-message-id:demo"],
+            },
+        )
+
+        control = self.service.policy_control_snapshot(TARGET)
+        self.assertEqual(control["gmail_cadence"]["mode"], "active")
+        self.assertEqual(
+            control["gmail_cadence"]["desired_rrule"],
+            "RRULE:FREQ=MINUTELY;INTERVAL=1",
+        )
+        contracts = {
+            item["field"]: item["automation_role"]
+            for item in control["adjustment_contract"]["fields"]
+        }
+        self.assertEqual(
+            {
+                contracts["gmail_quiet_minutes"],
+                contracts["gmail_active_minutes"],
+                contracts["gmail_active_window_minutes"],
+            },
+            {"gmail_gate"},
+        )
+        run = self.service.run(self.projects, TARGET)["selected_run"]
+        gmail = next(
+            item
+            for item in run["policy"]["automation_reconciliation"]
+            if item["role"] == "gmail_gate"
+        )
+        self.assertEqual(gmail["field"], "gmail_cadence")
+        self.assertEqual(gmail["mode"], "active")
+        self.assertEqual(gmail["state"], "reconciled")
+        self.assertEqual(gmail["expected_rrule"], "RRULE:FREQ=MINUTELY;INTERVAL=1")
+
+        manifest = automation / "automation.toml"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8").replace(
+                "RRULE:FREQ=MINUTELY;INTERVAL=1",
+                "RRULE:FREQ=MINUTELY;INTERVAL=2",
+            ),
+            encoding="utf-8",
+        )
+        changed = self.service.run(self.projects, TARGET)["selected_run"]
+        gmail = next(
+            item
+            for item in changed["policy"]["automation_reconciliation"]
+            if item["role"] == "gmail_gate"
+        )
+        self.assertEqual(gmail["state"], "partial")
+        self.assertEqual(gmail["expected_rrule"], "RRULE:FREQ=MINUTELY;INTERVAL=1")
+
     def test_current_project_binding_ignores_predecessor_mission_paths(self) -> None:
         old_root = self.root / "old-project"
         old_root.mkdir()

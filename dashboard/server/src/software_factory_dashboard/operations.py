@@ -138,14 +138,14 @@ POLICY_ADJUSTMENT_FIELD_CONTRACTS = (
         "kind": "integer",
         "minimum": 1,
         "maximum": 9,
-        "automation_role": None,
+        "automation_role": "gmail_gate",
     },
     {
         "field": "gmail_active_window_minutes",
         "kind": "integer",
         "minimum": 5,
         "maximum": 120,
-        "automation_role": None,
+        "automation_role": "gmail_gate",
     },
     {
         "field": "skill_maintenance_mode",
@@ -264,6 +264,7 @@ def policy_adjustment_contract(owner: ModuleType) -> dict[str, Any]:
 def policy_automation_reconciliation(
     policy: Mapping[str, Any],
     roles: Sequence[Mapping[str, Any]],
+    gmail_cadence: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Compare cadence policy to the actual bound automation owner projection."""
 
@@ -278,7 +279,7 @@ def policy_automation_reconciliation(
     specs = (
         ("routine_minutes", "watcher", "routine_automation_id", "MINUTELY"),
         ("meta_review_hours", "reviewer", "meta_automation_id", "HOURLY"),
-        ("gmail_quiet_minutes", "gmail_gate", "gmail_poll_automation_id", "MINUTELY"),
+        ("gmail_cadence", "gmail_gate", "gmail_poll_automation_id", None),
     )
     rows: list[dict[str, Any]] = []
     for field, role_name, automation_key, frequency in specs:
@@ -287,11 +288,22 @@ def policy_automation_reconciliation(
             continue
         role = by_role.get(role_name)
         automation = role.get("automation") if isinstance(role, Mapping) else None
-        value = values[field]
+        value = values.get(field)
+        cadence_available = (
+            role_name != "gmail_gate"
+            or (
+                isinstance(gmail_cadence, Mapping)
+                and gmail_cadence.get("status") == "available"
+            )
+        )
         expected_rrule = (
-            f"RRULE:FREQ={frequency};INTERVAL={value}"
-            if isinstance(value, int) and value > 0
-            else None
+            gmail_cadence.get("desired_rrule")
+            if role_name == "gmail_gate" and cadence_available
+            else (
+                f"RRULE:FREQ={frequency};INTERVAL={value}"
+                if isinstance(value, int) and value > 0 and frequency is not None
+                else None
+            )
         )
         actual_rrule = automation.get("rrule") if isinstance(automation, Mapping) else None
         owner_status = (
@@ -301,7 +313,10 @@ def policy_automation_reconciliation(
         actual_target = (
             automation.get("target_thread_id") if isinstance(automation, Mapping) else None
         )
-        if not isinstance(automation, Mapping) or automation.get("status") != "available":
+        if not cadence_available:
+            state = "unavailable"
+            reason = "The maintained Gmail cadence projection is unavailable."
+        elif not isinstance(automation, Mapping) or automation.get("status") != "available":
             state = "unavailable"
             reason = "The named automation owner projection is unavailable."
         elif (
@@ -325,6 +340,11 @@ def policy_automation_reconciliation(
                 "actual_rrule": actual_rrule,
                 "owner_status": owner_status,
                 "target_thread_id": target_thread_id,
+                "mode": (
+                    gmail_cadence.get("mode")
+                    if role_name == "gmail_gate" and cadence_available
+                    else None
+                ),
                 "state": state,
                 "reason": reason,
             }
@@ -641,6 +661,80 @@ class OperationsProjectionService:
             ),
         }
 
+    def _gmail_cadence_snapshot(
+        self,
+        target_thread_id: str,
+        policy: Mapping[str, Any],
+    ) -> dict[str, Any] | None:
+        """Resolve the bound Gmail automation's current owner-derived cadence."""
+
+        runtime = policy.get("runtime")
+        runtime = runtime if isinstance(runtime, Mapping) else {}
+        if not all(
+            isinstance(runtime.get(key), str) and runtime[key]
+            for key in ("gmail_gate_thread_id", "gmail_poll_automation_id")
+        ):
+            return None
+        try:
+            payload = self._owner_command(
+                ["gmail-cadence", "--target-thread", target_thread_id]
+            )
+            mode = payload.get("mode")
+            quiet = payload.get("quiet_interval_minutes")
+            active = payload.get("active_interval_minutes")
+            window = payload.get("active_window_minutes")
+            desired_rrule = payload.get("desired_rrule")
+            expected_interval = active if mode == "active" else quiet
+            if (
+                mode not in {"active", "quiet"}
+                or type(quiet) is not int
+                or type(active) is not int
+                or type(window) is not int
+                or not 2 <= quiet <= 10
+                or not 1 <= active < quiet
+                or not 5 <= window <= 120
+                or desired_rrule
+                != f"RRULE:FREQ=MINUTELY;INTERVAL={expected_interval}"
+            ):
+                raise OperationsProjectionError(
+                    "gmail_cadence_invalid",
+                    "The maintained Gmail cadence owner returned an invalid contract.",
+                    status=422,
+                )
+            return {
+                "status": "available",
+                "mode": mode,
+                "desired_rrule": desired_rrule,
+                "quiet_interval_minutes": quiet,
+                "active_interval_minutes": active,
+                "active_window_minutes": window,
+                "last_activity_record_id": _bounded(
+                    payload.get("last_activity_record_id"), 160
+                ),
+                "last_activity_at": _bounded(payload.get("last_activity_at"), 80),
+                "active_until": _bounded(payload.get("active_until"), 80),
+                "seconds_until_quiet": payload.get("seconds_until_quiet"),
+                "error": None,
+            }
+        except OperationsProjectionError as error:
+            return {
+                "status": "unavailable",
+                "mode": None,
+                "desired_rrule": None,
+                "quiet_interval_minutes": None,
+                "active_interval_minutes": None,
+                "active_window_minutes": None,
+                "last_activity_record_id": None,
+                "last_activity_at": None,
+                "active_until": None,
+                "seconds_until_quiet": None,
+                "error": {
+                    "code": error.code,
+                    "message": str(error),
+                    "retryable": error.retryable,
+                },
+            }
+
     def policy_control_snapshot(self, target_thread_id: str) -> dict[str, Any]:
         """Read one validated policy/history head and only its named automations."""
 
@@ -701,6 +795,10 @@ class OperationsProjectionService:
                 if isinstance(automation_id, str) and automation_id
                 else None
             )
+        gmail_cadence = self._gmail_cadence_snapshot(
+            target_thread_id,
+            evidence.policy,
+        )
         if self._target_key(directory) != evidence.cache_key:
             raise OperationsProjectionError(
                 "supervision_changed_during_projection",
@@ -743,6 +841,24 @@ class OperationsProjectionService:
                 role: automation.get("manifest_sha256") if automation else None
                 for role, automation in automations.items()
             },
+            "gmail_cadence": (
+                {
+                    key: gmail_cadence.get(key)
+                    for key in (
+                        "status",
+                        "mode",
+                        "desired_rrule",
+                        "quiet_interval_minutes",
+                        "active_interval_minutes",
+                        "active_window_minutes",
+                        "last_activity_record_id",
+                        "last_activity_at",
+                        "active_until",
+                    )
+                }
+                if isinstance(gmail_cadence, Mapping)
+                else None
+            ),
         }
         return {
             **material,
@@ -765,6 +881,7 @@ class OperationsProjectionService:
                 )
             },
             "automations_by_role": automations,
+            "gmail_cadence": gmail_cadence,
         }
 
     def _module(self, family: str) -> ModuleType:
@@ -1934,6 +2051,10 @@ class OperationsProjectionService:
             duplicate_threads,
             duplicate_automations,
         )
+        gmail_cadence = self._gmail_cadence_snapshot(
+            evidence.target_thread_id,
+            evidence.policy,
+        )
         project_binding = self._project_binding(evidence, projects)
         if project_binding["status"] != "bound":
             anomalies.append(f"project binding is {project_binding['status']}")
@@ -2043,6 +2164,7 @@ class OperationsProjectionService:
                 "automation_reconciliation": policy_automation_reconciliation(
                     evidence.policy,
                     roles,
+                    gmail_cadence,
                 ),
                 "source_path": str(evidence.directory / "policy.json"),
                 "read_only": True,

@@ -257,7 +257,7 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
                   <div key={`${row.field}:${row.automation_id}`}>
                     <StatusMark status={row.state} />
                     <strong>{policyLabel(row.field)}</strong>
-                    <span>{row.role}</span>
+                    <span>{row.mode ? `${row.role} · ${row.mode}` : row.role}</span>
                     <Identity value={row.automation_id} />
                     <code>{row.actual_rrule ?? "Unavailable"}</code>
                     {row.actual_rrule !== row.expected_rrule && <small>Expected {row.expected_rrule ?? "unavailable"}</small>}

@@ -4181,7 +4181,19 @@ class FactoryWorkflowOwner:
                 "gmail_gate",
                 "gmail_gate_thread_id",
                 "gmail_poll_automation_id",
-                "MINUTELY",
+                None,
+            ),
+            "gmail_active_minutes": (
+                "gmail_gate",
+                "gmail_gate_thread_id",
+                "gmail_poll_automation_id",
+                None,
+            ),
+            "gmail_active_window_minutes": (
+                "gmail_gate",
+                "gmail_gate_thread_id",
+                "gmail_poll_automation_id",
+                None,
             ),
         }
         if any(field.startswith("gmail_") for field in changes) and not all(
@@ -4195,7 +4207,7 @@ class FactoryWorkflowOwner:
             )
         automations = control.get("automations_by_role")
         automations = automations if isinstance(automations, Mapping) else {}
-        affected_automations: list[dict[str, Any]] = []
+        affected_automations_by_role: dict[str, dict[str, Any]] = {}
         for field, value in changes.items():
             spec = automation_specs.get(field)
             if spec is None:
@@ -4223,18 +4235,49 @@ class FactoryWorkflowOwner:
                     f"The exact active {role} automation owner is unavailable.",
                     status=409,
                 )
-            affected_automations.append(
-                {
-                    "field": field,
-                    "role": role,
-                    "automation_id": automation_id,
-                    "target_thread_id": thread_id,
-                    "before_rrule": automation.get("rrule"),
-                    "before_manifest_sha256": automation["manifest_sha256"],
-                    "expected_rrule": f"RRULE:FREQ={frequency};INTERVAL={value}",
-                    "expected_owner_status": "ACTIVE",
-                }
-            )
+            cadence = control.get("gmail_cadence") if role == "gmail_gate" else None
+            if role == "gmail_gate" and (
+                not isinstance(cadence, Mapping)
+                or cadence.get("status") != "available"
+                or not isinstance(cadence.get("desired_rrule"), str)
+            ):
+                raise OperationError(
+                    "policy_adjust_gmail_cadence_unavailable",
+                    "The maintained Gmail cadence owner is unavailable.",
+                    status=409,
+                )
+            existing = affected_automations_by_role.get(role)
+            if existing is not None:
+                existing["fields"].append(field)
+                continue
+            affected_automations_by_role[role] = {
+                "fields": [field],
+                "role": role,
+                "automation_id": automation_id,
+                "target_thread_id": thread_id,
+                "before_rrule": automation.get("rrule"),
+                "before_manifest_sha256": automation["manifest_sha256"],
+                "expected_rrule": (
+                    f"RRULE:FREQ={frequency};INTERVAL={value}"
+                    if frequency is not None
+                    else None
+                ),
+                "expected_rrule_owner": (
+                    "maintained-gmail-cadence"
+                    if role == "gmail_gate"
+                    else "submitted-policy-diff"
+                ),
+                "before_desired_rrule": (
+                    cadence.get("desired_rrule")
+                    if isinstance(cadence, Mapping)
+                    else None
+                ),
+                "before_cadence_mode": (
+                    cadence.get("mode") if isinstance(cadence, Mapping) else None
+                ),
+                "expected_owner_status": "ACTIVE",
+            }
+        affected_automations = list(affected_automations_by_role.values())
         expected_policy = _policy_after_changes(policy, changes, contract)
         expected_policy_root = _normalized_policy_root(expected_policy)
         preserved_fields = [
@@ -4640,6 +4683,19 @@ class FactoryWorkflowOwner:
             for expected in source.evidence["affected_automations"]:
                 actual = automations.get(expected["role"])
                 mismatches: list[str] = []
+                expected_rrule = expected["expected_rrule"]
+                cadence_mode = None
+                if expected["role"] == "gmail_gate":
+                    cadence = control.get("gmail_cadence")
+                    if (
+                        not isinstance(cadence, Mapping)
+                        or cadence.get("status") != "available"
+                        or not isinstance(cadence.get("desired_rrule"), str)
+                    ):
+                        mismatches.append("maintained Gmail cadence unavailable")
+                    else:
+                        expected_rrule = cadence["desired_rrule"]
+                        cadence_mode = cadence.get("mode")
                 if not isinstance(actual, Mapping):
                     mismatches.append("owner projection unavailable")
                 else:
@@ -4652,10 +4708,9 @@ class FactoryWorkflowOwner:
                         "kind": actual.get("kind") == "heartbeat",
                         "target": actual.get("target_thread_id")
                         == expected["target_thread_id"],
-                        "schedule": actual.get("rrule")
-                        == expected["expected_rrule"],
+                        "schedule": actual.get("rrule") == expected_rrule,
                         "manifest change": (
-                            expected["before_rrule"] == expected["expected_rrule"]
+                            expected["before_rrule"] == expected_rrule
                             or actual.get("manifest_sha256")
                             != expected["before_manifest_sha256"]
                         ),
@@ -4665,12 +4720,14 @@ class FactoryWorkflowOwner:
                     )
                 reconciliation.append(
                     {
-                        "field": expected["field"],
+                        "fields": expected["fields"],
                         "role": expected["role"],
                         "automation_id": expected["automation_id"],
                         "state": "reconciled" if not mismatches else "pending",
                         "mismatches": mismatches,
-                        "expected_rrule": expected["expected_rrule"],
+                        "expected_rrule": expected_rrule,
+                        "expected_rrule_owner": expected["expected_rrule_owner"],
+                        "cadence_mode": cadence_mode,
                         "actual_rrule": (
                             actual.get("rrule") if isinstance(actual, Mapping) else None
                         ),

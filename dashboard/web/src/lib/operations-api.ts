@@ -326,7 +326,7 @@ const policySchema = z
           field: z.enum([
             "routine_minutes",
             "meta_review_hours",
-            "gmail_quiet_minutes",
+            "gmail_cadence",
           ]),
           role: z.enum(["watcher", "reviewer", "gmail_gate"]),
           automation_id: nullableString,
@@ -334,6 +334,7 @@ const policySchema = z
           actual_rrule: nullableString,
           owner_status: nullableString,
           target_thread_id: nullableString,
+          mode: z.enum(["active", "quiet"]).nullable(),
           state: z.enum(["reconciled", "partial", "unavailable"]),
           reason: z.string().min(1),
         })

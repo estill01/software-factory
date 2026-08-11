@@ -1510,6 +1510,133 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(drift.state, "failed")
         self.assertFalse(drift.evidence["policy_applied"])
 
+        current_policy = json.loads(json.dumps(next_policy))
+        current_policy["runtime"]["gmail_gate_thread_id"] = "gmail-gate-workflow-001"
+        current_policy["runtime"]["gmail_poll_automation_id"] = (
+            "gmail-automation-workflow-001"
+        )
+        control.update(
+            {
+                "fingerprint": "8" * 64,
+                "policy": current_policy,
+                "policy_sha256": current_policy["policy_sha256"],
+                "policy_version": current_policy["policy_version"],
+                "runtime": current_policy["runtime"],
+                "adjustable": {
+                    **adjustable,
+                    "routine_minutes": 25,
+                },
+                "gmail_cadence": {
+                    "status": "available",
+                    "mode": "active",
+                    "desired_rrule": "RRULE:FREQ=MINUTELY;INTERVAL=1",
+                },
+            }
+        )
+        control["automations_by_role"]["gmail_gate"] = {
+            "id": "gmail-automation-workflow-001",
+            "status": "available",
+            "owner_status": "ACTIVE",
+            "kind": "heartbeat",
+            "target_thread_id": "gmail-gate-workflow-001",
+            "rrule": "RRULE:FREQ=MINUTELY;INTERVAL=1",
+            "manifest_sha256": "9" * 64,
+        }
+        gmail_inputs = {
+            "reason": "Adjust all bounded Gmail cadence fields together.",
+            "gmail_quiet_minutes": 3,
+            "gmail_active_minutes": 2,
+            "gmail_active_window_minutes": 45,
+        }
+        gmail_source = definition.resolve_source(target, gmail_inputs)
+        self.assertEqual(len(gmail_source.evidence["affected_automations"]), 1)
+        gmail_automation = gmail_source.evidence["affected_automations"][0]
+        self.assertEqual(gmail_automation["role"], "gmail_gate")
+        self.assertEqual(
+            gmail_automation["fields"],
+            [
+                "gmail_quiet_minutes",
+                "gmail_active_minutes",
+                "gmail_active_window_minutes",
+            ],
+        )
+        self.assertEqual(
+            gmail_automation["expected_rrule_owner"],
+            "maintained-gmail-cadence",
+        )
+        self.assertIsNone(gmail_automation["expected_rrule"])
+        gmail_dispatched = definition.dispatch(target, gmail_inputs, gmail_source)
+        gmail_next_policy = _policy_after_changes(
+            current_policy,
+            {
+                "gmail_quiet_minutes": 3,
+                "gmail_active_minutes": 2,
+                "gmail_active_window_minutes": 45,
+            },
+            contract,
+        )
+        gmail_next_policy["updated_at"] = "2026-08-11T00:10:00+00:00"
+        gmail_next_policy["policy_sha256"] = "a" * 64
+        gmail_record = {
+            "schema_version": 1,
+            "record_id": "POLICY-7",
+            "timestamp": "2026-08-11T00:10:01+00:00",
+            "kind": "policy-adjust",
+            "reason": gmail_inputs["reason"],
+            "evidence": [
+                "dashboard-route-purpose:semantic-escalation",
+                f"dashboard-preview:{gmail_source.fingerprint}",
+                f"dashboard-adjust-task:{reviewer_task['id']}",
+                "dashboard-source-record:EVT-000004",
+            ],
+            "policy": gmail_next_policy,
+            "record_sha256": "b" * 64,
+        }
+        control.update(
+            {
+                "policy": gmail_next_policy,
+                "policy_sha256": gmail_next_policy["policy_sha256"],
+                "policy_version": 7,
+                "policy_history_head": gmail_record["record_sha256"],
+                "policy_history_records": [gmail_record],
+                "gmail_cadence": {
+                    "status": "available",
+                    "mode": "active",
+                    "desired_rrule": "RRULE:FREQ=MINUTELY;INTERVAL=2",
+                },
+            }
+        )
+        control["automations_by_role"]["gmail_gate"].update(
+            {
+                "rrule": "RRULE:FREQ=MINUTELY;INTERVAL=2",
+                "manifest_sha256": "c" * 64,
+            }
+        )
+        gmail_applied = definition.verify(
+            target,
+            gmail_inputs,
+            gmail_source,
+            gmail_dispatched,
+        )
+        self.assertEqual(gmail_applied.state, "applied")
+        self.assertTrue(gmail_applied.evidence["automation_reconciled"])
+        self.assertEqual(
+            gmail_applied.evidence["reconciliation"][0]["fields"],
+            [
+                "gmail_quiet_minutes",
+                "gmail_active_minutes",
+                "gmail_active_window_minutes",
+            ],
+        )
+        self.assertEqual(
+            gmail_applied.evidence["reconciliation"][0]["expected_rrule"],
+            "RRULE:FREQ=MINUTELY;INTERVAL=2",
+        )
+        self.assertEqual(
+            gmail_applied.evidence["reconciliation"][0]["cadence_mode"],
+            "active",
+        )
+
     def test_semantic_review_requests_bind_role_source_conclusion_and_supersession(self) -> None:
         project = ProjectRecord(
             id="workflow",

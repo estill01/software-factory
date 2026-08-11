@@ -56,8 +56,8 @@ const policy = {
       ["cooldown_minutes", "integer", 30, 120, null],
       ["max_escalations_per_hour", "integer", 1, 2, null],
       ["gmail_quiet_minutes", "integer", 2, 10, "gmail_gate"],
-      ["gmail_active_minutes", "integer", 1, 9, null],
-      ["gmail_active_window_minutes", "integer", 5, 120, null],
+      ["gmail_active_minutes", "integer", 1, 9, "gmail_gate"],
+      ["gmail_active_window_minutes", "integer", 5, 120, "gmail_gate"],
       ["skill_maintenance_mode", "enum", null, null, null],
     ].map(([field, kind, minimum, maximum, automation_role]) => ({
       field,
@@ -81,6 +81,7 @@ const policy = {
       actual_rrule: "RRULE:FREQ=MINUTELY;INTERVAL=20",
       owner_status: "ACTIVE",
       target_thread_id: "watcher-task",
+      mode: null,
       state: "reconciled",
       reason: "Policy cadence and actual active automation agree.",
     },
@@ -92,6 +93,7 @@ const policy = {
       actual_rrule: "RRULE:FREQ=HOURLY;INTERVAL=4",
       owner_status: "ACTIVE",
       target_thread_id: "reviewer-task",
+      mode: null,
       state: "reconciled",
       reason: "Policy cadence and actual active automation agree.",
     },
@@ -357,6 +359,56 @@ describe("Factory workflow action strips", () => {
     expect(await screen.findByText("Routine minutes: 20 → 25")).toBeVisible()
     expect(screen.getByText(/8 adjustable fields/)).toBeVisible()
     expect(screen.getByText("watcher")).toBeVisible()
+  })
+
+  it("maps every bound Gmail cadence field to the one Gmail automation owner", async () => {
+    const user = userEvent.setup()
+    const boundPolicy = {
+      ...policy,
+      automation_reconciliation: [
+        ...policy.automation_reconciliation,
+        {
+          field: "gmail_cadence",
+          role: "gmail_gate",
+          automation_id: "gmail-automation",
+          expected_rrule: "RRULE:FREQ=MINUTELY;INTERVAL=1",
+          actual_rrule: "RRULE:FREQ=MINUTELY;INTERVAL=1",
+          owner_status: "ACTIVE",
+          target_thread_id: "gmail-gate-task",
+          mode: "active",
+          state: "reconciled",
+          reason: "Maintained active cadence and actual automation agree.",
+        },
+      ],
+    } as NonNullable<RunDetail["policy"]>
+    renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={boundPolicy}
+      />,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Adjust supervision" }))
+    await user.click(screen.getByRole("checkbox", { name: /Gmail active window minutes/ }))
+    const value = screen.getByRole("spinbutton", { name: "New Gmail active window minutes" })
+    await user.clear(value)
+    await user.type(value, "45")
+    await user.type(screen.getByLabelText("Reason"), "Extend the bounded active cadence window.")
+    await user.click(screen.getByRole("button", { name: "Preview" }))
+
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.supervision-adjust",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: {
+        reason: "Extend the bounded active cadence window.",
+        gmail_active_window_minutes: 45,
+      },
+    })
+    expect(await screen.findByText("gmail_gate")).toBeVisible()
+    expect(screen.queryByText("No schedule owner affected")).not.toBeInTheDocument()
   })
 
   it("previews only the selected eligible implementation range and exact Stop", async () => {

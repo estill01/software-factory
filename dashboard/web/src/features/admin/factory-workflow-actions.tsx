@@ -516,8 +516,11 @@ export function RunSupervisionActions({
     const changes = Object.fromEntries(
       selectedPolicyFields.map((contract) => [contract.field, parsedAdjustment[contract.field]]),
     )
-    const affectedRoles = selectedPolicyFields
-      .flatMap((contract) => contract.automation_role ? [contract.automation_role] : [])
+    const affectedRoles = [...new Set(
+      selectedPolicyFields.flatMap((contract) => (
+        contract.automation_role ? [contract.automation_role] : []
+      )),
+    )]
     runner.launch({
       request: {
         operation_type: "factory.supervision-adjust",
@@ -537,7 +540,9 @@ export function RunSupervisionActions({
     setAdjustOpen(false)
   }
   const unavailable = !projectId || runner.busy
-  const gmailBound = policy?.automation_reconciliation.some((row) => row.role === "gmail_gate") ?? false
+  const gmailBound = policy?.automation_reconciliation.some((row) => (
+    row.role === "gmail_gate" && row.state !== "unavailable"
+  )) ?? false
   return (
     <>
       <ActionStrip feedback={runner.feedback}>
