@@ -2931,6 +2931,15 @@ claims.
   to every retained live-skill, evolution, and capability identity. Exact
   same-length changed-byte cases with restored modification time now reject
   without a content rehash or producer rerun.
+- Rejected checkpoint `4fc0f0cc593599cae0d74a37eef1388c678b839c`
+  closed the same-length/restored-time finding for retained files. Exact review
+  then found that the live-skill identity recorded the stable discovery symlink
+  and all descendants but omitted the resolved skill source directory itself,
+  so a source-root mode change remained invisible. Its focused `11/11` and
+  mapped implementation `109/109` evidence remain diagnostic.
+- The current corrective candidate records the discovery link and resolved
+  skill source root as separate full identities before the descendant entries;
+  a final-pass source-root mode change now rejects.
 - Corrective focused coverage passes `11/11`, mapped implementation validation
   passes `109/109`, and the historical Block 9 suite remains accepted at
   `29/29` under `/usr/bin/python3`. It covers both target classes and all

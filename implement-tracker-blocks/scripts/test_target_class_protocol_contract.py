@@ -1273,6 +1273,31 @@ class TargetClassProtocolTests(unittest.TestCase):
         self.assertEqual(posture_reads, 3)
         skill_path.write_bytes(exact_skill)
 
+        skill_source_root = skill_path.parent
+        source_mode = skill_source_root.lstat().st_mode & 0o777
+        posture_reads = 0
+
+        def posture_then_change_skill_root(*args, **kwargs):
+            nonlocal posture_reads
+            value = original_posture(*args, **kwargs)
+            posture_reads += 1
+            if posture_reads == 3:
+                os.chmod(skill_source_root, source_mode ^ 0o200)
+            return value
+
+        with mock.patch.object(
+            protocol.supervision,
+            "_adaptive_decision_posture",
+            side_effect=posture_then_change_skill_root,
+        ):
+            with self.assertRaisesRegex(
+                protocol.TargetClassProtocolError,
+                "skill sources changed",
+            ):
+                self.validate(packet)
+        self.assertEqual(posture_reads, 3)
+        os.chmod(skill_source_root, source_mode)
+
         posture_reads = 0
         evaluation_stat = evaluation_path.lstat()
 

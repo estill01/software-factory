@@ -369,7 +369,8 @@ live-skill, evolution-inventory, and capability-record identities across that
 last decision pass and reject any difference before result construction. Those
 identities include device, inode, path type/mode, link count, size, modification
 time, and change time so same-length changed bytes with restored modification
-time do not appear current.
+time do not appear current. Record the stable discovery link and the resolved
+skill source directory as separate identities before its descendants.
 
 For a materially expensive read-only proof or audit with a separate reporter or
 helper, cheaply preflight the maintained reporting interface and its invocation

@@ -333,10 +333,11 @@ def _live_skill_identity(skills_root: Path) -> str:
             ) from error
         if not stat.S_ISLNK(link.st_mode) or not source.is_dir():
             raise TargetClassProtocolError("live skill identity differs")
+        source_root = source.lstat()
         records.append(
             {
                 "skill_id": skill_id,
-                "entry": ".",
+                "entry": "@discovery-link",
                 "source_path": str(source),
                 "mode": link.st_mode,
                 "nlink": link.st_nlink,
@@ -345,6 +346,20 @@ def _live_skill_identity(skills_root: Path) -> str:
                 "size": link.st_size,
                 "mtime_ns": link.st_mtime_ns,
                 "ctime_ns": link.st_ctime_ns,
+            }
+        )
+        records.append(
+            {
+                "skill_id": skill_id,
+                "entry": ".",
+                "source_path": str(source),
+                "mode": source_root.st_mode,
+                "nlink": source_root.st_nlink,
+                "device": source_root.st_dev,
+                "inode": source_root.st_ino,
+                "size": source_root.st_size,
+                "mtime_ns": source_root.st_mtime_ns,
+                "ctime_ns": source_root.st_ctime_ns,
             }
         )
         paths = sorted(source.rglob("*"))
