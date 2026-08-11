@@ -538,8 +538,8 @@ the relevant authority and evidence contract.
 | 15 | Mission and target/tracker binding repair | 7, 10, 11 | `accepted` |
 | 16 | Role-task binding repair | 7, 10, 11 | `accepted` |
 | 17 | Factory Floor operational rows and exact count filters | 6, 7 | `accepted` |
-| 18 | Tracker review queue and exact count filters | 3, 8 | `in-progress` |
-| 19 | Tracker semantic source diffs | 3, 8 | `not-started` |
+| 18 | Tracker review queue and exact count filters | 3, 8 | `accepted` |
+| 19 | Tracker semantic source diffs | 3, 8 | `in-progress` |
 | 20 | Automation binding repair | 7, 10, 11 | `not-started` |
 | 21 | Owner-backed operation semantic diffs | 10, 14, 15, 16, 19, 20 | `not-started` |
 | 22 | Supervision pause and resume | 7, 10, 11 | `not-started` |
@@ -5220,7 +5220,7 @@ semantic diffs, pause/resume, continuity, reporting, evolution, or lifecycle.
 
 ## Block 18 — Tracker review queue and exact count filters
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -5435,6 +5435,20 @@ rows. Widen only for an explicit exact active-claim drill-down.
   and the adversarial fixture now adds both idle/completed and idle/stopped
   historical rows beside current Block 1 without changing its exact posture.
   Exact-review outcome: pending.
+- Accepted exact-revision outcome: independent delta audit ACCEPTED evidence
+  `4251ac3f7b233e49e2e85785703231e00c8994d3`, tree
+  `7f210f2fe8f0ebb9e49e65076feb85667417fe67`, and product parent
+  `81a3ba98471cdbbe7ade92b675d89d4d2f5f2539`, tree
+  `b1b53f18a10b06ceba42746981e598f9ea12593f`, with no material finding.
+  Exact probes confirmed current Block 1 remains exact beside idle/completed
+  and idle/stopped historical rows while current task-only and supervision-
+  only claims remain independently represented. Terminal/system-error remains
+  `Blocked / Failed: 1 exact`; candidate attention and recovered enumeration
+  remain partial; unknown project URLs fall back to represented projects.
+  Affected Vitest passed 15/15, production build passed, full-profile verifier
+  remained Blocks 0-29 with 0 errors/warnings, verifier tests passed 30/30,
+  diff/clean/remote `0 0` and exact remote identity passed, and the Stop held.
+  Post-block audit: `accepted`; retained open Block 18 work: none.
 
 ### Stop
 
@@ -5445,7 +5459,7 @@ diffs, pause/resume, continuity, reporting, evolution, or lifecycle operations.
 
 ## Block 19 — Tracker semantic source diffs
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -5546,7 +5560,21 @@ drill-down and never beyond the declared safe tracker-file bound.
 
 ### Completion evidence
 
-Pending.
+- Activation and authority: started automatically from independently accepted
+  and pushed Block 18 evidence revision
+  `4251ac3f7b233e49e2e85785703231e00c8994d3`; accepted Blocks 3 and 8 satisfy
+  every direct dependency, local/upstream were exact at `0 0`, and Blocks
+  20-29 remain unopened. Governing implementation authority remains direct-user
+  item 44 under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`;
+  Beautiful UI source is design provenance only.
+- Work-start boundary: re-read this Block and inspect only the accepted lazy
+  tracker-file Git diff owner, current tracker/Git typed contracts, selected-
+  tracker Evidence view/tests, and the frozen supplied `DiffTable.tsx` source.
+  First work is limited to one selected tracker's bounded read-only semantic
+  source comparison. No generic repository diff, editor, author/review/
+  implement start, acceptance, operation preview, automation, lifecycle,
+  continuity, reporting, evolution, or later-Block work is started.
 
 ### Stop
 
