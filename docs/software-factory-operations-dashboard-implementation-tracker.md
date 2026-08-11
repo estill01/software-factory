@@ -510,7 +510,7 @@ the relevant authority and evidence contract.
 | 12 | On-demand mechanical supervision checks | 7, 10, 11 | `accepted` |
 | 13 | Semantic supervision review requests | 7, 10, 11 | `accepted` |
 | 14 | Supervision policy and cadence administration | 7, 10, 11 | `accepted` |
-| 15 | Mission and target/tracker binding repair | 7, 10, 11 | `in-progress` |
+| 15 | Mission and target/tracker binding repair | 7, 10, 11 | `accepted` |
 | 16 | Role-task binding repair | 7, 10, 11 | `not-started` |
 | 17 | Automation binding repair | 7, 10, 11 | `not-started` |
 | 18 | Supervision pause and resume | 7, 10, 11 | `not-started` |
@@ -4289,7 +4289,7 @@ report, evolution, or terminal operations.
 
 ## Block 15 — Mission and target/tracker binding repair
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -4569,6 +4569,22 @@ group check. Never scan or reconcile unrelated groups.
   and remains ineligible. Unaffected operations and tracker proof were reused
   exactly as permitted by the rejected audit. The product successor is pushed;
   Block 15 remains `in-progress` pending fresh exact-revision acceptance.
+- Fresh exact-revision outcome: ACCEPTED for evidence commit
+  `7b0584663d670d1fc63b8df6e54234d5b4c2676d`, tree
+  `8f5d944855eedc4873f36ec0a70aba9e1d2fc9a9`, and product commit
+  `195387dca16dbbdd20cae11e5deda394b5a019d9`, tree
+  `aff978ce0b82a5928499c0804d1b750f682e0c95`, with no material finding.
+  Exact probes accepted one text part plus a full 300-character client ID and
+  rejected two-text, image, skill, mention, and mismatched-envelope sources;
+  reviewer/currentness binding retained the envelope and client identity, and
+  target/reviewer/fix task collapse rejected before routing. The reviewer
+  reproduced affected backend 32/32 with `ResourceWarning` fatal, Ruff,
+  frontend 14/14, production build, verifier 26/0/0 plus 30/30 tests, clean
+  diffs, clean checkout, remote `0 0`, and the Stop. The exact recorded 3/3
+  browser proof remains valid; current external project-unassigned drift
+  prevented an unnecessary re-entry through its enablement precondition and
+  was not treated as a candidate defect. Block 15 is accepted; Blocks 16–25
+  remain unopened at this checkpoint.
 
 ### Stop
 
