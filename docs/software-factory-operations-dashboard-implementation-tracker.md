@@ -5390,6 +5390,34 @@ rows. Widen only for an explicit exact active-claim drill-down.
   semantic diff, operation, automation, lifecycle, continuity, reporting, or
   later-Block surface was added. Candidate audit posture: implementation
   complete, independent exact-revision outcome pending.
+- Rejected exact review: independent audit rejected evidence revision
+  `c2cd6a9d35d62c9d9c86f916c78559f169524194` because inactive completed
+  Floor rows could contaminate current claims; maintained App Server
+  `systemError`/terminal work was omitted from `Blocked / Failed`; and
+  noncanonical idle candidates, recovered previous catalog data, or an unknown
+  project URL could still yield apparently exact counts. The rejected product
+  and its otherwise valid proof remain immutable diagnostic evidence.
+- Correction candidate: commit
+  `6f75a88f6aff6f7621ca2f08eba0c3e995bef0b9`, tree
+  `cda3b6f46803f7696e0905a763c999bb56e2f200`, parent rejected evidence
+  `c2cd6a9d35d62c9d9c86f916c78559f169524194`, pushed at local/upstream
+  `0 0`. Current task and current supervision claims are now selected
+  independently from active/current owner states; inactive completed/stopped
+  associations cannot enter current comparison or run links. Exact associated
+  terminal tasks retain the maintained `systemError` failure meaning for the
+  blocked filter. Any candidate/ambiguous association or recovered previous
+  enumeration makes dynamic/all counts partial, and an unknown project URL
+  falls back to the represented all-project set rather than an exact empty set.
+- Correction proof: the affected tracker/Floor/schema set passed 26/26, the
+  narrower tracker/schema set passed 20/20, TypeScript/Vite production build
+  passed, `git diff --check` passed, and six exact desktop/tablet/mobile browser
+  cases passed with keyboard, Axe, source-navigation, partial-state, and
+  overflow checks. Adversarial fixtures directly prove current Block 1 remains
+  exact beside an inactive completed `None active` row; terminal system error
+  produces `Blocked / Failed: 1 exact`; idle-green candidate attention and
+  recovered catalog enumeration are lower-bound/partial; and an unknown
+  project URL renders the known tracker set. Successor exact-review outcome:
+  pending.
 
 ### Stop
 
