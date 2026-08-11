@@ -659,8 +659,8 @@ continuous cognition the price of ordinary execution.
 | 6 | Build and independently compare one bounded parallel candidate | 5 | `completed` |
 | 7 | Add configurable adaptive authority, budgets, and human-input posture | 5, 6 | `completed` |
 | 8 | Amend and apply the tracker only for structural invalidation | 4, 7 | `completed` |
-| 9 | Cut over a winning candidate, reconcile currentness, and resume | 6, 7 | `in-progress` |
-| 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `not-started` |
+| 9 | Cut over a winning candidate, reconcile currentness, and resume | 6, 7 | `completed` |
+| 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `in-progress` |
 | 11 | Dogfood all decision paths and document demonstrated operation | 10 | `not-started` |
 | 12 | Admit newly eligible Factory evidence automatically and economically | 11 | `not-started` |
 | 13 | Orchestrate one bounded Factory candidate through existing owners | 12 | `not-started` |
@@ -2482,7 +2482,7 @@ Stop before candidate cutover, dual-target integration, or final dogfood.
 
 ## Block 9 — Cut over a winning candidate, reconcile currentness, and resume
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -2730,7 +2730,18 @@ accepted delta without absorbing optional work.
   diff, branch, and upstream checks passed. The author and supervision trees
   are byte-identical to the previously accepted `42/42` and `307/307` evidence
   roots, so that unaffected proof remains current. Exact final evidence-child
-  review remains pending.
+  review then accepted tracker-only child
+  `dcff60c25773bc308638e8c7bced4d3d35d15802` (tree
+  `661b83312845e2eb8d0fe68de6b62ac36d5a64b3`) with no findings. The reviewer
+  independently reproduced focused `29/29`, mapped implementation `98/98`,
+  and author `42/42`; resolved the unchanged supervision tree to the accepted
+  `307/307` evidence; and passed all three validators, the 18-Block verifier,
+  compilation, diff, clean-worktree, and upstream checks. Block 9 is accepted.
+  The transition check retained the governing target `in-progress` with no
+  human input or manual resume, while the legacy implementation range remained
+  unbound; therefore only source-safe Block 10 work continues and release,
+  installation, policy, mission, lifecycle, and other reserved effects remain
+  deferred.
 
 ### Stop
 
@@ -2740,7 +2751,7 @@ Stop before adding Software Factory self-target promotion behavior or dogfood.
 
 ## Block 10 — Bind the same protocol to target repositories and Software Factory self-work
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
