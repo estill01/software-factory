@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections import Counter, OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime
-import difflib
 from hashlib import sha256
 import importlib.util
 import json
@@ -32,6 +31,7 @@ MAX_SEMANTIC_DIFF_INPUT_BYTES = 512 * 1024
 MAX_SEMANTIC_DIFF_INPUT_LINES = 10_000
 MAX_SEMANTIC_BLOCK_TITLE_CHARS = 160
 MAX_SEMANTIC_BLOCK_ANCHOR_CHARS = 200
+MAX_LINE_DIFF_OPERATIONS = 250_000
 VERIFIER_TIMEOUT_SECONDS = 15
 GIT_TIMEOUT_SECONDS = 5
 FINGERPRINT_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -583,6 +583,90 @@ def _git_blob_contents(root: Path, object_ids: Iterable[str]) -> dict[str, bytes
     return contents
 
 
+class _LineDiffBudgetExceeded(RuntimeError):
+    pass
+
+
+def _bounded_line_edits(
+    before: list[str],
+    after: list[str],
+) -> list[tuple[str, int | None, int | None]]:
+    """Return an exact shortest line edit script within a hard operation budget."""
+    before_count = len(before)
+    after_count = len(after)
+    frontier: dict[int, int] = {1: 0}
+    trace: list[dict[int, int]] = []
+    operations = 0
+    for distance in range(before_count + after_count + 1):
+        operations += len(frontier)
+        if operations > MAX_LINE_DIFF_OPERATIONS:
+            raise _LineDiffBudgetExceeded
+        trace.append(frontier.copy())
+        for diagonal in range(-distance, distance + 1, 2):
+            operations += 1
+            if operations > MAX_LINE_DIFF_OPERATIONS:
+                raise _LineDiffBudgetExceeded
+            if (
+                diagonal == -distance
+                or (
+                    diagonal != distance
+                    and frontier.get(diagonal - 1, -1) < frontier.get(diagonal + 1, -1)
+                )
+            ):
+                before_index = frontier.get(diagonal + 1, 0)
+            else:
+                before_index = frontier.get(diagonal - 1, 0) + 1
+            after_index = before_index - diagonal
+            while (
+                before_index < before_count
+                and after_index < after_count
+                and before[before_index] == after[after_index]
+            ):
+                before_index += 1
+                after_index += 1
+                operations += 1
+                if operations > MAX_LINE_DIFF_OPERATIONS:
+                    raise _LineDiffBudgetExceeded
+            frontier[diagonal] = before_index
+            if before_index < before_count or after_index < after_count:
+                continue
+
+            edits: list[tuple[str, int | None, int | None]] = []
+            current_before = before_count
+            current_after = after_count
+            for backtrack_distance in range(len(trace) - 1, -1, -1):
+                previous = trace[backtrack_distance]
+                current_diagonal = current_before - current_after
+                if (
+                    current_diagonal == -backtrack_distance
+                    or (
+                        current_diagonal != backtrack_distance
+                        and previous.get(current_diagonal - 1, -1)
+                        < previous.get(current_diagonal + 1, -1)
+                    )
+                ):
+                    previous_diagonal = current_diagonal + 1
+                else:
+                    previous_diagonal = current_diagonal - 1
+                previous_before = previous.get(previous_diagonal, 0)
+                previous_after = previous_before - previous_diagonal
+                while current_before > previous_before and current_after > previous_after:
+                    edits.append(("equal", current_before - 1, current_after - 1))
+                    current_before -= 1
+                    current_after -= 1
+                if backtrack_distance == 0:
+                    break
+                if current_before == previous_before:
+                    edits.append(("insert", None, current_after - 1))
+                    current_after -= 1
+                else:
+                    edits.append(("delete", current_before - 1, None))
+                    current_before -= 1
+            edits.reverse()
+            return edits
+    raise _LineDiffBudgetExceeded
+
+
 def _diff_projection(
     committed: bytes | None,
     current: bytes,
@@ -623,18 +707,34 @@ def _diff_projection(
                 "message": "The tracker HEAD blob is not valid UTF-8.",
             },
         }
-    lines = list(
-        difflib.unified_diff(
-            before,
-            after,
-            fromfile="HEAD" if tracked else "/dev/null",
-            tofile="working-tree",
-            lineterm="",
-            n=3,
-        )
-    )
-    added = sum(1 for line in lines if line.startswith("+") and not line.startswith("+++"))
-    removed = sum(1 for line in lines if line.startswith("-") and not line.startswith("---"))
+    try:
+        edits = _bounded_line_edits(before, after)
+    except _LineDiffBudgetExceeded:
+        return {
+            "status": "unavailable",
+            "changed": None,
+            "base": None,
+            "added_lines": None,
+            "removed_lines": None,
+            "preview": None,
+            "truncated": False,
+            "semantic": None,
+            "error": {
+                "code": "tracker_diff_complexity_exceeded",
+                "message": "The exact tracker line diff exceeds the bounded operation budget.",
+            },
+        }
+    changed_edits = [edit for edit in edits if edit[0] != "equal"]
+    added = sum(1 for kind, _, _ in changed_edits if kind == "insert")
+    removed = sum(1 for kind, _, _ in changed_edits if kind == "delete")
+    lines = ["--- HEAD" if tracked else "--- /dev/null", "+++ working-tree"]
+    for kind, before_index, after_index in changed_edits:
+        if kind == "delete" and before_index is not None:
+            lines.append(f"-{before[before_index]}")
+        elif kind == "insert" and after_index is not None:
+            lines.append(f"+{after[after_index]}")
+    if not changed_edits:
+        lines = []
     preview_length = sum(len(line) + 1 for line in lines)
     truncated = preview_length > MAX_DIFF_PREVIEW_CHARS
     preview = "\n".join(lines) if include_preview else None
@@ -642,7 +742,7 @@ def _diff_projection(
         preview = preview[:MAX_DIFF_PREVIEW_CHARS].rstrip() + "\n[Diff preview truncated.]"
     return {
         "status": "available",
-        "changed": bool(lines),
+        "changed": bool(changed_edits),
         "base": "HEAD" if tracked else "empty",
         "added_lines": added,
         "removed_lines": removed,
@@ -887,13 +987,52 @@ def _semantic_diff_projection(
 
     before_sha256 = sha256(committed or b"").hexdigest()
     after_sha256 = sha256(current).hexdigest()
+    try:
+        edits = _bounded_line_edits(before, after)
+    except _LineDiffBudgetExceeded:
+        return {
+            "status": "unavailable",
+            "changed": None,
+            "base": None,
+            "target": {"kind": "working-tree", "content_sha256": after_sha256},
+            "rows": [],
+            "total_rows": None,
+            "returned_rows": 0,
+            "row_limit": MAX_SEMANTIC_DIFF_ROWS,
+            "complete": False,
+            "truncated": False,
+            "path": relative_path,
+            "owning_revision": owning_revision,
+            "owner": {
+                "tracker": "tracker-markdown/read-only",
+                "git": "git/HEAD-and-working-tree",
+                "verifier": verifier,
+            },
+            "currentness_fingerprint": sha256(
+                _canonical_json(
+                    {
+                        "path": relative_path,
+                        "repository_head": repository_head,
+                        "current": after_sha256,
+                        "status": "semantic-complexity-exceeded",
+                        "operation_limit": MAX_LINE_DIFF_OPERATIONS,
+                    }
+                )
+            ).hexdigest(),
+            "limitations": [
+                f"Exact semantic matching is unavailable above {MAX_LINE_DIFF_OPERATIONS} bounded operations."
+            ],
+            "error": {
+                "code": "tracker_semantic_complexity_exceeded",
+                "message": "The selected tracker sources exceed the bounded semantic matching budget.",
+            },
+        }
     before_ranges = _block_ranges(base_blocks, line_count=len(before))
     after_ranges = _block_ranges(current_blocks, line_count=len(after))
     rows: list[dict[str, Any]] = []
     total_rows = 0
     text_truncated = False
     block_metadata_truncated = False
-    matcher = difflib.SequenceMatcher(a=before, b=after, autojunk=True)
 
     def append_row(
         kind: str,
@@ -950,28 +1089,34 @@ def _semantic_diff_projection(
             }
         )
 
-    for tag, before_start, before_end, after_start, after_end in matcher.get_opcodes():
-        if tag == "equal":
-            continue
-        if tag == "replace":
-            paired = min(before_end - before_start, after_end - after_start)
-            for offset in range(paired):
-                append_row("changed", before_start + offset, after_start + offset)
-            for before_index in range(before_start + paired, before_end):
-                append_row("removed", before_index, None)
-            for after_index in range(after_start + paired, after_end):
-                append_row("added", None, after_index)
-        elif tag == "delete":
-            for before_index in range(before_start, before_end):
-                append_row("removed", before_index, None)
-        elif tag == "insert":
-            for after_index in range(after_start, after_end):
-                append_row("added", None, after_index)
+    pending_before: list[int] = []
+    pending_after: list[int] = []
+
+    def flush_change_group() -> None:
+        paired = min(len(pending_before), len(pending_after))
+        for offset in range(paired):
+            append_row("changed", pending_before[offset], pending_after[offset])
+        for before_index in pending_before[paired:]:
+            append_row("removed", before_index, None)
+        for after_index in pending_after[paired:]:
+            append_row("added", None, after_index)
+        pending_before.clear()
+        pending_after.clear()
+
+    for kind, before_index, after_index in edits:
+        if kind == "equal":
+            flush_change_group()
+        elif kind == "delete" and before_index is not None:
+            pending_before.append(before_index)
+        elif kind == "insert" and after_index is not None:
+            pending_after.append(after_index)
+    flush_change_group()
 
     rows_truncated = total_rows > len(rows)
     limitations = [
         "Only the selected tracker path is compared; unrelated repository changes are excluded.",
         "Rows are derived from exact HEAD and working-tree lines and do not edit or accept tracker state.",
+        f"Exact line matching is capped at {MAX_LINE_DIFF_OPERATIONS} operations; larger comparisons are unavailable.",
     ]
     if rows_truncated:
         limitations.append(
@@ -999,6 +1144,7 @@ def _semantic_diff_projection(
         "input_line_limit": MAX_SEMANTIC_DIFF_INPUT_LINES,
         "block_title_limit": MAX_SEMANTIC_BLOCK_TITLE_CHARS,
         "block_anchor_limit": MAX_SEMANTIC_BLOCK_ANCHOR_CHARS,
+        "match_operation_limit": MAX_LINE_DIFF_OPERATIONS,
     }
     return {
         "status": "available",

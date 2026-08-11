@@ -627,6 +627,34 @@ class TrackerProjectionTests(unittest.TestCase):
         self.assertEqual(repetitive["total_rows"], 1)
         self.assertLess(elapsed, 2.0)
 
+        adversarial_lines = [f"line-{index:03d}" for index in range(100)] * 100
+        adversarial_before = ("\n".join(adversarial_lines) + "\n").encode()
+        adversarial_after = ("\n".join(reversed(adversarial_lines)) + "\n").encode()
+        started = time.perf_counter()
+        adversarial = tracker_module._semantic_diff_projection(
+            adversarial_before,
+            adversarial_after,
+            tracked=True,
+            relative_path="docs/full-implementation-tracker.md",
+            repository_head="c" * 40,
+            owning_revision="d" * 40,
+            verifier=verifier,
+            current_blocks=[],
+            base_blocks=[],
+        )
+        elapsed = time.perf_counter() - started
+        self.assertEqual(adversarial["status"], "unavailable")
+        self.assertEqual(adversarial["error"]["code"], "tracker_semantic_complexity_exceeded")
+        self.assertLess(elapsed, 2.0)
+
+        raw_adversarial = tracker_module._diff_projection(
+            adversarial_before,
+            adversarial_after,
+            tracked=True,
+        )
+        self.assertEqual(raw_adversarial["status"], "unavailable")
+        self.assertEqual(raw_adversarial["error"]["code"], "tracker_diff_complexity_exceeded")
+
     def test_semantic_diff_fails_closed_for_renamed_base_and_preserves_verifier_conflict(self) -> None:
         renamed_path = self.root / "docs" / "renamed-implementation-tracker.md"
         subprocess.run(
