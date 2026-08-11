@@ -661,8 +661,8 @@ continuous cognition the price of ordinary execution.
 | 8 | Amend and apply the tracker only for structural invalidation | 4, 7 | `completed` |
 | 9 | Cut over a winning candidate, reconcile currentness, and resume | 6, 7 | `completed` |
 | 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `completed` |
-| 11 | Dogfood all decision paths and document demonstrated operation | 10 | `in-progress` |
-| 12 | Admit newly eligible Factory evidence automatically and economically | 11 | `not-started` |
+| 11 | Dogfood all decision paths and document demonstrated operation | 10 | `completed` |
+| 12 | Admit newly eligible Factory evidence automatically and economically | 11 | `in-progress` |
 | 13 | Orchestrate one bounded Factory candidate through existing owners | 12 | `not-started` |
 | 14 | Independently evaluate the Factory candidate | 13 | `not-started` |
 | 15 | Adopt or retire the evaluated candidate under configurable policy | 14 | `not-started` |
@@ -2971,7 +2971,7 @@ Stop before final dogfood, public documentation, or broader control learning.
 
 ## Block 11 — Dogfood all decision paths and document demonstrated operation
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -3117,7 +3117,65 @@ tests, packet population, commits, tracker status, or self-evaluation.
 
 ### Completion evidence
 
-Pending.
+- Rejected checkpoints `83e7fc2` and `2191f74` remain preserved: the first
+  inferred current behavior and exposed intended case labels; the second added
+  executed temporary-target effects but did not reproduce exact structural
+  identities from a Git-less archive or cover all authority modes,
+  accepted-Block remediation, and post-review structural recovery.
+- Frozen implementation revision `475e7a3fcc0fbc98fb1f04a93fc33ce45c943b6d`
+  produces exact dogfood result root
+  `d194c790f6aa263568d0a2a5e552e2dab791ffe4cac25976f7f6f924ef7f3eb6`.
+  Three independent Git-less runs reproduced that root; the first two also
+  produced byte-identical raw output SHA-256
+  `4cb369a901e6b420d7327e3da034290bf35d4784a269afa1a6b30e014a213f1a`.
+- The independent reviewer read all seven opaque rooted inputs before their
+  dispositions. The bounded comparison retained one eligible handoff without
+  cutover, retired losing/inconclusive paths, rejected the unsupported lane,
+  and closed all three Stop cases. Executed temporary targets changed
+  `local-shortcut` to `canonical-owner:bounded` and `VALUE = 1` to `VALUE = 2`
+  while preserving the governing tracker root.
+- The structural case retained one exact reviewed delta, rehydrated duplicate
+  delivery after both accepted review and range amendment, and resumed Block 7
+  automatically. The accepted-Block remediation preserved Blocks 0–1, closed
+  the narrow remediation Block against the current effect, resumed Block 3,
+  and preserved safe frontier Block 4.
+- Fixed, recommend, reviewed-autonomous, and full-autonomous modes all remain
+  distinct. Full-autonomous produced zero human requests, resolved the
+  in-authority temporary-target effect, and deferred only the unavailable
+  credential-bound act. Recovery passed `15/15`; release, installation,
+  policy, mission, lifecycle, Gmail, global-configuration, and live-target
+  effects remained false.
+- Validation at the frozen source: focused dogfood `6/6`; mapped
+  implementation `115/115`; reused unchanged authoring `42/42` and supervision
+  `307/307` trees; all three fixed skill validators; full tracker verification
+  `18` Blocks; Python compilation and exact diff checks. Independent exact
+  review returned no findings and confirmed the temporary-target-only boundary
+  and Block 12 Stop.
+- Product-capability review:
+  - Trigger: `consequential` Block posture and the requirement for
+    operator-visible current effects rather than populated records.
+  - Frame identity: this tracker, Block 11, SHA-256
+    `73dfa5eca19e8dcdd9b5878518a606608c6f924df8ec7bfb1ef9a22fc4790cf8`.
+  - Capability added or preserved: one exact, independently reproducible proof
+    of every adaptive path, all authority modes, automatic structural resume,
+    and accepted-Block remediation without live or reserved effects.
+  - Paths compared: inferred record-only proof; volatile temporary Git proof;
+    exact temporary-target live-behavior evidence through existing owners.
+  - Selected level and owner: the bounded matrix in the existing
+    implementation skill, composing the existing inline, candidate,
+    structural, target-class, policy, and recovery owners.
+  - Protected-capability result: accepted history, full-range continuation,
+    independent review, zero-human full autonomy, target ownership, and the
+    Block 12 Stop are preserved.
+  - Rejected alternatives: populated records could not establish current
+    behavior, while a new controller or live deployment would exceed this
+    Block and duplicate accepted owners.
+  - Tradeoffs and uncertainty: evidence is deliberately bounded to small
+    disposable targets and does not claim statistical superiority or unlimited
+    autonomy.
+  - Frozen-candidate proof: revision `475e7a3fcc0fbc98fb1f04a93fc33ce45c943b6d`,
+    result root `d194c790f6aa263568d0a2a5e552e2dab791ffe4cac25976f7f6f924ef7f3eb6`,
+    and independent three-run Git-less reproduction.
 
 ### Stop
 
@@ -3127,7 +3185,7 @@ Stop before automatic Factory-evolution eligibility or candidate orchestration.
 
 ## Block 12 — Admit newly eligible Factory evidence automatically and economically
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
