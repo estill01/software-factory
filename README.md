@@ -360,7 +360,10 @@ narrow reserved-external deferral, and maintained recovery cases. The output
 separates opaque raw comparison inputs from observed dispositions and includes
 executed temporary-target bytes/output, an applied reviewed structural revision
 with automatic resume, current protocol roots, normal-owner handoffs, bounded
-usage, and the aggregate human-request count.
+usage, accepted-Block remediation, all four adaptive authority modes, and the
+aggregate human-request count. The exact result projection excludes volatile
+temporary paths and commit identities, so a frozen checkout or Git-less archive
+regenerates the same rooted evidence.
 
 This is a live-behavior evidence runner confined to disposable repositories. It
 applies and executes only the temporary target corrections needed to prove the

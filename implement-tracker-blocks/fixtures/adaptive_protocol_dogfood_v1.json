@@ -129,6 +129,30 @@
       "input_condition": "Canonical completion evidence proves current target behavior."
     },
     {
+      "case_id": "fixed-record-only",
+      "owner": "adaptive-decision-policy",
+      "source_case_id": "fixed",
+      "input_condition": "The policy fixes adaptive decisions to record-only posture."
+    },
+    {
+      "case_id": "recommend-review-pending",
+      "owner": "adaptive-decision-policy",
+      "source_case_id": "recommend-pending",
+      "input_condition": "Recommendation mode has current decision evidence and no independent review."
+    },
+    {
+      "case_id": "recommend-review-complete",
+      "owner": "adaptive-decision-policy",
+      "source_case_id": "recommend-reviewed",
+      "input_condition": "Recommendation mode has a current independently reviewed decision."
+    },
+    {
+      "case_id": "reviewed-autonomous-consequential",
+      "owner": "adaptive-decision-policy",
+      "source_case_id": "reviewed-autonomous",
+      "input_condition": "Reviewed-autonomous mode receives a consequential application choice."
+    },
+    {
       "case_id": "full-autonomous-ordinary",
       "owner": "adaptive-decision-policy",
       "source_case_id": "ordinary-consequential",

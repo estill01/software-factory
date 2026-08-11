@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import hashlib
 import importlib.util
 import json
@@ -289,25 +290,27 @@ def _target_class_results(cases: list[dict[str, object]]) -> list[dict[str, obje
                 str(case["target_class"]), str(case["source_case_id"])
             )
             result = case_owner.validate(packet)
-            results.append(
-                {
-                    "case_id": case["case_id"],
-                    "input_condition": case["input_condition"],
-                    "target_class": result["target_class"],
-                    "disposition": result["disposition"],
-                    "decision_record_id": result["decision_record_id"],
-                    "protocol_root": result["protocol_root"],
-                    "improvement_established": result["improvement_established"],
-                    "adoption_eligible": result["adoption_eligible"],
-                    "application_authorized": result["application_authorized"],
-                    "application_handoff_root": result["application_handoff_root"],
-                    "resume_action": result["resume_action"],
-                    "next_owner": result["next_owner"],
-                    "human_request_count": event["human_request_count"],
-                    "tracker_mutated": False,
-                    "global_configuration_mutated": False,
-                }
-            )
+            projection = {
+                "case_id": case["case_id"],
+                "input_condition": case["input_condition"],
+                "target_class": result["target_class"],
+                "disposition": result["disposition"],
+                "decision_record_id": result["decision_record_id"],
+                "improvement_established": result["improvement_established"],
+                "adoption_eligible": result["adoption_eligible"],
+                "application_authorized": result["application_authorized"],
+                "application_handoff_present": (
+                    result["application_handoff"] is not None
+                ),
+                "resume_action": result["resume_action"],
+                "next_owner": result["next_owner"],
+                "human_request_count": event["human_request_count"],
+                "tracker_mutated": False,
+                "global_configuration_mutated": False,
+                "currentness_verified": True,
+            }
+            projection["protocol_projection_root"] = digest(projection)
+            results.append(projection)
         return results
     finally:
         case_owner.doCleanups()
@@ -328,8 +331,18 @@ def _structural_effect() -> dict[str, object]:
     try:
         previous = case_owner.fixture.tracker_path.read_bytes()
         accepted = case_owner.record_program_revision()
+        rehydrated_review = case_owner.record_program_revision()
+        if (
+            not rehydrated_review["duplicate"]
+            or rehydrated_review["record"] != accepted["record"]
+            or rehydrated_review["next_action"] != accepted["next_action"]
+        ):
+            raise DogfoodError("accepted structural review did not rehydrate")
         application_commit = case_owner.apply_proposal()
         amended = case_owner.range_amend(
+            str(accepted["record"]["record_id"]), application_commit
+        )
+        rehydrated_amendment = case_owner.range_amend(
             str(accepted["record"]["record_id"]), application_commit
         )
         current = case_owner.fixture.tracker_path.read_bytes()
@@ -338,24 +351,135 @@ def _structural_effect() -> dict[str, object]:
             accepted["record"]["review_disposition"] != "accepted"
             or amended["duplicate"]
             or amended["contraction"]
+            or not rehydrated_amendment["duplicate"]
+            or rehydrated_amendment["program_revision"] != program
             or current == previous
             or program["next_action"]
             != "resume-block-7-without-user-scheduling"
         ):
             raise DogfoodError("structural target effect differs")
+        packet = accepted["record"]["packet"]
+        review_projection = {
+            "revision_id": accepted["record"]["revision_id"],
+            "review_disposition": accepted["record"]["review_disposition"],
+            "accepted_history_blocks": packet["accepted_history_blocks"],
+            "affected_previous_blocks": packet["affected_previous_blocks"],
+            "affected_proposed_blocks": packet["affected_proposed_blocks"],
+            "safe_frontier_blocks": packet["safe_frontier_blocks"],
+            "resume_block": packet["resume_block"],
+            "block_number_map": packet["block_number_map"],
+            "previous_tracker_sha256": packet["previous_tracker_sha256"],
+            "proposed_tracker_sha256": packet["proposed_tracker_sha256"],
+        }
         result = {
             "owner": "temporary-program-revision-owner",
             "revision_id": accepted["record"]["revision_id"],
-            "review_root": accepted["record"]["review_root"],
-            "application_commit": application_commit,
+            "review_projection": review_projection,
+            "review_projection_root": digest(review_projection),
+            "review_retry_duplicate": rehydrated_review["duplicate"],
+            "range_retry_duplicate": rehydrated_amendment["duplicate"],
             "previous_tracker_root": hashlib.sha256(previous).hexdigest(),
             "current_tracker_root": hashlib.sha256(current).hexdigest(),
+            "tracker_delta": "".join(
+                difflib.unified_diff(
+                    previous.decode("utf-8").splitlines(keepends=True),
+                    current.decode("utf-8").splitlines(keepends=True),
+                    fromfile="previous-tracker.md",
+                    tofile="current-tracker.md",
+                )
+            ),
             "resume_block": program["resume_block"],
             "next_action": program["next_action"],
             "tracker_blocks": amended["binding"]["tracker_blocks"],
             "application_state": "reviewed-delta-applied-and-resume-current",
         }
         result["structural_effect_root"] = digest(result)
+        return result
+    finally:
+        case_owner.doCleanups()
+
+
+def _accepted_block_remediation(current_effect_root: str) -> dict[str, object]:
+    module = load_module(
+        "dogfood_program_revision_author",
+        REPO_ROOT
+        / "author-implementation-trackers"
+        / "scripts"
+        / "test_program_revision.py",
+    )
+    case_owner = module.ProgramRevisionTests(
+        methodName="test_split_revision_preserves_history_and_derives_resume"
+    )
+    case_owner.setUp()
+    try:
+        previous = case_owner.previous.read_bytes()
+        case_owner.write_tracker(
+            case_owner.proposed,
+            [
+                ("Foundation", [], "completed"),
+                ("Accepted owner", [0], "completed"),
+                ("Accepted owner remediation", [1], "in-progress"),
+                ("Revised active work", [2], "not-started"),
+                ("Independent later work", [1], "not-started"),
+            ],
+        )
+        case_owner.install_program_control(
+            {"0": [0], "1": [1], "2": [2, 3], "3": [4]},
+            affected=[2, 3],
+            resume=2,
+        )
+        packet = case_owner.build()
+        rebuilt = module.program_revision.validate_revision_packet(
+            packet,
+            previous_tracker=case_owner.previous,
+            proposed_tracker=case_owner.proposed,
+        )
+        if rebuilt != packet or packet["accepted_history_blocks"] != [0, 1]:
+            raise DogfoodError("accepted Block remediation packet differs")
+        applied = case_owner.proposed.read_text(encoding="utf-8")
+        closed = applied.replace(
+            "| 2 | Accepted owner remediation | 1 | `in-progress` |",
+            "| 2 | Accepted owner remediation | 1 | `completed` |",
+            1,
+        ).replace(
+            "| 3 | Revised active work | 2 | `not-started` |",
+            "| 3 | Revised active work | 2 | `in-progress` |",
+            1,
+        ).replace(
+            "## Block 2 — Accepted owner remediation\n\nStatus: `in-progress`",
+            "## Block 2 — Accepted owner remediation\n\nStatus: `completed`",
+            1,
+        ).replace(
+            "## Block 3 — Revised active work\n\nStatus: `not-started`",
+            "## Block 3 — Revised active work\n\nStatus: `in-progress`",
+            1,
+        )
+        block_start = closed.index("## Block 2 — Accepted owner remediation")
+        block_end = closed.index("\n---\n", block_start)
+        block = closed[block_start:block_end].replace(
+            "### Completion evidence\n\nPending.",
+            "### Completion evidence\n\n"
+            f"Observed temporary-target effect `{current_effect_root}`.",
+            1,
+        )
+        closed = closed[:block_start] + block + closed[block_end:]
+        case_owner.previous.write_text(closed, encoding="utf-8")
+        final_snapshot = module.program_revision.tracker_snapshot(
+            case_owner.previous, require_full=True
+        )
+        result = {
+            "owner": "temporary-accepted-block-remediation-owner",
+            "preserved_accepted_blocks": packet["accepted_history_blocks"],
+            "accepted_history_root": packet["accepted_history_root"],
+            "remediation_block": 2,
+            "resumed_block": 3,
+            "safe_frontier_blocks": packet["safe_frontier_blocks"],
+            "previous_tracker_root": hashlib.sha256(previous).hexdigest(),
+            "closed_tracker_root": final_snapshot["sha256"],
+            "current_effect_root": current_effect_root,
+            "closure_state": "accepted-history-preserved-remediation-closed",
+        }
+        result["remediation_root"] = digest(result)
         return result
     finally:
         case_owner.doCleanups()
@@ -374,23 +498,42 @@ def _authority_results(cases: list[dict[str, object]]) -> list[dict[str, object]
     )
     case_owner.setUp()
     try:
-        policy = case_owner.policy()
         results = []
         for case in cases:
-            if case["source_case_id"] == "reserved-external":
+            source_case_id = case["source_case_id"]
+            review = None
+            if source_case_id == "fixed":
+                policy = case_owner.policy("fixed")
+                evidence = case_owner.decision_evidence()
+            elif source_case_id in {"recommend-pending", "recommend-reviewed"}:
+                policy = case_owner.policy("recommend")
+                evidence = case_owner.decision_evidence()
+                if source_case_id == "recommend-reviewed":
+                    review = case_owner.normalized_review(policy, evidence)
+            elif source_case_id == "reviewed-autonomous":
+                policy = case_owner.policy("reviewed-autonomous")
+                evidence = case_owner.decision_evidence(
+                    consequence_class="consequential"
+                )
+            elif source_case_id == "reserved-external":
+                policy = case_owner.policy()
                 evidence = case_owner.decision_evidence(
                     judgment_class="reserved-external",
                     blocked_subjects=["credential-boundary"],
                     revisit_trigger="Credential authority becomes current.",
                 )
-                packet = case_owner.packet(policy, evidence=evidence)
             else:
-                packet = case_owner.packet(policy)
+                policy = case_owner.policy()
+                evidence = case_owner.decision_evidence()
+            packet = case_owner.packet(
+                policy, evidence=evidence, review=review
+            )
             result = case_owner.posture(policy, packet)
             results.append(
                 {
                     "case_id": case["case_id"],
                     "input_condition": case["input_condition"],
+                    "adaptive_decision_mode": result["adaptive_decision_mode"],
                     "application_posture": result["application_posture"],
                     "application_authorized": result["application_authorized"],
                     "application_ready": result["application_ready"],
@@ -456,18 +599,6 @@ def _authority_results(cases: list[dict[str, object]]) -> list[dict[str, object]
             "previous_bytes_root": hashlib.sha256(previous).hexdigest(),
             "current_bytes_root": hashlib.sha256(current).hexdigest(),
             "observed_stdout": observed.stdout,
-            "target_revision": subprocess.run(
-                [
-                    "/usr/bin/git",
-                    "-C",
-                    case_owner.repository_root,
-                    "rev-parse",
-                    "HEAD",
-                ],
-                check=True,
-                text=True,
-                capture_output=True,
-            ).stdout.strip(),
             "resolution_state": "current-effect-observed",
         }
         ordinary["resolution"]["current_effect_root"] = digest(
@@ -532,6 +663,7 @@ def run_dogfood() -> dict[str, object]:
     candidate_results, candidate_review_inputs = _candidate_results(
         grouped["bounded-candidate"]
     )
+    inline_effect = _external_inline_effect(fixture["target_effect"], inline_results)
     result = {
         "schema_version": 1,
         "kind": "software-factory-adaptive-protocol-dogfood-result",
@@ -539,8 +671,9 @@ def run_dogfood() -> dict[str, object]:
         "fixture_root": digest(fixture),
         "blind_candidate_review_inputs": candidate_review_inputs,
         "inline_cases": inline_results,
-        "inline_target_effect": _external_inline_effect(
-            fixture["target_effect"], inline_results
+        "inline_target_effect": inline_effect,
+        "accepted_block_remediation": _accepted_block_remediation(
+            inline_effect["target_effect_root"]
         ),
         "candidate_cases": candidate_results,
         "target_class_cases": _target_class_results(grouped["target-class-protocol"]),

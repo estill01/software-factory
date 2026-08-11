@@ -66,6 +66,14 @@ class AdaptiveProtocolDogfoodTests(unittest.TestCase):
             rebuilt_input = dict(item)
             root = rebuilt_input.pop("review_input_root")
             self.assertEqual(root, dogfood.digest(rebuilt_input))
+        structural = self.result["structural_target_effect"]
+        self.assertNotIn("application_commit", structural)
+        self.assertNotIn("review_root", structural)
+        for item in self.result["target_class_cases"]:
+            self.assertNotIn("application_handoff_root", item)
+            self.assertNotIn("protocol_root", item)
+        ordinary = self.indexed("authority_cases")["full-autonomous-ordinary"]
+        self.assertNotIn("target_revision", ordinary["resolution"])
 
     def test_inline_default_no_change_and_selective_routing_are_demonstrated(self) -> None:
         cases = self.indexed("inline_cases")
@@ -154,6 +162,23 @@ class AdaptiveProtocolDogfoodTests(unittest.TestCase):
         self.assertEqual(structural["application_state"], "reviewed-delta-applied-and-resume-current")
         self.assertEqual(structural["next_action"], "resume-block-7-without-user-scheduling")
         self.assertNotEqual(structural["previous_tracker_root"], structural["current_tracker_root"])
+        self.assertTrue(structural["review_retry_duplicate"])
+        self.assertTrue(structural["range_retry_duplicate"])
+        remediation = self.result["accepted_block_remediation"]
+        self.assertEqual(remediation["preserved_accepted_blocks"], [0, 1])
+        self.assertEqual(remediation["remediation_block"], 2)
+        self.assertEqual(remediation["resumed_block"], 3)
+        self.assertEqual(remediation["current_effect_root"], self.result["inline_target_effect"]["target_effect_root"])
+        self.assertEqual(remediation["closure_state"], "accepted-history-preserved-remediation-closed")
+        self.assertEqual(authority["fixed-record-only"]["application_posture"], "record-only")
+        self.assertEqual(authority["recommend-review-pending"]["application_posture"], "automated-independent-review-required")
+        self.assertEqual(authority["recommend-review-complete"]["application_posture"], "recommendation-only")
+        self.assertEqual(authority["reviewed-autonomous-consequential"]["application_posture"], "external-application-authority-required")
+        self.assertEqual(
+            {item["adaptive_decision_mode"] for item in authority.values()},
+            {"fixed", "recommend", "reviewed-autonomous", "full-autonomous"},
+        )
+        self.assertTrue(all(item["human_request_count"] == 0 for item in authority.values()))
         self.assertEqual(self.result["human_request_count"], 0)
 
     def test_recovery_proof_is_current_and_no_reserved_effect_occurs(self) -> None:

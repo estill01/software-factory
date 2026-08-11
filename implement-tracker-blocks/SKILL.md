@@ -382,14 +382,17 @@ only reporting; never rerun the producer solely for a reporting failure.
 
 When an active tracker requires current paired evidence across the adaptive
 paths, read [references/adaptive-protocol-dogfood.md](references/adaptive-protocol-dogfood.md)
-and run the maintained read-only matrix. It composes the existing inline,
+and run the maintained temporary-target live-behavior matrix. It composes the existing inline,
 candidate, structural, target-class, self-target, no-change, autonomy, and
 recovery owners; do not treat it as a new controller or as application
 authority. Its fixture discloses raw input conditions but no intended
 disposition, and its result binds opaque raw review inputs separately from the
 observed path, executed temporary-target effects, applied reviewed structural
-revision and resume, handoff, human-request count, and exact maintained
-recovery checks.
+revision and interruption-safe resume, accepted-Block remediation, all four
+authority modes, handoff, human-request count, and exact maintained recovery
+checks. It excludes volatile temporary paths and commit identities from its
+result projection so the exact root regenerates from either a checkout or a
+Git-less exact archive.
 
 Use the matrix only at an exact frozen source revision and obtain independent
 review of its raw cases and current effects before recording completion. It
