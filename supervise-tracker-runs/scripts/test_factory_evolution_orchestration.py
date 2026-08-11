@@ -6,6 +6,7 @@ import base64
 import concurrent.futures
 import datetime as dt
 import hashlib
+import hmac
 import io
 import json
 import os
@@ -720,6 +721,43 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             self.evolution_id,
         )
         return comparison, comparison["record"]["payload"]
+
+    def start_comparison_without_producing(self) -> dict[str, object]:
+        policy = supervision_log.read_json(self.directory / "policy.json")
+        state = supervision_log.factory_evolution_cycle_state(
+            self.directory,
+            policy,
+            supervision_log.events(self.directory / "events.jsonl"),
+            evolution_id=self.evolution_id,
+        )
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.admission.supervision_root),
+                "factory-evolution",
+                "--target-thread",
+                self.target_thread,
+                "--action",
+                "orchestrate",
+                "--evolution-id",
+                self.evolution_id,
+            ]
+        )
+        supervision_log.append_factory_evolution_comparison_start(
+            args,
+            expected_acknowledgment_root=state["acknowledgment_record"]["payload"][
+                "currentness_root"
+            ],
+            proposed_payload=supervision_log.factory_candidate_comparison_start_payload(
+                state
+            ),
+        )
+        return supervision_log.factory_evolution_cycle_state(
+            self.directory,
+            policy,
+            supervision_log.events(self.directory / "events.jsonl"),
+            evolution_id=self.evolution_id,
+        )
 
     def test_one_candidate_reaches_compare_without_changing_incumbent(self) -> None:
         routed = self.command(
@@ -1489,7 +1527,7 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             )
         )
 
-    def test_concurrent_comparison_delivery_reuses_one_durable_result(self) -> None:
+    def test_pre_start_pending_comparison_is_not_accepted(self) -> None:
         self.candidate_ready_for_comparison()
         policy = supervision_log.read_json(self.directory / "policy.json")
         state = supervision_log.factory_evolution_cycle_state(
@@ -1498,6 +1536,68 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             supervision_log.events(self.directory / "events.jsonl"),
             evolution_id=self.evolution_id,
         )
+        directory_fd = os.open(
+            self.directory,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+        )
+        try:
+            owner_key = supervision_log.owner_root_key_at(
+                directory_fd, allow_create=False
+            )
+        finally:
+            os.close(directory_fd)
+        material = {
+            **supervision_log.factory_candidate_comparison_basis_identity(state),
+            "producer_recorded_at": supervision_log.utc_now(),
+            "baseline_validation_results": [],
+        }
+        owner_hmac = hmac.new(
+            owner_key, supervision_log.canonical(material), hashlib.sha256
+        ).hexdigest()
+        rooted = {**material, "owner_hmac_sha256": owner_hmac}
+        pending = {
+            **rooted,
+            "comparison_provenance_root": supervision_log.digest(rooted),
+        }
+        evolution = supervision_log.factory_evolution_directory(
+            self.directory, self.evolution_id
+        )
+        supervision_log.atomic_json(evolution / "comparison-pending.json", pending)
+        with mock.patch.object(
+            supervision_log,
+            "factory_candidate_execute_baseline_comparison",
+            side_effect=AssertionError("pre-start result must not run or be accepted"),
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "comparison provenance differs",
+            ):
+                self.command(
+                    "factory-evolution",
+                    "--target-thread",
+                    self.target_thread,
+                    "--action",
+                    "orchestrate",
+                    "--evolution-id",
+                    self.evolution_id,
+                )
+        kinds = [
+            item.get("kind")
+            for item in supervision_log.events(self.directory / "events.jsonl")
+        ]
+        self.assertEqual(
+            kinds.count(
+                supervision_log.FACTORY_EVOLUTION_BASELINE_COMPARISON_START_EVENT_KIND
+            ),
+            1,
+        )
+        self.assertNotIn(
+            supervision_log.FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND, kinds
+        )
+
+    def test_concurrent_comparison_delivery_reuses_one_durable_result(self) -> None:
+        self.candidate_ready_for_comparison()
+        state = self.start_comparison_without_producing()
         original_execute = supervision_log.factory_candidate_execute_baseline_comparison
         calls = 0
         calls_lock = threading.Lock()

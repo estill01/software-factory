@@ -267,10 +267,12 @@ evaluation handoff. Before the comparison starts, the supervision owner
 preflights the fixed sealed evaluator key and verification interface. It then
 runs the same declared focused tests against the exact incumbent archive once.
 A canonical comparison-start event makes a later missing completed result a
-Stop rather than permission to rerun. A per-cycle owner lock serializes
-duplicate delivery, and an owner-authenticated pending record retains those raw
-command results through file and parent-directory durability before the handoff
-append; interruption reuses that exact result. The handoff pairs it
+Stop rather than permission to rerun. The completed pending result binds that
+exact start record ID, record hash, root, and start-before-producer chronology;
+pre-start bytes reject. A per-cycle owner lock serializes duplicate delivery,
+and an owner-authenticated pending record retains those raw command results
+through file and parent-directory durability before the handoff append;
+interruption reuses that exact result. The handoff pairs it
 with the already-retained candidate results and binds its provenance root and
 the preflighted evaluator-key root together with
 the packet, review, experiment, candidate contract, owner handoff,

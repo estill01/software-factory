@@ -3754,12 +3754,16 @@ effects before reading either implementer's narrative.
   projection unchanged, and deleting completed pending evidence before its
   handoff caused a second producer run. Its focused `25/25` evidence remains
   diagnostic.
-- The next successor retains exact bounded reflog-file identity/content in the
-  target-owner root and appends a canonical comparison-start event before the
-  producer. Same-HEAD events now invalidate the handoff, while missing completed
-  evidence stops instead of rerunning. Targeted same-HEAD and missing-result
-  regressions pass; exact independent replay remains pending before broad
-  mapped validation and acceptance.
+- Rejected corrective checkpoint `877b852` retained bounded reflog-file
+  identity/content and appended a canonical comparison-start event. Exact
+  review recorded `B14-RF07`: a valid retained pending result created before
+  that event lacked causal start provenance and was accepted afterward. Its
+  focused `27/27` evidence remains diagnostic.
+- The next successor binds the exact start record ID, record hash, root, and
+  start-before-producer chronology into the pending comparison and handoff
+  provenance. Pre-start retained bytes now reject without producer execution;
+  exact independent replay remains pending before broad mapped validation and
+  acceptance.
 
 ### Stop
 

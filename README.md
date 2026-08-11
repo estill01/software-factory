@@ -411,7 +411,9 @@ outcomes or owner claims. Only a current bounded candidate reaches comparison.
 One further `orchestrate` call runs the declared mapped incumbent proof and
 records the exact nonauthorizing evaluator handoff. The sealed evaluator
 interface is preflighted first. A canonical comparison-start event makes a
-missing completed result fail closed, while a per-cycle owner lock plus an
+missing completed result fail closed; the completed result binds that start's
+record identity, root, and chronology, so pre-start bytes reject. A per-cycle
+owner lock plus an
 owner-authenticated, file-and-directory-synced pending result makes concurrent
 or interrupted delivery reuse the one comparison. The handoff binds that
 provenance, the fixed evaluator-key root, and exact target-owner ref plus

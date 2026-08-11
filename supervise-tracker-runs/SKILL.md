@@ -756,7 +756,9 @@ Keep the roles and authority sequence exact:
    It first verifies the configured sealed evaluator interface, then the
    supervision owner executes the one declared mapped incumbent comparison.
    A canonical comparison-start event makes a missing completed result a Stop,
-   not permission to rerun. A per-cycle owner lock serializes duplicate
+   not permission to rerun. The pending result binds that exact start record ID,
+   record hash, root, and chronology, so pre-start bytes cannot become the
+   handoff. A per-cycle owner lock serializes duplicate
    deliveries, while an
    owner-authenticated, file-and-directory-synced pending result makes an
    interrupted handoff append reuse that exact comparison instead of rerunning

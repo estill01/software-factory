@@ -15511,7 +15511,7 @@ def factory_candidate_execute_baseline_comparison(
     return results
 
 
-def factory_candidate_comparison_identity(
+def factory_candidate_comparison_basis_identity(
     state: Mapping[str, Any]
 ) -> dict[str, Any]:
     handoff = state["expected_owner_handoff"]
@@ -15529,11 +15529,32 @@ def factory_candidate_comparison_identity(
     }
 
 
+def factory_candidate_comparison_identity(
+    state: Mapping[str, Any]
+) -> dict[str, Any]:
+    start_record = state.get("comparison_start_record")
+    if not isinstance(start_record, Mapping):
+        raise SupervisionLogError(
+            "Factory baseline comparison lacks its canonical start"
+        )
+    start_payload = start_record.get("payload")
+    if not isinstance(start_payload, Mapping):
+        raise SupervisionLogError(
+            "Factory baseline comparison start provenance differs"
+        )
+    return {
+        **factory_candidate_comparison_basis_identity(state),
+        "comparison_start_record_id": start_record.get("record_id"),
+        "comparison_start_record_sha256": start_record.get("record_sha256"),
+        "comparison_start_root": start_payload.get("comparison_start_root"),
+    }
+
+
 def factory_candidate_comparison_start_payload(
     state: Mapping[str, Any],
 ) -> dict[str, Any]:
     material = {
-        **factory_candidate_comparison_identity(state),
+        **factory_candidate_comparison_basis_identity(state),
         "kind": "software-factory-baseline-comparison-started",
     }
     return {**material, "comparison_start_root": digest(material)}
@@ -15567,9 +15588,12 @@ def validate_factory_candidate_comparison_pending(
         **material,
         "owner_hmac_sha256": value.get("owner_hmac_sha256"),
     }
+    start_record = state["comparison_start_record"]
     if (
         {key: value.get(key) for key in identity} != identity
         or type(value.get("producer_recorded_at")) is not str
+        or parse_time(str(value.get("producer_recorded_at")))
+        < parse_time(str(start_record.get("timestamp")))
         or type(value.get("baseline_validation_results")) is not list
         or not hmac.compare_digest(
             str(value.get("owner_hmac_sha256", "")), expected_hmac
