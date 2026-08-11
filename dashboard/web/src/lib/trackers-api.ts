@@ -76,9 +76,11 @@ const semanticVerifierSchema = verifierOwnerSchema
 const semanticBlockSchema = z
   .object({
     number: nonnegativeInteger,
-    title: z.string(),
+    title: z.string().max(160),
+    title_truncated: z.boolean(),
     line: positiveLine,
-    anchor: z.string().min(1),
+    anchor: z.string().min(1).max(200),
+    anchor_truncated: z.boolean(),
   })
   .strict()
 
@@ -166,15 +168,29 @@ export const trackerSemanticDiffSchema = z
     if (value.base.kind === "empty" && value.base.repository_revision !== null) {
       issue("Empty semantic bases cannot claim a repository revision.", ["base", "repository_revision"])
     }
+    if (value.returned_rows > value.total_rows) {
+      issue("Returned semantic rows cannot exceed the exact total row count.", ["returned_rows"])
+    }
     if (value.changed !== (value.total_rows > 0)) {
       issue("Semantic changed posture must match the exact total row count.", ["changed"])
     }
-    if (value.complete && (
-      value.truncated
-      || value.returned_rows !== value.total_rows
-      || value.rows.some((row) => row.before?.text_truncated || row.after?.text_truncated)
-    )) {
+    const boundedRows = value.rows.some((row) => (
+      row.before?.text_truncated
+      || row.after?.text_truncated
+      || row.before?.block?.title_truncated
+      || row.after?.block?.title_truncated
+      || row.before?.block?.anchor_truncated
+      || row.after?.block?.anchor_truncated
+    ))
+    const subset = value.returned_rows !== value.total_rows || boundedRows
+    if (value.complete && (value.truncated || subset)) {
       issue("A bounded semantic subset cannot be labeled complete.", ["complete"])
+    }
+    if (subset && !value.truncated) {
+      issue("A bounded semantic subset must be labeled truncated.", ["truncated"])
+    }
+    if (!value.changed && (!value.complete || value.truncated || value.returned_rows !== 0 || value.rows.length !== 0)) {
+      issue("An exact no-change claim requires a complete, untruncated, empty comparison.", ["changed"])
     }
     value.rows.forEach((row, index) => {
       if (

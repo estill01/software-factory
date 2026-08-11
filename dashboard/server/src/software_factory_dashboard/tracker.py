@@ -28,6 +28,10 @@ MAX_SECTION_PREVIEW_CHARS = 12_000
 MAX_DIFF_PREVIEW_CHARS = 32_000
 MAX_SEMANTIC_DIFF_ROWS = 200
 MAX_SEMANTIC_DIFF_TEXT_CHARS = 600
+MAX_SEMANTIC_DIFF_INPUT_BYTES = 512 * 1024
+MAX_SEMANTIC_DIFF_INPUT_LINES = 10_000
+MAX_SEMANTIC_BLOCK_TITLE_CHARS = 160
+MAX_SEMANTIC_BLOCK_ANCHOR_CHARS = 200
 VERIFIER_TIMEOUT_SECONDS = 15
 GIT_TIMEOUT_SECONDS = 5
 FINGERPRINT_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -494,10 +498,48 @@ def _git_blob_contents(root: Path, object_ids: Iterable[str]) -> dict[str, bytes
     requested = list(dict.fromkeys(object_ids))
     if not requested:
         return {}
+    request_input = "".join(f"{object_id}\n" for object_id in requested).encode("ascii")
+    metadata = _run_git_bytes_with_input(
+        root,
+        ["cat-file", "--batch-check=%(objectname) %(objecttype) %(objectsize)"],
+        request_input,
+    )
+    if metadata.returncode != 0:
+        raise TrackerProjectionError(
+            "git_blob_read_failed",
+            metadata.stderr.decode("utf-8", errors="replace").strip()
+            or "Git could not inspect committed tracker blobs.",
+        )
+    metadata_lines = metadata.stdout.splitlines()
+    if len(metadata_lines) != len(requested):
+        raise TrackerProjectionError(
+            "git_blob_output_invalid",
+            "Git returned an incomplete batch blob manifest.",
+        )
+    available: list[str] = []
+    for requested_id, metadata_line in zip(requested, metadata_lines, strict=True):
+        fields = metadata_line.split()
+        if len(fields) == 2 and fields[1] == b"missing":
+            continue
+        if len(fields) != 3 or fields[1] != b"blob" or not fields[2].isdigit():
+            raise TrackerProjectionError(
+                "git_blob_output_invalid",
+                "Git returned invalid committed tracker blob metadata.",
+            )
+        size = int(fields[2])
+        if size > MAX_TRACKER_BYTES:
+            raise TrackerProjectionError(
+                "tracker_git_blob_too_large",
+                f"Committed tracker source exceeds the {MAX_TRACKER_BYTES}-byte read limit.",
+                status=413,
+            )
+        available.append(requested_id)
+    if not available:
+        return {}
     result = _run_git_bytes_with_input(
         root,
         ["cat-file", "--batch"],
-        "".join(f"{object_id}\n" for object_id in requested).encode("ascii"),
+        "".join(f"{object_id}\n" for object_id in available).encode("ascii"),
     )
     if result.returncode != 0:
         raise TrackerProjectionError(
@@ -507,7 +549,7 @@ def _git_blob_contents(root: Path, object_ids: Iterable[str]) -> dict[str, bytes
         )
     contents: dict[str, bytes] = {}
     position = 0
-    for requested_id in requested:
+    for requested_id in available:
         header_end = result.stdout.find(b"\n", position)
         if header_end < 0:
             raise TrackerProjectionError(
@@ -516,14 +558,18 @@ def _git_blob_contents(root: Path, object_ids: Iterable[str]) -> dict[str, bytes
             )
         header = result.stdout[position:header_end].split()
         position = header_end + 1
-        if len(header) == 2 and header[1] == b"missing":
-            continue
-        if len(header) != 3 or not header[2].isdigit():
+        if len(header) != 3 or header[1] != b"blob" or not header[2].isdigit():
             raise TrackerProjectionError(
                 "git_blob_output_invalid",
                 "Git returned an invalid batch blob header.",
             )
         size = int(header[2])
+        if size > MAX_TRACKER_BYTES:
+            raise TrackerProjectionError(
+                "tracker_git_blob_too_large",
+                f"Committed tracker source exceeds the {MAX_TRACKER_BYTES}-byte read limit.",
+                status=413,
+            )
         content_end = position + size
         if content_end > len(result.stdout):
             raise TrackerProjectionError(
@@ -616,9 +662,11 @@ def _block_ranges(
         (
             {
                 "number": int(block["number"]),
-                "title": str(block["title"]),
+                "title": str(block["title"])[:MAX_SEMANTIC_BLOCK_TITLE_CHARS],
+                "title_truncated": len(str(block["title"])) > MAX_SEMANTIC_BLOCK_TITLE_CHARS,
                 "line": int(block["line"]),
-                "anchor": str(block["anchor"]),
+                "anchor": str(block["anchor"])[:MAX_SEMANTIC_BLOCK_ANCHOR_CHARS],
+                "anchor_truncated": len(str(block["anchor"])) > MAX_SEMANTIC_BLOCK_ANCHOR_CHARS,
             }
             for block in blocks
         ),
@@ -640,8 +688,10 @@ def _block_at_line(
             return {
                 "number": int(block["number"]),
                 "title": str(block["title"]),
+                "title_truncated": bool(block["title_truncated"]),
                 "line": int(block["line"]),
                 "anchor": str(block["anchor"]),
+                "anchor_truncated": bool(block["anchor_truncated"]),
             }
     return None
 
@@ -713,6 +763,47 @@ def _semantic_diff_projection(
                 "message": "The tracker HEAD blob is unavailable for semantic comparison.",
             },
         }
+    if (
+        len(committed or b"") > MAX_SEMANTIC_DIFF_INPUT_BYTES
+        or len(current) > MAX_SEMANTIC_DIFF_INPUT_BYTES
+    ):
+        current_sha256 = sha256(current).hexdigest()
+        return {
+            "status": "unavailable",
+            "changed": None,
+            "base": None,
+            "target": {"kind": "working-tree", "content_sha256": current_sha256},
+            "rows": [],
+            "total_rows": None,
+            "returned_rows": 0,
+            "row_limit": MAX_SEMANTIC_DIFF_ROWS,
+            "complete": False,
+            "truncated": False,
+            "path": relative_path,
+            "owning_revision": owning_revision,
+            "owner": {
+                "tracker": "tracker-markdown/read-only",
+                "git": "git/HEAD-and-working-tree",
+                "verifier": verifier,
+            },
+            "currentness_fingerprint": sha256(
+                _canonical_json(
+                    {
+                        "path": relative_path,
+                        "repository_head": repository_head,
+                        "current": current_sha256,
+                        "status": "semantic-input-too-large",
+                    }
+                )
+            ).hexdigest(),
+            "limitations": [
+                f"Semantic comparison is unavailable when either source exceeds {MAX_SEMANTIC_DIFF_INPUT_BYTES} bytes."
+            ],
+            "error": {
+                "code": "tracker_semantic_input_too_large",
+                "message": "The selected tracker sources exceed the bounded semantic comparison budget.",
+            },
+        }
     try:
         before = (committed or b"").decode("utf-8").splitlines()
         after = current.decode("utf-8").splitlines()
@@ -755,6 +846,45 @@ def _semantic_diff_projection(
             },
         }
 
+    if len(before) > MAX_SEMANTIC_DIFF_INPUT_LINES or len(after) > MAX_SEMANTIC_DIFF_INPUT_LINES:
+        current_sha256 = sha256(current).hexdigest()
+        return {
+            "status": "unavailable",
+            "changed": None,
+            "base": None,
+            "target": {"kind": "working-tree", "content_sha256": current_sha256},
+            "rows": [],
+            "total_rows": None,
+            "returned_rows": 0,
+            "row_limit": MAX_SEMANTIC_DIFF_ROWS,
+            "complete": False,
+            "truncated": False,
+            "path": relative_path,
+            "owning_revision": owning_revision,
+            "owner": {
+                "tracker": "tracker-markdown/read-only",
+                "git": "git/HEAD-and-working-tree",
+                "verifier": verifier,
+            },
+            "currentness_fingerprint": sha256(
+                _canonical_json(
+                    {
+                        "path": relative_path,
+                        "repository_head": repository_head,
+                        "current": current_sha256,
+                        "status": "semantic-line-budget-exceeded",
+                    }
+                )
+            ).hexdigest(),
+            "limitations": [
+                f"Semantic comparison is unavailable when either source exceeds {MAX_SEMANTIC_DIFF_INPUT_LINES} lines."
+            ],
+            "error": {
+                "code": "tracker_semantic_input_too_large",
+                "message": "The selected tracker sources exceed the bounded semantic comparison budget.",
+            },
+        }
+
     before_sha256 = sha256(committed or b"").hexdigest()
     after_sha256 = sha256(current).hexdigest()
     before_ranges = _block_ranges(base_blocks, line_count=len(before))
@@ -762,14 +892,15 @@ def _semantic_diff_projection(
     rows: list[dict[str, Any]] = []
     total_rows = 0
     text_truncated = False
-    matcher = difflib.SequenceMatcher(a=before, b=after, autojunk=False)
+    block_metadata_truncated = False
+    matcher = difflib.SequenceMatcher(a=before, b=after, autojunk=True)
 
     def append_row(
         kind: str,
         before_index: int | None,
         after_index: int | None,
     ) -> None:
-        nonlocal total_rows, text_truncated
+        nonlocal total_rows, text_truncated, block_metadata_truncated
         total_rows += 1
         if len(rows) >= MAX_SEMANTIC_DIFF_ROWS:
             return
@@ -796,6 +927,12 @@ def _semantic_diff_projection(
         text_truncated = text_truncated or bool(
             (before_side and before_side["text_truncated"])
             or (after_side and after_side["text_truncated"])
+        )
+        block_metadata_truncated = block_metadata_truncated or any(
+            bool(side and side["block"] and (
+                side["block"]["title_truncated"] or side["block"]["anchor_truncated"]
+            ))
+            for side in (before_side, after_side)
         )
         identity = {
             "kind": kind,
@@ -844,6 +981,10 @@ def _semantic_diff_projection(
         limitations.append(
             f"At least one row text is limited to {MAX_SEMANTIC_DIFF_TEXT_CHARS} characters."
         )
+    if block_metadata_truncated:
+        limitations.append(
+            "At least one repeated Block title or anchor is bounded; use the exact source link for the full heading."
+        )
     base_kind = "HEAD" if tracked else "empty"
     fingerprint_material = {
         "path": relative_path,
@@ -854,6 +995,10 @@ def _semantic_diff_projection(
         "verifier_sha256": verifier.get("sha256"),
         "row_limit": MAX_SEMANTIC_DIFF_ROWS,
         "text_limit": MAX_SEMANTIC_DIFF_TEXT_CHARS,
+        "input_byte_limit": MAX_SEMANTIC_DIFF_INPUT_BYTES,
+        "input_line_limit": MAX_SEMANTIC_DIFF_INPUT_LINES,
+        "block_title_limit": MAX_SEMANTIC_BLOCK_TITLE_CHARS,
+        "block_anchor_limit": MAX_SEMANTIC_BLOCK_ANCHOR_CHARS,
     }
     return {
         "status": "available",
@@ -868,8 +1013,8 @@ def _semantic_diff_projection(
         "total_rows": total_rows,
         "returned_rows": len(rows),
         "row_limit": MAX_SEMANTIC_DIFF_ROWS,
-        "complete": not rows_truncated and not text_truncated,
-        "truncated": rows_truncated or text_truncated,
+        "complete": not rows_truncated and not text_truncated and not block_metadata_truncated,
+        "truncated": rows_truncated or text_truncated or block_metadata_truncated,
         "path": relative_path,
         "owning_revision": owning_revision,
         "owner": {
@@ -1975,7 +2120,7 @@ class TrackerProjectionService:
             current_blocks=detail["blocks"],
             base_blocks=base_blocks,
         )
-        if base_block_projection_failed:
+        if base_block_projection_failed and semantic.get("changed") is True:
             semantic["complete"] = False
             semantic["limitations"].append(
                 "HEAD Block anchors are unavailable because the maintained parser could not project that historical source."

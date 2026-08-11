@@ -27,6 +27,7 @@ function SourceSide({ side }: { side: Side }) {
       <span>
         Line {side.line}
         {side.block ? ` · Block ${side.block.number} — ${side.block.title}` : " · outside a parsed Block"}
+        {side.block?.title_truncated || side.block?.anchor_truncated ? " · heading bounded" : ""}
         {side.text_truncated ? " · text bounded" : ""}
       </span>
     </div>

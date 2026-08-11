@@ -173,19 +173,19 @@ describe("tracker review workspace", () => {
               {
                 id: fingerprint("d"),
                 kind: "changed",
-                before: { text: "Status: `not-started`", text_truncated: false, line: 72, content_sha256: tracker.git.committed_content_sha256, block: { number: 1, title: "Successor", line: 70, anchor: "block-1-successor" } },
-                after: { text: "Status: `in-progress`", text_truncated: false, line: 72, content_sha256: tracker.raw_file.content_sha256, block: { number: 1, title: "Successor", line: 70, anchor: "block-1-successor" } },
+                before: { text: "Status: `not-started`", text_truncated: false, line: 72, content_sha256: tracker.git.committed_content_sha256, block: { number: 1, title: "Successor", title_truncated: false, line: 70, anchor: "block-1-successor", anchor_truncated: false } },
+                after: { text: "Status: `in-progress`", text_truncated: false, line: 72, content_sha256: tracker.raw_file.content_sha256, block: { number: 1, title: "Successor", title_truncated: false, line: 70, anchor: "block-1-successor", anchor_truncated: false } },
               },
               {
                 id: fingerprint("e"),
                 kind: "added",
                 before: null,
-                after: { text: "- Candidate `abc123`.", text_truncated: false, line: 96, content_sha256: tracker.raw_file.content_sha256, block: { number: 1, title: "Successor", line: 70, anchor: "block-1-successor" } },
+                after: { text: "- Candidate `abc123`.", text_truncated: false, line: 96, content_sha256: tracker.raw_file.content_sha256, block: { number: 1, title: "Successor", title_truncated: false, line: 70, anchor: "block-1-successor", anchor_truncated: false } },
               },
               {
                 id: fingerprint("f"),
                 kind: "removed",
-                before: { text: "Pending.", text_truncated: false, line: 96, content_sha256: tracker.git.committed_content_sha256, block: { number: 1, title: "Successor", line: 70, anchor: "block-1-successor" } },
+                before: { text: "Pending.", text_truncated: false, line: 96, content_sha256: tracker.git.committed_content_sha256, block: { number: 1, title: "Successor", title_truncated: false, line: 70, anchor: "block-1-successor", anchor_truncated: false } },
                 after: null,
               },
             ],
@@ -556,7 +556,7 @@ describe("tracker review workspace", () => {
                 ...semantic.rows[0].after,
                 text: '<img src="x" onerror="alert(1)">',
                 text_truncated: true,
-                block: { ...semantic.rows[0].after.block, title: "L".repeat(300) },
+                block: { ...semantic.rows[0].after.block, title: "L".repeat(160), title_truncated: true },
               },
             }],
             total_rows: 400,
@@ -609,6 +609,37 @@ describe("tracker review workspace", () => {
 
     await user.click(await screen.findByRole("button", { name: "Load semantic changes" }))
     expect(await screen.findByText("The exact HEAD source is unavailable.")).toBeVisible()
+    expect(screen.queryByText(/No semantic tracker changes/)).not.toBeInTheDocument()
+  })
+
+  it("does not turn a partial empty comparison into an exact no-change claim", async () => {
+    const baseline = await mocks.fetchTrackerDiff()
+    const semantic = baseline.data.diff.semantic
+    mocks.fetchTrackerDiff.mockClear()
+    mocks.fetchTrackerDiff.mockResolvedValue({
+      ...baseline,
+      data: {
+        ...baseline.data,
+        diff: {
+          ...baseline.data.diff,
+          semantic: {
+            ...semantic,
+            changed: false,
+            rows: [],
+            total_rows: 0,
+            returned_rows: 0,
+            complete: false,
+            truncated: false,
+            limitations: ["Historical Block ownership is partial."],
+          },
+        },
+      },
+    })
+    const user = userEvent.setup()
+    renderRoute(`/trackers/${tracker.id}/evidence`, <TrackerWorkspace />, "/trackers/:trackerId/:view?")
+
+    await user.click(await screen.findByRole("button", { name: "Load semantic changes" }))
+    expect(await screen.findByText(/no exact no-change claim is available/i)).toBeVisible()
     expect(screen.queryByText(/No semantic tracker changes/)).not.toBeInTheDocument()
   })
 

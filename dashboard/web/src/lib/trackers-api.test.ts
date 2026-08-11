@@ -513,5 +513,13 @@ describe("tracker API contracts", () => {
     boundedComplete.data.diff.semantic.truncated = true
     boundedComplete.data.diff.semantic.complete = true
     expect(() => trackerDiffEnvelopeSchema.parse(boundedComplete)).toThrow(/cannot be labeled complete/)
+
+    const inconsistentNoChange = trackerDiffEnvelopeSchema.parse(diffEnvelope)
+    if (!inconsistentNoChange.data.diff.semantic) throw new Error("Expected semantic fixture.")
+    inconsistentNoChange.data.diff.semantic.changed = false
+    inconsistentNoChange.data.diff.semantic.total_rows = 0
+    inconsistentNoChange.data.diff.semantic.complete = false
+    inconsistentNoChange.data.diff.semantic.truncated = false
+    expect(() => trackerDiffEnvelopeSchema.parse(inconsistentNoChange)).toThrow(/cannot exceed|exact no-change/)
   })
 })

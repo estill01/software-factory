@@ -167,8 +167,10 @@ function WorkingTreeDiff({ tracker }: { tracker: TrackerDetail }) {
         <QueryState kind="error" message={semantic.error?.message ?? "Semantic tracker comparison is unavailable."} />
       ) : semantic?.status === "available" && semantic.changed ? (
         <TrackerSemanticDiffTable trackerId={tracker.id} diff={semantic} />
-      ) : semantic?.status === "available" ? (
+      ) : semantic?.status === "available" && semantic.complete && !semantic.truncated && semantic.returned_rows === 0 && semantic.total_rows === 0 ? (
         <span className="workspace-muted">No semantic tracker changes at this exact source fingerprint.</span>
+      ) : semantic?.status === "available" ? (
+        <QueryState kind="error" message="Semantic comparison is partial; no exact no-change claim is available." />
       ) : tracker.git.diff.changed ? (
         <Button variant="outline" size="compact" onClick={() => setRequested(true)} disabled={requested && diffQuery.isPending}>
           {requested && diffQuery.isPending ? "Loading semantic changes" : "Load semantic changes"}

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from hashlib import sha256
+import json
 from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
+import time
 import unittest
 from unittest.mock import patch
 
@@ -534,6 +536,96 @@ class TrackerProjectionTests(unittest.TestCase):
         self.assertEqual(bounded_rows["returned_rows"], tracker_module.MAX_SEMANTIC_DIFF_ROWS)
         self.assertFalse(bounded_rows["complete"])
         self.assertTrue(bounded_rows["truncated"])
+
+    def test_historical_tracker_blob_is_size_checked_before_content_read(self) -> None:
+        path = self.root / "docs" / "full-implementation-tracker.md"
+        path.write_bytes(b"# Oversized historical tracker\n" + b"x" * tracker_module.MAX_TRACKER_BYTES)
+        subprocess.run(["git", "-C", str(self.root), "add", path.relative_to(self.root)], check=True)
+        subprocess.run(["git", "-C", str(self.root), "commit", "-qm", "oversized history"], check=True)
+        oversized_revision = subprocess.run(
+            ["git", "-C", str(self.root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        path.write_text(FULL_TRACKER, encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.root), "add", path.relative_to(self.root)], check=True)
+        subprocess.run(["git", "-C", str(self.root), "commit", "-qm", "bounded current"], check=True)
+
+        with self.assertRaises(TrackerProjectionError) as raised:
+            self.service.source_at_revision(
+                self.project,
+                "docs/full-implementation-tracker.md",
+                oversized_revision,
+            )
+
+        self.assertEqual(raised.exception.code, "tracker_git_blob_too_large")
+        self.assertEqual(raised.exception.status, 413)
+
+    def test_semantic_diff_enforces_input_and_repeated_metadata_budgets(self) -> None:
+        verifier = {
+            "identity": "maintained-verifier",
+            "path": "verify_tracker.py",
+            "sha256": "a" * 64,
+            "owning_revision": "b" * 40,
+            "profile": "full",
+            "valid": True,
+        }
+        oversized = tracker_module._semantic_diff_projection(
+            b"before\n",
+            b"x" * (tracker_module.MAX_SEMANTIC_DIFF_INPUT_BYTES + 1),
+            tracked=True,
+            relative_path="docs/full-implementation-tracker.md",
+            repository_head="c" * 40,
+            owning_revision="d" * 40,
+            verifier=verifier,
+            current_blocks=[],
+            base_blocks=[],
+        )
+        self.assertEqual(oversized["status"], "unavailable")
+        self.assertEqual(oversized["error"]["code"], "tracker_semantic_input_too_large")
+
+        long_title = "T" * 20_000
+        long_anchor = "a" * 20_000
+        block = {"number": 0, "title": long_title, "line": 1, "anchor": long_anchor}
+        bounded = tracker_module._semantic_diff_projection(
+            b"## Block 0\nbefore\n",
+            b"## Block 0\nafter\n",
+            tracked=True,
+            relative_path="docs/full-implementation-tracker.md",
+            repository_head="c" * 40,
+            owning_revision="d" * 40,
+            verifier=verifier,
+            current_blocks=[block],
+            base_blocks=[block],
+        )
+        projected_block = bounded["rows"][0]["after"]["block"]
+        self.assertEqual(len(projected_block["title"]), tracker_module.MAX_SEMANTIC_BLOCK_TITLE_CHARS)
+        self.assertEqual(len(projected_block["anchor"]), tracker_module.MAX_SEMANTIC_BLOCK_ANCHOR_CHARS)
+        self.assertTrue(projected_block["title_truncated"])
+        self.assertTrue(projected_block["anchor_truncated"])
+        self.assertFalse(bounded["complete"])
+        self.assertTrue(bounded["truncated"])
+        self.assertLess(len(json.dumps(bounded)), 10_000)
+
+        repetitive_before = ("same repeated line " * 3 + "\n") * 6_000
+        repetitive_after = repetitive_before + "one bounded addition\n"
+        started = time.perf_counter()
+        repetitive = tracker_module._semantic_diff_projection(
+            repetitive_before.encode(),
+            repetitive_after.encode(),
+            tracked=True,
+            relative_path="docs/full-implementation-tracker.md",
+            repository_head="c" * 40,
+            owning_revision="d" * 40,
+            verifier=verifier,
+            current_blocks=[],
+            base_blocks=[],
+        )
+        elapsed = time.perf_counter() - started
+        self.assertEqual(repetitive["status"], "available")
+        self.assertEqual(repetitive["total_rows"], 1)
+        self.assertLess(elapsed, 2.0)
 
     def test_semantic_diff_fails_closed_for_renamed_base_and_preserves_verifier_conflict(self) -> None:
         renamed_path = self.root / "docs" / "renamed-implementation-tracker.md"

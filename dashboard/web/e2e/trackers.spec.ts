@@ -135,6 +135,7 @@ test("semantic tracker rows preserve exact source truth across responsive themes
     valid: tracker.verifier.valid,
   }
   const block = tracker.blocks[0]
+  const boundedLongTitle = `${block.title} ${"long-title ".repeat(15)}`.slice(0, 160)
   const semantic = {
     status: "available",
     changed: true,
@@ -144,27 +145,27 @@ test("semantic tracker rows preserve exact source truth across responsive themes
       {
         id: "a".repeat(64),
         kind: "changed",
-        before: { text: "Status: `not-started`", text_truncated: false, line: block.status_line, content_sha256: committedRoot, block: { number: block.number, title: block.title, line: block.line, anchor: block.anchor } },
-        after: { text: "Status: `in-progress`", text_truncated: false, line: block.status_line, content_sha256: tracker.raw_file.content_sha256, block: { number: block.number, title: `${block.title} ${"long-title ".repeat(15)}`, line: block.line, anchor: block.anchor } },
+        before: { text: "Status: `not-started`", text_truncated: false, line: block.status_line, content_sha256: committedRoot, block: { number: block.number, title: block.title, title_truncated: false, line: block.line, anchor: block.anchor, anchor_truncated: false } },
+        after: { text: "Status: `in-progress`", text_truncated: false, line: block.status_line, content_sha256: tracker.raw_file.content_sha256, block: { number: block.number, title: boundedLongTitle, title_truncated: true, line: block.line, anchor: block.anchor, anchor_truncated: false } },
       },
       {
         id: "b".repeat(64),
         kind: "removed",
-        before: { text: "Pending.", text_truncated: false, line: block.line + 2, content_sha256: committedRoot, block: { number: block.number, title: block.title, line: block.line, anchor: block.anchor } },
+        before: { text: "Pending.", text_truncated: false, line: block.line + 2, content_sha256: committedRoot, block: { number: block.number, title: block.title, title_truncated: false, line: block.line, anchor: block.anchor, anchor_truncated: false } },
         after: null,
       },
       {
         id: "c".repeat(64),
         kind: "added",
         before: null,
-        after: { text: "<script>alert('literal')</script>", text_truncated: false, line: block.line + 3, content_sha256: tracker.raw_file.content_sha256, block: { number: block.number, title: block.title, line: block.line, anchor: block.anchor } },
+        after: { text: "<script>alert('literal')</script>", text_truncated: false, line: block.line + 3, content_sha256: tracker.raw_file.content_sha256, block: { number: block.number, title: block.title, title_truncated: false, line: block.line, anchor: block.anchor, anchor_truncated: false } },
       },
     ],
     total_rows: 3,
     returned_rows: 3,
     row_limit: 200,
-    complete: true,
-    truncated: false,
+    complete: false,
+    truncated: true,
     path: tracker.relative_path,
     owning_revision: tracker.git.last_commit?.revision ?? null,
     owner: { tracker: "tracker-markdown/read-only", git: "git/HEAD-and-working-tree", verifier: verifierIdentity },
