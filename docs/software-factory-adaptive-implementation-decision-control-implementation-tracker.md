@@ -2430,6 +2430,20 @@ delta, and a local correction incorrectly escalated to structural change.
   `42/42`, implementation `69/69`, supervision `305/305`, release `17/17`, all
   three fixed validators, the full 18-Block tracker verifier, compilation, and
   diff checks; exact-revision review remains pending.
+- Installed release `03b314fef51b-7a87a590fc9c` activated from the exact
+  sequence-9 operator permit with stable discovery links and post-swap
+  verification root
+  `ddb9c79e2a9c71eae009b03e56ef2fe7fe1c98532a231e110b3146403b190e7c`.
+  Installed-outcome finding `B8-F13` remains open. Invariant: maintained tests
+  run from both the live repository and the exact Git-less installed layout.
+  Input: run the installed focused source-ingestion/range suite. Expected:
+  `26/26`. Verification evidence: `25/26` passed; the remaining static test
+  attempted to read repository-only `CHANGELOG.md`. The correction retains the
+  changelog assertions in a live repository and, when it is absent, requires
+  the exact four-entry installed release layout before accepting the same
+  three-owner contract evidence. The corrected live-repository and exact
+  Git-less installed-layout focused suites each pass `27/27`; full supervision
+  passes `306/306`. Exact successor review and installation are pending.
 - Block 8 remains `in-progress`; exact source acceptance, release, activation,
   installed outcome, and final completion evidence are pending.
 

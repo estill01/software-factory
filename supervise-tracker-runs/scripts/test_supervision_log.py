@@ -2246,14 +2246,27 @@ class ImplementationRangeControlTests(unittest.TestCase):
         policy = repository.joinpath(
             "supervise-tracker-runs", "references", "supervision-policy.md"
         ).read_text(encoding="utf-8")
-        changelog = repository.joinpath("CHANGELOG.md").read_text(encoding="utf-8")
+        changelog_path = repository / "CHANGELOG.md"
         for text in (implementation, supervision, policy):
             self.assertIn("implementation-range-gate", text)
             self.assertIn("FM-UNAUTHORIZED-EARLY-RETURN", text)
             self.assertIn("critical", text.lower())
         self.assertIn("newer exact direct-user", authoring)
-        self.assertIn("unauthorized requested-range contraction", changelog)
-        self.assertIn("019fb18f-3d03-7ca0-9fe9-68353f0405ce", changelog)
+        if changelog_path.exists():
+            changelog = changelog_path.read_text(encoding="utf-8")
+            self.assertIn("unauthorized requested-range contraction", changelog)
+            self.assertIn("019fb18f-3d03-7ca0-9fe9-68353f0405ce", changelog)
+        else:
+            self.assertFalse((repository / ".git").exists())
+            self.assertEqual(
+                {item.name for item in repository.iterdir()},
+                {
+                    "release-manifest.json",
+                    "author-implementation-trackers",
+                    "implement-tracker-blocks",
+                    "supervise-tracker-runs",
+                },
+            )
 
 
 class CanonicalAuthoritySourceIngestionTests(unittest.TestCase):
