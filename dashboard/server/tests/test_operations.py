@@ -21,6 +21,8 @@ from software_factory_dashboard.operations import (
     DEFAULT_WEEKLY_OWNER,
     OperationsProjectionError,
     OperationsProjectionService,
+    _expected_automation_rrule,
+    _expected_automation_timezone,
 )
 
 
@@ -82,6 +84,38 @@ class OperationsProjectionTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
+
+    def test_roundup_and_weekly_schedule_expectations_preserve_timezone(self) -> None:
+        policy = {
+            "schedule": {
+                "roundup_timezone": "America/Los_Angeles",
+                "roundup_local_times": ["07:00", "13:00", "17:00", "23:00"],
+            },
+            "reports": {
+                "weekly": {
+                    "enabled": True,
+                    "timezone": "America/Los_Angeles",
+                    "weekday": "MO",
+                    "local_time": "08:00",
+                }
+            },
+        }
+        self.assertEqual(
+            _expected_automation_rrule(policy, "roundup_writer"),
+            "RRULE:FREQ=DAILY;BYHOUR=7,13,17,23;BYMINUTE=0;BYSECOND=0",
+        )
+        self.assertEqual(
+            _expected_automation_rrule(policy, "weekly_report"),
+            "RRULE:FREQ=WEEKLY;BYDAY=MO;BYHOUR=8;BYMINUTE=0;BYSECOND=0",
+        )
+        self.assertEqual(
+            _expected_automation_timezone(policy, "roundup_writer"),
+            "America/Los_Angeles",
+        )
+        self.assertEqual(
+            _expected_automation_timezone(policy, "weekly_report"),
+            "America/Los_Angeles",
+        )
 
     def _command(self, *arguments: str) -> dict[str, object]:
         result = subprocess.run(
@@ -1352,6 +1386,85 @@ class OperationsProjectionTests(unittest.TestCase):
         self.assertEqual(
             [item["id"] for item in snapshot["orphan_automations"]],
             ["unreferenced-automation"],
+        )
+
+    def test_automation_binding_snapshot_is_named_bounded_and_duplicate_safe(self) -> None:
+        manifest = self.automations_root / "watcher-automation-demo" / "automation.toml"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8")
+            .replace('status = "ACTIVE"', 'status = "PAUSED"')
+            .replace(
+                'rrule = "RRULE:FREQ=MINUTELY;INTERVAL=20"',
+                'rrule = "RRULE:FREQ=MINUTELY;INTERVAL=45"',
+            )
+            .replace(
+                f'target_thread_id = "{WATCHER + TARGET[-1]}"',
+                'target_thread_id = "wrong-role-thread"',
+            ),
+            encoding="utf-8",
+        )
+        self.service._target_directories = lambda: (
+            self.supervision_root / TARGET,
+        )
+        loaded_automation_ids: list[str] = []
+        load_automation = self.service._load_automation
+
+        def load_named_only(automation_id: str):
+            loaded_automation_ids.append(automation_id)
+            return load_automation(automation_id)
+
+        self.service._load_automation = load_named_only
+
+        snapshot = self.service.automation_binding_snapshot(TARGET, "watcher")
+
+        self.assertTrue(snapshot["repairable"])
+        self.assertEqual(
+            set(snapshot["mismatches"]),
+            {"enabled state differs", "role target differs", "schedule differs"},
+        )
+        self.assertEqual(snapshot["expected"]["id"], "watcher-automation-demo")
+        self.assertEqual(snapshot["expected"]["target_thread_id"], WATCHER + TARGET[-1])
+        self.assertEqual(
+            snapshot["expected"]["rrule"],
+            "RRULE:FREQ=MINUTELY;INTERVAL=20",
+        )
+        self.assertEqual(
+            snapshot["expected"]["timezone"],
+            "not-applicable-to-interval-schedule",
+        )
+        self.assertRegex(snapshot["current"]["protected_sha256"], r"^[0-9a-f]{64}$")
+        self.assertNotIn("PRIVATE PROMPT", json.dumps(snapshot))
+        self.assertEqual(len(snapshot["claims"]), 1)
+        self.assertEqual(loaded_automation_ids, ["watcher-automation-demo"])
+
+        duplicate = "duplicate-automation-claim"
+        self._init_target(duplicate, OLD_MISSION, "direct-item-duplicate")
+        directory = self.supervision_root / duplicate
+        policy = self.owner.read_json(directory / "policy.json")
+        policy["runtime"]["routine_automation_id"] = "watcher-automation-demo"
+        policy["policy_version"] += 1
+        policy["policy_sha256"] = self.owner.digest(self.owner.policy_material(policy))
+        self.owner.atomic_json(directory / "policy.json", policy)
+        self.owner.append_raw(
+            directory / "policy-history.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": f"POLICY-{policy['policy_version']}",
+                "timestamp": "2026-08-09T10:40:00+00:00",
+                "kind": "policy-bind",
+                "policy": policy,
+            },
+        )
+        self.service._target_directories = lambda: (
+            self.supervision_root / TARGET,
+            directory,
+        )
+        duplicated = self.service.automation_binding_snapshot(TARGET, "watcher")
+        self.assertFalse(duplicated["repairable"])
+        self.assertEqual(len(duplicated["claims"]), 2)
+        self.assertIn(
+            "duplicate or conflicting canonical role claim",
+            duplicated["mismatches"],
         )
 
     def test_duplicate_automation_binding_is_explicit(self) -> None:

@@ -3357,6 +3357,11 @@ h3 {
   flex-wrap: wrap;
 }
 
+.workflow-action-buttons select {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .workflow-check-inline {
   display: flex;
   flex-wrap: wrap;
@@ -4969,6 +4974,12 @@ h3 {
   .workflow-action-strip {
     align-items: flex-start;
     flex-direction: column;
+  }
+  .workflow-action-buttons {
+    width: 100%;
+  }
+  .workflow-action-buttons select {
+    flex: 1 1 12rem;
   }
   .workflow-action-result,
   .workflow-action-error,

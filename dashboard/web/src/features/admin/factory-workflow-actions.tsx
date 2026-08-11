@@ -35,6 +35,7 @@ type ListedRun = { target_thread_id: string } | undefined
 type TrackerBlock = TrackerDetail["blocks"][number]
 type RunPolicy = NonNullable<RunDetail["policy"]>
 type PolicyField = keyof RunPolicy["adjustable"]
+type AutomationRepairRow = RunPolicy["automation_reconciliation"][number]
 const roleRepairLabels = {
   base_reviewer: "Base reviewer",
   notice_reviewer: "Notice reviewer",
@@ -43,6 +44,13 @@ const roleRepairLabels = {
   roundup_writer: "Roundup writer",
 } as const
 type RepairableRole = keyof typeof roleRepairLabels
+const automationRepairLabels: Record<AutomationRepairRow["role"], string> = {
+  watcher: "Routine watcher",
+  reviewer: "Effectiveness reviewer",
+  gmail_gate: "Gmail reply gate",
+  roundup_writer: "Roundup writer",
+  weekly_report: "Weekly report",
+}
 
 type ImplementationBinding = {
   kind: "implement-blocks"
@@ -454,6 +462,12 @@ export function RunSupervisionActions({
   const repairRole = repairableRoles.includes(selectedRepairRole as RepairableRole)
     ? selectedRepairRole as RepairableRole
     : repairableRoles[0] ?? ""
+  const repairableAutomations = policy?.automation_reconciliation.filter((row) => (
+    row.state === "partial" && row.repairable === true && Boolean(row.automation_id)
+  )) ?? []
+  const [selectedAutomationRole, setSelectedAutomationRole] = useState<AutomationRepairRow["role"] | "">("")
+  const automationRepair = repairableAutomations.find((row) => row.role === selectedAutomationRole)
+    ?? repairableAutomations[0]
   const incidentId = openIncidentIds.includes(selectedIncident)
     ? selectedIncident
     : openIncidentIds[0] ?? ""
@@ -595,6 +609,25 @@ export function RunSupervisionActions({
       ],
     })
   }
+  const launchAutomationBindingRepair = () => {
+    if (!projectId || !automationRepair?.automation_id) return
+    runner.launch({
+      request: {
+        operation_type: "factory.supervision-repair-automation-binding",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: { role: automationRepair.role },
+      },
+      suppliedFacts: [
+        ["Role / purpose", `${automationRepairLabels[automationRepair.role]} · ${automationRepair.purpose ?? "Maintained policy role"}`],
+        ["Automation ID", `${automationRepair.actual_automation_id ?? automationRepair.automation_id} → ${automationRepair.automation_id}`],
+        ["Target", `${automationRepair.actual_target_thread_id ?? "Unavailable"} → ${automationRepair.target_thread_id ?? "Unavailable"}`],
+        ["Schedule", `${automationRepair.actual_rrule ?? "Unavailable"} → ${automationRepair.expected_rrule ?? "Unavailable"}`],
+        ["Time zone", automationRepair.timezone ?? "Unavailable"],
+        ["Completion", "Named automation + canonical policy binding + no duplicate role claim"],
+        ["Recovery", "No automatic retry or rollback · partial owner state stays visible"],
+      ],
+    })
+  }
   return (
     <>
       <ActionStrip feedback={runner.feedback}>
@@ -640,6 +673,29 @@ export function RunSupervisionActions({
               ))}
             </select>
             <Button size="compact" disabled={unavailable || !repairRole} onClick={launchRoleBindingRepair}>Repair role</Button>
+          </>
+        )}
+        {repairableAutomations.length > 0 && (
+          <>
+            <select
+              aria-label="Automation binding to repair"
+              value={automationRepair?.role ?? ""}
+              disabled={unavailable}
+              onChange={(event) => setSelectedAutomationRole(event.target.value as AutomationRepairRow["role"])}
+            >
+              {repairableAutomations.map((row) => (
+                <option key={row.role} value={row.role}>
+                  {automationRepairLabels[row.role]} · {row.automation_id}
+                </option>
+              ))}
+            </select>
+            <Button
+              size="compact"
+              disabled={unavailable || !automationRepair?.automation_id}
+              onClick={launchAutomationBindingRepair}
+            >
+              Repair automation
+            </Button>
           </>
         )}
       </ActionStrip>

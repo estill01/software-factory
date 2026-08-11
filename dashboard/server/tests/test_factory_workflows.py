@@ -276,12 +276,13 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(duplicate_status, 409)
         self.assertEqual(duplicate["error"]["code"], "authoring_owner_conflict")
         self.assertEqual(executed["data"]["operation"]["state"], "applied")
-        self.assertEqual(len(supported), 17)
+        self.assertEqual(len(supported), 18)
         self.assertIn("factory.blocks-implement", supported)
         self.assertIn("factory.supervision-check-now", supported)
         self.assertIn("factory.supervision-adjust", supported)
         self.assertIn("factory.supervision-repair-mission-binding", supported)
         self.assertIn("factory.supervision-repair-role-task-binding", supported)
+        self.assertIn("factory.supervision-repair-automation-binding", supported)
         self.assertIn("factory.supervision-review-checkpoint", supported)
         self.assertIn("factory.supervision-review-meta", supported)
         self.assertIn("factory.supervision-review-issue", supported)
@@ -1744,6 +1745,250 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(
             gmail_applied.evidence["reconciliation"][0]["cadence_mode"],
             "active",
+        )
+
+    def test_automation_binding_repair_keeps_policy_and_protected_fields_separate(self) -> None:
+        project = ProjectRecord(
+            id="workflow",
+            label="Workflow",
+            root=str(self.repository),
+        )
+        fix_workspace = self.root / "automation-fix-workspace"
+        fix_workspace.mkdir()
+        target_task = {
+            "id": "task-fake-001",
+            "status": {"type": "idle"},
+            "project_binding": {
+                "status": "bound",
+                "project_id": "workflow",
+                "candidates": ["workflow"],
+            },
+        }
+        fix_task = {
+            "id": "fix-automation-workflow-001",
+            "status": {"type": "idle"},
+            "cwd": str(fix_workspace),
+            "turns": [],
+            "turns_truncated": False,
+        }
+        policy = {
+            "schema_version": 1,
+            "policy_version": 9,
+            "policy_sha256": "1" * 64,
+            "target_thread_id": target_task["id"],
+            "project_root": str(self.repository),
+            "mission_binding": {
+                "mission_root": "2" * 64,
+                "mission_source_record": "direct-user-item-44",
+            },
+            "runtime": {
+                "watcher_thread_id": "watcher-workflow-001",
+                "routine_automation_id": "watcher-automation-001",
+                "fix_executor_thread_id": fix_task["id"],
+            },
+        }
+        current_automation = {
+            "id": "watcher-automation-001",
+            "status": "available",
+            "owner_status": "PAUSED",
+            "kind": "heartbeat",
+            "rrule": "RRULE:FREQ=MINUTELY;INTERVAL=45",
+            "target_thread_id": "wrong-watcher-task",
+            "manifest_sha256": "3" * 64,
+            "protected_sha256": "4" * 64,
+            "source_path": str(
+                self.automations_root
+                / "watcher-automation-001"
+                / "automation.toml"
+            ),
+        }
+        expected_automation = {
+            "id": "watcher-automation-001",
+            "owner_status": "ACTIVE",
+            "kind": "heartbeat",
+            "target_thread_id": "watcher-workflow-001",
+            "rrule": "RRULE:FREQ=MINUTELY;INTERVAL=20",
+            "timezone": "not-applicable-to-interval-schedule",
+        }
+        claims = [
+            {
+                "target_thread_id": target_task["id"],
+                "role": "watcher",
+                "purpose": "watcher-action",
+                "role_thread_id": "watcher-workflow-001",
+                "policy_version": 9,
+                "policy_sha256": policy["policy_sha256"],
+            }
+        ]
+        control = {
+            "policy": policy,
+            "runtime": policy["runtime"],
+        }
+        binding = {
+            "fingerprint": "5" * 64,
+            "label": "Routine watcher",
+            "purpose": "watcher-action",
+            "lifecycle_status": None,
+            "mismatches": [
+                "enabled state differs",
+                "role target differs",
+                "schedule differs",
+            ],
+            "repairable": True,
+            "current": current_automation,
+            "expected": expected_automation,
+            "claims": claims,
+            "source_record": "EVT-000020",
+            "policy_sha256": policy["policy_sha256"],
+            "policy_version": policy["policy_version"],
+            "policy_history_head": "6" * 64,
+            "mission_binding": policy["mission_binding"],
+            "control": control,
+        }
+
+        class OperationsStub:
+            @staticmethod
+            def automation_binding_snapshot(target_thread_id, role):
+                if target_thread_id != target_task["id"] or role != "watcher":
+                    raise AssertionError("wrong automation binding source")
+                return binding
+
+        class AppServerStub:
+            prompt = None
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": "task_read", "status": "supported"},
+                        {"capability": "task_resume", "status": "supported"},
+                        {"capability": "turn_start", "status": "supported"},
+                    ]
+                }
+
+            @staticmethod
+            def read_task(_projects, task_id, *, include_turns):
+                if task_id == target_task["id"] and not include_turns:
+                    return {"task": target_task}
+                if task_id == fix_task["id"] and include_turns:
+                    return {"task": fix_task}
+                raise AssertionError("wrong task read")
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                metadata = fix_workspace.stat()
+                if (
+                    task_id != fix_task["id"]
+                    or expected_cwd != str(fix_workspace)
+                    or expected_cwd_identity != (metadata.st_dev, metadata.st_ino)
+                ):
+                    raise AssertionError("wrong fix-executor dispatch")
+                self.prompt = text
+                fix_task["turns"] = [
+                    {
+                        "id": "turn-automation-repair-001",
+                        "status": "completed",
+                        "items_truncated": False,
+                        "items": [{"type": "userMessage", "summary": text}],
+                    }
+                ]
+                return {
+                    "turn": {"id": "turn-automation-repair-001"},
+                    "task_resumed": False,
+                }
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = AppServerStub()
+        owner.route_gate = lambda request: RouteGateResult(
+            True,
+            route_action_fingerprint(request.required_action),
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint=policy["policy_sha256"],
+            target_thread=request.target_thread,
+        )
+        owner._automation_binding_repair_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), "7" * 64)
+        definition = owner._automation_binding_repair_definition()
+        target = OperationTarget(
+            kind="run",
+            id=target_task["id"],
+            project_id=project.id,
+        )
+        inputs = {"role": "watcher"}
+
+        source = definition.resolve_source(target, inputs)
+        self.assertEqual(source.evidence["mismatches"], binding["mismatches"])
+        self.assertEqual(
+            source.evidence["expected_automation"]["timezone"],
+            "not-applicable-to-interval-schedule",
+        )
+        route = definition.route_gate_request(target, inputs, source)
+        self.assertEqual(route.purpose, "fix-execution")
+        self.assertEqual(route.recipient, fix_task["id"])
+        dispatched = definition.dispatch(target, inputs, source)
+        self.assertIn("exact existing automation ID", owner.app_server_client.prompt)
+        self.assertIn("Never write automation.toml", owner.app_server_client.prompt)
+        self.assertIn("must remain at the supplied version", owner.app_server_client.prompt)
+
+        pending = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(pending.state, "pending")
+        self.assertTrue(pending.evidence["policy_postcondition_current"])
+        self.assertFalse(pending.evidence["automation_postcondition_current"])
+        self.assertEqual(
+            pending.evidence["partial_posture"],
+            "policy-current-automation-pending",
+        )
+
+        binding["current"] = {
+            **current_automation,
+            **expected_automation,
+            "status": "available",
+            "manifest_sha256": "8" * 64,
+            "protected_sha256": current_automation["protected_sha256"],
+        }
+        binding["mismatches"] = []
+        binding["repairable"] = False
+        applied = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(applied.state, "applied")
+        self.assertTrue(applied.evidence["automation_binding_applied"])
+        self.assertTrue(applied.evidence["duplicate_role_absent"])
+        self.assertTrue(applied.evidence["protected_automation_fields_preserved"])
+        self.assertFalse(applied.evidence["direct_policy_write"])
+        self.assertFalse(applied.evidence["direct_automation_write"])
+
+        binding["current"]["protected_sha256"] = "9" * 64
+        protected_drift = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(protected_drift.state, "pending")
+        self.assertFalse(
+            protected_drift.evidence["protected_automation_fields_preserved"]
+        )
+
+        binding["current"] = current_automation
+        binding["mismatches"] = []
+        binding["repairable"] = False
+        with self.assertRaises(OperationError) as already_current:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(
+            already_current.exception.code,
+            "automation_binding_already_reconciled",
+        )
+
+        binding["mismatches"] = ["automation kind differs"]
+        with self.assertRaises(OperationError) as unsupported:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(
+            unsupported.exception.code,
+            "automation_binding_repair_unsupported",
         )
 
     def test_missing_mission_binding_repair_preserves_exact_task_tracker_and_history(self) -> None:

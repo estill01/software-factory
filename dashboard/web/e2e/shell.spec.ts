@@ -895,3 +895,144 @@ test("missing role binding exposes one exact prior-task repair preview", async (
   await page.goto(`/runs/${target}?mission=${predecessor}`)
   await expect(page.getByRole("button", { name: "Repair role" })).toHaveCount(0)
 })
+
+test("automation mismatch exposes one bounded dual-owner repair preview", async ({ page, request }) => {
+  const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  runEnvelope.data.run.project_binding = {
+    status: "bound",
+    project_id: "software-factory",
+    evidence: [{ source_record: "policy", field: "project_root", value: "/fixture/software_factory" }],
+    limitations: [],
+  }
+  const watcher = runEnvelope.data.run.policy.automation_reconciliation.find(
+    (row: { role: string }) => row.role === "watcher",
+  )
+  expect(watcher).toBeTruthy()
+  Object.assign(watcher, {
+    actual_automation_id: watcher.automation_id,
+    actual_rrule: "RRULE:FREQ=MINUTELY;INTERVAL=45",
+    actual_target_thread_id: "wrong-watcher-task",
+    owner_status: "PAUSED",
+    purpose: "watcher-action",
+    timezone: "not-applicable-to-interval-schedule",
+    state: "partial",
+    repairable: true,
+    reason: "Policy cadence and actual automation state do not fully agree.",
+  })
+  const predecessor = runEnvelope.data.run.mission_segments.find(
+    (segment: { posture: string }) => segment.posture === "predecessor",
+  )?.mission_root
+  expect(predecessor).toBeTruthy()
+  const operation = {
+    id: "op_e2e_automation_binding_repair_preview",
+    type: "factory.supervision-repair-automation-binding",
+    target: { kind: "run", id: target, project_id: "software-factory" },
+    state: "previewed",
+    owner: "Codex automation owner + maintained supervision policy/bind and route-gate owners",
+    authority: ["one exact named automation and canonical role claim"],
+    preview: {
+      effect: `Repair Routine watcher automation ${watcher.automation_id} for run ${target}.`,
+      risk: "One existing automation may change; the canonical policy must remain byte-identical.",
+      recipient: "fix-executor-task",
+      source_fingerprint: "a".repeat(64),
+      source_evidence: {
+        role: "watcher",
+        role_label: "Routine watcher",
+        purpose: "watcher-action",
+        mismatches: ["enabled state differs", "role target differs", "schedule differs"],
+        current_automation: {
+          id: watcher.automation_id,
+          owner_status: "PAUSED",
+          target_thread_id: "wrong-watcher-task",
+          rrule: "RRULE:FREQ=MINUTELY;INTERVAL=45",
+        },
+        expected_automation: {
+          id: watcher.automation_id,
+          owner_status: "ACTIVE",
+          target_thread_id: watcher.target_thread_id,
+          rrule: watcher.expected_rrule,
+          timezone: "not-applicable-to-interval-schedule",
+        },
+      },
+      route_gate: {
+        status: "allowed",
+        target_thread: target,
+        recipient: "fix-executor-task",
+        purpose: "fix-execution",
+        source_record: "EVT-000020",
+        required_action: "Repair one exact watcher automation binding.",
+        action_hash: "b".repeat(64),
+        policy_fingerprint: "c".repeat(64),
+        binding_fingerprint: "d".repeat(64),
+      },
+      consequences: {
+        ordinary: ["The automation owner may update only enabled state, schedule, or target."],
+        failure: ["Partial owner state remains visible without automatic retry."],
+      },
+      confirmation: {
+        class: "automation-binding-repair",
+        prompt: "Type REPAIR AUTOMATION to request this exact named automation repair.",
+        expected_value: "REPAIR AUTOMATION",
+      },
+      expected_postcondition: "The named automation and same canonical policy claim both agree.",
+      idempotency: "One consumed preview starts at most one fix-executor turn.",
+      limitations: ["No direct TOML or policy writes."],
+      expires_at: "2026-08-11T09:30:00.000Z",
+    },
+    history: [{ state: "previewed", observed_at: "2026-08-11T09:25:00.000Z" }],
+    request_evidence: null,
+    verification_evidence: null,
+    links: [],
+    failure: null,
+  }
+  await page.route(`**/api/v1/runs/${target}`, (route) => route.fulfill({ json: runEnvelope }))
+  await page.route("**/api/v1/operations/preview", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      operation_type: "factory.supervision-repair-automation-binding",
+      target: { kind: "run", id: target, project_id: "software-factory" },
+      input: { role: "watcher" },
+    })
+    await route.fulfill({
+      json: {
+        data: { operation, preview_token: "r".repeat(32) },
+        source: { kind: "administrative-operation", identity: operation.id, revision: "a".repeat(64) },
+        observed_at: "2026-08-11T09:25:00.000Z",
+        fingerprint: "a".repeat(64),
+        coverage: { status: "partial", observed: ["operation-preview"], missing: ["owner-postcondition"] },
+        limitations: ["Fixture stops before mutation."],
+        error: null,
+      },
+    })
+  })
+
+  await page.goto(`/runs/${target}`)
+  await expect(page.getByRole("combobox", { name: "Automation binding to repair" })).toHaveValue("watcher")
+  await page.getByRole("button", { name: "Repair automation" }).click()
+  const preview = page.getByRole("dialog")
+  await expect(preview).toContainText("Routine watcher · watcher-action")
+  await expect(preview).toContainText("wrong-watcher-task")
+  await expect(preview).toContainText("INTERVAL=45")
+  await expect(preview).toContainText("INTERVAL=20")
+  await expect(preview).toContainText("Named automation + canonical policy binding")
+  await expect(preview).toContainText("No automatic retry or rollback")
+  await expect(preview).toContainText("REPAIR AUTOMATION")
+  await expect(preview.getByRole("button", { name: "Request operation" })).toBeDisabled()
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(
+    accessibility.violations.filter(({ impact }) => (
+      impact === "serious" || impact === "critical"
+    )),
+  ).toEqual([])
+  await expect(page.locator("h1")).toHaveCount(1)
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+  await preview.getByRole("button", { name: "Close operation preview" }).click()
+  await page.goto(`/runs/${target}?mission=${predecessor}`)
+  await expect(page.getByRole("button", { name: "Repair automation" })).toHaveCount(0)
+})

@@ -328,6 +328,19 @@ export function OperationTruthFacts({ operation }: { operation: OperationRecord 
     if (evidence?.route_gate_accepted === true && typeof evidence?.route_purpose === "string") facts.push(`Route accepted: ${evidence.route_purpose}`)
     if (evidence?.direct_policy_write === false) facts.push("Maintained bind owner used")
   }
+  if (operation.type === "factory.supervision-repair-automation-binding") {
+    if (operation.request_evidence?.automation_binding_requested === true) facts.push("Named automation repair requested")
+    if (evidence?.automation_postcondition_current === true) facts.push("Automation owner state verified")
+    else if (operation.request_evidence?.automation_binding_requested === true) facts.push("Automation owner state pending")
+    if (evidence?.policy_postcondition_current === true) facts.push("Canonical policy binding verified")
+    else if (operation.request_evidence?.automation_binding_requested === true) facts.push("Policy binding pending")
+    if (evidence?.duplicate_role_absent === true) facts.push("No duplicate canonical role claim")
+    if (evidence?.protected_automation_fields_preserved === true) facts.push("Protected automation fields preserved")
+    if (evidence?.automation_binding_applied === true) facts.push("Automation binding reconciled")
+    if (typeof evidence?.partial_posture === "string" && evidence.partial_posture !== "reconciled") facts.push(`Posture: ${evidence.partial_posture}`)
+    if (evidence?.direct_policy_write === false) facts.push("Dashboard direct policy writes excluded")
+    if (evidence?.direct_automation_write === false) facts.push("Dashboard direct automation writes excluded")
+  }
   if (!evidence && facts.length === 0) return null
   if (typeof evidence?.task_turn_started === "boolean") {
     facts.push(evidence.task_turn_started ? "Task/turn started" : "Task/turn not verified")

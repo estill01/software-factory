@@ -335,5 +335,32 @@ describe("administrative operation UI", () => {
     expect(screen.getByText("Automations preserved")).toBeVisible()
     expect(screen.getByText("Route accepted: incident-review")).toBeVisible()
     expect(screen.getByText("Maintained bind owner used")).toBeVisible()
+
+    rerender(<OperationActivityPanel operations={[{
+      ...operation,
+      type: "factory.supervision-repair-automation-binding",
+      state: "applied",
+      history: [...operation.history, { state: "applied", observed_at: "2026-08-10T08:07:00.000Z" }],
+      request_evidence: {
+        automation_binding_requested: true,
+      },
+      verification_evidence: {
+        automation_binding_applied: true,
+        automation_postcondition_current: true,
+        policy_postcondition_current: true,
+        duplicate_role_absent: true,
+        protected_automation_fields_preserved: true,
+        partial_posture: "reconciled",
+        direct_policy_write: false,
+        direct_automation_write: false,
+      },
+    }]} />)
+    expect(screen.getByText("Named automation repair requested")).toBeVisible()
+    expect(screen.getByText("Automation owner state verified")).toBeVisible()
+    expect(screen.getByText("Canonical policy binding verified")).toBeVisible()
+    expect(screen.getByText("No duplicate canonical role claim")).toBeVisible()
+    expect(screen.getByText("Protected automation fields preserved")).toBeVisible()
+    expect(screen.getByText("Automation binding reconciled")).toBeVisible()
+    expect(screen.getByText("Dashboard direct automation writes excluded")).toBeVisible()
   })
 })

@@ -394,6 +394,54 @@ describe("Factory workflow action strips", () => {
     expect(screen.getByText(/Task \+ policy record \+ maintained purpose gate/)).toBeVisible()
   })
 
+  it("previews one source-backed automation repair with dual postconditions", async () => {
+    const user = userEvent.setup()
+    const partialPolicy = {
+      ...policy,
+      automation_reconciliation: policy.automation_reconciliation.map((row) => (
+        row.role === "watcher"
+          ? {
+              ...row,
+              actual_automation_id: "watcher-automation",
+              actual_rrule: "RRULE:FREQ=MINUTELY;INTERVAL=45",
+              actual_target_thread_id: "wrong-watcher-task",
+              purpose: "watcher-action",
+              timezone: "not-applicable-to-interval-schedule",
+              owner_status: "PAUSED",
+              state: "partial" as const,
+              repairable: true,
+              reason: "Policy cadence and actual automation state do not fully agree.",
+            }
+          : row
+      )),
+    } as NonNullable<RunDetail["policy"]>
+    renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={partialPolicy}
+      />,
+    )
+
+    expect(screen.getByRole("combobox", { name: "Automation binding to repair" })).toHaveTextContent(
+      "Routine watcher · watcher-automation",
+    )
+    await user.click(screen.getByRole("button", { name: "Repair automation" }))
+
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.supervision-repair-automation-binding",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: { role: "watcher" },
+    })
+    expect(await screen.findByText("Routine watcher · watcher-action")).toBeVisible()
+    expect(screen.getByText("wrong-watcher-task → watcher-task")).toBeVisible()
+    expect(screen.getByText(/INTERVAL=45.*INTERVAL=20/)).toBeVisible()
+    expect(screen.getByText(/Named automation \+ canonical policy binding/)).toBeVisible()
+    expect(screen.getByText(/No automatic retry or rollback/)).toBeVisible()
+  })
+
   it("previews one exact policy diff and keeps unbound Gmail cadence unavailable", async () => {
     const user = userEvent.setup()
     renderActions(

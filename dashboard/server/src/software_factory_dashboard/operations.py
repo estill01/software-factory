@@ -66,6 +66,43 @@ ROLE_AUTOMATION_KEYS = {
     "gmail_gate_thread_id": "gmail_poll_automation_id",
     "roundup_thread_id": "roundup_automation_id",
 }
+AUTOMATION_BINDING_CONTRACTS = {
+    "watcher": {
+        "label": "Routine watcher",
+        "purpose": "watcher-action",
+        "thread_key": "watcher_thread_id",
+        "automation_key": "routine_automation_id",
+        "policy_source": "runtime",
+    },
+    "reviewer": {
+        "label": "Effectiveness reviewer",
+        "purpose": "semantic-escalation",
+        "thread_key": "reviewer_thread_id",
+        "automation_key": "meta_automation_id",
+        "policy_source": "runtime",
+    },
+    "gmail_gate": {
+        "label": "Gmail reply gate",
+        "purpose": "gmail-gate",
+        "thread_key": "gmail_gate_thread_id",
+        "automation_key": "gmail_poll_automation_id",
+        "policy_source": "runtime",
+    },
+    "roundup_writer": {
+        "label": "Roundup writer",
+        "purpose": "roundup-action",
+        "thread_key": "roundup_thread_id",
+        "automation_key": "roundup_automation_id",
+        "policy_source": "runtime",
+    },
+    "weekly_report": {
+        "label": "Weekly report",
+        "purpose": "weekly-report",
+        "thread_key": "roundup_thread_id",
+        "automation_key": "automation_id",
+        "policy_source": "weekly_report",
+    },
+}
 ROLE_LABELS = {
     "watcher_thread_id": "Routine watcher",
     "base_reviewer_thread_id": "Semantic reviewer",
@@ -275,14 +312,101 @@ def policy_adjustment_contract(owner: ModuleType) -> dict[str, Any]:
     }
 
 
+def _policy_weekly_report(policy: Mapping[str, Any]) -> Mapping[str, Any]:
+    reports = policy.get("reports")
+    reports = reports if isinstance(reports, Mapping) else {}
+    weekly = reports.get("weekly")
+    return weekly if isinstance(weekly, Mapping) else {}
+
+
+def _expected_automation_rrule(
+    policy: Mapping[str, Any],
+    role: str,
+    *,
+    gmail_cadence: Mapping[str, Any] | None = None,
+) -> str | None:
+    schedule = policy.get("schedule")
+    schedule = schedule if isinstance(schedule, Mapping) else {}
+    if role == "watcher":
+        interval = schedule.get("routine_minutes")
+        return (
+            f"RRULE:FREQ=MINUTELY;INTERVAL={interval}"
+            if type(interval) is int and interval > 0
+            else None
+        )
+    if role == "reviewer":
+        interval = schedule.get("meta_review_hours")
+        return (
+            f"RRULE:FREQ=HOURLY;INTERVAL={interval}"
+            if type(interval) is int and interval > 0
+            else None
+        )
+    if role == "gmail_gate":
+        return (
+            str(gmail_cadence["desired_rrule"])
+            if isinstance(gmail_cadence, Mapping)
+            and gmail_cadence.get("status") == "available"
+            and isinstance(gmail_cadence.get("desired_rrule"), str)
+            else None
+        )
+    if role == "roundup_writer":
+        times = schedule.get("roundup_local_times")
+        if not isinstance(times, list) or not times:
+            return None
+        parsed: list[tuple[int, int]] = []
+        for value in times:
+            if not isinstance(value, str) or not re.fullmatch(
+                r"(?:[01]\d|2[0-3]):[0-5]\d", value
+            ):
+                return None
+            hour, minute = (int(item) for item in value.split(":"))
+            parsed.append((hour, minute))
+        minutes = {minute for _, minute in parsed}
+        if len(minutes) != 1 or len({hour for hour, _ in parsed}) != len(parsed):
+            return None
+        hours = ",".join(str(hour) for hour, _ in parsed)
+        return (
+            f"RRULE:FREQ=DAILY;BYHOUR={hours};BYMINUTE={parsed[0][1]};BYSECOND=0"
+        )
+    if role == "weekly_report":
+        weekly = _policy_weekly_report(policy)
+        weekday = weekly.get("weekday")
+        local_time = weekly.get("local_time")
+        if (
+            weekly.get("enabled") is not True
+            or weekday not in {"MO", "TU", "WE", "TH", "FR", "SA", "SU"}
+            or not isinstance(local_time, str)
+            or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", local_time)
+        ):
+            return None
+        hour, minute = (int(item) for item in local_time.split(":"))
+        return (
+            "RRULE:FREQ=WEEKLY;"
+            f"BYDAY={weekday};BYHOUR={hour};BYMINUTE={minute};BYSECOND=0"
+        )
+    return None
+
+
+def _expected_automation_timezone(policy: Mapping[str, Any], role: str) -> str:
+    if role == "roundup_writer":
+        schedule = policy.get("schedule")
+        schedule = schedule if isinstance(schedule, Mapping) else {}
+        value = schedule.get("roundup_timezone")
+        return str(value) if isinstance(value, str) and value else "unavailable"
+    if role == "weekly_report":
+        value = _policy_weekly_report(policy).get("timezone")
+        return str(value) if isinstance(value, str) and value else "unavailable"
+    return "not-applicable-to-interval-schedule"
+
+
 def policy_automation_reconciliation(
     policy: Mapping[str, Any],
     roles: Sequence[Mapping[str, Any]],
     gmail_cadence: Mapping[str, Any] | None = None,
+    automations: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Compare cadence policy to the actual bound automation owner projection."""
 
-    values = policy_adjustable_values(policy)
     runtime = policy.get("runtime")
     runtime = runtime if isinstance(runtime, Mapping) else {}
     by_role = {
@@ -291,18 +415,35 @@ def policy_automation_reconciliation(
         if isinstance(role.get("role"), str)
     }
     specs = (
-        ("routine_minutes", "watcher", "routine_automation_id", "MINUTELY"),
-        ("meta_review_hours", "reviewer", "meta_automation_id", "HOURLY"),
-        ("gmail_cadence", "gmail_gate", "gmail_poll_automation_id", None),
+        ("routine_minutes", "watcher"),
+        ("meta_review_hours", "reviewer"),
+        ("gmail_cadence", "gmail_gate"),
+        ("roundup_schedule", "roundup_writer"),
+        ("weekly_report_schedule", "weekly_report"),
     )
     rows: list[dict[str, Any]] = []
-    for field, role_name, automation_key, frequency in specs:
-        automation_id = runtime.get(automation_key)
-        if role_name == "gmail_gate" and not automation_id:
+    for field, role_name in specs:
+        contract = AUTOMATION_BINDING_CONTRACTS[role_name]
+        weekly = _policy_weekly_report(policy)
+        automation_id = (
+            weekly.get("automation_id")
+            if contract["policy_source"] == "weekly_report"
+            else runtime.get(contract["automation_key"])
+        )
+        if role_name in {"gmail_gate", "roundup_writer"} and not automation_id:
+            continue
+        if role_name == "weekly_report" and not (
+            weekly.get("enabled") is True or automation_id
+        ):
             continue
         role = by_role.get(role_name)
-        automation = role.get("automation") if isinstance(role, Mapping) else None
-        value = values.get(field)
+        if role_name == "weekly_report":
+            role = by_role.get("roundup_writer")
+        automation = (
+            automations.get(str(automation_id))
+            if automations is not None and isinstance(automation_id, str)
+            else role.get("automation") if isinstance(role, Mapping) else None
+        )
         cadence_available = (
             role_name != "gmail_gate"
             or (
@@ -310,26 +451,33 @@ def policy_automation_reconciliation(
                 and gmail_cadence.get("status") == "available"
             )
         )
-        expected_rrule = (
-            gmail_cadence.get("desired_rrule")
-            if role_name == "gmail_gate" and cadence_available
-            else (
-                f"RRULE:FREQ={frequency};INTERVAL={value}"
-                if isinstance(value, int) and value > 0 and frequency is not None
-                else None
-            )
+        expected_rrule = _expected_automation_rrule(
+            policy,
+            role_name,
+            gmail_cadence=gmail_cadence,
         )
+        expected_timezone = _expected_automation_timezone(policy, role_name)
         actual_rrule = automation.get("rrule") if isinstance(automation, Mapping) else None
         owner_status = (
             automation.get("owner_status") if isinstance(automation, Mapping) else None
         )
-        target_thread_id = role.get("thread_id") if isinstance(role, Mapping) else None
+        target_thread_id = runtime.get(contract["thread_key"])
         actual_target = (
             automation.get("target_thread_id") if isinstance(automation, Mapping) else None
         )
         if not cadence_available:
             state = "unavailable"
             reason = "The maintained Gmail cadence projection is unavailable."
+        elif (
+            not isinstance(automation_id, str)
+            or not automation_id
+            or not isinstance(target_thread_id, str)
+            or not target_thread_id
+            or expected_rrule is None
+            or expected_timezone == "unavailable"
+        ):
+            state = "unavailable"
+            reason = "The canonical automation binding or schedule expectation is unavailable."
         elif not isinstance(automation, Mapping) or automation.get("status") != "available":
             state = "unavailable"
             reason = "The named automation owner projection is unavailable."
@@ -345,21 +493,41 @@ def policy_automation_reconciliation(
         else:
             state = "partial"
             reason = "Policy cadence and actual automation state do not fully agree."
+        repairable = bool(
+            state == "partial"
+            and isinstance(automation, Mapping)
+            and automation.get("id") == automation_id
+            and automation.get("kind") == "heartbeat"
+            and (
+                role_name == "weekly_report"
+                or (
+                    isinstance(role, Mapping)
+                    and role.get("binding_status") != "duplicate-automation"
+                )
+            )
+        )
         rows.append(
             {
                 "field": field,
                 "role": role_name,
                 "automation_id": automation_id if isinstance(automation_id, str) else None,
+                "actual_automation_id": (
+                    automation.get("id") if isinstance(automation, Mapping) else None
+                ),
                 "expected_rrule": expected_rrule,
                 "actual_rrule": actual_rrule,
                 "owner_status": owner_status,
                 "target_thread_id": target_thread_id,
+                "actual_target_thread_id": actual_target,
+                "purpose": contract["purpose"],
+                "timezone": expected_timezone,
                 "mode": (
                     gmail_cadence.get("mode")
                     if role_name == "gmail_gate" and cadence_available
                     else None
                 ),
                 "state": state,
+                "repairable": repairable,
                 "reason": reason,
             }
         )
@@ -749,8 +917,13 @@ class OperationsProjectionService:
                 },
             }
 
-    def policy_control_snapshot(self, target_thread_id: str) -> dict[str, Any]:
-        """Read one validated policy/history head and only its named automations."""
+    def policy_control_snapshot(
+        self,
+        target_thread_id: str,
+        *,
+        automation_roles: Sequence[str] | None = None,
+    ) -> dict[str, Any]:
+        """Read one validated policy/history head and selected named automations."""
 
         if not SAFE_ID.fullmatch(target_thread_id):
             raise OperationsProjectionError("invalid_run_id", "Run target ID is invalid.")
@@ -800,18 +973,45 @@ class OperationsProjectionService:
             "watcher": "routine_automation_id",
             "reviewer": "meta_automation_id",
             "gmail_gate": "gmail_poll_automation_id",
+            "roundup_writer": "roundup_automation_id",
         }
+        selected_roles = (
+            set(automation_keys) | {"weekly_report"}
+            if automation_roles is None
+            else set(automation_roles)
+        )
+        if not selected_roles.issubset(set(automation_keys) | {"weekly_report"}):
+            raise OperationsProjectionError(
+                "automation_role_unsupported",
+                "The selected policy-control automation role is unsupported.",
+                status=422,
+            )
         automations: dict[str, dict[str, Any] | None] = {}
         for role, key in automation_keys.items():
+            if role not in selected_roles:
+                continue
             automation_id = runtime.get(key)
             automations[role] = (
                 self._load_automation(automation_id)
                 if isinstance(automation_id, str) and automation_id
                 else None
             )
-        gmail_cadence = self._gmail_cadence_snapshot(
-            target_thread_id,
-            evidence.policy,
+        weekly_automation_id = _policy_weekly_report(evidence.policy).get(
+            "automation_id"
+        )
+        if "weekly_report" in selected_roles:
+            automations["weekly_report"] = (
+                self._load_automation(weekly_automation_id)
+                if isinstance(weekly_automation_id, str) and weekly_automation_id
+                else None
+            )
+        gmail_cadence = (
+            self._gmail_cadence_snapshot(
+                target_thread_id,
+                evidence.policy,
+            )
+            if automation_roles is None or "gmail_gate" in selected_roles
+            else None
         )
         if self._target_key(directory) != evidence.cache_key:
             raise OperationsProjectionError(
@@ -901,6 +1101,208 @@ class OperationsProjectionService:
             },
             "automations_by_role": automations,
             "gmail_cadence": gmail_cadence,
+        }
+
+    @staticmethod
+    def _policy_automation_id(
+        policy: Mapping[str, Any],
+        role: str,
+    ) -> str | None:
+        contract = AUTOMATION_BINDING_CONTRACTS.get(role)
+        if contract is None:
+            return None
+        if contract["policy_source"] == "weekly_report":
+            value = _policy_weekly_report(policy).get("automation_id")
+        else:
+            runtime = policy.get("runtime")
+            runtime = runtime if isinstance(runtime, Mapping) else {}
+            value = runtime.get(contract["automation_key"])
+        return value if isinstance(value, str) and value else None
+
+    def automation_binding_claims(self, automation_id: str) -> list[dict[str, Any]]:
+        """Return only canonical policy claims for one named automation ID."""
+
+        if not SAFE_ID.fullmatch(automation_id):
+            raise OperationsProjectionError(
+                "automation_id_invalid",
+                "Automation ID is invalid.",
+                status=422,
+            )
+        claims: list[dict[str, Any]] = []
+        observed: list[TargetEvidence] = []
+        for directory in self._target_directories():
+            evidence, _cache_status = self._load_target(directory)
+            observed.append(evidence)
+            policy = evidence.policy
+            runtime = policy.get("runtime")
+            runtime = runtime if isinstance(runtime, Mapping) else {}
+            for role, contract in AUTOMATION_BINDING_CONTRACTS.items():
+                if self._policy_automation_id(policy, role) != automation_id:
+                    continue
+                claims.append(
+                    {
+                        "target_thread_id": evidence.target_thread_id,
+                        "role": role,
+                        "label": contract["label"],
+                        "purpose": contract["purpose"],
+                        "role_thread_id": runtime.get(contract["thread_key"]),
+                        "policy_version": policy.get("policy_version"),
+                        "policy_sha256": policy.get("policy_sha256"),
+                    }
+                )
+        if any(
+            self._target_key(evidence.directory) != evidence.cache_key
+            for evidence in observed
+        ):
+            raise OperationsProjectionError(
+                "automation_binding_claims_changed",
+                "A canonical automation binding changed during the duplicate-role check; retry.",
+                status=409,
+                retryable=True,
+            )
+        return sorted(
+            claims,
+            key=lambda item: (
+                str(item["target_thread_id"]),
+                str(item["role"]),
+                str(item["purpose"]),
+            ),
+        )
+
+    def automation_binding_snapshot(
+        self,
+        target_thread_id: str,
+        role: str,
+    ) -> dict[str, Any]:
+        """Read one policy, its named automation, and exact duplicate policy claims."""
+
+        contract = AUTOMATION_BINDING_CONTRACTS.get(role)
+        if contract is None:
+            raise OperationsProjectionError(
+                "automation_role_unsupported",
+                "The selected automation role is not supported.",
+                status=422,
+            )
+        control = self.policy_control_snapshot(
+            target_thread_id,
+            automation_roles=(role,),
+        )
+        policy = control.get("policy")
+        runtime = control.get("runtime")
+        automations = control.get("automations_by_role")
+        if not all(isinstance(value, Mapping) for value in (policy, runtime, automations)):
+            raise OperationsProjectionError(
+                "automation_binding_source_unavailable",
+                "The canonical policy or named automation projection is unavailable.",
+                status=422,
+            )
+        automation_id = self._policy_automation_id(policy, role)
+        if automation_id is None:
+            raise OperationsProjectionError(
+                "automation_binding_missing",
+                "The maintained bind owner has no exact existing automation ID for this role.",
+                status=409,
+            )
+        expected_target = runtime.get(contract["thread_key"])
+        expected_rrule = _expected_automation_rrule(
+            policy,
+            role,
+            gmail_cadence=control.get("gmail_cadence"),
+        )
+        expected_timezone = _expected_automation_timezone(policy, role)
+        actual = automations.get(role)
+        claims = self.automation_binding_claims(automation_id)
+        exact_claim = {
+            "target_thread_id": target_thread_id,
+            "role": role,
+            "purpose": contract["purpose"],
+        }
+        claim_matches = [
+            item
+            for item in claims
+            if all(item.get(key) == value for key, value in exact_claim.items())
+        ]
+        mismatches: list[str] = []
+        source_available = True
+        if not isinstance(expected_target, str) or not expected_target:
+            mismatches.append("role target unavailable")
+            source_available = False
+        if expected_rrule is None:
+            mismatches.append("canonical schedule unavailable")
+            source_available = False
+        if expected_timezone == "unavailable":
+            mismatches.append("canonical timezone unavailable")
+            source_available = False
+        if not isinstance(actual, Mapping) or actual.get("status") != "available":
+            mismatches.append("named automation unavailable")
+            source_available = False
+        else:
+            comparisons = {
+                "automation ID differs": actual.get("id") == automation_id,
+                "enabled state differs": actual.get("owner_status") == "ACTIVE",
+                "automation kind differs": actual.get("kind") == "heartbeat",
+                "role target differs": actual.get("target_thread_id") == expected_target,
+                "schedule differs": actual.get("rrule") == expected_rrule,
+                "protected automation fields unavailable": isinstance(
+                    actual.get("protected_sha256"), str
+                )
+                and SHA256.fullmatch(str(actual["protected_sha256"])) is not None,
+            }
+            mismatches.extend(label for label, matched in comparisons.items() if not matched)
+        if len(claims) != 1 or len(claim_matches) != 1:
+            mismatches.append("duplicate or conflicting canonical role claim")
+        repairable_mismatches = {
+            "enabled state differs",
+            "role target differs",
+            "schedule differs",
+        }
+        repairable = bool(mismatches) and source_available and set(mismatches).issubset(
+            repairable_mismatches
+        )
+        current = {
+            key: actual.get(key) if isinstance(actual, Mapping) else None
+            for key in (
+                "id",
+                "status",
+                "owner_status",
+                "kind",
+                "rrule",
+                "target_thread_id",
+                "manifest_sha256",
+                "protected_sha256",
+                "source_path",
+            )
+        }
+        expected = {
+            "id": automation_id,
+            "owner_status": "ACTIVE",
+            "kind": "heartbeat",
+            "target_thread_id": expected_target,
+            "rrule": expected_rrule,
+            "timezone": expected_timezone,
+        }
+        material = {
+            "target_thread_id": target_thread_id,
+            "role": role,
+            "purpose": contract["purpose"],
+            "control_fingerprint": control.get("fingerprint"),
+            "current": current,
+            "expected": expected,
+            "claims": claims,
+            "mismatches": mismatches,
+            "repairable": repairable,
+        }
+        return {
+            **material,
+            "fingerprint": _digest(material),
+            "label": contract["label"],
+            "policy_version": control.get("policy_version"),
+            "policy_sha256": control.get("policy_sha256"),
+            "policy_history_head": control.get("policy_history_head"),
+            "source_record": control.get("source_record"),
+            "mission_binding": policy.get("mission_binding"),
+            "lifecycle_status": control.get("lifecycle_status"),
+            "control": control,
         }
 
     def binding_group_ids(self, target_thread_id: str) -> list[str]:
@@ -1731,6 +2133,19 @@ class OperationsProjectionService:
                 "updated_at": _milliseconds_timestamp(value["updated_at"]),
                 "next_scheduled_at": None,
                 "manifest_sha256": sha256(raw).hexdigest(),
+                "protected_sha256": _digest(
+                    {
+                        key: value[key]
+                        for key in (
+                            "version",
+                            "id",
+                            "kind",
+                            "name",
+                            "prompt",
+                            "created_at",
+                        )
+                    }
+                ),
                 "source_path": str(path),
                 "limitations": [
                     "The automation owner exposes schedule and enabled state here, but no canonical next occurrence or wake receipt.",
@@ -1754,6 +2169,7 @@ class OperationsProjectionService:
                 "updated_at": None,
                 "next_scheduled_at": None,
                 "manifest_sha256": None,
+                "protected_sha256": None,
                 "source_path": str(path),
                 "limitations": ["Automation source is unavailable; it is not treated as paused or inactive."],
                 "error": {
@@ -2818,6 +3234,7 @@ class OperationsProjectionService:
                     evidence.policy,
                     roles,
                     gmail_cadence,
+                    automations,
                 ),
                 "source_path": str(evidence.directory / "policy.json"),
                 "read_only": True,

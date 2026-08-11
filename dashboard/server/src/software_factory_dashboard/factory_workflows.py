@@ -34,6 +34,7 @@ from .admin_operations import (
 from .app_server import AppServerError, CodexAppServerClient
 from .catalog import CatalogError, CatalogStore, ProjectRecord, discover_project
 from .operations import (
+    AUTOMATION_BINDING_CONTRACTS,
     POLICY_ADJUSTABLE_FIELDS,
     OperationsProjectionError,
     OperationsProjectionService,
@@ -85,6 +86,11 @@ ROLE_BINDING_REPAIR_ROLES = {
         "runtime_field": "roundup_thread_id",
     },
 }
+AUTOMATION_BINDING_REPAIR_MARKER = (
+    "SOFTWARE_FACTORY_DASHBOARD_AUTOMATION_BINDING_REPAIR "
+)
+AUTOMATION_BINDING_REPAIR_ROUTE_PURPOSE = "fix-execution"
+AUTOMATION_BINDING_REPAIR_ROLES = tuple(AUTOMATION_BINDING_CONTRACTS)
 
 
 def parse_dashboard_workflow_marker(value: str) -> Mapping[str, Any] | None:
@@ -454,6 +460,7 @@ class FactoryWorkflowOwner:
         self._policy_adjust_dispatch_lock = RLock()
         self._binding_repair_dispatch_lock = RLock()
         self._role_binding_repair_dispatch_lock = RLock()
+        self._automation_binding_repair_dispatch_lock = RLock()
 
     def registry(self) -> OperationRegistry:
         return OperationRegistry(
@@ -475,6 +482,7 @@ class FactoryWorkflowOwner:
                 self._adjust_supervision_definition(),
                 self._mission_binding_repair_definition(),
                 self._role_binding_repair_definition(),
+                self._automation_binding_repair_definition(),
                 self._unavailable_authoring_supervision_definition(),
             )
         )
@@ -6721,6 +6729,622 @@ class FactoryWorkflowOwner:
                 ),
                 "One canonical policy version may be created; no task or automation is created, resumed, messaged, or relabeled.",
             ),
+            dispatch=dispatch,
+            verify=verify,
+        )
+
+    @staticmethod
+    def _automation_binding_repair_marker(
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+        source: SourceSnapshot,
+    ) -> dict[str, Any]:
+        current = source.evidence["current_automation"]
+        expected = source.evidence["expected_automation"]
+        return {
+            "kind": "supervision-automation-binding-repair",
+            "target_thread_id": target.id,
+            "role": inputs["role"],
+            "purpose": source.evidence["purpose"],
+            "automation_id": expected["id"],
+            "prior_policy_sha256": source.evidence["prior_policy_sha256"],
+            "prior_policy_version": source.evidence["prior_policy_version"],
+            "prior_policy_history_head": source.evidence[
+                "prior_policy_history_head"
+            ],
+            "prior_manifest_sha256": current["manifest_sha256"],
+            "protected_sha256": current["protected_sha256"],
+            "expected_target_thread_id": expected["target_thread_id"],
+            "expected_rrule": expected["rrule"],
+            "expected_timezone": expected["timezone"],
+            "expected_owner_status": expected["owner_status"],
+            "mismatches_sha256": fingerprint(source.evidence["mismatches"]),
+            "preview_fingerprint": source.fingerprint,
+            "route_purpose": AUTOMATION_BINDING_REPAIR_ROUTE_PURPOSE,
+            "source_record": source.evidence["source_record"],
+            "fix_executor_task_id": source.evidence["fix_executor_task_id"],
+        }
+
+    @staticmethod
+    def _automation_binding_repair_turn_has_marker(
+        task: Mapping[str, Any],
+        *,
+        turn_id: str,
+        expected: Mapping[str, Any],
+    ) -> bool:
+        if task.get("turns_truncated") is True:
+            return False
+        turns = [turn for turn in task.get("turns", []) if turn.get("id") == turn_id]
+        if len(turns) != 1 or turns[0].get("items_truncated") is True:
+            return False
+        markers: list[Mapping[str, Any]] = []
+        for item in turns[0].get("items", []):
+            summary = item.get("summary")
+            if (
+                item.get("type") != "userMessage"
+                or not isinstance(summary, str)
+                or not summary.startswith(AUTOMATION_BINDING_REPAIR_MARKER)
+            ):
+                continue
+            first_line = summary.splitlines()[0]
+            try:
+                marker = json.loads(
+                    first_line.removeprefix(AUTOMATION_BINDING_REPAIR_MARKER)
+                )
+            except json.JSONDecodeError:
+                return False
+            if isinstance(marker, Mapping):
+                markers.append(marker)
+        return len(markers) == 1 and markers[0] == expected
+
+    def _automation_binding_repair_source(
+        self,
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+    ) -> SourceSnapshot:
+        role = inputs.get("role")
+        if role not in AUTOMATION_BINDING_REPAIR_ROLES:
+            raise OperationError(
+                "automation_binding_role_unsupported",
+                "The selected automation role is not supported.",
+            )
+        projects, catalog_fingerprint = self._active_projects()
+        project = self._project_from(projects, target)
+        self._require_capabilities("task_read", "task_resume", "turn_start")
+        try:
+            target_detail = self.app_server_client.read_task(
+                projects,
+                target.id,
+                include_turns=False,
+            )
+        except AppServerError as error:
+            raise _operation_error(
+                error,
+                fallback="automation_binding_target_unavailable",
+            ) from error
+        target_task = target_detail.get("task")
+        target_binding = (
+            target_task.get("project_binding")
+            if isinstance(target_task, Mapping)
+            else None
+        )
+        if (
+            not isinstance(target_task, Mapping)
+            or target_task.get("id") != target.id
+            or not isinstance(target_binding, Mapping)
+            or target_binding.get("status") != "bound"
+            or target_binding.get("project_id") != project.id
+        ):
+            raise OperationError(
+                "automation_binding_project_mismatch",
+                "The selected run is not bound to the exact registered project.",
+                status=409,
+            )
+        try:
+            binding = self.operations_service.automation_binding_snapshot(
+                target.id,
+                str(role),
+            )
+        except OperationsProjectionError as error:
+            raise _operation_error(
+                error,
+                fallback="automation_binding_source_unavailable",
+            ) from error
+        if binding.get("lifecycle_status") in {"completed", "stopped"}:
+            raise OperationError(
+                "automation_binding_target_terminal",
+                "Automation binding repair is unavailable for a terminal supervision group.",
+                status=409,
+            )
+        mismatches = binding.get("mismatches")
+        if not isinstance(mismatches, list) or not mismatches:
+            raise OperationError(
+                "automation_binding_already_reconciled",
+                "The selected automation and canonical policy binding already agree.",
+                status=409,
+            )
+        if binding.get("repairable") is not True:
+            raise OperationError(
+                "automation_binding_repair_unsupported",
+                "The mismatch cannot be repaired without inventing or replacing identity, changing purpose, or using an unavailable source.",
+                status=409,
+            )
+        control = binding.get("control")
+        policy = control.get("policy") if isinstance(control, Mapping) else None
+        runtime = control.get("runtime") if isinstance(control, Mapping) else None
+        mission = policy.get("mission_binding") if isinstance(policy, Mapping) else None
+        if (
+            not isinstance(control, Mapping)
+            or not isinstance(policy, Mapping)
+            or not isinstance(runtime, Mapping)
+            or not isinstance(mission, Mapping)
+            or not isinstance(mission.get("mission_root"), str)
+            or not SHA256_PATTERN.fullmatch(str(mission["mission_root"]))
+        ):
+            raise OperationError(
+                "automation_binding_policy_unavailable",
+                "The canonical policy, runtime, or current mission binding is unavailable.",
+                status=409,
+            )
+        policy_project_root = policy.get("project_root")
+        if isinstance(policy_project_root, str):
+            try:
+                bound_root = Path(policy_project_root).expanduser().resolve(strict=True)
+                registered_root = Path(project.root).expanduser().resolve(strict=True)
+            except (OSError, RuntimeError) as error:
+                raise OperationError(
+                    "automation_binding_project_mismatch",
+                    "The supervision policy project root is unavailable.",
+                    status=409,
+                ) from error
+            if bound_root != registered_root:
+                raise OperationError(
+                    "automation_binding_project_mismatch",
+                    "The supervision policy and selected run disagree about the project.",
+                    status=409,
+                )
+        current = binding.get("current")
+        expected = binding.get("expected")
+        claims = binding.get("claims")
+        source_record = binding.get("source_record")
+        prior_policy_sha256 = binding.get("policy_sha256")
+        prior_policy_version = binding.get("policy_version")
+        prior_policy_history_head = binding.get("policy_history_head")
+        if (
+            not isinstance(current, Mapping)
+            or not isinstance(expected, Mapping)
+            or not isinstance(claims, list)
+            or len(claims) != 1
+            or not isinstance(source_record, str)
+            or not source_record
+            or not isinstance(prior_policy_sha256, str)
+            or not SHA256_PATTERN.fullmatch(prior_policy_sha256)
+            or type(prior_policy_version) is not int
+            or prior_policy_version < 1
+            or not isinstance(prior_policy_history_head, str)
+            or not SHA256_PATTERN.fullmatch(prior_policy_history_head)
+            or not isinstance(current.get("manifest_sha256"), str)
+            or not SHA256_PATTERN.fullmatch(str(current["manifest_sha256"]))
+            or not isinstance(current.get("protected_sha256"), str)
+            or not SHA256_PATTERN.fullmatch(str(current["protected_sha256"]))
+        ):
+            raise OperationError(
+                "automation_binding_source_unavailable",
+                "The named manifest, canonical policy identity, or duplicate-role proof is incomplete.",
+                status=409,
+            )
+        fix_executor_task_id = runtime.get("fix_executor_thread_id")
+        expected_target = expected.get("target_thread_id")
+        if (
+            not isinstance(fix_executor_task_id, str)
+            or not fix_executor_task_id
+            or fix_executor_task_id in {target.id, expected_target}
+        ):
+            raise OperationError(
+                "automation_binding_owner_unavailable",
+                "The policy lacks a distinct exact fix-executor task.",
+                status=409,
+            )
+        try:
+            fix_detail = self.app_server_client.read_task(
+                projects,
+                fix_executor_task_id,
+                include_turns=True,
+            )
+        except AppServerError as error:
+            raise _operation_error(
+                error,
+                fallback="automation_binding_owner_unavailable",
+            ) from error
+        fix_task = fix_detail.get("task")
+        if not isinstance(fix_task, Mapping):
+            raise OperationError(
+                "automation_binding_owner_unavailable",
+                "The exact fix-executor projection is unavailable.",
+                status=409,
+            )
+        fix_cwd, fix_identity, fix_status = self._validated_role_task(
+            fix_task,
+            task_id=fix_executor_task_id,
+            role="fix executor",
+        )
+        evidence = {
+            "catalog_fingerprint": catalog_fingerprint,
+            "project_id": project.id,
+            "target_thread_id": target.id,
+            "mission_root": mission["mission_root"],
+            "source_record": source_record,
+            "role": role,
+            "role_label": binding["label"],
+            "purpose": binding["purpose"],
+            "prior_policy_sha256": prior_policy_sha256,
+            "prior_policy_version": prior_policy_version,
+            "prior_policy_history_head": prior_policy_history_head,
+            "current_automation": dict(current),
+            "expected_automation": dict(expected),
+            "mismatches": list(mismatches),
+            "canonical_claims": list(claims),
+            "binding_fingerprint": binding["fingerprint"],
+            "fix_executor_task_id": fix_executor_task_id,
+            "fix_executor_task_status": fix_status,
+            "fix_executor_task_cwd": fix_cwd,
+            "fix_executor_cwd_device": fix_identity[0],
+            "fix_executor_cwd_inode": fix_identity[1],
+            "compensation_posture": (
+                "No automatic rollback or retry. Re-read the same policy and named automation, "
+                "then issue a new bounded request only for any still-missing postcondition."
+            ),
+        }
+        material = {
+            "catalog": catalog_fingerprint,
+            "project": project.id,
+            "target": target.id,
+            "mission": mission["mission_root"],
+            "source_record": source_record,
+            "binding": binding["fingerprint"],
+            "fix_executor": {
+                "task_id": fix_executor_task_id,
+                "status": fix_status,
+                "cwd": fix_cwd,
+                "cwd_identity": fix_identity,
+            },
+        }
+        return SourceSnapshot(fingerprint=fingerprint(material), evidence=evidence)
+
+    @staticmethod
+    def _automation_binding_repair_prompt(
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+        source: SourceSnapshot,
+    ) -> str:
+        marker = FactoryWorkflowOwner._automation_binding_repair_marker(
+            target,
+            inputs,
+            source,
+        )
+        facts = {
+            "target_thread_id": target.id,
+            "mission_root": source.evidence["mission_root"],
+            "policy_sha256": source.evidence["prior_policy_sha256"],
+            "policy_version": source.evidence["prior_policy_version"],
+            "policy_history_head": source.evidence["prior_policy_history_head"],
+            "role": source.evidence["role"],
+            "role_label": source.evidence["role_label"],
+            "purpose": source.evidence["purpose"],
+            "mismatches": source.evidence["mismatches"],
+            "current_automation": source.evidence["current_automation"],
+            "expected_automation": source.evidence["expected_automation"],
+            "canonical_claim": source.evidence["canonical_claims"][0],
+        }
+        return FactoryWorkflowOwner._bounded_prompt(
+            (
+                AUTOMATION_BINDING_REPAIR_MARKER + _canonical(marker),
+                "Apply only this operator-confirmed automation binding repair through maintained owners.",
+                "Use $supervise-tracker-runs and the Codex automation owner for the exact existing automation ID below.",
+                "Update only the mismatched enabled state, RRULE, or target_thread_id to the exact expected values. Preserve ID, version, kind, name, prompt, created_at, and every unrelated automation.",
+                "The canonical policy binding is already exact and must remain at the supplied version, hash, history head, role, and purpose. Do not call bind, adjust, or another policy writer unless the supplied policy is no longer current; if it changed, stop and report the split state.",
+                "Never write automation.toml, policy.json, or policy-history.jsonl directly. Never create, delete, replace, rename, broadly rebind, or redesign cadence.",
+                "Treat the policy timezone as the canonical schedule interpretation where one is supplied; the automation manifest does not independently expose a timezone field.",
+                "After the owner request, re-read both the exact named automation and canonical policy binding. Report partial state truthfully and do not retry or roll back automatically.",
+                "",
+                *FactoryWorkflowOwner._prompt_facts(facts),
+            )
+        )
+
+    def _automation_binding_repair_route_request(
+        self,
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+        source: SourceSnapshot,
+    ) -> RouteGateRequest:
+        del inputs
+        return RouteGateRequest(
+            target_thread=target.id,
+            recipient=str(source.evidence["fix_executor_task_id"]),
+            purpose=AUTOMATION_BINDING_REPAIR_ROUTE_PURPOSE,
+            source_record=str(source.evidence["source_record"]),
+            required_action=(
+                f"Repair one exact {source.evidence['role']} automation binding for "
+                f"target {target.id}; preview SHA-256 {source.fingerprint}."
+            ),
+        )
+
+    def _automation_binding_repair_definition(self) -> OperationDefinition:
+        schema = _object_schema(
+            {
+                "role": {
+                    "type": "string",
+                    "enum": list(AUTOMATION_BINDING_REPAIR_ROLES),
+                }
+            },
+            required=("role",),
+        )
+
+        def dispatch(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+        ) -> DispatchResult:
+            with self._automation_binding_repair_dispatch_lock:
+                current = self._automation_binding_repair_source(target, inputs)
+                if current.fingerprint != source.fingerprint:
+                    raise OperationOwnerError(
+                        "automation_binding_source_changed",
+                        "The exact policy, automation, duplicate-role proof, or owner task changed before dispatch.",
+                    )
+                projects, _ = self._active_projects()
+                fix_executor_task_id = str(source.evidence["fix_executor_task_id"])
+                prompt = self._automation_binding_repair_prompt(
+                    target,
+                    inputs,
+                    source,
+                )
+                try:
+                    result = self.app_server_client.start_configured_role_turn(
+                        projects,
+                        fix_executor_task_id,
+                        prompt,
+                        expected_cwd=str(source.evidence["fix_executor_task_cwd"]),
+                        expected_cwd_identity=(
+                            int(source.evidence["fix_executor_cwd_device"]),
+                            int(source.evidence["fix_executor_cwd_inode"]),
+                        ),
+                    )
+                except AppServerError as error:
+                    raise OperationOwnerError(_owner_code(error), str(error)) from error
+                return DispatchResult(
+                    evidence={
+                        "target_thread_id": target.id,
+                        "automation_binding_requested": True,
+                        "automation_binding_applied": False,
+                        "automation_postcondition_current": False,
+                        "policy_postcondition_current": False,
+                        "role": source.evidence["role"],
+                        "purpose": source.evidence["purpose"],
+                        "automation_id": source.evidence["expected_automation"]["id"],
+                        "fix_executor_task_id": fix_executor_task_id,
+                        "fix_executor_turn_id": result["turn"]["id"],
+                        "fix_executor_task_resumed": result["task_resumed"],
+                        "preview_fingerprint": source.fingerprint,
+                    },
+                    links=(
+                        OperationLink("Run", f"/runs/{target.id}"),
+                        OperationLink(
+                            "Fix executor task",
+                            f"/tasks/{fix_executor_task_id}",
+                        ),
+                    ),
+                )
+
+        def verify(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+            result: DispatchResult,
+        ) -> VerificationResult:
+            try:
+                binding = self.operations_service.automation_binding_snapshot(
+                    target.id,
+                    str(inputs["role"]),
+                )
+            except OperationsProjectionError as error:
+                return VerificationResult(
+                    "pending",
+                    {
+                        **result.evidence,
+                        "owner_error_code": error.code,
+                        "automation_postcondition_current": False,
+                        "policy_postcondition_current": False,
+                        "recovery": source.evidence["compensation_posture"],
+                    },
+                    result.links,
+                )
+            projects, _ = self._active_projects()
+            try:
+                fix_detail = self.app_server_client.read_task(
+                    projects,
+                    str(source.evidence["fix_executor_task_id"]),
+                    include_turns=True,
+                )
+            except AppServerError:
+                fix_detail = {}
+            fix_task = fix_detail.get("task")
+            marker = self._automation_binding_repair_marker(target, inputs, source)
+            fix_request_current = (
+                isinstance(fix_task, Mapping)
+                and self._automation_binding_repair_turn_has_marker(
+                    fix_task,
+                    turn_id=str(result.evidence["fix_executor_turn_id"]),
+                    expected=marker,
+                )
+            )
+            current = binding.get("current")
+            expected = source.evidence["expected_automation"]
+            claims = binding.get("claims")
+            current_mission = binding.get("mission_binding")
+            current_mission = (
+                current_mission if isinstance(current_mission, Mapping) else {}
+            )
+            exact_claim = (
+                isinstance(claims, list)
+                and len(claims) == 1
+                and claims[0].get("target_thread_id") == target.id
+                and claims[0].get("role") == source.evidence["role"]
+                and claims[0].get("purpose") == source.evidence["purpose"]
+            )
+            policy_current = (
+                binding.get("policy_version")
+                == source.evidence["prior_policy_version"]
+                and binding.get("policy_sha256")
+                == source.evidence["prior_policy_sha256"]
+                and binding.get("policy_history_head")
+                == source.evidence["prior_policy_history_head"]
+                and current_mission.get("mission_root")
+                == source.evidence["mission_root"]
+                and exact_claim
+            )
+            automation_current = (
+                isinstance(current, Mapping)
+                and binding.get("mismatches") == []
+                and current.get("id") == expected["id"]
+                and current.get("owner_status") == expected["owner_status"]
+                and current.get("kind") == expected["kind"]
+                and current.get("target_thread_id") == expected["target_thread_id"]
+                and current.get("rrule") == expected["rrule"]
+                and current.get("protected_sha256")
+                == source.evidence["current_automation"]["protected_sha256"]
+                and current.get("manifest_sha256")
+                != source.evidence["current_automation"]["manifest_sha256"]
+            )
+            route_accepted = False
+            route_result = None
+            if policy_current:
+                try:
+                    request = self._automation_binding_repair_route_request(
+                        target,
+                        inputs,
+                        source,
+                    )
+                    route_result = self.route_gate(request)
+                    route_accepted = bool(
+                        route_result.allowed
+                        and route_result.recipient == request.recipient
+                        and route_result.purpose == request.purpose
+                        and route_result.source_record == request.source_record
+                        and route_result.target_thread == request.target_thread
+                        and route_result.action_hash
+                        == route_action_fingerprint(request.required_action)
+                        and route_result.policy_fingerprint
+                        == source.evidence["prior_policy_sha256"]
+                    )
+                except Exception:
+                    route_accepted = False
+            applied = (
+                automation_current
+                and policy_current
+                and fix_request_current
+                and route_accepted
+            )
+            partial_posture = (
+                "reconciled"
+                if applied
+                else "automation-changed-policy-pending"
+                if automation_current and not policy_current
+                else "policy-current-automation-pending"
+                if policy_current and not automation_current
+                else "unverified"
+            )
+            evidence = {
+                **result.evidence,
+                "automation_binding_applied": applied,
+                "automation_postcondition_current": automation_current,
+                "policy_postcondition_current": policy_current,
+                "duplicate_role_absent": exact_claim,
+                "fix_executor_request_current": fix_request_current,
+                "route_gate_accepted": route_accepted,
+                "route_policy_sha256": (
+                    route_result.policy_fingerprint if route_result else None
+                ),
+                "policy_version": binding.get("policy_version"),
+                "policy_sha256": binding.get("policy_sha256"),
+                "manifest_sha256": (
+                    current.get("manifest_sha256")
+                    if isinstance(current, Mapping)
+                    else None
+                ),
+                "protected_automation_fields_preserved": (
+                    isinstance(current, Mapping)
+                    and current.get("protected_sha256")
+                    == source.evidence["current_automation"]["protected_sha256"]
+                ),
+                "partial_posture": partial_posture,
+                "direct_policy_write": False,
+                "direct_automation_write": False,
+                "automatic_retry": False,
+                "automatic_rollback": False,
+                "recovery": (
+                    None if applied else source.evidence["compensation_posture"]
+                ),
+            }
+            return VerificationResult(
+                "applied" if applied else "pending",
+                evidence,
+                result.links,
+            )
+
+        return OperationDefinition(
+            operation_type="factory.supervision-repair-automation-binding",
+            target_kind="run",
+            input_schema=schema,
+            owner="Codex automation owner + maintained supervision policy/bind and route-gate owners",
+            authority=(
+                "explicit operator confirmation for one exact named automation repair",
+                "one current canonical supervision group-role-purpose binding",
+                "one existing automation owner manifest with protected identity",
+                "one exact current fix-executor task and maintained fix-execution route gate",
+            ),
+            ordinary_consequences=(
+                "Starts one bounded fix-executor turn for the exact existing automation ID.",
+                "The Codex automation owner may update only enabled state, schedule, or target for that named automation.",
+                "The canonical policy is re-read as a separate unchanged binding postcondition.",
+            ),
+            failure_consequences=(
+                "Missing, invented, conflicting, duplicated, stale, unsupported, or unavailable identity sends no owner request.",
+                "Automation-only or policy-only state remains pending with no automatic retry or rollback.",
+                "A protected-field change or policy drift prevents a reconciled result.",
+            ),
+            confirmation=ConfirmationContract(
+                "automation-binding-repair",
+                "Type REPAIR AUTOMATION to request this exact named automation repair.",
+                "REPAIR AUTOMATION",
+            ),
+            idempotency=(
+                "One consumed preview starts at most one fix-executor turn; a reconciled or changed source is rejected and no owner action is retried."
+            ),
+            expected_postcondition=(
+                "The exact existing automation is active on the canonical schedule and role task, its protected fields are preserved, and the same one canonical policy claim remains current."
+            ),
+            timeout_seconds=30,
+            limitations=(
+                "The dashboard never writes automation TOML, policy JSON, or policy history directly.",
+                "A missing or differing automation ID cannot be selected, invented, replaced, or broadly rebound through this operation.",
+                "Only watcher, reviewer, Gmail gate, roundup writer, and enabled weekly-report schedules with exact maintained policy expectations are supported.",
+                "Cadence tuning, purpose changes, task repair, pause/resume, reports, continuity, and later lifecycle controls remain outside this operation.",
+            ),
+            resolve_source=self._automation_binding_repair_source,
+            describe_effect=lambda target, inputs, source: PreviewEffect(
+                (
+                    f"Repair {source.evidence['role_label']} automation "
+                    f"{source.evidence['expected_automation']['id']} for run {target.id}."
+                ),
+                (
+                    "One existing automation may change enabled state, schedule, or target; "
+                    "the canonical policy binding must remain byte-identical and no rollback is automatic."
+                ),
+                recipient=str(source.evidence["fix_executor_task_id"]),
+            ),
+            route_gate_request=self._automation_binding_repair_route_request,
+            route_gate=self.route_gate,
             dispatch=dispatch,
             verify=verify,
         )
