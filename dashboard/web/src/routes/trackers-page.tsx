@@ -40,7 +40,6 @@ export function Component() {
   const [searchParams, setSearchParams] = useSearchParams()
   const trackers = useQuery({ queryKey: ["trackers"], queryFn: ({ signal }) => fetchTrackers(signal) })
   const floor = useQuery({ queryKey: ["factory-floor"], queryFn: ({ signal }) => fetchFactoryFloor(signal) })
-  const projectFilter = searchParams.get("project") ?? "all"
   const selectedActivity = activityFilter(searchParams.get("activity"))
 
   if (trackers.isPending) return <QueryState kind="loading" message="Loading trackers" />
@@ -49,6 +48,11 @@ export function Component() {
   const floorEnvelope = floor.data
   const projectOptions = [...new Map(trackers.data.data.trackers.map((tracker) => [tracker.project_id, tracker.project_label])).entries()]
     .sort((left, right) => left[1].localeCompare(right[1]))
+  const requestedProject = searchParams.get("project")
+  const projectFilter = requestedProject !== null
+    && projectOptions.some(([id]) => id === requestedProject)
+    ? requestedProject
+    : "all"
   const projectTrackers = trackers.data.data.trackers.filter(
     (tracker) => projectFilter === "all" || tracker.project_id === projectFilter,
   )
@@ -104,7 +108,8 @@ export function Component() {
             const attention = trackerAttentionReasons(tracker, progress)
             const available = tracker.status === "available"
             const exactMappedRuns = progress.exactMappedRows.filter(
-              (row) => row.supervision.run_id !== null,
+              (row) => row.supervision.run_id !== null
+                && ["active", "paused", "blocked", "failed", "unavailable"].includes(row.supervision.status),
             )
             return (
               <article

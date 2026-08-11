@@ -208,12 +208,17 @@ export function projectTrackerProgress(
 
   const total = exactTotal(tracker)
   const claims: TrackerProgressClaim[] = [trackerClaim(tracker, total)]
-  const exactMappedRows = floor?.data.rows.filter(
+  const associatedRows = floor?.data.rows.filter(
     (row) => row.work.tracker.status === "exact"
       && row.work.tracker.id === tracker.id
       && row.project.status === "bound"
       && row.project.project_id === tracker.project_id,
   ) ?? []
+  const exactMappedRows = associatedRows.filter(
+    (row) => row.implementation.status === "active"
+      || row.implementation.status === "idle"
+      || ["active", "paused", "blocked", "failed", "unavailable"].includes(row.supervision.status),
+  )
   const excludedCandidateRows = floor?.data.rows.filter(
     (row) => row.work.tracker.id === tracker.id
       && (
@@ -229,10 +234,24 @@ export function projectTrackerProgress(
       : "partial"
 
   if (exactMappedRows.length) {
+    let currentTaskClaims = 0
+    let currentSupervisionClaims = 0
     exactMappedRows.forEach((row) => {
       row.work.block_claims.claims
-        .filter((claim) => claim.source === "task" || claim.source === "supervision")
-        .forEach((claim) => claims.push(mappedClaim(row, claim)))
+        .filter((claim) => {
+          if (claim.source === "task") {
+            return row.implementation.status === "active" || row.implementation.status === "idle"
+          }
+          if (claim.source === "supervision") {
+            return ["active", "paused", "blocked", "failed", "unavailable"].includes(row.supervision.status)
+          }
+          return false
+        })
+        .forEach((claim) => {
+          if (claim.source === "task") currentTaskClaims += 1
+          if (claim.source === "supervision") currentSupervisionClaims += 1
+          claims.push(mappedClaim(row, claim))
+        })
       const floorTrackerClaim = row.work.block_claims.claims.find((claim) => claim.source === "tracker")
       const currentTrackerClaim = claims[0]
       if (floorTrackerClaim) {
@@ -252,9 +271,17 @@ export function projectTrackerProgress(
         }
       }
     })
+    if (currentTaskClaims === 0) {
+      claims.push(unavailableMappedClaim("task", "No exact current implementation-task association is available."))
+    }
+    if (currentSupervisionClaims === 0) {
+      claims.push(unavailableMappedClaim("supervision", "No exact current supervision-mission association is available."))
+    }
   } else {
     const associationReason = excludedCandidateRows
       ? `${excludedCandidateRows} noncanonical Floor tracker candidate claim${excludedCandidateRows === 1 ? " was" : "s were"} excluded.`
+      : associatedRows.length
+        ? "Only inactive historical Floor tracker associations were excluded."
       : "No exact current tracker/run association is available."
     claims.push(
       unavailableMappedClaim("task", associationReason),
@@ -266,8 +293,9 @@ export function projectTrackerProgress(
     (row) => row.implementation.status === "active" || row.supervision.status === "active",
   )
   const failed = ["blocked", "failed"].some((status) => (tracker.counts.by_status[status] ?? 0) > 0)
-    || exactMappedRows.some(
-      (row) => row.supervision.status === "blocked"
+    || associatedRows.some(
+      (row) => row.implementation.status === "terminal"
+        || row.supervision.status === "blocked"
         || row.supervision.status === "failed",
     )
   return {
@@ -334,7 +362,8 @@ export function trackerMatchesActivity(
 }
 
 function trackerEnumerationExact(envelope: TrackerListEnvelope): boolean {
-  return envelope.data.projects.every((project) => project.status === "available")
+  return envelope.data.recovered_from_previous === false
+    && envelope.data.projects.every((project) => project.status === "available")
     && envelope.data.projects.reduce((total, project) => total + project.tracker_candidates, 0)
       === envelope.data.trackers.length
 }
@@ -350,6 +379,9 @@ function dynamicFloorAssociationExact(
     if (row.work.tracker.status === "exact" && row.work.tracker.id) {
       return row.project.status === "bound"
         && projectByTracker.get(row.work.tracker.id) === row.project.project_id
+    }
+    if (row.work.tracker.status === "candidate" || row.work.tracker.status === "ambiguous") {
+      return false
     }
     const couldChangeDynamicCounts = row.implementation.status === "active"
       || row.implementation.status === "terminal"

@@ -146,6 +146,7 @@ describe("tracker review workspace", () => {
     vi.clearAllMocks()
     mocks.fetchTrackers.mockResolvedValue({
       data: {
+        recovered_from_previous: false,
         projects: [{ project_id: "alpha", status: "available", tracker_candidates: 1 }],
         trackers: [tracker],
       },
@@ -214,6 +215,7 @@ describe("tracker review workspace", () => {
     }
     mocks.fetchTrackers.mockResolvedValue({
       data: {
+        recovered_from_previous: false,
         projects: [{ project_id: "alpha", status: "available", tracker_candidates: 1 }],
         trackers: [activeTracker],
       },
@@ -257,6 +259,7 @@ describe("tracker review workspace", () => {
     }
     mocks.fetchTrackers.mockResolvedValue({
       data: {
+        recovered_from_previous: false,
         projects: [{ project_id: "alpha", status: "available", tracker_candidates: 1 }],
         trackers: [malformedTracker],
       },
@@ -275,7 +278,7 @@ describe("tracker review workspace", () => {
     expect(screen.getByRole("button", { name: "Completed: 0 returned, lower bound or partial coverage" })).toBeVisible()
   })
 
-  it("does not call a conflicting all-accepted tracker or a successful terminal run completed or failed", async () => {
+  it("does not call a conflicting all-accepted tracker completed and preserves system-error failure", async () => {
     const completedConflict = {
       ...tracker,
       tracker_status: "in-progress",
@@ -292,10 +295,12 @@ describe("tracker review workspace", () => {
     }
     const terminalFloor = structuredClone(floor)
     terminalFloor.data.rows[0].implementation.status = "terminal"
+    terminalFloor.data.rows[0].implementation.status_label = "System error"
     terminalFloor.data.rows[0].supervision.status = "completed"
     terminalFloor.data.rows[0].light.posture = "green"
     mocks.fetchTrackers.mockResolvedValue({
       data: {
+        recovered_from_previous: false,
         projects: [{ project_id: "alpha", status: "available", tracker_candidates: 1 }],
         trackers: [completedConflict],
       },
@@ -306,14 +311,17 @@ describe("tracker review workspace", () => {
     renderRoute("/trackers", <TrackersPage />, "/trackers")
 
     expect(await screen.findByRole("button", { name: "Completed: 0 exact" })).toBeVisible()
-    expect(screen.getByRole("button", { name: "Blocked / Failed: 0 exact" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Blocked / Failed: 1 exact" })).toBeVisible()
     expect(screen.getByRole("button", { name: "Active / Running: 0 exact" })).toBeVisible()
     expect(screen.getByRole("button", { name: "Attention: 1 exact" })).toBeVisible()
   })
 
-  it("labels dynamic counts partial when an active row has only a noncanonical tracker claim", async () => {
+  it("labels attention counts partial when even an idle green row has a noncanonical tracker claim", async () => {
     const candidateFloor = structuredClone(floor)
     candidateFloor.data.rows[0].work.tracker.status = "candidate"
+    candidateFloor.data.rows[0].implementation.status = "idle"
+    candidateFloor.data.rows[0].supervision.status = "unmonitored"
+    candidateFloor.data.rows[0].light.posture = "green"
     mocks.fetchFactoryFloor.mockResolvedValue(candidateFloor)
 
     renderRoute("/trackers", <TrackersPage />, "/trackers")
@@ -321,6 +329,84 @@ describe("tracker review workspace", () => {
     expect(await screen.findByRole("button", { name: "All: 1 exact" })).toBeVisible()
     expect(screen.getByRole("button", { name: "Active / Running: 0 returned, lower bound or partial coverage" })).toBeVisible()
     expect(screen.getByRole("button", { name: "Attention: 1 returned, lower bound or partial coverage" })).toBeVisible()
+  })
+
+  it("excludes an inactive completed row from current Block claim comparison", async () => {
+    const activeTracker = {
+      ...tracker,
+      counts: { ...tracker.counts, by_status: { accepted: 1, "in-progress": 1 } },
+      current_blocks: [1],
+      current_block_details: [
+        { number: 1, title: "Successor", status: "in-progress", line: 70, status_line: 72 },
+      ],
+      eligible_blocks: [],
+    }
+    const currentFloor = structuredClone(floor)
+    const activeBlock = {
+      number: 1,
+      title: "Successor",
+      status: "in-progress",
+      line: 70,
+      route: `/trackers/${tracker.id}/blocks?block=1`,
+    }
+    currentFloor.data.rows[0].work.block_claims.claims.forEach((claim) => {
+      claim.status = "exact"
+      claim.blocks = [activeBlock]
+      claim.range = null
+    })
+    const historical = structuredClone(currentFloor.data.rows[0])
+    historical.id = "run:historical"
+    historical.implementation.task_id = "historical"
+    historical.implementation.status = "terminal"
+    historical.implementation.status_label = "System error"
+    historical.supervision.run_id = "historical"
+    historical.supervision.target_thread_id = "historical"
+    historical.supervision.status = "completed"
+    historical.work.block_claims.claims.forEach((claim) => {
+      claim.status = "none"
+      claim.blocks = []
+      claim.range = null
+    })
+    currentFloor.data.rows = [currentFloor.data.rows[0], historical]
+    mocks.fetchTrackers.mockResolvedValue({
+      data: {
+        recovered_from_previous: false,
+        projects: [{ project_id: "alpha", status: "available", tracker_candidates: 1 }],
+        trackers: [activeTracker],
+      },
+      coverage: { status: "complete" },
+    })
+    mocks.fetchFactoryFloor.mockResolvedValue(currentFloor)
+
+    renderRoute("/trackers", <TrackersPage />, "/trackers")
+
+    const row = (await screen.findByRole("link", { name: tracker.title })).closest("article")!
+    expect(row).toHaveClass("tracker-progress-exact")
+    expect(row).not.toHaveClass("tracker-progress-conflict")
+    expect(row).toHaveTextContent("Block 1 — Successor")
+  })
+
+  it("does not present recovered catalog enumeration as an exact count", async () => {
+    mocks.fetchTrackers.mockResolvedValue({
+      data: {
+        recovered_from_previous: true,
+        projects: [{ project_id: "alpha", status: "available", tracker_candidates: 1 }],
+        trackers: [tracker],
+      },
+      coverage: { status: "complete" },
+    })
+
+    renderRoute("/trackers", <TrackersPage />, "/trackers")
+
+    expect(await screen.findByRole("button", { name: "All: 1 returned, lower bound or partial coverage" })).toBeVisible()
+  })
+
+  it("falls back to all represented trackers for an unknown project URL value", async () => {
+    renderRoute("/trackers?project=unknown", <TrackersPage />, "/trackers")
+
+    expect(await screen.findByRole("link", { name: tracker.title })).toBeVisible()
+    expect(screen.getByRole("combobox", { name: "Project" })).toHaveValue("all")
+    expect(screen.getByRole("button", { name: "All: 1 exact" })).toBeVisible()
   })
 
   it("does not fabricate a run link for an exact task-only tracker association", async () => {
