@@ -4523,6 +4523,52 @@ group check. Never scan or reconcile unrelated groups.
   Blocks with zero errors/warnings, all 30 verifier tests passed, diff checks
   were clean, and the corrected product successor was pushed. Block 15 remains
   `in-progress` pending ordinary exact-revision acceptance.
+- Exact review of that successor: independent audit REJECTED exact evidence
+  `1b953b0a98c38a7c2fd6e7f2ce36122e127b08f6`, tree
+  `68cb7f41e940e1b9fc35e720b0312daa4197df42`, and product
+  `2f835f8339e49dd1f23c5066d2954dee4b6e942e`, tree
+  `bf15f35cc966055f5738447f5910694aafda6962`, on two remaining rows. First,
+  the projection hashed only joined text and bounded the client ID, so a valid
+  text-plus-image source or an ellipsized long client identity could be
+  accepted without complete source identity. Second, reviewer and fix executor
+  were required to differ from each other but not from the implementation
+  target, allowing the independent review/writer boundary to collapse. The
+  reviewer reproduced both adversarially. Its exact backend 59/59, Ruff,
+  frontend 14/14, build, verifier 26/0/0 plus 30/30, diff, remote, and Stop
+  proof remains reusable; its browser attempt stopped at an unrelated live
+  enablement precondition and is diagnostic only.
+- Two-row product successor: commit
+  `195387dca16dbbdd20cae11e5deda394b5a019d9`, tree
+  `aff978ce0b82a5928499c0804d1b750f682e0c95`, parent rejected evidence
+  `1b953b0a98c38a7c2fd6e7f2ce36122e127b08f6`. Representative blobs are App
+  Server projection `c62071a75833fa5b3030588183f5cd9e3fae0a2b`, workflow owner
+  `740becd5603705c352872e573e9c715441eb5a8c`, exact-value dialog
+  `392bc9f79659c30809b59e59f1bc7982efb62cb9`, and browser proof
+  `76a097c81eaca6c6f0e908e656605be9a7efa550`. The projection now preserves a
+  canonical SHA-256 root for the entire user-content envelope and its ordered
+  part types, retains the full client ID without ellipsis, and classifies every
+  shape other than one exact text part as ineligible for this owner. The source
+  gate recomputes that single-text envelope root and carries it through source,
+  request, reviewer verification, fingerprint, preview, UI, and postcondition.
+  The implementation target, reviewer, and fix executor must now be three
+  distinct exact task IDs before any request can route.
+- Delta-only proof for `195387d`: the affected App Server 19/19 and workflow
+  13/13 tests passed with `ResourceWarning` fatal, including text-plus-image
+  rejection, exact 300-character client retention, complete-envelope identity,
+  both target/role collapse variants, and current reviewer proof; Ruff passed.
+  The affected frontend suites passed 14/14, TypeScript/production build passed,
+  and the single preview case passed 3/3 at desktop, tablet, and mobile while
+  rendering the full text root, envelope root, 300-character client ID, neutral
+  authority posture, historical suppression, and no horizontal overflow. The
+  restarted port-8787 runtime is healthy: live item 44 retains text root
+  `ff144b6e23b4fb416d8fac84731a9f26c2ef3d2dc9d8ba9d59ffdd029a3aa601`
+  and exact envelope root
+  `3788926f90dd6987d405a4f70534583e86b1ae3303b0159cfa664cfe8daf81f2`
+  with one text part and unverified authority; routed item 46 retains envelope
+  root `8fabdcad02b924baee9c62c753fd0fff61bd15fc74b105574a3e12d1ffd33216`
+  and remains ineligible. Unaffected operations and tracker proof were reused
+  exactly as permitted by the rejected audit. The product successor is pushed;
+  Block 15 remains `in-progress` pending fresh exact-revision acceptance.
 
 ### Stop
 
