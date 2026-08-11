@@ -660,8 +660,8 @@ continuous cognition the price of ordinary execution.
 | 7 | Add configurable adaptive authority, budgets, and human-input posture | 5, 6 | `completed` |
 | 8 | Amend and apply the tracker only for structural invalidation | 4, 7 | `completed` |
 | 9 | Cut over a winning candidate, reconcile currentness, and resume | 6, 7 | `completed` |
-| 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `in-progress` |
-| 11 | Dogfood all decision paths and document demonstrated operation | 10 | `not-started` |
+| 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `completed` |
+| 11 | Dogfood all decision paths and document demonstrated operation | 10 | `in-progress` |
 | 12 | Admit newly eligible Factory evidence automatically and economically | 11 | `not-started` |
 | 13 | Orchestrate one bounded Factory candidate through existing owners | 12 | `not-started` |
 | 14 | Independently evaluate the Factory candidate | 13 | `not-started` |
@@ -2751,7 +2751,7 @@ Stop before adding Software Factory self-target promotion behavior or dogfood.
 
 ## Block 10 — Bind the same protocol to target repositories and Software Factory self-work
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -2940,6 +2940,14 @@ claims.
 - The current corrective candidate records the discovery link and resolved
   skill source root as separate full identities before the descendant entries;
   a final-pass source-root mode change now rejects.
+- Exact independent review accepted
+  `5a1899a0d0d3d244f874a1c80f4f1d8a3d52931e` with no findings. The reviewer
+  revalidated separate discovery-link and resolved source-root identities,
+  final source-root mode/currentness rejection, the same-length/restored-time
+  skill/evolution/capability cases, and canonical decision/target currentness.
+  Focused Block 10 passed `11/11`; mapped implementation passed `109/109`; all
+  three fixed skill validators, the full 18-Block tracker verifier,
+  compilation, and exact diff checks passed.
 - Corrective focused coverage passes `11/11`, mapped implementation validation
   passes `109/109`, and the historical Block 9 suite remains accepted at
   `29/29` under `/usr/bin/python3`. It covers both target classes and all
@@ -2953,8 +2961,7 @@ claims.
   18-Block tracker verifier, compilation, and exact diff checks pass.
 - No target cutover, Factory evolution producer, skill release/installation,
   policy, mission, lifecycle, Gmail, or later-Block effect was performed.
-  Exact corrective revision, independent paired review, and final completion
-  status remain pending.
+  Block 10 introduced no target cutover or reserved effect and is complete.
 
 ### Stop
 
@@ -2964,7 +2971,7 @@ Stop before final dogfood, public documentation, or broader control learning.
 
 ## Block 11 — Dogfood all decision paths and document demonstrated operation
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
