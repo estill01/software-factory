@@ -537,7 +537,7 @@ the relevant authority and evidence contract.
 | 14 | Supervision policy and cadence administration | 7, 10, 11 | `accepted` |
 | 15 | Mission and target/tracker binding repair | 7, 10, 11 | `accepted` |
 | 16 | Role-task binding repair | 7, 10, 11 | `accepted` |
-| 17 | Factory Floor operational rows and exact count filters | 6, 7 | `not-started` |
+| 17 | Factory Floor operational rows and exact count filters | 6, 7 | `in-progress` |
 | 18 | Tracker review queue and exact count filters | 3, 8 | `not-started` |
 | 19 | Tracker semantic source diffs | 3, 8 | `not-started` |
 | 20 | Automation binding repair | 7, 10, 11 | `not-started` |
@@ -4968,7 +4968,7 @@ reporting, evolution, or terminal lifecycle.
 
 ## Block 17 — Factory Floor operational rows and exact count filters
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -5113,7 +5113,22 @@ filters, and viewports rather than unrelated workspaces.
 
 ### Completion evidence
 
-Pending.
+- Activation and authority: started automatically from independently accepted
+  and pushed tracker revision
+  `d7205631540411cdabb355594f1f231b8cb15271`, tree
+  `9aa13cf4e5e597a1694d5a141e69d8e58d408334`; accepted Blocks 6 and 7 satisfy
+  every dependency, local/upstream are exact at `0 0`, and Blocks 18–29 remain
+  unopened. Governing implementation authority is direct-user item 44 under
+  mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`;
+  routed design packets are provenance only.
+- Work-start boundary: re-read this Block and inspect the accepted Factory Floor
+  projection, React route/contracts/tests, and the exact supplied
+  `TaskRows.tsx` and `FilterTable.tsx` baselines. The first implementation work
+  is limited to the compact disclosure/filter surface and the minimum typed
+  read-only fields needed for exact tracker totals, plural current active claims,
+  source disagreement, and coverage. No tracker-review, operation, mutation,
+  automation, lifecycle, reporting, or later-Block work is started.
 
 ### Stop
 
