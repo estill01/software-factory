@@ -220,6 +220,7 @@ const tracker = {
   },
   verifier: { valid: true },
   current_blocks: [],
+  current_block_details: [],
   eligible_blocks: [1],
   blocks: [
     { ...selectedBlock, number: 0, status: "accepted", eligible: false, dependencies: [], stop: "Stop before Block 1." },

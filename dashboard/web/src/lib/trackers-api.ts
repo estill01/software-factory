@@ -138,6 +138,16 @@ const trackerCountsSchema = z
   })
   .strict()
 
+const currentBlockDetailSchema = z
+  .object({
+    number: nonnegativeInteger,
+    title: z.string().min(1),
+    status: z.string().nullable(),
+    line: positiveLine,
+    status_line: positiveLine.nullable(),
+  })
+  .strict()
+
 const trackerCoverageSchema = z
   .object({
     status: z.enum(["complete", "partial"]),
@@ -164,6 +174,7 @@ const availableTrackerSummarySchema = z
     verifier: trackerVerifierSchema,
     counts: trackerCountsSchema,
     current_blocks: z.array(nonnegativeInteger),
+    current_block_details: z.array(currentBlockDetailSchema),
     eligible_blocks: z.array(nonnegativeInteger),
     header_block_status_conflict: z.boolean(),
     git: trackerGitSchema,

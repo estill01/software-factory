@@ -35,11 +35,18 @@ test("tracker review stays source-grounded, navigable, and read-only", async ({ 
   await expect(page.locator("h1")).toHaveCount(1)
   const trackerRow = page.locator(".tracker-index-row").filter({ hasText: summary.title })
   await expect(trackerRow).toContainText(`${summary.profile} profile · verifier ${summary.verifier.valid ? "valid" : "failed"}`)
+  await expect(trackerRow).toContainText(`${summary.counts.total} Blocks`)
+  for (const block of summary.current_block_details) {
+    await expect(trackerRow).toContainText(`Block ${block.number} — ${block.title}`)
+  }
   const coreRow = page.locator(".tracker-index-row").filter({ hasText: coreSummary.title })
   await expect(coreRow).toContainText(`core profile · verifier ${coreSummary.verifier.valid ? "valid" : "failed"}`)
-  await page.getByLabel("Posture").selectOption("current")
-  await expect(page).toHaveURL(/posture=current/)
-  await page.getByLabel("Posture").selectOption("all")
+  const activeFilter = page.getByRole("button", { name: /^Active \/ Running:/ })
+  await activeFilter.focus()
+  await activeFilter.press("Enter")
+  await expect(page).toHaveURL(/activity=active/)
+  await page.getByRole("button", { name: /^All:/ }).click()
+  await expect(page).not.toHaveURL(/activity=/)
 
   await page.getByRole("link", { name: coreSummary.title }).click()
   await expect(page.locator(".workspace-status").filter({ hasText: /^core$/ })).toBeVisible()
@@ -54,7 +61,7 @@ test("tracker review stays source-grounded, navigable, and read-only", async ({ 
 
   await page.getByRole("link", { name: "Blocks", exact: true }).click()
   await expect(page.getByRole("heading", { name: `Block ${expectedBlock.number} · ${expectedBlock.title}` })).toBeVisible()
-  const selectedSource = page.getByRole("link", { name: "Source", exact: true }).first()
+  const selectedSource = page.locator(`a[href^="/api/v1/trackers/${summary.id}/source?line="]`).first()
   await expect(selectedSource).toHaveAttribute("href", /\/source\?line=\d+&end_line=\d+/)
   await expect(page.getByRole("button", { name: /^(accept|edit|start)( tracker)?$/i })).toHaveCount(0)
 
@@ -235,11 +242,12 @@ test("unavailable tracker candidates remain independent and explicit", async ({ 
     route.fulfill({ json: makeFactoryFloorEnvelope() }),
   )
 
-  await page.goto("/trackers?posture=invalid")
+  await page.goto("/trackers?project=missing-project&activity=attention")
   await expect(page.getByText("docs/missing-implementation-tracker.md", { exact: true }).first()).toBeVisible()
-  await expect(page.getByRole("alert")).toContainText("Tracker disappeared during the bounded read.")
-  await expect(page.locator(".workspace-partial")).toContainText("source coverage is partial")
+  await expect(page.locator(".tracker-index-row")).toContainText("Tracker disappeared during the bounded read.")
+  await expect(page.locator(".workspace-partial")).toContainText("counts and claims are marked exact, partial, or unavailable")
   await expect(page.locator(".tracker-index-row")).toHaveCount(1)
+  await expect(page.getByRole("button", { name: /^All: 1 returned, lower bound or partial coverage$/ })).toBeVisible()
 })
 
 test("dependency, Git, coverage, and active-run truth remain explicit", async ({ page, request }) => {
@@ -254,6 +262,7 @@ test("dependency, Git, coverage, and active-run truth remain explicit", async ({
   const sourceBlocks = detailPayload.data.tracker.blocks
   expect(sourceBlocks.length).toBeGreaterThanOrEqual(3)
   detailPayload.data.tracker.current_blocks = []
+  detailPayload.data.tracker.current_block_details = []
   detailPayload.data.tracker.eligible_blocks = []
   detailPayload.data.tracker.blocks = [
     { ...sourceBlocks[0], status: "blocked", blocked_ancestors: [] },
@@ -322,6 +331,7 @@ test("an invalid zero-Block projection renders an explicit review state", async 
   const detailPayload = await (await request.get(`/api/v1/trackers/${summary.id}`)).json()
   detailPayload.data.tracker.blocks = []
   detailPayload.data.tracker.current_blocks = []
+  detailPayload.data.tracker.current_block_details = []
   detailPayload.data.tracker.eligible_blocks = []
   detailPayload.data.tracker.verifier = {
     ...detailPayload.data.tracker.verifier,

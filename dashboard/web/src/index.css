@@ -72,13 +72,17 @@
 
 .tracker-index-row {
   display: grid;
-  grid-template-columns: minmax(15rem, 1.5fr) minmax(9rem, 0.8fr) minmax(10rem, 1fr) minmax(7rem, 0.65fr) minmax(9rem, 0.8fr) minmax(12rem, 1fr);
+  grid-template-columns: minmax(15rem, 1.35fr) minmax(9rem, 0.72fr) minmax(18rem, 1.55fr) minmax(7rem, 0.62fr) minmax(9rem, 0.75fr) minmax(12rem, 0.9fr);
   gap: 0;
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--panel);
   box-shadow: var(--shadow-sm);
+}
+
+.tracker-index-row.tracker-progress-conflict {
+  box-shadow: inset 3px 0 var(--amber), var(--shadow-sm);
 }
 
 .tracker-index-row > div {
@@ -179,6 +183,129 @@
   grid-template-columns: auto 1fr;
 }
 
+.tracker-progress-view {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(8rem, 0.32fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  padding: 0.72rem 0.82rem;
+}
+
+.tracker-index-row > .tracker-progress-view {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.78rem;
+}
+
+.tracker-progress-total,
+.tracker-progress-claims,
+.tracker-progress-claim-source,
+.tracker-progress-claim-value {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+}
+
+.tracker-progress-total {
+  gap: 0.18rem;
+}
+
+.tracker-progress-total > span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.38rem;
+}
+
+.tracker-progress-total svg {
+  width: 0.82rem;
+  height: 0.82rem;
+  flex: none;
+  color: var(--green);
+}
+
+.tracker-progress-conflict .tracker-progress-total svg,
+.tracker-progress-view:has(.claim-conflict) .tracker-progress-total svg {
+  color: var(--amber-contrast);
+}
+
+.tracker-progress-total strong {
+  overflow: hidden;
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tracker-progress-total small,
+.tracker-progress-claim-source small {
+  color: var(--text-faint);
+  font-size: 0.59rem;
+  text-transform: capitalize;
+}
+
+.tracker-progress-claims {
+  gap: 0.32rem;
+}
+
+.tracker-progress-claim {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(8rem, 0.72fr) minmax(10rem, 1.4fr) auto;
+  align-items: start;
+  gap: 0.48rem;
+  border-left: 2px solid var(--border-strong);
+  padding-left: 0.48rem;
+}
+
+.tracker-progress-claim.claim-conflict {
+  border-left-color: var(--amber);
+}
+
+.tracker-progress-claim.claim-unavailable,
+.tracker-progress-claim.claim-partial {
+  opacity: 0.78;
+}
+
+.tracker-progress-claim-source,
+.tracker-progress-claim-value {
+  gap: 0.1rem;
+}
+
+.tracker-progress-claim-source strong,
+.tracker-progress-claim-value strong,
+.tracker-progress-claim-value a {
+  overflow: hidden;
+  font-size: 0.66rem;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tracker-progress-claim-value a,
+.tracker-progress-source-link {
+  color: var(--primary);
+  text-decoration: none;
+}
+
+.tracker-progress-source-link {
+  font-size: 0.62rem;
+}
+
+.tracker-progress-compact {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.38rem;
+}
+
+.tracker-progress-compact .tracker-progress-claim {
+  grid-template-columns: minmax(7rem, 0.72fr) minmax(0, 1.35fr) auto;
+  gap: 0.3rem;
+}
+
 .tracker-index-run a {
   color: var(--primary);
 }
@@ -200,7 +327,6 @@
 }
 
 .tracker-index-unavailable {
-  grid-column: 2 / -1;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -481,6 +607,10 @@
   .tracker-dependency-panel {
     grid-column: 1;
   }
+
+  .tracker-progress-view:not(.tracker-progress-compact) {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 @media (max-width: 40rem) {
@@ -511,6 +641,15 @@
 
   .tracker-index-row > div:first-child {
     border-top: 0;
+  }
+
+  .tracker-progress-claim,
+  .tracker-progress-compact .tracker-progress-claim {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .tracker-progress-source-link {
+    justify-self: start;
   }
 
   .tracker-section-heading,

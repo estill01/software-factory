@@ -1169,6 +1169,17 @@ def _document_analysis(
         "current_blocks": [
             block["number"] for block in raw_blocks if block["status"] == "in-progress"
         ],
+        "current_block_details": [
+            {
+                "number": block["number"],
+                "title": block["title"],
+                "status": block["status"],
+                "line": block["line"],
+                "status_line": block["status_line"],
+            }
+            for block in raw_blocks
+            if block["status"] == "in-progress"
+        ],
         "eligible_blocks": [block["number"] for block in raw_blocks if block["eligible"]],
         "header_block_status_conflict": bool(
             tracker_status
@@ -1618,6 +1629,7 @@ class TrackerProjectionService:
                 "verifier",
                 "counts",
                 "current_blocks",
+                "current_block_details",
                 "eligible_blocks",
                 "header_block_status_conflict",
                 "git",

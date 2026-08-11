@@ -234,6 +234,7 @@ class TrackerProjectionTests(unittest.TestCase):
         self.assertTrue(detail["verifier"]["valid"])
         self.assertEqual(detail["verifier"]["exit_status"], 0)
         self.assertEqual(detail["counts"]["by_status"], {"accepted": 1, "not-started": 1})
+        self.assertEqual(detail["current_block_details"], [])
         self.assertEqual(detail["eligible_blocks"], [1])
         self.assertTrue(detail["blocks"][0]["completion_evidence"]["present"])
         self.assertEqual(detail["blocks"][0]["completion_evidence"]["posture"], "recorded")
@@ -301,6 +302,33 @@ class TrackerProjectionTests(unittest.TestCase):
         self.assertEqual(open_items["counts"]["accepted"], 1)
         self.assertEqual(open_items["counts"]["open"], 1)
         self.assertEqual(open_items["eligible_blocks"], [])
+
+        in_progress_path = self.root / "docs" / "in-progress-implementation-tracker.md"
+        in_progress_path.write_text(
+            FULL_TRACKER.replace("not-started", "in-progress"),
+            encoding="utf-8",
+        )
+        in_progress = self.service.project(
+            self.project,
+            "docs/in-progress-implementation-tracker.md",
+        )
+        self.assertEqual(in_progress["current_blocks"], [1])
+        self.assertEqual(
+            in_progress["current_block_details"],
+            [
+                {
+                    "number": 1,
+                    "title": in_progress["blocks"][1]["title"],
+                    "status": "in-progress",
+                    "line": in_progress["blocks"][1]["line"],
+                    "status_line": in_progress["blocks"][1]["status_line"],
+                }
+            ],
+        )
+        self.assertEqual(
+            self.service.summary(in_progress)["current_block_details"],
+            in_progress["current_block_details"],
+        )
 
     def test_blocked_ancestry_is_derived_across_the_dependency_graph(self) -> None:
         blocked_tracker = FULL_TRACKER.replace("Blocks 0–1", "Blocks 0–2").replace(

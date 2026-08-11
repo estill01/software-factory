@@ -116,6 +116,7 @@ const availableSummary = {
     evidence_by_posture: { recorded: 1, open: 1 },
   },
   current_blocks: [],
+  current_block_details: [],
   eligible_blocks: [1],
   header_block_status_conflict: false,
   git,

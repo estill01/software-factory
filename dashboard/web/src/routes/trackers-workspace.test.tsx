@@ -5,6 +5,8 @@ import userEvent from "@testing-library/user-event"
 import { MemoryRouter, Route, Routes } from "react-router"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
+import type { FactoryFloorEnvelope } from "@/lib/floor-api"
+
 const mocks = vi.hoisted(() => ({
   fetchFactoryFloor: vi.fn(),
   fetchTracker: vi.fn(),
@@ -54,6 +56,7 @@ const tracker = {
   },
   counts: { total: 2, by_status: { accepted: 1, "not-started": 1 }, accepted: 1, open: 1, with_completion_evidence: 1, evidence_by_posture: { recorded: 1, open: 1 } },
   current_blocks: [],
+  current_block_details: [],
   eligible_blocks: [1],
   header_block_status_conflict: false,
   git: {
@@ -106,14 +109,28 @@ const floor = {
     rows_truncated: false,
     rows: [{
       id: "run:target-1",
-      work: { tracker: { status: "exact", id: tracker.id, title: tracker.title, relative_path: tracker.relative_path } },
-      supervision: { run_id: "target-1", status: "active" },
+      project: { status: "bound", project_id: "alpha", label: "Alpha", reason: "Exact current source binding." },
+      work: {
+        tracker: { status: "exact", id: tracker.id, title: tracker.title, relative_path: tracker.relative_path },
+        block_claims: {
+          posture: "none",
+          tracker_total: { value: 2, posture: "exact", reason: "Maintained verifier Block set." },
+          claims: [
+            { source: "tracker", label: "Tracker", status: "none", blocks: [], range: null, reason: "No Block in progress.", source_identity: "tracker-markdown/status", route: `/trackers/${tracker.id}/blocks` },
+            { source: "task", label: "Implementation task", status: "none", blocks: [], range: null, reason: "No active task Block.", source_identity: "codex-app-server/task-workflow-marker", route: "/tasks/target-1" },
+            { source: "supervision", label: "Current supervision mission", status: "none", blocks: [], range: null, reason: "No active supervision Block.", source_identity: "supervise-tracker-runs/current-mission-activity", route: "/runs/target-1" },
+          ],
+        },
+      },
+      supervision: { run_id: "target-1", target_thread_id: "target-1", status: "active" },
       implementation: { task_id: "target-1", name: "Alpha implementation", status: "active" },
+      issues: { incidents: 0, decisions: 0, transitions: 0, total: 0 },
+      light: { posture: "green", label: "On track", reason: "No current issue rule is active." },
       freshness: { observed_at: "2026-08-09T10:00:00.000Z" },
     }],
     accepted_outcomes: [{ tracker_id: tracker.id }],
   },
-}
+} as unknown as FactoryFloorEnvelope
 
 function renderRoute(initialEntry: string, element: ReactNode, path: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -127,7 +144,13 @@ function renderRoute(initialEntry: string, element: ReactNode, path: string) {
 describe("tracker review workspace", () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.fetchTrackers.mockResolvedValue({ data: { trackers: [tracker] }, coverage: { status: "complete" } })
+    mocks.fetchTrackers.mockResolvedValue({
+      data: {
+        projects: [{ project_id: "alpha", status: "available", tracker_candidates: 1 }],
+        trackers: [tracker],
+      },
+      coverage: { status: "complete" },
+    })
     mocks.fetchTracker.mockResolvedValue({ data: { tracker } })
     mocks.fetchTrackerDiff.mockResolvedValue({
       data: {
@@ -150,8 +173,167 @@ describe("tracker review workspace", () => {
     expect(screen.getByText("not-started")).toBeVisible()
     expect(screen.getByText("Working tree differs from HEAD")).toBeVisible()
     expect(screen.getByTitle("target-1")).toBeVisible()
-    await user.selectOptions(screen.getByLabelText("Posture"), "current")
+    expect(screen.getByText("2 Blocks")).toBeVisible()
+    expect(screen.getAllByText("None active")).toHaveLength(3)
+    expect(screen.getByRole("button", { name: "All: 1 exact" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Active / Running: 1 exact" })).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Completed: 0 exact" }))
     expect(screen.getByText("No trackers match the current filters")).toBeVisible()
+  })
+
+  it("preserves plural tracker/task/supervision claims, conflict, and exact source links", async () => {
+    const longTitle = "A long tracker-owned current Block title that remains exact and bounded"
+    const activeTracker = {
+      ...tracker,
+      counts: {
+        ...tracker.counts,
+        by_status: { "in-progress": 2 },
+        accepted: 0,
+        open: 2,
+      },
+      current_blocks: [0, 1],
+      current_block_details: [
+        { number: 0, title: "Base implementation", status: "in-progress", line: 30, status_line: 32 },
+        { number: 1, title: longTitle, status: "in-progress", line: 70, status_line: 72 },
+      ],
+      eligible_blocks: [],
+    }
+    const activeFloor = structuredClone(floor)
+    const trackerBlocks = [
+      { number: 0, title: "Base implementation", status: "in-progress", line: 30, route: `/trackers/${tracker.id}/blocks?block=0` },
+      { number: 1, title: longTitle, status: "in-progress", line: 70, route: `/trackers/${tracker.id}/blocks?block=1` },
+    ]
+    activeFloor.data.rows[0].work.block_claims = {
+      posture: "conflict",
+      tracker_total: { value: 2, posture: "exact", reason: "Maintained verifier Block set." },
+      claims: [
+        { ...activeFloor.data.rows[0].work.block_claims.claims[0], status: "exact", blocks: trackerBlocks, reason: "Tracker names two current Blocks." },
+        { ...activeFloor.data.rows[0].work.block_claims.claims[1], status: "exact", blocks: [trackerBlocks[1]], range: { start: 1, end: 1 }, reason: "Task names Block 1." },
+        { ...activeFloor.data.rows[0].work.block_claims.claims[2], status: "exact", blocks: trackerBlocks, reason: "Supervision names two current Blocks." },
+      ],
+    }
+    mocks.fetchTrackers.mockResolvedValue({
+      data: {
+        projects: [{ project_id: "alpha", status: "available", tracker_candidates: 1 }],
+        trackers: [activeTracker],
+      },
+      coverage: { status: "complete" },
+    })
+    mocks.fetchFactoryFloor.mockResolvedValue(activeFloor)
+
+    renderRoute("/trackers", <TrackersPage />, "/trackers")
+
+    const row = (await screen.findByRole("link", { name: tracker.title })).closest("article")!
+    expect(row).toHaveClass("tracker-progress-conflict")
+    expect(screen.getByRole("button", { name: "Active / Running: 1 exact" })).toBeVisible()
+    expect(row).toHaveTextContent("2 Blocks")
+    expect(row).toHaveTextContent("0/2 accepted · conflict")
+    expect(row).toHaveTextContent(`Block 1 — ${longTitle}`)
+    expect(row.querySelectorAll(`a[href="/trackers/${tracker.id}/blocks?block=1"]`).length).toBeGreaterThanOrEqual(3)
+    expect(row.querySelector('a[href="/tasks/target-1"]')).not.toBeNull()
+    expect(row.querySelector('a[href="/runs/target-1"]')).not.toBeNull()
+    expect(row.querySelector(".tracker-progress-view")).toHaveTextContent("conflict")
+    expect(row.querySelector(".tracker-index-attention")).toHaveTextContent("+2 more")
+  })
+
+  it("fails malformed totals closed and labels partial active counts as lower bounds", async () => {
+    const malformedTracker = {
+      ...tracker,
+      verifier: { ...tracker.verifier, valid: false, exit_status: 1, blocks: [], errors: ["No Block headings found."] },
+      counts: { ...tracker.counts, total: 0, accepted: 0, open: 0, by_status: {}, with_completion_evidence: 0, evidence_by_posture: {} },
+      current_blocks: [],
+      current_block_details: [],
+      eligible_blocks: [],
+    }
+    const partialFloor = structuredClone(floor)
+    partialFloor.coverage = { status: "partial", observed: ["trackers"], missing: ["tasks"] }
+    partialFloor.data.rows_truncated = true
+    partialFloor.data.rows[0].work.block_claims.posture = "conflict"
+    partialFloor.data.rows[0].work.block_claims.claims[1] = {
+      ...partialFloor.data.rows[0].work.block_claims.claims[1],
+      status: "conflict",
+      blocks: [],
+      reason: "A predecessor mission claim was excluded.",
+    }
+    mocks.fetchTrackers.mockResolvedValue({
+      data: {
+        projects: [{ project_id: "alpha", status: "available", tracker_candidates: 1 }],
+        trackers: [malformedTracker],
+      },
+      coverage: { status: "partial" },
+    })
+    mocks.fetchFactoryFloor.mockResolvedValue(partialFloor)
+
+    renderRoute("/trackers", <TrackersPage />, "/trackers")
+
+    const row = (await screen.findByRole("link", { name: tracker.title })).closest("article")!
+    expect(row).toHaveTextContent("Blocks unavailable")
+    expect(row).not.toHaveTextContent("0 Blocks")
+    expect(screen.getByLabelText(/Implementation task.*A predecessor mission claim was excluded/)).toBeVisible()
+    expect(screen.getByRole("button", { name: "All: 1 exact" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Active / Running: 1 returned, lower bound or partial coverage" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Completed: 0 returned, lower bound or partial coverage" })).toBeVisible()
+  })
+
+  it("does not call a conflicting all-accepted tracker or a successful terminal run completed or failed", async () => {
+    const completedConflict = {
+      ...tracker,
+      tracker_status: "in-progress",
+      header_block_status_conflict: true,
+      counts: {
+        ...tracker.counts,
+        by_status: { accepted: 2 },
+        accepted: 2,
+        open: 0,
+      },
+      current_blocks: [],
+      current_block_details: [],
+      eligible_blocks: [],
+    }
+    const terminalFloor = structuredClone(floor)
+    terminalFloor.data.rows[0].implementation.status = "terminal"
+    terminalFloor.data.rows[0].supervision.status = "completed"
+    terminalFloor.data.rows[0].light.posture = "green"
+    mocks.fetchTrackers.mockResolvedValue({
+      data: {
+        projects: [{ project_id: "alpha", status: "available", tracker_candidates: 1 }],
+        trackers: [completedConflict],
+      },
+      coverage: { status: "complete" },
+    })
+    mocks.fetchFactoryFloor.mockResolvedValue(terminalFloor)
+
+    renderRoute("/trackers", <TrackersPage />, "/trackers")
+
+    expect(await screen.findByRole("button", { name: "Completed: 0 exact" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Blocked / Failed: 0 exact" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Active / Running: 0 exact" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Attention: 1 exact" })).toBeVisible()
+  })
+
+  it("labels dynamic counts partial when an active row has only a noncanonical tracker claim", async () => {
+    const candidateFloor = structuredClone(floor)
+    candidateFloor.data.rows[0].work.tracker.status = "candidate"
+    mocks.fetchFactoryFloor.mockResolvedValue(candidateFloor)
+
+    renderRoute("/trackers", <TrackersPage />, "/trackers")
+
+    expect(await screen.findByRole("button", { name: "All: 1 exact" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Active / Running: 0 returned, lower bound or partial coverage" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Attention: 1 returned, lower bound or partial coverage" })).toBeVisible()
+  })
+
+  it("does not fabricate a run link for an exact task-only tracker association", async () => {
+    const taskOnlyFloor = structuredClone(floor)
+    taskOnlyFloor.data.rows[0].supervision.run_id = null
+    taskOnlyFloor.data.rows[0].supervision.status = "unmonitored"
+    mocks.fetchFactoryFloor.mockResolvedValue(taskOnlyFloor)
+
+    renderRoute("/trackers", <TrackersPage />, "/trackers")
+
+    const row = (await screen.findByRole("link", { name: tracker.title })).closest("article")!
+    expect(row.querySelector('.tracker-index-run')).toHaveTextContent("None exact")
+    expect(row.querySelector('a[href="/runs/null"]')).toBeNull()
   })
 
   it("renders contract overview and safe Block sections without mutation controls", async () => {
@@ -159,6 +341,8 @@ describe("tracker review workspace", () => {
     renderRoute(`/trackers/${tracker.id}/blocks`, <TrackerWorkspace />, "/trackers/:trackerId/:view?")
 
     expect(await screen.findByRole("heading", { name: "Block 1 · Successor" })).toBeVisible()
+    expect(screen.getByText("2 Blocks")).toBeVisible()
+    expect(screen.getByText("2 Blocks").closest(".tracker-progress-view")?.querySelectorAll('a[href]')).toHaveLength(3)
     expect(screen.getByText("Render safely.")).toBeVisible()
     expect(screen.getByText("<script>SECRET</script>")).toBeVisible()
     expect(screen.getByText(/Unavailable in source: Capability delta/)).toBeVisible()
@@ -173,6 +357,7 @@ describe("tracker review workspace", () => {
     const blockedTracker = {
       ...tracker,
       current_blocks: [],
+      current_block_details: [],
       eligible_blocks: [],
       blocks: [
         { ...tracker.blocks[0], status: "blocked", completion_evidence: { ...tracker.blocks[0].completion_evidence, posture: "open" } },
@@ -264,6 +449,7 @@ describe("tracker review workspace", () => {
           verifier: { ...tracker.verifier, valid: false, exit_status: 1, blocks: [], errors: ["No Block headings found."] },
           counts: { ...tracker.counts, total: 0, accepted: 0, open: 0, by_status: {}, with_completion_evidence: 0, evidence_by_posture: {} },
           current_blocks: [],
+          current_block_details: [],
           eligible_blocks: [],
           blocks: [],
         },

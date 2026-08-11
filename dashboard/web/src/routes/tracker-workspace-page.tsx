@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Link, NavLink, useParams, useSearchParams } from "react-router"
 
 import { SafeMarkdown } from "@/components/safe-markdown"
+import { TrackerProgressView } from "@/components/tracker-progress-view"
 import { Button } from "@/components/ui/button"
 import { TrackerWorkflowActions } from "@/features/admin/factory-workflow-actions"
 import {
@@ -16,6 +17,7 @@ import {
   WorkspaceBack,
 } from "@/components/workspace-ui"
 import { fetchFactoryFloor, type FactoryFloorRow } from "@/lib/floor-api"
+import { projectTrackerProgress } from "@/lib/tracker-progress"
 import {
   fetchTracker,
   fetchTrackerDiff,
@@ -187,7 +189,8 @@ export function Component() {
   if (trackerQuery.isError) return <QueryState kind="error" message={trackerQuery.error.message} retry={() => void trackerQuery.refetch()} />
 
   const tracker = trackerQuery.data.data.tracker
-  const mappedRows = floor.data?.data.rows.filter((row) => row.work.tracker.id === tracker.id) ?? []
+  const progress = projectTrackerProgress(tracker, floor.data)
+  const mappedRows = progress.exactMappedRows
   const activeMappedRows = mappedRows.filter(isActiveRun)
   const selectedValue = searchParams.get("block")
   const selectedNumber = selectedValue === null ? null : Number(selectedValue)
@@ -248,6 +251,8 @@ export function Component() {
         <Identity value={tracker.raw_file.content_sha256} />
       </section>
 
+      <TrackerProgressView progress={progress} accepted={tracker.counts.accepted} />
+
       <TrackerWorkflowActions tracker={tracker} selectedBlock={selectedBlock} />
 
       <nav className="workspace-tabs" aria-label="Tracker views">
@@ -257,7 +262,7 @@ export function Component() {
       {activeView === "overview" && (
         <>
           <section className="workspace-summary-grid" aria-label="Tracker summary">
-            <div><span>Blocks</span><strong>{tracker.counts.total}</strong><small>Exact status rows</small></div>
+            <div><span>Blocks</span><strong>{progress.total.value ?? "—"}</strong><small>{progress.total.posture === "exact" ? "Maintained verifier" : "Unavailable"}</small></div>
             <div><span>Accepted</span><strong>{tracker.counts.accepted}</strong><small>Only `accepted`</small></div>
             <div><span>Open</span><strong>{tracker.counts.open}</strong><small>Includes open-item postures</small></div>
             <div><span>Eligible</span><strong>{tracker.eligible_blocks.length}</strong><small>{tracker.eligible_blocks.length ? `Blocks ${tracker.eligible_blocks.join(", ")}` : "None"}</small></div>
