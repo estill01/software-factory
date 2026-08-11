@@ -1120,6 +1120,7 @@ class TargetClassProtocolTests(unittest.TestCase):
         packet, _event = self.packet("target-repository", "continue-unchanged")
         capability_path = Path(packet["capability_context"]["path"])
         exact_capability = capability_path.read_bytes()
+        capability_stat = capability_path.lstat()
         original_posture = protocol.supervision._adaptive_decision_posture
         posture_reads = 0
 
@@ -1128,7 +1129,11 @@ class TargetClassProtocolTests(unittest.TestCase):
             value = original_posture(*args, **kwargs)
             posture_reads += 1
             if posture_reads == 3:
-                capability_path.write_bytes(exact_capability + b" ")
+                capability_path.write_bytes(b"[" + exact_capability[1:])
+                os.utime(
+                    capability_path,
+                    ns=(capability_stat.st_atime_ns, capability_stat.st_mtime_ns),
+                )
             return value
 
         with mock.patch.object(
@@ -1239,6 +1244,7 @@ class TargetClassProtocolTests(unittest.TestCase):
             protocol.DEFAULT_SKILLS_ROOT / "implement-tracker-blocks" / "SKILL.md"
         )
         exact_skill = skill_path.read_bytes()
+        skill_stat = skill_path.lstat()
         original_posture = protocol.supervision._adaptive_decision_posture
         posture_reads = 0
 
@@ -1247,7 +1253,11 @@ class TargetClassProtocolTests(unittest.TestCase):
             value = original_posture(*args, **kwargs)
             posture_reads += 1
             if posture_reads == 3:
-                skill_path.write_bytes(exact_skill + b"\n")
+                skill_path.write_bytes(b"X" + exact_skill[1:])
+                os.utime(
+                    skill_path,
+                    ns=(skill_stat.st_atime_ns, skill_stat.st_mtime_ns),
+                )
             return value
 
         with mock.patch.object(
@@ -1264,19 +1274,27 @@ class TargetClassProtocolTests(unittest.TestCase):
         skill_path.write_bytes(exact_skill)
 
         posture_reads = 0
+        evaluation_stat = evaluation_path.lstat()
 
-        def posture_then_remove_evolution(*args, **kwargs):
+        def posture_then_change_evolution(*args, **kwargs):
             nonlocal posture_reads
             value = original_posture(*args, **kwargs)
             posture_reads += 1
             if posture_reads == 3:
-                evaluation_path.unlink()
+                evaluation_path.write_bytes(b"[" + exact_evaluation[1:])
+                os.utime(
+                    evaluation_path,
+                    ns=(
+                        evaluation_stat.st_atime_ns,
+                        evaluation_stat.st_mtime_ns,
+                    ),
+                )
             return value
 
         with mock.patch.object(
             protocol.supervision,
             "_adaptive_decision_posture",
-            side_effect=posture_then_remove_evolution,
+            side_effect=posture_then_change_evolution,
         ):
             with self.assertRaisesRegex(
                 protocol.TargetClassProtocolError,

@@ -65,6 +65,29 @@ def digest(value: Any) -> str:
     return supervision.digest(value)
 
 
+def _stat_identity(
+    value: os.stat_result,
+) -> tuple[int, int, int, int, int, int, int]:
+    return (
+        value.st_dev,
+        value.st_ino,
+        value.st_mode,
+        value.st_nlink,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+    )
+
+
+def _path_identity(
+    path: Path,
+) -> Optional[tuple[int, int, int, int, int, int, int]]:
+    try:
+        return _stat_identity(path.lstat())
+    except OSError:
+        return None
+
+
 def _exact_fields(value: Any, expected: set[str], label: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping) or set(value) != expected:
         raise TargetClassProtocolError(f"{label} shape differs")
@@ -315,11 +338,13 @@ def _live_skill_identity(skills_root: Path) -> str:
                 "skill_id": skill_id,
                 "entry": ".",
                 "source_path": str(source),
-                "mode": stat.S_IMODE(link.st_mode),
+                "mode": link.st_mode,
+                "nlink": link.st_nlink,
                 "device": link.st_dev,
                 "inode": link.st_ino,
                 "size": link.st_size,
                 "mtime_ns": link.st_mtime_ns,
+                "ctime_ns": link.st_ctime_ns,
             }
         )
         paths = sorted(source.rglob("*"))
@@ -340,10 +365,12 @@ def _live_skill_identity(skills_root: Path) -> str:
                     "entry": path.relative_to(source).as_posix(),
                     "source_path": str(source),
                     "mode": current.st_mode,
+                    "nlink": current.st_nlink,
                     "device": current.st_dev,
                     "inode": current.st_ino,
                     "size": current.st_size,
                     "mtime_ns": current.st_mtime_ns,
+                    "ctime_ns": current.st_ctime_ns,
                 }
             )
     return digest(records)
@@ -443,7 +470,7 @@ def _canonical_evolution_bundle(
             directory,
             _safe_id(evolution_id, "Factory evolution ID"),
         )
-        before_directory = supervision.path_snapshot(evolution_directory)
+        before_directory = _path_identity(evolution_directory)
         if before_directory is None or not stat.S_ISDIR(
             evolution_directory.lstat().st_mode
         ):
@@ -463,7 +490,9 @@ def _canonical_evolution_bundle(
         ):
             raise TargetClassProtocolError("Factory evolution lock is not current")
         retained: dict[str, dict[str, Any]] = {}
-        retained_snapshots: dict[str, tuple[int, int, int, int]] = {}
+        retained_snapshots: dict[
+            str, tuple[int, int, int, int, int, int, int]
+        ] = {}
         aggregate_bytes = 0
         for name in sorted(required_names):
             path = evolution_directory / name
@@ -479,14 +508,14 @@ def _canonical_evolution_bundle(
                         "Factory evolution artifact is not current"
                     )
                 descriptor = os.open(path, flags)
-                before = supervision.file_snapshot(os.fstat(descriptor))
+                before = _stat_identity(os.fstat(descriptor))
                 with os.fdopen(descriptor, "rb") as handle:
                     descriptor = -1
                     raw = handle.read(factory_evolution.MAX_ARTIFACT_BYTES + 1)
-                    after = supervision.file_snapshot(os.fstat(handle.fileno()))
+                    after = _stat_identity(os.fstat(handle.fileno()))
                 if (
                     before != after
-                    or supervision.path_snapshot(path) != before
+                    or _path_identity(path) != before
                     or len(raw) > factory_evolution.MAX_ARTIFACT_BYTES
                 ):
                     raise TargetClassProtocolError(
@@ -516,7 +545,7 @@ def _canonical_evolution_bundle(
             retained[name] = value
             retained_snapshots[name] = before
         if (
-            supervision.path_snapshot(evolution_directory) != before_directory
+            _path_identity(evolution_directory) != before_directory
             or set(os.listdir(evolution_directory)) != names
         ):
             raise TargetClassProtocolError(
@@ -550,10 +579,10 @@ def _canonical_evolution_bundle(
             }
         )
         if (
-            supervision.path_snapshot(evolution_directory) != before_directory
+            _path_identity(evolution_directory) != before_directory
             or set(os.listdir(evolution_directory)) != names
             or any(
-                supervision.path_snapshot(evolution_directory / name)
+                _path_identity(evolution_directory / name)
                 != snapshot
                 for name, snapshot in retained_snapshots.items()
             )
@@ -574,7 +603,7 @@ def _evolution_identity(directory: Path, evolution_id: str) -> str:
             directory,
             _safe_id(evolution_id, "Factory evolution ID"),
         )
-        before = supervision.path_snapshot(evolution_directory)
+        before = _path_identity(evolution_directory)
         if before is None or not stat.S_ISDIR(evolution_directory.lstat().st_mode):
             raise TargetClassProtocolError(
                 "Factory evolution directory is not current"
@@ -582,14 +611,14 @@ def _evolution_identity(directory: Path, evolution_id: str) -> str:
         names = sorted(os.listdir(evolution_directory))
         records = []
         for name in names:
-            snapshot = supervision.path_snapshot(evolution_directory / name)
+            snapshot = _path_identity(evolution_directory / name)
             if snapshot is None:
                 raise TargetClassProtocolError(
                     "Factory evolution artifact is not current"
                 )
             records.append({"name": name, "snapshot": list(snapshot)})
         if (
-            supervision.path_snapshot(evolution_directory) != before
+            _path_identity(evolution_directory) != before
             or sorted(os.listdir(evolution_directory)) != names
         ):
             raise TargetClassProtocolError(
@@ -1231,10 +1260,12 @@ def validate_target_class_protocol(
             or final_evolution_identity != before_evolution_identity
         ):
             raise TargetClassProtocolError("Factory evolution currentness changed")
-    final_capability_snapshot: Optional[tuple[int, int, int, int]] = None
+    final_capability_snapshot: Optional[
+        tuple[int, int, int, int, int, int, int]
+    ] = None
     if capability_context is not None:
         capability_path = Path(context["path"])
-        before_capability_snapshot = supervision.path_snapshot(capability_path)
+        before_capability_snapshot = _path_identity(capability_path)
         try:
             final_capability, final_capability_root = (
                 supervision.load_capability_reconciliation(
@@ -1254,7 +1285,7 @@ def validate_target_class_protocol(
             raise TargetClassProtocolError(
                 "current behavior changed during reconciliation"
             )
-        final_capability_snapshot = supervision.path_snapshot(capability_path)
+        final_capability_snapshot = _path_identity(capability_path)
         if (
             before_capability_snapshot is None
             or final_capability_snapshot != before_capability_snapshot
@@ -1325,8 +1356,7 @@ def validate_target_class_protocol(
         raise TargetClassProtocolError("Factory evolution currentness changed")
     if (
         final_capability_snapshot is not None
-        and supervision.path_snapshot(Path(context["path"]))
-        != final_capability_snapshot
+        and _path_identity(Path(context["path"])) != final_capability_snapshot
     ):
         raise TargetClassProtocolError(
             "current behavior changed during reconciliation"

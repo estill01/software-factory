@@ -2919,11 +2919,18 @@ claims.
   evidence could change during that last decision-posture comparison because
   their cheap identities were not retained through it. Its focused `11/11` and
   mapped implementation `109/109` evidence remain diagnostic.
-- The current corrective candidate retains the final live-skill metadata root,
-  complete evolution inventory/path identity, and capability-record snapshot
-  across the post-evidence decision comparison and rejects any difference before
-  constructing a result. No skill content hash, evolution producer, or capability
-  producer is repeated.
+- Rejected checkpoint `0e11bb26153e94eda3a7354104faa00749cb0775`
+  closed the post-decision ordering finding by retaining live-skill, evolution,
+  and capability identities across the final decision pass without repeating a
+  producer. Those identities contained only device, inode, size, and
+  modification time. Exact review showed that
+  same-length changed skill, evolution, or capability bytes with restored
+  modification time remained indistinguishable. Its focused `11/11` and mapped
+  implementation `109/109` evidence remain diagnostic.
+- The next corrective candidate adds path type/mode, link count, and change time
+  to every retained live-skill, evolution, and capability identity. Exact
+  same-length changed-byte cases with restored modification time now reject
+  without a content rehash or producer rerun.
 - Corrective focused coverage passes `11/11`, mapped implementation validation
   passes `109/109`, and the historical Block 9 suite remains accepted at
   `29/29` under `/usr/bin/python3`. It covers both target classes and all
