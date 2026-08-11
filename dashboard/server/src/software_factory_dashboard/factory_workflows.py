@@ -52,6 +52,8 @@ POLICY_ADJUST_ROUTE_PURPOSE = "semantic-escalation"
 POLICY_ADJUST_EVIDENCE_PURPOSE = (
     f"dashboard-route-purpose:{POLICY_ADJUST_ROUTE_PURPOSE}"
 )
+BINDING_REPAIR_MARKER = "SOFTWARE_FACTORY_DASHBOARD_BINDING_REPAIR "
+BINDING_REPAIR_ROUTE_PURPOSE = "semantic-escalation"
 REVIEW_VARIANTS = {
     "checkpoint": {
         "operation_type": "factory.supervision-review-checkpoint",
@@ -385,6 +387,7 @@ class FactoryWorkflowOwner:
         self._check_dispatch_lock = RLock()
         self._review_dispatch_lock = RLock()
         self._policy_adjust_dispatch_lock = RLock()
+        self._binding_repair_dispatch_lock = RLock()
 
     def registry(self) -> OperationRegistry:
         return OperationRegistry(
@@ -404,6 +407,7 @@ class FactoryWorkflowOwner:
                 self._semantic_review_definition("meta"),
                 self._semantic_review_definition("issue"),
                 self._adjust_supervision_definition(),
+                self._mission_binding_repair_definition(),
                 self._unavailable_authoring_supervision_definition(),
             )
         )
@@ -4820,6 +4824,853 @@ class FactoryWorkflowOwner:
                 recipient=str(source.evidence["reviewer_task_id"]),
             ),
             route_gate_request=self._policy_adjust_route_request,
+            route_gate=self.route_gate,
+            dispatch=dispatch,
+            verify=verify,
+        )
+
+    @staticmethod
+    def _binding_source_parts(
+        source_record: str,
+        *,
+        target_thread_id: str,
+    ) -> tuple[str, str]:
+        parts = source_record.split(":")
+        if (
+            len(parts) != 4
+            or parts[0] != "codex"
+            or parts[1] != target_thread_id
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{2,127}", parts[2])
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{2,127}", parts[3])
+        ):
+            raise OperationError(
+                "binding_repair_source_unavailable",
+                "The implementation binding does not name one exact direct-user item in the selected target.",
+                status=409,
+            )
+        return parts[2], parts[3]
+
+    @staticmethod
+    def _require_exact_binding_task_history(task: Mapping[str, Any]) -> None:
+        turns = task.get("turns")
+        if (
+            task.get("turns_truncated") is True
+            or not isinstance(turns, list)
+            or any(
+                not isinstance(turn, Mapping)
+                or turn.get("items_truncated") is True
+                or not isinstance(turn.get("items"), list)
+                for turn in turns
+            )
+        ):
+            raise OperationError(
+                "binding_repair_task_history_partial",
+                "The implementation task history is partial, so the current binding and direct-user source cannot be proved.",
+                status=409,
+            )
+
+    @staticmethod
+    def _validated_binding_role_task(
+        task: Mapping[str, Any],
+        *,
+        task_id: str,
+        role: str,
+    ) -> tuple[str, tuple[int, int], str]:
+        cwd = task.get("cwd")
+        try:
+            path = Path(str(cwd)).expanduser().resolve(strict=True)
+        except (OSError, RuntimeError) as error:
+            raise OperationError(
+                "binding_repair_owner_unavailable",
+                f"The exact {role} task cwd is unavailable.",
+                status=409,
+            ) from error
+        status = task.get("status", {}).get("type")
+        if task.get("id") != task_id or not path.is_dir():
+            raise OperationError(
+                "binding_repair_owner_unavailable",
+                f"The exact {role} task identity is unavailable.",
+                status=409,
+            )
+        if status == "active":
+            raise OperationError(
+                "binding_repair_owner_active",
+                f"The exact {role} already has an active turn.",
+                status=409,
+            )
+        if status not in {"idle", "notLoaded"}:
+            raise OperationError(
+                "binding_repair_owner_unavailable",
+                f"The exact {role} task is not available for this workflow.",
+                status=409,
+            )
+        metadata = path.stat()
+        return str(path), (metadata.st_dev, metadata.st_ino), str(status)
+
+    def _mission_binding_repair_source(
+        self,
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+    ) -> SourceSnapshot:
+        del inputs
+        projects, catalog_fingerprint = self._active_projects()
+        project = self._project_from(projects, target)
+        self._require_capabilities("task_read", "task_resume", "turn_start")
+        try:
+            detail = self.app_server_client.read_task(
+                projects,
+                target.id,
+                include_turns=True,
+            )
+        except AppServerError as error:
+            raise _operation_error(
+                error,
+                fallback="binding_repair_target_unavailable",
+            ) from error
+        task = detail.get("task")
+        binding = task.get("project_binding") if isinstance(task, Mapping) else None
+        if (
+            not isinstance(task, Mapping)
+            or task.get("id") != target.id
+            or task.get("status", {}).get("type") not in LIVE_TASK_STATES
+            or not isinstance(binding, Mapping)
+            or binding.get("status") != "bound"
+            or binding.get("project_id") != project.id
+            or binding.get("candidates") != [project.id]
+        ):
+            raise OperationError(
+                "binding_repair_target_mismatch",
+                "The selected target is not one exact live task in the registered project.",
+                status=409,
+            )
+        self._require_exact_binding_task_history(task)
+        task_marker = self._task_marker(task)
+        if (
+            not isinstance(task_marker, Mapping)
+            or task_marker.get("kind") != "implement-blocks"
+            or task_marker.get("project_id") != project.id
+            or not isinstance(task_marker.get("tracker_id"), str)
+            or not SHA256_PATTERN.fullmatch(str(task_marker["tracker_id"]))
+            or not isinstance(task_marker.get("mission_root"), str)
+            or not SHA256_PATTERN.fullmatch(str(task_marker["mission_root"]))
+            or not isinstance(task_marker.get("mission_source_record"), str)
+            or not isinstance(task_marker.get("source_fingerprint"), str)
+            or not SHA256_PATTERN.fullmatch(str(task_marker["source_fingerprint"]))
+            or type(task_marker.get("block_start")) is not int
+            or type(task_marker.get("block_end")) is not int
+            or task_marker["block_end"] < task_marker["block_start"]
+        ):
+            raise OperationError(
+                "binding_repair_implementation_binding_unavailable",
+                "The selected target lacks one exact current dashboard implementation binding.",
+                status=409,
+            )
+        mission_source_record = str(task_marker["mission_source_record"])
+        source_turn_id, source_item_id = self._binding_source_parts(
+            mission_source_record,
+            target_thread_id=target.id,
+        )
+        matching_turns = [
+            turn for turn in task.get("turns", []) if turn.get("id") == source_turn_id
+        ]
+        if len(matching_turns) != 1 or matching_turns[0].get("items_truncated") is True:
+            raise OperationError(
+                "binding_repair_source_unavailable",
+                "The exact direct-user source turn is unavailable or partial.",
+                status=409,
+            )
+        source_items = [
+            item
+            for item in matching_turns[0].get("items", [])
+            if item.get("id") == source_item_id and item.get("type") == "userMessage"
+        ]
+        if (
+            len(source_items) != 1
+            or not isinstance(source_items[0].get("summary"), str)
+            or not source_items[0]["summary"]
+        ):
+            raise OperationError(
+                "binding_repair_source_unavailable",
+                "The exact direct-user source item is unavailable.",
+                status=409,
+            )
+        source_sha256 = sha256(source_items[0]["summary"].encode("utf-8")).hexdigest()
+        try:
+            plan = self.operations_service.preview_mission_bind(
+                target.id,
+                source_record=mission_source_record,
+                source_sha256=source_sha256,
+            )
+        except OperationsProjectionError as error:
+            raise _operation_error(
+                error,
+                fallback="binding_repair_source_unavailable",
+            ) from error
+        control = plan.get("control")
+        expected_mission = plan.get("expected_mission_binding")
+        if not isinstance(control, Mapping) or not isinstance(expected_mission, Mapping):
+            raise OperationError(
+                "binding_repair_source_unavailable",
+                "The maintained bind preview is incomplete.",
+                status=409,
+            )
+        if (
+            expected_mission.get("mission_root") != task_marker["mission_root"]
+            or expected_mission.get("mission_source_record")
+            != mission_source_record
+        ):
+            raise OperationError(
+                "binding_repair_mission_semantics_differ",
+                "The implementation task and exact direct-user source derive different mission semantics; use mission succession instead.",
+                status=409,
+            )
+        tracker_target = OperationTarget(
+            kind="tracker",
+            id=str(task_marker["tracker_id"]),
+            project_id=project.id,
+        )
+        selection = self._tracker_selection(tracker_target)
+        tracker_detail = selection.detail
+        if (
+            selection.catalog_fingerprint != catalog_fingerprint
+            or tracker_detail.get("verifier", {}).get("valid") is not True
+            or not isinstance(tracker_detail.get("raw_file", {}).get("content_sha256"), str)
+            or not SHA256_PATTERN.fullmatch(
+                str(tracker_detail["raw_file"]["content_sha256"])
+            )
+        ):
+            raise OperationError(
+                "binding_repair_tracker_unavailable",
+                "The exact current implementation tracker is unavailable or invalid.",
+                status=409,
+            )
+        policy = control.get("policy")
+        runtime = control.get("runtime")
+        if (
+            not isinstance(policy, Mapping)
+            or policy.get("mission_binding") is not None
+            or not isinstance(runtime, Mapping)
+            or control.get("lifecycle_status") in {"completed", "stopped"}
+        ):
+            raise OperationError(
+                "binding_repair_not_missing",
+                "Only a nonterminal policy with a missing mission binding can use this repair.",
+                status=409,
+            )
+        reviewer_task_id = runtime.get("reviewer_thread_id")
+        fix_executor_task_id = runtime.get("fix_executor_thread_id")
+        if (
+            not isinstance(reviewer_task_id, str)
+            or not reviewer_task_id
+            or not isinstance(fix_executor_task_id, str)
+            or not fix_executor_task_id
+            or reviewer_task_id == fix_executor_task_id
+        ):
+            raise OperationError(
+                "binding_repair_owner_unavailable",
+                "The policy lacks distinct reviewer and fix-executor task bindings.",
+                status=409,
+            )
+        role_facts: dict[str, tuple[str, tuple[int, int], str]] = {}
+        for role, task_id in (
+            ("reviewer", reviewer_task_id),
+            ("fix executor", fix_executor_task_id),
+        ):
+            try:
+                role_detail = self.app_server_client.read_task(
+                    projects,
+                    task_id,
+                    include_turns=True,
+                )
+            except AppServerError as error:
+                raise _operation_error(
+                    error,
+                    fallback="binding_repair_owner_unavailable",
+                ) from error
+            role_task = role_detail.get("task")
+            if not isinstance(role_task, Mapping):
+                raise OperationError(
+                    "binding_repair_owner_unavailable",
+                    f"The exact {role} task projection is unavailable.",
+                    status=409,
+                )
+            role_facts[role] = self._validated_binding_role_task(
+                role_task,
+                task_id=task_id,
+                role=role,
+            )
+        source_record = control.get("source_record")
+        prior_policy_sha256 = policy.get("policy_sha256")
+        prior_policy_version = policy.get("policy_version")
+        if (
+            not isinstance(source_record, str)
+            or not source_record
+            or not isinstance(prior_policy_sha256, str)
+            or not SHA256_PATTERN.fullmatch(prior_policy_sha256)
+            or type(prior_policy_version) is not int
+            or prior_policy_version < 1
+            or plan.get("expected_policy_version") != prior_policy_version + 1
+            or not isinstance(plan.get("expected_normalized_policy_sha256"), str)
+            or not SHA256_PATTERN.fullmatch(
+                str(plan["expected_normalized_policy_sha256"])
+            )
+            or plan.get("group_ids") != [target.id]
+        ):
+            raise OperationError(
+                "binding_repair_source_unavailable",
+                "The exact policy head, postcondition, route source, or group identity is unavailable.",
+                status=409,
+            )
+        reviewer_cwd, reviewer_identity, reviewer_status = role_facts["reviewer"]
+        fix_cwd, fix_identity, fix_status = role_facts["fix executor"]
+        tracker_content_sha256 = tracker_detail["raw_file"]["content_sha256"]
+        evidence = {
+            "catalog_fingerprint": catalog_fingerprint,
+            "project_id": project.id,
+            "target_thread_id": target.id,
+            "implementation_binding": dict(task_marker),
+            "implementation_task_status": task.get("status", {}).get("type"),
+            "block_start": task_marker["block_start"],
+            "block_end": task_marker["block_end"],
+            "tracker_id": task_marker["tracker_id"],
+            "tracker_path": selection.relative_path,
+            "tracker_content_sha256": tracker_content_sha256,
+            "tracker_profile": tracker_detail.get("profile"),
+            "mission_source_record": mission_source_record,
+            "mission_source_turn_id": source_turn_id,
+            "mission_source_item_id": source_item_id,
+            "mission_source_sha256": source_sha256,
+            "expected_mission_binding": dict(expected_mission),
+            "expected_mission_root": expected_mission["mission_root"],
+            "source_record": source_record,
+            "owner_sha256": plan["owner_sha256"],
+            "prior_policy_sha256": prior_policy_sha256,
+            "prior_policy_version": prior_policy_version,
+            "prior_policy_history_head": control.get("policy_history_head"),
+            "prior_policy_history_count": len(control.get("policy_history_records", [])),
+            "expected_policy_version": plan["expected_policy_version"],
+            "expected_normalized_policy_sha256": plan[
+                "expected_normalized_policy_sha256"
+            ],
+            "expected_history_kind": plan["expected_history_kind"],
+            "expected_history_reason": plan["expected_history_reason"],
+            "expected_history_evidence": plan["expected_history_evidence"],
+            "group_ids": plan["group_ids"],
+            "reviewer_task_id": reviewer_task_id,
+            "reviewer_task_status": reviewer_status,
+            "reviewer_task_cwd": reviewer_cwd,
+            "reviewer_cwd_device": reviewer_identity[0],
+            "reviewer_cwd_inode": reviewer_identity[1],
+            "fix_executor_task_id": fix_executor_task_id,
+            "fix_executor_task_status": fix_status,
+            "fix_executor_task_cwd": fix_cwd,
+            "fix_executor_cwd_device": fix_identity[0],
+            "fix_executor_cwd_inode": fix_identity[1],
+            "repair_scope": "missing-mission-binding-only",
+            "prohibited_effects": [
+                "tracker content or catalog mutation",
+                "target, role-task, or automation rebinding",
+                "mission overwrite or succession",
+                "second supervision group",
+                "direct policy or ledger writes",
+            ],
+        }
+        material = {
+            "catalog": catalog_fingerprint,
+            "project": project.id,
+            "target": target.id,
+            "task_marker": task_marker,
+            "tracker": {
+                "id": task_marker["tracker_id"],
+                "path": selection.relative_path,
+                "content_sha256": tracker_content_sha256,
+            },
+            "mission_source": {
+                "record": mission_source_record,
+                "sha256": source_sha256,
+            },
+            "bind_plan": {
+                "control_fingerprint": control.get("fingerprint"),
+                "owner_sha256": plan["owner_sha256"],
+                "expected_mission": expected_mission,
+                "expected_policy_version": plan["expected_policy_version"],
+                "expected_policy_root": plan[
+                    "expected_normalized_policy_sha256"
+                ],
+                "groups": plan["group_ids"],
+            },
+            "reviewer": {
+                "task_id": reviewer_task_id,
+                "status": reviewer_status,
+                "cwd": reviewer_cwd,
+                "cwd_identity": reviewer_identity,
+            },
+            "fix_executor": {
+                "task_id": fix_executor_task_id,
+                "status": fix_status,
+                "cwd": fix_cwd,
+                "cwd_identity": fix_identity,
+            },
+        }
+        return SourceSnapshot(fingerprint=fingerprint(material), evidence=evidence)
+
+    @staticmethod
+    def _binding_repair_marker(
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> dict[str, Any]:
+        return {
+            "kind": "mission-target-tracker-binding-repair",
+            "target_thread_id": target.id,
+            "project_id": source.evidence["project_id"],
+            "tracker_id": source.evidence["tracker_id"],
+            "tracker_content_sha256": source.evidence["tracker_content_sha256"],
+            "mission_root": source.evidence["expected_mission_root"],
+            "mission_source_record": source.evidence["mission_source_record"],
+            "mission_source_sha256": source.evidence["mission_source_sha256"],
+            "prior_policy_sha256": source.evidence["prior_policy_sha256"],
+            "prior_policy_version": source.evidence["prior_policy_version"],
+            "expected_policy_version": source.evidence["expected_policy_version"],
+            "expected_normalized_policy_sha256": source.evidence[
+                "expected_normalized_policy_sha256"
+            ],
+            "preview_fingerprint": source.fingerprint,
+            "route_purpose": BINDING_REPAIR_ROUTE_PURPOSE,
+            "source_record": source.evidence["source_record"],
+            "reviewer_task_id": source.evidence["reviewer_task_id"],
+            "fix_executor_task_id": source.evidence["fix_executor_task_id"],
+        }
+
+    @staticmethod
+    def _binding_repair_turn_has_marker(
+        task: Mapping[str, Any],
+        *,
+        turn_id: str,
+        expected: Mapping[str, Any],
+    ) -> bool:
+        turns = [turn for turn in task.get("turns", []) if turn.get("id") == turn_id]
+        if len(turns) != 1:
+            return False
+        markers: list[Mapping[str, Any]] = []
+        for item in turns[0].get("items", []):
+            summary = item.get("summary")
+            if item.get("type") != "userMessage" or not isinstance(summary, str):
+                continue
+            first_line = summary.splitlines()[0] if summary else ""
+            if not first_line.startswith(BINDING_REPAIR_MARKER):
+                continue
+            try:
+                marker = json.loads(first_line.removeprefix(BINDING_REPAIR_MARKER))
+            except json.JSONDecodeError:
+                return False
+            if isinstance(marker, Mapping):
+                markers.append(marker)
+        return len(markers) == 1 and markers[0] == expected
+
+    @staticmethod
+    def _binding_repair_prompt(
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> str:
+        marker = FactoryWorkflowOwner._binding_repair_marker(target, source)
+        facts = {
+            "target_thread_id": target.id,
+            "project_id": source.evidence["project_id"],
+            "tracker_path": source.evidence["tracker_path"],
+            "tracker_content_sha256": source.evidence["tracker_content_sha256"],
+            "block_start": source.evidence["block_start"],
+            "block_end": source.evidence["block_end"],
+            "mission_root": source.evidence["expected_mission_root"],
+            "mission_source_record": source.evidence["mission_source_record"],
+            "mission_source_sha256": source.evidence["mission_source_sha256"],
+            "prior_policy_sha256": source.evidence["prior_policy_sha256"],
+            "prior_policy_version": source.evidence["prior_policy_version"],
+            "expected_policy_version": source.evidence["expected_policy_version"],
+            "expected_normalized_policy_sha256": source.evidence[
+                "expected_normalized_policy_sha256"
+            ],
+            "fix_executor_task_id": source.evidence["fix_executor_task_id"],
+            "prohibited_effects": source.evidence["prohibited_effects"],
+        }
+        return FactoryWorkflowOwner._bounded_prompt(
+            (
+                BINDING_REPAIR_MARKER + _canonical(marker),
+                "Review only this operator-confirmed missing-mission binding repair.",
+                "Use $supervise-tracker-runs. Reproduce the exact missing field and verify the target task, implementation marker, direct-user source item, tracker path/content root, policy head, and single-group check before acting.",
+                "If and only if every supplied identity is current, route the exact configured fix executor through the maintained fix-execution gate.",
+                "The fix executor must invoke the maintained supervision_log.py bind owner with only --target-thread, --mission-source-class direct-user, --mission-source-record, and --mission-source-sha256 using the exact values below.",
+                "Do not pass tracker, role, automation, Gmail, model, spend, policy-field, or lifecycle arguments. Never write policy.json or policy-history.jsonl directly.",
+                "If a mission binding now exists, any identity differs, the bind owner would normalize another field, or intent is materially different, stop without mutation; different intent belongs to mission succession.",
+                "Do not claim repair until the exact next policy-bind record is current, the mission binding matches, target/tracker identity is unchanged, and exactly one canonical group claims the tuple.",
+                "The maintained bind record does not expose fix-executor actor attribution; preserve that limitation rather than inferring an actor.",
+                "",
+                *FactoryWorkflowOwner._prompt_facts(facts),
+            )
+        )
+
+    def _binding_repair_route_request(
+        self,
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+        source: SourceSnapshot,
+    ) -> RouteGateRequest:
+        del inputs
+        return RouteGateRequest(
+            target_thread=target.id,
+            recipient=str(source.evidence["reviewer_task_id"]),
+            purpose=BINDING_REPAIR_ROUTE_PURPOSE,
+            source_record=str(source.evidence["source_record"]),
+            required_action=(
+                f"Review one missing-mission binding repair for target {target.id[:80]}; "
+                f"preview {source.fingerprint}."
+            ),
+        )
+
+    @staticmethod
+    def _matching_binding_repair_record(
+        control: Mapping[str, Any],
+        *,
+        source: SourceSnapshot,
+    ) -> Mapping[str, Any] | None:
+        matches: list[Mapping[str, Any]] = []
+        for record in control.get("policy_history_records", []):
+            policy = record.get("policy") if isinstance(record, Mapping) else None
+            timestamp = record.get("timestamp") if isinstance(record, Mapping) else None
+            if (
+                not isinstance(record, Mapping)
+                or not isinstance(policy, Mapping)
+                or record.get("record_id")
+                != f"POLICY-{source.evidence['expected_policy_version']}"
+                or record.get("kind") != source.evidence["expected_history_kind"]
+                or record.get("reason") != source.evidence["expected_history_reason"]
+                or record.get("evidence") != source.evidence["expected_history_evidence"]
+                or policy.get("policy_version")
+                != source.evidence["expected_policy_version"]
+                or policy.get("mission_binding")
+                != source.evidence["expected_mission_binding"]
+                or _normalized_policy_root(policy)
+                != source.evidence["expected_normalized_policy_sha256"]
+                or not isinstance(timestamp, str)
+                or not timestamp
+            ):
+                continue
+            try:
+                observed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if observed.tzinfo is not None:
+                matches.append(record)
+        return matches[0] if len(matches) == 1 else None
+
+    def _mission_binding_repair_definition(self) -> OperationDefinition:
+        schema = _object_schema({}, required=())
+
+        def dispatch(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+        ) -> DispatchResult:
+            with self._binding_repair_dispatch_lock:
+                current = self._mission_binding_repair_source(target, inputs)
+                if current.fingerprint != source.fingerprint:
+                    raise OperationOwnerError(
+                        "binding_repair_source_changed",
+                        "The exact task, tracker, policy, mission source, or owner changed before dispatch.",
+                    )
+                projects, _ = self._active_projects()
+                reviewer_task_id = str(source.evidence["reviewer_task_id"])
+                prompt = self._binding_repair_prompt(target, source)
+                try:
+                    result = self.app_server_client.start_configured_role_turn(
+                        projects,
+                        reviewer_task_id,
+                        prompt,
+                        expected_cwd=str(source.evidence["reviewer_task_cwd"]),
+                        expected_cwd_identity=(
+                            int(source.evidence["reviewer_cwd_device"]),
+                            int(source.evidence["reviewer_cwd_inode"]),
+                        ),
+                    )
+                except AppServerError as error:
+                    raise OperationOwnerError(_owner_code(error), str(error)) from error
+                return DispatchResult(
+                    evidence={
+                        "target_thread_id": target.id,
+                        "reviewer_task_id": reviewer_task_id,
+                        "reviewer_turn_id": result["turn"]["id"],
+                        "reviewer_task_resumed": result["task_resumed"],
+                        "fix_executor_task_id": source.evidence[
+                            "fix_executor_task_id"
+                        ],
+                        "binding_repair_requested": True,
+                        "binding_repaired": False,
+                        "expected_policy_version": source.evidence[
+                            "expected_policy_version"
+                        ],
+                        "expected_mission_root": source.evidence[
+                            "expected_mission_root"
+                        ],
+                        "preview_fingerprint": source.fingerprint,
+                    },
+                    links=(
+                        OperationLink("Run", f"/runs/{target.id}"),
+                        OperationLink("Tracker", f"/trackers/{source.evidence['tracker_id']}"),
+                        OperationLink("Reviewer task", f"/tasks/{reviewer_task_id}"),
+                        OperationLink(
+                            "Fix executor task",
+                            f"/tasks/{source.evidence['fix_executor_task_id']}",
+                        ),
+                    ),
+                )
+
+        def verify(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+            result: DispatchResult,
+        ) -> VerificationResult:
+            del inputs
+            try:
+                control = self.operations_service.policy_control_snapshot(target.id)
+                group_ids = self.operations_service.binding_group_ids(target.id)
+            except OperationsProjectionError as error:
+                return VerificationResult(
+                    "pending",
+                    {
+                        **result.evidence,
+                        "binding_repaired": False,
+                        "owner_error_code": error.code,
+                    },
+                    result.links,
+                )
+            projects, catalog_fingerprint = self._active_projects()
+            reviewer_task_id = str(source.evidence["reviewer_task_id"])
+            reviewer_request_current = False
+            try:
+                reviewer_detail = self.app_server_client.read_task(
+                    projects,
+                    reviewer_task_id,
+                    include_turns=True,
+                )
+                reviewer_task = reviewer_detail.get("task")
+                reviewer_turn_id = result.evidence.get("reviewer_turn_id")
+                reviewer_request_current = (
+                    isinstance(reviewer_task, Mapping)
+                    and reviewer_task.get("id") == reviewer_task_id
+                    and isinstance(reviewer_turn_id, str)
+                    and self._binding_repair_turn_has_marker(
+                        reviewer_task,
+                        turn_id=reviewer_turn_id,
+                        expected=self._binding_repair_marker(target, source),
+                    )
+                )
+            except (AppServerError, OperationError):
+                reviewer_request_current = False
+            record = self._matching_binding_repair_record(control, source=source)
+            current_version = control.get("policy_version")
+            if record is None:
+                if current_version == source.evidence["prior_policy_version"]:
+                    return VerificationResult(
+                        "pending",
+                        {
+                            **result.evidence,
+                            "binding_repaired": False,
+                            "reviewer_request_current": reviewer_request_current,
+                            "current_policy_version": current_version,
+                            "recovery": "Await the exact reviewer/fix-executor owner chain or cancel and re-preview if any bound source changes.",
+                        },
+                        result.links,
+                    )
+                return VerificationResult(
+                    "failed",
+                    {
+                        **result.evidence,
+                        "binding_repaired": False,
+                        "reviewer_request_current": reviewer_request_current,
+                        "current_policy_version": current_version,
+                        "failure_boundary": "Policy history changed without the exact missing-mission bind postcondition.",
+                        "recovery": "Inspect the current policy/history; use mission succession for different intent and never overwrite it as repair.",
+                    },
+                    result.links,
+                )
+            record_policy = record.get("policy")
+            history_records = control.get("policy_history_records")
+            prior_head_preserved = (
+                isinstance(history_records, list)
+                and len(history_records)
+                == source.evidence["prior_policy_history_count"] + 1
+                and any(
+                    isinstance(item, Mapping)
+                    and item.get("record_sha256")
+                    == source.evidence["prior_policy_history_head"]
+                    for item in history_records[:-1]
+                )
+            )
+            policy_head_current = (
+                isinstance(record_policy, Mapping)
+                and control.get("policy_version")
+                == source.evidence["expected_policy_version"]
+                and control.get("policy_sha256") == record_policy.get("policy_sha256")
+                and control.get("policy_history_head") == record.get("record_sha256")
+                and record_policy.get("mission_binding")
+                == source.evidence["expected_mission_binding"]
+                and _normalized_policy_root(record_policy)
+                == source.evidence["expected_normalized_policy_sha256"]
+            )
+            owner_current = (
+                control.get("owner_sha256") == source.evidence["owner_sha256"]
+            )
+            target_current = False
+            tracker_current = False
+            try:
+                target_detail = self.app_server_client.read_task(
+                    projects,
+                    target.id,
+                    include_turns=True,
+                )
+                target_task = target_detail.get("task")
+                target_binding = (
+                    target_task.get("project_binding")
+                    if isinstance(target_task, Mapping)
+                    else None
+                )
+                target_current = (
+                    catalog_fingerprint == source.evidence["catalog_fingerprint"]
+                    and isinstance(target_task, Mapping)
+                    and target_task.get("id") == target.id
+                    and isinstance(target_binding, Mapping)
+                    and target_binding.get("status") == "bound"
+                    and target_binding.get("project_id")
+                    == source.evidence["project_id"]
+                    and target_binding.get("candidates")
+                    == [source.evidence["project_id"]]
+                    and target_task.get("turns_truncated") is not True
+                    and isinstance(target_task.get("turns"), list)
+                    and all(
+                        isinstance(turn, Mapping)
+                        and turn.get("items_truncated") is not True
+                        and isinstance(turn.get("items"), list)
+                        for turn in target_task["turns"]
+                    )
+                    and self._task_marker(target_task)
+                    == source.evidence["implementation_binding"]
+                )
+                tracker_target = OperationTarget(
+                    kind="tracker",
+                    id=str(source.evidence["tracker_id"]),
+                    project_id=str(source.evidence["project_id"]),
+                )
+                tracker_selection = self._tracker_selection(tracker_target)
+                tracker_current = (
+                    tracker_selection.catalog_fingerprint
+                    == source.evidence["catalog_fingerprint"]
+                    and tracker_selection.relative_path
+                    == source.evidence["tracker_path"]
+                    and tracker_selection.detail.get("raw_file", {}).get(
+                        "content_sha256"
+                    )
+                    == source.evidence["tracker_content_sha256"]
+                )
+            except (AppServerError, OperationError):
+                target_current = False
+                tracker_current = False
+            tuple_current = (
+                policy_head_current
+                and owner_current
+                and prior_head_preserved
+                and reviewer_request_current
+                and target_current
+                and tracker_current
+                and group_ids == [target.id]
+            )
+            if not tuple_current:
+                return VerificationResult(
+                    "unverified" if policy_head_current else "pending",
+                    {
+                        **result.evidence,
+                        "binding_repaired": bool(policy_head_current),
+                        "policy_head_current": bool(policy_head_current),
+                        "owner_current": owner_current,
+                        "prior_history_preserved": prior_head_preserved,
+                        "reviewer_request_current": reviewer_request_current,
+                        "target_binding_current": target_current,
+                        "tracker_binding_current": tracker_current,
+                        "single_group_current": group_ids == [target.id],
+                        "group_ids": group_ids,
+                        "recovery": "Re-read the exact current tuple; do not retry or overwrite a changed source.",
+                    },
+                    result.links,
+                )
+            return VerificationResult(
+                "applied",
+                {
+                    **result.evidence,
+                    "binding_repaired": True,
+                    "policy_record_id": record.get("record_id"),
+                    "policy_record_timestamp": record.get("timestamp"),
+                    "policy_version": control.get("policy_version"),
+                    "policy_sha256": control.get("policy_sha256"),
+                    "mission_root": source.evidence["expected_mission_root"],
+                    "mission_source_record": source.evidence[
+                        "mission_source_record"
+                    ],
+                    "policy_head_current": True,
+                    "owner_current": True,
+                    "prior_history_preserved": True,
+                    "reviewer_request_current": True,
+                    "target_binding_current": True,
+                    "tracker_binding_current": True,
+                    "single_group_current": True,
+                    "group_ids": group_ids,
+                    "mission_semantics_changed": False,
+                    "tracker_content_changed": False,
+                    "direct_policy_write": False,
+                    "direct_ledger_write": False,
+                    "fix_executor_actor_attribution": "unavailable",
+                },
+                result.links,
+            )
+
+        return OperationDefinition(
+            operation_type="factory.supervision-repair-mission-binding",
+            target_kind="run",
+            input_schema=schema,
+            owner="maintained reviewer plan + fix executor + supervision bind/policy owner",
+            authority=(
+                "explicit operator confirmation",
+                "exact live implementation task and direct-user source item",
+                "exact current tracker path/content and missing-mission policy head",
+                "maintained semantic-escalation and fix-execution route gates",
+                "maintained supervision bind/policy owner",
+            ),
+            ordinary_consequences=(
+                "Starts one bounded reviewer turn for one exact missing mission binding.",
+                "The routed fix executor may create one next policy-bind record through the maintained owner.",
+            ),
+            failure_consequences=(
+                "Healthy, stale, ambiguous, unsupported, or semantically different tuples send no request.",
+                "A changed or partial postcondition remains failed or unverified and is never overwritten automatically.",
+            ),
+            confirmation=ConfirmationContract(
+                "supervision-binding-repair",
+                "Type REPAIR to request this exact missing-mission binding repair.",
+                "REPAIR",
+            ),
+            idempotency="One consumed preview starts at most one reviewer turn; the dashboard never retries or writes the binding itself.",
+            expected_postcondition="One exact next policy-bind record adds only the source-derived mission binding while the target/tracker tuple, history, and single-group identity remain current.",
+            timeout_seconds=30,
+            limitations=(
+                "Only a missing mission binding in an otherwise exact dashboard-started implementation tuple is supported.",
+                "Tracker drift, target mismatch, an existing different mission, arbitrary paths, or owner normalization beyond the mission field fail closed.",
+                "The dashboard never writes policy or ledger files and does not expose role-task, automation, lifecycle, report, evolution, or terminal controls here.",
+            ),
+            resolve_source=self._mission_binding_repair_source,
+            describe_effect=lambda target, inputs, source: PreviewEffect(
+                f"Request one source-derived missing mission binding for run {target.id}.",
+                "The maintained owner may add one mission binding and next policy-history record; target and tracker identity must remain unchanged.",
+                recipient=str(source.evidence["reviewer_task_id"]),
+            ),
+            route_gate_request=self._binding_repair_route_request,
             route_gate=self.route_gate,
             dispatch=dispatch,
             verify=verify,

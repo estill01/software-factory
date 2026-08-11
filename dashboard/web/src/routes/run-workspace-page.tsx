@@ -387,6 +387,7 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
           projectId={projectBindingConflict ? null : breadcrumbProjectId}
           openIncidentIds={missionIncidents.filter((incident) => incident.open).map((incident) => incident.incident_id)}
           policy={run.policy}
+          missionBindingMissing={!run.current_mission}
         />
       )}
 

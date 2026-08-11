@@ -327,6 +327,41 @@ describe("Factory workflow action strips", () => {
     expect(await screen.findByText("One exact reviewer task · conclusion remains separate from delivery")).toBeVisible()
   })
 
+  it("offers one missing-mission binding repair without operator-supplied identity fields", async () => {
+    const user = userEvent.setup()
+    const { rerender } = renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+      />,
+    )
+    expect(screen.queryByRole("button", { name: "Repair binding" })).not.toBeInTheDocument()
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    rerender(
+      <QueryClientProvider client={client}>
+        <RunSupervisionActions
+          targetId="task-demo"
+          projectId="demo"
+          openIncidentIds={[]}
+          policy={policy}
+          missionBindingMissing
+        />
+      </QueryClientProvider>,
+    )
+    await user.click(screen.getByRole("button", { name: "Repair binding" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.supervision-repair-mission-binding",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: {},
+    })
+    expect(await screen.findByText("Missing mission binding only")).toBeVisible()
+    expect(screen.getByText(/Mission overwrite/)).toBeVisible()
+  })
+
   it("previews one exact policy diff and keeps unbound Gmail cadence unavailable", async () => {
     const user = userEvent.setup()
     renderActions(

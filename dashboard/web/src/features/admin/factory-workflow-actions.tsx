@@ -423,11 +423,13 @@ export function RunSupervisionActions({
   projectId,
   openIncidentIds,
   policy,
+  missionBindingMissing = false,
 }: {
   targetId: string
   projectId: string | null
   openIncidentIds: string[]
   policy: RunPolicy | null
+  missionBindingMissing?: boolean
 }) {
   const runner = useOperationRunner()
   const [selectedIncident, setSelectedIncident] = useState("")
@@ -543,6 +545,22 @@ export function RunSupervisionActions({
   const gmailBound = policy?.automation_reconciliation.some((row) => (
     row.role === "gmail_gate" && row.state !== "unavailable"
   )) ?? false
+  const launchBindingRepair = () => {
+    if (!projectId || !missionBindingMissing) return
+    runner.launch({
+      request: {
+        operation_type: "factory.supervision-repair-mission-binding",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: {},
+      },
+      suppliedFacts: [
+        ["Repair", "Missing mission binding only"],
+        ["Source", "Exact direct-user item from the live implementation binding"],
+        ["Tracker", "Current path and content root from the registered project"],
+        ["Excluded", "Mission overwrite · tracker mutation · role or automation rebinding"],
+      ],
+    })
+  }
   return (
     <>
       <ActionStrip feedback={runner.feedback}>
@@ -572,6 +590,9 @@ export function RunSupervisionActions({
           Issue follow-up
         </Button>
         <Button size="compact" disabled={unavailable || !policy} onClick={openAdjustment}>Adjust supervision</Button>
+        {missionBindingMissing && (
+          <Button size="compact" disabled={unavailable} onClick={launchBindingRepair}>Repair binding</Button>
+        )}
       </ActionStrip>
       {adjustOpen && policy && (
         <InputDialog

@@ -7,6 +7,7 @@ import subprocess
 import sys
 from tempfile import TemporaryDirectory
 from threading import RLock
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -25,6 +26,7 @@ from software_factory_dashboard.catalog import ProjectRecord
 from software_factory_dashboard.factory_workflows import (
     FactoryWorkflowOwner,
     SupervisionRouteGate,
+    _normalized_policy_root,
     _policy_after_changes,
 )
 from software_factory_dashboard.operations import DEFAULT_SUPERVISION_OWNER
@@ -256,10 +258,11 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(duplicate_status, 409)
         self.assertEqual(duplicate["error"]["code"], "authoring_owner_conflict")
         self.assertEqual(executed["data"]["operation"]["state"], "applied")
-        self.assertEqual(len(supported), 15)
+        self.assertEqual(len(supported), 16)
         self.assertIn("factory.blocks-implement", supported)
         self.assertIn("factory.supervision-check-now", supported)
         self.assertIn("factory.supervision-adjust", supported)
+        self.assertIn("factory.supervision-repair-mission-binding", supported)
         self.assertIn("factory.supervision-review-checkpoint", supported)
         self.assertIn("factory.supervision-review-meta", supported)
         self.assertIn("factory.supervision-review-issue", supported)
@@ -1637,6 +1640,339 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             "active",
         )
 
+    def test_missing_mission_binding_repair_preserves_exact_task_tracker_and_history(self) -> None:
+        project = ProjectRecord(
+            id="workflow",
+            label="Workflow",
+            root=str(self.repository),
+        )
+        reviewer_workspace = self.root / "binding-reviewer-workspace"
+        fix_workspace = self.root / "binding-fix-workspace"
+        reviewer_workspace.mkdir()
+        fix_workspace.mkdir()
+        target_id = "task-fake-001"
+        source_turn_id = "turn-source-001"
+        source_item_id = "item-source-001"
+        source_record = (
+            f"codex:{target_id}:{source_turn_id}:{source_item_id}"
+        )
+        source_text = "Implement the full exact tracker.\n"
+        source_sha = sha256(source_text.encode("utf-8")).hexdigest()
+        tracker_id = "c" * 64
+        tracker_content = "d" * 64
+        expected_mission = {
+            "contract_version": 3,
+            "mission_root": "a" * 64,
+            "mission_source_record": source_record,
+            "mission_derivation": {
+                "controlling_source": {
+                    "class": "direct-user",
+                    "record": source_record,
+                    "sha256": source_sha,
+                }
+            },
+        }
+        implementation_marker = {
+            "kind": "implement-blocks",
+            "source_fingerprint": "b" * 64,
+            "project_id": project.id,
+            "tracker_id": tracker_id,
+            "block_start": 0,
+            "block_end": 25,
+            "mission_root": expected_mission["mission_root"],
+            "mission_source_record": source_record,
+        }
+        target_task = {
+            "id": target_id,
+            "status": {"type": "idle"},
+            "project_binding": {
+                "status": "bound",
+                "project_id": project.id,
+                "candidates": [project.id],
+            },
+            "turns": [
+                {
+                    "id": source_turn_id,
+                    "status": "completed",
+                    "items": [
+                        {
+                            "id": source_item_id,
+                            "type": "userMessage",
+                            "summary": source_text,
+                        }
+                    ],
+                },
+                {
+                    "id": "turn-implementation-001",
+                    "status": "completed",
+                    "items": [
+                        {
+                            "id": "item-implementation-001",
+                            "type": "userMessage",
+                            "summary": (
+                                "SOFTWARE_FACTORY_DASHBOARD_MISSION "
+                                + json.dumps(
+                                    implementation_marker,
+                                    separators=(",", ":"),
+                                    sort_keys=True,
+                                )
+                                + "\n"
+                            ),
+                        }
+                    ],
+                },
+            ],
+        }
+        reviewer_task = {
+            "id": "reviewer-binding-001",
+            "status": {"type": "idle"},
+            "cwd": str(reviewer_workspace),
+            "turns": [],
+        }
+        fix_task = {
+            "id": "fix-binding-001",
+            "status": {"type": "idle"},
+            "cwd": str(fix_workspace),
+            "turns": [],
+        }
+        tasks = {
+            target_task["id"]: target_task,
+            reviewer_task["id"]: reviewer_task,
+            fix_task["id"]: fix_task,
+        }
+        policy = {
+            "schema_version": 1,
+            "policy_version": 5,
+            "policy_sha256": "e" * 64,
+            "target_thread_id": target_id,
+            "runtime": {
+                "reviewer_thread_id": reviewer_task["id"],
+                "fix_executor_thread_id": fix_task["id"],
+            },
+        }
+        next_policy = {
+            **policy,
+            "policy_version": 6,
+            "policy_sha256": "f" * 64,
+            "updated_at": "2026-08-11T02:00:00+00:00",
+            "mission_binding": expected_mission,
+        }
+        prior_record = {
+            "record_id": "POLICY-5",
+            "record_sha256": "1" * 64,
+            "policy": policy,
+        }
+        control = {
+            "fingerprint": "2" * 64,
+            "owner_sha256": "3" * 64,
+            "policy_sha256": policy["policy_sha256"],
+            "policy_version": policy["policy_version"],
+            "policy_history_head": prior_record["record_sha256"],
+            "policy_history_records": [prior_record],
+            "source_record": "EVT-000004",
+            "lifecycle_status": None,
+            "policy": policy,
+            "runtime": policy["runtime"],
+        }
+        plan = {
+            "control": control,
+            "owner_sha256": control["owner_sha256"],
+            "source_record": source_record,
+            "source_sha256": source_sha,
+            "expected_mission_binding": expected_mission,
+            "expected_policy_version": 6,
+            "expected_normalized_policy_sha256": _normalized_policy_root(
+                next_policy
+            ),
+            "expected_history_kind": "policy-bind",
+            "expected_history_reason": "Bound live identifiers and current routing defaults.",
+            "expected_history_evidence": [],
+            "group_ids": [target_id],
+        }
+
+        class OperationsStub:
+            @staticmethod
+            def preview_mission_bind(
+                selected_target,
+                *,
+                source_record: str,
+                source_sha256: str,
+            ):
+                if (
+                    selected_target != target_id
+                    or source_record != plan["source_record"]
+                    or source_sha256 != plan["source_sha256"]
+                ):
+                    raise AssertionError("wrong bind preview source")
+                return plan
+
+            @staticmethod
+            def policy_control_snapshot(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong target")
+                return control
+
+            @staticmethod
+            def binding_group_ids(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong target")
+                return [target_id]
+
+        class AppServerStub:
+            prompt = None
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": name, "status": "supported"}
+                        for name in ("task_read", "task_resume", "turn_start")
+                    ]
+                }
+
+            @staticmethod
+            def read_task(_projects, task_id, *, include_turns):
+                if task_id not in tasks or not include_turns:
+                    raise AssertionError("wrong task read")
+                return {"task": tasks[task_id]}
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                reviewer_stat = reviewer_workspace.stat()
+                if (
+                    task_id != reviewer_task["id"]
+                    or expected_cwd != str(reviewer_workspace)
+                    or expected_cwd_identity
+                    != (reviewer_stat.st_dev, reviewer_stat.st_ino)
+                ):
+                    raise AssertionError("wrong reviewer dispatch")
+                self.prompt = text
+                reviewer_task["turns"] = [
+                    {
+                        "id": "turn-binding-repair-001",
+                        "status": "completed",
+                        "items": [{"type": "userMessage", "summary": text}],
+                    }
+                ]
+                return {
+                    "turn": {"id": "turn-binding-repair-001"},
+                    "task_resumed": False,
+                }
+
+        selection = SimpleNamespace(
+            project=project,
+            relative_path="docs/demo-implementation-tracker.md",
+            catalog_fingerprint="4" * 64,
+            detail={
+                "profile": "full",
+                "verifier": {"valid": True},
+                "raw_file": {"content_sha256": tracker_content},
+            },
+        )
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = AppServerStub()
+        owner.route_gate = lambda request: RouteGateResult(
+            True,
+            "5" * 64,
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint="6" * 64,
+            target_thread=request.target_thread,
+        )
+        owner._binding_repair_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), selection.catalog_fingerprint)
+        owner._tracker_selection = lambda target: selection
+        definition = owner._mission_binding_repair_definition()
+        target = OperationTarget(
+            kind="run",
+            id=target_id,
+            project_id=project.id,
+        )
+        source = definition.resolve_source(target, {})
+        self.assertEqual(source.evidence["repair_scope"], "missing-mission-binding-only")
+        self.assertEqual(source.evidence["tracker_content_sha256"], tracker_content)
+        self.assertEqual(source.evidence["mission_source_sha256"], source_sha)
+        route = definition.route_gate_request(target, {}, source)
+        self.assertEqual(route.purpose, "semantic-escalation")
+        self.assertEqual(route.recipient, reviewer_task["id"])
+        dispatched = definition.dispatch(target, {}, source)
+        self.assertIn("--mission-source-sha256", owner.app_server_client.prompt)
+        self.assertIn("Never write policy.json", owner.app_server_client.prompt)
+        pending = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(pending.state, "pending")
+        self.assertFalse(pending.evidence["binding_repaired"])
+
+        next_record = {
+            "schema_version": 1,
+            "record_id": "POLICY-6",
+            "record_sha256": "7" * 64,
+            "timestamp": "2026-08-11T02:00:01+00:00",
+            "kind": "policy-bind",
+            "reason": "Bound live identifiers and current routing defaults.",
+            "evidence": [],
+            "policy": next_policy,
+        }
+        control.update(
+            {
+                "policy": next_policy,
+                "policy_sha256": next_policy["policy_sha256"],
+                "policy_version": 6,
+                "policy_history_head": next_record["record_sha256"],
+                "policy_history_records": [prior_record, next_record],
+            }
+        )
+        applied = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(applied.state, "applied")
+        self.assertTrue(applied.evidence["binding_repaired"])
+        self.assertTrue(applied.evidence["target_binding_current"])
+        self.assertTrue(applied.evidence["tracker_binding_current"])
+        self.assertTrue(applied.evidence["prior_history_preserved"])
+        self.assertTrue(applied.evidence["single_group_current"])
+        self.assertTrue(applied.evidence["owner_current"])
+        self.assertFalse(applied.evidence["direct_policy_write"])
+
+        control["owner_sha256"] = "9" * 64
+        changed_owner = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(changed_owner.state, "unverified")
+        self.assertFalse(changed_owner.evidence["owner_current"])
+        control["owner_sha256"] = plan["owner_sha256"]
+
+        target_task["turns_truncated"] = True
+        partial_verification = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(partial_verification.state, "unverified")
+        self.assertFalse(partial_verification.evidence["target_binding_current"])
+        with self.assertRaises(OperationError) as partial_source:
+            definition.resolve_source(target, {})
+        self.assertEqual(
+            partial_source.exception.code,
+            "binding_repair_task_history_partial",
+        )
+        target_task.pop("turns_truncated")
+
+        policy["mission_binding"] = expected_mission
+        with self.assertRaises(OperationError) as healthy:
+            definition.resolve_source(target, {})
+        self.assertEqual(healthy.exception.code, "binding_repair_not_missing")
+        policy.pop("mission_binding")
+        plan["expected_mission_binding"] = {
+            **expected_mission,
+            "mission_root": "8" * 64,
+        }
+        with self.assertRaises(OperationError) as different:
+            definition.resolve_source(target, {})
+        self.assertEqual(
+            different.exception.code,
+            "binding_repair_mission_semantics_differ",
+        )
     def test_semantic_review_requests_bind_role_source_conclusion_and_supersession(self) -> None:
         project = ProjectRecord(
             id="workflow",

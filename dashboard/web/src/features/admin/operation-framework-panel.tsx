@@ -220,6 +220,19 @@ export function OperationTruthFacts({ operation }: { operation: OperationRecord 
     if (evidence?.direct_automation_write === false) facts.push("Dashboard direct automation writes excluded")
     if (evidence?.fix_executor_actor_attribution === "unavailable") facts.push("Canonical records do not expose the execution actor")
   }
+  if (operation.type === "factory.supervision-repair-mission-binding") {
+    if (operation.request_evidence?.binding_repair_requested === true) facts.push("Missing-mission repair requested")
+    if (evidence?.binding_repaired === true) facts.push("Canonical mission binding verified")
+    else if (operation.request_evidence?.binding_repair_requested === true) facts.push("Canonical binding not yet verified")
+    if (evidence?.target_binding_current === true) facts.push("Target identity unchanged")
+    if (evidence?.tracker_binding_current === true) facts.push("Tracker identity unchanged")
+    if (evidence?.prior_history_preserved === true) facts.push("Prior policy history preserved")
+    if (evidence?.single_group_current === true) facts.push("Single canonical group verified")
+    if (evidence?.mission_semantics_changed === false) facts.push("Mission semantics unchanged")
+    if (evidence?.direct_policy_write === false) facts.push("Dashboard direct policy writes excluded")
+    if (evidence?.direct_ledger_write === false) facts.push("Dashboard direct ledger writes excluded")
+    if (evidence?.fix_executor_actor_attribution === "unavailable") facts.push("Canonical records do not expose the execution actor")
+  }
   if (!evidence && facts.length === 0) return null
   if (typeof evidence?.task_turn_started === "boolean") {
     facts.push(evidence.task_turn_started ? "Task/turn started" : "Task/turn not verified")

@@ -615,3 +615,106 @@ test("live project, run, supervisor, and task drill-downs preserve mission bound
   await expect(page.locator("main")).toContainText(/Task|Codex App Server|Loading/)
   await expect(page.getByText(/dashboard (lets|allows|helps) you/i)).toHaveCount(0)
 })
+
+test("missing mission binding exposes only the source-derived repair preview", async ({ page, request }) => {
+  const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  runEnvelope.data.run.current_mission = null
+  const predecessor = runEnvelope.data.run.mission_segments.find(
+    (segment: { posture: string }) => segment.posture === "predecessor",
+  )?.mission_root
+  expect(predecessor).toBeTruthy()
+  const operation = {
+    id: "op_e2e_binding_repair_preview",
+    type: "factory.supervision-repair-mission-binding",
+    target: { kind: "run", id: target, project_id: "software-factory" },
+    state: "previewed",
+    owner: "maintained reviewer plan + fix executor + supervision bind/policy owner",
+    authority: ["exact live implementation task and direct-user source item"],
+    preview: {
+      effect: `Request one source-derived missing mission binding for run ${target}.`,
+      risk: "The maintained owner may add one mission binding and next policy-history record; target and tracker identity must remain unchanged.",
+      recipient: "019fe54d-acd4-7653-825e-4d710eaeae7b",
+      source_fingerprint: "8".repeat(64),
+      source_evidence: {
+        source_record: "EVT-000139",
+        tracker_path: "docs/software-factory-operations-dashboard-implementation-tracker.md",
+      },
+      route_gate: {
+        status: "allowed",
+        target_thread: target,
+        recipient: "019fe54d-acd4-7653-825e-4d710eaeae7b",
+        purpose: "semantic-escalation",
+        source_record: "EVT-000139",
+        required_action: "Review one exact missing-mission repair.",
+        action_hash: "9".repeat(64),
+        policy_fingerprint: "a".repeat(64),
+        binding_fingerprint: "b".repeat(64),
+      },
+      consequences: {
+        ordinary: ["Starts one bounded reviewer turn for one exact missing mission binding."],
+        failure: ["Healthy, stale, ambiguous, unsupported, or semantically different tuples send no request."],
+      },
+      confirmation: {
+        class: "supervision-binding-repair",
+        prompt: "Type REPAIR to request this exact missing-mission binding repair.",
+        expected_value: "REPAIR",
+      },
+      expected_postcondition: "One exact next policy-bind record adds only the source-derived mission binding while target/tracker identity remains current.",
+      idempotency: "One consumed preview starts at most one reviewer turn.",
+      limitations: ["Only a missing mission binding is supported."],
+      expires_at: "2026-08-11T03:00:00.000Z",
+    },
+    history: [{ state: "previewed", observed_at: "2026-08-11T02:55:00.000Z" }],
+    request_evidence: null,
+    verification_evidence: null,
+    links: [],
+    failure: null,
+  }
+  await page.route(`**/api/v1/runs/${target}`, (route) =>
+    route.fulfill({ json: runEnvelope }),
+  )
+  await page.route("**/api/v1/operations/preview", async (route) => {
+    const requestBody = route.request().postDataJSON()
+    expect(requestBody).toEqual({
+      operation_type: "factory.supervision-repair-mission-binding",
+      target: { kind: "run", id: target, project_id: "software-factory" },
+      input: {},
+    })
+    await route.fulfill({
+      json: {
+        data: { operation, preview_token: "p".repeat(32) },
+        source: { kind: "administrative-operation", identity: operation.id, revision: "8".repeat(64) },
+        observed_at: "2026-08-11T02:55:00.000Z",
+        fingerprint: "8".repeat(64),
+        coverage: { status: "partial", observed: ["operation-preview"], missing: ["owner-postcondition"] },
+        limitations: ["Fixture stops before mutation."],
+        error: null,
+      },
+    })
+  })
+
+  await page.goto(`/runs/${target}`)
+  const repair = page.getByRole("button", { name: "Repair binding" })
+  await expect(repair).toBeEnabled()
+  await repair.click()
+  const preview = page.getByRole("dialog")
+  await expect(preview).toContainText("Missing mission binding only")
+  await expect(preview).toContainText("Exact direct-user item")
+  await expect(preview).toContainText("Current path and content root")
+  await expect(preview).toContainText("semantic-escalation")
+  await expect(preview).toContainText("target and tracker identity must remain unchanged")
+  await expect(preview.getByRole("button", { name: "Request operation" })).toBeDisabled()
+  await expect(page.locator("h1")).toHaveCount(1)
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+  await preview.getByRole("button", { name: "Close operation preview" }).click()
+  await page.goto(`/runs/${target}?mission=${predecessor}`)
+  await expect(page.getByText("Historical mission", { exact: true })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Repair binding" })).toHaveCount(0)
+})

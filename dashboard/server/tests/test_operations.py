@@ -377,6 +377,69 @@ class OperationsProjectionTests(unittest.TestCase):
         self.assertNotIn("PRIVATE PROMPT", serialized)
         self.assertNotIn('"prompt"', serialized)
 
+    def test_mission_bind_preview_uses_ephemeral_owner_and_never_mutates_canonical_policy(self) -> None:
+        missing_target = "missing-target-0003"
+        source_record = f"codex:{missing_target}:turn-source-001:item-source-001"
+        source_text = "Implement this exact tracker.\n"
+        source_sha = sha256(source_text.encode("utf-8")).hexdigest()
+        source_policy = self.owner.read_json(
+            self.supervision_root / TARGET / "policy.json"
+        )
+        policy = json.loads(json.dumps(source_policy))
+        policy["target_thread_id"] = missing_target
+        policy["target_label"] = "Missing mission fixture"
+        policy["policy_version"] = 1
+        policy.pop("mission_binding", None)
+        policy.pop("updated_at", None)
+        policy["policy_sha256"] = self.owner.digest(
+            self.owner.policy_material(policy)
+        )
+        directory = self.supervision_root / missing_target
+        directory.mkdir(parents=True)
+        self.owner.atomic_json(directory / "policy.json", policy)
+        self.owner.append_raw(
+            directory / "policy-history.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": "POLICY-1",
+                "timestamp": "2026-08-09T10:02:00+00:00",
+                "kind": "policy-init",
+                "policy": policy,
+            },
+        )
+        before_policy = (directory / "policy.json").read_bytes()
+        before_history = (directory / "policy-history.jsonl").read_bytes()
+
+        preview = self.service.preview_mission_bind(
+            missing_target,
+            source_record=source_record,
+            source_sha256=source_sha,
+        )
+        expected = self.owner.derive_mission_binding(
+            target_thread=missing_target,
+            source_class="direct-user",
+            source_record=source_record,
+            source_sha256=source_sha,
+        )
+        self.assertEqual(preview["expected_mission_binding"], expected)
+        self.assertEqual(preview["expected_policy_version"], 2)
+        self.assertEqual(preview["expected_history_kind"], "policy-bind")
+        self.assertEqual(preview["expected_history_evidence"], [])
+        self.assertEqual(preview["group_ids"], [missing_target])
+        self.assertEqual((directory / "policy.json").read_bytes(), before_policy)
+        self.assertEqual(
+            (directory / "policy-history.jsonl").read_bytes(),
+            before_history,
+        )
+
+        with self.assertRaises(OperationsProjectionError) as healthy:
+            self.service.preview_mission_bind(
+                TARGET,
+                source_record=f"codex:{TARGET}:turn-source-001:item-source-001",
+                source_sha256=source_sha,
+            )
+        self.assertEqual(healthy.exception.code, "binding_repair_not_missing")
+
     def test_gmail_cadence_uses_active_owner_result_for_all_three_fields(self) -> None:
         self._command(
             "bind",

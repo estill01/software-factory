@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 from collections import Counter, OrderedDict
+from contextlib import redirect_stdout
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 import argparse
 import importlib.util
+from io import StringIO
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+from tempfile import TemporaryDirectory
 from threading import RLock
 import tomllib
 from types import ModuleType
@@ -882,6 +885,203 @@ class OperationsProjectionService:
             },
             "automations_by_role": automations,
             "gmail_cadence": gmail_cadence,
+        }
+
+    def binding_group_ids(self, target_thread_id: str) -> list[str]:
+        """Return the one validated canonical group keyed by an exact target."""
+
+        if not SAFE_ID.fullmatch(target_thread_id):
+            raise OperationsProjectionError("invalid_run_id", "Run target ID is invalid.")
+        control = self.policy_control_snapshot(target_thread_id)
+        if control.get("target_thread_id") != target_thread_id:
+            raise OperationsProjectionError(
+                "binding_group_check_unavailable",
+                "The canonical supervision group does not claim the exact target.",
+                status=422,
+            )
+        # The maintained owner keys a group by target ID. Reading the one exact
+        # canonical directory proves the claim without scanning or reconciling
+        # unrelated groups.
+        return [target_thread_id]
+
+    def preview_mission_bind(
+        self,
+        target_thread_id: str,
+        *,
+        source_record: str,
+        source_sha256: str,
+    ) -> dict[str, Any]:
+        """Exercise the maintained bind owner against an ephemeral exact policy copy."""
+
+        if not SAFE_ID.fullmatch(target_thread_id):
+            raise OperationsProjectionError("invalid_run_id", "Run target ID is invalid.")
+        if not isinstance(source_record, str) or not SAFE_ID.fullmatch(source_record):
+            raise OperationsProjectionError(
+                "binding_source_invalid",
+                "Mission source record identity is invalid.",
+                status=422,
+            )
+        if not isinstance(source_sha256, str) or not SHA256.fullmatch(source_sha256):
+            raise OperationsProjectionError(
+                "binding_source_invalid",
+                "Mission source content root is invalid.",
+                status=422,
+            )
+        control = self.policy_control_snapshot(target_thread_id)
+        policy = control.get("policy")
+        history = control.get("policy_history_records")
+        if not isinstance(policy, Mapping) or not isinstance(history, list):
+            raise OperationsProjectionError(
+                "binding_source_unavailable",
+                "The current policy or policy history is unavailable.",
+                status=422,
+            )
+        if policy.get("mission_binding") is not None:
+            raise OperationsProjectionError(
+                "binding_repair_not_missing",
+                "The canonical policy already has a mission binding; bind cannot repair a differing mission.",
+                status=409,
+            )
+        group_ids = self.binding_group_ids(target_thread_id)
+        if group_ids != [target_thread_id]:
+            raise OperationsProjectionError(
+                "binding_group_ambiguous",
+                "The exact target does not resolve to one canonical supervision group.",
+                status=409,
+            )
+        owner = self._module("supervision")
+        try:
+            planned_binding = owner.derive_mission_binding(
+                target_thread=target_thread_id,
+                source_class="direct-user",
+                source_record=source_record,
+                source_sha256=source_sha256,
+            )
+        except Exception as error:
+            raise OperationsProjectionError(
+                "binding_source_invalid",
+                "The maintained owner rejected the exact direct-user mission source.",
+                status=422,
+            ) from error
+
+        with TemporaryDirectory(prefix="sf-dashboard-bind-preview-") as temporary:
+            preview_root = Path(temporary).resolve() / "tracker-runs"
+            preview_directory = preview_root / target_thread_id
+            preview_directory.mkdir(parents=True)
+            os.chmod(preview_directory, 0o700)
+            owner.atomic_json(
+                preview_directory / "policy.json",
+                json.loads(json.dumps(policy)),
+            )
+            for record in history:
+                if not isinstance(record, Mapping):
+                    raise OperationsProjectionError(
+                        "binding_source_unavailable",
+                        "The canonical policy history contains a non-record value.",
+                        status=422,
+                    )
+                material = {
+                    key: json.loads(json.dumps(value))
+                    for key, value in record.items()
+                    if key not in {"previous_record_sha256", "record_sha256"}
+                }
+                owner.append_raw(preview_directory / "policy-history.jsonl", material)
+            arguments = argparse.Namespace(
+                root=str(preview_root),
+                target_thread=target_thread_id,
+                base_reviewer_thread=None,
+                notice_reviewer_thread=None,
+                fix_executor_thread=None,
+                routine_automation=None,
+                meta_automation=None,
+                gmail_gate_thread=None,
+                gmail_processor_thread=None,
+                gmail_poll_automation=None,
+                roundup_thread=None,
+                roundup_automation=None,
+                gmail_reply_message_id=None,
+                gmail_project_key=None,
+                gmail_subject=None,
+                gmail_priority_reply_message_id=None,
+                gmail_priority_project_key=None,
+                gmail_priority_subject=None,
+                gmail_priority_decision_context=False,
+                gmail_roundup_reply_message_id=None,
+                gmail_roundup_project_key=None,
+                gmail_roundup_subject=None,
+                mission_root=None,
+                mission_source_record=source_record,
+                mission_source_class="direct-user",
+                mission_source_sha256=source_sha256,
+            )
+            output = StringIO()
+            try:
+                with redirect_stdout(output):
+                    owner.cmd_bind(arguments)
+                result = json.loads(output.getvalue())
+                expected_policy = owner.read_json(preview_directory / "policy.json")
+                expected_history = owner.events(
+                    preview_directory / "policy-history.jsonl"
+                )
+            except Exception as error:
+                raise OperationsProjectionError(
+                    "binding_owner_preview_failed",
+                    "The maintained bind owner rejected the exact ephemeral repair preview.",
+                    status=422,
+                ) from error
+        if result.get("changed") is not True or not expected_history:
+            raise OperationsProjectionError(
+                "binding_owner_preview_failed",
+                "The maintained bind owner did not produce one changed preview.",
+                status=422,
+            )
+        expected_record = expected_history[-1]
+        if (
+            expected_policy.get("mission_binding") != planned_binding
+            or expected_policy.get("policy_version") != int(policy.get("policy_version", 0)) + 1
+            or expected_record.get("kind") != "policy-bind"
+            or expected_record.get("reason") != "Bound live identifiers and current routing defaults."
+            or expected_record.get("evidence") != []
+            or expected_record.get("policy") != expected_policy
+        ):
+            raise OperationsProjectionError(
+                "binding_owner_preview_failed",
+                "The maintained bind owner returned an incompatible repair postcondition.",
+                status=422,
+            )
+
+        def preserved_material(value: Mapping[str, Any]) -> dict[str, Any]:
+            result = json.loads(json.dumps(value))
+            for key in (
+                "mission_binding",
+                "policy_version",
+                "policy_sha256",
+                "updated_at",
+            ):
+                result.pop(key, None)
+            return result
+
+        if preserved_material(policy) != preserved_material(expected_policy):
+            raise OperationsProjectionError(
+                "binding_repair_owner_would_expand_scope",
+                "The maintained bind owner would change fields beyond the missing mission binding.",
+                status=409,
+            )
+        normalized = json.loads(json.dumps(expected_policy))
+        normalized.pop("policy_sha256", None)
+        normalized.pop("updated_at", None)
+        return {
+            "control": control,
+            "owner_sha256": self.owner_revisions()["supervision"]["sha256"],
+            "source_record": source_record,
+            "source_sha256": source_sha256,
+            "expected_mission_binding": json.loads(json.dumps(planned_binding)),
+            "expected_policy_version": expected_policy["policy_version"],
+            "expected_normalized_policy_sha256": _digest(normalized),
+            "expected_history_kind": "policy-bind",
+            "expected_history_reason": "Bound live identifiers and current routing defaults.",
+            "expected_history_evidence": [],
+            "group_ids": group_ids,
         }
 
     def _module(self, family: str) -> ModuleType:
