@@ -72,6 +72,7 @@ class OperationsProjectionTests(unittest.TestCase):
             terminal_owner=DEFAULT_TERMINAL_OWNER,
             evolution_owner=DEFAULT_EVOLUTION_OWNER,
             now=lambda: datetime(2026, 8, 9, 10, 35, tzinfo=UTC),
+            automation_timezone=lambda: "America/Los_Angeles",
         )
         self.projects = (
             ProjectRecord(id="demo", label="Demo", root=str(self.project_root)),
@@ -115,6 +116,16 @@ class OperationsProjectionTests(unittest.TestCase):
         self.assertEqual(
             _expected_automation_timezone(policy, "weekly_report"),
             "America/Los_Angeles",
+        )
+        policy["schedule"]["roundup_timezone"] = "Mars/Olympus"
+        policy["reports"]["weekly"]["timezone"] = "Mars/Olympus"
+        self.assertEqual(
+            _expected_automation_timezone(policy, "roundup_writer"),
+            "unavailable",
+        )
+        self.assertEqual(
+            _expected_automation_timezone(policy, "weekly_report"),
+            "unavailable",
         )
 
     def _command(self, *arguments: str) -> dict[str, object]:
@@ -1435,7 +1446,45 @@ class OperationsProjectionTests(unittest.TestCase):
         self.assertRegex(snapshot["current"]["protected_sha256"], r"^[0-9a-f]{64}$")
         self.assertNotIn("PRIVATE PROMPT", json.dumps(snapshot))
         self.assertEqual(len(snapshot["claims"]), 1)
-        self.assertEqual(loaded_automation_ids, ["watcher-automation-demo"])
+        self.assertEqual(set(loaded_automation_ids), {"watcher-automation-demo"})
+        self.assertEqual(snapshot["active_target_owners"]["status"], "available")
+
+        second_owner = self.automations_root / "second-watcher-owner"
+        second_owner.mkdir()
+        second_manifest = second_owner / "automation.toml"
+        second_manifest.write_text(
+            textwrap.dedent(
+                f'''\
+                version = 1
+                id = "second-watcher-owner"
+                kind = "heartbeat"
+                name = "Unclaimed second watcher"
+                prompt = "omitted"
+                status = "ACTIVE"
+                rrule = "RRULE:FREQ=MINUTELY;INTERVAL=20"
+                target_thread_id = "{WATCHER + TARGET[-1]}"
+                created_at = 1786270800000
+                updated_at = 1786271400000
+                '''
+            ),
+            encoding="utf-8",
+        )
+        second_active = self.service.automation_binding_snapshot(TARGET, "watcher")
+        self.assertFalse(second_active["repairable"])
+        self.assertEqual(
+            second_active["active_target_owners"]["conflicting_owner_ids"],
+            ["second-watcher-owner"],
+        )
+        self.assertIn(
+            "different automation already active on role target",
+            second_active["mismatches"],
+        )
+        second_manifest.write_text(
+            second_manifest.read_text(encoding="utf-8").replace(
+                'status = "ACTIVE"', 'status = "PAUSED"'
+            ),
+            encoding="utf-8",
+        )
 
         duplicate = "duplicate-automation-claim"
         self._init_target(duplicate, OLD_MISSION, "direct-item-duplicate")
@@ -1499,6 +1548,155 @@ class OperationsProjectionTests(unittest.TestCase):
             " ".join(current["topology"]["anomalies"]),
         )
 
+    def test_calendar_automation_repair_requires_canonical_and_owner_timezone(self) -> None:
+        directory = self.supervision_root / TARGET
+        self.service._target_directories = lambda: (directory,)
+        policy = self.owner.read_json(directory / "policy.json")
+        policy["runtime"]["roundup_thread_id"] = "roundup-writer-task-001"
+        policy["runtime"]["roundup_automation_id"] = "roundup-automation-001"
+        policy["policy_version"] += 1
+        policy["policy_sha256"] = self.owner.digest(
+            self.owner.policy_material(policy)
+        )
+        self.owner.atomic_json(directory / "policy.json", policy)
+        self.owner.append_raw(
+            directory / "policy-history.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": f"POLICY-{policy['policy_version']}",
+                "timestamp": "2026-08-09T10:42:00+00:00",
+                "kind": "policy-bind",
+                "policy": policy,
+            },
+        )
+        automation = self.automations_root / "roundup-automation-001"
+        automation.mkdir()
+        (automation / "automation.toml").write_text(
+            textwrap.dedent(
+                '''\
+                version = 1
+                id = "roundup-automation-001"
+                kind = "heartbeat"
+                name = "Roundup writer"
+                prompt = "omitted"
+                status = "PAUSED"
+                rrule = "RRULE:FREQ=DAILY;BYHOUR=7,13,17,23;BYMINUTE=0;BYSECOND=0"
+                target_thread_id = "roundup-writer-task-001"
+                created_at = 1786270800000
+                updated_at = 1786271400000
+                '''
+            ),
+            encoding="utf-8",
+        )
+
+        exact = self.service.automation_binding_snapshot(TARGET, "roundup_writer")
+        self.assertTrue(exact["repairable"])
+        self.assertEqual(exact["current"]["timezone"], "America/Los_Angeles")
+
+        policy = self.owner.read_json(directory / "policy.json")
+        policy["notifications"]["gmail_roundup"].update(
+            {
+                "enabled": True,
+                "project_key": "software-factory",
+                "reply_message_id": "gmail-message-001",
+                "subject": "Software Factory roundup",
+            }
+        )
+        policy["permissions"]["gmail_roundup_notification"] = True
+        policy["reports"]["weekly"]["enabled"] = True
+        policy["reports"]["weekly"]["automation_id"] = "weekly-report-automation-001"
+        policy["policy_version"] += 1
+        policy["policy_sha256"] = self.owner.digest(
+            self.owner.policy_material(policy)
+        )
+        self.owner.atomic_json(directory / "policy.json", policy)
+        self.owner.append_raw(
+            directory / "policy-history.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": f"POLICY-{policy['policy_version']}",
+                "timestamp": "2026-08-09T10:42:30+00:00",
+                "kind": "policy-bind",
+                "policy": policy,
+            },
+        )
+        roundup_manifest = automation / "automation.toml"
+        roundup_manifest.write_text(
+            roundup_manifest.read_text(encoding="utf-8").replace(
+                'status = "PAUSED"', 'status = "ACTIVE"'
+            ),
+            encoding="utf-8",
+        )
+        weekly = self.automations_root / "weekly-report-automation-001"
+        weekly.mkdir()
+        (weekly / "automation.toml").write_text(
+            textwrap.dedent(
+                '''\
+                version = 1
+                id = "weekly-report-automation-001"
+                kind = "heartbeat"
+                name = "Weekly report"
+                prompt = "omitted"
+                status = "ACTIVE"
+                rrule = "RRULE:FREQ=WEEKLY;BYDAY=MO;BYHOUR=8;BYMINUTE=0;BYSECOND=0"
+                target_thread_id = "roundup-writer-task-001"
+                created_at = 1786270800000
+                updated_at = 1786271400000
+                '''
+            ),
+            encoding="utf-8",
+        )
+        distinct_sibling = self.service.automation_binding_snapshot(
+            TARGET,
+            "roundup_writer",
+        )
+        self.assertEqual(distinct_sibling["mismatches"], [])
+        self.assertEqual(
+            {
+                owner["relation"]
+                for owner in distinct_sibling["active_target_owners"]["owners"]
+            },
+            {"selected-role", "distinct-canonical-role"},
+        )
+
+        self.service._automation_timezone = lambda: "UTC"
+        wrong_owner_timezone = self.service.automation_binding_snapshot(
+            TARGET,
+            "roundup_writer",
+        )
+        self.assertFalse(wrong_owner_timezone["repairable"])
+        self.assertIn(
+            "automation owner timezone differs",
+            wrong_owner_timezone["mismatches"],
+        )
+
+        self.service._automation_timezone = lambda: "America/Los_Angeles"
+        policy = self.owner.read_json(directory / "policy.json")
+        policy["schedule"]["roundup_timezone"] = "Mars/Olympus"
+        policy["policy_version"] += 1
+        policy["policy_sha256"] = self.owner.digest(
+            self.owner.policy_material(policy)
+        )
+        self.owner.atomic_json(directory / "policy.json", policy)
+        self.owner.append_raw(
+            directory / "policy-history.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": f"POLICY-{policy['policy_version']}",
+                "timestamp": "2026-08-09T10:43:00+00:00",
+                "kind": "policy-change",
+                "policy": policy,
+            },
+        )
+        invalid_policy_timezone = self.service.automation_binding_snapshot(
+            TARGET,
+            "roundup_writer",
+        )
+        self.assertFalse(invalid_policy_timezone["repairable"])
+        self.assertIn(
+            "canonical timezone unavailable",
+            invalid_policy_timezone["mismatches"],
+        )
     def test_terminal_decision_and_successor_heads_close_without_erasing_history(self) -> None:
         self._record(
             "EVT-000005",

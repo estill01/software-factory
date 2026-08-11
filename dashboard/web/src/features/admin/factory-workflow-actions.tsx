@@ -622,8 +622,9 @@ export function RunSupervisionActions({
         ["Automation ID", `${automationRepair.actual_automation_id ?? automationRepair.automation_id} → ${automationRepair.automation_id}`],
         ["Target", `${automationRepair.actual_target_thread_id ?? "Unavailable"} → ${automationRepair.target_thread_id ?? "Unavailable"}`],
         ["Schedule", `${automationRepair.actual_rrule ?? "Unavailable"} → ${automationRepair.expected_rrule ?? "Unavailable"}`],
-        ["Time zone", automationRepair.timezone ?? "Unavailable"],
-        ["Completion", "Named automation + canonical policy binding + no duplicate role claim"],
+        ["Time zone", `${automationRepair.actual_timezone ?? "Unavailable"} → ${automationRepair.timezone ?? "Unavailable"}`],
+        ["Duplicate proof", `${automationRepair.duplicate_coverage} · ${automationRepair.active_target_owner_ids.length} active owner${automationRepair.active_target_owner_ids.length === 1 ? "" : "s"} on target`],
+        ["Completion", "Named automation + canonical policy binding + exact role task + no conflicting active owner"],
         ["Recovery", "No automatic retry or rollback · partial owner state stays visible"],
       ],
     })

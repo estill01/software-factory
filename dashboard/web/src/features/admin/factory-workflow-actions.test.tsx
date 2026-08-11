@@ -81,6 +81,9 @@ const policy = {
       actual_rrule: "RRULE:FREQ=MINUTELY;INTERVAL=20",
       owner_status: "ACTIVE",
       target_thread_id: "watcher-task",
+      actual_timezone: "not-applicable-to-interval-schedule",
+      duplicate_coverage: "exact",
+      active_target_owner_ids: ["watcher-automation"],
       mode: null,
       state: "reconciled",
       reason: "Policy cadence and actual active automation agree.",
@@ -93,6 +96,9 @@ const policy = {
       actual_rrule: "RRULE:FREQ=HOURLY;INTERVAL=4",
       owner_status: "ACTIVE",
       target_thread_id: "reviewer-task",
+      actual_timezone: "not-applicable-to-interval-schedule",
+      duplicate_coverage: "exact",
+      active_target_owner_ids: ["reviewer-automation"],
       mode: null,
       state: "reconciled",
       reason: "Policy cadence and actual active automation agree.",
@@ -407,6 +413,9 @@ describe("Factory workflow action strips", () => {
               actual_target_thread_id: "wrong-watcher-task",
               purpose: "watcher-action",
               timezone: "not-applicable-to-interval-schedule",
+              actual_timezone: "not-applicable-to-interval-schedule",
+              duplicate_coverage: "exact" as const,
+              active_target_owner_ids: [],
               owner_status: "PAUSED",
               state: "partial" as const,
               repairable: true,
@@ -438,6 +447,7 @@ describe("Factory workflow action strips", () => {
     expect(await screen.findByText("Routine watcher · watcher-action")).toBeVisible()
     expect(screen.getByText("wrong-watcher-task → watcher-task")).toBeVisible()
     expect(screen.getByText(/INTERVAL=45.*INTERVAL=20/)).toBeVisible()
+    expect(screen.getByText("exact · 0 active owners on target")).toBeVisible()
     expect(screen.getByText(/Named automation \+ canonical policy binding/)).toBeVisible()
     expect(screen.getByText(/No automatic retry or rollback/)).toBeVisible()
   })
@@ -490,6 +500,9 @@ describe("Factory workflow action strips", () => {
           actual_rrule: "RRULE:FREQ=MINUTELY;INTERVAL=1",
           owner_status: "ACTIVE",
           target_thread_id: "gmail-gate-task",
+          actual_timezone: "not-applicable-to-interval-schedule",
+          duplicate_coverage: "exact",
+          active_target_owner_ids: ["gmail-automation"],
           mode: "active",
           state: "reconciled",
           reason: "Maintained active cadence and actual automation agree.",

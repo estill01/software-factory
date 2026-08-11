@@ -19,6 +19,7 @@ from threading import RLock
 import tomllib
 from types import ModuleType
 from typing import Any, Callable, Mapping, Sequence
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .catalog import ProjectRecord
 
@@ -47,6 +48,7 @@ MAX_REPORT_SETS = 250
 MAX_CACHE_ENTRIES = 256
 MAX_METRIC_HISTORY_ROWS = 1_000
 OWNER_TIMEOUT_SECONDS = 30
+AUTOMATION_CALENDAR_TIMEZONE = "America/Los_Angeles"
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{3,127}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -392,11 +394,44 @@ def _expected_automation_timezone(policy: Mapping[str, Any], role: str) -> str:
         schedule = policy.get("schedule")
         schedule = schedule if isinstance(schedule, Mapping) else {}
         value = schedule.get("roundup_timezone")
-        return str(value) if isinstance(value, str) and value else "unavailable"
+        return (
+            AUTOMATION_CALENDAR_TIMEZONE
+            if value == AUTOMATION_CALENDAR_TIMEZONE
+            else "unavailable"
+        )
     if role == "weekly_report":
         value = _policy_weekly_report(policy).get("timezone")
-        return str(value) if isinstance(value, str) and value else "unavailable"
+        return (
+            AUTOMATION_CALENDAR_TIMEZONE
+            if value == AUTOMATION_CALENDAR_TIMEZONE
+            else "unavailable"
+        )
     return "not-applicable-to-interval-schedule"
+
+
+def _system_timezone_name() -> str | None:
+    """Project the local timezone used by the desktop automation owner."""
+
+    candidates: list[str] = []
+    localtime = Path("/etc/localtime")
+    try:
+        resolved = localtime.resolve(strict=True)
+    except (OSError, RuntimeError):
+        resolved = None
+    if resolved is not None:
+        marker = "/zoneinfo/"
+        value = str(resolved)
+        if marker in value:
+            candidates.append(value.split(marker, 1)[1])
+    for candidate in candidates:
+        if not candidate or candidate.startswith("/") or ".." in Path(candidate).parts:
+            continue
+        try:
+            ZoneInfo(candidate)
+        except (ValueError, ZoneInfoNotFoundError):
+            continue
+        return candidate
+    return None
 
 
 def policy_automation_reconciliation(
@@ -404,6 +439,7 @@ def policy_automation_reconciliation(
     roles: Sequence[Mapping[str, Any]],
     gmail_cadence: Mapping[str, Any] | None = None,
     automations: Mapping[str, Mapping[str, Any]] | None = None,
+    automation_timezone: str | None = None,
 ) -> list[dict[str, Any]]:
     """Compare cadence policy to the actual bound automation owner projection."""
 
@@ -457,6 +493,11 @@ def policy_automation_reconciliation(
             gmail_cadence=gmail_cadence,
         )
         expected_timezone = _expected_automation_timezone(policy, role_name)
+        actual_timezone = (
+            "not-applicable-to-interval-schedule"
+            if expected_timezone == "not-applicable-to-interval-schedule"
+            else automation_timezone
+        )
         actual_rrule = automation.get("rrule") if isinstance(automation, Mapping) else None
         owner_status = (
             automation.get("owner_status") if isinstance(automation, Mapping) else None
@@ -465,6 +506,41 @@ def policy_automation_reconciliation(
         actual_target = (
             automation.get("target_thread_id") if isinstance(automation, Mapping) else None
         )
+        allowed_sibling_ids = {
+            sibling_id
+            for sibling_role, sibling_contract in AUTOMATION_BINDING_CONTRACTS.items()
+            if sibling_role != role_name
+            and runtime.get(sibling_contract["thread_key"]) == target_thread_id
+            and isinstance(
+                sibling_id := (
+                    _policy_weekly_report(policy).get("automation_id")
+                    if sibling_contract["policy_source"] == "weekly_report"
+                    else runtime.get(sibling_contract["automation_key"])
+                ),
+                str,
+            )
+            and sibling_id
+        }
+        inventory_exact = automations is not None and all(
+            isinstance(item, Mapping) and item.get("status") == "available"
+            for item in automations.values()
+        )
+        active_target_owner_ids = sorted(
+            str(item.get("id"))
+            for item in automations.values()
+            if inventory_exact
+            and isinstance(item, Mapping)
+            and item.get("status") == "available"
+            and item.get("owner_status") == "ACTIVE"
+            and item.get("kind") == "heartbeat"
+            and item.get("target_thread_id") == target_thread_id
+            and isinstance(item.get("id"), str)
+        ) if automations is not None else []
+        conflicting_owner_ids = [
+            item
+            for item in active_target_owner_ids
+            if item != automation_id and item not in allowed_sibling_ids
+        ]
         if not cadence_available:
             state = "unavailable"
             reason = "The maintained Gmail cadence projection is unavailable."
@@ -478,11 +554,21 @@ def policy_automation_reconciliation(
         ):
             state = "unavailable"
             reason = "The canonical automation binding or schedule expectation is unavailable."
+        elif actual_timezone is None:
+            state = "unavailable"
+            reason = "The automation owner's local timezone is unavailable."
+        elif not inventory_exact:
+            state = "unavailable"
+            reason = "The bounded automation inventory cannot prove duplicate-role absence."
         elif not isinstance(automation, Mapping) or automation.get("status") != "available":
             state = "unavailable"
             reason = "The named automation owner projection is unavailable."
+        elif conflicting_owner_ids:
+            state = "partial"
+            reason = "Another active automation is not proven to be a distinct canonical role."
         elif (
             expected_rrule == actual_rrule
+            and expected_timezone == actual_timezone
             and owner_status == "ACTIVE"
             and automation.get("kind") == "heartbeat"
             and actual_target == target_thread_id
@@ -498,6 +584,8 @@ def policy_automation_reconciliation(
             and isinstance(automation, Mapping)
             and automation.get("id") == automation_id
             and automation.get("kind") == "heartbeat"
+            and expected_timezone == actual_timezone
+            and not conflicting_owner_ids
             and (
                 role_name == "weekly_report"
                 or (
@@ -521,6 +609,9 @@ def policy_automation_reconciliation(
                 "actual_target_thread_id": actual_target,
                 "purpose": contract["purpose"],
                 "timezone": expected_timezone,
+                "actual_timezone": actual_timezone,
+                "duplicate_coverage": "exact" if inventory_exact else "unavailable",
+                "active_target_owner_ids": active_target_owner_ids,
                 "mode": (
                     gmail_cadence.get("mode")
                     if role_name == "gmail_gate" and cadence_available
@@ -787,6 +878,7 @@ class OperationsProjectionService:
         terminal_owner: Path = DEFAULT_TERMINAL_OWNER,
         evolution_owner: Path = DEFAULT_EVOLUTION_OWNER,
         now: Callable[[], datetime] | None = None,
+        automation_timezone: Callable[[], str | None] | None = None,
     ) -> None:
         self.supervision_root = supervision_root.expanduser().resolve()
         self.automations_root = automations_root.expanduser().resolve()
@@ -795,6 +887,7 @@ class OperationsProjectionService:
         self.terminal_owner = terminal_owner.resolve()
         self.evolution_owner = evolution_owner.resolve()
         self._now = now or (lambda: datetime.now(UTC))
+        self._automation_timezone = automation_timezone or _system_timezone_name
         self._lock = RLock()
         self._modules: dict[str, tuple[tuple[Any, ...], ModuleType]] = {}
         self._target_cache: OrderedDict[str, TargetEvidence] = OrderedDict()
@@ -1013,6 +1106,14 @@ class OperationsProjectionService:
             if automation_roles is None or "gmail_gate" in selected_roles
             else None
         )
+        calendar_role_selected = bool(
+            selected_roles.intersection({"roundup_writer", "weekly_report"})
+        )
+        automation_timezone = (
+            self._automation_timezone() if calendar_role_selected else None
+        )
+        if not isinstance(automation_timezone, str) or not automation_timezone:
+            automation_timezone = None
         if self._target_key(directory) != evidence.cache_key:
             raise OperationsProjectionError(
                 "supervision_changed_during_projection",
@@ -1073,6 +1174,7 @@ class OperationsProjectionService:
                 if isinstance(gmail_cadence, Mapping)
                 else None
             ),
+            "automation_timezone": automation_timezone,
         }
         return {
             **material,
@@ -1101,6 +1203,7 @@ class OperationsProjectionService:
             },
             "automations_by_role": automations,
             "gmail_cadence": gmail_cadence,
+            "automation_timezone": automation_timezone,
         }
 
     @staticmethod
@@ -1169,6 +1272,101 @@ class OperationsProjectionService:
             ),
         )
 
+    def active_automation_target_owners(
+        self,
+        *,
+        target_thread_id: str,
+        supervision_target_thread_id: str,
+        role: str,
+        selected_automation_id: str,
+    ) -> dict[str, Any]:
+        """Prove which active heartbeat owners currently target one exact role task."""
+
+        if not all(
+            SAFE_ID.fullmatch(value)
+            for value in (
+                target_thread_id,
+                supervision_target_thread_id,
+                selected_automation_id,
+            )
+        ) or role not in AUTOMATION_BINDING_CONTRACTS:
+            raise OperationsProjectionError(
+                "automation_target_owner_check_invalid",
+                "The duplicate-role owner check received an invalid exact identity.",
+                status=422,
+            )
+        root_before = _stat_key(self.automations_root)
+        inventory = self._automation_inventory()
+        root_after = _stat_key(self.automations_root)
+        if root_before != root_after:
+            raise OperationsProjectionError(
+                "automation_inventory_changed",
+                "The automation inventory changed during the duplicate-role check; retry.",
+                status=409,
+                retryable=True,
+            )
+        unavailable = sorted(
+            automation_id
+            for automation_id, item in inventory.items()
+            if not isinstance(item, Mapping) or item.get("status") != "available"
+        )
+        if selected_automation_id not in inventory:
+            unavailable.append(selected_automation_id)
+        if unavailable:
+            material = {
+                "status": "unavailable",
+                "target_thread_id": target_thread_id,
+                "selected_automation_id": selected_automation_id,
+                "unavailable_automation_ids": sorted(set(unavailable)),
+                "owners": [],
+                "conflicting_owner_ids": [],
+            }
+            return {**material, "fingerprint": _digest(material)}
+
+        owners: list[dict[str, Any]] = []
+        for automation_id, item in sorted(inventory.items()):
+            if not (
+                item.get("owner_status") == "ACTIVE"
+                and item.get("kind") == "heartbeat"
+                and item.get("target_thread_id") == target_thread_id
+            ):
+                continue
+            claims = self.automation_binding_claims(automation_id)
+            if automation_id == selected_automation_id:
+                relation = "selected-role"
+            elif (
+                len(claims) == 1
+                and claims[0].get("target_thread_id")
+                == supervision_target_thread_id
+                and claims[0].get("role") != role
+                and claims[0].get("role_thread_id") == target_thread_id
+            ):
+                relation = "distinct-canonical-role"
+            else:
+                relation = "conflicting-or-unclaimed-role"
+            owners.append(
+                {
+                    "automation_id": automation_id,
+                    "manifest_sha256": item.get("manifest_sha256"),
+                    "relation": relation,
+                    "canonical_claims": claims,
+                }
+            )
+        conflicting_owner_ids = sorted(
+            str(item["automation_id"])
+            for item in owners
+            if item["relation"] == "conflicting-or-unclaimed-role"
+        )
+        material = {
+            "status": "available",
+            "target_thread_id": target_thread_id,
+            "selected_automation_id": selected_automation_id,
+            "unavailable_automation_ids": [],
+            "owners": owners,
+            "conflicting_owner_ids": conflicting_owner_ids,
+        }
+        return {**material, "fingerprint": _digest(material)}
+
     def automation_binding_snapshot(
         self,
         target_thread_id: str,
@@ -1210,8 +1408,31 @@ class OperationsProjectionService:
             gmail_cadence=control.get("gmail_cadence"),
         )
         expected_timezone = _expected_automation_timezone(policy, role)
+        actual_timezone = (
+            "not-applicable-to-interval-schedule"
+            if expected_timezone == "not-applicable-to-interval-schedule"
+            else control.get("automation_timezone")
+        )
         actual = automations.get(role)
         claims = self.automation_binding_claims(automation_id)
+        target_owners = (
+            self.active_automation_target_owners(
+                target_thread_id=expected_target,
+                supervision_target_thread_id=target_thread_id,
+                role=role,
+                selected_automation_id=automation_id,
+            )
+            if isinstance(expected_target, str) and expected_target
+            else {
+                "status": "unavailable",
+                "target_thread_id": expected_target,
+                "selected_automation_id": automation_id,
+                "unavailable_automation_ids": [],
+                "owners": [],
+                "conflicting_owner_ids": [],
+                "fingerprint": None,
+            }
+        )
         exact_claim = {
             "target_thread_id": target_thread_id,
             "role": role,
@@ -1233,6 +1454,16 @@ class OperationsProjectionService:
         if expected_timezone == "unavailable":
             mismatches.append("canonical timezone unavailable")
             source_available = False
+        elif actual_timezone is None:
+            mismatches.append("automation owner timezone unavailable")
+            source_available = False
+        elif actual_timezone != expected_timezone:
+            mismatches.append("automation owner timezone differs")
+        if target_owners.get("status") != "available":
+            mismatches.append("duplicate-role owner coverage unavailable")
+            source_available = False
+        elif target_owners.get("conflicting_owner_ids"):
+            mismatches.append("different automation already active on role target")
         if not isinstance(actual, Mapping) or actual.get("status") != "available":
             mismatches.append("named automation unavailable")
             source_available = False
@@ -1273,6 +1504,7 @@ class OperationsProjectionService:
                 "source_path",
             )
         }
+        current["timezone"] = actual_timezone
         expected = {
             "id": automation_id,
             "owner_status": "ACTIVE",
@@ -1289,6 +1521,7 @@ class OperationsProjectionService:
             "current": current,
             "expected": expected,
             "claims": claims,
+            "active_target_owners": target_owners,
             "mismatches": mismatches,
             "repairable": repairable,
         }
@@ -3105,6 +3338,7 @@ class OperationsProjectionService:
         duplicate_automations: set[str],
         owners: Mapping[str, Mapping[str, Any]],
         cache_status: str,
+        automation_timezone: str | None,
     ) -> dict[str, Any]:
         owner = self._module("supervision")
         binding = owner.bound_mission(evidence.policy)
@@ -3235,6 +3469,7 @@ class OperationsProjectionService:
                     roles,
                     gmail_cadence,
                     automations,
+                    automation_timezone,
                 ),
                 "source_path": str(evidence.directory / "policy.json"),
                 "read_only": True,
@@ -3373,6 +3608,9 @@ class OperationsProjectionService:
     def snapshot(self, projects: Sequence[ProjectRecord]) -> dict[str, Any]:
         owners = self.owner_revisions()
         automations = self._automation_inventory()
+        automation_timezone = self._automation_timezone()
+        if not isinstance(automation_timezone, str) or not automation_timezone:
+            automation_timezone = None
         loaded: list[tuple[TargetEvidence, str]] = []
         unavailable: list[tuple[str, OperationsProjectionError]] = []
         for directory in self._target_directories():
@@ -3411,6 +3649,7 @@ class OperationsProjectionService:
                     duplicate_automations=duplicate_automations,
                     owners=owners,
                     cache_status=cache_status,
+                    automation_timezone=automation_timezone,
                 )
                 if self._target_key(evidence.directory) != evidence.cache_key:
                     raise OperationsProjectionError(

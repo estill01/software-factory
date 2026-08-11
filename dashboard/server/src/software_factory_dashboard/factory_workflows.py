@@ -3996,6 +3996,59 @@ class FactoryWorkflowOwner:
         metadata = path.stat()
         return str(path), (metadata.st_dev, metadata.st_ino), str(status)
 
+    @staticmethod
+    def _validated_automation_project_task(
+        task: Mapping[str, Any],
+        *,
+        task_id: str,
+        role: str,
+        project: ProjectRecord,
+        allow_active: bool,
+    ) -> tuple[str, tuple[int, int], str]:
+        unresolved = Path(str(task.get("cwd"))).expanduser()
+        if unresolved.is_symlink():
+            raise OperationError(
+                "automation_binding_owner_unavailable",
+                f"The exact {role} task cwd is a symlink.",
+                status=409,
+            )
+        try:
+            path = unresolved.resolve(strict=True)
+            project_root = Path(project.root).expanduser().resolve(strict=True)
+        except (OSError, RuntimeError) as error:
+            raise OperationError(
+                "automation_binding_owner_unavailable",
+                f"The exact {role} task or registered project root is unavailable.",
+                status=409,
+            ) from error
+        project_binding = task.get("project_binding")
+        status = task.get("status", {}).get("type")
+        allowed_statuses = {"idle", "notLoaded"}
+        if allow_active:
+            allowed_statuses.add("active")
+        if (
+            task.get("id") != task_id
+            or not path.is_dir()
+            or not project_root.is_dir()
+            or not (path == project_root or project_root in path.parents)
+            or not isinstance(project_binding, Mapping)
+            or project_binding.get("status") != "bound"
+            or project_binding.get("project_id") != project.id
+        ):
+            raise OperationError(
+                "automation_binding_project_mismatch",
+                f"The exact {role} task is not bound inside the selected registered project.",
+                status=409,
+            )
+        if status not in allowed_statuses:
+            raise OperationError(
+                "automation_binding_owner_unavailable",
+                f"The exact {role} task is not current for this workflow.",
+                status=409,
+            )
+        metadata = path.stat()
+        return str(path), (metadata.st_dev, metadata.st_ino), str(status)
+
     def _policy_adjust_source(
         self,
         target: OperationTarget,
@@ -6906,6 +6959,7 @@ class FactoryWorkflowOwner:
         current = binding.get("current")
         expected = binding.get("expected")
         claims = binding.get("claims")
+        active_target_owners = binding.get("active_target_owners")
         source_record = binding.get("source_record")
         prior_policy_sha256 = binding.get("policy_sha256")
         prior_policy_version = binding.get("policy_version")
@@ -6915,6 +6969,9 @@ class FactoryWorkflowOwner:
             or not isinstance(expected, Mapping)
             or not isinstance(claims, list)
             or len(claims) != 1
+            or not isinstance(active_target_owners, Mapping)
+            or active_target_owners.get("status") != "available"
+            or bool(active_target_owners.get("conflicting_owner_ids"))
             or not isinstance(source_record, str)
             or not source_record
             or not isinstance(prior_policy_sha256, str)
@@ -6936,7 +6993,10 @@ class FactoryWorkflowOwner:
         fix_executor_task_id = runtime.get("fix_executor_thread_id")
         expected_target = expected.get("target_thread_id")
         if (
-            not isinstance(fix_executor_task_id, str)
+            not isinstance(expected_target, str)
+            or not expected_target
+            or expected_target == target.id
+            or not isinstance(fix_executor_task_id, str)
             or not fix_executor_task_id
             or fix_executor_task_id in {target.id, expected_target}
         ):
@@ -6945,6 +7005,33 @@ class FactoryWorkflowOwner:
                 "The policy lacks a distinct exact fix-executor task.",
                 status=409,
             )
+        try:
+            role_detail = self.app_server_client.read_task(
+                projects,
+                expected_target,
+                include_turns=False,
+            )
+        except AppServerError as error:
+            raise _operation_error(
+                error,
+                fallback="automation_binding_role_target_unavailable",
+            ) from error
+        role_task = role_detail.get("task")
+        if not isinstance(role_task, Mapping):
+            raise OperationError(
+                "automation_binding_role_target_unavailable",
+                "The exact canonical role-target task projection is unavailable.",
+                status=409,
+            )
+        role_cwd, role_identity, role_status = (
+            self._validated_automation_project_task(
+                role_task,
+                task_id=expected_target,
+                role="canonical role target",
+                project=project,
+                allow_active=True,
+            )
+        )
         try:
             fix_detail = self.app_server_client.read_task(
                 projects,
@@ -6963,10 +7050,12 @@ class FactoryWorkflowOwner:
                 "The exact fix-executor projection is unavailable.",
                 status=409,
             )
-        fix_cwd, fix_identity, fix_status = self._validated_role_task(
+        fix_cwd, fix_identity, fix_status = self._validated_automation_project_task(
             fix_task,
             task_id=fix_executor_task_id,
             role="fix executor",
+            project=project,
+            allow_active=False,
         )
         evidence = {
             "catalog_fingerprint": catalog_fingerprint,
@@ -6984,7 +7073,13 @@ class FactoryWorkflowOwner:
             "expected_automation": dict(expected),
             "mismatches": list(mismatches),
             "canonical_claims": list(claims),
+            "active_target_owners": dict(active_target_owners),
             "binding_fingerprint": binding["fingerprint"],
+            "role_target_task_id": expected_target,
+            "role_target_task_status": role_status,
+            "role_target_task_cwd": role_cwd,
+            "role_target_cwd_device": role_identity[0],
+            "role_target_cwd_inode": role_identity[1],
             "fix_executor_task_id": fix_executor_task_id,
             "fix_executor_task_status": fix_status,
             "fix_executor_task_cwd": fix_cwd,
@@ -7002,6 +7097,12 @@ class FactoryWorkflowOwner:
             "mission": mission["mission_root"],
             "source_record": source_record,
             "binding": binding["fingerprint"],
+            "role_target": {
+                "task_id": expected_target,
+                "status": role_status,
+                "cwd": role_cwd,
+                "cwd_identity": role_identity,
+            },
             "fix_executor": {
                 "task_id": fix_executor_task_id,
                 "status": fix_status,
@@ -7044,7 +7145,7 @@ class FactoryWorkflowOwner:
                 "Update only the mismatched enabled state, RRULE, or target_thread_id to the exact expected values. Preserve ID, version, kind, name, prompt, created_at, and every unrelated automation.",
                 "The canonical policy binding is already exact and must remain at the supplied version, hash, history head, role, and purpose. Do not call bind, adjust, or another policy writer unless the supplied policy is no longer current; if it changed, stop and report the split state.",
                 "Never write automation.toml, policy.json, or policy-history.jsonl directly. Never create, delete, replace, rename, broadly rebind, or redesign cadence.",
-                "Treat the policy timezone as the canonical schedule interpretation where one is supplied; the automation manifest does not independently expose a timezone field.",
+                "For a calendar schedule, the maintained policy timezone and the separately observed local timezone used by the Codex automation owner are already exact and must remain unchanged; the automation manifest does not expose a timezone field.",
                 "After the owner request, re-read both the exact named automation and canonical policy binding. Report partial state truthfully and do not retry or roll back automatically.",
                 "",
                 *FactoryWorkflowOwner._prompt_facts(facts),
@@ -7160,6 +7261,7 @@ class FactoryWorkflowOwner:
                     result.links,
                 )
             projects, _ = self._active_projects()
+            project = self._project_from(projects, target)
             try:
                 fix_detail = self.app_server_client.read_task(
                     projects,
@@ -7168,10 +7270,62 @@ class FactoryWorkflowOwner:
                 )
             except AppServerError:
                 fix_detail = {}
+            try:
+                role_detail = self.app_server_client.read_task(
+                    projects,
+                    str(source.evidence["role_target_task_id"]),
+                    include_turns=False,
+                )
+            except AppServerError:
+                role_detail = {}
             fix_task = fix_detail.get("task")
+            role_task = role_detail.get("task")
+            try:
+                fix_cwd, fix_identity, _fix_status = (
+                    self._validated_automation_project_task(
+                        fix_task if isinstance(fix_task, Mapping) else {},
+                        task_id=str(source.evidence["fix_executor_task_id"]),
+                        role="fix executor",
+                        project=project,
+                        allow_active=True,
+                    )
+                )
+            except OperationError:
+                fix_executor_current = False
+            else:
+                fix_executor_current = (
+                    fix_cwd == source.evidence["fix_executor_task_cwd"]
+                    and fix_identity
+                    == (
+                        source.evidence["fix_executor_cwd_device"],
+                        source.evidence["fix_executor_cwd_inode"],
+                    )
+                )
+            try:
+                role_cwd, role_identity, _role_status = (
+                    self._validated_automation_project_task(
+                        role_task if isinstance(role_task, Mapping) else {},
+                        task_id=str(source.evidence["role_target_task_id"]),
+                        role="canonical role target",
+                        project=project,
+                        allow_active=True,
+                    )
+                )
+            except OperationError:
+                role_target_current = False
+            else:
+                role_target_current = (
+                    role_cwd == source.evidence["role_target_task_cwd"]
+                    and role_identity
+                    == (
+                        source.evidence["role_target_cwd_device"],
+                        source.evidence["role_target_cwd_inode"],
+                    )
+                )
             marker = self._automation_binding_repair_marker(target, inputs, source)
             fix_request_current = (
-                isinstance(fix_task, Mapping)
+                fix_executor_current
+                and isinstance(fix_task, Mapping)
                 and self._automation_binding_repair_turn_has_marker(
                     fix_task,
                     turn_id=str(result.evidence["fix_executor_turn_id"]),
@@ -7181,6 +7335,7 @@ class FactoryWorkflowOwner:
             current = binding.get("current")
             expected = source.evidence["expected_automation"]
             claims = binding.get("claims")
+            active_target_owners = binding.get("active_target_owners")
             current_mission = binding.get("mission_binding")
             current_mission = (
                 current_mission if isinstance(current_mission, Mapping) else {}
@@ -7203,14 +7358,31 @@ class FactoryWorkflowOwner:
                 == source.evidence["mission_root"]
                 and exact_claim
             )
+            duplicate_role_absent = (
+                isinstance(active_target_owners, Mapping)
+                and active_target_owners.get("status") == "available"
+                and active_target_owners.get("conflicting_owner_ids") == []
+                and len(
+                    [
+                        owner
+                        for owner in active_target_owners.get("owners", [])
+                        if isinstance(owner, Mapping)
+                        and owner.get("automation_id") == expected["id"]
+                        and owner.get("relation") == "selected-role"
+                    ]
+                )
+                == 1
+            )
             automation_current = (
                 isinstance(current, Mapping)
                 and binding.get("mismatches") == []
+                and duplicate_role_absent
                 and current.get("id") == expected["id"]
                 and current.get("owner_status") == expected["owner_status"]
                 and current.get("kind") == expected["kind"]
                 and current.get("target_thread_id") == expected["target_thread_id"]
                 and current.get("rrule") == expected["rrule"]
+                and current.get("timezone") == expected["timezone"]
                 and current.get("protected_sha256")
                 == source.evidence["current_automation"]["protected_sha256"]
                 and current.get("manifest_sha256")
@@ -7218,7 +7390,7 @@ class FactoryWorkflowOwner:
             )
             route_accepted = False
             route_result = None
-            if policy_current:
+            if policy_current and role_target_current and fix_executor_current:
                 try:
                     request = self._automation_binding_repair_route_request(
                         target,
@@ -7243,6 +7415,8 @@ class FactoryWorkflowOwner:
                 automation_current
                 and policy_current
                 and fix_request_current
+                and role_target_current
+                and fix_executor_current
                 and route_accepted
             )
             partial_posture = (
@@ -7259,7 +7433,9 @@ class FactoryWorkflowOwner:
                 "automation_binding_applied": applied,
                 "automation_postcondition_current": automation_current,
                 "policy_postcondition_current": policy_current,
-                "duplicate_role_absent": exact_claim,
+                "duplicate_role_absent": duplicate_role_absent,
+                "role_target_postcondition_current": role_target_current,
+                "fix_executor_postcondition_current": fix_executor_current,
                 "fix_executor_request_current": fix_request_current,
                 "route_gate_accepted": route_accepted,
                 "route_policy_sha256": (
@@ -7276,6 +7452,10 @@ class FactoryWorkflowOwner:
                     isinstance(current, Mapping)
                     and current.get("protected_sha256")
                     == source.evidence["current_automation"]["protected_sha256"]
+                ),
+                "automation_timezone_current": (
+                    isinstance(current, Mapping)
+                    and current.get("timezone") == expected["timezone"]
                 ),
                 "partial_posture": partial_posture,
                 "direct_policy_write": False,
@@ -7322,7 +7502,7 @@ class FactoryWorkflowOwner:
                 "One consumed preview starts at most one fix-executor turn; a reconciled or changed source is rejected and no owner action is retried."
             ),
             expected_postcondition=(
-                "The exact existing automation is active on the canonical schedule and role task, its protected fields are preserved, and the same one canonical policy claim remains current."
+                "The exact existing automation is active on the canonical schedule, owner timezone, and current same-project role task; its protected fields are preserved, no conflicting active owner exists, and the same one canonical policy claim remains current."
             ),
             timeout_seconds=30,
             limitations=(

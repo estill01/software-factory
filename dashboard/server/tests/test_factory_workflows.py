@@ -1753,8 +1753,10 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             label="Workflow",
             root=str(self.repository),
         )
-        fix_workspace = self.root / "automation-fix-workspace"
+        fix_workspace = self.repository / "automation-fix-workspace"
+        role_workspace = self.repository / "automation-role-workspace"
         fix_workspace.mkdir()
+        role_workspace.mkdir()
         target_task = {
             "id": "task-fake-001",
             "status": {"type": "idle"},
@@ -1768,8 +1770,23 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             "id": "fix-automation-workflow-001",
             "status": {"type": "idle"},
             "cwd": str(fix_workspace),
+            "project_binding": {
+                "status": "bound",
+                "project_id": "workflow",
+                "candidates": ["workflow"],
+            },
             "turns": [],
             "turns_truncated": False,
+        }
+        role_task = {
+            "id": "watcher-workflow-001",
+            "status": {"type": "idle"},
+            "cwd": str(role_workspace),
+            "project_binding": {
+                "status": "bound",
+                "project_id": "workflow",
+                "candidates": ["workflow"],
+            },
         }
         policy = {
             "schema_version": 1,
@@ -1838,6 +1855,15 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             "current": current_automation,
             "expected": expected_automation,
             "claims": claims,
+            "active_target_owners": {
+                "status": "available",
+                "target_thread_id": role_task["id"],
+                "selected_automation_id": expected_automation["id"],
+                "unavailable_automation_ids": [],
+                "owners": [],
+                "conflicting_owner_ids": [],
+                "fingerprint": "a" * 64,
+            },
             "source_record": "EVT-000020",
             "policy_sha256": policy["policy_sha256"],
             "policy_version": policy["policy_version"],
@@ -1870,6 +1896,8 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             def read_task(_projects, task_id, *, include_turns):
                 if task_id == target_task["id"] and not include_turns:
                     return {"task": target_task}
+                if task_id == expected_automation["target_thread_id"] and not include_turns:
+                    return {"task": role_task}
                 if task_id == fix_task["id"] and include_turns:
                     return {"task": fix_task}
                 raise AssertionError("wrong task read")
@@ -1926,6 +1954,41 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         )
         inputs = {"role": "watcher"}
 
+        role_task["project_binding"]["project_id"] = "other"
+        with self.assertRaises(OperationError) as wrong_role_project:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(
+            wrong_role_project.exception.code,
+            "automation_binding_project_mismatch",
+        )
+        role_task["project_binding"]["project_id"] = project.id
+        role_task["id"] = "different-role-task"
+        with self.assertRaises(OperationError) as missing_role_target:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(
+            missing_role_target.exception.code,
+            "automation_binding_project_mismatch",
+        )
+        role_task["id"] = expected_automation["target_thread_id"]
+        fix_task["project_binding"]["project_id"] = "other"
+        with self.assertRaises(OperationError) as wrong_fix_project:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(
+            wrong_fix_project.exception.code,
+            "automation_binding_project_mismatch",
+        )
+        fix_task["project_binding"]["project_id"] = project.id
+        outside_workspace = self.root / "outside-automation-project"
+        outside_workspace.mkdir()
+        fix_task["cwd"] = str(outside_workspace)
+        with self.assertRaises(OperationError) as wrong_fix_cwd:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(
+            wrong_fix_cwd.exception.code,
+            "automation_binding_project_mismatch",
+        )
+        fix_task["cwd"] = str(fix_workspace)
+
         source = definition.resolve_source(target, inputs)
         self.assertEqual(source.evidence["mismatches"], binding["mismatches"])
         self.assertEqual(
@@ -1958,11 +2021,30 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         }
         binding["mismatches"] = []
         binding["repairable"] = False
+        binding["active_target_owners"] = {
+            "status": "available",
+            "target_thread_id": role_task["id"],
+            "selected_automation_id": expected_automation["id"],
+            "unavailable_automation_ids": [],
+            "owners": [
+                {
+                    "automation_id": expected_automation["id"],
+                    "manifest_sha256": "8" * 64,
+                    "relation": "selected-role",
+                    "canonical_claims": claims,
+                }
+            ],
+            "conflicting_owner_ids": [],
+            "fingerprint": "b" * 64,
+        }
         applied = definition.verify(target, inputs, source, dispatched)
         self.assertEqual(applied.state, "applied")
         self.assertTrue(applied.evidence["automation_binding_applied"])
         self.assertTrue(applied.evidence["duplicate_role_absent"])
         self.assertTrue(applied.evidence["protected_automation_fields_preserved"])
+        self.assertTrue(applied.evidence["role_target_postcondition_current"])
+        self.assertTrue(applied.evidence["fix_executor_postcondition_current"])
+        self.assertTrue(applied.evidence["automation_timezone_current"])
         self.assertFalse(applied.evidence["direct_policy_write"])
         self.assertFalse(applied.evidence["direct_automation_write"])
 
@@ -1972,6 +2054,12 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertFalse(
             protected_drift.evidence["protected_automation_fields_preserved"]
         )
+
+        role_task["project_binding"]["project_id"] = "other"
+        role_drift = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(role_drift.state, "pending")
+        self.assertFalse(role_drift.evidence["role_target_postcondition_current"])
+        role_task["project_binding"]["project_id"] = project.id
 
         binding["current"] = current_automation
         binding["mismatches"] = []

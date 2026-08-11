@@ -918,6 +918,9 @@ test("automation mismatch exposes one bounded dual-owner repair preview", async 
     owner_status: "PAUSED",
     purpose: "watcher-action",
     timezone: "not-applicable-to-interval-schedule",
+    actual_timezone: "not-applicable-to-interval-schedule",
+    duplicate_coverage: "exact",
+    active_target_owner_ids: [],
     state: "partial",
     repairable: true,
     reason: "Policy cadence and actual automation state do not fully agree.",
@@ -1016,6 +1019,8 @@ test("automation mismatch exposes one bounded dual-owner repair preview", async 
   await expect(preview).toContainText("wrong-watcher-task")
   await expect(preview).toContainText("INTERVAL=45")
   await expect(preview).toContainText("INTERVAL=20")
+  await expect(preview).toContainText("exact · 0 active owners on target")
+  await expect(preview).toContainText("not-applicable-to-interval-schedule → not-applicable-to-interval-schedule")
   await expect(preview).toContainText("Named automation + canonical policy binding")
   await expect(preview).toContainText("No automatic retry or rollback")
   await expect(preview).toContainText("REPAIR AUTOMATION")
