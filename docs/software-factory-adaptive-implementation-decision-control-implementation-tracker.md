@@ -2868,23 +2868,34 @@ claims.
   independently signed structural review, claim-bound findings, current
   completion provenance, fully rooted owner handoff, or a final currentness
   recheck. Its `7/7` focused result is diagnostic only.
+- Rejected checkpoint `2918ebc3014210bc413dacdcf39ee8b8b052bc4c`
+  closed the original owner/binding set but remained non-current across a newer
+  different-ID target decision, accepted caller-replaceable evolution results,
+  could cite an older verified completion after a later failure, derived
+  canonical roots from ambient `HOME`, routed non-promote dispositions through
+  an adoption-labeled action, hashed live skill content twice, and retained a
+  timing-sensitive candidate fixture. Its independent review, focused `8/8`,
+  planned-new-file positive, historical Block 9 `29/29`, and mapped
+  `105` pass/`1` chronology error are diagnostic.
 - The corrective candidate loads canonical policy and mission-scoped events
-  internally, binds the latest exact adaptive decision/review, resolves the
-  fixed target and live skills, binds every Factory experiment/result and
-  structural packet/review to that decision, requires nonempty claim-bound
-  findings and a canonical verified capability-completion event, and rehydrates
-  all current owners after the final evidence load. Every mutating disposition
-  returns one fully rooted but non-authorizing handoff to the existing owner.
-- Corrective focused coverage passes `8/8` and the historical Block 9 suite
-  passes `29/29` under `/usr/bin/python3`. It covers both target classes and all
-  five paths plus canonical owner substitution, evolution identity, structural
-  revision/owner/scope/review binding, finding evidence, completion provenance,
-  final target currentness, and planned-new-file resolution without a raw
-  filesystem failure.
-- Mapped implementation validation passes `106/106`; all three fixed skill
-  validators, the full 18-Block tracker verifier, compilation, and exact diff
-  checks pass. The final fixed-owner correction reruns its affected focused
-  proof `8/8` successfully.
+  internally, binds the latest target-wide adaptive decision/review, resolves
+  fixed target/supervision/skill/configuration roots independently of `HOME`,
+  loads decision-derived write-once evolution artifacts from their canonical
+  owner, requires the latest completion event, disposition-specific routing,
+  one content-hash pass, and exact Git-derived candidate chronology, and
+  rehydrates all current owners after the final evidence load. Every mutating
+  disposition returns one fully rooted but non-authorizing handoff to the
+  existing owner.
+- Corrective focused coverage passes `10/10`, mapped implementation validation
+  passes `108/108`, and the historical Block 9 suite remains accepted at
+  `29/29` under `/usr/bin/python3`. It covers both target classes and all
+  five paths plus canonical owner substitution, evolution identity/replacement,
+  structural revision/owner/scope/review binding, finding evidence, latest
+  completion provenance, final target currentness, planned-new-file acceptance,
+  newer-decision invalidation, disposition-specific routing, ambient-home
+  substitution, exact candidate chronology, and one-hash economy. Exact
+  successor review remains pending. All three fixed skill validators, the full
+  18-Block tracker verifier, compilation, and exact diff checks pass.
 - No target cutover, Factory evolution producer, skill release/installation,
   policy, mission, lifecycle, Gmail, or later-Block effect was performed.
   Exact corrective revision, independent paired review, and final completion

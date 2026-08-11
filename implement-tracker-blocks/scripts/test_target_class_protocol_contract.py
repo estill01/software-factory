@@ -4,10 +4,12 @@ from __future__ import annotations
 import argparse
 import base64
 import copy
+import datetime as dt
 import hashlib
 import importlib.util
 import io
 import json
+import os
 import subprocess
 import tempfile
 import unittest
@@ -59,9 +61,10 @@ class TargetClassProtocolTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
-        self.skills_root = self.root / "skills"
+        self.codex_root = self.root / "codex"
+        self.skills_root = self.codex_root / "skills"
         release = self.root / "release"
-        self.skills_root.mkdir()
+        self.skills_root.mkdir(parents=True)
         release.mkdir()
         for skill_id in protocol.SKILL_IDS:
             source = release / skill_id
@@ -115,13 +118,26 @@ class TargetClassProtocolTests(unittest.TestCase):
             text=True,
             capture_output=True,
         ).stdout.strip()
+        committed_at = subprocess.run(
+            ["git", "show", "-s", "--format=%cI", "HEAD"],
+            cwd=self.adaptive.repository_root,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.strip()
+        self.adaptive.target_committed_at = dt.datetime.fromisoformat(committed_at)
+        self.adaptive.candidate_observed_at = (
+            self.adaptive.target_committed_at + dt.timedelta(seconds=1)
+        )
 
         self.original_constants = {
+            "CANONICAL_CODEX_ROOT": protocol.CANONICAL_CODEX_ROOT,
             "DEFAULT_SKILLS_ROOT": protocol.DEFAULT_SKILLS_ROOT,
             "DEFAULT_SUPERVISION_ROOT": protocol.DEFAULT_SUPERVISION_ROOT,
         }
         protocol.DEFAULT_SKILLS_ROOT = self.skills_root
         protocol.DEFAULT_SUPERVISION_ROOT = self.adaptive.root
+        protocol.CANONICAL_CODEX_ROOT = self.codex_root
         self.control_sequence = 0
         self.original_authority = {}
         for name in (
@@ -537,6 +553,8 @@ class TargetClassProtocolTests(unittest.TestCase):
         candidate: dict[str, object] | None,
         evidence: dict[str, object],
         live_sources_root: str,
+        candidate_effect_suffix: str = "",
+        evaluation_disposition: str = "promote",
     ) -> dict[str, object]:
         submission = self.evolution.review_submission()
         proposer = evidence["proposer_author_id"]
@@ -600,11 +618,13 @@ class TargetClassProtocolTests(unittest.TestCase):
         evaluation_submission["evaluator_id"] = evaluator
         evaluation_submission["experiment_id"] = experiment["experiment_id"]
         evaluation_submission["candidate_id"] = candidate_id
+        evaluation_submission["disposition"] = evaluation_disposition
         for item in evaluation_submission["baseline_results"]:
             item["condition_revision"] = live_sources_root
             self.evolution.refresh_result_root(item)
         for item in evaluation_submission["candidate_results"]:
             item["condition_revision"] = candidate_revision
+            item["observed_effect"] += candidate_effect_suffix
             self.evolution.refresh_result_root(item)
         evaluation = protocol.factory_evolution.build_candidate_evaluation(
             self.evolution.packet, review, evaluation_submission
@@ -613,8 +633,36 @@ class TargetClassProtocolTests(unittest.TestCase):
             self.evolution.packet, review, evaluation
         )
 
+    def retain_evolution(
+        self, evolution_id: str, bundle: dict[str, object]
+    ) -> None:
+        directory = protocol.supervision.factory_evolution_directory(
+            self.adaptive.root / self.adaptive.target, evolution_id
+        )
+        packet = bundle["learning-packet.json"]
+        review = bundle["review.json"]
+        prepare_manifest = protocol.factory_evolution.build_evolution_manifest(
+            {"learning-packet.json": packet}
+        )
+        finalize_manifest = protocol.factory_evolution.build_evolution_manifest(
+            {"learning-packet.json": packet, "review.json": review}
+        )
+        protocol.supervision.write_factory_evolution_set(
+            directory,
+            {
+                **bundle,
+                "prepare-manifest.json": prepare_manifest,
+                "finalize-manifest.json": finalize_manifest,
+            },
+        )
+
     def packet(
-        self, target_class: str, disposition: str
+        self,
+        target_class: str,
+        disposition: str,
+        *,
+        reopen_outcome: bool = False,
+        evolution_disposition: str = "promote",
     ) -> tuple[dict[str, object], dict[str, object]]:
         policy = self.reset_control(target_class)
         capability = None
@@ -623,6 +671,29 @@ class TargetClassProtocolTests(unittest.TestCase):
             capability, capability_root = self.capability_context(
                 policy, current_revision=self.adaptive.target_revision
             )
+            if reopen_outcome:
+                failed = argparse.Namespace(
+                    root=str(self.adaptive.root),
+                    target_thread=self.adaptive.target,
+                    state_fingerprint=capability["state_fingerprint"],
+                    current_revision=capability["current_revision"],
+                    mission_root=capability["mission_root"],
+                    status="failed",
+                    model="gpt-5.6-sol",
+                    reasoning="xhigh",
+                    outcome_manifest_sha256="0" * 64,
+                    artifact_currentness_sha256="c" * 64,
+                    effect_reconciliation_sha256="d" * 64,
+                    open_item_compatibility_sha256="e" * 64,
+                    independent_challenge_sha256="f" * 64,
+                    capability_reconciliation_json=capability["path"],
+                    active_block="Block-10",
+                    checkpoint="target-class-reopened-behavior",
+                    summary="Current behavior evidence reopened one gap.",
+                    evidence=["block-10-focused-reopened-behavior"],
+                )
+                with redirect_stdout(io.StringIO()):
+                    protocol.supervision.cmd_completion_record(failed)
         decision_packet, evidence, candidate, decision_event = (
             self.canonical_decision(
                 policy,
@@ -645,6 +716,7 @@ class TargetClassProtocolTests(unittest.TestCase):
         )
         live_sources_root = protocol.digest(live_sources)
         evolution = None
+        evolution_id = None
         if (
             target_class == "software-factory"
             and disposition in protocol.FACTORY_EVALUATED_DISPOSITIONS
@@ -654,7 +726,12 @@ class TargetClassProtocolTests(unittest.TestCase):
                 candidate=candidate,
                 evidence=evidence,
                 live_sources_root=live_sources_root,
+                evaluation_disposition=evolution_disposition,
             )
+            evolution_id = (
+                "target-class-" + decision_event["decision_fingerprint"][:20]
+            )
+            self.retain_evolution(evolution_id, evolution)
         product_root = (
             candidate["evidence_root"]
             if candidate is not None
@@ -673,7 +750,7 @@ class TargetClassProtocolTests(unittest.TestCase):
             "program_revision_packet": program_packet,
             "program_revision_review": program_review,
             "factory_skill_sources": live_sources,
-            "factory_evolution_bundle": evolution,
+            "factory_evolution_id": evolution_id,
             "capability_context": capability,
             "claimed_improvement": disposition == "continue-unchanged",
             "factory_alignment_findings": (
@@ -749,28 +826,46 @@ class TargetClassProtocolTests(unittest.TestCase):
         with self.assertRaises(protocol.TargetClassProtocolError):
             self.validate(packet)
 
+        packet, event = self.packet("target-repository", "correct-inline")
+        fake_home = self.root / "synthetic-home"
+        fake_home.mkdir()
+        with mock.patch.dict(os.environ, {"HOME": str(fake_home)}):
+            accepted = self.validate(packet)
+        self.assertEqual(accepted["decision_record_id"], event["record_id"])
+
     def test_evolution_is_exact_decision_evidence_not_role_only(self) -> None:
         packet, _event = self.packet("software-factory", "cutover-candidate")
         accepted = self.validate(packet)
-        changed = copy.deepcopy(packet)
-        changed["factory_evolution_bundle"] = self.evolution_bundle(
-            decision_event={
-                **_event,
-                "decision_fingerprint": "0" * 64,
-            },
+        replacement = self.evolution_bundle(
+            decision_event=_event,
             candidate=packet["decision_packet"]["candidate_evidence"],
             evidence=packet["decision_packet"]["decision_evidence"],
             live_sources_root=accepted["factory_skill_sources_root"],
+            candidate_effect_suffix=" Replacement result.",
         )
         with self.assertRaisesRegex(
-            protocol.TargetClassProtocolError, "differs from the decision"
+            protocol.supervision.SupervisionLogError,
+            "artifact differs",
         ):
-            self.validate(changed)
+            self.retain_evolution(packet["factory_evolution_id"], replacement)
         self.assertIsNotNone(accepted["factory_evolution_root"])
         self.assertIn(
             accepted["factory_evolution_root"],
             accepted["application_handoff"].values(),
         )
+
+        rejected_packet, _event = self.packet(
+            "software-factory",
+            "cutover-candidate",
+            evolution_disposition="reject",
+        )
+        rejected = self.validate(rejected_packet)
+        self.assertFalse(rejected["adoption_eligible"])
+        self.assertEqual(
+            rejected["resume_action"],
+            "normal-owner-factory-candidate-retirement",
+        )
+        self.assertNotIn("adoption", rejected["resume_action"])
 
     def test_structural_packet_binds_revision_owner_scope_and_review(self) -> None:
         packet, _event = self.packet("software-factory", "amend-structure")
@@ -800,6 +895,16 @@ class TargetClassProtocolTests(unittest.TestCase):
             protocol.TargetClassProtocolError, "findings are required"
         ):
             self.validate(packet)
+
+    def test_factory_mutation_hashes_live_skill_content_once(self) -> None:
+        packet, _event = self.packet("software-factory", "correct-inline")
+        with mock.patch.object(
+            protocol,
+            "resolve_live_skill_sources",
+            wraps=protocol.resolve_live_skill_sources,
+        ) as resolver:
+            self.validate(packet)
+        self.assertEqual(resolver.call_count, 1)
         packet, _event = self.packet("software-factory", "correct-inline")
         packet["factory_alignment_findings"][0]["evidence_roots"] = ["0" * 64]
         with self.assertRaisesRegex(
@@ -812,6 +917,36 @@ class TargetClassProtocolTests(unittest.TestCase):
         packet["capability_context"]["completion_record_sha256"] = "0" * 64
         with self.assertRaisesRegex(
             protocol.TargetClassProtocolError, "canonical completion event"
+        ):
+            self.validate(packet)
+
+        packet, _event = self.packet(
+            "target-repository",
+            "continue-unchanged",
+            reopen_outcome=True,
+        )
+        with self.assertRaisesRegex(
+            protocol.TargetClassProtocolError, "canonical completion event"
+        ):
+            self.validate(packet)
+
+    def test_newer_target_decision_makes_prior_packet_stale(self) -> None:
+        packet, _event = self.packet("target-repository", "correct-inline")
+        policy = json.loads(
+            (
+                self.adaptive.root
+                / self.adaptive.target
+                / "policy.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.canonical_decision(
+            policy,
+            target_class="target-repository",
+            disposition="continue-unchanged",
+            decision_id="newer-target-decision-1234",
+        )
+        with self.assertRaisesRegex(
+            protocol.TargetClassProtocolError, "canonical owner event"
         ):
             self.validate(packet)
 

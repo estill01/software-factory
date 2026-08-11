@@ -50,18 +50,23 @@ candidate can only route to the existing target cutover owner.
 
 ## Software Factory self-work
 
-For every mutating disposition, resolve and hash the three live stable skill
-sources once. Require all three links to resolve to one release and reject
-missing, stale, cross-release, nested-symlink, or oversized manifests. The
-unchanged path performs no skill-source scan.
+For every mutating disposition, resolve and content-hash the three live stable
+skill sources exactly once, bracketed by bounded metadata-identity snapshots
+and followed by the same cheap identity check at final currentness. Require all
+three links to resolve to one release and reject missing, stale, cross-release,
+nested-symlink, oversized, or changed manifests. The unchanged path performs no
+skill-source scan.
 
 The canonical proposer/author, implementation owner, independent reviewer, and
 evaluator must be four distinct identities. The adaptive review remains the
-decision review. For inline correction, candidate comparison, and candidate
-cutover, additionally verify the accepted Factory-evolution bundle and bind its
-experiment, baseline, candidate, proposer, implementer, evaluator, review,
-evaluation, and disposition to the exact decision/currentness and live skill
-manifest. A
+decision review. Inline correction remains a normal-owner correction and cannot
+claim adoption eligibility before retained candidate behavior exists. For
+candidate comparison and candidate cutover, load the decision-derived,
+write-once Factory-evolution artifact set from its canonical supervision owner;
+do not accept bundle bytes from the caller. Bind its staged manifests,
+experiment, baseline, retained candidate, proposer, implementer, evaluator,
+review, evaluation, and disposition to the exact decision/currentness and live
+skill manifest. A
 `promote` evaluation means only `adoption_eligible=true`; it grants no edit,
 release, install, activation, or promotion authority. Structural work instead
 binds its validated program-revision author and application owner.
@@ -79,10 +84,11 @@ Process, test, tracker, review, or evolution records alone cannot establish a
 target improvement. When the packet explicitly claims an improvement, resolve
 the existing capability-reconciliation record under the same canonical policy,
 target thread, mission root, state fingerprint, and exact current revision.
-Require the same reconciliation root, owner identities, and revision in a
-canonical verified outcome-completion event. Reject a missing, stale,
-mismatched, or reopening reconciliation. Reject an unclaimed reconciliation as
-ambiguous.
+Require the same reconciliation root, owner identities, and revision in the
+latest canonical outcome-completion event for the exact state fingerprint, and
+carry that event ID/root into the result and handoff. Reject a missing, stale,
+mismatched, failed, or reopening reconciliation. Reject an unclaimed
+reconciliation as ambiguous.
 
 After the last evidence load, rehydrate the canonical policy/ledger, target
 revision and affected content, live skill sources, and current behavior. Reject

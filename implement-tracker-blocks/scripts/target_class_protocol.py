@@ -24,8 +24,9 @@ PROGRAM_REVISION_PATH = (
 FACTORY_EVOLUTION_PATH = (
     ROOT / "supervise-tracker-runs" / "scripts" / "factory_evolution.py"
 )
-DEFAULT_SKILLS_ROOT = Path.home() / ".codex" / "skills"
-DEFAULT_SUPERVISION_ROOT = Path.home() / ".codex" / "supervision" / "tracker-runs"
+CANONICAL_CODEX_ROOT = Path("/Users/ethanstillman/.codex")
+DEFAULT_SKILLS_ROOT = CANONICAL_CODEX_ROOT / "skills"
+DEFAULT_SUPERVISION_ROOT = CANONICAL_CODEX_ROOT / "supervision" / "tracker-runs"
 SKILL_IDS = (
     "author-implementation-trackers",
     "implement-tracker-blocks",
@@ -33,7 +34,6 @@ SKILL_IDS = (
 )
 TARGET_CLASSES = {"target-repository", "software-factory"}
 FACTORY_EVALUATED_DISPOSITIONS = {
-    "correct-inline",
     "compare-candidate",
     "cutover-candidate",
 }
@@ -186,6 +186,61 @@ def resolve_live_skill_sources(
     return records
 
 
+def _live_skill_identity(skills_root: Path) -> str:
+    """Capture bounded source identity without rereading skill file content."""
+
+    root = skills_root.resolve(strict=True)
+    records: list[dict[str, Any]] = []
+    for skill_id in SKILL_IDS:
+        discovery = root / skill_id
+        try:
+            link = discovery.lstat()
+            source = discovery.resolve(strict=True)
+        except OSError as error:
+            raise TargetClassProtocolError(
+                "live skill identity changed while reading"
+            ) from error
+        if not stat.S_ISLNK(link.st_mode) or not source.is_dir():
+            raise TargetClassProtocolError("live skill identity differs")
+        records.append(
+            {
+                "skill_id": skill_id,
+                "entry": ".",
+                "source_path": str(source),
+                "mode": stat.S_IMODE(link.st_mode),
+                "device": link.st_dev,
+                "inode": link.st_ino,
+                "size": link.st_size,
+                "mtime_ns": link.st_mtime_ns,
+            }
+        )
+        paths = sorted(source.rglob("*"))
+        if len(paths) > MAX_SKILL_FILES * 2:
+            raise TargetClassProtocolError(
+                "live skill identity exceeds its bounded manifest"
+            )
+        for path in paths:
+            try:
+                current = path.lstat()
+            except OSError as error:
+                raise TargetClassProtocolError(
+                    "live skill identity changed while reading"
+                ) from error
+            records.append(
+                {
+                    "skill_id": skill_id,
+                    "entry": path.relative_to(source).as_posix(),
+                    "source_path": str(source),
+                    "mode": current.st_mode,
+                    "device": current.st_dev,
+                    "inode": current.st_ino,
+                    "size": current.st_size,
+                    "mtime_ns": current.st_mtime_ns,
+                }
+            )
+    return digest(records)
+
+
 def _normalize_findings(
     value: Any,
     label: str,
@@ -296,7 +351,7 @@ def validate_target_class_protocol(
         "program_revision_packet",
         "program_revision_review",
         "factory_skill_sources",
-        "factory_evolution_bundle",
+        "factory_evolution_id",
         "capability_context",
         "claimed_improvement",
         "factory_alignment_findings",
@@ -333,11 +388,13 @@ def validate_target_class_protocol(
     except Exception as error:
         raise TargetClassProtocolError("adaptive decision evidence is not current") from error
     decision_record_id = _safe_id(source["decision_record_id"], "decision record")
+    all_decision_events = [
+        item for item in active_events if item.get("kind") == "adaptive-decision"
+    ]
     decision_events = [
         item
-        for item in active_events
-        if item.get("kind") == "adaptive-decision"
-        and item.get("decision_id") == result["decision_id"]
+        for item in all_decision_events
+        if item.get("decision_id") == result["decision_id"]
     ]
     decision_event = next(
         (
@@ -377,6 +434,8 @@ def validate_target_class_protocol(
         decision_event is None
         or not decision_events
         or decision_events[-1] != decision_event
+        or not all_decision_events
+        or all_decision_events[-1] != decision_event
         or any(decision_event.get(key) != value for key, value in event_bindings.items())
     ):
         raise TargetClassProtocolError(
@@ -514,8 +573,10 @@ def validate_target_class_protocol(
     evolution_disposition: Optional[str] = None
     adoption_eligible = False
     live_sources: list[dict[str, Any]] = []
+    live_skill_identity: Optional[str] = None
     live_sources_root = digest(live_sources)
     evolution_root: Optional[str] = None
+    evolution_id: Optional[str] = None
     evolution_review_root: Optional[str] = None
     evaluation_root: Optional[str] = None
     experiment_root: Optional[str] = None
@@ -524,13 +585,13 @@ def validate_target_class_protocol(
     reviewer: Optional[str] = None
     evaluator: Optional[str] = None
     if target_class == "target-repository":
-        if source["factory_skill_sources"] or source["factory_evolution_bundle"] is not None:
+        if source["factory_skill_sources"] or source["factory_evolution_id"] is not None:
             raise TargetClassProtocolError("ordinary target work invoked Factory evolution")
         if source["factory_alignment_findings"]:
             raise TargetClassProtocolError("ordinary target work claimed Factory ownership")
         protected_roots = [
             DEFAULT_SKILLS_ROOT.resolve(strict=True),
-            (Path.home() / ".codex").resolve(),
+            CANONICAL_CODEX_ROOT.resolve(strict=True),
             ROOT.resolve(strict=True),
         ]
         if any(
@@ -543,11 +604,16 @@ def validate_target_class_protocol(
             if any(path == root or root in path.parents for root in protected_roots):
                 raise TargetClassProtocolError("ordinary target scope reaches a live Factory skill")
     else:
-        live_sources = (
-            []
-            if disposition == "continue-unchanged"
-            else resolve_live_skill_sources(DEFAULT_SKILLS_ROOT)
-        )
+        if disposition == "continue-unchanged":
+            live_sources = []
+        else:
+            identity_before = _live_skill_identity(DEFAULT_SKILLS_ROOT)
+            live_sources = resolve_live_skill_sources(DEFAULT_SKILLS_ROOT)
+            live_skill_identity = _live_skill_identity(DEFAULT_SKILLS_ROOT)
+            if live_skill_identity != identity_before:
+                raise TargetClassProtocolError(
+                    "software-factory skill sources changed"
+                )
         if source["factory_skill_sources"] != live_sources:
             raise TargetClassProtocolError("software-factory skill sources are stale")
         live_sources_root = digest(live_sources)
@@ -562,9 +628,41 @@ def validate_target_class_protocol(
             roles = [proposer, implementer, reviewer, evaluator]
             if any(type(item) is not str for item in roles) or len(set(roles)) != 4:
                 raise TargetClassProtocolError("software-factory roles are not independent")
-            evolution = source["factory_evolution_bundle"]
+            evolution_id = source["factory_evolution_id"]
             if disposition in FACTORY_EVALUATED_DISPOSITIONS:
+                expected_evolution_id = (
+                    "target-class-" + result["decision_fingerprint"][:20]
+                )
+                if evolution_id != expected_evolution_id:
+                    raise TargetClassProtocolError(
+                        "Factory evolution identity differs from the decision"
+                    )
                 try:
+                    evolution_directory = supervision.factory_evolution_directory(
+                        directory,
+                        _safe_id(evolution_id, "Factory evolution ID"),
+                    )
+                    supervision.verify_factory_evolution_inventory(
+                        evolution_directory
+                    )
+                    evolution_packet, evolution_review = (
+                        supervision.verify_factory_evolution_finalize(
+                            factory_evolution, evolution_directory
+                        )
+                    )
+                    artifacts = supervision.require_factory_evolution_artifacts(
+                        evolution_directory,
+                        (
+                            "evaluation.json",
+                            "machine-report.json",
+                            "manifest.json",
+                        ),
+                    )
+                    evolution = {
+                        "learning-packet.json": evolution_packet,
+                        "review.json": evolution_review,
+                        **artifacts,
+                    }
                     evolution = factory_evolution.verify_evolution_bundle(evolution)
                 except Exception as error:
                     raise TargetClassProtocolError("Factory evolution bundle is not current") from error
@@ -575,19 +673,11 @@ def validate_target_class_protocol(
                 expected_candidate_id = (
                     "adaptive-candidate-" + result["decision_fingerprint"][:20]
                 )
-                expected_candidate_revision = (
-                    candidate["candidate_root"]
-                    if candidate is not None
-                    else digest(
-                        {
-                            "decision_fingerprint": result[
-                                "decision_fingerprint"
-                            ],
-                            "disposition": disposition,
-                            "implementation_owner_id": implementer,
-                        }
+                if candidate is None:
+                    raise TargetClassProtocolError(
+                        "Factory evolution lacks retained candidate behavior"
                     )
-                )
+                expected_candidate_revision = candidate["candidate_root"]
                 evolution_binding = {
                     "decision_id": result["decision_id"],
                     "decision_fingerprint": result["decision_fingerprint"],
@@ -626,11 +716,13 @@ def validate_target_class_protocol(
                 experiment_root = digest(experiment)
                 evolution_disposition = str(evaluation["disposition"])
                 adoption_eligible = evolution_disposition == "promote"
-            elif evolution is not None:
+            elif evolution_id is not None:
                 raise TargetClassProtocolError("Factory evolution is not required for this path")
-        elif source["factory_evolution_bundle"] is not None:
+        elif source["factory_evolution_id"] is not None:
             raise TargetClassProtocolError("unchanged Factory work opened an evolution cycle")
     capability_root: Optional[str] = None
+    capability_completion_record_id: Optional[str] = None
+    capability_completion_record_sha256: Optional[str] = None
     improvement_established = False
     capability_context = source["capability_context"]
     if capability_context is not None:
@@ -674,8 +766,13 @@ def validate_target_class_protocol(
             ),
             None,
         )
+        latest_completion = supervision.latest_outcome_completion_record(
+            active_events,
+            state_fingerprint=context["state_fingerprint"],
+        )
         if (
             completion is None
+            or latest_completion != completion
             or completion.get("kind") != "check"
             or completion.get("category")
             != supervision.OUTCOME_COMPLETION_CATEGORY
@@ -702,6 +799,8 @@ def validate_target_class_protocol(
             raise TargetClassProtocolError(
                 "capability reconciliation lacks its canonical completion event"
             )
+        capability_completion_record_id = completion["record_id"]
+        capability_completion_record_sha256 = completion["record_sha256"]
         improvement_established = capability["completion_posture"] == "verified"
     claimed_improvement = source["claimed_improvement"]
     if type(claimed_improvement) is not bool:
@@ -828,7 +927,7 @@ def validate_target_class_protocol(
     if final_result != result:
         raise TargetClassProtocolError("adaptive decision currentness changed")
     if target_class == "software-factory" and disposition != "continue-unchanged":
-        if resolve_live_skill_sources(DEFAULT_SKILLS_ROOT) != live_sources:
+        if _live_skill_identity(DEFAULT_SKILLS_ROOT) != live_skill_identity:
             raise TargetClassProtocolError("software-factory skill sources changed")
     if capability_context is not None:
         try:
@@ -858,11 +957,18 @@ def validate_target_class_protocol(
     elif disposition == "amend-structure":
         application_action = "normal-authoring-owner-application"
     elif disposition == "cutover-candidate":
-        application_action = (
-            "normal-target-owner-cutover"
-            if target_class == "target-repository"
-            else "retain-adoption-eligible-evidence-with-normal-owner"
-        )
+        if target_class == "target-repository":
+            application_action = "normal-target-owner-cutover"
+        elif evolution_disposition == "promote":
+            application_action = (
+                "retain-adoption-eligible-evidence-with-normal-owner"
+            )
+        elif evolution_disposition == "revise":
+            application_action = "normal-owner-factory-candidate-revision"
+        elif evolution_disposition == "reject":
+            application_action = "normal-owner-factory-candidate-retirement"
+        else:
+            application_action = "normal-owner-factory-candidate-advisory"
     application_handoff = (
         {
             "schema_version": 1,
@@ -884,6 +990,7 @@ def validate_target_class_protocol(
                 program_review.get("review_root") if program_review else None
             ),
             "factory_skill_sources_root": live_sources_root,
+            "factory_evolution_id": evolution_id,
             "factory_evolution_root": evolution_root,
             "factory_evolution_review_root": evolution_review_root,
             "factory_evaluation_root": evaluation_root,
@@ -896,6 +1003,10 @@ def validate_target_class_protocol(
                 "evaluator_id": evaluator,
             },
             "capability_reconciliation_root": capability_root,
+            "capability_completion_record_id": capability_completion_record_id,
+            "capability_completion_record_sha256": (
+                capability_completion_record_sha256
+            ),
             "factory_alignment_findings_root": digest(factory_findings),
             "target_product_findings_root": digest(product_findings),
             "application_action": application_action,
@@ -929,6 +1040,7 @@ def validate_target_class_protocol(
         ),
         "application_handoff": application_handoff,
         "factory_skill_sources_root": live_sources_root,
+        "factory_evolution_id": evolution_id,
         "factory_evolution_root": evolution_root,
         "factory_evolution_review_root": evolution_review_root,
         "factory_evaluation_root": evaluation_root,
@@ -937,6 +1049,10 @@ def validate_target_class_protocol(
         "factory_alignment_findings_root": digest(factory_findings),
         "target_product_findings_root": digest(product_findings),
         "capability_reconciliation_root": capability_root,
+        "capability_completion_record_id": capability_completion_record_id,
+        "capability_completion_record_sha256": (
+            capability_completion_record_sha256
+        ),
         "application_authorized": False,
         "candidate_authoritative": False,
         "promotion_authorized": False,

@@ -342,7 +342,8 @@ semantics identical. Load canonical policy, mission-scoped events, target
 identity, active candidates, and live skills from their fixed owners rather than
 accepting them from the caller. Ordinary target work must not reach live Factory
 skills, global configuration, evolution, or promotion. Software Factory
-mutation adds exact live-source and evolution experiment/result binding plus
+mutation adds one exact live-source content hash and canonical write-once
+evolution experiment/result binding plus
 distinct proposer/author, implementer, reviewer, and evaluator identities. A
 Factory-evolution `promote` disposition is only eligibility for a separately
 governed adoption path; this protocol never applies, releases, installs,
