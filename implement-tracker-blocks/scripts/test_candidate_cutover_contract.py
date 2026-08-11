@@ -25,6 +25,36 @@ SOURCE_TRACKER = (
     Path(__file__).resolve().parents[2]
     / "docs/software-factory-adaptive-implementation-decision-control-implementation-tracker.md"
 )
+BLOCK9_HEADING = "## Block 9 — Cut over a winning candidate, reconcile currentness, and resume"
+BLOCK10_HEADING = "## Block 10 — Bind the same protocol to target repositories and Software Factory self-work"
+
+
+def block9_program_snapshot(source: str) -> str:
+    """Freeze the accepted Block 9 status frontier after the live tracker advances."""
+
+    replacements = (
+        (
+            "| 9 | Cut over a winning candidate, reconcile currentness, and resume | 6, 7 | `completed` |",
+            "| 9 | Cut over a winning candidate, reconcile currentness, and resume | 6, 7 | `in-progress` |",
+        ),
+        (
+            "| 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `in-progress` |",
+            "| 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `not-started` |",
+        ),
+        (
+            f"{BLOCK9_HEADING}\n\nStatus: `completed`",
+            f"{BLOCK9_HEADING}\n\nStatus: `in-progress`",
+        ),
+        (
+            f"{BLOCK10_HEADING}\n\nStatus: `in-progress`",
+            f"{BLOCK10_HEADING}\n\nStatus: `not-started`",
+        ),
+    )
+    for current, historical in replacements:
+        if source.count(current) != 1:
+            raise AssertionError("current tracker status frontier differs")
+        source = source.replace(current, historical, 1)
+    return source
 
 
 class CandidateCutoverContractTests(unittest.TestCase):
@@ -46,7 +76,10 @@ class CandidateCutoverContractTests(unittest.TestCase):
         self.relative = relative
         (self.target / relative).write_bytes(incumbent)
         self.tracker = self.target / "tracker.md"
-        self.tracker.write_bytes(SOURCE_TRACKER.read_bytes())
+        self.tracker.write_text(
+            block9_program_snapshot(SOURCE_TRACKER.read_text(encoding="utf-8")),
+            encoding="utf-8",
+        )
         control = self.target / ".software-factory"
         control.mkdir()
         self.proof_path = self.target / cutover.PROOF_RELATIVE

@@ -338,17 +338,23 @@ ordinary repositories and Software Factory self-work, read
 use its read-only target-class composition.
 
 Keep unchanged, inline, candidate, structural, currentness, and continuation
-semantics identical. Ordinary target work must not reach live Factory skills,
-global configuration, evolution, or promotion. Software Factory mutation adds
-exact live-source binding plus distinct proposer/author, implementer, reviewer,
-and evaluator identities. A Factory-evolution `promote` disposition is only
-eligibility for a separately governed adoption path; this protocol never
-applies, releases, installs, activates, or promotes it.
+semantics identical. Load canonical policy, mission-scoped events, target
+identity, active candidates, and live skills from their fixed owners rather than
+accepting them from the caller. Ordinary target work must not reach live Factory
+skills, global configuration, evolution, or promotion. Software Factory
+mutation adds exact live-source and evolution experiment/result binding plus
+distinct proposer/author, implementer, reviewer, and evaluator identities. A
+Factory-evolution `promote` disposition is only eligibility for a separately
+governed adoption path; this protocol never applies, releases, installs,
+activates, or promotes it.
 
 Candidate and process records never confer production authority. Emit only the
-rooted non-authorizing owner handoff, keep Factory-alignment and target-product
-findings separately attributable, and require the existing current
-capability-reconciliation owner before recording any claimed improvement.
+fully rooted non-authorizing handoff to the exact normal owner, keep nonempty
+Factory-alignment and target-product findings separately claim-bound, require a
+signed exact structural review, and require the canonical current
+capability-reconciliation completion event before recording any claimed
+improvement. Rehydrate all owners after the final evidence load and reject
+changed currentness.
 
 For a materially expensive read-only proof or audit with a separate reporter or
 helper, cheaply preflight the maintained reporting interface and its invocation

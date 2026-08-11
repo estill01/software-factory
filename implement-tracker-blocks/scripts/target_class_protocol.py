@@ -8,6 +8,7 @@ import importlib.util
 import os
 import stat
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Mapping, Optional, Sequence
 
 
@@ -24,6 +25,7 @@ FACTORY_EVOLUTION_PATH = (
     ROOT / "supervise-tracker-runs" / "scripts" / "factory_evolution.py"
 )
 DEFAULT_SKILLS_ROOT = Path.home() / ".codex" / "skills"
+DEFAULT_SUPERVISION_ROOT = Path.home() / ".codex" / "supervision" / "tracker-runs"
 SKILL_IDS = (
     "author-implementation-trackers",
     "implement-tracker-blocks",
@@ -184,12 +186,20 @@ def resolve_live_skill_sources(
     return records
 
 
-def _normalize_findings(value: Any, label: str) -> list[dict[str, str]]:
+def _normalize_findings(
+    value: Any,
+    label: str,
+    *,
+    allowed_roots: set[str],
+    required_root: Optional[str],
+) -> list[dict[str, Any]]:
     if not isinstance(value, list) or len(value) > 16:
         raise TargetClassProtocolError(f"{label} findings differ")
-    result: list[dict[str, str]] = []
+    if required_root is not None and not value:
+        raise TargetClassProtocolError(f"{label} findings are required")
+    result: list[dict[str, Any]] = []
     for item in value:
-        _exact_fields(item, {"finding_id", "statement", "evidence_root"}, label)
+        _exact_fields(item, {"finding_id", "statement", "evidence_roots"}, label)
         finding_id = _safe_id(item["finding_id"], f"{label} finding ID")
         statement = item["statement"]
         if (
@@ -199,36 +209,92 @@ def _normalize_findings(value: Any, label: str) -> list[dict[str, str]]:
             or len(statement) > 600
         ):
             raise TargetClassProtocolError(f"{label} finding statement differs")
+        roots = item["evidence_roots"]
+        if (
+            not isinstance(roots, list)
+            or not roots
+            or len(roots) > 8
+            or any(type(root) is not str for root in roots)
+            or roots != sorted(set(roots))
+        ):
+            raise TargetClassProtocolError(f"{label} finding evidence differs")
+        normalized_roots = [
+            _exact_sha(root, f"{label} finding evidence root") for root in roots
+        ]
+        if not set(normalized_roots).issubset(allowed_roots):
+            raise TargetClassProtocolError(
+                f"{label} finding evidence is not claim-bound"
+            )
         result.append(
             {
                 "finding_id": finding_id,
                 "statement": statement,
-                "evidence_root": _exact_sha(
-                    item["evidence_root"], f"{label} finding evidence root"
-                ),
+                "evidence_roots": normalized_roots,
             }
         )
     if result != sorted(result, key=lambda item: item["finding_id"]) or len(
         {item["finding_id"] for item in result}
     ) != len(result):
         raise TargetClassProtocolError(f"{label} finding order differs")
+    if required_root is not None and not any(
+        required_root in item["evidence_roots"] for item in result
+    ):
+        raise TargetClassProtocolError(f"{label} findings omit current evidence")
     return result
 
 
+def _control_snapshot(
+    target_thread: str,
+) -> tuple[Path, dict[str, Any], list[dict[str, Any]], Any, Any, Any]:
+    target = _safe_id(target_thread, "target thread")
+    args = SimpleNamespace(root=str(DEFAULT_SUPERVISION_ROOT), target_thread=target)
+    try:
+        (
+            directory,
+            policy,
+            policy_snapshot,
+            all_events,
+            event_snapshot,
+            directory_snapshot,
+        ) = supervision.load_control_snapshot(args)
+    except Exception as error:
+        raise TargetClassProtocolError(
+            "canonical supervision state is unavailable"
+        ) from error
+    active_events = supervision.mission_scoped_events(directory, policy, all_events)
+    return (
+        directory,
+        policy,
+        active_events,
+        policy_snapshot,
+        event_snapshot,
+        directory_snapshot,
+    )
+
+
 def validate_target_class_protocol(
-    policy: Mapping[str, Any],
+    target_thread: str,
     packet: Mapping[str, Any],
-    *,
-    skills_root: Path = DEFAULT_SKILLS_ROOT,
 ) -> dict[str, Any]:
     """Compose existing owners without conferring release or promotion authority."""
+
+    (
+        directory,
+        policy,
+        active_events,
+        policy_snapshot,
+        event_snapshot,
+        directory_snapshot,
+    ) = _control_snapshot(target_thread)
 
     expected = {
         "schema_version",
         "kind",
         "target_class",
+        "decision_record_id",
         "decision_packet",
         "program_revision_packet",
+        "program_revision_review",
         "factory_skill_sources",
         "factory_evolution_bundle",
         "capability_context",
@@ -246,33 +312,164 @@ def validate_target_class_protocol(
     if not isinstance(control, Mapping) or control.get("target_class") != target_class:
         raise TargetClassProtocolError("target class differs from canonical policy")
     decision_packet = source["decision_packet"]
+    governing_events = [
+        item
+        for item in active_events
+        if item.get("kind") not in {"adaptive-decision", "adaptive-decision-review"}
+    ]
+    governing_root = (
+        governing_events[-1].get("record_sha256") if governing_events else None
+    )
+    if decision_packet.get("governing_event_head_root") != governing_root:
+        raise TargetClassProtocolError("adaptive governing event head is not current")
     try:
         result = supervision._adaptive_decision_posture(
             policy,
             decision_packet,
-            active_candidate_fingerprints=[],
+            active_candidate_fingerprints=supervision.adaptive_active_candidate_fingerprints(
+                active_events
+            ),
         )
     except Exception as error:
         raise TargetClassProtocolError("adaptive decision evidence is not current") from error
+    decision_record_id = _safe_id(source["decision_record_id"], "decision record")
+    decision_events = [
+        item
+        for item in active_events
+        if item.get("kind") == "adaptive-decision"
+        and item.get("decision_id") == result["decision_id"]
+    ]
+    decision_event = next(
+        (
+            item
+            for item in decision_events
+            if item.get("record_id") == decision_record_id
+        ),
+        None,
+    )
+    if decision_event is not None and decision_event.get(
+        "independent_review_record"
+    ) is not None:
+        result = {
+            **result,
+            "independent_review_record": decision_event[
+                "independent_review_record"
+            ],
+        }
+        result["result_sha256"] = digest(
+            {key: value for key, value in result.items() if key != "result_sha256"}
+        )
+    event_bindings = {
+        "decision_fingerprint": result["decision_fingerprint"],
+        "decision_currentness_root": result["decision_currentness_root"],
+        "decision_semantics_root": result["decision_semantics_root"],
+        "decision_source_root": result["decision_source_root"],
+        "target_class": result["target_class"],
+        "disposition": result["disposition"],
+        "candidate_evidence_root": result["candidate_evidence_root"],
+        "candidate_currentness_root": result["candidate_currentness_root"],
+        "proposer_author_id": result["proposer_author_id"],
+        "implementation_owner_id": result["implementation_owner_id"],
+        "policy_sha256": result["policy_sha256"],
+        "result_sha256": result["result_sha256"],
+    }
+    if (
+        decision_event is None
+        or not decision_events
+        or decision_events[-1] != decision_event
+        or any(decision_event.get(key) != value for key, value in event_bindings.items())
+    ):
+        raise TargetClassProtocolError(
+            "adaptive decision differs from its canonical owner event"
+        )
+    review_record_id = decision_event.get("independent_review_record")
+    if review_record_id is None:
+        if decision_packet.get("independent_review") is not None:
+            raise TargetClassProtocolError("adaptive review lacks a canonical event")
+    else:
+        try:
+            canonical_review = supervision.resolve_adaptive_review(
+                active_events, str(review_record_id), policy=policy
+            )
+        except Exception as error:
+            raise TargetClassProtocolError(
+                "adaptive review is not canonically current"
+            ) from error
+        if decision_packet.get("independent_review") != canonical_review:
+            raise TargetClassProtocolError(
+                "adaptive review differs from its canonical event"
+            )
     decision = decision_packet["decision_evidence"]
     disposition = str(decision["disposition"])
     candidate = decision_packet["candidate_evidence"]
+    repository_root = Path(decision["target_repository_root"]).resolve(strict=True)
+    canonical_repository_root = Path(
+        control["target_repository_root"]
+    ).resolve(strict=True)
+    if repository_root != canonical_repository_root:
+        raise TargetClassProtocolError(
+            "target class differs from the canonical repository owner"
+        )
     program_packet = source["program_revision_packet"]
+    program_review = source["program_revision_review"]
     if disposition == "amend-structure":
         try:
             program_packet = program_revision.validate_stored_packet(program_packet)
         except Exception as error:
             raise TargetClassProtocolError("program revision packet is not valid") from error
+        mission = supervision.bound_mission(policy)
+        if mission is None:
+            raise TargetClassProtocolError("program revision lacks a bound mission")
         if (
             program_packet["target_class"] != target_class
             or program_packet["target_thread_id"] != policy.get("target_thread_id")
+            or program_packet["mission_root"] != mission["mission_root"]
+            or program_packet["policy_sha256"] != policy["policy_sha256"]
+            or program_packet["decision_record_id"] != decision_event["record_id"]
+            or program_packet["decision_record_sha256"]
+            != decision_event["record_sha256"]
             or program_packet["repository_root"] != decision["target_repository_root"]
+            or program_packet["target_revision"] != decision["target_revision"]
             or program_packet["target_revision_root"] != decision["target_revision_root"]
+            or program_packet["target_revision_root"]
+            != digest({"target_revision": program_packet["target_revision"]})
             or program_packet["decision_fingerprint"] != result["decision_fingerprint"]
             or program_packet["decision_currentness_root"]
             != result["decision_currentness_root"]
+            or program_packet["application_precondition_root"]
+            != result["application_precondition_root"]
+            or program_packet["candidate_evidence_root"]
+            != result["candidate_evidence_root"]
+            or program_packet["decision_target_state_root"]
+            != decision["decision_target_state_root"]
+            or program_packet["current_target_state_root"]
+            != decision["current_target_state_root"]
+            or program_packet["authority_mode"]
+            != result["adaptive_decision_mode"]
         ):
             raise TargetClassProtocolError("program revision differs from the decision")
+        previous_tracker = Path(program_packet["previous_tracker_path"])
+        try:
+            previous_tracker = previous_tracker.resolve(strict=True)
+            previous_tracker.relative_to(repository_root)
+        except (OSError, ValueError) as error:
+            raise TargetClassProtocolError(
+                "program revision tracker differs from the target repository"
+            ) from error
+        affected_by_path = {
+            Path(item["path"]).resolve(): item for item in decision["affected_scope"]
+        }
+        previous_scope = affected_by_path.get(previous_tracker)
+        if (
+            previous_scope is None
+            or hashlib.sha256(previous_tracker.read_bytes()).hexdigest()
+            != program_packet["previous_tracker_sha256"]
+            or previous_scope["content_root"]
+            != program_packet["previous_tracker_sha256"]
+        ):
+            raise TargetClassProtocolError(
+                "program revision tracker is not current decision scope"
+            )
         if target_class == "software-factory" and (
             program_packet["author_id"] != decision.get("proposer_author_id")
             or program_packet["application_owner_id"]
@@ -281,44 +478,79 @@ def validate_target_class_protocol(
             raise TargetClassProtocolError(
                 "software-factory structural roles differ from the decision"
             )
-    elif program_packet is not None:
+        if (
+            program_packet["application_owner_id"]
+            != decision["implementation_owner_id"]
+        ):
+            raise TargetClassProtocolError(
+                "program revision application owner differs from the decision"
+            )
+        try:
+            program_review = supervision.validate_program_revision_review(
+                program_review, packet=program_packet
+            )
+        except Exception as error:
+            raise TargetClassProtocolError(
+                "program revision independent review is not valid"
+            ) from error
+        adaptive_review = decision_packet["independent_review"]
+        if (
+            program_review["disposition"] != "accepted"
+            or program_review["finding_refs"]
+            or program_review["reviewer_id"] != program_packet["reviewer_id"]
+            or not isinstance(adaptive_review, Mapping)
+            or program_review["reviewer_id"] != adaptive_review.get("reviewer_id")
+            or program_review["reviewer_id"]
+            in {
+                decision.get("proposer_author_id"),
+                decision["implementation_owner_id"],
+            }
+        ):
+            raise TargetClassProtocolError(
+                "program revision review roles or disposition differ"
+            )
+    elif program_packet is not None or program_review is not None:
         raise TargetClassProtocolError("program revision requires amend-structure")
-    factory_findings = _normalize_findings(
-        source["factory_alignment_findings"], "factory-alignment"
-    )
-    product_findings = _normalize_findings(
-        source["target_product_findings"], "target-product"
-    )
     evolution_disposition: Optional[str] = None
     adoption_eligible = False
+    live_sources: list[dict[str, Any]] = []
+    live_sources_root = digest(live_sources)
+    evolution_root: Optional[str] = None
+    evolution_review_root: Optional[str] = None
+    evaluation_root: Optional[str] = None
+    experiment_root: Optional[str] = None
+    proposer: Optional[str] = None
+    implementer: Optional[str] = None
+    reviewer: Optional[str] = None
+    evaluator: Optional[str] = None
     if target_class == "target-repository":
         if source["factory_skill_sources"] or source["factory_evolution_bundle"] is not None:
             raise TargetClassProtocolError("ordinary target work invoked Factory evolution")
-        if factory_findings:
+        if source["factory_alignment_findings"]:
             raise TargetClassProtocolError("ordinary target work claimed Factory ownership")
         protected_roots = [
-            skills_root.resolve(strict=True),
+            DEFAULT_SKILLS_ROOT.resolve(strict=True),
             (Path.home() / ".codex").resolve(),
             ROOT.resolve(strict=True),
         ]
-        repository_root = Path(decision["target_repository_root"]).resolve(strict=True)
         if any(
             repository_root == root or root in repository_root.parents
             for root in protected_roots
         ):
             raise TargetClassProtocolError("ordinary target is a Software Factory owner")
         for affected in decision["affected_scope"]:
-            path = Path(affected["path"]).resolve(strict=True)
+            path = Path(affected["path"]).resolve()
             if any(path == root or root in path.parents for root in protected_roots):
                 raise TargetClassProtocolError("ordinary target scope reaches a live Factory skill")
     else:
         live_sources = (
             []
             if disposition == "continue-unchanged"
-            else resolve_live_skill_sources(skills_root)
+            else resolve_live_skill_sources(DEFAULT_SKILLS_ROOT)
         )
         if source["factory_skill_sources"] != live_sources:
             raise TargetClassProtocolError("software-factory skill sources are stale")
+        live_sources_root = digest(live_sources)
         if disposition != "continue-unchanged":
             review = decision_packet["independent_review"]
             if not isinstance(review, Mapping):
@@ -339,13 +571,59 @@ def validate_target_class_protocol(
                 evolution_review = evolution["review.json"]
                 evaluation = evolution["evaluation.json"]
                 experiment = evolution_review["experiment"]
+                selected_id = evolution_review["selection"]["candidate_id"]
+                expected_candidate_id = (
+                    "adaptive-candidate-" + result["decision_fingerprint"][:20]
+                )
+                expected_candidate_revision = (
+                    candidate["candidate_root"]
+                    if candidate is not None
+                    else digest(
+                        {
+                            "decision_fingerprint": result[
+                                "decision_fingerprint"
+                            ],
+                            "disposition": disposition,
+                            "implementation_owner_id": implementer,
+                        }
+                    )
+                )
+                evolution_binding = {
+                    "decision_id": result["decision_id"],
+                    "decision_fingerprint": result["decision_fingerprint"],
+                    "decision_currentness_root": result[
+                        "decision_currentness_root"
+                    ],
+                    "target_revision_root": decision["target_revision_root"],
+                    "live_skill_sources_root": live_sources_root,
+                    "adaptive_candidate_evidence_root": result[
+                        "candidate_evidence_root"
+                    ],
+                    "evolution_candidate_revision": expected_candidate_revision,
+                }
                 if (
                     experiment["proposer_id"] != proposer
                     or experiment["implementer_id"] != implementer
                     or experiment["evaluator_id"] != evaluator
                     or evaluation["evaluator_id"] != evaluator
+                    or experiment["experiment_id"]
+                    != "adaptive-experiment-"
+                    + result["decision_fingerprint"][:20]
+                    or selected_id != expected_candidate_id
+                    or experiment["candidate_id"] != expected_candidate_id
+                    or experiment["baseline_revision"] != live_sources_root
+                    or experiment["candidate_revision"]
+                    != expected_candidate_revision
+                    or experiment["evidence_capture"]
+                    != "target-class-binding:" + digest(evolution_binding)
                 ):
-                    raise TargetClassProtocolError("Factory evolution roles differ from the decision")
+                    raise TargetClassProtocolError(
+                        "Factory evolution evidence differs from the decision"
+                    )
+                evolution_root = digest(evolution)
+                evolution_review_root = evolution_review["review_root"]
+                evaluation_root = evaluation["evaluation_root"]
+                experiment_root = digest(experiment)
                 evolution_disposition = str(evaluation["disposition"])
                 adoption_eligible = evolution_disposition == "promote"
             elif evolution is not None:
@@ -364,6 +642,9 @@ def validate_target_class_protocol(
                 "mission_root",
                 "state_fingerprint",
                 "current_revision",
+                "completion_record_id",
+                "completion_record_sha256",
+                "capability_reconciliation_sha256",
             },
             "capability context",
         )
@@ -382,6 +663,45 @@ def validate_target_class_protocol(
             raise TargetClassProtocolError("current behavior is not reconciled") from error
         if context["current_revision"] != decision["target_revision"]:
             raise TargetClassProtocolError("capability revision differs from the decision")
+        completion_id = _safe_id(
+            context["completion_record_id"], "capability completion record"
+        )
+        completion = next(
+            (
+                item
+                for item in active_events
+                if item.get("record_id") == completion_id
+            ),
+            None,
+        )
+        if (
+            completion is None
+            or completion.get("kind") != "check"
+            or completion.get("category")
+            != supervision.OUTCOME_COMPLETION_CATEGORY
+            or completion.get("status") != "verified"
+            or completion.get("policy_sha256") != policy["policy_sha256"]
+            or completion.get("mission_root") != context["mission_root"]
+            or completion.get("state_fingerprint")
+            != context["state_fingerprint"]
+            or completion.get("capability_reconciliation_revision")
+            != context["current_revision"]
+            or completion.get("capability_reconciliation_posture") != "verified"
+            or completion.get("capability_reconciliation_gap_count") != 0
+            or completion.get("capability_reconciliation_sha256")
+            != capability_root
+            or completion.get("capability_reconciliation_sha256")
+            != context["capability_reconciliation_sha256"]
+            or completion.get("record_sha256")
+            != context["completion_record_sha256"]
+            or completion.get("capability_reconciliation_implementation_owner_id")
+            != decision["implementation_owner_id"]
+            or completion.get("capability_reconciliation_reviewer_id")
+            != capability["reviewer_id"]
+        ):
+            raise TargetClassProtocolError(
+                "capability reconciliation lacks its canonical completion event"
+            )
         improvement_established = capability["completion_posture"] == "verified"
     claimed_improvement = source["claimed_improvement"]
     if type(claimed_improvement) is not bool:
@@ -392,6 +712,144 @@ def validate_target_class_protocol(
         )
     if improvement_established and not claimed_improvement:
         raise TargetClassProtocolError("current behavior claim is not explicit")
+
+    decision_roots = {
+        _exact_sha(item["root_sha256"], "decision evidence reference")
+        for item in decision["adjudicating_evidence_refs"]
+    }
+    allowed_finding_roots = {
+        *decision_roots,
+        decision["target_revision_root"],
+        decision["decision_target_state_root"],
+        decision["current_target_state_root"],
+        decision_event["record_sha256"],
+        result["decision_fingerprint"],
+        result["decision_currentness_root"],
+    }
+    if candidate is not None:
+        allowed_finding_roots.update(
+            {
+                candidate["candidate_root"],
+                candidate["evidence_root"],
+                candidate["currentness_root"],
+                candidate["validation_root"],
+                candidate["comparison_root"],
+            }
+        )
+    if program_packet is not None:
+        allowed_finding_roots.update(
+            {program_packet["packet_root"], program_review["review_root"]}
+        )
+    for optional_root in (
+        live_sources_root if live_sources else None,
+        evolution_root,
+        evolution_review_root,
+        evaluation_root,
+        experiment_root,
+        capability_root,
+        context["completion_record_sha256"]
+        if capability_context is not None
+        else None,
+    ):
+        if optional_root is not None:
+            allowed_finding_roots.add(optional_root)
+
+    product_required_root: Optional[str] = None
+    if disposition != "continue-unchanged" or claimed_improvement:
+        if candidate is not None:
+            product_required_root = candidate["evidence_root"]
+        elif program_packet is not None:
+            product_required_root = program_packet["packet_root"]
+        elif capability_root is not None:
+            product_required_root = capability_root
+        else:
+            product_required_root = decision["current_target_state_root"]
+    product_findings = _normalize_findings(
+        source["target_product_findings"],
+        "target-product",
+        allowed_roots=allowed_finding_roots,
+        required_root=product_required_root,
+    )
+    factory_findings = _normalize_findings(
+        source["factory_alignment_findings"],
+        "Factory-alignment",
+        allowed_roots=allowed_finding_roots,
+        required_root=(
+            live_sources_root
+            if target_class == "software-factory"
+            and disposition != "continue-unchanged"
+            else None
+        ),
+    )
+
+    # Rehydrate every owner after the last read-only evidence load. A result is
+    # not current merely because each input was valid at a different instant.
+    (
+        final_directory,
+        final_policy,
+        final_events,
+        final_policy_snapshot,
+        final_event_snapshot,
+        final_directory_snapshot,
+    ) = _control_snapshot(target_thread)
+    if (
+        final_directory != directory
+        or final_policy != policy
+        or final_events != active_events
+        or final_policy_snapshot != policy_snapshot
+        or final_event_snapshot != event_snapshot
+        or final_directory_snapshot != directory_snapshot
+    ):
+        raise TargetClassProtocolError("canonical supervision currentness changed")
+    try:
+        final_result = supervision._adaptive_decision_posture(
+            final_policy,
+            decision_packet,
+            active_candidate_fingerprints=supervision.adaptive_active_candidate_fingerprints(
+                final_events
+            ),
+        )
+    except Exception as error:
+        raise TargetClassProtocolError(
+            "adaptive decision currentness changed"
+        ) from error
+    if review_record_id is not None:
+        final_result = {
+            **final_result,
+            "independent_review_record": review_record_id,
+        }
+        final_result["result_sha256"] = digest(
+            {
+                key: value
+                for key, value in final_result.items()
+                if key != "result_sha256"
+            }
+        )
+    if final_result != result:
+        raise TargetClassProtocolError("adaptive decision currentness changed")
+    if target_class == "software-factory" and disposition != "continue-unchanged":
+        if resolve_live_skill_sources(DEFAULT_SKILLS_ROOT) != live_sources:
+            raise TargetClassProtocolError("software-factory skill sources changed")
+    if capability_context is not None:
+        try:
+            final_capability, final_capability_root = (
+                supervision.load_capability_reconciliation(
+                    context["path"],
+                    target_thread=context["target_thread_id"],
+                    mission_root=context["mission_root"],
+                    state_fingerprint=context["state_fingerprint"],
+                    current_revision=context["current_revision"],
+                    policy=final_policy,
+                )
+            )
+        except Exception as error:
+            raise TargetClassProtocolError(
+                "current behavior changed during reconciliation"
+            ) from error
+        if final_capability != capability or final_capability_root != capability_root:
+            raise TargetClassProtocolError(
+                "current behavior changed during reconciliation"
+            )
     application_action: Optional[str] = None
     if disposition == "correct-inline":
         application_action = "normal-owner-inline-correction"
@@ -403,24 +861,45 @@ def validate_target_class_protocol(
         application_action = (
             "normal-target-owner-cutover"
             if target_class == "target-repository"
-            else "separately-governed-factory-adoption"
+            else "retain-adoption-eligible-evidence-with-normal-owner"
         )
     application_handoff = (
         {
+            "schema_version": 1,
+            "kind": "software-factory-target-class-application-handoff",
             "target_class": target_class,
+            "target_repository_root": decision["target_repository_root"],
+            "target_revision": decision["target_revision"],
+            "target_revision_root": decision["target_revision_root"],
             "disposition": disposition,
+            "decision_record_id": decision_event["record_id"],
+            "decision_record_sha256": decision_event["record_sha256"],
             "decision_fingerprint": result["decision_fingerprint"],
             "decision_currentness_root": result["decision_currentness_root"],
             "candidate_evidence_root": result["candidate_evidence_root"],
             "program_revision_root": (
                 program_packet.get("packet_root") if program_packet else None
             ),
-            "application_action": application_action,
-            "application_owner_id": (
-                decision["implementation_owner_id"]
-                if target_class == "target-repository"
-                else None
+            "program_revision_review_root": (
+                program_review.get("review_root") if program_review else None
             ),
+            "factory_skill_sources_root": live_sources_root,
+            "factory_evolution_root": evolution_root,
+            "factory_evolution_review_root": evolution_review_root,
+            "factory_evaluation_root": evaluation_root,
+            "factory_experiment_root": experiment_root,
+            "factory_evolution_disposition": evolution_disposition,
+            "factory_role_map": {
+                "proposer_id": proposer,
+                "implementation_owner_id": implementer,
+                "reviewer_id": reviewer,
+                "evaluator_id": evaluator,
+            },
+            "capability_reconciliation_root": capability_root,
+            "factory_alignment_findings_root": digest(factory_findings),
+            "target_product_findings_root": digest(product_findings),
+            "application_action": application_action,
+            "application_owner_id": decision["implementation_owner_id"],
             "application_authorized": False,
             "candidate_authoritative": False,
             "promotion_authorized": False,
@@ -433,29 +912,39 @@ def validate_target_class_protocol(
         "kind": "software-factory-target-class-result",
         "target_class": target_class,
         "target_repository_root": decision["target_repository_root"],
+        "target_revision": decision["target_revision"],
         "target_revision_root": decision["target_revision_root"],
         "disposition": disposition,
+        "decision_record_id": decision_event["record_id"],
+        "decision_record_sha256": decision_event["record_sha256"],
         "decision_fingerprint": result["decision_fingerprint"],
         "decision_currentness_root": result["decision_currentness_root"],
         "candidate_evidence_root": candidate.get("evidence_root") if candidate else None,
         "program_revision_root": program_packet.get("packet_root") if program_packet else None,
+        "program_revision_review_root": (
+            program_review.get("review_root") if program_review else None
+        ),
         "application_handoff_root": (
             digest(application_handoff) if application_handoff else None
         ),
         "application_handoff": application_handoff,
-        "factory_skill_sources_root": digest(source["factory_skill_sources"]),
+        "factory_skill_sources_root": live_sources_root,
+        "factory_evolution_root": evolution_root,
+        "factory_evolution_review_root": evolution_review_root,
+        "factory_evaluation_root": evaluation_root,
+        "factory_experiment_root": experiment_root,
         "factory_evolution_disposition": evolution_disposition,
         "factory_alignment_findings_root": digest(factory_findings),
         "target_product_findings_root": digest(product_findings),
         "capability_reconciliation_root": capability_root,
-        "application_authorized": bool(result.get("application_authorized")),
+        "application_authorized": False,
         "candidate_authoritative": False,
         "promotion_authorized": False,
         "adoption_eligible": adoption_eligible,
         "improvement_established": improvement_established,
         "next_owner": (
             decision["implementation_owner_id"]
-            if application_action is not None and target_class == "target-repository"
+            if application_action is not None
             else None
         ),
         "resume_action": (

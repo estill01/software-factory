@@ -2862,24 +2862,33 @@ claims.
 
 ### Completion evidence
 
-- Source-safe candidate adds
-  `implement-tracker-blocks/scripts/target_class_protocol.py`, the maintained
-  `references/target-class-protocol.md`, the skill invocation contract, and
-  focused `test_target_class_protocol_contract.py` coverage. The composition
-  reuses canonical adaptive-decision, program-revision, Factory-evolution, and
-  capability-reconciliation owners; its exact application handoff is rooted
-  but always non-authorizing.
-- Focused compatibility and negative coverage passes `7/7` under the required
-  `/usr/bin/python3` runtime. Both target classes exercise unchanged, inline,
-  candidate comparison, structural amendment, and candidate-cutover routing.
-  Cross-target identity, ordinary-target Factory reach, candidate authority,
-  collapsed roles, stale skill sources, self-promotion input, adoption-only
-  disposition, and process-only improvement claims reject or remain
-  non-authoritative as required.
+- Rejected checkpoint `d8d99b7b27b47014da22351a220e2030295fe02a`
+  established the first source-safe target-class composition but did not prove
+  canonical policy/target ownership, exact decision-to-evolution identity,
+  independently signed structural review, claim-bound findings, current
+  completion provenance, fully rooted owner handoff, or a final currentness
+  recheck. Its `7/7` focused result is diagnostic only.
+- The corrective candidate loads canonical policy and mission-scoped events
+  internally, binds the latest exact adaptive decision/review, resolves the
+  fixed target and live skills, binds every Factory experiment/result and
+  structural packet/review to that decision, requires nonempty claim-bound
+  findings and a canonical verified capability-completion event, and rehydrates
+  all current owners after the final evidence load. Every mutating disposition
+  returns one fully rooted but non-authorizing handoff to the existing owner.
+- Corrective focused coverage passes `8/8` and the historical Block 9 suite
+  passes `29/29` under `/usr/bin/python3`. It covers both target classes and all
+  five paths plus canonical owner substitution, evolution identity, structural
+  revision/owner/scope/review binding, finding evidence, completion provenance,
+  final target currentness, and planned-new-file resolution without a raw
+  filesystem failure.
+- Mapped implementation validation passes `106/106`; all three fixed skill
+  validators, the full 18-Block tracker verifier, compilation, and exact diff
+  checks pass. The final fixed-owner correction reruns its affected focused
+  proof `8/8` successfully.
 - No target cutover, Factory evolution producer, skill release/installation,
   policy, mission, lifecycle, Gmail, or later-Block effect was performed.
-  Exact candidate revision, independent paired review, mapped validation, and
-  final completion status remain pending.
+  Exact corrective revision, independent paired review, and final completion
+  status remain pending.
 
 ### Stop
 
