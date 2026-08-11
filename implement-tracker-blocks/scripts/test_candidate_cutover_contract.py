@@ -453,12 +453,17 @@ class CandidateCutoverContractTests(unittest.TestCase):
         original = cutover._write_atomic_if_unchanged
         calls = 0
 
-        def fail_second(path: Path, expected: bytes, raw: bytes) -> None:
+        def fail_second(
+            path: Path,
+            expected: bytes,
+            raw: bytes,
+            **kwargs: object,
+        ) -> None:
             nonlocal calls
             calls += 1
             if calls == 2:
                 raise OSError("fixture write failure")
-            original(path, expected, raw)
+            original(path, expected, raw, **kwargs)
 
         with mock.patch.object(
             cutover, "_write_atomic_if_unchanged", side_effect=fail_second
@@ -594,13 +599,15 @@ class CandidateCutoverContractTests(unittest.TestCase):
         self.assertNotEqual(concurrent_head, prepared["prepared_commit"])
         self.assertEqual(
             (self.target / self.relative).read_bytes(),
-            cutover._tree_path_bytes(self.target, concurrent_head, self.relative),
+            cutover._tree_path_state(self.target, concurrent_head, self.relative)[
+                "content"
+            ],
         )
         self.assertEqual(
             self.proof_path.read_bytes(),
-            cutover._tree_path_bytes(
+            cutover._tree_path_state(
                 self.target, concurrent_head, cutover.PROOF_RELATIVE
-            ),
+            )["content"],
         )
         self.assertEqual(
             self._git(
@@ -723,6 +730,152 @@ class CandidateCutoverContractTests(unittest.TestCase):
             caller_bytes,
         )
 
+    def test_unrelated_index_change_preserves_stage_and_restores_owned_entries(self) -> None:
+        _prepared, review = self._reviewed()
+        caller_bytes = b"caller staged unrelated bytes\n"
+        blob = subprocess.run(
+            [cutover.GIT, "-C", str(self.target), "hash-object", "-w", "--stdin"],
+            input=caller_bytes,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        ).stdout.decode().strip()
+
+        def stage_unrelated_then_fail(
+            source: bytes, exercise: dict[str, object]
+        ) -> dict[str, object]:
+            self._git(
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                f"100644,{blob},staged.txt",
+            )
+            raise cutover.CutoverError("fixture effect validation failure")
+
+        with mock.patch.object(
+            cutover, "_run_observable_effect", side_effect=stage_unrelated_then_fail
+        ):
+            with self.assertRaisesRegex(
+                cutover.CutoverError, "fixture effect validation failure"
+            ):
+                cutover.apply_cutover(self.target, self.tracker, review)
+        self.assertEqual(self._git("rev-parse", "HEAD"), self.base_head)
+        self.assertEqual(
+            subprocess.run(
+                [cutover.GIT, "-C", str(self.target), "show", ":staged.txt"],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            ).stdout,
+            caller_bytes,
+        )
+        self.assertEqual(
+            self._git(
+                "diff",
+                "--cached",
+                "--name-only",
+                "--",
+                self.relative,
+                cutover.PROOF_RELATIVE,
+            ),
+            "",
+        )
+
+    def test_surviving_symlink_tree_mode_is_restored_exactly(self) -> None:
+        prepared, review = self._reviewed()
+        link_target = b"surviving-target.py"
+        link_blob = subprocess.run(
+            [cutover.GIT, "-C", str(self.target), "hash-object", "-w", "--stdin"],
+            input=link_target,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        ).stdout.decode().strip()
+        temporary_index = self.root / "symlink.index"
+        temporary_index.write_bytes(cutover._index_bytes(self.target))
+        environment = dict(os.environ)
+        environment["GIT_INDEX_FILE"] = str(temporary_index)
+        subprocess.run(
+            [
+                cutover.GIT,
+                "-C",
+                str(self.target),
+                "update-index",
+                "--add",
+                "--cacheinfo",
+                f"120000,{link_blob},{self.relative}",
+            ],
+            env=environment,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        tree = subprocess.run(
+            [cutover.GIT, "-C", str(self.target), "write-tree"],
+            env=environment,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        ).stdout.decode().strip()
+        concurrent_head = subprocess.run(
+            [
+                cutover.GIT,
+                "-C",
+                str(self.target),
+                "commit-tree",
+                tree,
+                "-p",
+                self.base_head,
+            ],
+            input="Concurrent symlink owner commit\n",
+            text=True,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        ).stdout.strip()
+        target_git = cutover._git
+        moved = False
+
+        def move_ref_before_reviewed_compare_and_swap(
+            repo: Path,
+            args: list[str],
+            **kwargs: object,
+        ) -> bytes:
+            nonlocal moved
+            if (
+                not moved
+                and args[:2] == ["update-ref", "refs/heads/main"]
+                and len(args) == 4
+                and args[2] == prepared["prepared_commit"]
+            ):
+                moved = True
+                target_git(
+                    repo,
+                    ["update-ref", "refs/heads/main", concurrent_head, self.base_head],
+                )
+            return target_git(repo, args, **kwargs)
+
+        with mock.patch.object(
+            cutover, "_git", side_effect=move_ref_before_reviewed_compare_and_swap
+        ):
+            with self.assertRaisesRegex(
+                cutover.CutoverError, "Git target-owner operation failed"
+            ):
+                cutover.apply_cutover(self.target, self.tracker, review)
+        path = self.target / self.relative
+        self.assertTrue(moved)
+        self.assertEqual(self._git("rev-parse", "HEAD"), concurrent_head)
+        self.assertTrue(path.is_symlink())
+        self.assertEqual(os.readlink(path), link_target.decode())
+        self.assertEqual(
+            self._git("ls-tree", concurrent_head, "--", self.relative).split()[0],
+            "120000",
+        )
+        self.assertEqual(
+            self._git("status", "--short", "--", self.relative),
+            "",
+        )
+
     def test_post_promotion_recovery_preserves_changed_bytes_and_restores_owned_proof(self) -> None:
         _prepared, review = self._reviewed()
         caller_bytes = b"# caller bytes after promotion\n"
@@ -791,13 +944,15 @@ class CandidateCutoverContractTests(unittest.TestCase):
         self.assertNotEqual(concurrent_head, prepared["prepared_commit"])
         self.assertEqual(
             (self.target / self.relative).read_bytes(),
-            cutover._tree_path_bytes(self.target, concurrent_head, self.relative),
+            cutover._tree_path_state(self.target, concurrent_head, self.relative)[
+                "content"
+            ],
         )
         self.assertEqual(
             self.proof_path.read_bytes(),
-            cutover._tree_path_bytes(
+            cutover._tree_path_state(
                 self.target, concurrent_head, cutover.PROOF_RELATIVE
-            ),
+            )["content"],
         )
         self.assertEqual(
             self._git(

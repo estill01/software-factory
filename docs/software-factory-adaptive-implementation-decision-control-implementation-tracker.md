@@ -2703,9 +2703,20 @@ accepted delta without absorbing optional work.
   only through exact ref/index compare-and-swap, preserve later caller-staged
   state, and restore each still-operation-owned worktree/index path against the
   actual surviving HEAD after pre- or post-ref movement. Focused atomicity and
-  retained recovery proof passed `9/9`; exact successor freeze, independent
-  challenge, one post-review affected-proof rerun, and broad revalidation remain
-  pending.
+  retained recovery proof passed `9/9` at frozen checkpoint
+  `41728abc0e027103169703e613d3ac1708bac3f5` (tree
+  `ab4f68257790fdc671f2485addf4181f5215bc2e`). Independent review rejected
+  that checkpoint under `INC-20260811-062440-44D597`: an unrelated staged
+  entry caused whole-index recovery to skip still-operation-owned affected
+  entries, and the surviving tree's symlink mode was reduced to regular-file
+  bytes. Preserve `41728ab` as rejected evidence.
+- Current per-path correction: compare affected index entries independently
+  under Git's index lock, rebuild only still-operation-owned entries from the
+  surviving tree while preserving unrelated staged state, and carry exact
+  regular/executable/symlink mode through worktree recovery. Focused proof,
+  including retained durability and ordinary recovery boundaries, passed
+  `11/11`; successor freeze, independent challenge, one post-review
+  affected-proof rerun, and broad revalidation remain pending.
 
 ### Stop
 

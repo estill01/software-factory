@@ -180,13 +180,23 @@ def _write_atomic(path: Path, raw: bytes) -> None:
             os.unlink(temporary)
 
 
-def _write_atomic_if_unchanged(path: Path, expected: bytes, raw: bytes) -> None:
+def _write_atomic_if_unchanged(
+    path: Path,
+    expected: bytes,
+    raw: bytes,
+    *,
+    replacement_mode: Optional[int] = None,
+) -> None:
     """Replace one owned file without overwriting bytes that arrived after snapshot."""
 
     if path.is_symlink() or not path.is_file():
         raise CutoverError("affected target path changed before reviewed write")
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    mode = stat.S_IMODE(path.stat().st_mode)
+    mode = (
+        stat.S_IMODE(path.stat().st_mode)
+        if replacement_mode is None
+        else replacement_mode
+    )
     backup_descriptor, backup_name = tempfile.mkstemp(
         prefix=f".{path.name}.previous.", dir=str(path.parent)
     )
@@ -222,6 +232,41 @@ def _write_atomic_if_unchanged(path: Path, expected: bytes, raw: bytes) -> None:
                 backup.unlink()
         if os.path.exists(temporary_name):
             os.unlink(temporary_name)
+
+
+def _replace_regular_with_symlink_if_unchanged(
+    path: Path,
+    expected: bytes,
+    target: bytes,
+) -> None:
+    """Replace operation-owned regular bytes with one reviewed symlink."""
+
+    if b"\0" in target or path.is_symlink() or not path.is_file():
+        raise CutoverError("affected target path changed before reviewed recovery")
+    backup_descriptor, backup_name = tempfile.mkstemp(
+        prefix=f".{path.name}.previous.", dir=str(path.parent)
+    )
+    os.close(backup_descriptor)
+    os.unlink(backup_name)
+    backup = Path(backup_name)
+    installed = False
+    try:
+        os.rename(path, backup)
+        if backup.is_symlink() or not backup.is_file() or backup.read_bytes() != expected:
+            if not path.exists() and not path.is_symlink():
+                os.rename(backup, path)
+            raise CutoverError("affected target bytes changed before reviewed recovery")
+        try:
+            os.symlink(target, os.fsencode(path))
+        except FileExistsError as error:
+            raise CutoverError("affected target path changed during reviewed recovery") from error
+        installed = True
+    finally:
+        if installed:
+            if backup.exists() and not backup.is_symlink():
+                backup.unlink()
+        elif backup.exists() and not backup.is_symlink() and not path.exists() and not path.is_symlink():
+            os.rename(backup, path)
         if not installed and path.exists() and path.is_symlink():
             raise CutoverError("affected target path changed during reviewed write")
 
@@ -1130,7 +1175,7 @@ def _restore_paths(repo: Path, head: str, paths: Sequence[str]) -> None:
 def _restore_owned_replacements(
     repo: Path,
     head: str,
-    previous: Mapping[str, Optional[bytes]],
+    previous: Mapping[str, Optional[Mapping[str, object]]],
     replacements: Mapping[str, bytes],
     expected_index: bytes,
 ) -> None:
@@ -1147,12 +1192,23 @@ def _restore_owned_replacements(
             if prior is None:
                 if path.exists() and not path.is_symlink():
                     path.unlink()
+            elif prior["kind"] == "symlink":
+                _replace_regular_with_symlink_if_unchanged(
+                    path,
+                    replacement,
+                    bytes(prior["content"]),
+                )
             else:
-                _write_atomic_if_unchanged(path, replacement, prior)
+                _write_atomic_if_unchanged(
+                    path,
+                    replacement,
+                    bytes(prior["content"]),
+                    replacement_mode=int(prior["mode"]),
+                )
         except Exception:
             failures.append(relative)
             continue
-    _restore_index_paths_if_unchanged(
+    _restore_owned_index_paths(
         repo,
         expected_index,
         head,
@@ -1165,14 +1221,26 @@ def _restore_owned_replacements(
         )
 
 
-def _tree_path_bytes(repo: Path, head: str, relative: str) -> Optional[bytes]:
+def _tree_path_state(
+    repo: Path, head: str, relative: str
+) -> Optional[Dict[str, object]]:
     entry = _git_raw(repo, ["ls-tree", "-z", head, "--", relative])
     if not entry:
         return None
     expected_suffix = b"\t" + relative.encode("utf-8") + b"\0"
-    if entry.count(b"\0") != 1 or not entry.endswith(expected_suffix) or b" blob " not in entry:
+    if entry.count(b"\0") != 1 or not entry.endswith(expected_suffix):
         raise CutoverError("surviving target tree path differs during recovery")
-    return _git_raw(repo, ["show", f"{head}:{relative}"])
+    metadata = entry[: -len(expected_suffix)].split(b" ")
+    if len(metadata) != 3 or metadata[1] != b"blob":
+        raise CutoverError("surviving target tree path differs during recovery")
+    mode = metadata[0]
+    if mode not in {b"100644", b"100755", b"120000"}:
+        raise CutoverError("surviving target tree path mode is unsupported")
+    return {
+        "kind": "symlink" if mode == b"120000" else "regular",
+        "mode": stat.S_IMODE(int(mode, 8)),
+        "content": _git_raw(repo, ["show", f"{head}:{relative}"]),
+    }
 
 
 def _index_path(repo: Path) -> Path:
@@ -1256,16 +1324,76 @@ def _replace_index_if_unchanged(
             lock.unlink()
 
 
-def _restore_index_paths_if_unchanged(
+def _index_entries(
+    repo: Path,
+    source: bytes,
+    paths: Sequence[str],
+) -> Dict[str, Tuple[bytes, ...]]:
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix="candidate-cutover-index-read.", dir=str(_operation_directory(repo))
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(source)
+            handle.flush()
+            os.fsync(handle.fileno())
+        raw = _git_raw(
+            repo,
+            ["ls-files", "--stage", "-z", "--", *paths],
+            env={"GIT_INDEX_FILE": str(temporary)},
+        )
+        entries: Dict[str, List[bytes]] = {path: [] for path in paths}
+        for record in raw.split(b"\0"):
+            if not record:
+                continue
+            try:
+                _metadata, encoded_path = record.split(b"\t", 1)
+                path = encoded_path.decode("utf-8")
+            except (UnicodeDecodeError, ValueError) as error:
+                raise CutoverError("affected target index entry differs") from error
+            if path not in entries:
+                raise CutoverError("affected target index entry escapes requested paths")
+            entries[path].append(record)
+        return {path: tuple(records) for path, records in entries.items()}
+    finally:
+        if temporary.exists() and not temporary.is_symlink():
+            temporary.unlink()
+
+
+def _restore_owned_index_paths(
     repo: Path,
     expected: bytes,
     target_head: str,
     paths: Sequence[str],
 ) -> None:
-    if _index_bytes(repo) != expected:
-        return
-    replacement = _updated_index_bytes(repo, expected, target_head, paths)
-    _replace_index_if_unchanged(repo, expected, replacement)
+    descriptor, lock = _index_lock(repo)
+    try:
+        current = _index_bytes(repo)
+        expected_entries = _index_entries(repo, expected, paths)
+        current_entries = _index_entries(repo, current, paths)
+        owned = [
+            path
+            for path in paths
+            if current_entries[path] == expected_entries[path]
+        ]
+        if not owned:
+            return
+        projected = _updated_index_bytes(repo, current, target_head, owned)
+        projected_entries = _index_entries(repo, projected, owned)
+        restore = [
+            path
+            for path in owned
+            if current_entries[path] != projected_entries[path]
+        ]
+        if not restore:
+            return
+        replacement = _updated_index_bytes(repo, current, target_head, restore)
+        _write_atomic_if_unchanged(_index_path(repo), current, replacement)
+    finally:
+        os.close(descriptor)
+        if lock.exists() and not lock.is_symlink():
+            lock.unlink()
 
 
 def _promote_ref_and_index(
@@ -1304,7 +1432,7 @@ def _promote_ref_and_index(
 def _restore_owned_replacements_to_current_head(
     repo: Path,
     original_head: str,
-    previous: Mapping[str, Optional[bytes]],
+    previous: Mapping[str, Optional[Mapping[str, object]]],
     replacements: Mapping[str, bytes],
     expected_index: bytes,
 ) -> None:
@@ -1313,7 +1441,7 @@ def _restore_owned_replacements_to_current_head(
         dict(previous)
         if surviving_head == original_head
         else {
-            relative: _tree_path_bytes(repo, surviving_head, relative)
+            relative: _tree_path_state(repo, surviving_head, relative)
             for relative in previous
         }
     )
@@ -1953,15 +2081,22 @@ def apply_cutover(
                 paths = sorted(replacements)
                 _paths_clean(repo, head, paths)
                 index_before = _index_bytes(repo)
-                previous = {path: _safe_file(repo, path, required=False) for path in paths}
+                previous = {
+                    path: _tree_path_state(repo, head, path)
+                    for path in paths
+                }
                 promoted = False
                 promoted_index = index_before
                 try:
                     for relative_path, content in replacements.items():
                         prior = previous[relative_path]
-                        if prior is None:
+                        if prior is None or prior["kind"] != "regular":
                             raise CutoverError("reviewed target path unexpectedly absent")
-                        _write_atomic_if_unchanged(repo / relative_path, prior, content)
+                        _write_atomic_if_unchanged(
+                            repo / relative_path,
+                            bytes(prior["content"]),
+                            content,
+                        )
                     if failpoint == "after-write":
                         raise CutoverError("injected interruption after reviewed write")
                     if _head(repo) != head or any(

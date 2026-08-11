@@ -39,9 +39,11 @@ caller-owned path is preserved without preventing restoration and index reset
 for every other operation-owned path. Snapshot the exact affected index, hold
 Git's index ownership lock across reviewed ref promotion, build the successor
 index off-path, and publish it only through an exact-byte compare-and-swap.
-Later staged/index state is caller-owned and must never be reset. If another
-owner advances the ref before or after promotion, preserve that ref and restore
-each still-operation-owned worktree/index path against its actual surviving
+Later staged/index state is caller-owned and must never be reset; compare
+affected entries independently so unrelated staging does not suppress owned
+entry recovery. If another owner advances the ref before or after promotion,
+preserve that ref and restore each still-operation-owned worktree/index path,
+including its regular/executable/symlink mode, against the actual surviving
 tree. Apply the same compare-and-swap recovery after ref promotion so later
 caller bytes are never overwritten. After ref
 promotion, retry revalidates the signed proposal, current committed bytes,

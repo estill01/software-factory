@@ -294,9 +294,11 @@ and execute its target-owner/currentness contract.
    preserving every path whose bytes or type changed concurrently. After
    snapshotting the exact index, hold the Git index ownership lock across ref
    promotion and publish the reviewed index through exact-byte compare-and-swap;
-   preserve any later staged/index state. If another owner advances the ref,
-   restore only operation-owned paths/index entries against that surviving
-   commit. After promotion, apply the same per-path compare-and-swap recovery:
+   preserve any later staged/index state, including unrelated entries in a
+   changed index. If another owner advances the ref, restore only
+   operation-owned paths/index entries with their exact surviving tree type and
+   mode against that commit. After promotion, apply the same per-path
+   compare-and-swap recovery:
    a retry revalidates the reviewed commit rather than integrating again, and a
    failed live effect rolls back only the exact reviewed ref without
    overwriting later caller bytes.
