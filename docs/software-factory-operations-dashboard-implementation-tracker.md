@@ -5350,6 +5350,46 @@ rows. Widen only for an explicit exact active-claim drill-down.
   claims, and exact source navigation. No tracker source diff, operation,
   mutation, automation, lifecycle, continuity, reporting, evolution, or later-
   Block work is started.
+- Product candidate: commit
+  `9464d648d990b62685f91a70dac204f8e1548516`, tree
+  `ad0b75dc3b266bacae1e13c559730e67f0a68291`, parent/activation
+  `32b9e2415cfc4c815152e6cf2ecbac727bdcd768`, pushed at local/upstream
+  `0 0`. The maintained tracker projection now emits each in-progress Block's
+  exact number, title, status, heading line, and status line; the strict web
+  schema preserves that read-only owner output.
+- Queue and progress truth: the tracker index reuses the accepted Beautiful UI
+  `FilterTable.tsx` count-chip adaptation at frozen supplied-source SHA-256
+  `4a48c51cd6e5c0aa3bab91aab9975005518fd82dd294d059e402c2bb4ce681f4`.
+  It shows verifier-established nonzero totals, plural tracker/task/current-
+  mission claims, explicit none/partial/unavailable/conflict postures, exact
+  source links, and exact or returned/lower-bound filter counts. Noncanonical,
+  cross-project, contradictory, truncated, or dynamically relevant unbound
+  Floor rows cannot make a count exact; terminal tasks are not inferred failed,
+  and header-conflicted all-accepted trackers are not called completed.
+- Focused proof: backend tracker projection passed 6/6 with
+  `ResourceWarning` fatal and Ruff passed. Exact affected frontend/schema tests
+  passed 17/17 and the production TypeScript/Vite build passed; focused cases
+  cover one/multiple/no active Blocks, long titles, malformed/zero totals,
+  partial/truncated and predecessor claims, source conflict, noncanonical
+  associations, successful terminal posture, and task-only mappings without a
+  fabricated `/runs/null` link. The full backend suite passed 114/114; the
+  reusable full frontend regression passed 88/88 before the final task-only
+  guard, whose exact affected suite and build then passed.
+- Browser and live proof: the exact candidate's tracker-queue case passed 3/3
+  on desktop/tablet/mobile with keyboard chip activation, URL restoration,
+  source navigation, one `h1`, Axe serious/critical violations zero, and no
+  horizontal overflow. Twelve unaffected tracker workspace/control cases from
+  the immediately preceding candidate remained green; the corrected
+  unavailable-row case separately passed 3/3. Live loopback `127.0.0.1:8787`
+  returned 30 verifier Blocks and current `Block 18 — Tracker review queue and
+  exact count filters`; visual inspection confirmed sparse chrome and truthful
+  lower-bound/completed/attention labels.
+- Mechanical proof: full-profile verification remained Blocks 0-29 with 0
+  errors/warnings, all 30 verifier tests passed, `git diff --check` passed, and
+  the Block Stop held: no tracker editor, new task-start/acceptance path,
+  semantic diff, operation, automation, lifecycle, continuity, reporting, or
+  later-Block surface was added. Candidate audit posture: implementation
+  complete, independent exact-revision outcome pending.
 
 ### Stop
 
