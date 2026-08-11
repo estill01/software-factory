@@ -511,7 +511,7 @@ the relevant authority and evidence contract.
 | 13 | Semantic supervision review requests | 7, 10, 11 | `accepted` |
 | 14 | Supervision policy and cadence administration | 7, 10, 11 | `accepted` |
 | 15 | Mission and target/tracker binding repair | 7, 10, 11 | `accepted` |
-| 16 | Role-task binding repair | 7, 10, 11 | `in-progress` |
+| 16 | Role-task binding repair | 7, 10, 11 | `accepted` |
 | 17 | Automation binding repair | 7, 10, 11 | `not-started` |
 | 18 | Supervision pause and resume | 7, 10, 11 | `not-started` |
 | 19 | Same-target mission succession | 7, 10, 11 | `not-started` |
@@ -4595,7 +4595,7 @@ lifecycle, continuity, report, evolution, or terminal operations.
 
 ## Block 16 — Role-task binding repair
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -4888,6 +4888,19 @@ the named route gate. Never search or mutate unrelated roles.
   restarted at port 8787 and reports complete healthy coverage with App Server
   available, no binding was attempted, Block 17 remains unopened, and Block 16
   remains `in-progress` pending fresh exact-revision review.
+- Accepted exact-revision outcome: independent delta audit ACCEPTED evidence
+  `6754476c07436f8e3e178c60f8a20fc4b36c9063`, tree
+  `11beb2a855b4dbb1cebd6c68f6fe2fee964c0d57`, and parent/product
+  `e15e95b2c59d7bbc50a93556dbdf7e0ad5c941a0`, tree
+  `d9c9b60812e91eb9421aab13a6aee9a4d37cb9aa`. The reviewer verified exact
+  full-current-`mission_binding` candidate and conflict scoping, predecessor
+  rejection with unchanged bytes and no apply path, valid same-mission repair,
+  and an adversarial case where a predecessor's incompatible-role claim could
+  not contaminate the current candidate. Focused 2/2 ResourceWarning-fatal,
+  Ruff, full-profile 26/0/0, verifier 30/30, diff/clean, and remote `0 0` proof
+  passed; the prior accepted owner-root, backend, frontend, build, and browser
+  evidence remained exact and reusable. Post-block audit: `accepted`; retained
+  open Block 16 work: none. Later Blocks remain unopened.
 
 ### Stop
 
