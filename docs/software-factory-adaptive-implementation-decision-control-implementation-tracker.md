@@ -2675,9 +2675,19 @@ accepted delta without absorbing optional work.
   workload, and append an exact `corrected` successor disposition if the
   post-append target/proof/program/supervision check rejects currentness.
   Pre-freeze focused Block 9 proof passed `23/23`, and the focused canonical
-  transition correction passed `1/1`. Exact successor freeze, independent
-  challenge, and the required one-time post-review affected-proof rerun remain
-  pending.
+  transition correction passed `1/1`. Exact successor
+  `21c045ad146a7efe5c9df2bba58504ffc5a0b40f` (tree
+  `4df8966369c436a5d84d21cf15865fbf4b941920`) then passed independent narrow
+  review with no findings: owner-signed spool recovery retained producer count
+  `1`; unsigned pending/final records rejected; target, proof, program, and
+  supervision drift ended `required -> work-started -> corrected`; and both
+  per-path recovery boundaries preserved later caller state. The required
+  one-time post-review affected-proof rerun passed `8/8` in `89.315s`. Broad
+  mapped acceptance then passed: author `42/42`, implementation `92/92`, and
+  supervision `307/307`; all three fixed Skill Creator validators passed; the
+  full-profile tracker verifier reported 18 Blocks with no errors or warnings;
+  all maintained Python compiled under the pinned runtime; and exact diff,
+  branch, and upstream checks passed. Exact final review remains pending.
 
 ### Stop
 
