@@ -839,28 +839,43 @@ python3 <LOG_HELPER> implementation-range-authority-source-ingest \
   --source-task <EXACT_SOURCE_TASK> --source-item <EXACT_SOURCE_ITEM> \
   --source-record <EXACT_CODEX_SOURCE_TUPLE> \
   --source-text-base64 <EXACT_UTF8_SOURCE_BYTES_BASE64> \
-  --verifier-thread <ELIGIBLE_INDEPENDENT_REVIEWER> \
-  --provenance-evidence-record <EXISTING_CANONICAL_EVIDENCE_EVENT> \
+  --provenance-review-record <SEALED_SIGNED_SOURCE_REVIEW_JSON> \
   --expected-policy-sha256 <CURRENT_POLICY_SHA256>
 
 python3 <LOG_HELPER> implementation-range-authority-receipt \
   --target-thread <TARGET> --authority-event-record <CANONICAL_EVENT_ID>
 ```
 
-The ingestion command is the only public owner for this existing event shape.
-It strictly decodes bounded UTF-8 bytes, computes their SHA-256 internally,
+The ingestion command is the only public owner for this event shape. It
+strictly decodes bounded UTF-8 bytes, computes their SHA-256 internally,
 requires the exact target/source-task/source-item record tuple and current
-policy, resolves the evidence record from the canonical ledger, and accepts
-only the bound base or final reviewer. An exact retry is idempotent; changed
-bytes or provenance for the same tuple fail closed. Do not create a temporary
-source file, reconstruct terminal bytes in shell text, or append this event
-directly. The receipt command then resolves the already-ingested event and
-cites its source record/hash on `implementation-range-bind` or
-`implementation-range-amend`. Initial binding accepts either legacy
+policy, and verifies a bounded canonical source-review object signed by the
+sealed independent reviewer key. That signed review binds the exact bytes,
+tuple, eligible runtime reviewer thread, disposition, finding count, and policy
+root; an ordinary owner-ledger record or caller-supplied reviewer label is not
+review evidence. An exact retry is idempotent; changed bytes or provenance for
+the same tuple fail closed. Do not create a temporary source file, reconstruct
+terminal bytes in shell text, or append this event directly. The receipt
+command then resolves the already-ingested event and cites its source
+record/hash on `implementation-range-bind` or `implementation-range-amend`.
+Initial binding accepts either legacy
 `--request-text` or mutually exclusive `--request-text-base64`; use base64 when
 terminal-byte fidelity matters. Both paths hash the exact supplied UTF-8 bytes
 and require equality with the accepted direct source SHA-256. Authentic
 authority metadata cannot be paired with fabricated scope text.
+
+The source-review file is exact canonical JSON plus one LF and contains only:
+`schema_version`, `kind`, `record_id`, `target_thread_id`, `source_task_id`,
+`source_item_id`, `source_record`, `source_sha256`, `source_byte_count`,
+`verifier_thread_id`, `reviewer_id`, `review_disposition`, `finding_count`,
+`policy_sha256`, `authority_key_sha256`, `observed_at`, `review_root`, and
+`signature_base64`. `kind` is
+`software-factory-direct-authority-source-review`; disposition must be
+`accepted` with zero findings. `review_root` is SHA-256 over the canonical
+object excluding `review_root` and `signature_base64`. The sealed reviewer signs
+the canonical object excluding only `signature_base64` with Ed25519. Ingestion
+retains the full signed payload in the canonical event and re-verifies it when
+the receipt or mission conversion is resolved.
 
 If an older derived mission binding made a false content-digest assertion but
 the exact mission root and source-record identity remain correct, first ingest
@@ -876,11 +891,16 @@ python3 <LOG_HELPER> bind \
   --expected-policy-sha256 <CURRENT_POLICY_SHA256>
 ```
 
-This narrow conversion requires exactly one accepted receipt for the unchanged
-source, rejects stale policy or any unrelated bind input, and appends a policy
-version without rewriting the historic derived binding. It cannot change the
-mission root, source tuple, roles, permissions, automation, Gmail posture, or
-other policy defaults.
+This narrow conversion requires a derived predecessor whose controlling source
+is exactly `direct-user` with the unchanged source record and a well-formed
+historic digest. It then requires exactly one signed-review-backed accepted
+receipt whose canonical digest is distinct from that historic digest. A
+repository, system, or tracker predecessor cannot be relabeled, and an equal or
+malformed digest is not a correction. The helper rejects stale policy or any
+unrelated bind input and appends a policy version without rewriting the historic
+derived binding. It cannot change the mission root, source tuple, roles,
+permissions, automation, Gmail posture, or other policy defaults. An exact
+retry after valid conversion remains idempotent.
 
 Ordinary tracker status and completion-evidence updates preserve the
 owner-pinned tracker path, exact Block-number set, and canonical structural

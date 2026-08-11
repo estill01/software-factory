@@ -9,10 +9,11 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
 import tempfile
 import threading
 import unittest
-from contextlib import contextmanager, nullcontext, redirect_stdout
+from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -1324,6 +1325,42 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
+        self.private_key = self.root / "range-review-private.pem"
+        self.public_key = self.root / "range-review-public.pem"
+        openssl = str(supervision_log.ADAPTIVE_REVIEW_OPENSSL_PATH)
+        subprocess.run(
+            [openssl, "genpkey", "-algorithm", "ED25519", "-out", str(self.private_key)],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        subprocess.run(
+            [
+                openssl,
+                "pkey",
+                "-in",
+                str(self.private_key),
+                "-pubout",
+                "-out",
+                str(self.public_key),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.public_key_sha256 = hashlib.sha256(self.public_key.read_bytes()).hexdigest()
+        path_patch = mock.patch.object(
+            supervision_log, "ADAPTIVE_REVIEW_PUBLIC_KEY_PATH", self.public_key
+        )
+        path_patch.start()
+        self.addCleanup(path_patch.stop)
+        sha_patch = mock.patch.object(
+            supervision_log,
+            "ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256",
+            self.public_key_sha256,
+        )
+        sha_patch.start()
+        self.addCleanup(sha_patch.stop)
         self.tracker = self.root / "tracker.md"
         args = supervision_log.parser().parse_args(
             [
@@ -1389,6 +1426,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
             authority_event = self.ingest_direct_authority_event(
                 source_record=source_record,
                 source_sha256=source_sha256,
+                source_text=request_text,
             )
             self.call(
                 "implementation-range-authority-receipt",
@@ -1414,12 +1452,66 @@ class ImplementationRangeControlTests(unittest.TestCase):
         )
 
     def ingest_direct_authority_event(
-        self, *, source_record: str, source_sha256: str
+        self,
+        *,
+        source_record: str,
+        source_sha256: str,
+        source_text: str | None = None,
     ) -> str:
         directory = self.root / self.target
         policy = supervision_log.read_json(directory / "policy.json")
         current_events = supervision_log.events(directory / "events.jsonl")
         event_record = f"EVT-{len(current_events) + 1:06d}"
+        source_bytes = (
+            self.later_request if source_text is None else source_text
+        ).encode("utf-8")
+        self.assertEqual(hashlib.sha256(source_bytes).hexdigest(), source_sha256)
+        review: dict[str, object] = {
+            "schema_version": 1,
+            "kind": "software-factory-direct-authority-source-review",
+            "record_id": f"range-source-review-{event_record.lower()}",
+            "target_thread_id": self.target,
+            "source_task_id": self.target,
+            "source_item_id": source_record,
+            "source_record": source_record,
+            "source_sha256": source_sha256,
+            "source_byte_count": len(source_bytes),
+            "verifier_thread_id": self.reviewer,
+            "reviewer_id": supervision_log.ADAPTIVE_REVIEWER_ID,
+            "review_disposition": "accepted",
+            "finding_count": 0,
+            "policy_sha256": policy["policy_sha256"],
+            "authority_key_sha256": self.public_key_sha256,
+            "observed_at": supervision_log.utc_now(),
+            "review_root": "",
+            "signature_base64": "",
+        }
+        review["review_root"] = supervision_log.digest(
+            supervision_log.direct_authority_review_root_material(review)
+        )
+        content = self.root / f"{event_record}-range-review-content.json"
+        signature = self.root / f"{event_record}-range-review.sig"
+        signed = dict(review)
+        signed.pop("signature_base64")
+        content.write_bytes(supervision_log.canonical(signed))
+        subprocess.run(
+            [
+                str(supervision_log.ADAPTIVE_REVIEW_OPENSSL_PATH),
+                "pkeyutl",
+                "-sign",
+                "-inkey",
+                str(self.private_key),
+                "-rawin",
+                "-in",
+                str(content),
+                "-out",
+                str(signature),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        review["signature_base64"] = base64.b64encode(signature.read_bytes()).decode()
         supervision_log.append_raw(
             directory / "events.jsonl",
             {
@@ -1431,12 +1523,20 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 "source_class": "direct-user",
                 "source_record": source_record,
                 "source_sha256": source_sha256,
+                "source_byte_count": len(source_bytes),
                 "source_task_id": self.target,
                 "source_item_id": source_record,
                 "verifier_id": self.reviewer,
+                "provenance_review_payload": review,
+                "provenance_review_record": review["record_id"],
+                "provenance_review_root": review["review_root"],
+                "provenance_reviewer_id": review["reviewer_id"],
+                "provenance_signature_sha256": hashlib.sha256(
+                    signature.read_bytes()
+                ).hexdigest(),
                 "provenance_status": "verified-before-entry",
                 "policy_sha256": policy["policy_sha256"],
-                "evidence": [f"app-readback:{self.target}:{source_record}"],
+                "evidence": [review["record_id"], review["review_root"]],
             },
         )
         return event_record
@@ -1805,7 +1905,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
             source_record=self.later_source,
             source_sha256=self.later_sha,
         )
-        self.call(
+        receipt = self.call(
             "implementation-range-authority-receipt",
             "--target-thread",
             self.target,
@@ -2176,6 +2276,42 @@ class CanonicalAuthoritySourceIngestionTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
+        self.private_key = self.root / "review-private.pem"
+        self.public_key = self.root / "review-public.pem"
+        openssl = str(supervision_log.ADAPTIVE_REVIEW_OPENSSL_PATH)
+        subprocess.run(
+            [openssl, "genpkey", "-algorithm", "ED25519", "-out", str(self.private_key)],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        subprocess.run(
+            [
+                openssl,
+                "pkey",
+                "-in",
+                str(self.private_key),
+                "-pubout",
+                "-out",
+                str(self.public_key),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.public_key_sha256 = hashlib.sha256(self.public_key.read_bytes()).hexdigest()
+        path_patch = mock.patch.object(
+            supervision_log, "ADAPTIVE_REVIEW_PUBLIC_KEY_PATH", self.public_key
+        )
+        path_patch.start()
+        self.addCleanup(path_patch.stop)
+        sha_patch = mock.patch.object(
+            supervision_log,
+            "ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256",
+            self.public_key_sha256,
+        )
+        sha_patch.start()
+        self.addCleanup(sha_patch.stop)
         args = supervision_log.parser().parse_args(
             [
                 "--root",
@@ -2204,25 +2340,73 @@ class CanonicalAuthoritySourceIngestionTests(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             args.func(args)
         self.directory = self.root / self.target
-        supervision_log.append_raw(
-            self.directory / "events.jsonl",
-            {
-                "schema_version": 1,
-                "record_id": "EVT-000001",
-                "timestamp": supervision_log.utc_now(),
-                "target_thread_id": self.target,
-                "kind": "check",
-                "status": "canonical-source-verified",
-                "summary": "Canonical source owner verified exact bytes.",
-                "evidence": [
-                    self.source_record,
-                    f"canonical-item-bytes:{len(self.canonical_request)}",
-                    f"canonical-item-sha256:{self.canonical_sha256}",
-                ],
-            },
-        )
+        self.provenance_review_path = self.root / "direct-authority-review.json"
+        self.write_provenance_review()
         self.tracker = self.root / "tracker.md"
         self.write_tracker()
+
+    def write_provenance_review(
+        self,
+        *,
+        source_bytes: bytes | None = None,
+        verifier: str | None = None,
+        disposition: str = "accepted",
+        finding_count: int = 0,
+        overrides: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        source = self.canonical_request if source_bytes is None else source_bytes
+        policy = self.current_policy()
+        review: dict[str, object] = {
+            "schema_version": 1,
+            "kind": "software-factory-direct-authority-source-review",
+            "record_id": "direct-authority-review-1234",
+            "target_thread_id": self.target,
+            "source_task_id": self.source_task,
+            "source_item_id": self.source_item,
+            "source_record": self.source_record,
+            "source_sha256": hashlib.sha256(source).hexdigest(),
+            "source_byte_count": len(source),
+            "verifier_thread_id": self.reviewer if verifier is None else verifier,
+            "reviewer_id": supervision_log.ADAPTIVE_REVIEWER_ID,
+            "review_disposition": disposition,
+            "finding_count": finding_count,
+            "policy_sha256": policy["policy_sha256"],
+            "authority_key_sha256": self.public_key_sha256,
+            "observed_at": supervision_log.utc_now(),
+            "review_root": "",
+            "signature_base64": "",
+        }
+        review.update(overrides or {})
+        review["review_root"] = supervision_log.digest(
+            supervision_log.direct_authority_review_root_material(review)
+        )
+        content = self.root / "direct-authority-review-content.json"
+        signature = self.root / "direct-authority-review.sig"
+        signed = dict(review)
+        signed.pop("signature_base64")
+        content.write_bytes(supervision_log.canonical(signed))
+        subprocess.run(
+            [
+                str(supervision_log.ADAPTIVE_REVIEW_OPENSSL_PATH),
+                "pkeyutl",
+                "-sign",
+                "-inkey",
+                str(self.private_key),
+                "-rawin",
+                "-in",
+                str(content),
+                "-out",
+                str(signature),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        review["signature_base64"] = base64.b64encode(signature.read_bytes()).decode()
+        self.provenance_review_path.write_bytes(
+            supervision_log.canonical(review) + b"\n"
+        )
+        return review
 
     def write_tracker(self) -> None:
         self.tracker.write_text(
@@ -2251,12 +2435,59 @@ class CanonicalAuthoritySourceIngestionTests(unittest.TestCase):
     def current_policy(self) -> dict[str, object]:
         return supervision_log.read_json(self.directory / "policy.json")
 
+    def replace_derived_predecessor(
+        self,
+        *,
+        source_class: str,
+        source_sha256: str,
+        malformed_sha256: bool = False,
+        mismatched_source_record: bool = False,
+    ) -> dict[str, object]:
+        policy = self.current_policy()
+        binding = supervision_log.derive_mission_binding(
+            target_thread=self.target,
+            source_class=source_class,
+            source_record=self.source_record,
+            source_sha256=source_sha256,
+        )
+        if malformed_sha256:
+            binding["mission_derivation"]["controlling_source"]["sha256"] = "bad"
+        if mismatched_source_record:
+            binding["mission_derivation"]["controlling_source"][
+                "record"
+            ] = "different-direct-record-1234"
+        policy["mission_binding"] = binding
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+        supervision_log.atomic_json(self.directory / "policy.json", policy)
+        history_path = self.directory / "policy-history.jsonl"
+        history = supervision_log.events(history_path)
+        history[-1]["policy"] = policy
+        rebuilt: list[dict[str, object]] = []
+        previous: str | None = None
+        for item in history:
+            material = {
+                key: value
+                for key, value in item.items()
+                if key not in {"previous_record_sha256", "record_sha256"}
+            }
+            material["previous_record_sha256"] = previous
+            material["record_sha256"] = supervision_log.digest(material)
+            previous = str(material["record_sha256"])
+            rebuilt.append(material)
+        history_path.write_bytes(
+            b"".join(
+                supervision_log.canonical(item) + b"\n" for item in rebuilt
+            )
+        )
+        return policy
+
     def ingest_arguments(
         self,
         *,
         source_bytes: bytes | None = None,
         source_record: str | None = None,
-        verifier: str | None = None,
         policy_sha256: str | None = None,
         source_base64: str | None = None,
     ) -> list[str]:
@@ -2280,10 +2511,8 @@ class CanonicalAuthoritySourceIngestionTests(unittest.TestCase):
             self.source_record if source_record is None else source_record,
             "--source-text-base64",
             encoded,
-            "--verifier-thread",
-            self.reviewer if verifier is None else verifier,
-            "--provenance-evidence-record",
-            "EVT-000001",
+            "--provenance-review-record",
+            str(self.provenance_review_path),
             "--expected-policy-sha256",
             str(policy["policy_sha256"])
             if policy_sha256 is None
@@ -2337,11 +2566,9 @@ class CanonicalAuthoritySourceIngestionTests(unittest.TestCase):
             ),
             (
                 {"source_bytes": self.reconstructed_request},
-                "differ from provenance evidence",
+                "does not bind the exact source",
             ),
             ({"policy_sha256": "f" * 64}, "stale policy"),
-            ({"verifier": self.watcher}, "eligible independent reviewer"),
-            ({"verifier": self.fix_executor}, "eligible independent reviewer"),
         )
         for overrides, message in cases:
             with self.subTest(message=message), self.assertRaisesRegex(
@@ -2349,8 +2576,111 @@ class CanonicalAuthoritySourceIngestionTests(unittest.TestCase):
             ):
                 self.ingest(**overrides)
         self.assertEqual(
-            len(supervision_log.events(self.directory / "events.jsonl")), 1
+            len(supervision_log.events(self.directory / "events.jsonl")), 0
         )
+
+    def test_ingest_requires_signed_review_owned_by_the_exact_source(self) -> None:
+        synthetic_event = {
+            "schema_version": 1,
+            "record_id": "EVT-000001",
+            "target_thread_id": self.target,
+            "kind": "check",
+            "evidence": [
+                self.source_record,
+                f"canonical-item-bytes:{len(self.canonical_request)}",
+                f"canonical-item-sha256:{self.canonical_sha256}",
+            ],
+        }
+        self.provenance_review_path.write_bytes(
+            supervision_log.canonical(synthetic_event) + b"\n"
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "provenance review shape differs",
+        ):
+            self.ingest()
+
+        changed_source = self.write_provenance_review(
+            source_bytes=self.reconstructed_request
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "does not bind the exact source",
+        ):
+            self.ingest()
+
+        rejected = self.write_provenance_review(
+            disposition="rejected", finding_count=1
+        )
+        self.assertEqual(rejected["review_disposition"], "rejected")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "open findings",
+        ):
+            self.ingest()
+
+        accepted = self.write_provenance_review()
+        accepted["signature_base64"] = base64.b64encode(b"x" * 64).decode()
+        self.provenance_review_path.write_bytes(
+            supervision_log.canonical(accepted) + b"\n"
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "signature verification failed",
+        ):
+            self.ingest()
+
+        self.write_provenance_review(verifier=self.watcher)
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "review verifier is not eligible",
+        ):
+            self.ingest()
+
+        forged_cli = self.ingest_arguments()
+        forged_cli.extend(["--verifier-thread", self.reviewer])
+        with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            supervision_log.parser().parse_args(
+                ["--root", str(self.root), *forged_cli]
+            )
+
+        for overrides in (
+            {"source_item_id": "item-45"},
+            {"policy_sha256": "f" * 64},
+            {"reviewer_id": "caller-named-reviewer-1234"},
+            {"authority_key_sha256": "e" * 64},
+        ):
+            with self.subTest(overrides=overrides):
+                self.write_provenance_review(overrides=overrides)
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "does not bind the exact source",
+                ):
+                    self.ingest()
+        self.assertEqual(
+            len(supervision_log.events(self.directory / "events.jsonl")), 0
+        )
+
+    def test_ingest_surface_and_policy_require_the_signed_review(self) -> None:
+        root_parser = supervision_log.parser()
+        subparsers = next(
+            action
+            for action in root_parser._actions
+            if isinstance(action, argparse._SubParsersAction)
+        )
+        ingest_parser = subparsers.choices[
+            "implementation-range-authority-source-ingest"
+        ]
+        destinations = {action.dest for action in ingest_parser._actions}
+        self.assertIn("provenance_review_record", destinations)
+        self.assertNotIn("provenance_evidence_record", destinations)
+        self.assertNotIn("verifier_thread", destinations)
+
+        policy_text = HELPER_PATH.parent.parent.joinpath(
+            "references", "supervision-policy.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("software-factory-direct-authority-source-review", policy_text)
+        self.assertIn("retains the full signed payload", policy_text)
 
     def test_receipt_exact_root_conversion_and_full_range_gate(self) -> None:
         original_policy = self.current_policy()
@@ -2359,12 +2689,24 @@ class CanonicalAuthoritySourceIngestionTests(unittest.TestCase):
             self.directory / "policy-history.jsonl"
         )
         authority_event = self.ingest()["record"]
-        self.call(
+        receipt = self.call(
             "implementation-range-authority-receipt",
             "--target-thread",
             self.target,
             "--authority-event-record",
             str(authority_event["record_id"]),
+        )["receipt"]
+        self.assertEqual(
+            receipt["provenance_review_root"],
+            authority_event["provenance_review_root"],
+        )
+        self.assertEqual(
+            receipt["provenance_reviewer_id"],
+            supervision_log.ADAPTIVE_REVIEWER_ID,
+        )
+        self.assertEqual(
+            receipt["provenance_signature_sha256"],
+            authority_event["provenance_signature_sha256"],
         )
         receipt_policy = self.current_policy()
         receipt_history = supervision_log.events(
@@ -2500,6 +2842,147 @@ class CanonicalAuthoritySourceIngestionTests(unittest.TestCase):
                 str(policy["policy_sha256"]),
             )
         self.assertEqual(self.current_policy(), policy)
+
+    def test_conversion_rejects_non_direct_and_invalid_predecessors_without_mutation(
+        self,
+    ) -> None:
+        repository_policy = self.replace_derived_predecessor(
+            source_class="repository",
+            source_sha256=self.reconstructed_sha256,
+        )
+        repository_policy_bytes = (self.directory / "policy.json").read_bytes()
+        repository_history_bytes = (
+            self.directory / "policy-history.jsonl"
+        ).read_bytes()
+        self.write_provenance_review()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "predecessor is not the exact direct-user source",
+        ):
+            self.ingest()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "non-direct predecessor"
+        ):
+            self.call(
+                "bind",
+                "--target-thread",
+                self.target,
+                "--mission-root",
+                str(repository_policy["mission_binding"]["mission_root"]),
+                "--mission-source-record",
+                self.source_record,
+                "--exact-mission-root-conversion-only",
+                "--expected-policy-sha256",
+                str(repository_policy["policy_sha256"]),
+            )
+        self.assertEqual(
+            (self.directory / "policy.json").read_bytes(), repository_policy_bytes
+        )
+        self.assertEqual(
+            (self.directory / "policy-history.jsonl").read_bytes(),
+            repository_history_bytes,
+        )
+
+        malformed_policy = self.replace_derived_predecessor(
+            source_class="direct-user",
+            source_sha256=self.reconstructed_sha256,
+            malformed_sha256=True,
+        )
+        malformed_policy_bytes = (self.directory / "policy.json").read_bytes()
+        malformed_history_bytes = (
+            self.directory / "policy-history.jsonl"
+        ).read_bytes()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "Mission binding contract differs"
+        ):
+            self.call(
+                "bind",
+                "--target-thread",
+                self.target,
+                "--mission-root",
+                str(malformed_policy["mission_binding"]["mission_root"]),
+                "--mission-source-record",
+                self.source_record,
+                "--exact-mission-root-conversion-only",
+                "--expected-policy-sha256",
+                str(malformed_policy["policy_sha256"]),
+            )
+        self.assertEqual(
+            (self.directory / "policy.json").read_bytes(), malformed_policy_bytes
+        )
+        self.assertEqual(
+            (self.directory / "policy-history.jsonl").read_bytes(),
+            malformed_history_bytes,
+        )
+
+        mismatched_policy = self.replace_derived_predecessor(
+            source_class="direct-user",
+            source_sha256=self.reconstructed_sha256,
+            mismatched_source_record=True,
+        )
+        mismatched_policy_bytes = (self.directory / "policy.json").read_bytes()
+        mismatched_history_bytes = (
+            self.directory / "policy-history.jsonl"
+        ).read_bytes()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "Mission binding contract differs"
+        ):
+            self.call(
+                "bind",
+                "--target-thread",
+                self.target,
+                "--mission-root",
+                str(mismatched_policy["mission_binding"]["mission_root"]),
+                "--mission-source-record",
+                self.source_record,
+                "--exact-mission-root-conversion-only",
+                "--expected-policy-sha256",
+                str(mismatched_policy["policy_sha256"]),
+            )
+        self.assertEqual(
+            (self.directory / "policy.json").read_bytes(), mismatched_policy_bytes
+        )
+        self.assertEqual(
+            (self.directory / "policy-history.jsonl").read_bytes(),
+            mismatched_history_bytes,
+        )
+
+    def test_conversion_rejects_same_digest_receipt_without_mutation(self) -> None:
+        policy = self.replace_derived_predecessor(
+            source_class="direct-user",
+            source_sha256=self.canonical_sha256,
+        )
+        self.write_provenance_review()
+        authority_event = self.ingest()["record"]
+        self.call(
+            "implementation-range-authority-receipt",
+            "--target-thread",
+            self.target,
+            "--authority-event-record",
+            str(authority_event["record_id"]),
+        )
+        receipt_policy = self.current_policy()
+        policy_bytes = (self.directory / "policy.json").read_bytes()
+        history_bytes = (self.directory / "policy-history.jsonl").read_bytes()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "distinct corrected digest"
+        ):
+            self.call(
+                "bind",
+                "--target-thread",
+                self.target,
+                "--mission-root",
+                str(policy["mission_binding"]["mission_root"]),
+                "--mission-source-record",
+                self.source_record,
+                "--exact-mission-root-conversion-only",
+                "--expected-policy-sha256",
+                str(receipt_policy["policy_sha256"]),
+            )
+        self.assertEqual((self.directory / "policy.json").read_bytes(), policy_bytes)
+        self.assertEqual(
+            (self.directory / "policy-history.jsonl").read_bytes(), history_bytes
+        )
 
 
 class ControlPostureReducerTests(unittest.TestCase):

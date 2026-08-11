@@ -340,6 +340,7 @@ OWNER_ROOT_HISTORY_NAME = "owner-root-history.jsonl"
 OWNER_ROOT_KEY_DIRECTORY = ".owner-root-keys"
 MAX_IMPLEMENTATION_TRACKER_BYTES = 2 * 1024 * 1024
 MAX_DIRECT_AUTHORITY_SOURCE_BYTES = 64 * 1024
+MAX_DIRECT_AUTHORITY_REVIEW_BYTES = 32 * 1024
 IMPLEMENTATION_BLOCK_HEADING = re.compile(r"^## Block (\d+)\b", re.MULTILINE)
 IMPLEMENTATION_TABLE_ROW = re.compile(r"^\|\s*(\d+)\s*\|(.+)$")
 SUCCESSOR_TRANSITION_IDENTITY_FIELDS = (
@@ -1993,6 +1994,39 @@ def validate_policy(policy: dict[str, Any]) -> None:
         )
         if receipt.get("accepted") is not True or not receipt.get("evidence"):
             raise SupervisionLogError("Direct-authority receipt is not accepted evidence")
+        signed_receipt_fields = DIRECT_AUTHORITY_SIGNED_RECEIPT_FIELDS & set(receipt)
+        if signed_receipt_fields and signed_receipt_fields != (
+            DIRECT_AUTHORITY_SIGNED_RECEIPT_FIELDS
+        ):
+            raise SupervisionLogError(
+                "Direct-authority signed receipt provenance is incomplete"
+            )
+        if signed_receipt_fields:
+            if (
+                type(receipt.get("source_byte_count")) is not int
+                or not 0
+                < receipt["source_byte_count"]
+                <= MAX_DIRECT_AUTHORITY_SOURCE_BYTES
+            ):
+                raise SupervisionLogError(
+                    "Direct-authority receipt byte count differs"
+                )
+            safe_id(
+                str(receipt.get("provenance_review_record", "")),
+                label="direct-authority receipt provenance review record",
+            )
+            exact_sha256(
+                str(receipt.get("provenance_review_root", "")),
+                label="direct-authority receipt provenance review root",
+            )
+            if receipt.get("provenance_reviewer_id") != ADAPTIVE_REVIEWER_ID:
+                raise SupervisionLogError(
+                    "Direct-authority receipt provenance reviewer differs"
+                )
+            exact_sha256(
+                str(receipt.get("provenance_signature_sha256", "")),
+                label="direct-authority receipt provenance signature SHA-256",
+            )
         if not isinstance(receipt.get("accepted_policy_version"), int) or receipt[
             "accepted_policy_version"
         ] <= 0:
@@ -2747,6 +2781,185 @@ def ensure_owner_root_history_at(directory_fd: int) -> None:
     )
 
 
+DIRECT_AUTHORITY_REVIEW_FIELDS = {
+    "schema_version",
+    "kind",
+    "record_id",
+    "target_thread_id",
+    "source_task_id",
+    "source_item_id",
+    "source_record",
+    "source_sha256",
+    "source_byte_count",
+    "verifier_thread_id",
+    "reviewer_id",
+    "review_disposition",
+    "finding_count",
+    "policy_sha256",
+    "authority_key_sha256",
+    "observed_at",
+    "review_root",
+    "signature_base64",
+}
+DIRECT_AUTHORITY_EVENT_FIELDS = {
+    "schema_version",
+    "record_id",
+    "timestamp",
+    "target_thread_id",
+    "kind",
+    "source_class",
+    "source_record",
+    "source_sha256",
+    "source_task_id",
+    "source_item_id",
+    "verifier_id",
+    "provenance_status",
+    "policy_sha256",
+    "evidence",
+    "previous_record_sha256",
+    "record_sha256",
+}
+DIRECT_AUTHORITY_SIGNED_EVENT_FIELDS = DIRECT_AUTHORITY_EVENT_FIELDS | {
+    "source_byte_count",
+    "provenance_review_payload",
+    "provenance_review_record",
+    "provenance_review_root",
+    "provenance_reviewer_id",
+    "provenance_signature_sha256",
+}
+DIRECT_AUTHORITY_SIGNED_RECEIPT_FIELDS = {
+    "source_byte_count",
+    "provenance_review_record",
+    "provenance_review_root",
+    "provenance_reviewer_id",
+    "provenance_signature_sha256",
+}
+
+
+def direct_authority_review_root_material(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        key: item
+        for key, item in value.items()
+        if key not in {"review_root", "signature_base64"}
+    }
+
+
+def validate_direct_authority_review_value(
+    value: Any,
+    *,
+    policy: Mapping[str, Any],
+    target_thread: str,
+    source_task: str,
+    source_item: str,
+    source_record: str,
+    source_sha256: str,
+    source_byte_count: int,
+) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != DIRECT_AUTHORITY_REVIEW_FIELDS:
+        raise SupervisionLogError("Direct-authority provenance review shape differs")
+    review = dict(value)
+    if type(review.get("schema_version")) is not int or review["schema_version"] != 1:
+        raise SupervisionLogError("Direct-authority provenance review version differs")
+    if review.get("kind") != "software-factory-direct-authority-source-review":
+        raise SupervisionLogError("Direct-authority provenance review kind differs")
+    for field in (
+        "record_id",
+        "target_thread_id",
+        "source_task_id",
+        "source_item_id",
+        "source_record",
+        "verifier_thread_id",
+        "reviewer_id",
+    ):
+        if type(review.get(field)) is not str:
+            raise SupervisionLogError(
+                f"Direct-authority provenance review {field} must be a string"
+            )
+        safe_id(str(review[field]), label=f"direct-authority provenance review {field}")
+    for field in (
+        "source_sha256",
+        "policy_sha256",
+        "authority_key_sha256",
+        "review_root",
+    ):
+        if type(review.get(field)) is not str:
+            raise SupervisionLogError(
+                f"Direct-authority provenance review {field} must be a string"
+            )
+        exact_sha256(str(review[field]), label=f"direct-authority provenance review {field}")
+    if type(review.get("source_byte_count")) is not int or not 0 < review["source_byte_count"] <= MAX_DIRECT_AUTHORITY_SOURCE_BYTES:
+        raise SupervisionLogError("Direct-authority provenance review byte count differs")
+    if type(review.get("finding_count")) is not int or review["finding_count"] != 0:
+        raise SupervisionLogError("Direct-authority provenance review has open findings")
+    if type(review.get("observed_at")) is not str or not review["observed_at"]:
+        raise SupervisionLogError("Direct-authority provenance review time is missing")
+    parse_time(str(review["observed_at"]))
+    exact_identity = {
+        "target_thread_id": target_thread,
+        "source_task_id": source_task,
+        "source_item_id": source_item,
+        "source_record": source_record,
+        "source_sha256": source_sha256,
+        "source_byte_count": source_byte_count,
+        "reviewer_id": ADAPTIVE_REVIEWER_ID,
+        "review_disposition": "accepted",
+        "policy_sha256": policy.get("policy_sha256"),
+        "authority_key_sha256": ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256,
+    }
+    if any(review.get(key) != value for key, value in exact_identity.items()):
+        raise SupervisionLogError(
+            "Direct-authority provenance review does not bind the exact source"
+        )
+    verifier_thread = str(review["verifier_thread_id"])
+    runtime = policy.get("runtime", {})
+    eligible = {
+        runtime.get("base_reviewer_thread_id"),
+        runtime.get("reviewer_thread_id"),
+    }
+    disallowed = {
+        target_thread,
+        runtime.get("watcher_thread_id"),
+        runtime.get("fix_executor_thread_id"),
+    }
+    if verifier_thread not in eligible or verifier_thread in disallowed:
+        raise SupervisionLogError(
+            "Direct-authority provenance review verifier is not eligible"
+        )
+    if review["review_root"] != digest(direct_authority_review_root_material(review)):
+        raise SupervisionLogError("Direct-authority provenance review root differs")
+    verify_adaptive_review_signature(review)
+    return review
+
+
+def validate_direct_authority_review(
+    path_value: str,
+    *,
+    policy: Mapping[str, Any],
+    target_thread: str,
+    source_task: str,
+    source_item: str,
+    source_record: str,
+    source_sha256: str,
+    source_byte_count: int,
+) -> dict[str, Any]:
+    return validate_direct_authority_review_value(
+        load_bounded_canonical_json(
+            path_value,
+            label="direct-authority provenance review",
+            maximum_bytes=MAX_DIRECT_AUTHORITY_REVIEW_BYTES,
+        ),
+        policy=policy,
+        target_thread=target_thread,
+        source_task=source_task,
+        source_item=source_item,
+        source_record=source_record,
+        source_sha256=source_sha256,
+        source_byte_count=source_byte_count,
+    )
+
+
 def canonical_direct_authority_event(
     all_events: list[dict[str, Any]],
     *,
@@ -2762,25 +2975,12 @@ def canonical_direct_authority_event(
         raise SupervisionLogError(
             "Direct-authority source is not in the canonical owner event ledger"
         )
-    required = {
-        "schema_version",
-        "record_id",
-        "timestamp",
-        "target_thread_id",
-        "kind",
-        "source_class",
-        "source_record",
-        "source_sha256",
-        "source_task_id",
-        "source_item_id",
-        "verifier_id",
-        "provenance_status",
-        "policy_sha256",
-        "evidence",
-        "previous_record_sha256",
-        "record_sha256",
-    }
-    if set(event) != required:
+    event_fields = frozenset(event)
+    signed_event = event_fields == frozenset(DIRECT_AUTHORITY_SIGNED_EVENT_FIELDS)
+    if event_fields not in {
+        frozenset(DIRECT_AUTHORITY_EVENT_FIELDS),
+        frozenset(DIRECT_AUTHORITY_SIGNED_EVENT_FIELDS),
+    }:
         raise SupervisionLogError(
             "Canonical direct-authority source event shape differs"
         )
@@ -2815,15 +3015,25 @@ def canonical_direct_authority_event(
             "Canonical direct-authority source record differs from its exact tuple"
         )
     exact_sha256(str(event["source_sha256"]), label="direct-authority source SHA-256")
+    if signed_event and (
+        type(event.get("source_byte_count")) is not int
+        or not 0 < event["source_byte_count"] <= MAX_DIRECT_AUTHORITY_SOURCE_BYTES
+    ):
+        raise SupervisionLogError("Canonical direct-authority source byte count differs")
     exact_sha256(str(event["record_sha256"]), label="direct-authority event SHA-256")
     source_policy_sha256 = exact_sha256(
         str(event["policy_sha256"]), label="direct-authority source policy SHA-256"
     )
-    if not any(
-        isinstance(item.get("policy"), Mapping)
-        and item["policy"].get("policy_sha256") == source_policy_sha256
-        for item in policy_history
-    ):
+    source_policy = next(
+        (
+            item["policy"]
+            for item in policy_history
+            if isinstance(item.get("policy"), Mapping)
+            and item["policy"].get("policy_sha256") == source_policy_sha256
+        ),
+        None,
+    )
+    if source_policy is None:
         raise SupervisionLogError(
             "Canonical direct-authority event is not anchored to owner policy history"
         )
@@ -2852,6 +3062,57 @@ def canonical_direct_authority_event(
         raise SupervisionLogError(
             "Canonical direct-authority event lacks independent provenance evidence"
         )
+    if not signed_event:
+        return event
+    safe_id(
+        str(event["provenance_review_record"]),
+        label="direct-authority provenance review record",
+    )
+    exact_sha256(
+        str(event["provenance_review_root"]),
+        label="direct-authority provenance review root",
+    )
+    if event.get("provenance_reviewer_id") != ADAPTIVE_REVIEWER_ID:
+        raise SupervisionLogError(
+            "Canonical direct-authority provenance reviewer differs"
+        )
+    exact_sha256(
+        str(event["provenance_signature_sha256"]),
+        label="direct-authority provenance signature SHA-256",
+    )
+    if evidence != [
+        event["provenance_review_record"],
+        event["provenance_review_root"],
+    ]:
+        raise SupervisionLogError(
+            "Canonical direct-authority provenance evidence differs"
+        )
+    provenance_review = validate_direct_authority_review_value(
+        event.get("provenance_review_payload"),
+        policy=source_policy,
+        target_thread=str(event["target_thread_id"]),
+        source_task=source_task_id,
+        source_item=source_item_id,
+        source_record=source_record,
+        source_sha256=str(event["source_sha256"]),
+        source_byte_count=int(event["source_byte_count"]),
+    )
+    if provenance_review["verifier_thread_id"] != verifier_id:
+        raise SupervisionLogError(
+            "Canonical direct-authority provenance verifier differs"
+        )
+    if (
+        provenance_review["record_id"] != event["provenance_review_record"]
+        or provenance_review["review_root"] != event["provenance_review_root"]
+        or provenance_review["reviewer_id"] != event["provenance_reviewer_id"]
+        or hashlib.sha256(
+            base64.b64decode(provenance_review["signature_base64"], validate=True)
+        ).hexdigest()
+        != event["provenance_signature_sha256"]
+    ):
+        raise SupervisionLogError(
+            "Canonical direct-authority provenance review payload differs"
+        )
     return event
 
 
@@ -2878,6 +3139,24 @@ def validate_direct_authority_receipts(
             "source_policy_sha256": "policy_sha256",
             "evidence": "evidence",
         }
+        signed_event = DIRECT_AUTHORITY_SIGNED_RECEIPT_FIELDS <= set(event)
+        signed_receipt = DIRECT_AUTHORITY_SIGNED_RECEIPT_FIELDS <= set(receipt)
+        if signed_event != signed_receipt:
+            raise SupervisionLogError(
+                "Direct-authority receipt signed provenance posture differs"
+            )
+        if signed_event:
+            comparisons.update(
+                {
+                    "source_byte_count": "source_byte_count",
+                    "provenance_review_record": "provenance_review_record",
+                    "provenance_review_root": "provenance_review_root",
+                    "provenance_reviewer_id": "provenance_reviewer_id",
+                    "provenance_signature_sha256": (
+                        "provenance_signature_sha256"
+                    ),
+                }
+            )
         if any(
             receipt.get(receipt_field) != event.get(event_field)
             for receipt_field, event_field in comparisons.items()
@@ -4268,18 +4547,44 @@ def cmd_bind(args: argparse.Namespace) -> None:
                 "Exact mission-root conversion requires the derived predecessor"
             )
         source_record = str(requested_mission["mission_source_record"])
+        controlling_source = derivation.get("controlling_source")
+        if not isinstance(controlling_source, Mapping):
+            raise SupervisionLogError(
+                "Exact mission-root conversion requires a direct-user predecessor source"
+            )
+        if controlling_source.get("class") != "direct-user":
+            raise SupervisionLogError(
+                "Exact mission-root conversion cannot relabel a non-direct predecessor"
+            )
+        if controlling_source.get("record") != source_record:
+            raise SupervisionLogError(
+                "Exact mission-root conversion predecessor source record differs"
+            )
+        historic_source_sha256 = exact_sha256(
+            str(controlling_source.get("sha256", "")),
+            label="historic direct-user source SHA-256",
+        )
         receipts = [
             item
             for item in policy.get("direct_authority_receipts", [])
             if item.get("source_class") == "direct-user"
             and item.get("source_record") == source_record
             and item.get("accepted") is True
+            and DIRECT_AUTHORITY_SIGNED_RECEIPT_FIELDS <= set(item)
         ]
         if len(receipts) != 1:
             raise SupervisionLogError(
                 "Exact mission-root conversion requires one accepted canonical source receipt"
             )
         receipt = receipts[0]
+        canonical_source_sha256 = exact_sha256(
+            str(receipt.get("source_sha256", "")),
+            label="canonical direct-user source SHA-256",
+        )
+        if canonical_source_sha256 == historic_source_sha256:
+            raise SupervisionLogError(
+                "Exact mission-root conversion requires a distinct corrected digest"
+            )
         policy["mission_binding"] = requested_mission
         write_policy_version(
             directory,
@@ -4292,7 +4597,8 @@ def cmd_bind(args: argparse.Namespace) -> None:
             evidence_values=[
                 str(receipt["source_event_record_id"]),
                 str(receipt["source_event_sha256"]),
-                str(receipt["source_sha256"]),
+                canonical_source_sha256,
+                str(receipt["provenance_review_root"]),
             ],
         )
         print(json.dumps({"changed": True, "policy": policy}, sort_keys=True))
@@ -7474,6 +7780,9 @@ def cmd_implementation_authority_receipt(args: argparse.Namespace) -> None:
         "accepted_policy_version": int(policy["policy_version"]) + 1,
         "evidence": source_event["evidence"],
     }
+    if DIRECT_AUTHORITY_SIGNED_RECEIPT_FIELDS <= set(source_event):
+        for field in sorted(DIRECT_AUTHORITY_SIGNED_RECEIPT_FIELDS):
+            receipt[field] = source_event[field]
     receipts.append(receipt)
     write_policy_version(
         directory,
@@ -7483,6 +7792,11 @@ def cmd_implementation_authority_receipt(args: argparse.Namespace) -> None:
         evidence_values=[
             str(source_event["record_id"]),
             str(source_event["record_sha256"]),
+            *(
+                [str(source_event["provenance_review_root"])]
+                if "provenance_review_root" in source_event
+                else []
+            ),
         ],
     )
     print(json.dumps({"duplicate": False, "receipt": receipt}, sort_keys=True))
@@ -7528,64 +7842,39 @@ def cmd_implementation_authority_source_ingest(args: argparse.Namespace) -> None
         label="direct-authority source bytes",
         maximum_bytes=MAX_DIRECT_AUTHORITY_SOURCE_BYTES,
     )
-    verifier = safe_id(
-        args.verifier_thread, label="direct-authority provenance verifier"
-    )
-    runtime = policy.get("runtime", {})
-    eligible = {
-        runtime.get("base_reviewer_thread_id"),
-        runtime.get("reviewer_thread_id"),
-    }
-    disallowed = {
-        target_thread,
-        runtime.get("watcher_thread_id"),
-        runtime.get("fix_executor_thread_id"),
-    }
-    if verifier not in eligible or verifier in disallowed:
+    source_sha256 = hashlib.sha256(source_bytes).hexdigest()
+    mission_derivation = mission.get("mission_derivation")
+    if not isinstance(mission_derivation, Mapping):
         raise SupervisionLogError(
-            "Direct-authority source ingestion requires an eligible independent reviewer"
+            "Direct-authority source ingestion requires a direct-user predecessor"
         )
-    evidence_record_id = safe_id(
-        args.provenance_evidence_record,
-        label="direct-authority provenance evidence record",
-    )
-    evidence_event = next(
-        (
-            item
-            for item in all_events
-            if item.get("record_id") == evidence_record_id
-        ),
-        None,
-    )
-    if (
-        evidence_event is None
-        or evidence_event.get("target_thread_id") != target_thread
-        or not isinstance(evidence_event.get("record_sha256"), str)
+    if mission_derivation.get("mode") == "derived-from-versioned-meta-charter":
+        controlling_source = mission_derivation.get("controlling_source")
+        if (
+            not isinstance(controlling_source, Mapping)
+            or controlling_source.get("class") != "direct-user"
+            or controlling_source.get("record") != source_record
+        ):
+            raise SupervisionLogError(
+                "Direct-authority source ingestion predecessor is not the exact direct-user source"
+            )
+        exact_sha256(
+            str(controlling_source.get("sha256", "")),
+            label="historic direct-user source SHA-256",
+        )
+    elif not any(
+        item.get("kind") == DIRECT_AUTHORITY_EVENT_KIND
+        and item.get("source_record") == source_record
+        and item.get("source_task_id") == source_task
+        and item.get("source_item_id") == source_item
+        and item.get("source_sha256") == source_sha256
+        and frozenset(item) == frozenset(DIRECT_AUTHORITY_SIGNED_EVENT_FIELDS)
+        for item in all_events
     ):
         raise SupervisionLogError(
-            "Direct-authority provenance evidence is not in the current owner ledger"
+            "Direct-authority source ingestion cannot originate from an explicit-root mission"
         )
-    evidence_sha256 = exact_sha256(
-        str(evidence_event["record_sha256"]),
-        label="direct-authority provenance evidence SHA-256",
-    )
-    source_sha256 = hashlib.sha256(source_bytes).hexdigest()
-    record: dict[str, Any] = {
-        "schema_version": 1,
-        "record_id": "",
-        "timestamp": utc_now(),
-        "target_thread_id": target_thread,
-        "kind": DIRECT_AUTHORITY_EVENT_KIND,
-        "source_class": "direct-user",
-        "source_record": source_record,
-        "source_sha256": source_sha256,
-        "source_task_id": source_task,
-        "source_item_id": source_item,
-        "verifier_id": verifier,
-        "provenance_status": "verified-before-entry",
-        "policy_sha256": expected_policy_sha256,
-        "evidence": [evidence_record_id, evidence_sha256],
-    }
+    record: dict[str, Any]
     with owner_append_lock(
         root_from(args), target_thread, directory_snapshot
     ) as directory_fd:
@@ -7610,24 +7899,7 @@ def cmd_implementation_authority_source_ingest(args: argparse.Namespace) -> None
             and item.get("source_item_id") == source_item
         ]
         if prior:
-            comparable = {
-                key: value
-                for key, value in prior[-1].items()
-                if key
-                not in {
-                    "record_id",
-                    "timestamp",
-                    "policy_sha256",
-                    "previous_record_sha256",
-                    "record_sha256",
-                }
-            }
-            current = {
-                key: value
-                for key, value in record.items()
-                if key not in {"record_id", "timestamp", "policy_sha256"}
-            }
-            if comparable == current:
+            if prior[-1].get("source_sha256") == source_sha256:
                 policy_history, _policy_history_snapshot = events_snapshot(
                     Path("policy-history.jsonl"), directory_fd=directory_fd
                 )
@@ -7647,16 +7919,47 @@ def cmd_implementation_authority_source_ingest(args: argparse.Namespace) -> None
             raise SupervisionLogError(
                 "Direct-authority source tuple already has a divergent record"
             )
-        evidence_claims = evidence_event.get("evidence")
-        if (
-            not isinstance(evidence_claims, list)
-            or source_record not in evidence_claims
-            or f"canonical-item-bytes:{len(source_bytes)}" not in evidence_claims
-            or f"canonical-item-sha256:{source_sha256}" not in evidence_claims
-        ):
-            raise SupervisionLogError(
-                "Direct-authority source bytes differ from provenance evidence"
-            )
+        provenance_review = validate_direct_authority_review(
+            args.provenance_review_record,
+            policy=policy,
+            target_thread=target_thread,
+            source_task=source_task,
+            source_item=source_item,
+            source_record=source_record,
+            source_sha256=source_sha256,
+            source_byte_count=len(source_bytes),
+        )
+        verifier = str(provenance_review["verifier_thread_id"])
+        provenance_signature = base64.b64decode(
+            provenance_review["signature_base64"], validate=True
+        )
+        record = {
+            "schema_version": 1,
+            "record_id": "",
+            "timestamp": utc_now(),
+            "target_thread_id": target_thread,
+            "kind": DIRECT_AUTHORITY_EVENT_KIND,
+            "source_class": "direct-user",
+            "source_record": source_record,
+            "source_sha256": source_sha256,
+            "source_byte_count": len(source_bytes),
+            "source_task_id": source_task,
+            "source_item_id": source_item,
+            "verifier_id": verifier,
+            "provenance_review_payload": provenance_review,
+            "provenance_review_record": provenance_review["record_id"],
+            "provenance_review_root": provenance_review["review_root"],
+            "provenance_reviewer_id": provenance_review["reviewer_id"],
+            "provenance_signature_sha256": hashlib.sha256(
+                provenance_signature
+            ).hexdigest(),
+            "provenance_status": "verified-before-entry",
+            "policy_sha256": expected_policy_sha256,
+            "evidence": [
+                provenance_review["record_id"],
+                provenance_review["review_root"],
+            ],
+        }
         record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
         previous = (
             str(current_events[-1]["record_sha256"])
@@ -15808,9 +16111,8 @@ def parser() -> argparse.ArgumentParser:
     range_authority_source.add_argument("--source-item", required=True)
     range_authority_source.add_argument("--source-record", required=True)
     range_authority_source.add_argument("--source-text-base64", required=True)
-    range_authority_source.add_argument("--verifier-thread", required=True)
     range_authority_source.add_argument(
-        "--provenance-evidence-record", required=True
+        "--provenance-review-record", required=True
     )
     range_authority_source.add_argument(
         "--expected-policy-sha256", required=True
