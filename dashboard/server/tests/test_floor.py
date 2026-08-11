@@ -408,6 +408,33 @@ class FactoryFloorCompositionTests(unittest.TestCase):
         self.assertEqual(supervision_claim["blocks"], [])
         self.assertIn("predecessor mission", supervision_claim["reason"])
 
+    def test_block_claims_treat_current_task_none_as_a_source_disagreement(self) -> None:
+        self.tasks["tasks"][0] = task("target-alpha", "alpha", "idle")
+
+        row = next(
+            item for item in self.compose()["rows"] if item["id"] == "run:target-alpha"  # type: ignore[index]
+        )
+        claims = {claim["source"]: claim for claim in row["work"]["block_claims"]["claims"]}
+
+        self.assertEqual(claims["tracker"]["status"], "exact")
+        self.assertEqual(claims["task"]["status"], "none")
+        self.assertEqual(claims["supervision"]["status"], "exact")
+        self.assertEqual(row["work"]["block_claims"]["posture"], "conflict")
+        self.assertIn("Implementation task reports None active", row["disagreements"][-1])
+        self.assertEqual(row["light"]["posture"], "amber")
+
+        self.tasks["tasks"][0]["status"] = {"type": "notLoaded", "active_flags": []}  # type: ignore[index]
+        unavailable = next(
+            item for item in self.compose()["rows"] if item["id"] == "run:target-alpha"  # type: ignore[index]
+        )
+        task_claim = next(
+            claim
+            for claim in unavailable["work"]["block_claims"]["claims"]
+            if claim["source"] == "task"
+        )
+        self.assertEqual(task_claim["status"], "unavailable")
+        self.assertNotIn("Implementation task reports None active", unavailable["disagreements"])
+
     def test_block_claims_fail_closed_for_zero_partial_and_none_active(self) -> None:
         alpha_tracker = self.trackers[0]
         alpha_tracker["blocks"] = []
@@ -547,6 +574,18 @@ class FactoryFloorCompositionTests(unittest.TestCase):
 
         self.assertNotEqual(initial["fingerprint"], changed["fingerprint"])
         self.assertEqual(changed["fingerprint"], later_read["fingerprint"])
+
+    def test_semantic_fingerprint_tracks_consumed_task_workflow_marker(self) -> None:
+        initial = self.compose()
+        self.tasks["tasks"][0] = task("target-alpha", "alpha", block_start=5)
+
+        changed = self.compose()
+        row = next(
+            item for item in changed["rows"] if item["id"] == "run:target-alpha"  # type: ignore[index]
+        )
+
+        self.assertNotEqual(initial["fingerprint"], changed["fingerprint"])
+        self.assertEqual(row["work"]["block_claims"]["posture"], "conflict")
 
 
 if __name__ == "__main__":

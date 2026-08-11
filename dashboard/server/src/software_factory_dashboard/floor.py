@@ -410,11 +410,16 @@ def _task_block_claim(
     if not isinstance(task, Mapping):
         return claim
     task_status, _ = _task_posture(task)
-    if task_status != "active":
+    if task_status in {"idle", "terminal"}:
         return {
             **claim,
             "status": "none",
             "reason": "The task owner reports no active turn.",
+        }
+    if task_status != "active":
+        return {
+            **claim,
+            "reason": "The task lifecycle is unavailable or unknown, so active work cannot be established.",
         }
     turns = task.get("turns")
     if task.get("turns_truncated") is not False or (
@@ -588,7 +593,6 @@ def _block_claims(
     comparable = [
         claim
         for claim in claims
-        if claim["source"] != "task" or claim["status"] in {"exact", "conflict"}
         if claim["status"] in {"exact", "none"}
     ]
     reported_sets = {
@@ -1534,7 +1538,17 @@ def compose_factory_floor(
                         "name": task.get("name"),
                         "status": task.get("status"),
                         "project_binding": task.get("project_binding"),
+                        "updated_at": task.get("updated_at"),
                         "recency_at": task.get("recency_at"),
+                        "turns_truncated": task.get("turns_truncated"),
+                        "item_coverage": [
+                            turn.get("items_truncated")
+                            for turn in task.get("turns", [])
+                            if isinstance(turn, Mapping)
+                        ]
+                        if isinstance(task.get("turns"), list)
+                        else None,
+                        "workflow_marker": task_workflow_marker(task),
                     }
                     for task in tasks
                 ],
