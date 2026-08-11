@@ -330,6 +330,26 @@ This operation is a bounded normal-owner seam, not a deployment service. It
 does not release or install Software Factory skills, alter supervision policy,
 promote a self-target candidate, edit the tracker, or authorize later Blocks.
 
+## Bind one protocol to ordinary targets and Software Factory self-work
+
+When the active Block requires the same adaptive-decision semantics across
+ordinary repositories and Software Factory self-work, read
+[references/target-class-protocol.md](references/target-class-protocol.md) and
+use its read-only target-class composition.
+
+Keep unchanged, inline, candidate, structural, currentness, and continuation
+semantics identical. Ordinary target work must not reach live Factory skills,
+global configuration, evolution, or promotion. Software Factory mutation adds
+exact live-source binding plus distinct proposer/author, implementer, reviewer,
+and evaluator identities. A Factory-evolution `promote` disposition is only
+eligibility for a separately governed adoption path; this protocol never
+applies, releases, installs, activates, or promotes it.
+
+Candidate and process records never confer production authority. Emit only the
+rooted non-authorizing owner handoff, keep Factory-alignment and target-product
+findings separately attributable, and require the existing current
+capability-reconciliation owner before recording any claimed improvement.
+
 For a materially expensive read-only proof or audit with a separate reporter or
 helper, cheaply preflight the maintained reporting interface and its invocation
 binding before starting the expensive computation. If valid proof output

@@ -2862,7 +2862,24 @@ claims.
 
 ### Completion evidence
 
-Pending.
+- Source-safe candidate adds
+  `implement-tracker-blocks/scripts/target_class_protocol.py`, the maintained
+  `references/target-class-protocol.md`, the skill invocation contract, and
+  focused `test_target_class_protocol_contract.py` coverage. The composition
+  reuses canonical adaptive-decision, program-revision, Factory-evolution, and
+  capability-reconciliation owners; its exact application handoff is rooted
+  but always non-authorizing.
+- Focused compatibility and negative coverage passes `7/7` under the required
+  `/usr/bin/python3` runtime. Both target classes exercise unchanged, inline,
+  candidate comparison, structural amendment, and candidate-cutover routing.
+  Cross-target identity, ordinary-target Factory reach, candidate authority,
+  collapsed roles, stale skill sources, self-promotion input, adoption-only
+  disposition, and process-only improvement claims reject or remain
+  non-authoritative as required.
+- No target cutover, Factory evolution producer, skill release/installation,
+  policy, mission, lifecycle, Gmail, or later-Block effect was performed.
+  Exact candidate revision, independent paired review, mapped validation, and
+  final completion status remain pending.
 
 ### Stop
 
