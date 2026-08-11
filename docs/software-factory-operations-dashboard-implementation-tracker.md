@@ -5129,6 +5129,47 @@ filters, and viewports rather than unrelated workspaces.
   read-only fields needed for exact tracker totals, plural current active claims,
   source disagreement, and coverage. No tracker-review, operation, mutation,
   automation, lifecycle, reporting, or later-Block work is started.
+- Frozen product candidate: commit
+  `9db88126858ebb7bd3abceacb6fa4e510909db69`, tree
+  `27ff467ef47ee9309e07e921b9e8e151000589f4`, parent
+  `325bde5c102f312b533a4ecf1f49dfe2a3f2a429`. Its exact 12-file product and
+  test delta adds only the typed read-only Block-claim projection, adapted
+  operational disclosure/count-chip components, Factory Floor integration,
+  responsive styling, and focused proof. The copied-source provenance remains
+  explicit in code for Beautiful UI `TaskRows.tsx` SHA-256
+  `665e31820b041600662fcffff044d6a4994ecd18059d5e8ef1026251bf996b0e`
+  and `FilterTable.tsx` SHA-256
+  `4a48c51cd6e5c0aa3bab91aab9975005518fd82dd294d059e402c2bb4ce681f4`;
+  demo data, timers, autonomous state, retry controls, and unsupported product
+  semantics are absent.
+- Product and truth proof: exact tracker totals require one canonical tracker
+  association plus a valid, complete, nonzero maintained-verifier Block set;
+  malformed, zero-Block, partial, candidate, or ambiguous sources fail to
+  partial/unavailable. Tracker status, complete current task marker, and exact
+  current supervision-mission activity remain three separately labeled claims;
+  plural sets are preserved, disagreement degrades to `Conflict`, and
+  predecessor mission claims are excluded. The live loopback response on port
+  8787 exercised the real ambiguous four-candidate/current-task-not-loaded
+  posture and rendered `Blocks unavailable` with the source claims separated,
+  rather than inferring an association.
+- Validation: the focused server suite passed 9/9 and the full server suite
+  passed 112/112 with `ResourceWarning` fatal; Ruff passed. The exact frontend
+  candidate passed 18 files/84 tests invocation-scoped with one worker,
+  TypeScript, the production build, and focused API/Floor 10/10. A preceding
+  default-parallel frontend run preserved one diagnostic 5-second timeout in
+  the interaction-heavy Floor test; the same test passed alone and in the
+  unchanged-harness serial run, so no global worker or timeout setting was
+  changed. Exact live Playwright passed 3/3 at desktop, tablet, and mobile with
+  keyboard disclosure, Axe, and horizontal-overflow checks. Visual inspection
+  confirmed compact collapsed rows, readable two-/one-column expansion, sparse
+  regional headings, and no marketing subheader. The full-profile tracker
+  verifier passed Blocks 0-29 with 0 errors/warnings, all 30 verifier tests
+  passed, and staged/committed diff checks are clean.
+- Stop proof: no tracker queue or source-diff refinement, operation preview,
+  mutation, automation binding, lifecycle, continuity, reporting, evolution,
+  or later-Block implementation was added. Block 17 remains `in-progress`
+  pending an independent exact-revision product/truth review of this candidate;
+  Blocks 18-29 remain unopened.
 
 ### Stop
 
