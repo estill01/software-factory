@@ -4907,6 +4907,8 @@ class FactoryWorkflowOwner:
         item = source_items[0]
         summary = item.get("summary")
         content_sha256 = item.get("user_content_sha256")
+        envelope_sha256 = item.get("user_content_envelope_sha256")
+        part_types = item.get("user_content_part_types")
         client_id = item.get("client_id")
         normalized = summary.lstrip().casefold() if isinstance(summary, str) else ""
         if (
@@ -4915,6 +4917,13 @@ class FactoryWorkflowOwner:
             or not isinstance(content_sha256, str)
             or not SHA256_PATTERN.fullmatch(content_sha256)
             or sha256(summary.encode("utf-8")).hexdigest() != content_sha256
+            or not isinstance(envelope_sha256, str)
+            or not SHA256_PATTERN.fullmatch(envelope_sha256)
+            or part_types != ["text"]
+            or sha256(
+                _canonical([{"type": "text", "text": summary}]).encode("utf-8")
+            ).hexdigest()
+            != envelope_sha256
             or item.get("user_content_truncated") is not False
             or item.get("user_input_classification") != "ordinary-user-message"
             or item.get("user_authority_status") != "unverified"
@@ -4934,6 +4943,8 @@ class FactoryWorkflowOwner:
             "item_id": source_item_id,
             "summary": summary,
             "content_sha256": content_sha256,
+            "envelope_sha256": envelope_sha256,
+            "part_types": ["text"],
             "client_id": client_id,
             "classification": "ordinary-user-message",
             "authority_status": "unverified-reviewer-verification-required",
@@ -5135,10 +5146,12 @@ class FactoryWorkflowOwner:
             or not isinstance(fix_executor_task_id, str)
             or not fix_executor_task_id
             or reviewer_task_id == fix_executor_task_id
+            or reviewer_task_id == target.id
+            or fix_executor_task_id == target.id
         ):
             raise OperationError(
                 "binding_repair_owner_unavailable",
-                "The policy lacks distinct reviewer and fix-executor task bindings.",
+                "The implementation target, reviewer, and fix executor must be three distinct task bindings.",
                 status=409,
             )
         role_facts: dict[str, tuple[str, tuple[int, int], str]] = {}
@@ -5210,6 +5223,8 @@ class FactoryWorkflowOwner:
             "mission_source_turn_id": source_turn_id,
             "mission_source_item_id": source_item_id,
             "mission_source_sha256": source_sha256,
+            "mission_source_envelope_sha256": source_item["envelope_sha256"],
+            "mission_source_part_types": source_item["part_types"],
             "mission_source_client_id": source_item["client_id"],
             "mission_source_classification": source_item["classification"],
             "mission_source_authority_status": source_item["authority_status"],
@@ -5263,6 +5278,8 @@ class FactoryWorkflowOwner:
             "mission_source": {
                 "record": mission_source_record,
                 "sha256": source_sha256,
+                "envelope_sha256": source_item["envelope_sha256"],
+                "part_types": source_item["part_types"],
                 "client_id": source_item["client_id"],
                 "classification": source_item["classification"],
                 "authority_status": source_item["authority_status"],
@@ -5307,6 +5324,12 @@ class FactoryWorkflowOwner:
             "mission_root": source.evidence["expected_mission_root"],
             "mission_source_record": source.evidence["mission_source_record"],
             "mission_source_sha256": source.evidence["mission_source_sha256"],
+            "mission_source_envelope_sha256": source.evidence[
+                "mission_source_envelope_sha256"
+            ],
+            "mission_source_part_types": source.evidence[
+                "mission_source_part_types"
+            ],
             "mission_source_client_id": source.evidence["mission_source_client_id"],
             "mission_source_classification": source.evidence[
                 "mission_source_classification"
@@ -5345,6 +5368,9 @@ class FactoryWorkflowOwner:
             "mission_root": source.evidence["expected_mission_root"],
             "mission_source_record": source.evidence["mission_source_record"],
             "mission_source_sha256": source.evidence["mission_source_sha256"],
+            "mission_source_envelope_sha256": source.evidence[
+                "mission_source_envelope_sha256"
+            ],
             "mission_source_client_id": source.evidence["mission_source_client_id"],
             "verified_source_class": "direct-user",
             "verified_intent": "matches-implementation-mission",
@@ -5436,6 +5462,12 @@ class FactoryWorkflowOwner:
             "mission_root": source.evidence["expected_mission_root"],
             "mission_source_record": source.evidence["mission_source_record"],
             "mission_source_sha256": source.evidence["mission_source_sha256"],
+            "mission_source_envelope_sha256": source.evidence[
+                "mission_source_envelope_sha256"
+            ],
+            "mission_source_part_types": source.evidence[
+                "mission_source_part_types"
+            ],
             "mission_source_client_id": source.evidence["mission_source_client_id"],
             "mission_source_classification": source.evidence[
                 "mission_source_classification"
@@ -5751,6 +5783,10 @@ class FactoryWorkflowOwner:
                     == source.evidence["mission_source_item_id"]
                     and current_source.get("content_sha256")
                     == source.evidence["mission_source_sha256"]
+                    and current_source.get("envelope_sha256")
+                    == source.evidence["mission_source_envelope_sha256"]
+                    and current_source.get("part_types")
+                    == source.evidence["mission_source_part_types"]
                     and current_source.get("client_id")
                     == source.evidence["mission_source_client_id"]
                     and current_source.get("classification")

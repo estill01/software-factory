@@ -618,6 +618,7 @@ test("live project, run, supervisor, and task drill-downs preserve mission bound
 
 test("missing mission binding exposes only the source-derived repair preview", async ({ page, request }) => {
   const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const sourceClient = `client-${"z".repeat(300)}`
   const runResponse = await request.get(`/api/v1/runs/${target}`)
   expect(runResponse.ok()).toBeTruthy()
   const runEnvelope = await runResponse.json()
@@ -643,7 +644,9 @@ test("missing mission binding exposes only the source-derived repair preview", a
         tracker_path: "docs/software-factory-operations-dashboard-implementation-tracker.md",
         mission_source_record: `codex:${target}:turn-source-001:item-source-001`,
         mission_source_sha256: "c".repeat(64),
-        mission_source_client_id: "client-source-001",
+        mission_source_envelope_sha256: "e".repeat(64),
+        mission_source_part_types: ["text"],
+        mission_source_client_id: sourceClient,
         mission_source_classification: "ordinary-user-message",
         mission_source_authority_status: "unverified-reviewer-verification-required",
         run_project_binding: { status: "bound", project_id: "software-factory" },
@@ -712,6 +715,8 @@ test("missing mission binding exposes only the source-derived repair preview", a
   await expect(preview).toContainText("REQUEST BINDING REVIEW")
   await expect(preview).toContainText(`codex:${target}:turn-source-001:item-source-001`)
   await expect(preview).toContainText("c".repeat(64))
+  await expect(preview).toContainText("e".repeat(64))
+  await expect(preview).toContainText(sourceClient)
   await expect(preview).toContainText("ordinary user message")
   await expect(preview).toContainText("unverified reviewer verification required")
   await expect(preview).not.toContainText(/attested source|attest the displayed|operator attestation/i)

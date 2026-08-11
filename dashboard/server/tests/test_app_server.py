@@ -155,12 +155,13 @@ class CodexAppServerClientTests(unittest.TestCase):
 
     def test_user_item_projection_preserves_full_hash_and_never_infers_direct_authority(self) -> None:
         direct_text = "Implement the exact tracker."
+        direct_content = [{"type": "text", "text": direct_text}]
         direct = app_server_module._item_projection(
             {
                 "id": "item-direct-001",
                 "type": "userMessage",
                 "clientId": "client-direct-001",
-                "content": [{"type": "text", "text": direct_text}],
+                "content": direct_content,
             }
         )
         self.assertEqual(
@@ -174,6 +175,50 @@ class CodexAppServerClientTests(unittest.TestCase):
         )
         self.assertEqual(direct["user_authority_status"], "unverified")
         self.assertEqual(direct["client_id"], "client-direct-001")
+        self.assertEqual(
+            direct["user_content_envelope_sha256"],
+            app_server_module._digest(direct_content),
+        )
+        self.assertEqual(direct["user_content_part_types"], ["text"])
+
+        long_client_id = "client-" + ("z" * 300)
+        exact_client = app_server_module._item_projection(
+            {
+                "id": "item-client-001",
+                "type": "userMessage",
+                "clientId": long_client_id,
+                "content": direct_content,
+            }
+        )
+        self.assertEqual(exact_client["client_id"], long_client_id)
+        self.assertNotIn("…", exact_client["client_id"])
+
+        mixed_content = [
+            {"type": "text", "text": direct_text},
+            {"type": "localImage", "path": "/private/tmp/source.png"},
+        ]
+        mixed = app_server_module._item_projection(
+            {
+                "id": "item-mixed-001",
+                "type": "userMessage",
+                "clientId": "client-mixed-001",
+                "content": mixed_content,
+            }
+        )
+        self.assertEqual(mixed["summary"], direct_text)
+        self.assertEqual(
+            mixed["user_content_envelope_sha256"],
+            app_server_module._digest(mixed_content),
+        )
+        self.assertEqual(
+            mixed["user_content_part_types"],
+            ["text", "localImage"],
+        )
+        self.assertEqual(
+            mixed["user_input_classification"],
+            "noncanonical-content-envelope",
+        )
+        self.assertEqual(mixed["user_authority_status"], "ineligible")
 
         routed = app_server_module._item_projection(
             {

@@ -1658,6 +1658,27 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         )
         source_text = "Implement the full exact tracker.\n"
         source_sha = sha256(source_text.encode("utf-8")).hexdigest()
+        source_content = [{"type": "text", "text": source_text}]
+        source_envelope_sha = sha256(
+            json.dumps(
+                source_content,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        mixed_source_content = [
+            *source_content,
+            {"type": "localImage", "path": "/private/tmp/source.png"},
+        ]
+        mixed_source_envelope_sha = sha256(
+            json.dumps(
+                mixed_source_content,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
         tracker_id = "c" * 64
         tracker_content = "d" * 64
         expected_mission = {
@@ -1702,6 +1723,8 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                             "client_id": "client-source-001",
                             "user_content_sha256": source_sha,
                             "user_content_truncated": False,
+                            "user_content_envelope_sha256": source_envelope_sha,
+                            "user_content_part_types": ["text"],
                             "user_input_classification": "ordinary-user-message",
                             "user_authority_status": "unverified",
                         }
@@ -1934,6 +1957,10 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(source.evidence["tracker_content_sha256"], tracker_content)
         self.assertEqual(source.evidence["mission_source_sha256"], source_sha)
         self.assertEqual(
+            source.evidence["mission_source_envelope_sha256"],
+            source_envelope_sha,
+        )
+        self.assertEqual(
             source.evidence["mission_source_classification"],
             "ordinary-user-message",
         )
@@ -1945,6 +1972,16 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             source.evidence["run_project_binding"]["project_id"],
             project.id,
         )
+        for role_key in ("reviewer_thread_id", "fix_executor_thread_id"):
+            distinct_task_id = policy["runtime"][role_key]
+            policy["runtime"][role_key] = target_id
+            with self.assertRaises(OperationError) as collapsed_role:
+                definition.resolve_source(target, {})
+            self.assertEqual(
+                collapsed_role.exception.code,
+                "binding_repair_owner_unavailable",
+            )
+            policy["runtime"][role_key] = distinct_task_id
         route = definition.route_gate_request(target, {}, source)
         self.assertEqual(route.purpose, "semantic-escalation")
         self.assertEqual(route.recipient, reviewer_task["id"])
@@ -2057,6 +2094,8 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                 "client_id": "client-source-001",
                 "user_content_sha256": source_sha,
                 "user_content_truncated": False,
+                "user_content_envelope_sha256": source_envelope_sha,
+                "user_content_part_types": ["text"],
                 "user_input_classification": "ordinary-user-message",
                 "user_authority_status": "unverified",
             }
@@ -2102,6 +2141,8 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             {
                 "summary": source_text,
                 "user_content_sha256": source_sha,
+                "user_content_envelope_sha256": source_envelope_sha,
+                "user_content_part_types": ["text"],
                 "user_input_classification": "ordinary-user-message",
                 "user_authority_status": "unverified",
             }
@@ -2128,6 +2169,31 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             {
                 "summary": source_text,
                 "user_content_sha256": source_sha,
+                "user_content_envelope_sha256": source_envelope_sha,
+                "user_content_part_types": ["text"],
+                "user_input_classification": "ordinary-user-message",
+                "user_authority_status": "unverified",
+            }
+        )
+
+        source_turn["items"][0].update(
+            {
+                "user_content_envelope_sha256": mixed_source_envelope_sha,
+                "user_content_part_types": ["text", "localImage"],
+                "user_input_classification": "noncanonical-content-envelope",
+                "user_authority_status": "ineligible",
+            }
+        )
+        with self.assertRaises(OperationError) as mixed_source:
+            definition.resolve_source(target, {})
+        self.assertEqual(
+            mixed_source.exception.code,
+            "binding_repair_source_ineligible",
+        )
+        source_turn["items"][0].update(
+            {
+                "user_content_envelope_sha256": source_envelope_sha,
+                "user_content_part_types": ["text"],
                 "user_input_classification": "ordinary-user-message",
                 "user_authority_status": "unverified",
             }

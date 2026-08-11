@@ -67,6 +67,10 @@ export function OperationConfirmationDialog({
     && typeof sourceEvidence.mission_source_sha256 === "string"
     ? sourceEvidence.mission_source_sha256
     : null
+  const bindingSourceEnvelopeSha256 = isBindingRepair
+    && typeof sourceEvidence.mission_source_envelope_sha256 === "string"
+    ? sourceEvidence.mission_source_envelope_sha256
+    : null
   const bindingSourceClient = isBindingRepair
     && typeof sourceEvidence.mission_source_client_id === "string"
     ? sourceEvidence.mission_source_client_id
@@ -128,6 +132,7 @@ export function OperationConfirmationDialog({
           <div><dt>Source</dt><dd><Identity value={operation.preview.source_fingerprint} /></dd></div>
           {bindingSourceRecord && <div><dt>Source candidate item</dt><dd><code className="operation-exact-value">{bindingSourceRecord}</code></dd></div>}
           {bindingSourceSha256 && <div><dt>Source content root</dt><dd><code className="operation-exact-value">{bindingSourceSha256}</code></dd></div>}
+          {bindingSourceEnvelopeSha256 && <div><dt>Source envelope root</dt><dd><code className="operation-exact-value">{bindingSourceEnvelopeSha256}</code></dd></div>}
           {bindingSourceClient && <div><dt>Transport client ID</dt><dd><code className="operation-exact-value">{bindingSourceClient}</code></dd></div>}
           {bindingSourceClassification && <div><dt>Transport classification</dt><dd>{bindingSourceClassification.replaceAll("-", " ")}</dd></div>}
           {bindingSourceAuthority && <div><dt>Source authority</dt><dd>{bindingSourceAuthority.replaceAll("-", " ")}</dd></div>}

@@ -1672,15 +1672,29 @@ def _item_projection(item: Mapping[str, Any]) -> dict[str, Any]:
     summary_content: str | None = None
     status: str | None = None
     user_content: str | None = None
+    user_content_parts: list[Any] | None = None
+    user_content_part_types: list[str] | None = None
     user_input_classification: str | None = None
     user_authority_status: str | None = None
     if item_type in {"agentMessage", "plan"}:
         summary_content = item.get("text") if isinstance(item.get("text"), str) else None
         summary = _bounded(summary_content)
     elif item_type == "userMessage":
+        raw_parts = item.get("content")
+        user_content_parts = raw_parts if isinstance(raw_parts, list) else None
+        user_content_part_types = (
+            [
+                str(value.get("type"))
+                if isinstance(value, Mapping) and isinstance(value.get("type"), str)
+                else "unknown"
+                for value in user_content_parts
+            ]
+            if user_content_parts is not None
+            else None
+        )
         texts = [
             value.get("text")
-            for value in item.get("content", [])
+            for value in user_content_parts or []
             if isinstance(value, Mapping)
             and value.get("type") == "text"
             and isinstance(value.get("text"), str)
@@ -1689,7 +1703,10 @@ def _item_projection(item: Mapping[str, Any]) -> dict[str, Any]:
         summary_content = user_content
         summary = _bounded(user_content)
         normalized = user_content.lstrip().casefold()
-        if "<codex_delegation" in normalized or "&lt;codex_delegation" in normalized:
+        if user_content_part_types != ["text"]:
+            user_input_classification = "noncanonical-content-envelope"
+            user_authority_status = "ineligible"
+        elif "<codex_delegation" in normalized or "&lt;codex_delegation" in normalized:
             user_input_classification = "routed-delegation"
             user_authority_status = "ineligible"
         elif normalized.startswith("software_factory_dashboard_"):
@@ -1730,7 +1747,9 @@ def _item_projection(item: Mapping[str, Any]) -> dict[str, Any]:
         "summary_truncated": (
             len(summary_content) > MAX_TEXT if summary_content is not None else None
         ),
-        "client_id": _bounded(item.get("clientId"), 256),
+        "client_id": (
+            item.get("clientId") if isinstance(item.get("clientId"), str) else None
+        ),
         "user_content_sha256": (
             sha256(user_content.encode("utf-8")).hexdigest()
             if user_content is not None
@@ -1739,6 +1758,10 @@ def _item_projection(item: Mapping[str, Any]) -> dict[str, Any]:
         "user_content_truncated": (
             len(user_content) > MAX_TEXT if user_content is not None else None
         ),
+        "user_content_envelope_sha256": (
+            _digest(user_content_parts) if user_content_parts is not None else None
+        ),
+        "user_content_part_types": user_content_part_types,
         "user_input_classification": user_input_classification,
         "user_authority_status": user_authority_status,
     }
