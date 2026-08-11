@@ -6,6 +6,8 @@ from hashlib import sha256
 import json
 from typing import Any, Mapping, Sequence
 
+from .factory_workflows import task_workflow_marker
+
 
 MAX_FLOOR_ROWS = 80
 MAX_ATTENTION = 80
@@ -233,6 +235,401 @@ def _tracker_binding(
     )
 
 
+def _sha256_value(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 64
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _tracker_source(
+    tracker: Mapping[str, Any],
+    project_id: str | None,
+    trackers_by_project: Mapping[str, list[Mapping[str, Any]]],
+) -> Mapping[str, Any] | None:
+    tracker_id = tracker.get("id")
+    if not isinstance(tracker_id, str):
+        return None
+    return next(
+        (
+            candidate
+            for candidate in trackers_by_project.get(project_id or "", [])
+            if candidate.get("id") == tracker_id
+        ),
+        None,
+    )
+
+
+def _block_source_ref(
+    tracker_source: Mapping[str, Any] | None,
+    number: int,
+) -> dict[str, Any]:
+    blocks = tracker_source.get("blocks") if isinstance(tracker_source, Mapping) else None
+    block_items = blocks if isinstance(blocks, list) else []
+    block = next(
+        (
+            candidate
+            for candidate in block_items
+            if isinstance(candidate, Mapping) and candidate.get("number") == number
+        ),
+        None,
+    )
+    tracker_id = tracker_source.get("id") if isinstance(tracker_source, Mapping) else None
+    title = block.get("title") if isinstance(block, Mapping) else None
+    status = block.get("status") if isinstance(block, Mapping) else None
+    line = block.get("line") if isinstance(block, Mapping) else None
+    return {
+        "number": number,
+        "title": title if isinstance(title, str) and title else None,
+        "status": status if isinstance(status, str) and status else None,
+        "line": line if isinstance(line, int) and not isinstance(line, bool) and line > 0 else None,
+        "route": (
+            f"/trackers/{tracker_id}/blocks?block={number}"
+            if isinstance(tracker_id, str) and tracker_id
+            else "/trackers"
+        ),
+    }
+
+
+def _tracker_block_claim(
+    tracker: Mapping[str, Any],
+    tracker_source: Mapping[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    route = (
+        f"/trackers/{tracker.get('id')}/blocks"
+        if isinstance(tracker.get("id"), str)
+        else "/trackers"
+    )
+    unavailable = {
+        "source": "tracker",
+        "label": "Tracker",
+        "status": "unavailable",
+        "blocks": [],
+        "range": None,
+        "reason": "No exact current tracker source is associated with this row.",
+        "source_identity": "tracker-markdown/status",
+        "route": route,
+    }
+    total = {
+        "value": None,
+        "posture": "unavailable",
+        "reason": "The maintained verifier cannot establish an exact nonzero Block total.",
+    }
+    if not isinstance(tracker_source, Mapping) or tracker_source.get("status") != "available":
+        return unavailable, total
+
+    verifier = tracker_source.get("verifier")
+    counts = tracker_source.get("counts")
+    coverage = tracker_source.get("coverage")
+    verifier_blocks = verifier.get("blocks") if isinstance(verifier, Mapping) else None
+    total_value = counts.get("total") if isinstance(counts, Mapping) else None
+    verifier_numbers = (
+        verifier_blocks
+        if isinstance(verifier_blocks, list)
+        and all(type(number) is int and number >= 0 for number in verifier_blocks)
+        else None
+    )
+    complete = bool(
+        isinstance(verifier, Mapping)
+        and verifier.get("valid") is True
+        and isinstance(coverage, Mapping)
+        and coverage.get("status") == "complete"
+        and type(total_value) is int
+        and total_value > 0
+        and verifier_numbers is not None
+        and len(verifier_numbers) == total_value
+        and len(set(verifier_numbers)) == total_value
+    )
+    association = tracker.get("status")
+    if complete:
+        total = {
+            "value": total_value,
+            "posture": "exact" if association == "exact" else "partial",
+            "reason": (
+                "Maintained verifier Block set for the exact canonical tracker binding."
+                if association == "exact"
+                else "Maintained verifier Block set for a noncanonical tracker candidate."
+            ),
+        }
+    else:
+        unavailable["reason"] = (
+            "Tracker parsing, verifier validity, or coverage cannot establish current active Blocks."
+        )
+        return unavailable, total
+
+    current = tracker_source.get("current_blocks")
+    if not isinstance(current, list) or not all(type(number) is int and number >= 0 for number in current):
+        unavailable["reason"] = "The maintained tracker projection omits exact current Blocks."
+        return unavailable, total
+    blocks = [_block_source_ref(tracker_source, number) for number in current]
+    missing_headings = any(block["title"] is None or block["status"] is None for block in blocks)
+    if association != "exact" or missing_headings:
+        status = "partial"
+        reason = (
+            "Current Blocks come from a project-local tracker candidate, not a canonical run binding."
+            if association != "exact"
+            else "One or more current Block headings or statuses are unavailable."
+        )
+    elif blocks:
+        status = "exact"
+        reason = "Maintained tracker status identifies the current Block set."
+    else:
+        status = "none"
+        reason = "The exact tracker records no Block in progress."
+    return (
+        {
+            **unavailable,
+            "status": status,
+            "blocks": blocks,
+            "reason": reason,
+        },
+        total,
+    )
+
+
+def _task_block_claim(
+    task: Mapping[str, Any] | None,
+    *,
+    project_id: str | None,
+    tracker: Mapping[str, Any],
+    tracker_source: Mapping[str, Any] | None,
+    mission_root: str | None,
+) -> dict[str, Any]:
+    task_id = task.get("id") if isinstance(task, Mapping) else None
+    claim = {
+        "source": "task",
+        "label": "Implementation task",
+        "status": "unavailable",
+        "blocks": [],
+        "range": None,
+        "reason": "The task owner exposes no exact current Block claim.",
+        "source_identity": "codex-app-server/task-workflow-marker",
+        "route": f"/tasks/{task_id}" if isinstance(task_id, str) else "/tasks",
+    }
+    if not isinstance(task, Mapping):
+        return claim
+    task_status, _ = _task_posture(task)
+    if task_status != "active":
+        return {
+            **claim,
+            "status": "none",
+            "reason": "The task owner reports no active turn.",
+        }
+    turns = task.get("turns")
+    if task.get("turns_truncated") is not False or (
+        isinstance(turns, list)
+        and any(
+            isinstance(turn, Mapping) and turn.get("items_truncated") is not False
+            for turn in turns
+        )
+    ):
+        return {
+            **claim,
+            "status": "partial",
+            "reason": "Task history is partial, so its implementation marker is not current proof.",
+        }
+    marker = task_workflow_marker(task)
+    required = {
+        "kind",
+        "source_fingerprint",
+        "project_id",
+        "tracker_id",
+        "block_start",
+        "block_end",
+        "mission_root",
+        "mission_source_record",
+    }
+    if (
+        not isinstance(marker, Mapping)
+        or set(marker) != required
+        or marker.get("kind") != "implement-blocks"
+        or not _sha256_value(marker.get("source_fingerprint"))
+        or not _sha256_value(marker.get("tracker_id"))
+        or not _sha256_value(marker.get("mission_root"))
+        or not isinstance(marker.get("project_id"), str)
+        or not isinstance(marker.get("mission_source_record"), str)
+        or not marker.get("mission_source_record")
+        or type(marker.get("block_start")) is not int
+        or type(marker.get("block_end")) is not int
+        or not 0 <= marker["block_start"] <= marker["block_end"] <= 10_000
+    ):
+        return claim
+    mismatches = []
+    if project_id and marker.get("project_id") != project_id:
+        mismatches.append("project")
+    tracker_id = tracker.get("id")
+    if isinstance(tracker_id, str) and marker.get("tracker_id") != tracker_id:
+        mismatches.append("tracker")
+    if mission_root and marker.get("mission_root") != mission_root:
+        mismatches.append("mission")
+    if mismatches:
+        return {
+            **claim,
+            "status": "conflict",
+            "reason": (
+                "The active task marker disagrees with the current "
+                + ", ".join(mismatches)
+                + " binding; its Block range is excluded."
+            ),
+        }
+    start = marker["block_start"]
+    end = marker["block_end"]
+    if start != end:
+        return {
+            **claim,
+            "status": "partial",
+            "range": {"start": start, "end": end},
+            "reason": "The active task owns a Block range but does not identify one current Block.",
+        }
+    return {
+        **claim,
+        "status": "exact",
+        "blocks": [_block_source_ref(tracker_source, start)],
+        "range": {"start": start, "end": end},
+        "reason": "The active task's exact dashboard workflow marker names one Block.",
+    }
+
+
+def _supervision_block_claim(
+    run: Mapping[str, Any] | None,
+    tracker_source: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    target_id = run.get("target_thread_id") if isinstance(run, Mapping) else None
+    claim = {
+        "source": "supervision",
+        "label": "Current supervision mission",
+        "status": "unavailable",
+        "blocks": [],
+        "range": None,
+        "reason": "No current supervision mission is available.",
+        "source_identity": "supervise-tracker-runs/current-mission-activity",
+        "route": f"/runs/{target_id}" if isinstance(target_id, str) else "/runs",
+    }
+    if not isinstance(run, Mapping) or run.get("status") != "available":
+        return claim
+    supervision_status, _ = _supervision_posture(run)
+    if supervision_status in {"completed", "stopped"}:
+        return {
+            **claim,
+            "status": "none",
+            "reason": f"The current supervision lifecycle is {supervision_status}.",
+        }
+    activities = run.get("activities")
+    activity = activities[-1] if isinstance(activities, list) and activities else None
+    mission = run.get("current_mission")
+    mission_root = mission.get("root") if isinstance(mission, Mapping) else None
+    activity_root = activity.get("mission_root") if isinstance(activity, Mapping) else None
+    if not _sha256_value(mission_root):
+        return {
+            **claim,
+            "status": "partial",
+            "reason": "The supervision owner does not expose one exact current mission root.",
+        }
+    if isinstance(activity, Mapping) and activity_root != mission_root:
+        return {
+            **claim,
+            "status": "conflict" if _sha256_value(activity_root) else "partial",
+            "reason": (
+                "The latest activity belongs to a predecessor mission and is excluded."
+                if _sha256_value(activity_root)
+                else "The latest activity omits an exact current-mission binding."
+            ),
+        }
+    raw_number = activity.get("active_block") if isinstance(activity, Mapping) else None
+    if raw_number is None:
+        return {
+            **claim,
+            "status": "none",
+            "reason": "The current mission contains no active Block record.",
+        }
+    number = (
+        raw_number
+        if type(raw_number) is int and raw_number >= 0
+        else int(raw_number)
+        if isinstance(raw_number, str) and raw_number.isdigit()
+        else None
+    )
+    if number is None:
+        return {
+            **claim,
+            "status": "partial",
+            "reason": "The current mission's active Block value is not an exact Block number.",
+        }
+    return {
+        **claim,
+        "status": "exact",
+        "blocks": [_block_source_ref(tracker_source, number)],
+        "reason": "The current mission's latest activity names this active Block.",
+    }
+
+
+def _block_claims(
+    *,
+    run: Mapping[str, Any] | None,
+    task: Mapping[str, Any] | None,
+    project_id: str | None,
+    tracker: Mapping[str, Any],
+    tracker_source: Mapping[str, Any] | None,
+) -> tuple[dict[str, Any], list[str]]:
+    tracker_claim, total = _tracker_block_claim(tracker, tracker_source)
+    mission = run.get("current_mission") if isinstance(run, Mapping) else None
+    mission_root = mission.get("root") if isinstance(mission, Mapping) else None
+    task_claim = _task_block_claim(
+        task,
+        project_id=project_id,
+        tracker=tracker,
+        tracker_source=tracker_source,
+        mission_root=mission_root if isinstance(mission_root, str) else None,
+    )
+    supervision_claim = _supervision_block_claim(run, tracker_source)
+    claims = [tracker_claim, task_claim, supervision_claim]
+    conflicts = [claim["reason"] for claim in claims if claim["status"] == "conflict"]
+    comparable = [
+        claim
+        for claim in claims
+        if claim["source"] != "task" or claim["status"] in {"exact", "conflict"}
+        if claim["status"] in {"exact", "none"}
+    ]
+    reported_sets = {
+        tuple(sorted(block["number"] for block in claim["blocks"]))
+        for claim in comparable
+    }
+    if len(reported_sets) > 1:
+        rendered = "; ".join(
+            f"{claim['label']} reports "
+            + (
+                ", ".join(f"Block {block['number']}" for block in claim["blocks"])
+                if claim["blocks"]
+                else "None active"
+            )
+            for claim in comparable
+        )
+        conflicts.append(f"Active Block disagreement: {rendered}.")
+    if conflicts:
+        posture = "conflict"
+    elif any(claim["status"] == "partial" for claim in claims):
+        posture = "partial"
+    elif all(claim["status"] == "unavailable" for claim in claims):
+        posture = "unavailable"
+    elif any(claim["status"] == "unavailable" for claim in claims):
+        posture = "partial"
+    elif reported_sets == {()}:
+        posture = "none"
+    elif len(reported_sets) == 1 and next(iter(reported_sets), ()):
+        posture = "exact"
+    else:
+        posture = "partial"
+    return (
+        {
+            "posture": posture,
+            "tracker_total": total,
+            "claims": claims,
+        },
+        conflicts,
+    )
+
+
 def _roles(
     run: Mapping[str, Any] | None,
     tasks_by_id: Mapping[str, Mapping[str, Any]],
@@ -351,6 +748,19 @@ def _row(
         trackers_by_project,
     )
     disagreements.extend(tracker_disagreements)
+    tracker_source = _tracker_source(
+        tracker,
+        project.get("project_id"),
+        trackers_by_project,
+    )
+    block_claims, block_disagreements = _block_claims(
+        run=run,
+        task=task,
+        project_id=project.get("project_id"),
+        tracker=tracker,
+        tracker_source=tracker_source,
+    )
+    disagreements.extend(block_disagreements)
     task_status, task_label = _task_posture(task)
     supervision_status, supervision_label = _supervision_posture(run)
     roles = _roles(run, tasks_by_id)
@@ -460,6 +870,7 @@ def _row(
             if isinstance(activity, Mapping)
             else None,
             "tracker": tracker,
+            "block_claims": block_claims,
         },
         "issues": issue_counts,
         "conclusion": _record_ref(conclusion),

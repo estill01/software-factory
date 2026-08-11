@@ -10,6 +10,21 @@ function row(
 ): FactoryFloorRow {
   const supervised = options.supervised ?? true
   const issues = options.issues ?? 0
+  const blockNumber = options.block ? Number(options.block) : null
+  const blockTitle = options.block
+    ? options.block === "6"
+      ? "Factory Floor composition"
+      : `Tracker-owned Block ${options.block}`
+    : null
+  const blockRef = blockNumber === null
+    ? []
+    : [{
+        number: blockNumber,
+        title: blockTitle,
+        status: "in-progress",
+        line: 120 + blockNumber,
+        route: `/trackers/${projectId[0].repeat(64)}/blocks?block=${blockNumber}`,
+      }]
   const roles: FactoryFloorRow["supervision"]["roles"] = supervised
     ? [
         {
@@ -86,6 +101,54 @@ function row(
         title: `${projectId} tracker`,
         relative_path: `docs/${projectId}-implementation-tracker.md`,
         candidates: [],
+      },
+      block_claims: {
+        posture: options.block ? "exact" : "partial",
+        tracker_total: {
+          value: options.block ? (options.block === "6" ? 26 : 8) : 4,
+          posture: options.block ? "exact" : "partial",
+          reason: options.block
+            ? "Maintained verifier Block set for the exact canonical tracker binding."
+            : "Maintained verifier Block set for a noncanonical tracker candidate.",
+        },
+        claims: [
+          {
+            source: "tracker",
+            label: "Tracker",
+            status: options.block ? "exact" : "partial",
+            blocks: blockRef,
+            range: null,
+            reason: options.block
+              ? "Maintained tracker status identifies the current Block set."
+              : "Current Blocks come from a project-local tracker candidate.",
+            source_identity: "tracker-markdown/status",
+            route: `/trackers/${projectId[0].repeat(64)}/blocks`,
+          },
+          {
+            source: "task",
+            label: "Implementation task",
+            status: options.block ? "exact" : "unavailable",
+            blocks: blockRef,
+            range: blockNumber === null ? null : { start: blockNumber, end: blockNumber },
+            reason: options.block
+              ? "The active task's exact dashboard workflow marker names one Block."
+              : "The task owner exposes no exact current Block claim.",
+            source_identity: "codex-app-server/task-workflow-marker",
+            route: `/tasks/${id}`,
+          },
+          {
+            source: "supervision",
+            label: "Current supervision mission",
+            status: options.block ? "exact" : "unavailable",
+            blocks: blockRef,
+            range: null,
+            reason: options.block
+              ? "The current mission's latest activity names this active Block."
+              : "No current supervision mission is available.",
+            source_identity: "supervise-tracker-runs/current-mission-activity",
+            route: supervised ? `/runs/${id}` : "/runs",
+          },
+        ],
       },
     },
     issues: { incidents: issues, decisions: 0, transitions: 0, total: issues },

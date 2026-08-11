@@ -64,45 +64,64 @@ describe("Factory Floor", () => {
     expect(screen.getByRole("heading", { name: "Needs attention" })).toBeVisible()
     expect(screen.getByRole("heading", { name: "Latest conclusions & accepted outcomes" })).toBeVisible()
     expect(screen.getByRole("heading", { name: "Metrics & freshness" })).toBeVisible()
-    expect(screen.getByText("Alpha implementation")).toBeVisible()
-    expect(screen.getByText("Beta implementation")).toBeVisible()
-    expect(screen.getByText("Gamma implementation")).toBeVisible()
-    const alphaRow = screen.getByText("Alpha implementation").closest("article")
+    const alphaDisclosure = screen.getByRole("button", { name: /Alpha implementation/ })
+    const betaDisclosure = screen.getByRole("button", { name: /Beta implementation/ })
+    const gammaDisclosure = screen.getByRole("button", { name: /Gamma implementation/ })
+    expect(alphaDisclosure).toBeVisible()
+    expect(betaDisclosure).toBeVisible()
+    expect(gammaDisclosure).toBeVisible()
+    expect(screen.getByRole("button", { name: "All: 3 returned, source coverage partial" })).toHaveAttribute("aria-pressed", "true")
+    expect(screen.getByRole("button", { name: "Active / Running: 2 returned, source coverage partial" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Attention: 1 returned, source coverage partial" })).toBeVisible()
+    const alphaRow = alphaDisclosure.closest("article")
     expect(alphaRow).not.toBeNull()
     expect(alphaRow).toHaveTextContent("Watcher · Reviewer")
     expect(alphaRow).toHaveTextContent("group-ta…alpha")
+    expect(alphaRow).toHaveTextContent("26 Blocks")
+    expect(alphaRow).toHaveTextContent("Block 6 — Factory Floor composition")
+    expect(alphaDisclosure).toHaveAttribute("aria-expanded", "false")
+    await user.click(alphaDisclosure)
+    expect(alphaDisclosure).toHaveAttribute("aria-expanded", "true")
+    const alphaRegionId = alphaDisclosure.getAttribute("aria-controls")
+    expect(alphaRegionId).not.toBeNull()
+    expect(document.getElementById(alphaRegionId!)).toHaveAttribute("role", "region")
     expect(screen.getByText("A current incident remains open.", { selector: ".attention-item strong" })).toBeVisible()
     expect(screen.getByText("The current review accepted the predecessor.", { selector: ".outcome-item strong" })).toBeVisible()
     expect(screen.getByText("Typed owner adapter")).toBeVisible()
-    expect(screen.getByText("Block 6 · Implementation")).toBeVisible()
+
+    await user.click(screen.getByRole("button", { name: "Attention: 1 returned, source coverage partial" }))
+    expect(screen.getByRole("button", { name: /Alpha implementation/ })).toBeVisible()
+    expect(screen.queryByRole("button", { name: /Beta implementation/ })).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "All: 3 returned, source coverage partial" }))
 
     await user.selectOptions(screen.getByLabelText("Project"), "gamma")
-    expect(screen.getByText("Gamma implementation")).toBeVisible()
-    expect(screen.queryByText("Alpha implementation")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Gamma implementation/ })).toBeVisible()
+    expect(screen.queryByRole("button", { name: /Alpha implementation/ })).not.toBeInTheDocument()
     expect(screen.getByRole("status")).toHaveTextContent("1 critical hidden by filters")
 
     await user.selectOptions(screen.getByLabelText("Project"), "all")
     await user.selectOptions(screen.getByLabelText("Time"), "24h")
-    expect(screen.getByText("Alpha implementation")).toBeVisible()
-    expect(screen.queryByText("Gamma implementation")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Alpha implementation/ })).toBeVisible()
+    expect(screen.queryByRole("button", { name: /Gamma implementation/ })).not.toBeInTheDocument()
     await user.selectOptions(screen.getByLabelText("Time"), "all")
 
     await user.selectOptions(screen.getByLabelText("Posture"), "green")
-    expect(screen.getByText("Beta implementation")).toBeVisible()
-    expect(screen.queryByText("Alpha implementation")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /Beta implementation/ })).toBeVisible()
+    expect(screen.queryByRole("button", { name: /Alpha implementation/ })).not.toBeInTheDocument()
     await user.selectOptions(screen.getByLabelText("Posture"), "all")
 
     await user.selectOptions(screen.getByLabelText("Attention"), "neutral")
     const taskAttention = screen.getByText("A recent task has no exact supervision run.").closest("li")
     expect(taskAttention).not.toBeNull()
     expect(within(taskAttention!).getByRole("link", { name: "Open" }))
-      .toHaveAttribute("href", "/tasks/task-gamma?return=%2F%3Fproject%3Dall%26time%3Dall%26posture%3Dall%26severity%3Dneutral")
+      .toHaveAttribute("href", "/tasks/task-gamma?return=%2F%3Fproject%3Dall%26activity%3Dall%26time%3Dall%26posture%3Dall%26severity%3Dneutral")
     expect(screen.queryByText("A current incident remains open.", { selector: ".attention-item strong" })).not.toBeInTheDocument()
     expect(screen.getByRole("status")).toHaveTextContent("1 critical hidden by filters")
     await user.selectOptions(screen.getByLabelText("Attention"), "all")
 
-    const betaRow = screen.getByText("Beta implementation").closest("article")
+    const betaRow = screen.getByRole("button", { name: /Beta implementation/ }).closest("article")
     expect(betaRow).not.toBeNull()
+    await user.click(within(betaRow!).getByRole("button", { name: /Beta implementation/ }))
     await user.click(within(betaRow!).getByRole("link", { name: "Inspect" }))
     const runInspector = screen.getByRole("complementary", { name: "Factory source inspector" })
     expect(runInspector).toBeVisible()
@@ -114,7 +133,7 @@ describe("Factory Floor", () => {
     expect(window.location.search).toContain("inspect=run%3Atarget-beta")
     await user.click(screen.getByRole("button", { name: "Close inspector" }))
     await waitFor(() => expect(screen.queryByRole("complementary")).not.toBeInTheDocument())
-    expect(window.location.search).toBe("?project=all&time=all&posture=all&severity=all")
+    expect(window.location.search).toBe("?project=all&activity=all&time=all&posture=all&severity=all")
 
     const estimate = screen.getByRole("link", { name: /API-equivalent estimate/ })
     expect(estimate).toHaveTextContent("USD estimate · estimate")
@@ -150,5 +169,93 @@ describe("Factory Floor", () => {
 
     expect(await screen.findByText("1 attention item omitted by the API bound · 1 critical."))
       .toBeVisible()
+  })
+
+  it("exposes exact plural Block claims and a keyboard-controlled source region", async () => {
+    const user = userEvent.setup()
+    const envelope = makeFactoryFloorEnvelope()
+    envelope.data.source_health.forEach((source) => {
+      source.status = "available"
+      source.coverage = { status: "complete", observed: [source.family], missing: [] }
+    })
+    const trackerClaim = envelope.data.rows[0].work.block_claims.claims[0]
+    trackerClaim.blocks.push({
+      number: 7,
+      title: "A deliberately long tracker-owned heading that stays exact without widening the page",
+      status: "in-progress",
+      line: 127,
+      route: `/trackers/${"a".repeat(64)}/blocks?block=7`,
+    })
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => envelope,
+    }))
+    renderFloor()
+
+    expect(await screen.findByRole("button", { name: "All: 3 exact" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Active / Running: 2 exact" })).toBeVisible()
+    const disclosure = screen.getByRole("button", { name: /Alpha implementation.*Block 7 — A deliberately long tracker-owned heading/ })
+    disclosure.focus()
+    await user.keyboard("{Enter}")
+    expect(disclosure).toHaveAttribute("aria-expanded", "true")
+    const region = document.getElementById(disclosure.getAttribute("aria-controls")!)
+    expect(region).toBeVisible()
+    expect(within(region!).getAllByRole("link", { name: /Block 7 — A deliberately long tracker-owned heading/ }))
+      .toHaveLength(3)
+    expect(within(region!).getAllByRole("link", { name: /Block 7 — A deliberately long tracker-owned heading/ })[0])
+      .toHaveAttribute("href", `/trackers/${"a".repeat(64)}/blocks?block=7`)
+    expect(within(region!).getAllByRole("link", { name: "Source" })).toHaveLength(3)
+  })
+
+  it("keeps conflicting claims separate and labels bounded counts as lower bounds", async () => {
+    const envelope = makeFactoryFloorEnvelope()
+    envelope.data.rows_truncated = true
+    const beta = envelope.data.rows[1]
+    beta.work.block_claims.posture = "conflict"
+    beta.work.block_claims.claims[1].blocks = [{
+      number: 4,
+      title: "Different task claim",
+      status: "in-progress",
+      line: 124,
+      route: `/trackers/${"b".repeat(64)}/blocks?block=4`,
+    }]
+    beta.work.block_claims.claims[1].range = { start: 4, end: 4 }
+    beta.work.block_claims.claims[1].status = "conflict"
+    beta.work.block_claims.claims[1].reason = "The active task disagrees with tracker and current supervision."
+    beta.disagreements.push("Active Block claims disagree across maintained owners.")
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => envelope,
+    }))
+    renderFloor()
+
+    expect(await screen.findByRole("button", { name: "All: 3 returned, lower bound, source coverage partial" })).toBeVisible()
+    const betaDisclosure = screen.getByRole("button", {
+      name: /Beta implementation.*Tracker: Block 3.*Implementation task: Block 4 — Different task claim.*Current supervision mission: Block 3/,
+    })
+    expect(betaDisclosure.closest("article")).toHaveClass("block-claim-conflict")
+  })
+
+  it("renders count availability rather than a confident zero", async () => {
+    const envelope = makeFactoryFloorEnvelope()
+    envelope.data.rows = []
+    envelope.data.source_health.forEach((source) => {
+      source.status = "unavailable"
+      source.coverage = { status: "partial", observed: [], missing: [source.family] }
+    })
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => envelope,
+    }))
+    renderFloor()
+
+    expect(await screen.findByRole("button", { name: "All: unavailable" })).toBeVisible()
+    expect(screen.getByRole("button", { name: "Active / Running: unavailable" })).toBeVisible()
+    expect(screen.getByText("No rows match the current filters.")).toBeVisible()
   })
 })

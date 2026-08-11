@@ -13,6 +13,11 @@ import { useEffect, useMemo, useRef } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "react-router"
 
+import {
+  CountFilterChips,
+  OperationalDisclosure,
+  type CountFilterChip,
+} from "@/components/factory-floor-patterns"
 import { Button } from "@/components/ui/button"
 import { RunCheckAction } from "@/features/admin/factory-workflow-actions"
 import {
@@ -22,11 +27,13 @@ import {
   type FactoryFloorRow,
 } from "@/lib/floor-api"
 import {
+  floorActivityFilterAtom,
   floorInspectorAtom,
   floorPostureFilterAtom,
   floorProjectFilterAtom,
   floorSeverityFilterAtom,
   floorTimeFilterAtom,
+  type FloorActivityFilter,
   type FloorPostureFilter,
   type FloorSeverityFilter,
   type FloorTimeFilter,
@@ -92,6 +99,70 @@ function blockLabel(value: string | null): string {
   return /^block\b/i.test(value) ? value : `Block ${value}`
 }
 
+function activeBlockLabel(block: FactoryFloorRow["work"]["block_claims"]["claims"][number]["blocks"][number]): string {
+  return `Block ${block.number}${block.title ? ` — ${block.title}` : " — title unavailable"}`
+}
+
+function claimLabel(claim: FactoryFloorRow["work"]["block_claims"]["claims"][number]): string {
+  if (claim.blocks.length) return claim.blocks.map(activeBlockLabel).join("; ")
+  if (claim.range) return `Blocks ${claim.range.start}–${claim.range.end} assigned; active Block unavailable`
+  if (claim.status === "none") return "None active"
+  if (claim.status === "conflict") return "Conflict"
+  if (claim.status === "partial") return "Partial"
+  return "Unavailable"
+}
+
+function rowMatchesActivity(row: FactoryFloorRow, filter: FloorActivityFilter): boolean {
+  if (filter === "all") return true
+  if (filter === "active") {
+    return row.implementation.status === "active" || row.supervision.status === "active"
+  }
+  if (filter === "attention") {
+    return row.issues.total > 0
+      || row.disagreements.length > 0
+      || row.work.block_claims.posture === "conflict"
+      || row.light.posture === "red"
+      || row.light.posture === "amber"
+  }
+  if (filter === "blocked") {
+    return row.implementation.status === "terminal"
+      || row.supervision.status === "blocked"
+      || row.supervision.status === "failed"
+  }
+  return row.supervision.status === "completed"
+}
+
+function countChip(
+  key: FloorActivityFilter,
+  label: string,
+  tone: CountFilterChip<FloorActivityFilter>["tone"],
+  count: number,
+  options: { truncated: boolean; partial: boolean; unavailable: boolean },
+): CountFilterChip<FloorActivityFilter> {
+  if (options.unavailable) {
+    return { key, label, tone, countLabel: "—", accessibleCount: "unavailable" }
+  }
+  if (options.truncated) {
+    return {
+      key,
+      label,
+      tone,
+      countLabel: `≥${count}${options.partial ? "*" : ""}`,
+      accessibleCount: `${count} returned, lower bound${options.partial ? ", source coverage partial" : ""}`,
+    }
+  }
+  if (options.partial) {
+    return {
+      key,
+      label,
+      tone,
+      countLabel: `${count}*`,
+      accessibleCount: `${count} returned, source coverage partial`,
+    }
+  }
+  return { key, label, tone, countLabel: String(count), accessibleCount: `${count} exact` }
+}
+
 function inspectKey(route: string): string {
   return new URL(route, window.location.origin).searchParams.get("inspect") ?? route
 }
@@ -144,7 +215,13 @@ function Inspector({ data, selected, close }: {
       ["Roles", row.supervision.role_count],
       ["Binding", row.supervision.binding_integrity],
       ["Tracker", row.work.tracker.title ?? row.work.tracker.status],
-      ["Block", row.work.active_block],
+      [
+        "Tracker Blocks",
+        row.work.block_claims.tracker_total.value === null
+          ? row.work.block_claims.tracker_total.posture
+          : `${row.work.block_claims.tracker_total.value} · ${row.work.block_claims.tracker_total.posture}`,
+      ],
+      ["Active claim posture", row.work.block_claims.posture],
       ["Checkpoint", row.work.checkpoint],
       ["Open items", row.issues.total],
       ["Posture", row.light.label],
@@ -162,6 +239,12 @@ function Inspector({ data, selected, close }: {
           `task ${role.task_status}`,
           `automation ${role.automation_status ?? "unavailable"}`,
         ].join(" · "),
+      ])
+    })
+    row.work.block_claims.claims.forEach((claim) => {
+      facts.push([
+        `Active Blocks · ${claim.label}`,
+        `${claimLabel(claim)} · ${claim.status} · ${claim.reason}`,
       ])
     })
     const preferred = row.detail.source_refs[0]
@@ -270,92 +353,184 @@ function FloorRow({ row, inspect, returnPath }: {
   returnPath: string
 }) {
   const tracker = row.work.tracker
+  const blockClaims = row.work.block_claims
+  const totalLabel = blockClaims.tracker_total.value === null
+    ? blockClaims.tracker_total.posture === "partial" ? "Blocks partial" : "Blocks unavailable"
+    : `${blockClaims.tracker_total.value} Blocks${blockClaims.tracker_total.posture === "exact" ? "" : " · partial"}`
   const workspacePath = row.detail.kind === "run"
     ? `/runs/${encodeURIComponent(row.detail.id)}?return=${encodeURIComponent(returnPath)}`
     : `/tasks/${encodeURIComponent(row.detail.id)}?return=${encodeURIComponent(returnPath)}`
   const roleSummary = row.supervision.roles
     .map((role) => role.label ?? role.role ?? shortId(role.thread_id))
     .join(" · ")
+  const activeSummary = blockClaims.claims
+    .map((claim) => `${claim.label}: ${claimLabel(claim)}`)
+    .join("; ")
+  const accessibleSummary = [
+    row.implementation.name ?? row.implementation.task_id,
+    `project ${row.project.label}`,
+    `task ${row.implementation.task_id} ${row.implementation.status_label}`,
+    `supervision ${row.supervision.status_label}`,
+    `group ${row.supervision.group_id ?? "unavailable"}`,
+    `roles ${roleSummary || "unavailable"}`,
+    totalLabel,
+    activeSummary,
+    `${row.issues.total} open items`,
+    `${row.light.label}: ${row.light.reason}`,
+    `observed ${row.freshness.observed_at ?? "unavailable"}`,
+  ].join(", ")
   return (
-    <article className={`factory-row posture-${row.light.posture}`}>
-      <div className="factory-row-implementation">
-        {row.project.project_id ? (
-          <Link
-            className="row-project row-project-link"
-            to={`/projects/${encodeURIComponent(row.project.project_id)}?return=${encodeURIComponent(returnPath)}`}
-          >{row.project.label}</Link>
-        ) : <span className="row-project">{row.project.label}</span>}
-        <strong>{row.implementation.name ?? shortId(row.implementation.task_id)}</strong>
-        <span className="row-meta">
-          <span className={`status-chip state-${row.implementation.status}`}>
-            {row.implementation.status_label}
+    <OperationalDisclosure
+      ariaLabel={`${accessibleSummary}. Expand source-backed details`}
+      detailLabel={`${row.implementation.name ?? row.implementation.task_id} source-backed operational detail`}
+      className={`factory-operational-row posture-${row.light.posture}${blockClaims.posture === "conflict" ? " block-claim-conflict" : ""}`}
+      marker={<LightIcon posture={row.light.posture} />}
+      summary={(
+        <>
+          <span className="operational-row-identity">
+            <span className="row-project">{row.project.label}</span>
+            <strong>{row.implementation.name ?? shortId(row.implementation.task_id)}</strong>
+            <span className="row-meta">
+              <span className={`status-chip state-${row.implementation.status}`}>
+                {row.implementation.status_label}
+              </span>
+              <code title={row.implementation.task_id}>{shortId(row.implementation.task_id)}</code>
+            </span>
           </span>
-          <code title={row.implementation.task_id}>{shortId(row.implementation.task_id)}</code>
-        </span>
-        {row.disagreements.length > 0 && (
-          <span className="row-disagreement"><AlertTriangle aria-hidden="true" />{row.disagreements[0]}</span>
-        )}
-      </div>
+          <span className="operational-row-supervision">
+            <span className="cell-label">Supervision</span>
+            <strong>{row.supervision.status_label} · {shortId(row.supervision.group_id)}</strong>
+            <span title={roleSummary || undefined}>{roleSummary || "Roles unavailable"}</span>
+          </span>
+          <span className={`operational-row-blocks claims-${blockClaims.posture}`}>
+            <span className="cell-label">{totalLabel}</span>
+            {blockClaims.claims.map((claim) => (
+              <span className={`collapsed-block-claim claim-${claim.status}`} key={claim.source}>
+                <span>{claim.label}</span>
+                <strong title={claim.reason}>{claimLabel(claim)}</strong>
+              </span>
+            ))}
+          </span>
+        </>
+      )}
+      trailing={(
+        <>
+          <span className={`operating-light light-${row.light.posture}`}>
+            <strong>{row.light.label}</strong>
+          </span>
+          <span className={row.issues.total > 0 ? "row-attention-count" : "row-attention-clear"}>
+            {row.issues.total > 0 ? `${row.issues.total} open` : "No open items"}
+          </span>
+          <span className="row-freshness"><Time value={row.freshness.observed_at} /></span>
+        </>
+      )}
+    >
+      <div className="factory-row-detail-grid">
+        <div className="factory-row-implementation">
+          <span className="cell-label">Implementation</span>
+          {row.project.project_id ? (
+            <Link
+              className="row-project row-project-link"
+              to={`/projects/${encodeURIComponent(row.project.project_id)}?return=${encodeURIComponent(returnPath)}`}
+            >{row.project.label}</Link>
+          ) : <span className="row-project">{row.project.label}</span>}
+          <strong>{row.implementation.name ?? shortId(row.implementation.task_id)}</strong>
+          <span className="row-meta">Task <code title={row.implementation.task_id}>{row.implementation.task_id}</code></span>
+          <span>{row.implementation.status_label} · source {row.implementation.source_status}</span>
+          {row.disagreements.length > 0 && (
+            <ul className="row-disagreement-list">
+              {row.disagreements.map((disagreement) => (
+                <li key={disagreement}><AlertTriangle aria-hidden="true" />{disagreement}</li>
+              ))}
+            </ul>
+          )}
+        </div>
 
-      <div className="factory-row-supervision">
-        <span className="cell-label">Supervisor</span>
-        <strong>{row.supervision.status_label}</strong>
-        <span title={roleSummary || undefined}>
-          {roleSummary || `${row.supervision.role_count} role${row.supervision.role_count === 1 ? "" : "s"}`}
-        </span>
-        {row.supervision.run_id ? (
-          <Link className="row-meta row-detail-link" to={`/runs/${encodeURIComponent(row.supervision.run_id)}/supervisor?return=${encodeURIComponent(returnPath)}`}>
-            Group <code title={row.supervision.group_id ?? undefined}>{shortId(row.supervision.group_id)}</code>
-          </Link>
-        ) : <span className="row-meta">Group <code>{shortId(row.supervision.group_id)}</code></span>}
-        <span className="row-meta">Target <code>{shortId(row.supervision.target_thread_id)}</code></span>
-        <span>{row.supervision.binding_integrity === "valid" ? "Bindings valid" : `Bindings ${row.supervision.binding_integrity}`}</span>
-      </div>
+        <div className="factory-row-supervision">
+          <span className="cell-label">Supervisor group</span>
+          <strong>{row.supervision.status_label}</strong>
+          {row.supervision.run_id ? (
+            <Link className="row-meta row-detail-link" to={`/runs/${encodeURIComponent(row.supervision.run_id)}/supervisor?return=${encodeURIComponent(returnPath)}`}>
+              Group <code title={row.supervision.group_id ?? undefined}>{row.supervision.group_id ?? "Unavailable"}</code>
+            </Link>
+          ) : <span className="row-meta">Group <code>{row.supervision.group_id ?? "Unavailable"}</code></span>}
+          <span className="row-meta">Target <code>{row.supervision.target_thread_id}</code></span>
+          <span>Mission <code title={row.work.mission_root ?? undefined}>{shortId(row.work.mission_root)}</code></span>
+          <span>{row.supervision.binding_integrity === "valid" ? "Bindings valid" : `Bindings ${row.supervision.binding_integrity}`}</span>
+          <div className="operational-role-list">
+            {row.supervision.roles.length ? row.supervision.roles.map((role, index) => (
+              <span key={`${role.role}:${role.thread_id}:${index}`}>
+                <strong>{role.label ?? role.role ?? `Role ${index + 1}`}</strong>
+                <code>{role.thread_id ?? "Task unavailable"}</code>
+                <small>{role.binding_status ?? "binding unavailable"} · task {role.task_status} · automation {role.automation_status ?? "unavailable"}</small>
+              </span>
+            )) : <span>Roles unavailable</span>}
+          </div>
+        </div>
 
-      <div className="factory-row-work">
-        <span className="cell-label">Current work</span>
-        <strong>
-          {blockLabel(row.work.active_block)}
-          {row.work.checkpoint ? ` · ${row.work.checkpoint}` : ""}
-        </strong>
-        <span title={tracker.relative_path ?? undefined}>{tracker.title ?? `Tracker ${tracker.status}`}</span>
-        <span>{row.work.last_action ?? "No current action recorded"}</span>
-        <span className="row-meta">
-          {row.issues.total} open · Last <Time value={row.supervision.last_check?.observed_at ?? null} />
-          {" · Next "}
-          {row.supervision.next_check.at
+        <div className="factory-row-work">
+          <span className="cell-label">Tracker &amp; active claims</span>
+          <strong>{totalLabel}</strong>
+          <span title={tracker.relative_path ?? undefined}>{tracker.title ?? `Tracker ${tracker.status}`} · {tracker.status}</span>
+          <small>{blockClaims.tracker_total.reason}</small>
+          <div className="active-claim-list">
+            {blockClaims.claims.map((claim) => (
+              <div className={`active-claim-row claim-${claim.status}`} key={claim.source}>
+                <span><strong>{claim.label}</strong><small>{claim.status}</small></span>
+                <span>
+                  {claim.blocks.length ? claim.blocks.map((block) => (
+                    <Link to={block.route} key={`${claim.source}:${block.number}`}>{activeBlockLabel(block)}</Link>
+                  )) : <strong>{claimLabel(claim)}</strong>}
+                  <small>{claim.reason}</small>
+                </span>
+                <Link to={claim.route}>Source</Link>
+              </div>
+            ))}
+          </div>
+          <span>{row.work.checkpoint ? `${blockLabel(row.work.active_block)} · ${row.work.checkpoint}` : "Checkpoint unavailable"}</span>
+          <span>{row.work.last_action ?? "No current action recorded"}</span>
+          {row.conclusion && (
+            <span className="row-conclusion">
+              <strong>{row.conclusion.summary ?? "Conclusion summary unavailable"}</strong>
+              <small>{row.conclusion.action ?? row.conclusion.resolution ?? "No next owner action recorded"}</small>
+            </span>
+          )}
+        </div>
+
+        <div className="factory-row-light">
+          <span className="cell-label">Attention &amp; freshness</span>
+          <span className={`operating-light light-${row.light.posture}`}>
+            <LightIcon posture={row.light.posture} />
+            <strong>{row.light.label}</strong>
+          </span>
+          <span>{row.light.reason}</span>
+          <span>{row.issues.incidents} incidents · {row.issues.decisions} decisions · {row.issues.transitions} transitions</span>
+          <span>Last check <Time value={row.supervision.last_check?.observed_at ?? null} /></span>
+          <span>Next {row.supervision.next_check.at
             ? <Time value={row.supervision.next_check.at} />
-            : <span title={row.supervision.next_check.reason}>unavailable</span>}
-        </span>
-        {row.supervision.run_id && (
-          <RunCheckAction
-            targetId={row.supervision.run_id}
-            projectId={row.project.project_id}
-            inline
-          />
-        )}
+            : <span title={row.supervision.next_check.reason}>unavailable</span>}</span>
+          <span>Observed <Time value={row.light.observed_at} /></span>
+          <span className="factory-row-actions">
+            <a
+              className="inspect-link"
+              href={row.detail.route}
+              onClick={(event) => {
+                event.preventDefault()
+                inspect(row.detail.route)
+              }}
+            >Inspect <ChevronRight aria-hidden="true" /></a>
+            <Link className="inspect-link" to={workspacePath}>Open workspace <ChevronRight aria-hidden="true" /></Link>
+          </span>
+          {row.supervision.run_id && (
+            <RunCheckAction
+              targetId={row.supervision.run_id}
+              projectId={row.project.project_id}
+              inline
+            />
+          )}
+        </div>
       </div>
-
-      <div className="factory-row-light">
-        <span className={`operating-light light-${row.light.posture}`}>
-          <LightIcon posture={row.light.posture} />
-          <strong>{row.light.label}</strong>
-        </span>
-        <span>{row.light.reason}</span>
-        <Time value={row.light.observed_at} />
-        <a
-          className="inspect-link"
-          href={row.detail.route}
-          onClick={(event) => {
-            event.preventDefault()
-            inspect(row.detail.route)
-          }}
-        >
-          Inspect <ChevronRight aria-hidden="true" />
-        </a>
-        <Link className="inspect-link" to={workspacePath}>Open workspace <ChevronRight aria-hidden="true" /></Link>
-      </div>
-    </article>
+    </OperationalDisclosure>
   )
 }
 
@@ -399,6 +574,7 @@ function FactoryFloor({ data, isFetching, refresh }: {
   refresh: () => void
 }) {
   const [projectFilter, setProjectFilter] = useAtom(floorProjectFilterAtom)
+  const [activityFilter, setActivityFilter] = useAtom(floorActivityFilterAtom)
   const [postureFilter, setPostureFilter] = useAtom(floorPostureFilterAtom)
   const [severityFilter, setSeverityFilter] = useAtom(floorSeverityFilterAtom)
   const [timeFilter, setTimeFilter] = useAtom(floorTimeFilterAtom)
@@ -419,11 +595,30 @@ function FactoryFloor({ data, isFetching, refresh }: {
   }))
   const matchesProject = (projectId: string | null, targetId?: string | null) =>
     projectFilter === "all" || projectId === projectFilter || rowProject.get(targetId ?? "") === projectFilter
-  const rows = data.rows.filter((row) =>
+  const baseRows = data.rows.filter((row) =>
     matchesProject(row.project.project_id)
     && (postureFilter === "all" || row.light.posture === postureFilter)
     && withinTime(row.freshness.observed_at, timeFilter, now)
   )
+  const rows = baseRows.filter((row) => rowMatchesActivity(row, activityFilter))
+  const sourceCoveragePartial = data.source_health.some(
+    (source) => source.status !== "available" || source.coverage.status !== "complete",
+  )
+  const sourceCoverageUnavailable = baseRows.length === 0 && data.source_health.every(
+    (source) => source.status === "unavailable",
+  )
+  const countOptions = {
+    truncated: data.rows_truncated,
+    partial: sourceCoveragePartial,
+    unavailable: sourceCoverageUnavailable,
+  }
+  const activityChips: Array<CountFilterChip<FloorActivityFilter>> = [
+    countChip("all", "All", "neutral", baseRows.length, countOptions),
+    countChip("active", "Active / Running", "active", baseRows.filter((row) => rowMatchesActivity(row, "active")).length, countOptions),
+    countChip("attention", "Attention", "attention", baseRows.filter((row) => rowMatchesActivity(row, "attention")).length, countOptions),
+    countChip("blocked", "Blocked / Failed", "blocked", baseRows.filter((row) => rowMatchesActivity(row, "blocked")).length, countOptions),
+    countChip("completed", "Completed", "completed", baseRows.filter((row) => rowMatchesActivity(row, "completed")).length, countOptions),
+  ]
   const attentionMatches = data.attention.filter((item) =>
     matchesProject(item.project_id, item.target_thread_id)
     && (severityFilter === "all" || item.severity === severityFilter)
@@ -454,6 +649,7 @@ function FactoryFloor({ data, isFetching, refresh }: {
   const metrics = data.metrics.filter((metric) => metricKeys.has(metric.key))
   const floorParams = new URLSearchParams()
   floorParams.set("project", projectFilter)
+  floorParams.set("activity", activityFilter)
   floorParams.set("time", timeFilter)
   floorParams.set("posture", postureFilter)
   floorParams.set("severity", severityFilter)
@@ -462,25 +658,28 @@ function FactoryFloor({ data, isFetching, refresh }: {
   useEffect(() => {
     const params = new URL(window.location.href).searchParams
     const project = params.get("project")
+    const activity = params.get("activity")
     const time = params.get("time")
     const posture = params.get("posture")
     const severity = params.get("severity")
     if (project && (project === "all" || data.projects.some((item) => item.id === project))) setProjectFilter(project)
+    if (activity === "all" || activity === "active" || activity === "attention" || activity === "blocked" || activity === "completed") setActivityFilter(activity)
     if (time === "all" || time === "24h" || time === "7d") setTimeFilter(time)
     if (posture === "all" || posture === "red" || posture === "amber" || posture === "green" || posture === "neutral") setPostureFilter(posture as FloorPostureFilter)
     if (severity === "all" || severity === "red" || severity === "amber" || severity === "neutral") setSeverityFilter(severity as FloorSeverityFilter)
     filtersHydrated.current = true
-  }, [data.projects, setPostureFilter, setProjectFilter, setSeverityFilter, setTimeFilter])
+  }, [data.projects, setActivityFilter, setPostureFilter, setProjectFilter, setSeverityFilter, setTimeFilter])
 
   useEffect(() => {
     if (!filtersHydrated.current) return
     const url = new URL(window.location.href)
     url.searchParams.set("project", projectFilter)
+    url.searchParams.set("activity", activityFilter)
     url.searchParams.set("time", timeFilter)
     url.searchParams.set("posture", postureFilter)
     url.searchParams.set("severity", severityFilter)
     window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`)
-  }, [postureFilter, projectFilter, severityFilter, timeFilter])
+  }, [activityFilter, postureFilter, projectFilter, severityFilter, timeFilter])
 
   const inspect = (route: string) => {
     const key = inspectKey(route)
@@ -503,7 +702,7 @@ function FactoryFloor({ data, isFetching, refresh }: {
         <div className="floor-region-heading">
           <div>
             <h2 id="factory-floor-heading">Implementations &amp; supervisors</h2>
-            <span>{rows.length} of {data.rows.length} rows</span>
+            <span>{rows.length} of {baseRows.length} represented rows</span>
           </div>
           <div className="floor-refresh">
             <span className={sourcesIncomplete.length ? "freshness-partial" : "freshness-current"}>
@@ -529,10 +728,17 @@ function FactoryFloor({ data, isFetching, refresh }: {
           ))}
         </div>
 
+        <CountFilterChips
+          label="Implementation status"
+          value={activityFilter}
+          items={activityChips}
+          onChange={setActivityFilter}
+        />
+
         <div className="floor-filters" aria-label="Factory Floor filters">
           <label>
             <span>Project</span>
-            <select value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}>
+            <select aria-label="Project" value={projectFilter} onChange={(event) => setProjectFilter(event.target.value)}>
               <option value="all">All projects</option>
               {data.projects.map((project) => (
                 <option value={project.id} key={project.id}>{project.label}</option>
@@ -541,7 +747,7 @@ function FactoryFloor({ data, isFetching, refresh }: {
           </label>
           <label>
             <span>Time</span>
-            <select value={timeFilter} onChange={(event) => setTimeFilter(event.target.value as FloorTimeFilter)}>
+            <select aria-label="Time" value={timeFilter} onChange={(event) => setTimeFilter(event.target.value as FloorTimeFilter)}>
               <option value="all">All current</option>
               <option value="24h">Last 24 hours</option>
               <option value="7d">Last 7 days</option>
@@ -549,7 +755,7 @@ function FactoryFloor({ data, isFetching, refresh }: {
           </label>
           <label>
             <span>Posture</span>
-            <select value={postureFilter} onChange={(event) => setPostureFilter(event.target.value as typeof postureFilter)}>
+            <select aria-label="Posture" value={postureFilter} onChange={(event) => setPostureFilter(event.target.value as typeof postureFilter)}>
               <option value="all">All postures</option>
               <option value="red">Action required</option>
               <option value="amber">Watch</option>
@@ -559,7 +765,7 @@ function FactoryFloor({ data, isFetching, refresh }: {
           </label>
           <label>
             <span>Attention</span>
-            <select value={severityFilter} onChange={(event) => setSeverityFilter(event.target.value as typeof severityFilter)}>
+            <select aria-label="Attention" value={severityFilter} onChange={(event) => setSeverityFilter(event.target.value as typeof severityFilter)}>
               <option value="all">All severities</option>
               <option value="red">Red</option>
               <option value="amber">Amber</option>
@@ -573,9 +779,6 @@ function FactoryFloor({ data, isFetching, refresh }: {
           )}
         </div>
 
-        <div className="factory-row-labels" aria-hidden="true">
-          <span>Implementation</span><span>Supervisor</span><span>Work &amp; checks</span><span>Operating light</span>
-        </div>
         <div className="factory-rows">
           {rows.length > 0
             ? rows.map((row) => <FloorRow row={row} inspect={inspect} returnPath={returnPath} key={row.id} />)

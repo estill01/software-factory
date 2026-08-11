@@ -31,6 +31,17 @@ describe("Factory Floor API contract", () => {
       unit: "USD estimate",
       estimate: true,
     })
+    expect(parsed.data.rows[0].work.block_claims).toMatchObject({
+      posture: "exact",
+      tracker_total: { value: 26, posture: "exact" },
+    })
+    expect(parsed.data.rows[0].work.block_claims.claims.map((claim) => claim.source))
+      .toEqual(["tracker", "task", "supervision"])
+    expect(parsed.data.rows[0].work.block_claims.claims[0].blocks[0]).toMatchObject({
+      number: 6,
+      title: "Factory Floor composition",
+      status: "in-progress",
+    })
   })
 
   it("rejects untyped extra operational fields at the API edge", () => {
@@ -40,6 +51,21 @@ describe("Factory Floor API contract", () => {
     rows[0].synthetic_health_score = 98
 
     expect(() => floorEnvelopeSchema.parse(candidate)).toThrow()
+  })
+
+  it("rejects confident malformed Block totals and incomplete claim identities", () => {
+    const malformedTotal = makeFactoryFloorEnvelope()
+    malformedTotal.data.rows[0].work.block_claims.tracker_total.value = 0
+    expect(() => floorEnvelopeSchema.parse(malformedTotal)).toThrow()
+
+    const malformedPartialTotal = makeFactoryFloorEnvelope()
+    malformedPartialTotal.data.rows[0].work.block_claims.tracker_total.posture = "partial"
+    malformedPartialTotal.data.rows[0].work.block_claims.tracker_total.value = 0
+    expect(() => floorEnvelopeSchema.parse(malformedPartialTotal)).toThrow()
+
+    const missingClaim = makeFactoryFloorEnvelope()
+    missingClaim.data.rows[0].work.block_claims.claims.pop()
+    expect(() => floorEnvelopeSchema.parse(missingClaim)).toThrow()
   })
 
   it("parses the success envelope and structured failure before returning", async () => {

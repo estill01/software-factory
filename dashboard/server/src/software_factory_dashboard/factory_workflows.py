@@ -85,6 +85,40 @@ ROLE_BINDING_REPAIR_ROLES = {
         "runtime_field": "roundup_thread_id",
     },
 }
+
+
+def parse_dashboard_workflow_marker(value: str) -> Mapping[str, Any] | None:
+    """Parse one exact dashboard workflow marker without assigning authority."""
+
+    first_line = value.splitlines()[0] if value else ""
+    if not first_line.startswith(MISSION_MARKER):
+        return None
+    try:
+        marker = json.loads(first_line.removeprefix(MISSION_MARKER))
+    except json.JSONDecodeError:
+        return None
+    return marker if isinstance(marker, Mapping) else None
+
+
+def task_workflow_marker(task: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """Return the newest projected workflow marker as a source claim only."""
+
+    for turn in reversed(task.get("turns", [])):
+        for item in reversed(turn.get("items", [])):
+            summary = item.get("summary")
+            if item.get("type") != "userMessage" or not isinstance(summary, str):
+                continue
+            marker = parse_dashboard_workflow_marker(summary)
+            if marker is not None:
+                return marker
+    preview = task.get("preview")
+    if isinstance(preview, str):
+        marker = parse_dashboard_workflow_marker(preview)
+        if marker is not None:
+            return marker
+    return None
+
+
 REVIEW_VARIANTS = {
     "checkpoint": {
         "operation_type": "factory.supervision-review-checkpoint",
@@ -823,31 +857,11 @@ class FactoryWorkflowOwner:
 
     @staticmethod
     def _task_marker(task: Mapping[str, Any]) -> Mapping[str, Any] | None:
-        for turn in reversed(task.get("turns", [])):
-            for item in reversed(turn.get("items", [])):
-                summary = item.get("summary")
-                if item.get("type") != "userMessage" or not isinstance(summary, str):
-                    continue
-                marker = FactoryWorkflowOwner._parse_marker(summary)
-                if marker is not None:
-                    return marker
-        preview = task.get("preview")
-        if isinstance(preview, str):
-            marker = FactoryWorkflowOwner._parse_marker(preview)
-            if marker is not None:
-                return marker
-        return None
+        return task_workflow_marker(task)
 
     @staticmethod
     def _parse_marker(value: str) -> Mapping[str, Any] | None:
-        first_line = value.splitlines()[0] if value else ""
-        if not first_line.startswith(MISSION_MARKER):
-            return None
-        try:
-            marker = json.loads(first_line.removeprefix(MISSION_MARKER))
-        except json.JSONDecodeError:
-            return None
-        return marker if isinstance(marker, Mapping) else None
+        return parse_dashboard_workflow_marker(value)
 
     def _require_capabilities(self, *capabilities: str) -> None:
         state = self.app_server_client.integration_state()

@@ -1694,6 +1694,436 @@ h3 {
   white-space: nowrap;
 }
 
+.count-filter-chips {
+  display: flex;
+  min-width: 0;
+  gap: 0.38rem;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+  padding: 0.52rem 0.95rem;
+  scrollbar-width: thin;
+}
+
+.count-filter-chip {
+  display: inline-flex;
+  min-height: 1.85rem;
+  flex: none;
+  align-items: center;
+  gap: 0.36rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  padding: 0.22rem 0.34rem 0.22rem 0.48rem;
+  color: var(--text-soft);
+  font: inherit;
+  font-size: 0.66rem;
+  font-weight: 620;
+  cursor: pointer;
+}
+
+.count-filter-chip:hover,
+.count-filter-chip:focus-visible,
+.count-filter-chip-active {
+  border-color: var(--border-strong);
+  background: var(--panel-subtle);
+  color: var(--text);
+}
+
+.count-filter-chip:focus-visible,
+.operational-disclosure-trigger:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+.count-filter-dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  flex: none;
+  border-radius: 999px;
+  background: var(--neutral);
+}
+
+.chip-active .count-filter-dot { background: var(--green); }
+.chip-attention .count-filter-dot { background: var(--amber); }
+.chip-blocked .count-filter-dot { background: var(--red); }
+.chip-completed .count-filter-dot { background: var(--primary); }
+
+.count-filter-value {
+  min-width: 1.55rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border) 55%, transparent);
+  padding: 0.12rem 0.36rem;
+  color: var(--text);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 0.58rem;
+  font-weight: 680;
+  text-align: center;
+}
+
+.operational-disclosure {
+  position: relative;
+  min-width: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.operational-disclosure:last-child {
+  border-bottom: 0;
+}
+
+.operational-disclosure::before {
+  position: absolute;
+  z-index: 2;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--neutral);
+  content: "";
+}
+
+.operational-disclosure.posture-red::before { background: var(--red); }
+.operational-disclosure.posture-amber::before,
+.operational-disclosure.block-claim-conflict::before { background: var(--amber); }
+.operational-disclosure.posture-green::before { background: var(--green); }
+
+.operational-disclosure-trigger {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  grid-template-columns: 1.55rem minmax(0, 1fr) minmax(7.5rem, auto) 1rem;
+  align-items: center;
+  gap: 0.62rem;
+  border: 0;
+  background: transparent;
+  padding: 0.72rem 0.82rem 0.72rem 0.95rem;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.operational-disclosure-trigger:hover,
+.operational-disclosure-trigger[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--panel-subtle) 68%, transparent);
+}
+
+.operational-disclosure-marker {
+  display: grid;
+  width: 1.55rem;
+  height: 1.55rem;
+  place-items: center;
+  border-radius: 0.46rem;
+  background: var(--panel-subtle);
+  color: var(--neutral);
+}
+
+.posture-red .operational-disclosure-marker { background: var(--red-soft); color: var(--red); }
+.posture-amber .operational-disclosure-marker,
+.block-claim-conflict .operational-disclosure-marker { background: var(--amber-soft); color: var(--amber-contrast); }
+.posture-green .operational-disclosure-marker { background: var(--green-soft); color: var(--green); }
+
+.operational-disclosure-marker svg,
+.operational-disclosure-chevron svg {
+  width: 0.8rem;
+  height: 0.8rem;
+}
+
+.operational-disclosure-summary {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(10rem, 0.9fr) minmax(9rem, 0.75fr) minmax(15rem, 1.35fr);
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.operational-row-identity,
+.operational-row-supervision,
+.operational-row-blocks,
+.collapsed-block-claim,
+.operational-disclosure-trailing {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.operational-row-identity,
+.operational-row-supervision,
+.operational-row-blocks {
+  gap: 0.14rem;
+}
+
+.operational-row-identity > strong,
+.operational-row-supervision > strong,
+.collapsed-block-claim > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operational-row-identity > strong,
+.operational-row-supervision > strong {
+  font-size: 0.73rem;
+  font-weight: 660;
+}
+
+.operational-row-supervision > span:last-child,
+.collapsed-block-claim,
+.row-freshness,
+.row-attention-count,
+.row-attention-clear {
+  color: var(--text-faint);
+  font-size: 0.59rem;
+}
+
+.operational-row-supervision > span:last-child,
+.operational-row-identity .row-meta code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operational-row-identity .status-chip {
+  flex: none;
+  white-space: nowrap;
+}
+
+.operational-row-blocks {
+  border-left: 1px solid var(--border);
+  padding-left: 0.7rem;
+}
+
+.collapsed-block-claim {
+  display: grid;
+  grid-template-columns: minmax(5.7rem, auto) minmax(0, 1fr);
+  gap: 0.35rem;
+  line-height: 1.35;
+}
+
+.collapsed-block-claim > span {
+  color: var(--text-faint);
+}
+
+.collapsed-block-claim > strong {
+  color: var(--text-soft);
+  font-size: inherit;
+  font-weight: 620;
+}
+
+.collapsed-block-claim.claim-conflict > strong,
+.claims-conflict > .cell-label {
+  color: var(--amber-contrast) !important;
+}
+
+.collapsed-block-claim.claim-partial > strong,
+.collapsed-block-claim.claim-unavailable > strong {
+  color: var(--text-faint);
+  font-weight: 560;
+}
+
+.operational-disclosure-trailing {
+  align-items: flex-end;
+  gap: 0.15rem;
+  text-align: right;
+}
+
+.row-attention-count {
+  color: var(--red);
+  font-weight: 650;
+}
+
+.operational-disclosure-chevron {
+  display: grid;
+  place-items: center;
+  color: var(--text-faint);
+}
+
+.operational-disclosure-chevron svg {
+  transition: transform 160ms ease;
+}
+
+.operational-disclosure-chevron .disclosure-chevron-open {
+  transform: rotate(180deg);
+}
+
+.operational-disclosure-grid {
+  display: grid;
+  transition: grid-template-rows 180ms ease, opacity 160ms ease;
+}
+
+.operational-disclosure-overflow {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.operational-disclosure-detail {
+  position: relative;
+  min-width: 0;
+  border-top: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel-subtle) 48%, transparent);
+  padding: 0.78rem 0.82rem 0.9rem 1.9rem;
+}
+
+.operational-disclosure-rail {
+  position: absolute;
+  top: 0.78rem;
+  bottom: 0.9rem;
+  left: 1.03rem;
+  width: 1px;
+  background: var(--border-strong);
+}
+
+.operational-disclosure-content,
+.factory-row-detail-grid {
+  min-width: 0;
+}
+
+.factory-row-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(10rem, 0.82fr) minmax(12rem, 0.95fr) minmax(18rem, 1.5fr) minmax(12rem, 0.9fr);
+  gap: 0.85rem;
+}
+
+.factory-row-detail-grid > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.24rem;
+}
+
+.factory-row-detail-grid > div + div {
+  border-left: 1px solid var(--border);
+  padding-left: 0.8rem;
+}
+
+.factory-row-detail-grid strong,
+.factory-row-detail-grid span,
+.factory-row-detail-grid small,
+.factory-row-detail-grid code,
+.factory-row-detail-grid a {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.factory-row-detail-grid > div > strong {
+  font-size: 0.72rem;
+}
+
+.factory-row-detail-grid span,
+.factory-row-detail-grid small,
+.factory-row-detail-grid code,
+.factory-row-detail-grid a {
+  color: var(--text-faint);
+  font-size: 0.6rem;
+  line-height: 1.38;
+}
+
+.row-project-link,
+.row-detail-link,
+.active-claim-row a {
+  color: var(--primary) !important;
+  text-decoration: none;
+}
+
+.row-detail-link {
+  width: 100%;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.row-detail-link code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-disagreement-list {
+  display: grid;
+  gap: 0.18rem;
+  margin: 0.28rem 0 0;
+  padding: 0;
+  color: var(--amber-contrast);
+  font-size: 0.59rem;
+  list-style: none;
+}
+
+.row-disagreement-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.24rem;
+}
+
+.row-disagreement-list svg {
+  width: 0.68rem;
+  height: 0.68rem;
+  flex: none;
+  margin-top: 0.08rem;
+}
+
+.operational-role-list,
+.active-claim-list {
+  display: grid;
+  width: 100%;
+  gap: 0.3rem;
+  margin-top: 0.24rem;
+}
+
+.operational-role-list > span {
+  display: grid;
+  min-width: 0;
+  border-radius: 0.38rem;
+  background: var(--panel-solid);
+  padding: 0.38rem;
+}
+
+.operational-role-list strong,
+.operational-role-list code,
+.operational-role-list small,
+.active-claim-row strong,
+.active-claim-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.active-claim-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(6rem, 0.58fr) minmax(9rem, 1.35fr) auto;
+  gap: 0.42rem;
+  border-radius: 0.38rem;
+  background: var(--panel-solid);
+  padding: 0.38rem;
+}
+
+.active-claim-row > span {
+  display: grid;
+  min-width: 0;
+  gap: 0.08rem;
+}
+
+.active-claim-row > span:nth-child(2) a {
+  display: block;
+}
+
+.active-claim-row.claim-conflict {
+  box-shadow: inset 2px 0 var(--amber);
+}
+
+.row-conclusion {
+  display: grid;
+  gap: 0.08rem;
+  margin-top: 0.18rem;
+  border-left: 2px solid var(--primary);
+  padding-left: 0.45rem;
+}
+
+.factory-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem 0.55rem;
+}
+
 .row-project,
 .cell-label {
   color: var(--text-soft) !important;
@@ -3610,6 +4040,22 @@ h3 {
   }
 }
 
+@media (max-width: 90rem) {
+  .factory-row-detail-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .factory-row-detail-grid > div + div {
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  .factory-row-detail-grid > div:nth-child(n + 3) {
+    border-top: 1px solid var(--border);
+    padding-top: 0.65rem;
+  }
+}
+
 @media (max-width: 74rem) {
   .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4360,6 +4806,50 @@ h3 {
     padding-top: 0.65rem;
   }
 
+  .operational-disclosure-trigger {
+    grid-template-columns: 1.55rem minmax(0, 1fr) 1rem;
+  }
+
+  .operational-disclosure-summary {
+    grid-template-columns: minmax(10rem, 1fr) minmax(9rem, 0.8fr);
+  }
+
+  .operational-row-blocks {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--border);
+    border-left: 0;
+    padding-top: 0.38rem;
+    padding-left: 0;
+  }
+
+  .operational-disclosure-trailing {
+    grid-column: 2;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.26rem 0.48rem;
+  }
+
+  .operational-disclosure-chevron {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+
+  .factory-row-detail-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .factory-row-detail-grid > div + div {
+    border-left: 0;
+    padding-left: 0;
+  }
+
+  .factory-row-detail-grid > div:nth-child(n + 3) {
+    border-top: 1px solid var(--border);
+    padding-top: 0.65rem;
+  }
+
   .outcome-columns {
     grid-template-columns: 1fr;
   }
@@ -4447,6 +4937,64 @@ h3 {
 
   .floor-filters label {
     flex-basis: 100%;
+  }
+
+  .count-filter-chips {
+    padding-inline: 0.75rem;
+  }
+
+  .operational-disclosure-trigger {
+    grid-template-columns: 1.45rem minmax(0, 1fr) 0.9rem;
+    align-items: start;
+    gap: 0.48rem;
+    padding-inline: 0.76rem 0.62rem;
+  }
+
+  .operational-disclosure-summary {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.42rem;
+  }
+
+  .operational-row-supervision,
+  .operational-row-blocks {
+    border-top: 1px solid var(--border);
+    padding-top: 0.36rem;
+  }
+
+  .collapsed-block-claim {
+    grid-template-columns: minmax(5.4rem, 0.42fr) minmax(0, 1fr);
+  }
+
+  .operational-disclosure-trailing {
+    grid-column: 2;
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  .operational-disclosure-detail {
+    padding-right: 0.68rem;
+    padding-left: 1.55rem;
+  }
+
+  .operational-disclosure-rail {
+    left: 0.8rem;
+  }
+
+  .factory-row-detail-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .factory-row-detail-grid > div:nth-child(n + 2) {
+    border-top: 1px solid var(--border);
+    padding-top: 0.65rem;
+  }
+
+  .active-claim-row {
+    grid-template-columns: minmax(5.5rem, 0.55fr) minmax(0, 1fr);
+  }
+
+  .active-claim-row > a:last-child {
+    grid-column: 2;
   }
 
   .factory-row {

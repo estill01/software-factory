@@ -61,6 +61,70 @@ const trackerBindingSchema = z
   })
   .strict()
 
+const blockSourceRefSchema = z
+  .object({
+    number: nonnegativeInteger,
+    title: nullableText,
+    status: nullableText,
+    line: z.number().int().positive().nullable(),
+    route: z.string().startsWith("/"),
+  })
+  .strict()
+
+const activeBlockClaimSchema = z
+  .object({
+    source: z.enum(["tracker", "task", "supervision"]),
+    label: z.string().min(1),
+    status: z.enum(["exact", "none", "partial", "unavailable", "conflict"]),
+    blocks: z.array(blockSourceRefSchema),
+    range: z
+      .object({ start: nonnegativeInteger, end: nonnegativeInteger })
+      .strict()
+      .nullable(),
+    reason: z.string().min(1),
+    source_identity: z.string().min(1),
+    route: z.string().startsWith("/"),
+  })
+  .strict()
+
+const blockClaimsSchema = z
+  .object({
+    posture: z.enum(["exact", "none", "conflict", "partial", "unavailable"]),
+    tracker_total: z
+      .object({
+        value: nonnegativeInteger.nullable(),
+        posture: z.enum(["exact", "partial", "unavailable"]),
+        reason: z.string().min(1),
+      })
+      .strict(),
+    claims: z.array(activeBlockClaimSchema).length(3),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.tracker_total.posture !== "unavailable" && (value.tracker_total.value === null || value.tracker_total.value < 1)) {
+      context.addIssue({
+        code: "custom",
+        message: "A displayed tracker total must contain at least one verifier-parsed Block.",
+        path: ["tracker_total", "value"],
+      })
+    }
+    if (value.tracker_total.posture === "unavailable" && value.tracker_total.value !== null) {
+      context.addIssue({
+        code: "custom",
+        message: "An unavailable tracker total cannot expose a confident value.",
+        path: ["tracker_total", "value"],
+      })
+    }
+    const sources = value.claims.map((claim) => claim.source)
+    if (new Set(sources).size !== 3 || !["tracker", "task", "supervision"].every((source) => sources.includes(source as typeof sources[number]))) {
+      context.addIssue({
+        code: "custom",
+        message: "Block claims must preserve one tracker, task, and supervision source.",
+        path: ["claims"],
+      })
+    }
+  })
+
 export const floorRowSchema = z
   .object({
     id: z.string().min(1),
@@ -118,6 +182,7 @@ export const floorRowSchema = z
         mission_root: nullableText,
         last_action: nullableText,
         tracker: trackerBindingSchema,
+        block_claims: blockClaimsSchema,
       })
       .strict(),
     issues: z

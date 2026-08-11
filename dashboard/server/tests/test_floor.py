@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import unittest
 
 from software_factory_dashboard.floor import compose_factory_floor
@@ -8,10 +9,42 @@ from software_factory_dashboard.floor import compose_factory_floor
 OBSERVED = "2026-08-09T18:00:00.000Z"
 
 
-def task(task_id: str, project_id: str, status: str = "active") -> dict[str, object]:
+def task(
+    task_id: str,
+    project_id: str,
+    status: str = "active",
+    *,
+    block_start: int | None = None,
+    block_end: int | None = None,
+    tracker_id: str = "1" * 64,
+    mission_root: str = "a" * 64,
+) -> dict[str, object]:
+    marker = None
+    if block_start is not None:
+        marker = "SOFTWARE_FACTORY_DASHBOARD_MISSION " + json.dumps(
+            {
+                "kind": "implement-blocks",
+                "source_fingerprint": "f" * 64,
+                "project_id": project_id,
+                "tracker_id": tracker_id,
+                "block_start": block_start,
+                "block_end": block_start if block_end is None else block_end,
+                "mission_root": mission_root,
+                "mission_source_record": "direct-user:item-44",
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    turns = [] if marker is None else [{
+        "id": f"turn-{task_id}",
+        "status": "inProgress" if status == "active" else "completed",
+        "items_truncated": False,
+        "items": [{"type": "userMessage", "summary": marker}],
+    }]
     return {
         "id": task_id,
         "name": f"Task {task_id}",
+        "preview": marker,
         "status": {"type": status, "active_flags": []},
         "project_binding": {
             "status": "bound",
@@ -20,6 +53,8 @@ def task(task_id: str, project_id: str, status: str = "active") -> dict[str, obj
         },
         "updated_at": "2026-08-09T17:59:00.000Z",
         "recency_at": "2026-08-09T17:59:00.000Z",
+        "turns": turns,
+        "turns_truncated": False,
     }
 
 
@@ -36,7 +71,7 @@ def run(
         "target_label": f"Run {target}",
         "observed_at": "2026-08-09T17:58:00.000Z",
         "fingerprint": target.rjust(64, "a")[-64:],
-        "current_mission": {"root": "m" * 64},
+        "current_mission": {"root": "a" * 64},
         "project_binding": {
             "status": "bound",
             "project_id": project_id,
@@ -87,6 +122,7 @@ def run(
                 "record_id": "EVT-WAKE",
                 "timestamp": "2026-08-09T17:57:00.000Z",
                 "kind": "check",
+                "mission_root": "a" * 64,
                 "active_block": 6,
                 "checkpoint": "Implementing",
                 "action": "Continue bounded work.",
@@ -124,10 +160,19 @@ def tracker(
         "fingerprint": tracker_id[0] * 64,
         "title": f"{project_id.title()} tracker",
         "blocks": blocks,
+        "verifier": {
+            "valid": bool(blocks),
+            "blocks": [block["number"] for block in blocks],
+        },
         "counts": {
+            "total": len(blocks),
             "accepted": sum(1 for block in blocks if block["status"] == "accepted"),
             "open": sum(1 for block in blocks if block["status"] != "accepted"),
         },
+        "current_blocks": [
+            block["number"] for block in blocks if block["status"] == "in-progress"
+        ],
+        "coverage": {"status": "complete", "observed": ["tracker"], "missing": []},
         "git": {
             "status": "available",
             "content_matches_head": True,
@@ -219,7 +264,7 @@ class FactoryFloorCompositionTests(unittest.TestCase):
         }
         self.tasks = {
             "tasks": [
-                task("target-alpha", "alpha"),
+                task("target-alpha", "alpha", block_start=6),
                 task("target-beta", "beta", "idle"),
                 task("task-gamma", "gamma", "active"),
             ]
@@ -269,6 +314,23 @@ class FactoryFloorCompositionTests(unittest.TestCase):
         self.assertEqual(alpha["project"]["status"], "bound")
         self.assertEqual(alpha["work"]["tracker"]["status"], "exact")
         self.assertEqual(alpha["work"]["active_block"], "6")
+        self.assertEqual(alpha["work"]["block_claims"]["posture"], "exact")
+        self.assertEqual(
+            alpha["work"]["block_claims"]["tracker_total"],
+            {
+                "value": 2,
+                "posture": "exact",
+                "reason": "Maintained verifier Block set for the exact canonical tracker binding.",
+            },
+        )
+        claims = {
+            claim["source"]: claim for claim in alpha["work"]["block_claims"]["claims"]
+        }
+        self.assertEqual(
+            {source: claim["status"] for source, claim in claims.items()},
+            {"tracker": "exact", "task": "exact", "supervision": "exact"},
+        )
+        self.assertEqual(claims["tracker"]["blocks"][0]["title"], "Factory floor")
         self.assertEqual(alpha["light"]["posture"], "green")
         self.assertFalse(alpha["light"]["completion_claim"])
         self.assertEqual(alpha["supervision"]["group_id"], "group-target-alpha")
@@ -286,6 +348,99 @@ class FactoryFloorCompositionTests(unittest.TestCase):
         gamma = rows["task:task-gamma"]
         self.assertEqual(gamma["supervision"]["status"], "unmonitored")
         self.assertEqual(gamma["light"]["posture"], "neutral")
+
+    def test_block_claims_preserve_multiple_conflicting_and_predecessor_sources(self) -> None:
+        alpha_tracker = self.trackers[0]
+        alpha_tracker["blocks"][0]["status"] = "in-progress"  # type: ignore[index]
+        alpha_tracker["current_blocks"] = [5, 6]
+        self.tasks["tasks"][0] = task(
+            "target-alpha",
+            "alpha",
+            block_start=7,
+        )
+
+        row = next(
+            item for item in self.compose()["rows"] if item["id"] == "run:target-alpha"  # type: ignore[index]
+        )
+        claims = {claim["source"]: claim for claim in row["work"]["block_claims"]["claims"]}
+
+        self.assertEqual(row["work"]["block_claims"]["posture"], "conflict")
+        self.assertEqual(
+            [block["number"] for block in claims["tracker"]["blocks"]],
+            [5, 6],
+        )
+        self.assertEqual([block["number"] for block in claims["task"]["blocks"]], [7])
+        self.assertEqual(
+            [block["number"] for block in claims["supervision"]["blocks"]],
+            [6],
+        )
+        self.assertIn("Active Block disagreement", row["disagreements"][-1])
+        self.assertEqual(row["light"]["posture"], "amber")
+
+        self.tasks["tasks"][0] = task(
+            "target-alpha",
+            "alpha",
+            block_start=6,
+            mission_root="b" * 64,
+        )
+        predecessor = next(
+            item for item in self.compose()["rows"] if item["id"] == "run:target-alpha"  # type: ignore[index]
+        )
+        task_claim = next(
+            claim
+            for claim in predecessor["work"]["block_claims"]["claims"]
+            if claim["source"] == "task"
+        )
+        self.assertEqual(task_claim["status"], "conflict")
+        self.assertEqual(task_claim["blocks"], [])
+        self.assertIn("mission binding", task_claim["reason"])
+
+        self.operations["runs"][0]["activities"][-1]["mission_root"] = "b" * 64  # type: ignore[index]
+        predecessor_activity = next(
+            item for item in self.compose()["rows"] if item["id"] == "run:target-alpha"  # type: ignore[index]
+        )
+        supervision_claim = next(
+            claim
+            for claim in predecessor_activity["work"]["block_claims"]["claims"]
+            if claim["source"] == "supervision"
+        )
+        self.assertEqual(supervision_claim["status"], "conflict")
+        self.assertEqual(supervision_claim["blocks"], [])
+        self.assertIn("predecessor mission", supervision_claim["reason"])
+
+    def test_block_claims_fail_closed_for_zero_partial_and_none_active(self) -> None:
+        alpha_tracker = self.trackers[0]
+        alpha_tracker["blocks"] = []
+        alpha_tracker["verifier"] = {"valid": False, "blocks": []}
+        alpha_tracker["counts"] = {"total": 0, "accepted": 0, "open": 0}
+        alpha_tracker["current_blocks"] = []
+        self.operations["runs"][0]["activities"] = []  # type: ignore[index]
+        self.tasks["tasks"][0] = task("target-alpha", "alpha", "idle")
+
+        row = next(
+            item for item in self.compose()["rows"] if item["id"] == "run:target-alpha"  # type: ignore[index]
+        )
+
+        self.assertEqual(
+            row["work"]["block_claims"]["tracker_total"]["posture"],
+            "unavailable",
+        )
+        self.assertIsNone(row["work"]["block_claims"]["tracker_total"]["value"])
+        self.assertNotEqual(row["work"]["block_claims"]["posture"], "exact")
+
+        alpha_tracker["blocks"] = [{
+            "number": 0,
+            "title": "Long exact tracker-owned heading",
+            "status": "accepted",
+            "line": 12,
+        }]
+        alpha_tracker["verifier"] = {"valid": True, "blocks": [0]}
+        alpha_tracker["counts"] = {"total": 1, "accepted": 1, "open": 0}
+        alpha_tracker["current_blocks"] = []
+        none_active = next(
+            item for item in self.compose()["rows"] if item["id"] == "run:target-alpha"  # type: ignore[index]
+        )
+        self.assertEqual(none_active["work"]["block_claims"]["posture"], "none")
 
     def test_preserves_attention_precedence_and_partial_sources(self) -> None:
         floor = self.compose()
