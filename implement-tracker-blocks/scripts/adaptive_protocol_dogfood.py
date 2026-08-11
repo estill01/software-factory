@@ -697,7 +697,9 @@ def run_dogfood() -> dict[str, object]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run the bounded read-only adaptive-protocol dogfood matrix."
+        description=(
+            "Run the bounded temporary-target-only adaptive-protocol dogfood matrix."
+        )
     )
     parser.add_argument(
         "--pretty", action="store_true", help="indent the result JSON"
