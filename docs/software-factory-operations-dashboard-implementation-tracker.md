@@ -5170,6 +5170,33 @@ filters, and viewports rather than unrelated workspaces.
   or later-Block implementation was added. Block 17 remains `in-progress`
   pending an independent exact-revision product/truth review of this candidate;
   Blocks 18-29 remain unopened.
+- Rejected exact-revision outcome: independent audit REJECTED evidence
+  `0bcbdbdab383aabc3a59130f7b665a43d36248d2`, tree
+  `eedfb8d6020a1bf129bedf68ba2b0a0b531316f6`, and product parent
+  `9db88126858ebb7bd3abceacb6fa4e510909db69`. It found two material truth
+  rows: task-owner `None active` was excluded from cross-source comparison, so
+  tracker/supervision Block 6 plus task None stayed falsely exact/green; and the
+  advertised Floor fingerprint omitted the consumed task workflow marker, so a
+  Block 6-to-5 marker change altered the rendered conflict posture without
+  altering its source revision. Exact remote/diff/Stop proof, focused Python
+  9/9, Ruff, frontend 84/84, build, full-profile 0/0, and verifier 30/30 passed;
+  an independent full Python run reached 111/112 with one unchanged task-API
+  three-second HTTP timeout. The prior exact 112/112 candidate result and all
+  unaffected proof remain reusable; the rejected revision is not acceptance.
+- Corrected product successor: commit
+  `9b8a1d7769958baa480bccae4b718fc227f8fc4f`, tree
+  `e5bf7ab6f282231d6c8028fc0920d51f52301062`, parent
+  `0bcbdbdab383aabc3a59130f7b665a43d36248d2`. Its exact two-file delta includes
+  every explicit `exact` or `none` owner claim in set comparison, keeps
+  `notLoaded`/unknown task lifecycle unavailable rather than recasting it as
+  none, and binds the semantic fingerprint to task `updated_at`, history/item
+  coverage, and the exact consumed workflow marker. The affected Floor suite
+  passed 11/11 with `ResourceWarning` fatal, Ruff and diff checks passed, and
+  the restarted loopback server at port 8787 reports the current live row as
+  partial with tracker/task unavailable and current supervision Block 17 kept
+  separate. Unaffected frontend/build/browser and full backend proof remains
+  bound to the preserved candidate. Block 17 remains `in-progress` pending a
+  fresh independent delta review; Blocks 18-29 remain unopened.
 
 ### Stop
 
