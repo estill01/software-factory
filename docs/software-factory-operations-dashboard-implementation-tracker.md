@@ -509,7 +509,7 @@ the relevant authority and evidence contract.
 | 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `accepted` |
 | 12 | On-demand mechanical supervision checks | 7, 10, 11 | `accepted` |
 | 13 | Semantic supervision review requests | 7, 10, 11 | `accepted` |
-| 14 | Supervision policy and cadence administration | 7, 10, 11 | `in-progress` |
+| 14 | Supervision policy and cadence administration | 7, 10, 11 | `accepted` |
 | 15 | Mission and target/tracker binding repair | 7, 10, 11 | `not-started` |
 | 16 | Role-task binding repair | 7, 10, 11 | `not-started` |
 | 17 | Automation binding repair | 7, 10, 11 | `not-started` |
@@ -4030,7 +4030,7 @@ reporting, or Factory evolution.
 
 ## Block 14 — Supervision policy and cadence administration
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -4264,8 +4264,21 @@ automations.
   1. Ruff and diff checks passed. Affected frontend proof passed three files and
   16 tests plus the run workspace's 3/3, the production build passed, and the
   exact live drill-down Playwright case passed 3/3 across desktop, tablet, and
-  mobile with invocation-scoped `--workers=1`. Fresh exact-revision acceptance
-  remains pending; Blocks 15–25 remain closed.
+  mobile with invocation-scoped `--workers=1`. At this successor freeze,
+  exact-revision acceptance was pending and Blocks 15–25 remained closed.
+- Fresh exact acceptance: independent delta review accepted exact evidence
+  revision `58b26b0ff95230ab164219f55af529c949b7afc5`, tree
+  `f7ee7de2f02e3fa2a00ec18418fa845d1b9b2954`, and product revision
+  `0c1b0fdfea9f033c622205df6d257e716f14870a`, tree
+  `55e5fecd39f427a74e9b330fc65b3cc613d34903`, with no material finding. The
+  reviewer independently reproduced backend 38/38 with `ResourceWarning`
+  fatal, Ruff, affected frontend three files/16 tests, TypeScript/build,
+  full-profile verification for all 26 Blocks with 0 errors/warnings, verifier
+  tests 30/30, exact diff/hash, clean checkout, remote `0 0`, and the Block 14
+  Stop. The recorded live browser 3/3 proof was reused without replay. Policy
+  history and every affected automation are separately verified through their
+  maintained owners; no direct policy/history/TOML writer or Block 15+ control
+  was introduced.
 
 ### Stop
 
