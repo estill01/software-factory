@@ -152,6 +152,8 @@ class FactoryEvolutionContractTests(unittest.TestCase):
         self.assertIn("does not create a candidate", normalized)
         self.assertIn("observable-outcome-completion", normalized)
         self.assertIn("a generic check", normalized)
+        self.assertIn("regular file under that owner", normalized)
+        self.assertIn("four-megabyte stored-byte ceiling", normalized)
 
 
 class FactoryEvolutionCliTests(unittest.TestCase):
@@ -328,6 +330,33 @@ class FactoryEvolutionCliTests(unittest.TestCase):
 
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError, "unexpected artifacts"
+        ):
+            self.run_action("verify")
+
+    def test_verify_requires_regular_bounded_exact_artifacts(self) -> None:
+        self.prepare()
+        packet = self.artifact_directory / "learning-packet.json"
+        retained = packet.read_bytes()
+        outside = self.root / "outside-learning-packet.json"
+        packet.rename(outside)
+        packet.symlink_to(outside)
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "regular file"
+        ):
+            self.run_action("verify")
+
+        packet.unlink()
+        packet.write_bytes(
+            b" " * (supervision_log.MAX_FACTORY_EVOLUTION_STORED_ARTIFACT_BYTES + 1)
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "byte bound"
+        ):
+            self.run_action("verify")
+
+        packet.write_bytes(b" " + retained)
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "encoding differs"
         ):
             self.run_action("verify")
 

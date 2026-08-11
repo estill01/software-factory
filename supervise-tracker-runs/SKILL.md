@@ -762,6 +762,11 @@ automatic adoption or permission to edit, install, route to a target, notify,
 schedule, deploy, or promote. Do not copy target files, transcripts, prompts, or
 hidden reasoning into the review.
 
+Stored evolution JSON is accepted only as a regular file under that owner, in
+the exact deterministic writer encoding and within the maintained four-megabyte
+per-artifact ceiling. Verification holds one stable identity through each read;
+path-type, byte-bound, encoding, or identity differences fail closed.
+
 ## Pause, resume, or stop
 
 - Pause all project supervision automations when the target completes, becomes

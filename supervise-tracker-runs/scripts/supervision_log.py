@@ -99,6 +99,7 @@ MAX_ADAPTIVE_CANDIDATE_EVIDENCE_BYTES = 64 * 1024
 MAX_ADAPTIVE_DECISION_EVIDENCE_BYTES = 64 * 1024
 MAX_ADAPTIVE_REVIEW_EVIDENCE_BYTES = 64 * 1024
 MAX_PROGRAM_REVISION_EVIDENCE_BYTES = 256 * 1024
+MAX_FACTORY_EVOLUTION_STORED_ARTIFACT_BYTES = 4 * 1024 * 1024
 TRACKER_AUTHORING_PROFILE_SOURCE_PATH = (
     "docs/software-factory-tracker-authoring-supervision-implementation-tracker.md"
 )
@@ -14314,47 +14315,70 @@ def factory_evolution_supported_novelty(
 
 
 def factory_evolution_cycle_inventory(directory: Path) -> list[dict[str, Any]]:
+    learning = directory / "learning"
     base = directory / "learning" / "factory-evolution"
     if not base.exists():
         return []
-    if base.is_symlink() or not base.is_dir():
-        raise SupervisionLogError("Factory evolution owner directory differs")
+    owner_snapshots: list[
+        tuple[Path, tuple[int, int, int, int, int, int, int]]
+    ] = []
+    for owner in (learning, base):
+        try:
+            owner_stat = owner.lstat()
+        except OSError as exc:
+            raise SupervisionLogError(
+                "Factory evolution owner directory differs"
+            ) from exc
+        if not stat.S_ISDIR(owner_stat.st_mode) or stat.S_ISLNK(owner_stat.st_mode):
+            raise SupervisionLogError("Factory evolution owner directory differs")
+        owner_snapshots.append(
+            (owner, factory_evolution_admission_stat_identity(owner_stat))
+        )
     result: list[dict[str, Any]] = []
     module = factory_evolution_module()
     for item in sorted(base.iterdir(), key=lambda path: path.name):
         if item.name.startswith("."):
             continue
-        if item.is_symlink() or not item.is_dir():
+        try:
+            item_stat = item.lstat()
+        except OSError as exc:
+            raise SupervisionLogError("Factory evolution inventory differs") from exc
+        if not stat.S_ISDIR(item_stat.st_mode) or stat.S_ISLNK(item_stat.st_mode):
             raise SupervisionLogError("Factory evolution inventory differs")
+        item_snapshot = factory_evolution_admission_stat_identity(item_stat)
         packet = item / "learning-packet.json"
         prepare_manifest = item / "prepare-manifest.json"
-        if not packet.exists() and not prepare_manifest.exists():
+        packet_present = factory_evolution_artifact_exists(packet)
+        prepare_manifest_present = factory_evolution_artifact_exists(prepare_manifest)
+        if not packet_present and not prepare_manifest_present:
             continue
         verify_factory_evolution_inventory(item)
-        if not packet.exists():
+        if not packet_present:
             raise SupervisionLogError(
                 "Factory evolution prepared set lacks its learning packet"
             )
-        if prepare_manifest.exists():
+        if prepare_manifest_present:
             verify_factory_evolution_prepare(module, item)
         else:
             factory_evolution_call(
-                module, "verify_learning_packet", read_json(packet)
+                module, "verify_learning_packet", read_factory_evolution_json(packet)
             )
         final_names = ("evaluation.json", "machine-report.json", "manifest.json")
-        terminal = any((item / name).exists() for name in final_names)
+        terminal = any(
+            factory_evolution_artifact_exists(item / name) for name in final_names
+        )
         if terminal:
             require_factory_evolution_artifacts(item, final_names)
-            bundle = {
-                name: read_json(item / name)
-                for name in (
+            bundle = require_factory_evolution_artifacts(
+                item,
+                (
                     "learning-packet.json",
                     "review.json",
                     "evaluation.json",
                     "machine-report.json",
                     "manifest.json",
-                )
-            }
+                ),
+            )
             factory_evolution_call(module, "verify_evolution_bundle", bundle)
         result.append(
             {
@@ -14362,6 +14386,23 @@ def factory_evolution_cycle_inventory(directory: Path) -> list[dict[str, Any]]:
                 "state": "terminal" if terminal else "active",
             }
         )
+        try:
+            if factory_evolution_admission_stat_identity(item.lstat()) != item_snapshot:
+                raise SupervisionLogError("Factory evolution inventory changed while reading")
+        except OSError as exc:
+            raise SupervisionLogError(
+                "Factory evolution inventory changed while reading"
+            ) from exc
+    for owner, snapshot in owner_snapshots:
+        try:
+            if factory_evolution_admission_stat_identity(owner.lstat()) != snapshot:
+                raise SupervisionLogError(
+                    "Factory evolution owner directory changed while reading"
+                )
+        except OSError as exc:
+            raise SupervisionLogError(
+                "Factory evolution owner directory changed while reading"
+            ) from exc
     return result
 
 
@@ -14447,6 +14488,67 @@ def factory_evolution_json_bytes(value: Mapping[str, Any]) -> bytes:
     ).encode("utf-8") + b"\n"
 
 
+def factory_evolution_artifact_exists(path: Path) -> bool:
+    try:
+        metadata = path.lstat()
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise SupervisionLogError(
+            "Factory evolution artifact identity cannot be read"
+        ) from exc
+    if not stat.S_ISREG(metadata.st_mode):
+        raise SupervisionLogError("Factory evolution artifact must be a regular file")
+    return True
+
+
+def read_factory_evolution_json(path: Path) -> dict[str, Any]:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = -1
+    try:
+        before_path = path.lstat()
+        if not stat.S_ISREG(before_path.st_mode):
+            raise SupervisionLogError(
+                "Factory evolution artifact must be a regular file"
+            )
+        if before_path.st_size > MAX_FACTORY_EVOLUTION_STORED_ARTIFACT_BYTES:
+            raise SupervisionLogError("Factory evolution artifact exceeds its byte bound")
+        descriptor = os.open(path, flags)
+        before = factory_evolution_admission_stat_identity(os.fstat(descriptor))
+        with os.fdopen(descriptor, "rb") as handle:
+            descriptor = -1
+            raw = handle.read(MAX_FACTORY_EVOLUTION_STORED_ARTIFACT_BYTES + 1)
+            after = factory_evolution_admission_stat_identity(os.fstat(handle.fileno()))
+        after_path = factory_evolution_admission_stat_identity(path.lstat())
+    except FileNotFoundError as exc:
+        raise SupervisionLogError(
+            f"Factory evolution artifact is missing: {path.name}"
+        ) from exc
+    except OSError as exc:
+        raise SupervisionLogError(
+            f"Factory evolution artifact cannot be read safely: {path.name}"
+        ) from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if len(raw) > MAX_FACTORY_EVOLUTION_STORED_ARTIFACT_BYTES:
+        raise SupervisionLogError("Factory evolution artifact exceeds its byte bound")
+    if before != after or after_path != before:
+        raise SupervisionLogError("Factory evolution artifact changed while reading")
+    try:
+        value = json.loads(raw, object_pairs_hook=reject_duplicate_json_pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SupervisionLogError(
+            f"Factory evolution artifact is not valid JSON: {path.name}"
+        ) from exc
+    if not isinstance(value, dict):
+        raise SupervisionLogError("Factory evolution artifact must be a JSON object")
+    validate_exact_json_value(value)
+    if raw != factory_evolution_json_bytes(value):
+        raise SupervisionLogError("Factory evolution artifact encoding differs")
+    return value
+
+
 def write_factory_evolution_set(
     directory: Path, artifacts: Mapping[str, Mapping[str, Any]]
 ) -> dict[str, list[str]]:
@@ -14464,8 +14566,9 @@ def write_factory_evolution_set(
             path = directory / name
             if path.parent != directory:
                 raise SupervisionLogError("Factory evolution artifact escaped its set")
-            if path.exists():
-                if path.read_bytes() != expected[name]:
+            if factory_evolution_artifact_exists(path):
+                retained = read_factory_evolution_json(path)
+                if factory_evolution_json_bytes(retained) != expected[name]:
                     raise SupervisionLogError(
                         f"Existing factory evolution artifact differs: {name}"
                     )
@@ -14512,12 +14615,16 @@ def verify_factory_evolution_inventory(directory: Path) -> None:
 def require_factory_evolution_artifacts(
     directory: Path, names: tuple[str, ...]
 ) -> dict[str, dict[str, Any]]:
-    missing = [name for name in names if not (directory / name).is_file()]
+    missing = [
+        name
+        for name in names
+        if not factory_evolution_artifact_exists(directory / name)
+    ]
     if missing:
         raise SupervisionLogError(
             "Factory evolution action is out of order; missing " + ", ".join(missing)
         )
-    return {name: read_json(directory / name) for name in names}
+    return {name: read_factory_evolution_json(directory / name) for name in names}
 
 
 def verify_factory_evolution_prepare(
@@ -15624,7 +15731,9 @@ def cmd_factory_evolution_verify(args: argparse.Namespace) -> None:
         "packet_id": packet["packet_id"],
         "packet_root": packet["packet_root"],
     }
-    if (directory / "review.json").exists() or (directory / "finalize-manifest.json").exists():
+    if factory_evolution_artifact_exists(
+        directory / "review.json"
+    ) or factory_evolution_artifact_exists(directory / "finalize-manifest.json"):
         packet, review = verify_factory_evolution_finalize(module, directory)
         stage = "finalized"
         result.update(
@@ -15635,18 +15744,18 @@ def cmd_factory_evolution_verify(args: argparse.Namespace) -> None:
         "machine-report.json",
         "manifest.json",
     )
-    if any((directory / name).exists() for name in final_names):
+    if any(factory_evolution_artifact_exists(directory / name) for name in final_names):
         require_factory_evolution_artifacts(directory, final_names)
-        bundle = {
-            name: read_json(directory / name)
-            for name in (
+        bundle = require_factory_evolution_artifacts(
+            directory,
+            (
                 "learning-packet.json",
                 "review.json",
                 "evaluation.json",
                 "machine-report.json",
                 "manifest.json",
-            )
-        }
+            ),
+        )
         factory_evolution_call(module, "verify_evolution_bundle", bundle)
         stage = "evaluated"
         result.update(

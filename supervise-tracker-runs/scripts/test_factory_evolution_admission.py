@@ -736,6 +736,44 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
         self.assertTrue(recovered["reused"])
         self.assertTrue((prepared[0] / "prepare-manifest.json").is_file())
 
+    def test_status_rejects_non_owner_retained_artifact_path(self) -> None:
+        record_id = self.append_event()
+        result = self.admit(self.write_report([record_id], name="retained-owner"))
+        evolution = (
+            self.directory
+            / "learning"
+            / "factory-evolution"
+            / str(result["evolution_id"])
+        )
+        packet = evolution / "learning-packet.json"
+        outside = self.root / "outside-learning-packet.json"
+        packet.rename(outside)
+        packet.symlink_to(outside)
+        policy = supervision_log.read_json(self.directory / "policy.json")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "regular file"
+        ):
+            supervision_log.factory_evolution_admission_status(
+                self.directory,
+                policy,
+                supervision_log.events(self.directory / "events.jsonl"),
+            )
+
+        packet.unlink()
+        outside.rename(packet)
+        learning = self.directory / "learning"
+        moved = self.root / "outside-learning-owner"
+        learning.rename(moved)
+        learning.symlink_to(moved, target_is_directory=True)
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "owner directory differs"
+        ):
+            supervision_log.factory_evolution_admission_status(
+                self.directory,
+                policy,
+                supervision_log.events(self.directory / "events.jsonl"),
+            )
+
     def test_post_append_target_change_records_currentness_rejection(self) -> None:
         record_id = self.append_event()
         report = self.write_report([record_id], name="post-append-currentness")

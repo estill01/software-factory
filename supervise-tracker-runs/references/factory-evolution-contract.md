@@ -134,7 +134,10 @@ supervision filesystem writes. Derived evolution artifacts may be written only
 through that owner, under its bounded learning directory, using safe
 identifiers and atomic immutable-or-identical writes. Deleting a derived set
 does not delete or mutate canonical evidence; the set can be rebuilt from its
-declared sources.
+declared sources. Every retained JSON artifact must remain a regular file under
+that owner, use the exact deterministic writer encoding, stay within the
+four-megabyte stored-byte ceiling, and preserve one stable file identity through
+each bounded read.
 
 ## Automatic evidence admission
 
