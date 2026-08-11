@@ -662,8 +662,8 @@ continuous cognition the price of ordinary execution.
 | 9 | Cut over a winning candidate, reconcile currentness, and resume | 6, 7 | `completed` |
 | 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `completed` |
 | 11 | Dogfood all decision paths and document demonstrated operation | 10 | `completed` |
-| 12 | Admit newly eligible Factory evidence automatically and economically | 11 | `in-progress` |
-| 13 | Orchestrate one bounded Factory candidate through existing owners | 12 | `not-started` |
+| 12 | Admit newly eligible Factory evidence automatically and economically | 11 | `completed` |
+| 13 | Orchestrate one bounded Factory candidate through existing owners | 12 | `in-progress` |
 | 14 | Independently evaluate the Factory candidate | 13 | `not-started` |
 | 15 | Adopt or retire the evaluated candidate under configurable policy | 14 | `not-started` |
 | 16 | Feed current outcomes back, suppress recurrence, and support rollback | 15 | `not-started` |
@@ -3185,7 +3185,7 @@ Stop before automatic Factory-evolution eligibility or candidate orchestration.
 
 ## Block 12 — Admit newly eligible Factory evidence automatically and economically
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -3334,7 +3334,79 @@ leakage, and hidden recurring work at the exact candidate revision.
 
 ### Completion evidence
 
-Pending.
+- Rejected exact candidate `888fb73de79cdc59f528769ba8e22bb01c702917`
+  remains append-only history with six independently reproduced findings:
+  `B12-F01` report-parent currentness, `B12-F02` dedicated admission-event
+  semantics, `B12-F03` independently reviewed productive evidence,
+  `B12-F04` partial prepare recovery, `B12-F05` packaging-invariant novelty,
+  and `B12-F06` finite eligibility-result semantics.
+- Corrective lineage `c034aaaf9e398284f9a6258c172601d4aa99d9f3` through
+  `14f9d1e33e5082639aecd25cba08f20571c71351` binds source owners,
+  event/result semantics, partial-set recovery, exact retained-artifact reads,
+  and productive evidence to existing canonical outcome completion. Rejected
+  exact successor `936122f956cc563c7280d856a63bc33d43b9b67f` preserved
+  `B12-F07`: an unrecorded prepared set incorrectly consumed the active-cycle
+  ceiling after a context change.
+- Frozen accepted source `ef844b32c29cd9088501b1bd82dbda61daaf83f2`
+  (tree `4f556e0abf250e564d89abf3f781a89507eb5b01`) makes only
+  admission-event-backed evolution IDs authoritative active cycles. Exact
+  retry proof retained zero events after interruption, then admitted exactly
+  one event-backed cycle after an unrelated target-context change; same-context
+  reuse, admitted-cycle conflict, post-append correction, consumed coverage,
+  and mission ceilings remained current. Independent exact review returned no
+  findings.
+- Current behavior: verified weekly, terminal, and explicit-maintenance
+  checkpoints admit one new supported gap or independently reviewed productive
+  outcome under reviewed/full autonomy without a model, reviewer, human request,
+  target write, candidate, schedule, or new ledger. Identical adjudicating
+  coverage is one no-op across prose, packaging, checkpoint, and unrelated
+  revision changes. Fixed mode is zero-producer; recommend remains
+  non-authorizing.
+- Retained artifact and source ownership: report/event parent identities are
+  revalidated before and after the canonical append; evolution artifacts are
+  regular owner-contained files with stable identity, exact deterministic
+  encoding, and a four-megabyte stored-byte ceiling. A partial or unrecorded
+  prepared set remains recoverable but non-authoritative.
+- Validation at the frozen source: focused Block 12 `39/39`; mapped supervision
+  `334/334`; reused byte-identical authoring tree
+  `7f71cbc3cc7e46fa26575f7a0ef5a88ec8fcfcc8` with accepted `42/42`
+  evidence and implementation tree
+  `29bf4676cda10971077d9a01deb7dea2e715819b` with accepted `115/115`
+  evidence; all three fixed skill validators; full tracker verification `18`
+  Blocks; Python compilation and exact diff checks.
+- Product-capability review:
+  - Trigger: `consequential` Block posture and automatic admission of new
+    cross-run Factory evidence at maintained checkpoints.
+  - Frame identity: this tracker, Block 12, SHA-256
+    `73dfa5eca19e8dcdd9b5878518a606608c6f924df8ec7bfb1ef9a22fc4790cf8`.
+  - Capability added or preserved: one evidence-bound opportunity can enter the
+    existing evolution path automatically while unchanged, unsupported, stale,
+    or over-budget evidence remains a cheap no-op.
+  - Paths compared: local report-projection trigger; bounded checkpoint gate in
+    the existing supervision owner; new watcher/controller or learning store.
+  - Selected level and owner: the bounded-general gate in existing
+    `supervision_log.py`, because it serves the three named checkpoints while
+    preserving one canonical event/filesystem owner and no background process.
+  - Protected-capability result: report non-authority, exact source/currentness,
+    productive-signal preservation, immutable artifacts, one active canonical
+    cycle, zero-cognition no-op economy, and the Block 13 Stop are preserved.
+  - Rejected alternatives: a report-local trigger would fragment admission and
+    miss terminal/maintenance consumers; a watcher, second ledger, database, or
+    scoring model would be speculative and exceed the accepted architecture.
+  - Tradeoffs and uncertainty: each exact retry may retain a non-authoritative
+    derived prepared set, but only event-backed IDs consume canonical cycle and
+    mission resources; no claim is made beyond current bounded checkpoints.
+  - Frozen-candidate proof: revision
+    `ef844b32c29cd9088501b1bd82dbda61daaf83f2`, focused `39/39`, mapped
+    supervision `334/334`, and independent no-findings review.
+- Resource posture: one in-memory packet build per checkpoint attempt, zero
+  model/reviewer calls in no-op paths, one canonical admission per novelty/context,
+  and no producer rerun for unchanged event-backed coverage.
+- Decision/continuation posture: Block 12 Stop is satisfied; no cognitive review
+  or candidate implementation was started, and the exact next safe action is
+  Block 13 orchestration through existing owners.
+- Git durability: `codex/control-plane-foundation` is clean and pushed through
+  the frozen source before this tracker-only transition.
 
 ### Stop
 
@@ -3344,7 +3416,7 @@ Stop before generating cognitive review or implementing a candidate.
 
 ## Block 13 — Orchestrate one bounded Factory candidate through existing owners
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
