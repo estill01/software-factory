@@ -2457,6 +2457,22 @@ delta, and a local correction incorrectly escalated to structural change.
   and the installed public focused replay passed `27/27`. `B8-F13` is closed;
   Block 8 is complete without lifecycle, Gmail, candidate-cutover, or
   successor-mission action.
+- Post-activation currentness correction `EVT-000229` / incident
+  `INC-20260811-035702-260419` established that the sequence-9 `03b314f` and
+  sequence-10 `dfd7f1c` activations, although content- and operator-valid, lacked
+  a current mission-successor and work-start activation. Both releases and all
+  review/activation evidence remain preserved as noncurrent history and are
+  superseded by the sequence-11 rollback to accepted release
+  `65757ec6f0c7-07a23ea68087`. The atomic rollback left all three stable
+  discovery links unchanged, restored exact installed roots
+  `343fb12d47d32537157baeb9aec72434c449df1c9c864438ead4bb97fc7851a3`,
+  `d5290de89fb03cfd11de3653f7c90345fb766636a31ed7a95d225240e8c51eaf`,
+  and `64f707c88537cc25a57f91fb3dbb7596b99204eb7f5f7fa175bff5fe7790b6ca`,
+  and produced installed verification root
+  `58d76fa777b1cf65bc32fdfabcc6cb2422cb11b355dd793b4823a8f70c56226b`.
+  The installed Block 6 handoff smoke passed `1/1`. Block 9 remains
+  `in-progress`, with mutation and later activation held until exact current
+  mission succession plus work-start activation.
 
 ### Stop
 
