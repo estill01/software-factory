@@ -6291,8 +6291,33 @@ class FactoryWorkflowOwner:
             source: SourceSnapshot,
         ) -> DispatchResult:
             with self._role_binding_repair_dispatch_lock:
-                current = self._role_binding_repair_source(target, inputs)
-                if current.fingerprint != source.fingerprint:
+                projects, _ = self._active_projects()
+                try:
+                    task_detail = self.app_server_client.read_task(
+                        projects,
+                        str(source.evidence["expected_task_id"]),
+                        include_turns=True,
+                    )
+                    task = task_detail.get("task")
+                    task_facts = (
+                        self._role_binding_task_facts(
+                            task,
+                            task_id=str(source.evidence["expected_task_id"]),
+                            project_id=str(source.evidence["project_id"]),
+                        )
+                        if isinstance(task, Mapping)
+                        else None
+                    )
+                except (AppServerError, OperationError) as error:
+                    raise OperationOwnerError(
+                        "role_binding_source_changed",
+                        "The exact role, candidate task, or policy changed before assignment.",
+                    ) from error
+                if (
+                    not isinstance(task_facts, Mapping)
+                    or task_facts.get("fingerprint")
+                    != source.evidence["candidate_task"]["fingerprint"]
+                ):
                     raise OperationOwnerError(
                         "role_binding_source_changed",
                         "The exact role, candidate task, or policy changed before assignment.",
