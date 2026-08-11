@@ -6029,6 +6029,7 @@ class FactoryWorkflowOwner:
         status = task.get("status", {}).get("type")
         project_binding = task.get("project_binding")
         turns = task.get("turns")
+        execution_contract = task.get("execution_contract")
         if task.get("id") != task_id or not path.is_dir():
             raise OperationError(
                 "role_binding_task_identity_mismatch",
@@ -6045,11 +6046,36 @@ class FactoryWorkflowOwner:
             task.get("ephemeral") is not False
             or task.get("turns_truncated") is not False
             or not isinstance(turns, list)
-            or any(turn.get("status") == "inProgress" for turn in turns)
+            or any(
+                not isinstance(turn, Mapping)
+                or turn.get("status") == "inProgress"
+                or turn.get("items_truncated") is not False
+                for turn in turns
+            )
         ):
             raise OperationError(
                 "role_binding_task_history_partial",
                 "The candidate task is ephemeral, active, or its exact history is partial.",
+                status=409,
+            )
+        if (
+            not isinstance(execution_contract, Mapping)
+            or not isinstance(execution_contract.get("model"), str)
+            or not execution_contract.get("model")
+            or not isinstance(execution_contract.get("reasoning_effort"), str)
+            or not execution_contract.get("reasoning_effort")
+            or not isinstance(execution_contract.get("source_record_sha256"), str)
+            or not SHA256_PATTERN.fullmatch(
+                str(execution_contract.get("source_record_sha256"))
+            )
+            or type(execution_contract.get("source_size")) is not int
+            or type(execution_contract.get("source_mtime_ns")) is not int
+            or type(execution_contract.get("source_device")) is not int
+            or type(execution_contract.get("source_inode")) is not int
+        ):
+            raise OperationError(
+                "role_binding_task_model_contract_unavailable",
+                "The candidate task's exact current model and effort are unavailable.",
                 status=409,
             )
         if not isinstance(project_binding, Mapping) or project_binding.get(
@@ -6090,9 +6116,13 @@ class FactoryWorkflowOwner:
             "updated_at": task.get("updated_at"),
             "source": task.get("source"),
             "model_provider": task.get("model_provider"),
+            "model": execution_contract["model"],
+            "reasoning_effort": execution_contract["reasoning_effort"],
+            "execution_contract": json.loads(json.dumps(execution_contract)),
             "ephemeral": task.get("ephemeral"),
             "turn_ids": [turn.get("id") for turn in turns],
             "turn_statuses": [turn.get("status") for turn in turns],
+            "turn_history_sha256": fingerprint(turns),
         }
         return {**material, "fingerprint": fingerprint(material)}
 
@@ -6124,6 +6154,7 @@ class FactoryWorkflowOwner:
             policy.get("mission_binding") if isinstance(policy, Mapping) else None
         )
         candidate_task_id = plan.get("candidate_task_id")
+        expected_model = plan.get("expected_model")
         if (
             not isinstance(run_binding, Mapping)
             or run_binding.get("status") != "bound"
@@ -6133,6 +6164,9 @@ class FactoryWorkflowOwner:
             or not isinstance(mission_binding, Mapping)
             or not isinstance(candidate_task_id, str)
             or not candidate_task_id
+            or not isinstance(expected_model, Mapping)
+            or not isinstance(expected_model.get("model"), str)
+            or not isinstance(expected_model.get("reasoning"), str)
             or plan.get("group_ids") != [target.id]
         ):
             raise OperationError(
@@ -6141,10 +6175,9 @@ class FactoryWorkflowOwner:
                 status=409,
             )
         try:
-            candidate_detail = self.app_server_client.read_task(
+            candidate_detail = self.app_server_client.read_task_with_execution_contract(
                 projects,
                 candidate_task_id,
-                include_turns=True,
             )
         except AppServerError as error:
             raise _operation_error(
@@ -6163,12 +6196,20 @@ class FactoryWorkflowOwner:
             task_id=candidate_task_id,
             project_id=project.id,
         )
+        if (
+            task_facts["model"] != expected_model["model"]
+            or task_facts["reasoning_effort"] != expected_model["reasoning"]
+        ):
+            raise OperationError(
+                "role_binding_task_model_contract_mismatch",
+                "The candidate task's current model or effort differs from the governed role contract.",
+                status=409,
+            )
         source_records = plan.get("candidate_source_records")
         prior_policy_sha256 = control.get("policy_sha256")
         prior_policy_version = control.get("policy_version")
         expected_policy_version = plan.get("expected_policy_version")
         expected_policy_root = plan.get("expected_normalized_policy_sha256")
-        expected_model = plan.get("expected_model")
         preserved_runtime = plan.get("preserved_runtime")
         if (
             not isinstance(source_records, list)
@@ -6180,7 +6221,6 @@ class FactoryWorkflowOwner:
             or expected_policy_version != prior_policy_version + 1
             or not isinstance(expected_policy_root, str)
             or not SHA256_PATTERN.fullmatch(expected_policy_root)
-            or not isinstance(expected_model, Mapping)
             or not isinstance(preserved_runtime, Mapping)
         ):
             raise OperationError(
@@ -6212,7 +6252,13 @@ class FactoryWorkflowOwner:
             "candidate_task_project_binding": task_facts["project_binding"],
             "candidate_task_model_provider": task_facts["model_provider"],
             "expected_model": json.loads(json.dumps(expected_model)),
-            "observed_model_and_effort": "unavailable-in-frozen-app-server-thread-schema",
+            "observed_model_and_effort": {
+                "model": task_facts["model"],
+                "reasoning": task_facts["reasoning_effort"],
+                "source_record_sha256": task_facts["execution_contract"][
+                    "source_record_sha256"
+                ],
+            },
             "route_purpose": contract["purpose"],
             "route_source_record": source_record,
             "route_action": route_action,
@@ -6293,10 +6339,9 @@ class FactoryWorkflowOwner:
             with self._role_binding_repair_dispatch_lock:
                 projects, _ = self._active_projects()
                 try:
-                    task_detail = self.app_server_client.read_task(
+                    task_detail = self.app_server_client.read_task_with_execution_contract(
                         projects,
                         str(source.evidence["expected_task_id"]),
-                        include_turns=True,
                     )
                     task = task_detail.get("task")
                     task_facts = (
@@ -6321,6 +6366,28 @@ class FactoryWorkflowOwner:
                     raise OperationOwnerError(
                         "role_binding_source_changed",
                         "The exact role, candidate task, or policy changed before assignment.",
+                    )
+                current_projects, current_catalog = self._active_projects()
+                try:
+                    current_project_claim = (
+                        self.operations_service.project_binding_snapshot(
+                            current_projects,
+                            target.id,
+                        )
+                    )
+                except OperationsProjectionError as error:
+                    raise OperationOwnerError(
+                        "role_binding_project_changed",
+                        "The exact run/project binding changed before assignment.",
+                    ) from error
+                if (
+                    current_catalog != source.evidence["catalog_fingerprint"]
+                    or current_project_claim.get("fingerprint")
+                    != source.evidence["run_project_binding_fingerprint"]
+                ):
+                    raise OperationOwnerError(
+                        "role_binding_project_changed",
+                        "The exact run/project binding changed before assignment.",
                     )
                 try:
                     applied = self.operations_service.apply_role_bind(
@@ -6399,10 +6466,9 @@ class FactoryWorkflowOwner:
             task_current = False
             task_facts: dict[str, Any] | None = None
             try:
-                task_detail = self.app_server_client.read_task(
+                task_detail = self.app_server_client.read_task_with_execution_contract(
                     projects,
                     str(source.evidence["expected_task_id"]),
-                    include_turns=True,
                 )
                 task = task_detail.get("task")
                 if isinstance(task, Mapping):
@@ -6426,6 +6492,7 @@ class FactoryWorkflowOwner:
                         **result.evidence,
                         "task_postcondition_current": task_current,
                         "policy_postcondition_current": False,
+                        "run_project_binding_current": False,
                         "route_gate_accepted": False,
                         "owner_error_code": error.code,
                         "recovery": "Inspect the canonical policy head and exact candidate task; do not retry automatically.",
@@ -6490,9 +6557,23 @@ class FactoryWorkflowOwner:
                 and policy.get("mission_binding")
                 == source.evidence["mission_binding"]
             )
+            project_current = False
+            try:
+                current_projects, current_catalog = self._active_projects()
+                current_project_claim = self.operations_service.project_binding_snapshot(
+                    current_projects,
+                    target.id,
+                )
+                project_current = bool(
+                    current_catalog == source.evidence["catalog_fingerprint"]
+                    and current_project_claim.get("fingerprint")
+                    == source.evidence["run_project_binding_fingerprint"]
+                )
+            except (OperationError, OperationsProjectionError):
+                project_current = False
             route_accepted = False
             route_result: RouteGateResult | None = None
-            if task_current and policy_current:
+            if task_current and policy_current and project_current:
                 request = RouteGateRequest(
                     recipient=str(source.evidence["expected_task_id"]),
                     purpose=str(source.evidence["route_purpose"]),
@@ -6515,7 +6596,12 @@ class FactoryWorkflowOwner:
                     )
                 except Exception:
                     route_accepted = False
-            applied = task_current and policy_current and route_accepted
+            applied = (
+                task_current
+                and policy_current
+                and project_current
+                and route_accepted
+            )
             evidence = {
                 **result.evidence,
                 "role_binding_applied": applied,
@@ -6524,6 +6610,7 @@ class FactoryWorkflowOwner:
                 "task_status": task_facts.get("status") if task_facts else None,
                 "task_history_preserved": task_current,
                 "policy_postcondition_current": policy_current,
+                "run_project_binding_current": project_current,
                 "policy_version": control.get("policy_version"),
                 "policy_sha256": control.get("policy_sha256"),
                 "single_role_current": (
@@ -6585,6 +6672,7 @@ class FactoryWorkflowOwner:
                 "explicit operator confirmation for one exact role repair",
                 "one exact prior canonical role-task binding",
                 "one current eligible durable Codex task",
+                "one exact App Server task path with a current persisted model/effort contract",
                 "maintained supervision bind/policy owner",
                 "maintained role-purpose route gate",
             ),
@@ -6594,7 +6682,7 @@ class FactoryWorkflowOwner:
                 "Runs the selected role's maintained route gate as a read-only postcondition; it sends no task message.",
             ),
             failure_consequences=(
-                "Missing authority, task ambiguity, incompatible purpose, model contract, lifecycle, or project state sends no owner request.",
+                "Missing authority, partial task history, task ambiguity, incompatible purpose, model contract, lifecycle, or project state sends no owner request.",
                 "A task or policy change after confirmation remains unverified and is never retried or replaced automatically.",
             ),
             confirmation=ConfirmationContract(
@@ -6609,7 +6697,7 @@ class FactoryWorkflowOwner:
                 "Only base reviewer, notice reviewer, fix executor, Gmail processor, and roundup writer roles supported by both bind and route owners are repairable.",
                 "Watcher, reviewer, target, and Gmail-gate replacement remain unavailable because the maintained bind/route contract does not expose that safe repair.",
                 "No generic task creation, title matching, task resume, turn start, role replacement, automation change, or policy-file write is exposed.",
-                "The frozen App Server task schema exposes provider but not exact model/reasoning; the governed model/effort contract is verified from canonical policy and the observation limitation remains explicit.",
+                "Actual model and effort must match both the canonical role policy and the latest exact turn_context record read from the bounded owner-provided task path; a missing, partial, changed, unsafe, or stale source is unavailable.",
             ),
             resolve_source=self._role_binding_repair_source,
             describe_effect=lambda target, inputs, source: PreviewEffect(

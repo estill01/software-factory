@@ -794,7 +794,11 @@ test("missing role binding exposes one exact prior-task repair preview", async (
         expected_task_id: candidate,
         candidate_task_status: "idle",
         expected_model: { model: "gpt-5.6-sol", reasoning: "xhigh" },
-        observed_model_and_effort: "unavailable-in-frozen-app-server-thread-schema",
+        observed_model_and_effort: {
+          model: "gpt-5.6-sol",
+          reasoning: "xhigh",
+          source_record_sha256: "5".repeat(64),
+        },
         identity_source: "canonical-policy-history-exact-task-id",
         title_matching: false,
         route_purpose: "incident-review",
@@ -859,6 +863,8 @@ test("missing role binding exposes one exact prior-task repair preview", async (
   await expect(preview).toContainText("Notice reviewer")
   await expect(preview).toContainText(candidate)
   await expect(preview).toContainText("idle")
+  await expect(preview).toContainText("Required role model")
+  await expect(preview).toContainText("Task-observed model")
   await expect(preview).toContainText("gpt-5.6-sol · xhigh")
   await expect(preview).toContainText("incident-review")
   await expect(preview).toContainText("no create, resume, turn, or relabel")

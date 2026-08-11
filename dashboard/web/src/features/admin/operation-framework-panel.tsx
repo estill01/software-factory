@@ -112,6 +112,15 @@ export function OperationConfirmationDialog({
     && typeof sourceEvidence.expected_model.reasoning === "string"
     ? `${sourceEvidence.expected_model.model} · ${sourceEvidence.expected_model.reasoning}`
     : null
+  const roleBindingObservedModel = isRoleBindingRepair
+    && typeof sourceEvidence.observed_model_and_effort === "object"
+    && sourceEvidence.observed_model_and_effort !== null
+    && "model" in sourceEvidence.observed_model_and_effort
+    && "reasoning" in sourceEvidence.observed_model_and_effort
+    && typeof sourceEvidence.observed_model_and_effort.model === "string"
+    && typeof sourceEvidence.observed_model_and_effort.reasoning === "string"
+    ? `${sourceEvidence.observed_model_and_effort.model} · ${sourceEvidence.observed_model_and_effort.reasoning}`
+    : null
   const matches = value === confirmation.expected_value
 
   useEffect(() => {
@@ -162,7 +171,8 @@ export function OperationConfirmationDialog({
           {roleBindingRole && <div><dt>Role</dt><dd>{roleBindingRole}</dd></div>}
           {roleBindingTask && <div><dt>Exact prior task</dt><dd><Identity value={roleBindingTask} /></dd></div>}
           {roleBindingStatus && <div><dt>Task lifecycle</dt><dd>{roleBindingStatus}</dd></div>}
-          {roleBindingModel && <div><dt>Governed model</dt><dd>{roleBindingModel}</dd></div>}
+          {roleBindingModel && <div><dt>Required role model</dt><dd>{roleBindingModel}</dd></div>}
+          {roleBindingObservedModel && <div><dt>Task-observed model</dt><dd>{roleBindingObservedModel}</dd></div>}
           {roleBindingPurpose && <div><dt>Post-bind route</dt><dd>{roleBindingPurpose}</dd></div>}
           {reviewState && <div><dt>State</dt><dd><Identity value={reviewState} /></dd></div>}
           {reviewSource && <div><dt>Source record</dt><dd><Identity value={reviewSource} /></dd></div>}
@@ -310,6 +320,8 @@ export function OperationTruthFacts({ operation }: { operation: OperationRecord 
     else if (operation.request_evidence?.role_binding_requested === true) facts.push("Task postcondition not verified")
     if (evidence?.policy_postcondition_current === true) facts.push("Canonical role binding verified")
     else if (operation.request_evidence?.role_binding_requested === true) facts.push("Policy postcondition not verified")
+    if (evidence?.run_project_binding_current === true) facts.push("Canonical run/project claim current")
+    else if (operation.request_evidence?.role_binding_requested === true) facts.push("Run/project postcondition not verified")
     if (evidence?.single_role_current === true) facts.push("Single-role assignment verified")
     if (evidence?.unrelated_roles_preserved === true) facts.push("Unrelated roles preserved")
     if (evidence?.automations_preserved === true) facts.push("Automations preserved")

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from hashlib import sha256
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -33,6 +34,7 @@ MAX_COMPLETED_REQUEST_IDS = 256
 MAX_TURNS = 80
 MAX_ITEMS_PER_TURN = 250
 MAX_TEXT = 16_000
+MAX_TASK_CONTEXT_SCAN_BYTES = 8 * 1024 * 1024
 REQUEST_TIMEOUT_SECONDS = 20.0
 START_TIMEOUT_SECONDS = 40.0
 SAFE_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{2,255}$")
@@ -1391,6 +1393,29 @@ class CodexAppServerClient:
             "integration": self.integration_state(),
         }
 
+    def read_task_with_execution_contract(
+        self,
+        projects: Sequence[ProjectRecord],
+        task_id: str,
+    ) -> dict[str, Any]:
+        """Read a task plus its exact latest persisted model/effort contract."""
+
+        task_id = _identifier(task_id, "Task ID")
+        result = self._request(
+            "task_read",
+            {"threadId": task_id, "includeTurns": True},
+        )
+        thread = result["thread"]
+        task = _task_projection(thread, projects)
+        task["execution_contract"] = _task_execution_contract(thread, task_id)
+        return {
+            "task": task,
+            "pending_requests": [
+                item for item in self.pending_requests() if item["task_id"] == task_id
+            ],
+            "integration": self.integration_state(),
+        }
+
     @staticmethod
     def _project(projects: Sequence[ProjectRecord], project_id: str) -> ProjectRecord:
         matches = [project for project in projects if project.id == project_id and not project.archived]
@@ -1781,6 +1806,138 @@ def _turn_projection(turn: Mapping[str, Any]) -> dict[str, Any]:
         "items_truncated": len(items) > len(selected),
         "error": _bounded(turn.get("error"), 1_000) if turn.get("error") else None,
     }
+
+
+def _task_execution_contract(
+    thread: Mapping[str, Any],
+    task_id: str,
+) -> dict[str, Any]:
+    """Resolve the latest exact turn contract from the App Server-owned task path."""
+
+    raw_path = thread.get("path")
+    if not isinstance(raw_path, str) or not raw_path:
+        raise AppServerError(
+            "task_execution_contract_unavailable",
+            "The App Server did not expose an exact persisted path for this task.",
+            status=409,
+        )
+    unresolved = Path(raw_path)
+    if not unresolved.is_absolute() or unresolved.is_symlink():
+        raise AppServerError(
+            "task_execution_contract_path_invalid",
+            "The App Server task path is not a direct absolute regular file.",
+            status=409,
+        )
+    try:
+        resolved = unresolved.resolve(strict=True)
+        metadata_before = resolved.stat()
+    except (OSError, RuntimeError) as error:
+        raise AppServerError(
+            "task_execution_contract_unavailable",
+            "The exact persisted task source is unavailable.",
+            status=409,
+        ) from error
+    if (
+        resolved != unresolved
+        or not resolved.is_file()
+        or len(resolved.parents) < 4
+        or resolved.parents[3].name != "sessions"
+        or not resolved.name.endswith(f"-{task_id}.jsonl")
+        or metadata_before.st_uid != os.getuid()
+        or metadata_before.st_mode & 0o022
+    ):
+        raise AppServerError(
+            "task_execution_contract_path_invalid",
+            "The persisted task source does not match the exact owner-controlled session path.",
+            status=409,
+        )
+    start = max(0, metadata_before.st_size - MAX_TASK_CONTEXT_SCAN_BYTES)
+    try:
+        with resolved.open("rb") as source:
+            source.seek(start)
+            payload = source.read(MAX_TASK_CONTEXT_SCAN_BYTES + 1)
+        metadata_after = resolved.stat()
+    except OSError as error:
+        raise AppServerError(
+            "task_execution_contract_unavailable",
+            "The exact persisted task source could not be read.",
+            status=409,
+        ) from error
+    if (
+        len(payload) > MAX_TASK_CONTEXT_SCAN_BYTES
+        or (
+            metadata_before.st_dev,
+            metadata_before.st_ino,
+            metadata_before.st_size,
+            metadata_before.st_mtime_ns,
+        )
+        != (
+            metadata_after.st_dev,
+            metadata_after.st_ino,
+            metadata_after.st_size,
+            metadata_after.st_mtime_ns,
+        )
+    ):
+        raise AppServerError(
+            "task_execution_contract_changed",
+            "The persisted task source changed during the exact read.",
+            status=409,
+            retryable=True,
+        )
+    if start:
+        separator = payload.find(b"\n")
+        payload = payload[separator + 1 :] if separator >= 0 else b""
+    for raw_line in reversed(payload.splitlines()):
+        if not raw_line:
+            continue
+        if len(raw_line) > MAX_PROTOCOL_LINE_BYTES:
+            raise AppServerError(
+                "task_execution_contract_invalid",
+                "A persisted task record exceeds the frozen record bound.",
+                status=409,
+            )
+        try:
+            record = json.loads(raw_line)
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise AppServerError(
+                "task_execution_contract_invalid",
+                "The persisted task source contains an invalid record.",
+                status=409,
+            ) from error
+        if not isinstance(record, Mapping) or record.get("type") != "turn_context":
+            continue
+        context = record.get("payload")
+        model = context.get("model") if isinstance(context, Mapping) else None
+        effort = context.get("effort") if isinstance(context, Mapping) else None
+        if (
+            not isinstance(model, str)
+            or not model
+            or len(model) > 160
+            or not isinstance(effort, str)
+            or not effort
+            or len(effort) > 80
+        ):
+            raise AppServerError(
+                "task_execution_contract_invalid",
+                "The latest persisted task contract omits exact model or effort.",
+                status=409,
+            )
+        return {
+            "model": model,
+            "reasoning_effort": effort,
+            "source_record_sha256": sha256(raw_line).hexdigest(),
+            "source_size": metadata_after.st_size,
+            "source_mtime_ns": metadata_after.st_mtime_ns,
+            "source_device": metadata_after.st_dev,
+            "source_inode": metadata_after.st_ino,
+            "scan_complete": start == 0,
+            "scan_bytes": len(payload),
+        }
+    raise AppServerError(
+        "task_execution_contract_unavailable",
+        "No exact recent model and effort contract exists in the bounded task source window.",
+        status=409,
+    )
 
 
 def _task_projection(thread: Mapping[str, Any], projects: Sequence[ProjectRecord]) -> dict[str, Any]:

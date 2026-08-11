@@ -2370,6 +2370,17 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             "updated_at": "2026-08-10T10:30:00Z",
             "source": "appServer",
             "model_provider": "openai",
+            "execution_contract": {
+                "model": "gpt-5.6-sol",
+                "reasoning_effort": "xhigh",
+                "source_record_sha256": "6" * 64,
+                "source_size": 1_024,
+                "source_mtime_ns": 1_786_279_000_000_000_000,
+                "source_device": 1,
+                "source_inode": 2,
+                "scan_complete": True,
+                "scan_bytes": 1_024,
+            },
             "cli_version": "0.145.0",
             "ephemeral": False,
             "git": {"revision": None, "branch": None, "origin": None},
@@ -2533,8 +2544,8 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                 }
 
             @staticmethod
-            def read_task(_projects, task_id, *, include_turns):
-                if task_id != candidate_id or not include_turns:
+            def read_task_with_execution_contract(_projects, task_id):
+                if task_id != candidate_id:
                     raise AssertionError("wrong role task read")
                 return {"task": candidate_task}
 
@@ -2568,7 +2579,49 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertFalse(source.evidence["title_matching"])
         self.assertEqual(source.evidence["route_purpose"], "incident-review")
         self.assertEqual(source.evidence["task_creation_authority"], "unavailable-not-used")
+        self.assertEqual(
+            source.evidence["observed_model_and_effort"]["model"],
+            "gpt-5.6-sol",
+        )
+        self.assertEqual(
+            source.evidence["observed_model_and_effort"]["reasoning"],
+            "xhigh",
+        )
         self.assertIsNone(definition.route_gate_request)
+
+        candidate_task["turns"] = [
+            {
+                "id": "turn-partial-001",
+                "status": "completed",
+                "items": [],
+                "items_truncated": True,
+            }
+        ]
+        with self.assertRaises(OperationError) as partial_items:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(
+            partial_items.exception.code,
+            "role_binding_task_history_partial",
+        )
+        candidate_task["turns"] = []
+
+        candidate_task["execution_contract"]["reasoning_effort"] = "max"
+        with self.assertRaises(OperationError) as wrong_effort:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(
+            wrong_effort.exception.code,
+            "role_binding_task_model_contract_mismatch",
+        )
+        candidate_task["execution_contract"]["reasoning_effort"] = "xhigh"
+
+        project_binding["fingerprint"] = "9" * 64
+        with self.assertRaises(OperationOwnerError) as changed_project:
+            definition.dispatch(target, inputs, source)
+        self.assertEqual(
+            changed_project.exception.code,
+            "role_binding_project_changed",
+        )
+        project_binding["fingerprint"] = "2" * 64
 
         before_task = json.loads(json.dumps(candidate_task))
         dispatched = definition.dispatch(target, inputs, source)
@@ -2581,6 +2634,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertTrue(applied.evidence["role_binding_applied"])
         self.assertTrue(applied.evidence["task_postcondition_current"])
         self.assertTrue(applied.evidence["policy_postcondition_current"])
+        self.assertTrue(applied.evidence["run_project_binding_current"])
         self.assertTrue(applied.evidence["route_gate_accepted"])
         self.assertTrue(applied.evidence["single_role_current"])
         self.assertTrue(applied.evidence["unrelated_roles_preserved"])
@@ -2592,6 +2646,20 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(changed_task.state, "unverified")
         self.assertFalse(changed_task.evidence["task_postcondition_current"])
         candidate_task["status"] = {"type": "idle"}
+
+        project_binding["fingerprint"] = "9" * 64
+        changed_project_verification = definition.verify(
+            target,
+            inputs,
+            source,
+            dispatched,
+        )
+        self.assertEqual(changed_project_verification.state, "unverified")
+        self.assertFalse(
+            changed_project_verification.evidence["run_project_binding_current"]
+        )
+        self.assertFalse(changed_project_verification.evidence["route_gate_accepted"])
+        project_binding["fingerprint"] = "2" * 64
 
         owner.route_gate = lambda request: RouteGateResult(
             False,

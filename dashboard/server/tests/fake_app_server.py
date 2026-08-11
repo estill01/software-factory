@@ -57,6 +57,7 @@ thread = object_schema(
         "ephemeral": {"type": "boolean"},
         "id": string,
         "modelProvider": string,
+        "path": nullable_string,
         "preview": string,
         "sessionId": string,
         "source": string,
@@ -277,6 +278,7 @@ def write_contract(path: Path) -> None:
 def fake_thread(
     cwd: str,
     *,
+    session_path: str | None = None,
     active_turn: bool = False,
     terminal_turn: bool = False,
     ephemeral: bool = False,
@@ -315,6 +317,7 @@ def fake_thread(
     return {
         "id": "task-fake-001",
         "sessionId": "task-fake-001",
+        "path": session_path,
         "name": "Fake task",
         "preview": "Bounded fake task",
         "ephemeral": ephemeral,
@@ -340,6 +343,37 @@ def run_server(mode: str, cwd: str) -> int:
     ephemeral = False
     callback_sent = False
     turn_text = "Continue."
+    session_directory = (
+        Path(cwd).resolve().parent
+        / "fake-codex-home"
+        / "sessions"
+        / "2026"
+        / "08"
+        / "10"
+    )
+    session_directory.mkdir(parents=True, exist_ok=True)
+    session_path = session_directory / (
+        "rollout-2026-08-10T00-00-00-task-fake-001.jsonl"
+    )
+    if not session_path.exists():
+        records = (
+            {
+                "type": "session_meta",
+                "payload": {"id": "task-fake-001", "model_provider": "openai"},
+            },
+            {
+                "type": "turn_context",
+                "payload": {"model": "gpt-5.6-sol", "effort": "xhigh"},
+            },
+        )
+        session_path.write_text(
+            "".join(
+                json.dumps(record, separators=(",", ":"), sort_keys=True) + "\n"
+                for record in records
+            ),
+            encoding="utf-8",
+        )
+        session_path.chmod(0o600)
     for raw_line in sys.stdin:
         message = json.loads(raw_line)
         method = message.get("method")
@@ -380,6 +414,7 @@ def run_server(mode: str, cwd: str) -> int:
                     "data": [
                         fake_thread(
                             cwd,
+                            session_path=str(session_path),
                             active_turn=active_turn,
                             terminal_turn=terminal_turn,
                             ephemeral=ephemeral,
@@ -428,6 +463,7 @@ def run_server(mode: str, cwd: str) -> int:
                         "result": {
                             "thread": fake_thread(
                                 cwd,
+                                session_path=str(session_path),
                                 active_turn=active_turn,
                                 terminal_turn=terminal_turn,
                                 ephemeral=ephemeral,
@@ -442,7 +478,13 @@ def run_server(mode: str, cwd: str) -> int:
             emit(
                 {
                     "id": message["id"],
-                    "result": {"thread": fake_thread(cwd, ephemeral=ephemeral)},
+                    "result": {
+                        "thread": fake_thread(
+                            cwd,
+                            session_path=str(session_path),
+                            ephemeral=ephemeral,
+                        )
+                    },
                 }
             )
         elif method == "turn/start":
@@ -458,6 +500,7 @@ def run_server(mode: str, cwd: str) -> int:
             turn_text = message["params"]["input"][0]["text"]
             turn_value = fake_thread(
                 cwd,
+                session_path=str(session_path),
                 active_turn=True,
                 ephemeral=ephemeral,
                 turn_text=turn_text,

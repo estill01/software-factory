@@ -137,6 +137,7 @@ describe("administrative operation UI", () => {
           expected_task_id: "task-notice-001",
           candidate_task_status: "idle",
           expected_model: { model: "gpt-5.6-sol", reasoning: "xhigh" },
+          observed_model_and_effort: { model: "gpt-5.6-sol", reasoning: "xhigh" },
           route_purpose: "incident-review",
         },
       },
@@ -153,7 +154,9 @@ describe("administrative operation UI", () => {
     expect(screen.getByText("Notice reviewer")).toBeVisible()
     expect(screen.getByText("task-notice-001")).toBeVisible()
     expect(screen.getByText("idle")).toBeVisible()
-    expect(screen.getByText("gpt-5.6-sol · xhigh")).toBeVisible()
+    expect(screen.getByText("Required role model")).toBeVisible()
+    expect(screen.getByText("Task-observed model")).toBeVisible()
+    expect(screen.getAllByText("gpt-5.6-sol · xhigh")).toHaveLength(2)
     expect(screen.getByText("incident-review")).toBeVisible()
   })
 
@@ -313,6 +316,7 @@ describe("administrative operation UI", () => {
       verification_evidence: {
         task_postcondition_current: true,
         policy_postcondition_current: true,
+        run_project_binding_current: true,
         single_role_current: true,
         unrelated_roles_preserved: true,
         automations_preserved: true,
@@ -325,6 +329,7 @@ describe("administrative operation UI", () => {
     expect(screen.getByText("No task created")).toBeVisible()
     expect(screen.getByText("Eligible task identity and lifecycle current")).toBeVisible()
     expect(screen.getByText("Canonical role binding verified")).toBeVisible()
+    expect(screen.getByText("Canonical run/project claim current")).toBeVisible()
     expect(screen.getByText("Single-role assignment verified")).toBeVisible()
     expect(screen.getByText("Unrelated roles preserved")).toBeVisible()
     expect(screen.getByText("Automations preserved")).toBeVisible()

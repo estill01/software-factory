@@ -79,6 +79,10 @@ class CodexAppServerClientTests(unittest.TestCase):
         state = client.integration_state()
         listing = client.list_tasks((self.project,), limit=10)
         detail = client.read_task((self.project,), "task-fake-001")
+        contracted = client.read_task_with_execution_contract(
+            (self.project,),
+            "task-fake-001",
+        )
 
         self.assertEqual(state["status"], "available")
         self.assertEqual(state["protocol_status"], "compatible")
@@ -93,6 +97,14 @@ class CodexAppServerClientTests(unittest.TestCase):
             {"status": "bound", "project_id": "demo", "candidates": ["demo"]},
         )
         self.assertEqual(detail["task"]["status"]["type"], "idle")
+        self.assertEqual(
+            contracted["task"]["execution_contract"]["model"],
+            "gpt-5.6-sol",
+        )
+        self.assertEqual(
+            contracted["task"]["execution_contract"]["reasoning_effort"],
+            "xhigh",
+        )
         self.assertEqual(
             next(item for item in state["features"] if item["capability"] == "raw_protocol")[
                 "status"
@@ -111,6 +123,33 @@ class CodexAppServerClientTests(unittest.TestCase):
             ],
             "owner-gated",
         )
+
+    def test_execution_contract_rejects_missing_and_symlinked_task_sources(self) -> None:
+        thread = fake_thread(str(self.project_root))
+        with self.assertRaises(AppServerError) as missing:
+            app_server_module._task_execution_contract(thread, "task-fake-001")
+        self.assertEqual(missing.exception.code, "task_execution_contract_unavailable")
+
+        sessions = self.root / "codex" / "sessions" / "2026" / "08" / "10"
+        sessions.mkdir(parents=True)
+        source = sessions / "rollout-2026-08-10T00-00-00-task-fake-001.jsonl"
+        source.write_text(
+            json.dumps(
+                {
+                    "type": "turn_context",
+                    "payload": {"model": "gpt-5.6-sol", "effort": "xhigh"},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        source.chmod(0o600)
+        symlink = source.with_name("rollout-link-task-fake-001.jsonl")
+        symlink.symlink_to(source)
+        thread["path"] = str(symlink)
+        with self.assertRaises(AppServerError) as unsafe:
+            app_server_module._task_execution_contract(thread, "task-fake-001")
+        self.assertEqual(unsafe.exception.code, "task_execution_contract_path_invalid")
 
     def test_task_and_turn_operations_are_bound_to_registered_cwd(self) -> None:
         client = self.client()
