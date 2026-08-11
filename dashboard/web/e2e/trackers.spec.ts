@@ -81,10 +81,11 @@ test("tracker review stays source-grounded, navigable, and read-only", async ({ 
   )
   await expect(page.getByRole("heading", { name: "Recorded Block evidence" })).toBeVisible()
   await expect(page.getByRole("link", { name: /^Block \d+/ }).first()).toBeVisible()
-  const loadDiff = page.getByRole("button", { name: "Load textual diff" })
+  const loadDiff = page.getByRole("button", { name: "Load semantic changes" })
   if (await loadDiff.count()) {
     await loadDiff.click()
-    await expect(page.locator(".tracker-diff-preview")).toBeVisible()
+    await expect(page.locator(".tracker-semantic-diff")).toBeVisible()
+    await expect(page.getByRole("button", { name: /^(accept|edit|start)( tracker)?$/i })).toHaveCount(0)
   }
 
   const dimensions = await page.evaluate(() => ({
@@ -97,6 +98,132 @@ test("tracker review stays source-grounded, navigable, and read-only", async ({ 
 
   await page.emulateMedia({ media: "print" })
   await expect(page.locator(".workspace-toolbar.print-hide")).not.toBeVisible()
+})
+
+test("semantic tracker rows preserve exact source truth across responsive themes", async ({ page, request }) => {
+  const listPayload = await (await request.get("/api/v1/trackers")).json()
+  const summary = listPayload.data.trackers.find(
+    (candidate: { status: string; relative_path?: string }) =>
+      candidate.status === "available"
+      && candidate.relative_path === "docs/software-factory-operations-dashboard-implementation-tracker.md",
+  ) ?? listPayload.data.trackers.find((candidate: { status: string }) => candidate.status === "available")
+  expect(summary).toBeTruthy()
+  const detailPayload = await (await request.get(`/api/v1/trackers/${summary.id}`)).json()
+  const tracker = detailPayload.data.tracker
+  const repositoryHead = tracker.git.repository_head
+  const committedRoot = tracker.git.committed_content_sha256
+  expect(repositoryHead).toBeTruthy()
+  expect(committedRoot).toBeTruthy()
+
+  const detailFixture = structuredClone(detailPayload)
+  detailFixture.data.tracker.git.worktree_changed = true
+  detailFixture.data.tracker.git.content_matches_head = false
+  detailFixture.data.tracker.git.diff = {
+    status: "available",
+    changed: true,
+    base: "HEAD",
+    added_lines: 2,
+    removed_lines: 2,
+    preview: null,
+    truncated: false,
+    semantic: null,
+    error: null,
+  }
+  const verifierIdentity = {
+    ...tracker.verifier.owner,
+    profile: tracker.verifier.profile,
+    valid: tracker.verifier.valid,
+  }
+  const block = tracker.blocks[0]
+  const semantic = {
+    status: "available",
+    changed: true,
+    base: { kind: "HEAD", repository_revision: repositoryHead, content_sha256: committedRoot },
+    target: { kind: "working-tree", content_sha256: tracker.raw_file.content_sha256 },
+    rows: [
+      {
+        id: "a".repeat(64),
+        kind: "changed",
+        before: { text: "Status: `not-started`", text_truncated: false, line: block.status_line, content_sha256: committedRoot, block: { number: block.number, title: block.title, line: block.line, anchor: block.anchor } },
+        after: { text: "Status: `in-progress`", text_truncated: false, line: block.status_line, content_sha256: tracker.raw_file.content_sha256, block: { number: block.number, title: `${block.title} ${"long-title ".repeat(15)}`, line: block.line, anchor: block.anchor } },
+      },
+      {
+        id: "b".repeat(64),
+        kind: "removed",
+        before: { text: "Pending.", text_truncated: false, line: block.line + 2, content_sha256: committedRoot, block: { number: block.number, title: block.title, line: block.line, anchor: block.anchor } },
+        after: null,
+      },
+      {
+        id: "c".repeat(64),
+        kind: "added",
+        before: null,
+        after: { text: "<script>alert('literal')</script>", text_truncated: false, line: block.line + 3, content_sha256: tracker.raw_file.content_sha256, block: { number: block.number, title: block.title, line: block.line, anchor: block.anchor } },
+      },
+    ],
+    total_rows: 3,
+    returned_rows: 3,
+    row_limit: 200,
+    complete: true,
+    truncated: false,
+    path: tracker.relative_path,
+    owning_revision: tracker.git.last_commit?.revision ?? null,
+    owner: { tracker: "tracker-markdown/read-only", git: "git/HEAD-and-working-tree", verifier: verifierIdentity },
+    currentness_fingerprint: "d".repeat(64),
+    limitations: [
+      "Only the selected tracker path is compared; unrelated repository changes are excluded.",
+      "Rows are read-only.",
+    ],
+    error: null,
+  }
+  const diffFixture = {
+    data: {
+      tracker_id: tracker.id,
+      content_sha256: tracker.raw_file.content_sha256,
+      repository_head: repositoryHead,
+      relative_path: tracker.relative_path,
+      owning_revision: tracker.git.last_commit?.revision ?? null,
+      verifier: verifierIdentity,
+      diff: { ...detailFixture.data.tracker.git.diff, preview: "", semantic },
+    },
+    source: { kind: "tracker-git-diff", identity: `software-factory-dashboard/trackers/${tracker.id}/diff`, revision: tracker.raw_file.content_sha256 },
+    observed_at: detailPayload.observed_at,
+    fingerprint: "e".repeat(64),
+    coverage: { status: "complete", observed: ["tracker-working-content", "git-head-diff", "tracker-semantic-diff"], missing: [] },
+    limitations: ["Bounded read-only selected-tracker comparison."],
+    error: null,
+  }
+
+  await page.route(`**/api/v1/trackers/${tracker.id}`, (route) => route.fulfill({ json: detailFixture }))
+  await page.route(`**/api/v1/trackers/${tracker.id}/diff`, (route) => route.fulfill({ json: diffFixture }))
+  await page.route("**/api/v1/factory-floor", (route) => route.fulfill({ json: makeFactoryFloorEnvelope() }))
+  await page.goto(`/trackers/${tracker.id}/evidence`)
+  await page.getByRole("button", { name: "Load semantic changes" }).click()
+
+  const table = page.getByRole("table", { name: "Bounded semantic changes between the tracker at HEAD and its working source" })
+  await expect(table).toBeVisible()
+  await expect(table.getByText("Added")).toBeVisible()
+  await expect(table.getByText("Removed")).toBeVisible()
+  await expect(table.getByText("Changed")).toBeVisible()
+  await expect(table.getByText("<script>alert('literal')</script>")).toBeVisible()
+  await expect(page.locator("script").filter({ hasText: "literal" })).toHaveCount(0)
+  await expect(table.getByRole("link", { name: /Before/ }).first()).toHaveAttribute("href", new RegExp(`revision=${repositoryHead}$`))
+  await expect(table.getByRole("link", { name: /After/ }).first()).toHaveAttribute("href", new RegExp(`content_sha256=${tracker.raw_file.content_sha256}$`))
+  await expect(page.locator(".tracker-semantic-diff button")).toHaveCount(0)
+  const scrollRegion = page.getByLabel("Tracker semantic source changes")
+  await scrollRegion.focus()
+  await expect(scrollRegion).toBeFocused()
+
+  const initialTheme = await page.locator("html").getAttribute("data-theme")
+  await page.getByRole("button", { name: /Switch to (light|dark) mode/ }).click()
+  await expect(page.locator("html")).toHaveAttribute("data-theme", initialTheme === "dark" ? "light" : "dark")
+  await expect(table).toBeVisible()
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(accessibility.violations.filter(({ impact }) => impact === "serious" || impact === "critical")).toEqual([])
 })
 
 test("factory workflow controls stay compact and preview exact owner scope", async ({ page, request }) => {

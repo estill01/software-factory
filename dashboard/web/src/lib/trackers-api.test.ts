@@ -269,11 +269,41 @@ const diffEnvelope = {
     tracker_id: availableSummary.id,
     content_sha256: availableSummary.raw_file.content_sha256,
     repository_head: availableSummary.git.repository_head,
+    relative_path: availableSummary.relative_path,
+    owning_revision: availableSummary.git.last_commit.revision,
+    verifier: {
+      ...verifier.owner,
+      profile: verifier.profile,
+      valid: verifier.valid,
+    },
     diff: {
       ...availableSummary.git.diff,
       changed: true,
       added_lines: 1,
       preview: "@@ -1 +1 @@\n-old\n+new",
+      semantic: {
+        status: "available",
+        changed: true,
+        base: { kind: "HEAD", repository_revision: availableSummary.git.repository_head, content_sha256: fingerprint("f") },
+        target: { kind: "working-tree", content_sha256: availableSummary.raw_file.content_sha256 },
+        rows: [{
+          id: fingerprint("e"),
+          kind: "changed",
+          before: { text: "old", text_truncated: false, line: 1, content_sha256: fingerprint("f"), block: null },
+          after: { text: "new", text_truncated: false, line: 1, content_sha256: availableSummary.raw_file.content_sha256, block: null },
+        }],
+        total_rows: 1,
+        returned_rows: 1,
+        row_limit: 200,
+        complete: true,
+        truncated: false,
+        path: availableSummary.relative_path,
+        owning_revision: availableSummary.git.last_commit.revision,
+        owner: { tracker: "tracker-markdown/read-only", git: "git/HEAD-and-working-tree", verifier: { ...verifier.owner, profile: verifier.profile, valid: verifier.valid } },
+        currentness_fingerprint: fingerprint("a"),
+        limitations: ["Selected tracker only."],
+        error: null,
+      },
     },
   },
   source: {
@@ -374,7 +404,9 @@ describe("tracker API contracts", () => {
 
   it("validates exact source ranges and preserves completed-with-open-items as open", () => {
     const parsed = trackerDetailEnvelopeSchema.parse(detailEnvelope)
-    expect(trackerDiffEnvelopeSchema.parse(diffEnvelope).data.diff.preview).toContain("+new")
+    const parsedDiff = trackerDiffEnvelopeSchema.parse(diffEnvelope)
+    expect(parsedDiff.data.diff.preview).toContain("+new")
+    expect(parsedDiff.data.diff.semantic?.rows[0]).toMatchObject({ kind: "changed" })
     expect(parsed.data.tracker.blocks[0].sections[0]).toMatchObject({
       line: 34,
       anchor: "objective",
@@ -432,6 +464,21 @@ describe("tracker API contracts", () => {
     )
     await expect(fetchTracker("../tracker")).rejects.toThrow()
     expect(() => trackerSourceUrl(fingerprint("1"), { line: 9, endLine: 8 })).toThrow()
+    expect(trackerSourceUrl(
+      fingerprint("1"),
+      { line: 4, endLine: 4 },
+      { revision: revision("d") },
+    )).toBe(`/api/v1/trackers/${fingerprint("1")}/source?line=4&end_line=4&revision=${revision("d")}`)
+    expect(trackerSourceUrl(
+      fingerprint("1"),
+      { line: 5, endLine: 5 },
+      { contentSha256: fingerprint("f") },
+    )).toBe(`/api/v1/trackers/${fingerprint("1")}/source?line=5&end_line=5&content_sha256=${fingerprint("f")}`)
+    expect(() => trackerSourceUrl(
+      fingerprint("1"),
+      undefined,
+      { revision: revision("d"), contentSha256: fingerprint("f") },
+    )).toThrow()
     expect(fetchMock).toHaveBeenCalledTimes(4)
   })
 
@@ -452,5 +499,19 @@ describe("tracker API contracts", () => {
 
   it("rejects unrecognized envelope fields instead of silently widening the client contract", () => {
     expect(() => trackerListEnvelopeSchema.parse({ ...listEnvelope, copied_status: "green" })).toThrow()
+  })
+
+  it("rejects semantic rows whose roots or bounded-completion claims do not match the selected snapshot", () => {
+    const wrongRoot = trackerDiffEnvelopeSchema.parse(diffEnvelope)
+    if (!wrongRoot.data.diff.semantic) throw new Error("Expected semantic fixture.")
+    wrongRoot.data.diff.semantic.target.content_sha256 = fingerprint("0")
+    expect(() => trackerDiffEnvelopeSchema.parse(wrongRoot)).toThrow(/working-content root/)
+
+    const boundedComplete = trackerDiffEnvelopeSchema.parse(diffEnvelope)
+    if (!boundedComplete.data.diff.semantic) throw new Error("Expected semantic fixture.")
+    boundedComplete.data.diff.semantic.total_rows = 2
+    boundedComplete.data.diff.semantic.truncated = true
+    boundedComplete.data.diff.semantic.complete = true
+    expect(() => trackerDiffEnvelopeSchema.parse(boundedComplete)).toThrow(/cannot be labeled complete/)
   })
 })

@@ -773,6 +773,26 @@ class DashboardServerTests(unittest.TestCase):
             self.assertEqual(ranged_source.status, 200)
             self.assertIn(b"### Objective", ranged_source.body)
             self.assertIn(b"Project exact tracker state", ranged_source.body)
+            exact_head_source = response(
+                f"{origin}/api/v1/trackers/{healthy['id']}/source"
+                f"?line={objective['line']}&end_line={objective['end_line']}"
+                f"&revision={expected_head}"
+            )
+            self.assertEqual(exact_head_source.status, 200)
+            self.assertEqual(exact_head_source.body, ranged_source.body)
+            exact_working_source = response(
+                f"{origin}/api/v1/trackers/{healthy['id']}/source"
+                f"?line={objective['line']}&end_line={objective['end_line']}"
+                f"&content_sha256={expected_content_sha}"
+            )
+            self.assertEqual(exact_working_source.status, 200)
+            stale_working_source = response(
+                f"{origin}/api/v1/trackers/{healthy['id']}/source"
+                f"?line={objective['line']}&end_line={objective['end_line']}"
+                f"&content_sha256={'0' * 64}"
+            )
+            self.assertEqual(stale_working_source.status, 409)
+            self.assertEqual(json.loads(stale_working_source.body)["error"]["code"], "tracker_source_changed")
             diff_response = response(f"{origin}/api/v1/trackers/{healthy['id']}/diff")
             self.assertEqual(diff_response.status, 200)
             diff_payload = json.loads(diff_response.body)
@@ -781,11 +801,29 @@ class DashboardServerTests(unittest.TestCase):
             self.assertEqual(diff_payload["data"]["repository_head"], expected_head)
             self.assertFalse(diff_payload["data"]["diff"]["changed"])
             self.assertEqual(diff_payload["data"]["diff"]["preview"], "")
+            self.assertEqual(diff_payload["data"]["relative_path"], "docs/demo-implementation-tracker.md")
+            self.assertEqual(diff_payload["data"]["diff"]["semantic"]["rows"], [])
+            self.assertTrue(diff_payload["data"]["diff"]["semantic"]["complete"])
+            self.assertFalse(diff_payload["data"]["diff"]["semantic"]["changed"])
             invalid_range = response(
                 f"{origin}/api/v1/trackers/{healthy['id']}/source?line=0&end_line=2"
             )
             self.assertEqual(invalid_range.status, 400)
             self.assertEqual(json.loads(invalid_range.body)["error"]["code"], "invalid_source_range")
+            invalid_identity = response(
+                f"{origin}/api/v1/trackers/{healthy['id']}/source"
+                f"?revision={expected_head}&content_sha256={expected_content_sha}"
+            )
+            self.assertEqual(invalid_identity.status, 400)
+            self.assertEqual(json.loads(invalid_identity.body)["error"]["code"], "invalid_source_identity")
+            unavailable_revision = response(
+                f"{origin}/api/v1/trackers/{healthy['id']}/source?revision={'0' * 40}"
+            )
+            self.assertEqual(unavailable_revision.status, 404)
+            self.assertEqual(
+                json.loads(unavailable_revision.body)["error"]["code"],
+                "tracker_source_revision_unavailable",
+            )
 
             verifier = detail["verifier"]
             direct = subprocess.run(

@@ -422,6 +422,16 @@ class TrackerProjectionTests(unittest.TestCase):
         )
         self.assertEqual(loaded_diff["content_sha256"], changed["raw_file"]["content_sha256"])
         self.assertIn("changed after binding", loaded_diff["diff"]["preview"])
+        self.assertEqual(loaded_diff["relative_path"], "docs/full-implementation-tracker.md")
+        self.assertEqual(loaded_diff["owning_revision"], changed["git"]["last_commit"]["revision"])
+        semantic = loaded_diff["diff"]["semantic"]
+        self.assertEqual(semantic["status"], "available")
+        self.assertTrue(semantic["changed"])
+        self.assertTrue(semantic["complete"])
+        self.assertEqual(semantic["path"], "docs/full-implementation-tracker.md")
+        self.assertRegex(semantic["currentness_fingerprint"], r"^[0-9a-f]{64}$")
+        self.assertEqual(semantic["owner"]["verifier"]["sha256"], loaded_diff["verifier"]["sha256"])
+        self.assertIn("added", {row["kind"] for row in semantic["rows"]})
         subprocess.run(["git", "-C", str(self.root), "add", str(full_path)], check=True)
         staged = self.service.project(self.project, "docs/full-implementation-tracker.md")
         self.assertTrue(staged["git"]["worktree_changed"])
@@ -439,6 +449,13 @@ class TrackerProjectionTests(unittest.TestCase):
         self.assertTrue(untracked["git"]["worktree_changed"])
         self.assertEqual(untracked["git"]["diff"]["base"], "empty")
         self.assertTrue(untracked["git"]["diff"]["changed"])
+        untracked_diff = self.service.diff(
+            self.project,
+            "docs/untracked-implementation-tracker.md",
+        )["diff"]["semantic"]
+        self.assertEqual(untracked_diff["base"]["kind"], "empty")
+        self.assertTrue(untracked_diff["complete"])
+        self.assertTrue(all(row["kind"] == "added" for row in untracked_diff["rows"]))
 
         with self.assertRaisesRegex(TrackerProjectionError, "Bound tracker hash"):
             self.service.project(
@@ -446,6 +463,133 @@ class TrackerProjectionTests(unittest.TestCase):
                 "docs/full-implementation-tracker.md",
                 bound_content_sha256="not-a-sha256",
             )
+
+    def test_semantic_diff_preserves_change_kinds_blocks_bounds_and_exact_head_source(self) -> None:
+        path = self.root / "docs" / "full-implementation-tracker.md"
+        head = subprocess.run(
+            ["git", "-C", str(self.root), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        revised = FULL_TRACKER.replace(
+            "Project exact tracker state for Block 1.",
+            "Project revised tracker state for Block 1.\nProject one added source line.",
+        ).replace(
+            "This source section must remain linked even when it has no structured field.\n",
+            "",
+            1,
+        )
+        path.write_text(revised, encoding="utf-8")
+
+        projected = self.service.diff(self.project, "docs/full-implementation-tracker.md")
+        semantic = projected["diff"]["semantic"]
+
+        self.assertEqual(semantic["status"], "available")
+        self.assertEqual({row["kind"] for row in semantic["rows"]}, {"added", "changed", "removed"})
+        self.assertTrue(semantic["complete"])
+        self.assertFalse(semantic["truncated"])
+        changed_row = next(row for row in semantic["rows"] if row["kind"] == "changed")
+        self.assertEqual(changed_row["before"]["block"]["number"], 1)
+        self.assertEqual(changed_row["after"]["block"]["number"], 1)
+        self.assertEqual(semantic["base"]["repository_revision"], head)
+        exact_head = self.service.source_at_revision(
+            self.project,
+            "docs/full-implementation-tracker.md",
+            head,
+        )
+        self.assertEqual(exact_head.content, FULL_TRACKER.encode("utf-8"))
+
+        path.write_text(
+            revised.replace(
+                "Project one added source line.",
+                "x" * (tracker_module.MAX_SEMANTIC_DIFF_TEXT_CHARS + 1),
+            ),
+            encoding="utf-8",
+        )
+        bounded_text = self.service.diff(
+            self.project,
+            "docs/full-implementation-tracker.md",
+        )["diff"]["semantic"]
+        self.assertFalse(bounded_text["complete"])
+        self.assertTrue(bounded_text["truncated"])
+        self.assertTrue(any(
+            side and side["text_truncated"]
+            for row in bounded_text["rows"]
+            for side in (row["before"], row["after"])
+        ))
+
+        path.write_text(
+            FULL_TRACKER.rstrip("\n")
+            + "\n"
+            + "\n".join(f"bounded semantic line {index}" for index in range(205))
+            + "\n",
+            encoding="utf-8",
+        )
+        bounded_rows = self.service.diff(
+            self.project,
+            "docs/full-implementation-tracker.md",
+        )["diff"]["semantic"]
+        self.assertEqual(bounded_rows["total_rows"], 205)
+        self.assertEqual(bounded_rows["returned_rows"], tracker_module.MAX_SEMANTIC_DIFF_ROWS)
+        self.assertFalse(bounded_rows["complete"])
+        self.assertTrue(bounded_rows["truncated"])
+
+    def test_semantic_diff_fails_closed_for_renamed_base_and_preserves_verifier_conflict(self) -> None:
+        renamed_path = self.root / "docs" / "renamed-implementation-tracker.md"
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(self.root),
+                "mv",
+                "docs/full-copy-implementation-tracker.md",
+                renamed_path.relative_to(self.root).as_posix(),
+            ],
+            check=True,
+        )
+        renamed = self.service.diff(
+            self.project,
+            "docs/renamed-implementation-tracker.md",
+        )["diff"]["semantic"]
+        self.assertEqual(renamed["status"], "unavailable")
+        self.assertFalse(renamed["complete"])
+        self.assertEqual(renamed["error"]["code"], "committed_tracker_unavailable")
+
+        invalid_path = self.root / "docs" / "full-implementation-tracker.md"
+        invalid_path.write_text(
+            FULL_TRACKER.replace("Status: `accepted`", "Status: `not-started`", 1),
+            encoding="utf-8",
+        )
+        invalid = self.service.diff(
+            self.project,
+            "docs/full-implementation-tracker.md",
+        )
+        self.assertFalse(invalid["verifier"]["valid"])
+        self.assertFalse(invalid["diff"]["semantic"]["owner"]["verifier"]["valid"])
+
+    def test_semantic_diff_rejects_source_change_during_projection(self) -> None:
+        path = self.root / "docs" / "full-implementation-tracker.md"
+        original_projection = tracker_module._semantic_diff_projection
+
+        def project_then_change(*args: object, **kwargs: object) -> dict[str, object]:
+            result = original_projection(*args, **kwargs)
+            path.write_text(FULL_TRACKER + "\n<!-- changed during semantic projection -->\n", encoding="utf-8")
+            return result
+
+        with patch.object(
+            tracker_module,
+            "_semantic_diff_projection",
+            side_effect=project_then_change,
+        ):
+            with self.assertRaisesRegex(
+                TrackerProjectionError,
+                "changed during semantic projection",
+            ):
+                self.service.diff(
+                    self.project,
+                    "docs/full-implementation-tracker.md",
+                )
 
     def test_maintained_verifier_diagnostics_gate_all_derived_eligibility(self) -> None:
         cases = {

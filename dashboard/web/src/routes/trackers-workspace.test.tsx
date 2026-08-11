@@ -158,7 +158,50 @@ describe("tracker review workspace", () => {
         tracker_id: tracker.id,
         content_sha256: tracker.raw_file.content_sha256,
         repository_head: tracker.git.repository_head,
-        diff: { ...tracker.git.diff, preview: "@@ -1 +1 @@\n-old\n+new" },
+        relative_path: tracker.relative_path,
+        owning_revision: tracker.git.last_commit.revision,
+        verifier: { ...tracker.verifier.owner, profile: tracker.verifier.profile, valid: tracker.verifier.valid },
+        diff: {
+          ...tracker.git.diff,
+          preview: "@@ -1 +1 @@\n-old\n+new",
+          semantic: {
+            status: "available",
+            changed: true,
+            base: { kind: "HEAD", repository_revision: tracker.git.repository_head, content_sha256: tracker.git.committed_content_sha256 },
+            target: { kind: "working-tree", content_sha256: tracker.raw_file.content_sha256 },
+            rows: [
+              {
+                id: fingerprint("d"),
+                kind: "changed",
+                before: { text: "Status: `not-started`", text_truncated: false, line: 72, content_sha256: tracker.git.committed_content_sha256, block: { number: 1, title: "Successor", line: 70, anchor: "block-1-successor" } },
+                after: { text: "Status: `in-progress`", text_truncated: false, line: 72, content_sha256: tracker.raw_file.content_sha256, block: { number: 1, title: "Successor", line: 70, anchor: "block-1-successor" } },
+              },
+              {
+                id: fingerprint("e"),
+                kind: "added",
+                before: null,
+                after: { text: "- Candidate `abc123`.", text_truncated: false, line: 96, content_sha256: tracker.raw_file.content_sha256, block: { number: 1, title: "Successor", line: 70, anchor: "block-1-successor" } },
+              },
+              {
+                id: fingerprint("f"),
+                kind: "removed",
+                before: { text: "Pending.", text_truncated: false, line: 96, content_sha256: tracker.git.committed_content_sha256, block: { number: 1, title: "Successor", line: 70, anchor: "block-1-successor" } },
+                after: null,
+              },
+            ],
+            total_rows: 3,
+            returned_rows: 3,
+            row_limit: 200,
+            complete: true,
+            truncated: false,
+            path: tracker.relative_path,
+            owning_revision: tracker.git.last_commit.revision,
+            owner: { tracker: "tracker-markdown/read-only", git: "git/HEAD-and-working-tree", verifier: { ...tracker.verifier.owner, profile: tracker.verifier.profile, valid: tracker.verifier.valid } },
+            currentness_fingerprint: fingerprint("0"),
+            limitations: ["Selected tracker only."],
+            error: null,
+          },
+        },
       },
     })
     mocks.fetchFactoryFloor.mockResolvedValue(floor)
@@ -465,20 +508,108 @@ describe("tracker review workspace", () => {
     expect(screen.getByText(/Descendant · descendant-blocked by 0/)).toBeVisible()
   })
 
-  it("shows deterministic evidence, lazy diff metadata, and unavailable run-bound hash honestly", async () => {
+  it("shows deterministic semantic source changes, exact anchors, and unavailable run-bound hash honestly", async () => {
     const user = userEvent.setup()
     renderRoute(`/trackers/${tracker.id}/evidence`, <TrackerWorkspace />, "/trackers/:trackerId/:view?")
 
     expect(await screen.findByRole("heading", { name: "Git & currentness" })).toBeVisible()
     expect(screen.getByText("Working tree comparison")).toBeVisible()
-    expect(screen.queryByText("@@ -1 +1 @@", { exact: false })).not.toBeInTheDocument()
-    await user.click(screen.getByRole("button", { name: "Load textual diff" }))
-    expect(await screen.findByText("@@ -1 +1 @@", { exact: false })).toBeVisible()
+    expect(screen.queryByText("Status: `in-progress`")).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Load semantic changes" }))
+    expect(await screen.findByText("Status: `in-progress`")).toBeVisible()
+    expect(screen.getByText("Added")).toBeVisible()
+    expect(screen.getByText("Removed")).toBeVisible()
+    expect(screen.getAllByText("Changed")[1]).toBeVisible()
+    expect(screen.getAllByRole("link", { name: /Before/ })[0]).toHaveAttribute(
+      "href",
+      `/api/v1/trackers/${tracker.id}/source?line=72&end_line=72&revision=${tracker.git.repository_head}`,
+    )
+    expect(screen.getAllByRole("link", { name: /After/ })[0]).toHaveAttribute(
+      "href",
+      `/api/v1/trackers/${tracker.id}/source?line=72&end_line=72&content_sha256=${tracker.raw_file.content_sha256}`,
+    )
     expect(mocks.fetchTrackerDiff).toHaveBeenCalledWith(tracker.id, expect.any(AbortSignal))
     expect(screen.getByText(/bound hash unavailable from run owner/)).toBeVisible()
     expect(screen.getByRole("heading", { name: "Recorded Block evidence" })).toBeVisible()
     expect(screen.getByRole("link", { name: /Block 0.*Base/ })).toHaveAttribute("href", `/trackers/${tracker.id}/blocks?block=0`)
     expect(screen.getByText("These facts do not accept, edit, validate, or start the tracker.")).toBeVisible()
+  })
+
+  it("renders bounded hostile semantic text literally with keyboard-readable partial posture", async () => {
+    const baseline = await mocks.fetchTrackerDiff()
+    const semantic = baseline.data.diff.semantic
+    mocks.fetchTrackerDiff.mockClear()
+    mocks.fetchTrackerDiff.mockResolvedValue({
+      ...baseline,
+      data: {
+        ...baseline.data,
+        diff: {
+          ...baseline.data.diff,
+          semantic: {
+            ...semantic,
+            complete: false,
+            truncated: true,
+            limitations: [...semantic.limitations, "Row text is bounded."],
+            rows: [{
+              ...semantic.rows[0],
+              after: {
+                ...semantic.rows[0].after,
+                text: '<img src="x" onerror="alert(1)">',
+                text_truncated: true,
+                block: { ...semantic.rows[0].after.block, title: "L".repeat(300) },
+              },
+            }],
+            total_rows: 400,
+            returned_rows: 1,
+          },
+        },
+      },
+    })
+    const user = userEvent.setup()
+    const rendered = renderRoute(`/trackers/${tracker.id}/evidence`, <TrackerWorkspace />, "/trackers/:trackerId/:view?")
+
+    await user.click(await screen.findByRole("button", { name: "Load semantic changes" }))
+    expect(await screen.findByText('<img src="x" onerror="alert(1)">')).toBeVisible()
+    expect(rendered.container.querySelector('img[src="x"]')).toBeNull()
+    expect(screen.getByText(/This comparison is partial/)).toBeVisible()
+    const scrollRegion = screen.getByLabelText("Tracker semantic source changes")
+    scrollRegion.focus()
+    expect(scrollRegion).toHaveFocus()
+    expect(scrollRegion.closest(".tracker-semantic-diff")?.querySelector("button")).toBeNull()
+  })
+
+  it("keeps a missing committed comparison unavailable rather than claiming no change", async () => {
+    const baseline = await mocks.fetchTrackerDiff()
+    const semantic = baseline.data.diff.semantic
+    mocks.fetchTrackerDiff.mockClear()
+    mocks.fetchTrackerDiff.mockResolvedValue({
+      ...baseline,
+      data: {
+        ...baseline.data,
+        diff: {
+          ...baseline.data.diff,
+          semantic: {
+            ...semantic,
+            status: "unavailable",
+            changed: null,
+            base: null,
+            rows: [],
+            total_rows: null,
+            returned_rows: 0,
+            complete: false,
+            truncated: false,
+            limitations: ["HEAD source is unavailable."],
+            error: { code: "committed_tracker_unavailable", message: "The exact HEAD source is unavailable." },
+          },
+        },
+      },
+    })
+    const user = userEvent.setup()
+    renderRoute(`/trackers/${tracker.id}/evidence`, <TrackerWorkspace />, "/trackers/:trackerId/:view?")
+
+    await user.click(await screen.findByRole("button", { name: "Load semantic changes" }))
+    expect(await screen.findByText("The exact HEAD source is unavailable.")).toBeVisible()
+    expect(screen.queryByText(/No semantic tracker changes/)).not.toBeInTheDocument()
   })
 
   it("keeps pending composed-owner facts unavailable instead of claiming none", async () => {

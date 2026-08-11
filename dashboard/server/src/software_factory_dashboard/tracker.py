@@ -26,9 +26,12 @@ MAX_ANALYSIS_CACHE_ENTRIES = 128
 MAX_MAP_ROWS = 500
 MAX_SECTION_PREVIEW_CHARS = 12_000
 MAX_DIFF_PREVIEW_CHARS = 32_000
+MAX_SEMANTIC_DIFF_ROWS = 200
+MAX_SEMANTIC_DIFF_TEXT_CHARS = 600
 VERIFIER_TIMEOUT_SECONDS = 15
 GIT_TIMEOUT_SECONDS = 5
 FINGERPRINT_RE = re.compile(r"^[0-9a-f]{64}$")
+GIT_OBJECT_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 
 DASHBOARD_REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_VERIFIER_PATH = (
@@ -550,6 +553,7 @@ def _diff_projection(
             "removed_lines": None,
             "preview": None,
             "truncated": False,
+            "semantic": None,
             "error": {
                 "code": "committed_tracker_unavailable",
                 "message": "The tracker HEAD blob is unavailable for comparison.",
@@ -567,6 +571,7 @@ def _diff_projection(
             "removed_lines": None,
             "preview": None,
             "truncated": False,
+            "semantic": None,
             "error": {
                 "code": "tracker_diff_encoding",
                 "message": "The tracker HEAD blob is not valid UTF-8.",
@@ -597,6 +602,283 @@ def _diff_projection(
         "removed_lines": removed,
         "preview": preview,
         "truncated": truncated,
+        "semantic": None,
+        "error": None,
+    }
+
+
+def _block_ranges(
+    blocks: Iterable[Mapping[str, Any]],
+    *,
+    line_count: int,
+) -> list[dict[str, Any]]:
+    ordered = sorted(
+        (
+            {
+                "number": int(block["number"]),
+                "title": str(block["title"]),
+                "line": int(block["line"]),
+                "anchor": str(block["anchor"]),
+            }
+            for block in blocks
+        ),
+        key=lambda block: block["line"],
+    )
+    ranges: list[dict[str, Any]] = []
+    for index, block in enumerate(ordered):
+        next_line = ordered[index + 1]["line"] if index + 1 < len(ordered) else line_count + 1
+        ranges.append({**block, "end_line": max(block["line"], next_line - 1)})
+    return ranges
+
+
+def _block_at_line(
+    ranges: Iterable[Mapping[str, Any]],
+    line: int,
+) -> dict[str, Any] | None:
+    for block in ranges:
+        if int(block["line"]) <= line <= int(block["end_line"]):
+            return {
+                "number": int(block["number"]),
+                "title": str(block["title"]),
+                "line": int(block["line"]),
+                "anchor": str(block["anchor"]),
+            }
+    return None
+
+
+def _bounded_diff_side(
+    text: str,
+    *,
+    line: int,
+    content_sha256: str,
+    block_ranges: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    truncated = len(text) > MAX_SEMANTIC_DIFF_TEXT_CHARS
+    return {
+        "text": text[:MAX_SEMANTIC_DIFF_TEXT_CHARS] if truncated else text,
+        "text_truncated": truncated,
+        "line": line,
+        "content_sha256": content_sha256,
+        "block": _block_at_line(block_ranges, line),
+    }
+
+
+def _semantic_diff_projection(
+    committed: bytes | None,
+    current: bytes,
+    *,
+    tracked: bool,
+    relative_path: str,
+    repository_head: str | None,
+    owning_revision: str | None,
+    verifier: Mapping[str, Any],
+    current_blocks: Iterable[Mapping[str, Any]],
+    base_blocks: Iterable[Mapping[str, Any]],
+) -> dict[str, Any]:
+    if committed is None and tracked:
+        return {
+            "status": "unavailable",
+            "changed": None,
+            "base": None,
+            "target": {
+                "kind": "working-tree",
+                "content_sha256": sha256(current).hexdigest(),
+            },
+            "rows": [],
+            "total_rows": None,
+            "returned_rows": 0,
+            "row_limit": MAX_SEMANTIC_DIFF_ROWS,
+            "complete": False,
+            "truncated": False,
+            "path": relative_path,
+            "owning_revision": owning_revision,
+            "owner": {
+                "tracker": "tracker-markdown/read-only",
+                "git": "git/HEAD-and-working-tree",
+                "verifier": verifier,
+            },
+            "currentness_fingerprint": sha256(
+                _canonical_json(
+                    {
+                        "path": relative_path,
+                        "repository_head": repository_head,
+                        "current": sha256(current).hexdigest(),
+                        "status": "unavailable",
+                    }
+                )
+            ).hexdigest(),
+            "limitations": ["The tracked tracker has no readable regular-file blob at the selected repository HEAD."],
+            "error": {
+                "code": "committed_tracker_unavailable",
+                "message": "The tracker HEAD blob is unavailable for semantic comparison.",
+            },
+        }
+    try:
+        before = (committed or b"").decode("utf-8").splitlines()
+        after = current.decode("utf-8").splitlines()
+    except UnicodeError:
+        return {
+            "status": "unavailable",
+            "changed": None,
+            "base": None,
+            "target": {
+                "kind": "working-tree",
+                "content_sha256": sha256(current).hexdigest(),
+            },
+            "rows": [],
+            "total_rows": None,
+            "returned_rows": 0,
+            "row_limit": MAX_SEMANTIC_DIFF_ROWS,
+            "complete": False,
+            "truncated": False,
+            "path": relative_path,
+            "owning_revision": owning_revision,
+            "owner": {
+                "tracker": "tracker-markdown/read-only",
+                "git": "git/HEAD-and-working-tree",
+                "verifier": verifier,
+            },
+            "currentness_fingerprint": sha256(
+                _canonical_json(
+                    {
+                        "path": relative_path,
+                        "repository_head": repository_head,
+                        "current": sha256(current).hexdigest(),
+                        "status": "encoding-unavailable",
+                    }
+                )
+            ).hexdigest(),
+            "limitations": ["Semantic rows require UTF-8 tracker source on both sides."],
+            "error": {
+                "code": "tracker_diff_encoding",
+                "message": "The tracker source is not valid UTF-8 on both sides.",
+            },
+        }
+
+    before_sha256 = sha256(committed or b"").hexdigest()
+    after_sha256 = sha256(current).hexdigest()
+    before_ranges = _block_ranges(base_blocks, line_count=len(before))
+    after_ranges = _block_ranges(current_blocks, line_count=len(after))
+    rows: list[dict[str, Any]] = []
+    total_rows = 0
+    text_truncated = False
+    matcher = difflib.SequenceMatcher(a=before, b=after, autojunk=False)
+
+    def append_row(
+        kind: str,
+        before_index: int | None,
+        after_index: int | None,
+    ) -> None:
+        nonlocal total_rows, text_truncated
+        total_rows += 1
+        if len(rows) >= MAX_SEMANTIC_DIFF_ROWS:
+            return
+        before_side = (
+            _bounded_diff_side(
+                before[before_index],
+                line=before_index + 1,
+                content_sha256=before_sha256,
+                block_ranges=before_ranges,
+            )
+            if before_index is not None
+            else None
+        )
+        after_side = (
+            _bounded_diff_side(
+                after[after_index],
+                line=after_index + 1,
+                content_sha256=after_sha256,
+                block_ranges=after_ranges,
+            )
+            if after_index is not None
+            else None
+        )
+        text_truncated = text_truncated or bool(
+            (before_side and before_side["text_truncated"])
+            or (after_side and after_side["text_truncated"])
+        )
+        identity = {
+            "kind": kind,
+            "before_line": before_index + 1 if before_index is not None else None,
+            "after_line": after_index + 1 if after_index is not None else None,
+            "before_sha256": before_sha256,
+            "after_sha256": after_sha256,
+        }
+        rows.append(
+            {
+                "id": sha256(_canonical_json(identity)).hexdigest(),
+                "kind": kind,
+                "before": before_side,
+                "after": after_side,
+            }
+        )
+
+    for tag, before_start, before_end, after_start, after_end in matcher.get_opcodes():
+        if tag == "equal":
+            continue
+        if tag == "replace":
+            paired = min(before_end - before_start, after_end - after_start)
+            for offset in range(paired):
+                append_row("changed", before_start + offset, after_start + offset)
+            for before_index in range(before_start + paired, before_end):
+                append_row("removed", before_index, None)
+            for after_index in range(after_start + paired, after_end):
+                append_row("added", None, after_index)
+        elif tag == "delete":
+            for before_index in range(before_start, before_end):
+                append_row("removed", before_index, None)
+        elif tag == "insert":
+            for after_index in range(after_start, after_end):
+                append_row("added", None, after_index)
+
+    rows_truncated = total_rows > len(rows)
+    limitations = [
+        "Only the selected tracker path is compared; unrelated repository changes are excluded.",
+        "Rows are derived from exact HEAD and working-tree lines and do not edit or accept tracker state.",
+    ]
+    if rows_truncated:
+        limitations.append(
+            f"Only the first {MAX_SEMANTIC_DIFF_ROWS} of {total_rows} semantic rows are returned."
+        )
+    if text_truncated:
+        limitations.append(
+            f"At least one row text is limited to {MAX_SEMANTIC_DIFF_TEXT_CHARS} characters."
+        )
+    base_kind = "HEAD" if tracked else "empty"
+    fingerprint_material = {
+        "path": relative_path,
+        "repository_head": repository_head,
+        "base_kind": base_kind,
+        "before_sha256": before_sha256,
+        "after_sha256": after_sha256,
+        "verifier_sha256": verifier.get("sha256"),
+        "row_limit": MAX_SEMANTIC_DIFF_ROWS,
+        "text_limit": MAX_SEMANTIC_DIFF_TEXT_CHARS,
+    }
+    return {
+        "status": "available",
+        "changed": total_rows > 0,
+        "base": {
+            "kind": base_kind,
+            "repository_revision": repository_head if tracked else None,
+            "content_sha256": before_sha256,
+        },
+        "target": {"kind": "working-tree", "content_sha256": after_sha256},
+        "rows": rows,
+        "total_rows": total_rows,
+        "returned_rows": len(rows),
+        "row_limit": MAX_SEMANTIC_DIFF_ROWS,
+        "complete": not rows_truncated and not text_truncated,
+        "truncated": rows_truncated or text_truncated,
+        "path": relative_path,
+        "owning_revision": owning_revision,
+        "owner": {
+            "tracker": "tracker-markdown/read-only",
+            "git": "git/HEAD-and-working-tree",
+            "verifier": verifier,
+        },
+        "currentness_fingerprint": sha256(_canonical_json(fingerprint_material)).hexdigest(),
+        "limitations": limitations,
         "error": None,
     }
 
@@ -1543,6 +1825,92 @@ class TrackerProjectionService:
     def source(self, project: ProjectRecord, relative_path: str) -> TrackerFile:
         return _read_tracker_file(Path(project.root), relative_path)
 
+    def source_at_revision(
+        self,
+        project: ProjectRecord,
+        relative_path: str,
+        revision: str,
+    ) -> TrackerFile:
+        if not GIT_OBJECT_RE.fullmatch(revision):
+            raise TrackerProjectionError(
+                "invalid_source_revision",
+                "Tracker source revision must be an exact lowercase Git object digest.",
+            )
+        root = Path(project.root)
+        current = _read_tracker_file(root, relative_path)
+        resolved_revision = _git_value(root, "rev-parse", "--verify", f"{revision}^{{commit}}")
+        if resolved_revision != revision:
+            raise TrackerProjectionError(
+                "tracker_source_revision_unavailable",
+                "The exact tracker source revision is not an available commit.",
+                status=404,
+            )
+        tree_result = _run_git_bytes(
+            root,
+            "ls-tree",
+            "-z",
+            revision,
+            "--",
+            relative_path,
+        )
+        if tree_result.returncode != 0:
+            raise TrackerProjectionError(
+                "tracker_source_revision_unavailable",
+                tree_result.stderr.decode("utf-8", errors="replace").strip()
+                or "Git could not read the exact tracker source revision.",
+                status=404,
+            )
+        entries = [entry for entry in tree_result.stdout.split(b"\x00") if entry]
+        if len(entries) != 1:
+            raise TrackerProjectionError(
+                "tracker_source_revision_unavailable",
+                "The selected tracker is unavailable at the exact source revision.",
+                status=404,
+            )
+        try:
+            header, raw_path = entries[0].split(b"\t", 1)
+            mode, object_type, object_id = header.decode("ascii").split()
+            projected_path = raw_path.decode("utf-8")
+        except (UnicodeError, ValueError) as exc:
+            raise TrackerProjectionError(
+                "tracker_source_revision_invalid",
+                "Git returned invalid exact tracker source metadata.",
+            ) from exc
+        if (
+            mode not in {"100644", "100755"}
+            or object_type != "blob"
+            or projected_path != relative_path
+        ):
+            raise TrackerProjectionError(
+                "tracker_source_revision_unsafe",
+                "The exact tracker source revision is not a regular file at the selected path.",
+            )
+        content = _git_blob_contents(root, [object_id]).get(object_id)
+        if content is None:
+            raise TrackerProjectionError(
+                "tracker_source_revision_unavailable",
+                "Git did not return the exact tracker source blob.",
+                status=404,
+            )
+        try:
+            text = content.decode("utf-8")
+        except UnicodeError as exc:
+            raise TrackerProjectionError(
+                "tracker_source_revision_encoding",
+                "The exact tracker source revision is not UTF-8.",
+            ) from exc
+        return TrackerFile(
+            path=current.path,
+            relative_path=current.relative_path,
+            content=content,
+            text=text,
+            content_sha256=sha256(content).hexdigest(),
+            size=len(content),
+            mtime_ns=current.mtime_ns,
+            device=current.device,
+            inode=current.inode,
+        )
+
     def diff(self, project: ProjectRecord, relative_path: str) -> dict[str, Any]:
         root = Path(project.root)
         tracker = _read_tracker_file(root, relative_path)
@@ -1552,10 +1920,97 @@ class TrackerProjectionService:
             bound_content_sha256=None,
             include_diff_preview=True,
         )
+        detail = self._project_loaded(project, tracker, git, None)
+        committed: bytes | None = None
+        committed_blob = git.get("git_blob")
+        if isinstance(committed_blob, str):
+            committed = _git_blob_contents(root, [committed_blob]).get(committed_blob)
+        if git.get("repository_head") is not None and _git_value(root, "rev-parse", "HEAD") != git["repository_head"]:
+            raise TrackerProjectionError(
+                "git_changed_during_projection",
+                "Repository HEAD changed during semantic tracker projection; retry from the new source revision.",
+                status=409,
+                retryable=True,
+            )
+        base_blocks: list[dict[str, Any]] = []
+        base_block_projection_failed = False
+        if committed is not None:
+            try:
+                base_lines = committed.decode("utf-8").splitlines()
+                with self._lock:
+                    _, _, verifier_digest = self._verifier_source()
+                    verifier_module = self._verifier_module(verifier_digest)
+                    anchors = _heading_anchors(base_lines, verifier_module)
+                    base_blocks = [
+                        {
+                            "number": block.number,
+                            "title": block.title,
+                            "line": block.line,
+                            "anchor": anchors.get(
+                                block.line,
+                                _slug(f"block-{block.number}-{block.title}"),
+                            ),
+                        }
+                        for block in verifier_module.parse_blocks(base_lines)
+                    ]
+            except (UnicodeError, AttributeError, TypeError, ValueError):
+                base_block_projection_failed = True
+        verifier_owner = detail["verifier"]["owner"]
+        verifier_identity = {
+            "identity": verifier_owner["identity"],
+            "path": verifier_owner["path"],
+            "sha256": verifier_owner["sha256"],
+            "owning_revision": verifier_owner["owning_revision"],
+            "profile": detail["verifier"]["profile"],
+            "valid": detail["verifier"]["valid"],
+        }
+        semantic = _semantic_diff_projection(
+            committed,
+            tracker.content,
+            tracked=git.get("status") != "available" or git.get("tracked") is True,
+            relative_path=tracker.relative_path,
+            repository_head=git.get("repository_head"),
+            owning_revision=(git.get("last_commit") or {}).get("revision"),
+            verifier=verifier_identity,
+            current_blocks=detail["blocks"],
+            base_blocks=base_blocks,
+        )
+        if base_block_projection_failed:
+            semantic["complete"] = False
+            semantic["limitations"].append(
+                "HEAD Block anchors are unavailable because the maintained parser could not project that historical source."
+            )
+        if git["diff"]["truncated"]:
+            semantic["complete"] = False
+            semantic["truncated"] = True
+            semantic["limitations"].append(
+                f"The bounded raw patch exceeds {MAX_DIFF_PREVIEW_CHARS} characters."
+            )
+        confirmed_tracker = _read_tracker_file(root, relative_path)
+        with self._lock:
+            _, _, confirmed_verifier_digest = self._verifier_source()
+        if (
+            confirmed_tracker.content_sha256 != tracker.content_sha256
+            or confirmed_verifier_digest != verifier_identity["sha256"]
+            or (
+                git.get("repository_head") is not None
+                and _git_value(root, "rev-parse", "HEAD") != git["repository_head"]
+            )
+        ):
+            raise TrackerProjectionError(
+                "tracker_diff_changed_during_projection",
+                "Tracker, verifier, or repository HEAD changed during semantic projection; retry from the new source revision.",
+                status=409,
+                retryable=True,
+            )
+        git["diff"]["semantic"] = semantic
         return {
             "tracker_id": tracker_identity(project.id, tracker.relative_path),
             "content_sha256": tracker.content_sha256,
             "repository_head": git["repository_head"],
+            "relative_path": tracker.relative_path,
+            "owning_revision": (git.get("last_commit") or {}).get("revision"),
+            "verifier": verifier_identity,
             "diff": git["diff"],
         }
 

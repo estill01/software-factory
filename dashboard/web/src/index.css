@@ -425,6 +425,151 @@
   white-space: pre;
 }
 
+.tracker-semantic-diff {
+  display: grid;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel-solid);
+  box-shadow: var(--shadow-sm);
+}
+
+.semantic-diff-scroll {
+  max-width: 100%;
+  overflow: auto;
+}
+
+.semantic-diff-scroll:focus-visible {
+  outline: 2px solid var(--primary-bright);
+  outline-offset: -2px;
+}
+
+.semantic-diff-scroll table {
+  width: 100%;
+  min-width: 46rem;
+  table-layout: fixed;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.semantic-diff-change-column { width: 14%; }
+.semantic-diff-source-column { width: 34%; }
+.semantic-diff-link-column { width: 18%; }
+
+.semantic-diff-scroll th,
+.semantic-diff-scroll td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.58rem 0.62rem;
+  vertical-align: top;
+}
+
+.semantic-diff-scroll thead th {
+  background: var(--panel-subtle);
+  color: var(--text-faint);
+  font-size: 0.56rem;
+  font-weight: 750;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.semantic-diff-scroll tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.semantic-diff-row-added { background: color-mix(in srgb, var(--green-soft) 52%, transparent); }
+.semantic-diff-row-removed { background: color-mix(in srgb, var(--red-soft) 50%, transparent); }
+.semantic-diff-row-changed { background: color-mix(in srgb, var(--amber-soft) 47%, transparent); }
+
+.semantic-diff-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0.18rem 0.38rem;
+  font-size: 0.57rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.semantic-diff-kind svg,
+.semantic-diff-links svg {
+  width: 0.7rem;
+  height: 0.7rem;
+}
+
+.semantic-diff-kind-added { color: var(--green); }
+.semantic-diff-kind-removed { color: var(--red); }
+.semantic-diff-kind-changed { color: var(--amber-contrast); }
+
+.semantic-diff-dot {
+  width: 0.34rem;
+  height: 0.34rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.semantic-diff-side {
+  display: grid;
+  min-width: 0;
+  gap: 0.25rem;
+}
+
+.semantic-diff-side code {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 0.68rem;
+  white-space: pre-wrap;
+}
+
+.semantic-diff-side span,
+.semantic-diff-empty,
+.semantic-diff-links,
+.semantic-diff-meta {
+  color: var(--text-faint);
+  font-size: 0.56rem;
+  line-height: 1.45;
+}
+
+.semantic-diff-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.52rem;
+}
+
+.semantic-diff-links a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.semantic-diff-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  border-top: 1px solid var(--border);
+  padding: 0.48rem 0.62rem;
+  overflow-wrap: anywhere;
+}
+
+.semantic-diff-meta code {
+  font-size: inherit;
+}
+
+.semantic-diff-limitations {
+  display: grid;
+  gap: 0.18rem;
+  margin: 0;
+  border-top: 1px solid var(--border);
+  padding: 0.42rem 1.45rem;
+  color: var(--text-faint);
+  font-size: 0.56rem;
+}
+
 .table-scroll {
   overflow: auto;
 }

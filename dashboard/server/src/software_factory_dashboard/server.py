@@ -682,18 +682,51 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
     def _write_tracker_source(self, tracker_id: str, query: str) -> None:
         try:
             selected = self._tracker_selection(tracker_id)
-            tracker = self.server.tracker_service.source(*selected)
-            if not query:
-                body = tracker.content
-            else:
+            parsed: dict[str, list[str]] = {}
+            if query:
                 parsed = parse_qs(query, keep_blank_values=True, strict_parsing=True)
-                if set(parsed) != {"line", "end_line"} or any(
+                allowed = {"line", "end_line", "revision", "content_sha256"}
+                if not set(parsed).issubset(allowed) or any(
                     len(values) != 1 for values in parsed.values()
                 ):
                     raise TrackerProjectionError(
                         "invalid_source_range",
-                        "Tracker source accepts exactly line and end_line once.",
+                        "Tracker source accepts bounded line fields and at most one exact source identity.",
                     )
+                if ({"line", "end_line"} & set(parsed)) not in (set(), {"line", "end_line"}):
+                    raise TrackerProjectionError(
+                        "invalid_source_range",
+                        "Tracker source line and end_line must be provided together.",
+                    )
+                if "revision" in parsed and "content_sha256" in parsed:
+                    raise TrackerProjectionError(
+                        "invalid_source_identity",
+                        "Tracker source accepts either a Git revision or a working-content hash, not both.",
+                    )
+            if "revision" in parsed:
+                tracker = self.server.tracker_service.source_at_revision(
+                    *selected,
+                    parsed["revision"][0],
+                )
+            else:
+                tracker = self.server.tracker_service.source(*selected)
+                expected_content = parsed.get("content_sha256", [None])[0]
+                if expected_content is not None:
+                    if not re.fullmatch(r"[0-9a-f]{64}", expected_content):
+                        raise TrackerProjectionError(
+                            "invalid_source_identity",
+                            "Working tracker source identity must be a lowercase SHA-256 digest.",
+                        )
+                    if tracker.content_sha256 != expected_content:
+                        raise TrackerProjectionError(
+                            "tracker_source_changed",
+                            "Working tracker source changed after the semantic comparison; refresh before review.",
+                            status=409,
+                            retryable=True,
+                        )
+            if "line" not in parsed:
+                body = tracker.content
+            else:
                 try:
                     line = int(parsed["line"][0])
                     end_line = int(parsed["end_line"][0])
@@ -732,6 +765,14 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             selected = self._tracker_selection(tracker_id)
             projected = self.server.tracker_service.diff(*selected)
             diff = projected["diff"]
+            semantic = diff["semantic"]
+            complete = bool(
+                diff["status"] == "available"
+                and not diff["truncated"]
+                and semantic
+                and semantic["status"] == "available"
+                and semantic["complete"]
+            )
             payload = envelope(
                 data=projected,
                 source={
@@ -740,13 +781,15 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                     "revision": projected["content_sha256"],
                 },
                 coverage={
-                    "status": "complete" if diff["status"] == "available" else "partial",
+                    "status": "complete" if complete else "partial",
                     "observed": ["tracker-working-content"]
-                    + (["git-head-diff"] if diff["status"] == "available" else []),
-                    "missing": [] if diff["status"] == "available" else ["git-head-diff"],
+                    + (["git-head-diff"] if diff["status"] == "available" else [])
+                    + (["tracker-semantic-diff"] if semantic and semantic["status"] == "available" else []),
+                    "missing": [] if complete else ["complete-untruncated-semantic-diff"],
                 },
                 limitations=[
                     "The response is a bounded read-only comparison; tracker and Git identities must match the detail snapshot.",
+                    *(semantic["limitations"] if semantic else []),
                 ],
             )
         except (CatalogError, TrackerProjectionError) as error:

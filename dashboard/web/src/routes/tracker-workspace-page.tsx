@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Link, NavLink, useParams, useSearchParams } from "react-router"
 
 import { SafeMarkdown } from "@/components/safe-markdown"
+import { TrackerSemanticDiffTable } from "@/components/tracker-semantic-diff"
 import { TrackerProgressView } from "@/components/tracker-progress-view"
 import { Button } from "@/components/ui/button"
 import { TrackerWorkflowActions } from "@/features/admin/factory-workflow-actions"
@@ -142,7 +143,11 @@ function WorkingTreeDiff({ tracker }: { tracker: TrackerDetail }) {
   const snapshotMatches = loaded
     ? loaded.content_sha256 === tracker.raw_file.content_sha256
       && loaded.repository_head === tracker.git.repository_head
+      && loaded.relative_path === tracker.relative_path
+      && loaded.owning_revision === (tracker.git.last_commit?.revision ?? null)
+      && loaded.verifier.sha256 === tracker.verifier.owner.sha256
     : true
+  const semantic = loaded?.diff.semantic
 
   return (
     <section className="workspace-panel">
@@ -152,20 +157,21 @@ function WorkingTreeDiff({ tracker }: { tracker: TrackerDetail }) {
         ["Changed", tracker.git.diff.changed === null ? "Unavailable" : tracker.git.diff.changed ? "Yes" : "No"],
         ["Added lines", tracker.git.diff.added_lines ?? "Unavailable"],
         ["Removed lines", tracker.git.diff.removed_lines ?? "Unavailable"],
-        ["Text", tracker.git.diff.changed ? "Deferred until requested" : tracker.git.diff.status === "available" ? "No diff" : "Unavailable"],
+        ["Semantic rows", tracker.git.diff.changed ? "Deferred until requested" : tracker.git.diff.status === "available" ? "No changes" : "Unavailable"],
       ]} />
       {diffQuery.isError ? (
         <QueryState kind="error" message={diffQuery.error.message} retry={() => void diffQuery.refetch()} />
       ) : !snapshotMatches ? (
         <QueryState kind="error" message="Tracker content or repository HEAD changed; refresh before reviewing the diff." />
-      ) : loaded?.diff.preview ? (
-        <>
-          {loaded.diff.truncated && <div className="workspace-bound">Diff preview is bounded.</div>}
-          <pre className="tracker-diff-preview" tabIndex={0} aria-label="Tracker textual diff"><code>{loaded.diff.preview}</code></pre>
-        </>
+      ) : semantic?.status === "unavailable" ? (
+        <QueryState kind="error" message={semantic.error?.message ?? "Semantic tracker comparison is unavailable."} />
+      ) : semantic?.status === "available" && semantic.changed ? (
+        <TrackerSemanticDiffTable trackerId={tracker.id} diff={semantic} />
+      ) : semantic?.status === "available" ? (
+        <span className="workspace-muted">No semantic tracker changes at this exact source fingerprint.</span>
       ) : tracker.git.diff.changed ? (
         <Button variant="outline" size="compact" onClick={() => setRequested(true)} disabled={requested && diffQuery.isPending}>
-          {requested && diffQuery.isPending ? "Loading textual diff" : "Load textual diff"}
+          {requested && diffQuery.isPending ? "Loading semantic changes" : "Load semantic changes"}
         </Button>
       ) : (
         <span className="workspace-muted">{tracker.git.diff.error?.message ?? "No working-tree changes."}</span>
