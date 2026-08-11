@@ -5793,6 +5793,61 @@ check. Never enumerate or reconcile unrelated automation families.
   automation/group-role mismatch and its dual postconditions; no operation
   semantic diff, pause/resume, continuity, report, evolution, or lifecycle
   surface is started.
+- Product candidate: commit
+  `95de6d70440bdf87ac2b10800bcb7bfeccff6318`, tree
+  `bf89a8ae19fdb206c89a4a84ac2c0ea2335d28f2`, parent accepted Block 19
+  transition `6da47ac26ccc55dfc7552abc414cec5765be2aeb`, pushed with exact local,
+  upstream, and remote identity at `0 0`. It adds one closed
+  `factory.supervision-repair-automation-binding` operation for the maintained
+  watcher, reviewer, Gmail-gate, roundup-writer, and enabled weekly-report
+  schedule families. The source resolver reads one exact policy and only the
+  selected named manifest, derives schedule and timezone from the maintained
+  policy/Gmail-cadence owner, hashes protected manifest fields without exposing
+  prompts, and scans canonical policy claims only for the required duplicate-
+  role proof. Missing/replacement IDs, invalid manifests, wrong kind/purpose,
+  unavailable timezone, duplicate claims, terminal groups, stale project/
+  policy/task state, and already-reconciled rows fail closed before dispatch.
+- Owner and postcondition boundary: one typed confirmation and maintained
+  `fix-execution` route gate may start the exact configured fix-executor task
+  once. Its bounded prompt permits the Codex automation owner to update only
+  active state, RRULE, or role-task target on the existing ID; it prohibits
+  creation, replacement, deletion, direct TOML/JSON/history writes, broad
+  rebind, cadence redesign, retry, and rollback. Verification separately
+  requires the changed named manifest with protected identity preserved, the
+  byte-identical policy version/hash/history head and mission/group-role-
+  purpose claim, one duplicate-free canonical claim, the exact fix-executor
+  marker, and a current route gate. Automation-changed/policy-pending,
+  policy-current/automation-pending, denied, stale, duplicate, and unverified
+  results remain explicit recovery postures rather than success.
+- Operator surface: current-run actions show the repair only for a source-
+  projected repairable mismatch, with an exact role/purpose and automation ID,
+  current-to-expected target and schedule, timezone posture, dual completion,
+  and no-rollback recovery facts. Reconciled, unavailable, unsupported, and
+  historical-mission rows expose no repair action. The compact action strip
+  remains responsive without adding a page banner or explanatory header.
+- Validation: Ruff passed the full server source/tests; focused projection and
+  workflow suites passed 31/31 and 16/16 with `ResourceWarning` fatal, and the
+  full backend passed 122/122 with `ResourceWarning` fatal. Focused typed-
+  contract/action/truth tests passed 20/20; the full frontend passed 97/97 with
+  invocation-scoped `--maxWorkers=1 --testTimeout=15000`, and TypeScript plus
+  the production build passed. The first parallel full frontend run had one
+  unrelated pre-existing five-second Floor-test timeout; the serial full proof
+  passed without a harness or product change. Focused Playwright passed 3/3 at
+  desktop/tablet/mobile with exact preview facts, disabled consequential
+  confirmation, Axe serious/critical 0, one functional `h1`, no horizontal
+  overflow, and no historical-mission action. Its first mobile pass exposed a
+  16-pixel intrinsic select overflow, which the product candidate corrected by
+  bounding action selects and mobile action width before the clean 3/3 rerun.
+  Live loopback reads registered the new operation as supported and returned
+  reconciled watcher/reviewer rows with exact purposes, interval-timezone
+  posture, and no repair action; no live automation or policy mutation was
+  attempted. The full-profile verifier returned Blocks 0-29 with 0 errors and
+  0 warnings, verifier tests passed 30/30, `git diff --check` passed, and the
+  Block 20 Stop remained closed.
+- Candidate review posture: Block 20 remains `in-progress` and Blocks 21-29
+  remain unopened until a fresh independent exact-revision product, owner,
+  recovery, resource-bound, responsive-UI, and Stop review accepts the frozen
+  evidence successor.
 
 ### Stop
 
