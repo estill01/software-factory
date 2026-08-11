@@ -5891,6 +5891,45 @@ check. Never enumerate or reconcile unrelated automation families.
   policy, or task mutation was attempted. The full-profile verifier again
   returned Blocks 0-29 with 0 errors and 0 warnings, verifier tests passed
   30/30, and `git diff --check` passed.
+- Rejected corrected revision retained as evidence: independent review rejected
+  exact evidence commit `83277df7a2c31bc85f36b76aa911df18167ef96f`, tree
+  `a1b849e990663e9dcc12dd697118a2d21e00b036`, and product
+  `6cbde0b70bcd7cd38952baa3ccd5824abd4ef1b4` for one remaining resource/truth
+  defect. The duplicate-role verifier called the global automation inventory,
+  so it enumerated and fully parsed every manifest; one unrelated malformed
+  automation therefore made an otherwise valid selected repair unavailable.
+  The reviewer reproduced that exact unrelated-family failure while confirming
+  the prior role-task, fix-executor, different-ID owner, and timezone findings
+  were closed. The revision remains unaccepted and Block 21 stayed closed.
+- Target-specific correction product: successor commit
+  `edbc01ccb455d79e885a3e54bd958d22c86bd030`, tree
+  `21fb66143c80ee735db0828ea3971ec6840a434d`, parent rejected evidence
+  `83277df7a2c31bc85f36b76aa911df18167ef96f`, is pushed with exact local,
+  upstream, and remote identity. The duplicate-role check now builds a bounded,
+  repeatable index from only the canonical `target_thread_id` assignment and
+  fully parses only the selected manifest plus manifests naming that exact role
+  task. It adds no executable or package dependency. A malformed manifest with
+  a different explicit target is neither projected nor reconciled by the
+  repair and cannot disable it; a malformed manifest naming the exact selected
+  target still fails duplicate coverage closed. General run reconciliation
+  likewise scopes an unavailable manifest to its retained exact target hint
+  instead of treating unrelated source corruption as selected-repair state.
+- Target-specific correction proof: the exact unrelated-malformed fixture keeps
+  the selected repair available and proves `_load_automation` received only the
+  selected automation ID; changing the malformed fixture to the selected role
+  target makes owner coverage unavailable, while the existing valid unclaimed
+  duplicate still blocks repair. The complete affected operations/workflow
+  suites passed 48/48 with `ResourceWarning` fatal, and Ruff passed the changed
+  source/tests. The response and UI schema did not change, so the exact 97/97
+  frontend, production build, and 3/3 responsive/Axe evidence above remains
+  applicable and was not broadly replayed. The restarted exact server on
+  `127.0.0.1:8787` reports service health, Codex App Server, and supervision
+  sources available; the automation-binding operation is supported through its
+  maintained owner, and current watcher/reviewer rows retain exact duplicate
+  coverage and reconciled posture. No live mutation was attempted. The
+  full-profile verifier returned Blocks 0-29 with 0 errors and 0 warnings,
+  verifier tests passed 30/30, `git diff --check` passed, and the Block 20 Stop
+  remained closed.
 - Candidate review posture: Block 20 remains `in-progress` and Blocks 21-29
   remain unopened until a fresh independent exact-revision product, owner,
   recovery, resource-bound, responsive-UI, and Stop review accepts this
