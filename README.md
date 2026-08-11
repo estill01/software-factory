@@ -380,9 +380,12 @@ for the evidence and review boundary.
 The supervision owner can admit one evidence-bound Factory-improvement
 opportunity at three maintained checkpoints: explicit Factory maintenance,
 terminal report verification, and weekly report finalization. The gate derives
-novelty only from supported incident, productive-result, gap, or recurring
-meta-signal records; report identity, prose, checkpoint, and Factory revision
-remain currentness context and cannot manufacture a second opportunity.
+novelty only from supported incident/gap records or independently verified
+observable-outcome completion records, including recurring meta-signals backed
+by two such exact outcomes. A generic positive label or praise-only check is
+not productive evidence. Report identity, prose, checkpoint, and Factory
+revision remain currentness context and cannot manufacture a second
+opportunity.
 
 Unchanged, unsupported, already-consumed, resource-exhausted, or conflicting
 evidence is a deterministic no-op. Fixed mode does not build a packet;

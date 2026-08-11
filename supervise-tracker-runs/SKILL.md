@@ -697,6 +697,11 @@ existing mission, permissions, and resource contract. Repackaged reports,
 overlapping windows, changed checkpoints, unrelated Factory revisions, and
 prose-only themes cannot create novelty. This gate performs no model/reviewer
 call, candidate work, human request, skill edit, or target write.
+Productive evidence must be an exact current `observable-outcome-completion`
+record that passes the existing independent capability-reconciliation contract;
+a generic check, positive category, or praise-only summary is not adjudicating
+evidence. A recurring productive meta-pattern requires at least two such exact
+outcomes.
 
 Use the later explicit `factory-evolution` workflow only after a supported
 admission or when an operator request or maintained plan calls for

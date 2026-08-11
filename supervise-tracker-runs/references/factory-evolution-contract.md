@@ -166,10 +166,11 @@ The gate derives two identities which must not collapse:
 Report IDs, report prose, report hashes, coverage packaging, checkpoint kind,
 and Factory revision cannot create novelty. A report hypothesis nominates a
 signal only when its exact evidence references resolve to canonical gap/failure
-records, a structured productive capability/economy/preservation/owner-method
-result, or a recurring-pattern hypothesis supported by at least two such exact
-records. Praise, frequency, a prose-only positive theme, and an unbound report
-section remain ineligible.
+records or an exact `observable-outcome-completion` record that passes the
+existing independent capability-reconciliation contract. A recurring
+productive meta-pattern requires at least two such exact completion records.
+A generic check, caller-selected positive category, praise, frequency, a
+prose-only positive theme, and an unbound report section remain ineligible.
 
 One target may have at most one active cycle. Repackaged or overlapping reports,
 changed checkpoints, and unrelated Factory revisions return a no-op for the

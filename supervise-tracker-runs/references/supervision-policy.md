@@ -321,6 +321,10 @@ zero-producer no-op; `recommend` is non-authorizing; reviewed/full autonomy may
 admit one current cycle. The gate writes at most the existing prepared packet
 and one content-minimized canonical admission event. It never calls cognition,
 starts a candidate, requests a human, or writes a skill or target repository.
+Productive evidence is limited to exact independently reviewed
+`observable-outcome-completion` records; generic positive labels and prose are
+not adjudicating evidence. Recurring productive meta-patterns require at least
+two exact completion records.
 
 Use the sequence `prepare → finalize → evaluate → verify`:
 

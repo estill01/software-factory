@@ -178,6 +178,30 @@ FACTORY_EVOLUTION_PRODUCTIVE_CATEGORIES = {
     "productive-pattern",
 }
 FACTORY_EVOLUTION_GAP_STATUSES = {"blocked", "failed", "reopened"}
+FACTORY_EVOLUTION_ADMISSION_DISPOSITIONS = {
+    "legacy-policy-disabled",
+    "policy-disabled",
+    "fixed-mode-record-only",
+    "mission-unbound",
+    "factory-scope-unavailable",
+    "permission-ineligible",
+    "unsupported-source-evidence",
+    "event-owner-mismatch",
+    "unsupported-report-nomination",
+    "already-consumed-canonical-coverage",
+    "duplicate-canonical-evidence",
+    "active-cycle-currentness-revalidation-required",
+    "conflicting-active-cycle",
+    "admission-resource-exhausted",
+    "recommendation-only",
+    "admitted",
+    "currentness-changed-during-admission",
+}
+FACTORY_EVOLUTION_SIGNAL_CLASSES = {
+    "supported-gap",
+    "supported-productive-meta-pattern",
+    "supported-productive-result",
+}
 ADAPTIVE_DISPOSITIONS = {
     "continue-unchanged",
     "correct-inline",
@@ -14074,7 +14098,11 @@ def cmd_adaptive_decision_review(args: argparse.Namespace) -> None:
 
 def factory_evolution_admission_source(
     directory: Path, path_value: str | Path, *, report: bool
-) -> tuple[Path, tuple[int, int, int, int, int, int, int]]:
+) -> tuple[
+    Path,
+    tuple[int, int, int, int, int, int, int],
+    tuple[tuple[Path, tuple[int, int, int]], ...],
+]:
     path = Path(path_value)
     if not path.is_absolute():
         raise SupervisionLogError("Factory-evolution admission source must be absolute")
@@ -14099,6 +14127,9 @@ def factory_evolution_admission_source(
             "Factory-evolution admission source path differs"
         )
     current = owner
+    owner_snapshots = [
+        (owner, factory_evolution_admission_owner_identity(owner.lstat()))
+    ]
     for part in relative.parts[:-1]:
         current = current / part
         item_stat = current.lstat()
@@ -14106,29 +14137,16 @@ def factory_evolution_admission_source(
             raise SupervisionLogError(
                 "Factory-evolution admission source owner differs"
             )
-    snapshot = (
-        source_stat.st_dev,
-        source_stat.st_ino,
-        source_stat.st_mode,
-        source_stat.st_nlink,
-        source_stat.st_size,
-        source_stat.st_mtime_ns,
-        source_stat.st_ctime_ns,
-    )
-    return resolved, snapshot
+        owner_snapshots.append(
+            (current, factory_evolution_admission_owner_identity(item_stat))
+        )
+    snapshot = factory_evolution_admission_stat_identity(source_stat)
+    return resolved, snapshot, tuple(owner_snapshots)
 
 
-def factory_evolution_admission_source_snapshot(
-    path: Path,
+def factory_evolution_admission_stat_identity(
+    value: os.stat_result,
 ) -> tuple[int, int, int, int, int, int, int]:
-    try:
-        value = path.lstat()
-    except OSError as exc:
-        raise SupervisionLogError(
-            "Factory-evolution admission source changed"
-        ) from exc
-    if not stat.S_ISREG(value.st_mode):
-        raise SupervisionLogError("Factory-evolution admission source changed")
     return (
         value.st_dev,
         value.st_ino,
@@ -14138,6 +14156,27 @@ def factory_evolution_admission_source_snapshot(
         value.st_mtime_ns,
         value.st_ctime_ns,
     )
+
+
+def factory_evolution_admission_owner_identity(
+    value: os.stat_result,
+) -> tuple[int, int, int]:
+    return (value.st_dev, value.st_ino, value.st_mode)
+
+
+def require_current_factory_evolution_admission_source(
+    directory: Path,
+    source: tuple[
+        Path,
+        tuple[int, int, int, int, int, int, int],
+        tuple[tuple[Path, tuple[int, int, int]], ...],
+    ],
+    *,
+    report: bool,
+) -> None:
+    path, _snapshot, _owners = source
+    if factory_evolution_admission_source(directory, path, report=report) != source:
+        raise SupervisionLogError("Factory-evolution admission source changed")
 
 
 def factory_evolution_target_revision(policy: Mapping[str, Any]) -> tuple[Path, str]:
@@ -14166,7 +14205,10 @@ def factory_evolution_target_revision(policy: Mapping[str, Any]) -> tuple[Path, 
 
 
 def factory_evolution_supported_novelty(
-    packet: Mapping[str, Any]
+    packet: Mapping[str, Any],
+    *,
+    policy: Mapping[str, Any],
+    source_events: Sequence[Mapping[str, Any]],
 ) -> tuple[str | None, dict[str, Any]]:
     evidence = packet.get("evidence")
     if not isinstance(evidence, Mapping):
@@ -14175,6 +14217,15 @@ def factory_evolution_supported_novelty(
         str(item["record_id"]): item
         for item in evidence.get("events", [])
         if isinstance(item, Mapping) and isinstance(item.get("record_id"), str)
+    }
+    productive_record_ids = {
+        str(item.get("record_id"))
+        for item in source_events
+        if assess_outcome_completion_record(
+            item,
+            policy=dict(policy),
+            state_fingerprint=str(item.get("state_fingerprint", "")),
+        )[0]
     }
     supported_records: dict[str, dict[str, str]] = {}
     signal_classes: set[str] = set()
@@ -14200,21 +14251,26 @@ def factory_evolution_supported_novelty(
                 or item.get("status") in FACTORY_EVOLUTION_GAP_STATUSES
             )
         ]
-        productive = all(
-            item.get("kind") in {"check", "checkpoint-review", "resolution"}
-            and item.get("category") in FACTORY_EVOLUTION_PRODUCTIVE_CATEGORIES
-            and item.get("status")
-            in {"completed", "observed", "passed", "resolved", "verified"}
+        productive_records = [
+            item
             for item in records
-        )
+            if str(item.get("record_id")) in productive_record_ids
+        ]
         meta_pattern = (
-            productive
-            and section == "recurring_patterns"
-            and len({str(item["record_sha256"]) for item in records}) >= 2
+            section == "recurring_patterns"
+            and len(
+                {str(item["record_sha256"]) for item in productive_records}
+            )
+            >= 2
         )
-        if not gap_records and not productive:
+        productive_supported = bool(productive_records) and (
+            section != "recurring_patterns" or meta_pattern
+        )
+        if not gap_records and not productive_supported:
             continue
-        adjudicating_records = gap_records if gap_records else records
+        adjudicating_records = (
+            gap_records if gap_records else productive_records
+        )
         nominations += 1
         signal_classes.add(
             "supported-gap"
@@ -14271,10 +14327,20 @@ def factory_evolution_cycle_inventory(directory: Path) -> list[dict[str, Any]]:
         if item.is_symlink() or not item.is_dir():
             raise SupervisionLogError("Factory evolution inventory differs")
         packet = item / "learning-packet.json"
-        if not packet.exists():
+        prepare_manifest = item / "prepare-manifest.json"
+        if not packet.exists() and not prepare_manifest.exists():
             continue
         verify_factory_evolution_inventory(item)
-        verify_factory_evolution_prepare(module, item)
+        if not packet.exists():
+            raise SupervisionLogError(
+                "Factory evolution prepared set lacks its learning packet"
+            )
+        if prepare_manifest.exists():
+            verify_factory_evolution_prepare(module, item)
+        else:
+            factory_evolution_call(
+                module, "verify_learning_packet", read_json(packet)
+            )
         final_names = ("evaluation.json", "machine-report.json", "manifest.json")
         terminal = any((item / name).exists() for name in final_names)
         if terminal:
@@ -14313,19 +14379,14 @@ def factory_evolution_admission_status(
         }
     validate_factory_evolution_admission(configured)
     active_events = mission_scoped_events(directory, policy, all_events)
-    corrections = [
-        item
-        for item in active_events
-        if item.get("kind") == "factory-evolution-admission-currentness-rejected"
-    ]
+    admissions, corrections = factory_evolution_admission_history(active_events)
     corrected_records = {
         str(item.get("supersedes_record_id")) for item in corrections
     }
     admissions = [
         item
-        for item in active_events
-        if item.get("kind") == "factory-evolution-admission"
-        and item.get("record_id") not in corrected_records
+        for item in admissions
+        if item.get("record_id") not in corrected_records
     ]
     corrected_evolution_ids = {
         str(item.get("evolution_id")) for item in corrections
@@ -14585,7 +14646,7 @@ def validate_factory_evolution_admission_result(
         or type(result.get("eligible")) is not bool
         or type(result.get("admission_authorized")) is not bool
         or type(result.get("disposition")) is not str
-        or not result.get("disposition")
+        or result.get("disposition") not in FACTORY_EVOLUTION_ADMISSION_DISPOSITIONS
         or type(result.get("next_revisit_condition")) is not str
         or not result.get("next_revisit_condition")
         or type(result.get("prepared")) is not bool
@@ -14630,7 +14691,7 @@ def validate_factory_evolution_admission_result(
     if (
         type(signal_classes) is not list
         or signal_classes != sorted(set(signal_classes))
-        or any(type(item) is not str or not item for item in signal_classes)
+        or any(item not in FACTORY_EVOLUTION_SIGNAL_CLASSES for item in signal_classes)
     ):
         raise SupervisionLogError("Factory-evolution eligibility signal classes differ")
     expected_summary = (
@@ -14639,7 +14700,345 @@ def validate_factory_evolution_admission_result(
     )
     if result.get("summary") != expected_summary:
         raise SupervisionLogError("Factory-evolution eligibility summary differs")
+    disposition = str(result["disposition"])
+    identities = (
+        result["packet_root"],
+        result["canonical_evidence_novelty_key"],
+        result["context_root"],
+        result["evolution_id"],
+        result["admission_record_id"],
+    )
+    early_no_ops = {
+        "legacy-policy-disabled",
+        "policy-disabled",
+        "fixed-mode-record-only",
+        "mission-unbound",
+        "factory-scope-unavailable",
+        "permission-ineligible",
+    }
+    prior_cycle_no_ops = {
+        "already-consumed-canonical-coverage",
+        "duplicate-canonical-evidence",
+        "active-cycle-currentness-revalidation-required",
+    }
+    new_cycle_no_ops = {
+        "conflicting-active-cycle",
+        "admission-resource-exhausted",
+    }
+    if disposition in early_no_ops:
+        coherent = (
+            result["eligible"] is False
+            and result["admission_authorized"] is False
+            and result["packet_builds"] == 0
+            and identities == (None, None, None, None, None)
+            and result["canonical_record_count"] == 0
+            and signal_classes == []
+            and result["prepared"] is False
+            and result["reused"] is False
+        )
+    elif disposition == "unsupported-source-evidence":
+        coherent = (
+            result["eligible"] is False
+            and result["admission_authorized"] is False
+            and result["packet_builds"] == 1
+            and identities == (None, None, None, None, None)
+            and result["canonical_record_count"] == 0
+            and signal_classes == []
+            and result["prepared"] is False
+            and result["reused"] is False
+        )
+    elif disposition in {"event-owner-mismatch", "unsupported-report-nomination"}:
+        coherent = (
+            result["eligible"] is False
+            and result["admission_authorized"] is False
+            and result["packet_builds"] == 1
+            and result["packet_root"] is not None
+            and identities[1:] == (None, None, None, None)
+            and result["canonical_record_count"] == 0
+            and signal_classes == []
+            and result["prepared"] is False
+            and result["reused"] is False
+        )
+    elif disposition in prior_cycle_no_ops:
+        coherent = (
+            result["eligible"] is False
+            and result["admission_authorized"] is False
+            and result["packet_builds"] == 1
+            and all(item is not None for item in identities)
+            and result["canonical_record_count"] >= 1
+            and bool(signal_classes)
+            and result["prepared"] is False
+            and result["reused"] is True
+        )
+    elif disposition in new_cycle_no_ops:
+        coherent = (
+            result["eligible"] is False
+            and result["admission_authorized"] is False
+            and result["packet_builds"] == 1
+            and all(item is not None for item in identities[:4])
+            and result["admission_record_id"] is None
+            and result["canonical_record_count"] >= 1
+            and bool(signal_classes)
+            and result["prepared"] is False
+            and result["reused"] is False
+        )
+    elif disposition in {"recommendation-only", "admitted"}:
+        coherent = (
+            result["eligible"] is True
+            and result["admission_authorized"]
+            is (disposition == "admitted")
+            and result["packet_builds"] == 1
+            and all(item is not None for item in identities)
+            and result["canonical_record_count"] >= 1
+            and bool(signal_classes)
+            and result["prepared"] is True
+        )
+    else:
+        coherent = (
+            disposition == "currentness-changed-during-admission"
+            and result["eligible"] is False
+            and result["admission_authorized"] is False
+            and result["packet_builds"] == 1
+            and all(item is not None for item in identities)
+            and result["canonical_record_count"] >= 1
+            and bool(signal_classes)
+            and result["prepared"] is True
+        )
+    if not coherent:
+        raise SupervisionLogError("Factory-evolution eligibility semantics differ")
     return dict(value)
+
+
+def validate_factory_evolution_admission_event(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    expected = {
+        "schema_version",
+        "kind",
+        "record_id",
+        "timestamp",
+        "target_thread_id",
+        "policy_sha256",
+        "mission_root",
+        "checkpoint_kind",
+        "adaptive_decision_mode",
+        "disposition",
+        "canonical_evidence_novelty_key",
+        "canonical_record_sha256s",
+        "context_root",
+        "packet_root",
+        "evolution_id",
+        "target_revision",
+        "eligibility_result",
+        "eligibility_result_root",
+        "human_request_count",
+        "model_calls",
+        "reviewer_calls",
+        "previous_record_sha256",
+        "record_sha256",
+    }
+    if not isinstance(value, Mapping) or set(value) != expected:
+        raise SupervisionLogError("Factory-evolution admission event shape differs")
+    event = dict(value)
+    if (
+        type(event.get("schema_version")) is not int
+        or event.get("schema_version") != 1
+        or event.get("kind") != "factory-evolution-admission"
+        or event.get("checkpoint_kind") not in FACTORY_EVOLUTION_ADMISSION_CHECKPOINTS
+        or event.get("adaptive_decision_mode")
+        not in {"recommend", "reviewed-autonomous", "full-autonomous"}
+        or event.get("disposition")
+        != (
+            "recommendation-only"
+            if event.get("adaptive_decision_mode") == "recommend"
+            else "admitted"
+        )
+        or type(event.get("target_revision")) is not str
+        or re.fullmatch(r"[0-9a-f]{40,64}", event["target_revision"]) is None
+        or any(
+            type(event.get(field)) is not int or event.get(field) != 0
+            for field in ("human_request_count", "model_calls", "reviewer_calls")
+        )
+    ):
+        raise SupervisionLogError("Factory-evolution admission event differs")
+    for field in ("record_id", "target_thread_id", "evolution_id"):
+        item = event.get(field)
+        if type(item) is not str:
+            raise SupervisionLogError(
+                f"Factory-evolution admission {field} must be a string"
+            )
+        safe_id(item, label=f"Factory-evolution admission {field}")
+    if type(event.get("timestamp")) is not str:
+        raise SupervisionLogError("Factory-evolution admission timestamp differs")
+    parse_time(event["timestamp"])
+    for field in (
+        "policy_sha256",
+        "mission_root",
+        "canonical_evidence_novelty_key",
+        "context_root",
+        "packet_root",
+        "eligibility_result_root",
+        "record_sha256",
+    ):
+        if type(event.get(field)) is not str:
+            raise SupervisionLogError(
+                f"Factory-evolution admission {field} must be a string"
+            )
+        exact_sha256(event[field], label=f"Factory-evolution admission {field}")
+    previous = event.get("previous_record_sha256")
+    if previous is not None:
+        if type(previous) is not str:
+            raise SupervisionLogError(
+                "Factory-evolution admission previous record must be a string"
+            )
+        exact_sha256(previous, label="Factory-evolution admission previous record")
+    record_hashes = event.get("canonical_record_sha256s")
+    if (
+        type(record_hashes) is not list
+        or not record_hashes
+        or record_hashes != sorted(set(record_hashes))
+        or any(type(item) is not str or SHA256.fullmatch(item) is None for item in record_hashes)
+    ):
+        raise SupervisionLogError("Factory-evolution admission coverage differs")
+    result = validate_factory_evolution_admission_result(
+        event.get("eligibility_result", {})
+    )
+    if (
+        result["result_root"] != event["eligibility_result_root"]
+        or result["checkpoint_kind"] != event["checkpoint_kind"]
+        or result["disposition"] != event["disposition"]
+        or result["packet_root"] != event["packet_root"]
+        or result["canonical_evidence_novelty_key"]
+        != event["canonical_evidence_novelty_key"]
+        or result["context_root"] != event["context_root"]
+        or result["evolution_id"] != event["evolution_id"]
+        or result["admission_record_id"] != event["record_id"]
+        or result["canonical_record_count"] != len(record_hashes)
+    ):
+        raise SupervisionLogError("Factory-evolution admission result binding differs")
+    return event
+
+
+def validate_factory_evolution_admission_correction_event(
+    value: Mapping[str, Any],
+    *,
+    admission: Mapping[str, Any],
+) -> dict[str, Any]:
+    expected = {
+        "schema_version",
+        "kind",
+        "record_id",
+        "timestamp",
+        "target_thread_id",
+        "policy_sha256",
+        "mission_root",
+        "supersedes_record_id",
+        "canonical_evidence_novelty_key",
+        "context_root",
+        "evolution_id",
+        "disposition",
+        "eligibility_result",
+        "eligibility_result_root",
+        "previous_record_sha256",
+        "record_sha256",
+    }
+    if not isinstance(value, Mapping) or set(value) != expected:
+        raise SupervisionLogError(
+            "Factory-evolution admission correction event shape differs"
+        )
+    event = dict(value)
+    for field in ("record_id", "target_thread_id", "evolution_id", "supersedes_record_id"):
+        item = event.get(field)
+        if type(item) is not str:
+            raise SupervisionLogError(
+                f"Factory-evolution admission correction {field} must be a string"
+            )
+        safe_id(item, label=f"Factory-evolution admission correction {field}")
+    if type(event.get("timestamp")) is not str:
+        raise SupervisionLogError("Factory-evolution admission correction timestamp differs")
+    parse_time(event["timestamp"])
+    for field in (
+        "policy_sha256",
+        "mission_root",
+        "canonical_evidence_novelty_key",
+        "context_root",
+        "eligibility_result_root",
+        "record_sha256",
+    ):
+        if type(event.get(field)) is not str:
+            raise SupervisionLogError(
+                f"Factory-evolution admission correction {field} must be a string"
+            )
+        exact_sha256(
+            event[field], label=f"Factory-evolution admission correction {field}"
+        )
+    previous = event.get("previous_record_sha256")
+    if type(previous) is not str:
+        raise SupervisionLogError(
+            "Factory-evolution admission correction previous record differs"
+        )
+    exact_sha256(previous, label="Factory-evolution admission correction previous record")
+    result = validate_factory_evolution_admission_result(
+        event.get("eligibility_result", {})
+    )
+    if (
+        type(event.get("schema_version")) is not int
+        or event.get("schema_version") != 1
+        or event.get("kind")
+        != "factory-evolution-admission-currentness-rejected"
+        or event.get("disposition") != "currentness-rejected"
+        or event.get("supersedes_record_id") != admission.get("record_id")
+        or event.get("target_thread_id") != admission.get("target_thread_id")
+        or event.get("policy_sha256") != admission.get("policy_sha256")
+        or event.get("mission_root") != admission.get("mission_root")
+        or event.get("canonical_evidence_novelty_key")
+        != admission.get("canonical_evidence_novelty_key")
+        or event.get("context_root") != admission.get("context_root")
+        or event.get("evolution_id") != admission.get("evolution_id")
+        or result["result_root"] != event["eligibility_result_root"]
+        or result["checkpoint_kind"] != admission.get("checkpoint_kind")
+        or result["packet_root"] != admission.get("packet_root")
+        or result["canonical_evidence_novelty_key"]
+        != admission.get("canonical_evidence_novelty_key")
+        or result["context_root"] != admission.get("context_root")
+        or result["evolution_id"] != admission.get("evolution_id")
+        or result["admission_record_id"] != event.get("record_id")
+        or result["canonical_record_count"]
+        != admission.get("eligibility_result", {}).get("canonical_record_count")
+        or result["signal_classes"]
+        != admission.get("eligibility_result", {}).get("signal_classes")
+    ):
+        raise SupervisionLogError(
+            "Factory-evolution admission correction binding differs"
+        )
+    return event
+
+
+def factory_evolution_admission_history(
+    active_events: Sequence[Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    admissions: list[dict[str, Any]] = []
+    corrections: list[dict[str, Any]] = []
+    admissions_by_id: dict[str, dict[str, Any]] = {}
+    for item in active_events:
+        kind = item.get("kind")
+        if kind == "factory-evolution-admission":
+            event = validate_factory_evolution_admission_event(item)
+            admissions.append(event)
+            admissions_by_id[event["record_id"]] = event
+        elif kind == "factory-evolution-admission-currentness-rejected":
+            source_id = item.get("supersedes_record_id")
+            source = admissions_by_id.get(str(source_id))
+            if source is None:
+                raise SupervisionLogError(
+                    "Factory-evolution admission correction source is unavailable"
+                )
+            corrections.append(
+                validate_factory_evolution_admission_correction_event(
+                    item, admission=source
+                )
+            )
+    return admissions, corrections
 
 
 def factory_evolution_checkpoint_admission(
@@ -14767,12 +15166,21 @@ def factory_evolution_checkpoint_admission(
         for item in packet.get("sources", {}).get("reports", [])
         if isinstance(item, Mapping)
     }
-    if report_ids != {path.parent.name for path, _snapshot in reports_with_snapshots}:
+    if report_ids != {
+        path.parent.name for path, _snapshot, _owners in reports_with_snapshots
+    }:
         raise SupervisionLogError("Factory-evolution report owner identity differs")
-    for path, snapshot in reports_with_snapshots + events_with_snapshots:
-        if factory_evolution_admission_source_snapshot(path) != snapshot:
-            raise SupervisionLogError("Factory-evolution source changed during packet build")
-    novelty_key, novelty = factory_evolution_supported_novelty(packet)
+    for source in reports_with_snapshots:
+        require_current_factory_evolution_admission_source(
+            directory, source, report=True
+        )
+    for source in events_with_snapshots:
+        require_current_factory_evolution_admission_source(
+            directory, source, report=False
+        )
+    novelty_key, novelty = factory_evolution_supported_novelty(
+        packet, policy=policy, source_events=all_events
+    )
     coverage = novelty["coverage"]
     if novelty_key is None:
         return factory_evolution_admission_result(
@@ -14800,16 +15208,17 @@ def factory_evolution_checkpoint_admission(
     context_root = digest(context_projection)
     evolution_id = f"evolution-auto-{novelty_key[:12]}-{context_root[:12]}"
     active_events = mission_scoped_events(directory, policy, all_events)
+    all_admissions, correction_events = factory_evolution_admission_history(
+        active_events
+    )
     corrections = {
         str(item.get("supersedes_record_id"))
-        for item in active_events
-        if item.get("kind") == "factory-evolution-admission-currentness-rejected"
+        for item in correction_events
     }
     admissions = [
         item
-        for item in active_events
-        if item.get("kind") == "factory-evolution-admission"
-        and item.get("record_id") not in corrections
+        for item in all_admissions
+        if item.get("record_id") not in corrections
     ]
     prior = next(
         (
@@ -14822,8 +15231,7 @@ def factory_evolution_checkpoint_admission(
     inventory = factory_evolution_cycle_inventory(directory)
     corrected_evolution_ids = {
         str(item.get("evolution_id"))
-        for item in active_events
-        if item.get("kind") == "factory-evolution-admission-currentness-rejected"
+        for item in correction_events
     }
     terminal_ids = {
         item["evolution_id"] for item in inventory if item["state"] == "terminal"
@@ -14897,6 +15305,7 @@ def factory_evolution_checkpoint_admission(
             packet_root=str(packet["packet_root"]),
             novelty_key=novelty_key,
             context_root=context_root,
+            evolution_id=evolution_id,
             signal_classes=list(coverage["signal_classes"]),
             canonical_record_count=int(coverage["record_count"]),
             packet_builds=1,
@@ -14911,6 +15320,7 @@ def factory_evolution_checkpoint_admission(
             packet_root=str(packet["packet_root"]),
             novelty_key=novelty_key,
             context_root=context_root,
+            evolution_id=evolution_id,
             signal_classes=list(coverage["signal_classes"]),
             canonical_record_count=int(coverage["record_count"]),
             packet_builds=1,
@@ -14958,6 +15368,7 @@ def factory_evolution_checkpoint_admission(
         "packet_root": packet["packet_root"],
         "evolution_id": evolution_id,
         "target_revision": target_revision,
+        "eligibility_result": result,
         "eligibility_result_root": result["result_root"],
         "human_request_count": 0,
         "model_calls": 0,
@@ -14983,11 +15394,14 @@ def factory_evolution_checkpoint_admission(
             raise SupervisionLogError(
                 "Factory-evolution target changed; retry current admission state"
             )
-        for path, snapshot in reports_with_snapshots + events_with_snapshots:
-            if factory_evolution_admission_source_snapshot(path) != snapshot:
-                raise SupervisionLogError(
-                    "Factory-evolution source changed; retry current admission state"
-                )
+        for source in reports_with_snapshots:
+            require_current_factory_evolution_admission_source(
+                directory, source, report=True
+            )
+        for source in events_with_snapshots:
+            require_current_factory_evolution_admission_source(
+                directory, source, report=False
+            )
         write_result = write_factory_evolution_set(
             evolution_directory,
             {
@@ -14995,10 +15409,11 @@ def factory_evolution_checkpoint_admission(
                 "prepare-manifest.json": prepare_manifest,
             },
         )
-        result["reused"] = not bool(write_result["written"])
+        result["reused"] = bool(write_result["reused"])
         result["result_root"] = digest(
             {key: value for key, value in result.items() if key != "result_root"}
         )
+        event["eligibility_result"] = result
         event["eligibility_result_root"] = result["result_root"]
         previous = str(current_events[-1]["record_sha256"]) if current_events else None
         append_raw_locked_at(
@@ -15013,10 +15428,13 @@ def factory_evolution_checkpoint_admission(
             Path("events.jsonl"), directory_fd=directory_fd
         )
         changed = factory_evolution_target_revision(policy)[1] != target_revision
-        changed = changed or any(
-            factory_evolution_admission_source_snapshot(path) != snapshot
-            for path, snapshot in reports_with_snapshots
-        )
+        try:
+            for source in reports_with_snapshots:
+                require_current_factory_evolution_admission_source(
+                    directory, source, report=True
+                )
+        except SupervisionLogError:
+            changed = True
         if changed:
             correction_id = f"EVT-{len(written_events) + 1:06d}"
             correction_result = factory_evolution_admission_result(
@@ -15048,6 +15466,7 @@ def factory_evolution_checkpoint_admission(
                 "context_root": context_root,
                 "evolution_id": evolution_id,
                 "disposition": "currentness-rejected",
+                "eligibility_result": correction_result,
                 "eligibility_result_root": correction_result["result_root"],
             }
             append_raw_locked_at(

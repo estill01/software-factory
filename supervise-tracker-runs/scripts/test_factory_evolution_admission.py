@@ -125,24 +125,59 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
         current = supervision_log.events(self.directory / "events.jsonl")
         record_id = f"EVT-{len(current) + 1:06d}"
         policy = supervision_log.read_json(self.directory / "policy.json")
+        productive = (
+            kind in {"check", "checkpoint-review", "resolution"}
+            and category in supervision_log.FACTORY_EVOLUTION_PRODUCTIVE_CATEGORIES
+        )
+        mission = supervision_log.bound_mission(policy)
+        assert mission is not None
+        record_kind = "check" if productive else kind
+        record_status = "verified" if productive else status
+        record_category = (
+            supervision_log.OUTCOME_COMPLETION_CATEGORY if productive else category
+        )
+        record: dict[str, object] = {
+            "schema_version": 1,
+            "kind": record_kind,
+            "record_id": record_id,
+            "target_thread_id": self.target_thread,
+            "timestamp": f"2026-08-11T12:00:{len(current):02d}+00:00",
+            "status": record_status,
+            "severity": "info",
+            "category": record_category,
+            "active_block": "Block 12",
+            "checkpoint": "factory-evolution-admission",
+            "summary": summary,
+            "resolution": "Current canonical evidence retained.",
+            "evidence": ["test-evidence-1234"],
+            "policy_sha256": policy["policy_sha256"],
+        }
+        if productive:
+            state_fingerprint = f"factory-state-{len(current):04d}"
+            record.update(
+                {
+                    "model": supervision_log.outcome_completion_contract()[
+                        "reviewer_model"
+                    ],
+                    "reasoning": "xhigh",
+                    "state_fingerprint": state_fingerprint,
+                    "mission_root": mission["mission_root"],
+                    "capability_reconciliation_reviewer_id": policy["runtime"][
+                        "base_reviewer_thread_id"
+                    ],
+                    "capability_reconciliation_implementation_owner_id": self.target_thread,
+                    "capability_reconciliation_revision": self.git("rev-parse", "HEAD"),
+                    "capability_reconciliation_posture": "verified",
+                    "capability_reconciliation_gap_count": 0,
+                }
+            )
+            for field in supervision_log.OUTCOME_COMPLETION_HASH_FIELDS:
+                record[field] = supervision_log.digest(
+                    {"record_id": record_id, "field": field}
+                )
         supervision_log.append_raw(
             self.directory / "events.jsonl",
-            {
-                "schema_version": 1,
-                "kind": kind,
-                "record_id": record_id,
-                "target_thread_id": self.target_thread,
-                "timestamp": f"2026-08-11T12:00:{len(current):02d}+00:00",
-                "status": status,
-                "severity": "info",
-                "category": category,
-                "active_block": "Block 12",
-                "checkpoint": "factory-evolution-admission",
-                "summary": summary,
-                "resolution": "Current canonical evidence retained.",
-                "evidence": ["test-evidence-1234"],
-                "policy_sha256": policy["policy_sha256"],
-            },
+            record,
         )
         return record_id
 
@@ -151,7 +186,7 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
         record_ids: list[str],
         *,
         name: str,
-        section: str = "recurring_patterns",
+        section: str = "resource_efficiency",
         assessment: str = "A bounded productive Factory pattern is supported.",
     ) -> Path:
         records = supervision_log.events(self.directory / "events.jsonl")
@@ -225,6 +260,24 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
         mission = supervision_log.bound_mission(policy)
         assert mission is not None
         record_id = f"EVT-{len(current) + 1:06d}"
+        eligibility = supervision_log.factory_evolution_admission_result(
+            checkpoint_kind="explicit-factory-maintenance",
+            eligible=True,
+            admission_authorized=True,
+            disposition="admitted",
+            next_revisit_condition=(
+                "the prepared packet enters its separately governed review path"
+            ),
+            packet_root="c" * 64,
+            novelty_key=novelty_key,
+            context_root=context_root,
+            evolution_id=evolution_id,
+            admission_record_id=record_id,
+            signal_classes=["supported-productive-result"],
+            canonical_record_count=len(record_hashes),
+            packet_builds=1,
+            prepared=True,
+        )
         supervision_log.append_raw(
             self.directory / "events.jsonl",
             {
@@ -244,7 +297,8 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
                 "packet_root": "c" * 64,
                 "evolution_id": evolution_id,
                 "target_revision": self.git("rev-parse", "HEAD"),
-                "eligibility_result_root": "d" * 64,
+                "eligibility_result": eligibility,
+                "eligibility_result_root": eligibility["result_root"],
                 "human_request_count": 0,
                 "model_calls": 0,
                 "reviewer_calls": 0,
@@ -368,18 +422,18 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
             summary="Canonical Factory evidence exposes a bounded gap.",
         )
         gap_packet = self.packet_for(self.write_report([incident], name="gap"))
-        gap_key, gap = supervision_log.factory_evolution_supported_novelty(gap_packet)
+        gap_key, gap = self.novelty(gap_packet)
         self.assertIsNotNone(gap_key)
         self.assertIn("supported-gap", gap["coverage"]["signal_classes"])
 
         first = self.append_event(category="productive-pattern")
         second = self.append_event(category="capability-preserved")
         meta_packet = self.packet_for(
-            self.write_report([first, second], name="meta")
+            self.write_report(
+                [first, second], name="meta", section="recurring_patterns"
+            )
         )
-        meta_key, meta = supervision_log.factory_evolution_supported_novelty(
-            meta_packet
-        )
+        meta_key, meta = self.novelty(meta_packet)
         self.assertIsNotNone(meta_key)
         self.assertIn(
             "supported-productive-meta-pattern",
@@ -401,12 +455,8 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
         gap_with_context = self.packet_for(
             self.write_report([incident, unrelated], name="gap-with-context")
         )
-        first_key, first_projection = (
-            supervision_log.factory_evolution_supported_novelty(gap_only)
-        )
-        second_key, second_projection = (
-            supervision_log.factory_evolution_supported_novelty(gap_with_context)
-        )
+        first_key, first_projection = self.novelty(gap_only)
+        second_key, second_projection = self.novelty(gap_with_context)
         self.assertEqual(first_key, second_key)
         self.assertEqual(
             first_projection["coverage"]["record_sha256s"],
@@ -415,6 +465,25 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
 
         first = self.append_event(category="productive-pattern")
         second = self.append_event(category="capability-preserved")
+        productive_only = self.packet_for(
+            self.write_report(
+                [first], name="productive-only", section="resource_efficiency"
+            )
+        )
+        productive_with_context = self.packet_for(
+            self.write_report(
+                [first, unrelated],
+                name="productive-with-context",
+                section="resource_efficiency",
+            )
+        )
+        productive_key, _productive_projection = self.novelty(productive_only)
+        contextual_key, contextual_projection = self.novelty(
+            productive_with_context
+        )
+        self.assertEqual(productive_key, contextual_key)
+        self.assertEqual(contextual_projection["coverage"]["record_count"], 1)
+
         recurring = self.packet_for(
             self.write_report([first, second], name="recurring")
         )
@@ -423,12 +492,8 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
                 [first, second], name="efficiency", section="resource_efficiency"
             )
         )
-        recurring_key, _recurring_projection = (
-            supervision_log.factory_evolution_supported_novelty(recurring)
-        )
-        efficiency_key, _efficiency_projection = (
-            supervision_log.factory_evolution_supported_novelty(efficiency)
-        )
+        recurring_key, _recurring_projection = self.novelty(recurring)
+        efficiency_key, _efficiency_projection = self.novelty(efficiency)
         self.assertEqual(recurring_key, efficiency_key)
 
     def test_reviewed_autonomous_may_admit_without_review_or_candidate_work(self) -> None:
@@ -446,9 +511,7 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
         record_id = self.append_event()
         report = self.write_report([record_id], name="consumed-source")
         packet = self.packet_for(report)
-        novelty_key, novelty = supervision_log.factory_evolution_supported_novelty(
-            packet
-        )
+        novelty_key, novelty = self.novelty(packet)
         assert novelty_key is not None
         hashes = novelty["coverage"]["record_sha256s"]
         self.append_prior_admission(
@@ -486,6 +549,15 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
             report_paths=[report], event_paths=[self.directory / "events.jsonl"]
         )
 
+    def novelty(
+        self, packet: dict[str, object]
+    ) -> tuple[str | None, dict[str, object]]:
+        return supervision_log.factory_evolution_supported_novelty(
+            packet,
+            policy=supervision_log.read_json(self.directory / "policy.json"),
+            source_events=supervision_log.events(self.directory / "events.jsonl"),
+        )
+
     def test_report_only_theme_is_ineligible_and_writes_nothing(self) -> None:
         record_id = self.append_event(
             kind="notification",
@@ -503,6 +575,31 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
                 for item in supervision_log.events(self.directory / "events.jsonl")
             )
         )
+
+    def test_generic_productive_label_is_not_adjudicating_evidence(self) -> None:
+        recorded = self.command(
+            [
+                "record",
+                "--target-thread",
+                self.target_thread,
+                "--kind",
+                "check",
+                "--status",
+                "observed",
+                "--category",
+                "productive-pattern",
+                "--summary",
+                "Everything looks excellent.",
+            ]
+        )
+        record_id = str(recorded["record"]["record_id"])
+        result = self.admit(
+            self.write_report(
+                [record_id], name="generic-positive-label", section="resource_efficiency"
+            )
+        )
+        self.assertFalse(result["eligible"])
+        self.assertEqual(result["disposition"], "unsupported-report-nomination")
 
     def test_conflicting_active_cycle_rejects_a_distinct_novelty(self) -> None:
         first = self.append_event()
@@ -539,7 +636,29 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
             supervision_log, "factory_evolution_call", side_effect=changed
         ):
             with self.assertRaisesRegex(
-                supervision_log.SupervisionLogError, "changed during packet build"
+                supervision_log.SupervisionLogError, "admission source changed"
+            ):
+                self.admit(report)
+
+    def test_source_owner_change_during_packet_build_is_rejected(self) -> None:
+        record_id = self.append_event()
+        report = self.write_report([record_id], name="owner-currentness")
+        original = supervision_log.factory_evolution_call
+
+        def changed(module: object, name: str, *args: object, **kwargs: object) -> object:
+            result = original(module, name, *args, **kwargs)
+            if name == "build_learning_packet":
+                moved = self.root / "moved-weekly-report"
+                report.parent.rename(moved)
+                report.parent.symlink_to(moved, target_is_directory=True)
+            return result
+
+        with mock.patch.object(
+            supervision_log, "factory_evolution_call", side_effect=changed
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "outside its owner|source path differs|source changed",
             ):
                 self.admit(report)
 
@@ -583,6 +702,39 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
             ),
             1,
         )
+
+    def test_interrupted_prepare_set_completes_from_the_exact_packet(self) -> None:
+        record_id = self.append_event()
+        report = self.write_report([record_id], name="prepare-interruption")
+        original = supervision_log.atomic_json
+        failed = False
+
+        def interrupted(path: Path, value: object) -> None:
+            nonlocal failed
+            if path.name == "prepare-manifest.json" and not failed:
+                failed = True
+                raise supervision_log.SupervisionLogError(
+                    "simulated prepare-set interruption"
+                )
+            original(path, value)
+
+        with mock.patch.object(
+            supervision_log, "atomic_json", side_effect=interrupted
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "prepare-set interruption"
+            ):
+                self.admit(report)
+        evolution_root = self.directory / "learning" / "factory-evolution"
+        prepared = list(evolution_root.iterdir())
+        self.assertEqual(len(prepared), 1)
+        self.assertTrue((prepared[0] / "learning-packet.json").is_file())
+        self.assertFalse((prepared[0] / "prepare-manifest.json").exists())
+
+        recovered = self.admit(report)
+        self.assertTrue(recovered["eligible"])
+        self.assertTrue(recovered["reused"])
+        self.assertTrue((prepared[0] / "prepare-manifest.json").is_file())
 
     def test_post_append_target_change_records_currentness_rejection(self) -> None:
         record_id = self.append_event()
@@ -670,6 +822,58 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
             with self.assertRaises(supervision_log.SupervisionLogError):
                 supervision_log.validate_factory_evolution_admission_result(changed)
 
+        impossible = supervision_log.factory_evolution_admission_result(
+            checkpoint_kind="explicit-factory-maintenance",
+            eligible=True,
+            admission_authorized=True,
+            disposition="admitted",
+            next_revisit_condition="canonical evidence changes",
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "semantics differ"
+        ):
+            supervision_log.validate_factory_evolution_admission_result(impossible)
+
+        invented = supervision_log.factory_evolution_admission_result(
+            checkpoint_kind="explicit-factory-maintenance",
+            eligible=True,
+            admission_authorized=True,
+            disposition="invented-authoritative-state",
+            next_revisit_condition="canonical evidence changes",
+        )
+        with self.assertRaises(supervision_log.SupervisionLogError):
+            supervision_log.validate_factory_evolution_admission_result(invented)
+
+    def test_reserved_admission_event_kind_requires_its_exact_schema(self) -> None:
+        record_id = self.append_event()
+        admitted = self.admit(self.write_report([record_id], name="reserved-kind"))
+        policy = supervision_log.read_json(self.directory / "policy.json")
+        mission = supervision_log.bound_mission(policy)
+        assert mission is not None
+        current = supervision_log.events(self.directory / "events.jsonl")
+        supervision_log.append_raw(
+            self.directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "kind": "factory-evolution-admission-currentness-rejected",
+                "record_id": f"EVT-{len(current) + 1:06d}",
+                "timestamp": "2026-08-11T12:59:00+00:00",
+                "target_thread_id": self.target_thread,
+                "policy_sha256": policy["policy_sha256"],
+                "mission_root": mission["mission_root"],
+                "supersedes_record_id": admitted["admission_record_id"],
+                "evolution_id": admitted["evolution_id"],
+            },
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "correction event shape differs"
+        ):
+            supervision_log.factory_evolution_admission_status(
+                self.directory,
+                policy,
+                supervision_log.events(self.directory / "events.jsonl"),
+            )
+
     def test_weekly_finalization_retains_a_non_authoritative_summary(self) -> None:
         report_id = "weekly-integration-" + "1" * 12
         report_directory = self.directory / "reports" / "weekly" / report_id
@@ -698,7 +902,7 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
             checkpoint_kind="weekly-report-finalization",
             eligible=False,
             admission_authorized=False,
-            disposition="unsupported-report-nomination",
+            disposition="fixed-mode-record-only",
             next_revisit_condition="canonical evidence changes",
         )
 

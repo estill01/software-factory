@@ -150,6 +150,8 @@ class FactoryEvolutionContractTests(unittest.TestCase):
         self.assertIn("does not call a model", normalized)
         self.assertIn("does not start cognitive review", normalized)
         self.assertIn("does not create a candidate", normalized)
+        self.assertIn("observable-outcome-completion", normalized)
+        self.assertIn("a generic check", normalized)
 
 
 class FactoryEvolutionCliTests(unittest.TestCase):
