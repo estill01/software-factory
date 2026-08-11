@@ -5418,6 +5418,23 @@ rows. Widen only for an explicit exact active-claim drill-down.
   recovered catalog enumeration are lower-bound/partial; and an unknown
   project URL renders the known tracker set. Successor exact-review outcome:
   pending.
+- Rejected successor review: independent audit rejected evidence revision
+  `82990f0d56975d471edbe1b5f4b03d5931f7cd10` on one remaining currentness
+  edge: an idle task on an otherwise completed or stopped supervision row
+  could still contribute its historical `None active` task claim and create a
+  false conflict. The terminal/completed fixture did not exercise that edge;
+  every other rejected row was confirmed closed.
+- Currentness successor: commit
+  `81a3ba98471cdbbe7ade92b675d89d4d2f5f2539`, tree
+  `b1b53f18a10b06ceba42746981e598f9ea12593f`, parent rejected evidence
+  `82990f0d56975d471edbe1b5f4b03d5931f7cd10`, pushed at local/upstream
+  `0 0`. One shared predicate now admits a task claim only when the task is
+  active/idle and its supervision lifecycle is neither completed nor stopped;
+  supervision claims use their separate current-state predicate. The focused
+  tracker workspace passed 15/15, the production build and diff check passed,
+  and the adversarial fixture now adds both idle/completed and idle/stopped
+  historical rows beside current Block 1 without changing its exact posture.
+  Exact-review outcome: pending.
 
 ### Stop
 
