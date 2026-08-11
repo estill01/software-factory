@@ -2413,6 +2413,23 @@ delta, and a local correction incorrectly escalated to structural change.
   `a01417376b458325b6554ab6007d2a7d145a785d`, Git blob
   `fa3b0d6cbd599c3edbffa5eb1326d6758870e150`, and SHA-256
   `dc87fde4b7fe4017a82426ad0199dd2ef226eb8d9a658d348ec0aea6ea2dd424`.
+- Rejected integrated candidate
+  `f0bba10d9ae7efcdd9181f52551a0687b59a25ac` retains finding `B8-F12`.
+  Invariant: exact range-source bytes and mission-root correction require
+  independently owned provenance. Input: a caller-created ordinary event with
+  source tuple, byte-count, and SHA claims plus a separately named runtime
+  reviewer. Expected: rejection before source ingestion. Verification evidence:
+  the public path accepted the source, receipt, and exact-root conversion
+  without an independently signed review. The correction removes the caller
+  reviewer input, requires one bounded canonical source-review object signed by
+  the sealed reviewer key, binds its exact source/tuple/policy/disposition and
+  zero findings, retains the full signed payload in the canonical event, and
+  re-verifies it on receipt and mission conversion. Corrective source
+  `bca4f4fadb6c9b60e3c4e61102f8f31056d0b18b` passes focused
+  source-ingestion and implementation-range coverage `26/26`, authoring
+  `42/42`, implementation `69/69`, supervision `305/305`, release `17/17`, all
+  three fixed validators, the full 18-Block tracker verifier, compilation, and
+  diff checks; exact-revision review remains pending.
 - Block 8 remains `in-progress`; exact source acceptance, release, activation,
   installed outcome, and final completion evidence are pending.
 
