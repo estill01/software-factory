@@ -7,6 +7,7 @@ import base64
 import hashlib
 import io
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -132,9 +133,8 @@ class CandidateCutoverContractTests(unittest.TestCase):
             text=True,
         ).stdout.strip()
 
-    def _init_supervision(self) -> None:
+    def _init_supervision(self, source_text: str = "Implement this tracker.") -> None:
         module = cutover._supervision_module()
-        source_text = "Implement this tracker."
         source_sha = hashlib.sha256(source_text.encode()).hexdigest()
         init = module.parser().parse_args(
             [
@@ -206,6 +206,7 @@ class CandidateCutoverContractTests(unittest.TestCase):
             "target_head": proposal["target_head"],
             "target_state_root": proposal["target_state_root"],
             "tracker_program_root": proposal["tracker_program_root"],
+            "implementation_range_root": proposal["implementation_range_root"],
             "proof_before_root": proposal["proof_reconciliation"]["before_graph_root"],
             "proof_after_root": proposal["proof_reconciliation"]["after_graph_root"],
             "reviewer_id": "software-factory-release-reviewer-v1",
@@ -261,6 +262,14 @@ class CandidateCutoverContractTests(unittest.TestCase):
         self.assertEqual(self._git("rev-parse", f"{prepared['prepared_commit']}^"), self.base_head)
         self.assertEqual(review["proposal_root"], prepared["proposal_root"])
         self.assertEqual(review["integration_diff_root"], prepared["integration_diff_root"])
+        self.assertEqual(
+            review["implementation_range_root"],
+            proposal["supervision_context"]["implementation_range_root"],
+        )
+        self.assertEqual(
+            proposal["supervision_context"]["implementation_range"]["eligible_blocks"],
+            [9],
+        )
         self.assertEqual(proposal["accepted_target_revision_root"], cutover.load_accepted_bundle()["handoff"]["target_revision_root"])
         self.assertEqual(proposal["accepted_incumbent_path"], "/software-factory-candidate-target/stream_export.py")
         self.assertEqual(proposal["target_repository_root"], str(self.target))
@@ -272,7 +281,17 @@ class CandidateCutoverContractTests(unittest.TestCase):
         (self.target / "unstaged.txt").write_text("kept unstaged\n", encoding="utf-8")
         (self.target / "untracked.txt").write_text("kept untracked\n", encoding="utf-8")
         dirty_before = self._git("status", "--short", "--", "staged.txt", "unstaged.txt", "untracked.txt")
-        result = cutover.apply_cutover(self.target, self.tracker, review)
+        producer_calls = 0
+        producer = cutover._run_observable_effect
+
+        def count_effect(source: bytes, exercise: dict[str, object]) -> dict[str, object]:
+            nonlocal producer_calls
+            producer_calls += 1
+            return producer(source, exercise)
+
+        with mock.patch.object(cutover, "_run_observable_effect", side_effect=count_effect):
+            result = cutover.apply_cutover(self.target, self.tracker, review)
+            duplicate = cutover.apply_cutover(self.target, self.tracker, review)
         self.assertEqual(result["action"], "cutover-applied")
         self.assertTrue(result["candidate_authoritative"])
         self.assertFalse(result["incumbent_authoritative"])
@@ -287,10 +306,13 @@ class CandidateCutoverContractTests(unittest.TestCase):
             self._git("status", "--short", "--", "staged.txt", "unstaged.txt", "untracked.txt"),
             dirty_before,
         )
-        duplicate = cutover.apply_cutover(self.target, self.tracker, review)
         self.assertTrue(duplicate["duplicate"])
         self.assertEqual(duplicate["execution_key"], result["execution_key"])
         self.assertEqual(duplicate["next_action"], result["next_action"])
+        self.assertEqual(duplicate["continuation_root"], result["continuation_root"])
+        self.assertEqual(duplicate["continuation_state"], "work-started")
+        self.assertEqual(duplicate["continuation_start_count"], 1)
+        self.assertEqual(producer_calls, 1)
 
     def test_affected_staged_work_rejects_before_preparation(self) -> None:
         incumbent = (self.target / self.relative).read_bytes()
@@ -300,6 +322,15 @@ class CandidateCutoverContractTests(unittest.TestCase):
         with self.assertRaisesRegex(cutover.CutoverError, "index contains user changes"):
             self._prepare()
         self.assertEqual(self._git("rev-parse", "HEAD"), self.base_head)
+
+    def test_unrelated_canonical_range_rejects_before_proposal(self) -> None:
+        shutil.rmtree(self.supervision_root)
+        self._init_supervision("Implement Block 1.")
+        with self.assertRaisesRegex(
+            cutover.CutoverError, "implementation range does not own Block 9"
+        ):
+            self._prepare()
+        self.assertFalse(cutover._proposal_path(self.target).exists())
 
     def test_missing_or_changed_canonical_supervision_context_rejects(self) -> None:
         empty = self.root / "empty-supervision"
@@ -317,7 +348,7 @@ class CandidateCutoverContractTests(unittest.TestCase):
         self.assertEqual(self._git("rev-parse", "HEAD"), self.base_head)
         self.assertNotEqual(prepared["prepared_commit"], self.base_head)
 
-    def test_changed_future_contract_routes_to_block8_without_target_write(self) -> None:
+    def test_unaccepted_future_contract_change_rejects_without_target_write(self) -> None:
         prepared, review = self._reviewed()
         text = self.tracker.read_text(encoding="utf-8")
         self.tracker.write_text(
@@ -328,9 +359,10 @@ class CandidateCutoverContractTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        result = cutover.apply_cutover(self.target, self.tracker, review)
-        self.assertEqual(result["action"], "route-block-8")
-        self.assertFalse(result["application_authorized"])
+        with self.assertRaisesRegex(
+            cutover.CutoverError, "canonical supervision context"
+        ):
+            cutover.apply_cutover(self.target, self.tracker, review)
         self.assertEqual(self._git("rev-parse", "HEAD"), self.base_head)
         self.assertNotEqual(prepared["prepared_commit"], self.base_head)
 
@@ -349,17 +381,19 @@ class CandidateCutoverContractTests(unittest.TestCase):
 
     def test_pre_ref_oserror_restores_exact_incumbent_and_index(self) -> None:
         _prepared, review = self._reviewed()
-        original = cutover._write_atomic
+        original = cutover._write_atomic_if_unchanged
         calls = 0
 
-        def fail_second(path: Path, raw: bytes) -> None:
+        def fail_second(path: Path, expected: bytes, raw: bytes) -> None:
             nonlocal calls
             calls += 1
             if calls == 2:
                 raise OSError("fixture write failure")
-            original(path, raw)
+            original(path, expected, raw)
 
-        with mock.patch.object(cutover, "_write_atomic", side_effect=fail_second):
+        with mock.patch.object(
+            cutover, "_write_atomic_if_unchanged", side_effect=fail_second
+        ):
             with self.assertRaisesRegex(cutover.CutoverError, "write failed"):
                 cutover.apply_cutover(self.target, self.tracker, review)
         _full, _relative, incumbent = cutover._artifact_file(
@@ -368,6 +402,24 @@ class CandidateCutoverContractTests(unittest.TestCase):
         self.assertEqual((self.target / self.relative).read_bytes(), incumbent)
         self.assertEqual(self._git("rev-parse", "HEAD"), self.base_head)
         self.assertEqual(self._git("status", "--short", "--", self.relative, cutover.PROOF_RELATIVE), "")
+
+    def test_changed_affected_bytes_at_write_boundary_are_preserved(self) -> None:
+        _prepared, review = self._reviewed()
+        original = cutover._write_atomic_if_unchanged
+        changed = b"# concurrent caller bytes\n"
+
+        def change_before_replace(path: Path, expected: bytes, raw: bytes) -> None:
+            if path == self.target / self.relative:
+                path.write_bytes(changed)
+            original(path, expected, raw)
+
+        with mock.patch.object(
+            cutover, "_write_atomic_if_unchanged", side_effect=change_before_replace
+        ):
+            with self.assertRaisesRegex(cutover.CutoverError, "bytes changed"):
+                cutover.apply_cutover(self.target, self.tracker, review)
+        self.assertEqual((self.target / self.relative).read_bytes(), changed)
+        self.assertEqual(self._git("rev-parse", "HEAD"), self.base_head)
 
     def test_post_ref_and_post_effect_interruptions_recover_without_false_state(self) -> None:
         prepared, review = self._reviewed()
@@ -391,6 +443,76 @@ class CandidateCutoverContractTests(unittest.TestCase):
         recovered = cutover.apply_cutover(self.target, self.tracker, review)
         self.assertTrue(recovered["duplicate"])
         self.assertTrue(cutover._outcome_path(self.target).is_file())
+
+    def test_missing_review_copy_is_repaired_without_repeating_effect(self) -> None:
+        _prepared, review = self._reviewed()
+        producer = cutover._run_observable_effect
+        producer_calls = 0
+        retain = cutover._retain_review_copy
+        retain_calls = 0
+
+        def count_effect(source: bytes, exercise: dict[str, object]) -> dict[str, object]:
+            nonlocal producer_calls
+            producer_calls += 1
+            return producer(source, exercise)
+
+        def fail_first_copy(repo: Path, record: dict[str, object]) -> None:
+            nonlocal retain_calls
+            retain_calls += 1
+            if retain_calls == 1:
+                raise OSError("fixture review-copy interruption")
+            retain(repo, record)
+
+        with mock.patch.object(cutover, "_run_observable_effect", side_effect=count_effect):
+            with mock.patch.object(cutover, "_retain_review_copy", side_effect=fail_first_copy):
+                with self.assertRaisesRegex(cutover.CutoverError, "owner cutover failed"):
+                    cutover.apply_cutover(self.target, self.tracker, review)
+            self.assertTrue(cutover._outcome_path(self.target).is_file())
+            self.assertFalse(cutover._review_copy_path(self.target).exists())
+            recovered = cutover.apply_cutover(self.target, self.tracker, review)
+        self.assertTrue(recovered["duplicate"])
+        self.assertTrue(cutover._review_copy_path(self.target).is_file())
+        self.assertEqual(producer_calls, 1)
+
+    def test_continuation_start_rehydrates_after_interrupted_return(self) -> None:
+        _prepared, review = self._reviewed()
+        with self.assertRaisesRegex(cutover.CutoverError, "after continuation start"):
+            cutover.apply_cutover(
+                self.target,
+                self.tracker,
+                review,
+                failpoint="after-continuation-start",
+            )
+        retained = cutover._rooted(
+            cutover._load_json(cutover._continuation_path(self.target)),
+            "continuation_root",
+            "cutover continuation",
+        )
+        recovered = cutover.apply_cutover(self.target, self.tracker, review)
+        self.assertEqual(recovered["continuation_root"], retained["continuation_root"])
+        self.assertEqual(recovered["continuation_state"], "work-started")
+        self.assertEqual(recovered["continuation_start_count"], 1)
+
+    def test_tracker_change_during_effect_withholds_acceptance_and_rolls_back(self) -> None:
+        _prepared, review = self._reviewed()
+        producer = cutover._run_observable_effect
+
+        def change_program(source: bytes, exercise: dict[str, object]) -> dict[str, object]:
+            result = producer(source, exercise)
+            text = self.tracker.read_text(encoding="utf-8")
+            self.tracker.write_text(
+                text.replace("## Block 10 —", "## Block 10 — changed ", 1),
+                encoding="utf-8",
+            )
+            return result
+
+        with mock.patch.object(cutover, "_run_observable_effect", side_effect=change_program):
+            with self.assertRaisesRegex(
+                cutover.CutoverError, "canonical supervision context|current context"
+            ):
+                cutover.apply_cutover(self.target, self.tracker, review)
+        self.assertEqual(self._git("rev-parse", "HEAD"), self.base_head)
+        self.assertFalse(cutover._outcome_path(self.target).exists())
 
     def test_committed_target_change_during_effect_never_yields_authoritative_result(self) -> None:
         _prepared, review = self._reviewed()
@@ -434,6 +556,33 @@ class CandidateCutoverContractTests(unittest.TestCase):
             result["proof_reconciliation"]["invalidated_proof_ids"],
         )
         self.assertEqual(result["integration_commit"], prepared["prepared_commit"])
+
+    def test_current_proof_cannot_depend_on_stale_proof(self) -> None:
+        proof = cutover._load_json(self.proof_path)
+        proof["records"].extend(
+            [
+                {
+                    "proof_id": "stale-incumbent-proof",
+                    "subject_root": cutover.load_accepted_bundle()["handoff"]["incumbent_root"],
+                    "depends_on": [],
+                    "currentness": "stale",
+                },
+                {
+                    "proof_id": "current-dependent-on-stale",
+                    "subject_root": "f" * 64,
+                    "depends_on": ["stale-incumbent-proof"],
+                    "currentness": "current",
+                },
+            ]
+        )
+        proof["records"] = sorted(proof["records"], key=lambda item: item["proof_id"])
+        material = {key: value for key, value in proof.items() if key != "graph_root"}
+        proof["graph_root"] = cutover.object_root(material)
+        self.proof_path.write_bytes(cutover._json_bytes(proof))
+        self._git("add", "--", cutover.PROOF_RELATIVE)
+        self._git("commit", "-q", "-m", "Add incoherent target proof")
+        with self.assertRaisesRegex(cutover.CutoverError, "depends on stale"):
+            self._prepare()
 
 
 if __name__ == "__main__":

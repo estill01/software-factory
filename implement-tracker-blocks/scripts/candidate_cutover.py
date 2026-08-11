@@ -169,6 +169,52 @@ def _write_atomic(path: Path, raw: bytes) -> None:
             os.unlink(temporary)
 
 
+def _write_atomic_if_unchanged(path: Path, expected: bytes, raw: bytes) -> None:
+    """Replace one owned file without overwriting bytes that arrived after snapshot."""
+
+    if path.is_symlink() or not path.is_file():
+        raise CutoverError("affected target path changed before reviewed write")
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    mode = stat.S_IMODE(path.stat().st_mode)
+    backup_descriptor, backup_name = tempfile.mkstemp(
+        prefix=f".{path.name}.previous.", dir=str(path.parent)
+    )
+    os.close(backup_descriptor)
+    os.unlink(backup_name)
+    backup = Path(backup_name)
+    temporary_descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.replacement.", dir=str(path.parent)
+    )
+    installed = False
+    try:
+        os.fchmod(temporary_descriptor, mode)
+        with os.fdopen(temporary_descriptor, "wb") as handle:
+            handle.write(raw)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.rename(path, backup)
+        if backup.is_symlink() or not backup.is_file() or backup.read_bytes() != expected:
+            if not path.exists() and not path.is_symlink():
+                os.rename(backup, path)
+            raise CutoverError("affected target bytes changed before reviewed write")
+        try:
+            os.link(temporary_name, path)
+        except FileExistsError as error:
+            raise CutoverError("affected target bytes changed during reviewed write") from error
+        installed = True
+        backup.unlink()
+    finally:
+        if backup.exists() and not backup.is_symlink():
+            if not path.exists() and not path.is_symlink():
+                os.rename(backup, path)
+            elif backup.read_bytes() == expected:
+                backup.unlink()
+        if os.path.exists(temporary_name):
+            os.unlink(temporary_name)
+        if not installed and path.exists() and path.is_symlink():
+            raise CutoverError("affected target path changed during reviewed write")
+
+
 def _rooted(value: Mapping[str, object], field: str, name: str) -> Dict[str, object]:
     material = dict(value)
     recorded = material.pop(field, None)
@@ -492,7 +538,7 @@ def _supervision_module() -> ModuleType:
 
 
 def _supervision_snapshot(
-    module: ModuleType, *, owner_id: str, repo: Path
+    module: ModuleType, *, owner_id: str, repo: Path, tracker_path: Path
 ) -> Tuple[Dict[str, object], Path, tuple[int, int, int, int]]:
     args = argparse.Namespace(root=str(SUPERVISION_ROOT), target_thread=owner_id)
     try:
@@ -504,6 +550,7 @@ def _supervision_snapshot(
         anchor = module.read_json(directory / module.EVENT_LEDGER_ANCHOR_NAME)
         module.validate_event_ledger_anchor(directory, all_events, allow_missing=False)
         owner_roots = module.events(directory / module.OWNER_ROOT_HISTORY_NAME)
+        range_state = module.implementation_range_state(policy)
     except Exception as error:
         raise CutoverError("canonical supervision context is unavailable") from error
     control = policy.get("adaptive_decision_control")
@@ -514,8 +561,18 @@ def _supervision_snapshot(
         or control.get("target_class") != "target-repository"
         or control.get("target_repository_root") != str(repo)
         or not owner_roots
+        or not isinstance(range_state, dict)
     ):
         raise CutoverError("canonical supervision target owner differs")
+    if (
+        Path(str(range_state.get("tracker_path", ""))).resolve(strict=True)
+        != tracker_path.resolve(strict=True)
+        or 9 not in range_state.get("requested_blocks", [])
+        or range_state.get("eligible_blocks") != [9]
+        or 9 not in range_state.get("remaining_blocks", [])
+    ):
+        raise CutoverError("canonical implementation range does not own Block 9")
+    range_root = object_root(range_state)
     context: Dict[str, object] = {
         "target_owner_id": owner_id,
         "mission_root": mission["mission_root"],
@@ -523,8 +580,16 @@ def _supervision_snapshot(
         "event_head_root": anchor["anchor_sha256"],
         "owner_root_head": owner_roots[-1]["record_sha256"],
         "active_event_count": len(active),
+        "implementation_range": range_state,
+        "implementation_range_root": range_root,
     }
-    for field in ("mission_root", "policy_root", "event_head_root", "owner_root_head"):
+    for field in (
+        "mission_root",
+        "policy_root",
+        "event_head_root",
+        "owner_root_head",
+        "implementation_range_root",
+    ):
         _exact_string(context[field], f"supervision {field}", SHA_RE)
     return context, directory, directory_snapshot
 
@@ -559,6 +624,10 @@ def _outcome_path(repo: Path) -> Path:
 
 def _review_copy_path(repo: Path) -> Path:
     return _operation_directory(repo) / f"{EXPECTED_HANDOFF_ROOT}.review.json"
+
+
+def _continuation_path(repo: Path) -> Path:
+    return _operation_directory(repo) / f"{EXPECTED_HANDOFF_ROOT}.continuation.json"
 
 
 def _validate_proof_graph(value: Mapping[str, object]) -> Dict[str, object]:
@@ -600,9 +669,15 @@ def _validate_proof_graph(value: Mapping[str, object]) -> Dict[str, object]:
         for dependency in record["depends_on"]
     ):
         raise CutoverError("target proof dependency differs")
+    by_id = {record["proof_id"]: record for record in records}
+    if any(
+        record["currentness"] == "current"
+        and any(by_id[dependency]["currentness"] != "current" for dependency in record["depends_on"])
+        for record in records
+    ):
+        raise CutoverError("current target proof depends on stale proof")
     visiting: set[str] = set()
     visited: set[str] = set()
-    by_id = {record["proof_id"]: record for record in records}
 
     def visit(proof_id: str) -> None:
         if proof_id in visiting:
@@ -806,7 +881,7 @@ def prepare_cutover(target_repository: Path, tracker_path: Path) -> Dict[str, ob
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         module = _supervision_module()
         _initial, _directory, directory_snapshot = _supervision_snapshot(
-            module, owner_id=owner_id, repo=repo
+            module, owner_id=owner_id, repo=repo, tracker_path=tracker_path
         )
         try:
             owner_lock = module.owner_append_lock(
@@ -814,7 +889,7 @@ def prepare_cutover(target_repository: Path, tracker_path: Path) -> Dict[str, ob
             )
             with owner_lock:
                 supervision, _directory, _snapshot = _supervision_snapshot(
-                    module, owner_id=owner_id, repo=repo
+                    module, owner_id=owner_id, repo=repo, tracker_path=tracker_path
                 )
                 tracker_raw = _safe_tracker(tracker_path)
                 if _normalized_block_root(tracker_raw, 9) != EXPECTED_BLOCK9_CONTRACT_ROOT:
@@ -872,6 +947,9 @@ def prepare_cutover(target_repository: Path, tracker_path: Path) -> Dict[str, ob
                     "tracker_sha256": bytes_root(tracker_raw),
                     "tracker_program_root": _tracker_program_root(tracker_raw),
                     "block9_contract_root": EXPECTED_BLOCK9_CONTRACT_ROOT,
+                    "implementation_range_root": supervision[
+                        "implementation_range_root"
+                    ],
                     "supervision_context": supervision,
                     "proof_reconciliation": reconciliation,
                     "prepared_commit": prepared,
@@ -915,6 +993,7 @@ REVIEW_FIELDS = {
     "target_head",
     "target_state_root",
     "tracker_program_root",
+    "implementation_range_root",
     "proof_before_root",
     "proof_after_root",
     "reviewer_id",
@@ -941,6 +1020,7 @@ def load_integration_review(path: Path, proposal: Mapping[str, object]) -> Dict[
         "target_head": proposal["target_head"],
         "target_state_root": proposal["target_state_root"],
         "tracker_program_root": proposal["tracker_program_root"],
+        "implementation_range_root": proposal["implementation_range_root"],
         "proof_before_root": proposal["proof_reconciliation"]["before_graph_root"],
         "proof_after_root": proposal["proof_reconciliation"]["after_graph_root"],
     }
@@ -983,6 +1063,100 @@ def _restore_paths(repo: Path, head: str, paths: Sequence[str]) -> None:
     _git(repo, ["reset", "-q", head, "--", *paths])
 
 
+def _restore_owned_replacements(
+    repo: Path,
+    head: str,
+    previous: Mapping[str, Optional[bytes]],
+    replacements: Mapping[str, bytes],
+) -> None:
+    """Restore only bytes still owned by this operation; preserve later caller work."""
+
+    for relative, prior in previous.items():
+        path = repo / relative
+        current = _safe_file(repo, relative, required=False)
+        replacement = replacements[relative]
+        if current != replacement:
+            continue
+        if prior is None:
+            if path.exists() and not path.is_symlink():
+                path.unlink()
+        else:
+            _write_atomic_if_unchanged(path, replacement, prior)
+    _git(repo, ["reset", "-q", head, "--", *sorted(previous)])
+
+
+def _expected_effect(exercise: Mapping[str, object]) -> Dict[str, object]:
+    metrics = exercise["artifacts"]["candidate-winning"]["mapped"]["metrics"][
+        "observable-outcome"
+    ]
+    return {
+        "artifact_bytes": metrics["artifact_bytes"],
+        "decompressed_sha256": metrics["decompressed_sha256"],
+        "api_kind": "bytes",
+        "protected_capability_results": [
+            {"capability_id": "semantic-roundtrip", "result": "preserved"},
+            {"capability_id": "stable-bytes-api", "result": "preserved"},
+        ],
+    }
+
+
+def _retain_review_copy(repo: Path, review: Mapping[str, object]) -> None:
+    path = _review_copy_path(repo)
+    raw = _json_bytes(review)
+    if path.exists():
+        if path.is_symlink() or path.read_bytes() != raw:
+            raise CutoverError("retained integration review differs")
+        return
+    _write_atomic(path, raw)
+
+
+def _start_continuation(
+    repo: Path,
+    proposal: Mapping[str, object],
+    review: Mapping[str, object],
+    outcome: Mapping[str, object],
+    *,
+    failpoint: Optional[str],
+) -> Dict[str, object]:
+    next_action = "continue-block-9-from-current-effect"
+    execution_key = object_root(
+        {
+            "handoff_root": proposal["handoff_root"],
+            "integration_commit": proposal["prepared_commit"],
+            "effect_root": outcome["effect_root"],
+            "next_action": next_action,
+        }
+    )
+    record: Dict[str, object] = {
+        "schema_version": 1,
+        "kind": "software-factory-candidate-cutover-continuation",
+        "execution_key": execution_key,
+        "handoff_root": proposal["handoff_root"],
+        "integration_commit": proposal["prepared_commit"],
+        "integration_review_root": review["review_root"],
+        "effect_root": outcome["effect_root"],
+        "implementation_range_root": proposal["implementation_range_root"],
+        "next_action": next_action,
+        "state": "work-started",
+        "start_count": 1,
+    }
+    record["continuation_root"] = object_root(record)
+    path = _continuation_path(repo)
+    if path.exists():
+        retained = _rooted(
+            _load_json(path), "continuation_root", "cutover continuation"
+        )
+        if retained != record:
+            raise CutoverError("cutover continuation differs")
+        return retained
+    if failpoint == "before-continuation-start":
+        raise CutoverError("injected interruption before continuation start")
+    _write_atomic(path, _json_bytes(record))
+    if failpoint == "after-continuation-start":
+        raise CutoverError("injected interruption after continuation start")
+    return record
+
+
 def _current_result(
     repo: Path,
     tracker_path: Path,
@@ -991,6 +1165,7 @@ def _current_result(
     bundle: Mapping[str, object],
     *,
     duplicate: bool,
+    failpoint: Optional[str] = None,
 ) -> Dict[str, object]:
     if _head(repo) != proposal["prepared_commit"]:
         raise CutoverError("reviewed integration is not the current target revision")
@@ -1002,7 +1177,12 @@ def _current_result(
     proof = _validate_proof_graph(_load_json(repo / PROOF_RELATIVE))
     if proof["graph_root"] != proposal["proof_reconciliation"]["after_graph_root"]:
         raise CutoverError("current target proof reconciliation differs")
-    effect = _run_observable_effect(committed, bundle["exercise"])
+    tracker_raw = _safe_tracker(tracker_path)
+    if (
+        _normalized_block_root(tracker_raw, 9) != EXPECTED_BLOCK9_CONTRACT_ROOT
+        or _tracker_program_root(tracker_raw) != proposal["tracker_program_root"]
+    ):
+        raise CutoverError("cutover tracker program currentness differs")
     outcome = _rooted(_load_json(_outcome_path(repo)), "effect_root", "cutover outcome")
     expected = {
         "schema_version": 1,
@@ -1012,18 +1192,14 @@ def _current_result(
         "integration_commit": proposal["prepared_commit"],
         "candidate_content_root": proposal["candidate_content_root"],
         "proof_graph_root": proof["graph_root"],
-        "observable_effect": effect,
+        "observable_effect": _expected_effect(bundle["exercise"]),
         "decision_posture": "accepted-current-effect",
     }
     if {key: value for key, value in outcome.items() if key != "effect_root"} != expected:
         raise CutoverError("cutover outcome currentness differs")
-    execution_key = object_root(
-        {
-            "handoff_root": proposal["handoff_root"],
-            "integration_commit": proposal["prepared_commit"],
-            "effect_root": outcome["effect_root"],
-            "next_action": "continue-block-9-from-current-effect",
-        }
+    _retain_review_copy(repo, review)
+    continuation = _start_continuation(
+        repo, proposal, review, outcome, failpoint=failpoint
     )
     return {
         "action": "cutover-current" if duplicate else "cutover-applied",
@@ -1032,8 +1208,11 @@ def _current_result(
         "integration_commit": proposal["prepared_commit"],
         "integration_review_root": review["review_root"],
         "effect_root": outcome["effect_root"],
-        "execution_key": execution_key,
-        "next_action": "continue-block-9-from-current-effect",
+        "execution_key": continuation["execution_key"],
+        "next_action": continuation["next_action"],
+        "continuation_root": continuation["continuation_root"],
+        "continuation_state": continuation["state"],
+        "continuation_start_count": continuation["start_count"],
         "manual_resume_required": False,
         "candidate_authoritative": True,
         "incumbent_authoritative": False,
@@ -1062,12 +1241,12 @@ def apply_cutover(
         review = load_integration_review(integration_review_path, proposal)
         module = _supervision_module()
         _initial, _directory, directory_snapshot = _supervision_snapshot(
-            module, owner_id=owner_id, repo=repo
+            module, owner_id=owner_id, repo=repo, tracker_path=tracker_path
         )
         try:
             with module.owner_append_lock(SUPERVISION_ROOT, owner_id, directory_snapshot):
                 supervision, _directory, _snapshot = _supervision_snapshot(
-                    module, owner_id=owner_id, repo=repo
+                    module, owner_id=owner_id, repo=repo, tracker_path=tracker_path
                 )
                 if supervision != proposal["supervision_context"]:
                     raise CutoverError("cutover supervision currentness changed")
@@ -1100,7 +1279,10 @@ def apply_cutover(
                         committed = _git(repo, ["show", f"HEAD:{proposal['affected_path']}"])
                         effect = _run_observable_effect(committed, bundle["exercise"])
                         refreshed, _directory, _snapshot = _supervision_snapshot(
-                            module, owner_id=owner_id, repo=repo
+                            module,
+                            owner_id=owner_id,
+                            repo=repo,
+                            tracker_path=tracker_path,
                         )
                         if (
                             refreshed != supervision
@@ -1122,9 +1304,15 @@ def apply_cutover(
                         }
                         outcome["effect_root"] = object_root(outcome)
                         _write_atomic(_outcome_path(repo), _json_bytes(outcome))
-                        _write_atomic(_review_copy_path(repo), integration_review_path.read_bytes())
+                    _retain_review_copy(repo, review)
                     return _current_result(
-                        repo, tracker_path, proposal, review, bundle, duplicate=True
+                        repo,
+                        tracker_path,
+                        proposal,
+                        review,
+                        bundle,
+                        duplicate=True,
+                        failpoint=failpoint,
                     )
                 if head != proposal["target_head"]:
                     raise CutoverError("target revision changed after integration review")
@@ -1146,11 +1334,17 @@ def apply_cutover(
                 previous = {path: _safe_file(repo, path, required=False) for path in paths}
                 try:
                     for relative_path, content in replacements.items():
-                        _write_atomic(repo / relative_path, content)
+                        prior = previous[relative_path]
+                        if prior is None:
+                            raise CutoverError("reviewed target path unexpectedly absent")
+                        _write_atomic_if_unchanged(repo / relative_path, prior, content)
                     if failpoint == "after-write":
                         raise CutoverError("injected interruption after reviewed write")
-                    if _head(repo) != head:
-                        raise CutoverError("target revision changed before atomic promotion")
+                    if _head(repo) != head or any(
+                        _safe_file(repo, relative_path) != content
+                        for relative_path, content in replacements.items()
+                    ):
+                        raise CutoverError("target state changed before atomic promotion")
                     ref = _git(repo, ["symbolic-ref", "-q", "HEAD"]).decode()
                     if failpoint == "before-ref-update":
                         raise CutoverError("injected interruption before atomic promotion")
@@ -1160,14 +1354,9 @@ def apply_cutover(
                         raise CutoverError("injected interruption after atomic promotion")
                 except Exception as error:
                     if _head(repo) == head:
-                        for relative_path, content in previous.items():
-                            path = repo / relative_path
-                            if content is None:
-                                if path.exists() and not path.is_symlink():
-                                    path.unlink()
-                            else:
-                                _write_atomic(path, content)
-                        _git(repo, ["reset", "-q", head, "--", *paths])
+                        _restore_owned_replacements(
+                            repo, head, previous, replacements
+                        )
                     if isinstance(error, CutoverError):
                         raise
                     raise CutoverError("reviewed target write failed before promotion") from error
@@ -1179,9 +1368,18 @@ def apply_cutover(
                         raise CutoverError("reviewed candidate is not current in the worktree")
                     effect = _run_observable_effect(committed, bundle["exercise"])
                     refreshed, _directory, _snapshot = _supervision_snapshot(
-                        module, owner_id=owner_id, repo=repo
+                        module,
+                        owner_id=owner_id,
+                        repo=repo,
+                        tracker_path=tracker_path,
                     )
-                    if refreshed != supervision or _head(repo) != proposal["prepared_commit"]:
+                    refreshed_tracker = _safe_tracker(tracker_path)
+                    if (
+                        refreshed != supervision
+                        or _head(repo) != proposal["prepared_commit"]
+                        or _tracker_program_root(refreshed_tracker)
+                        != proposal["tracker_program_root"]
+                    ):
                         raise CutoverError("current context changed during effect validation")
                 except CutoverError:
                     if _head(repo) == proposal["prepared_commit"]:
@@ -1204,9 +1402,15 @@ def apply_cutover(
                 if failpoint == "before-outcome-write":
                     raise CutoverError("injected interruption before current outcome")
                 _write_atomic(_outcome_path(repo), _json_bytes(outcome))
-                _write_atomic(_review_copy_path(repo), integration_review_path.read_bytes())
+                _retain_review_copy(repo, review)
                 return _current_result(
-                    repo, tracker_path, proposal, review, bundle, duplicate=False
+                    repo,
+                    tracker_path,
+                    proposal,
+                    review,
+                    bundle,
+                    duplicate=False,
+                    failpoint=failpoint,
                 )
         except CutoverError:
             raise

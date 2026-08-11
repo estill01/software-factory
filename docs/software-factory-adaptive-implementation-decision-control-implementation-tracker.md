@@ -2622,6 +2622,24 @@ accepted delta without absorbing optional work.
   integration review; then promote only that reviewed commit and prove the live
   committed effect before returning one replay-stable execution key. Exact
   successor revision and independent review remain pending.
+- Rejected corrective checkpoint:
+  `860d13dc97adae46d79bdfbf449b8f4a4dd30639` (tree
+  `77d3516757294fdd5b1a1ffba5501e456d9d1966`) closed the original ownership,
+  target, structural-routing, Git, effect, proof-owner, and integration-review
+  defects and passed focused 11/11 plus mapped 80/80. Independent exact review
+  nevertheless found seven remaining gaps: no durable one-time continuation
+  start; no post-effect full-program recheck; no resolved policy-owned Block 9
+  range; an affected-path write race; incomplete review-copy recovery;
+  repeated observable-effect execution; and current proof allowed to depend on
+  stale proof. Preserve the checkpoint as rejected evidence; no release review
+  or installation was produced.
+- Second corrective posture: bind the exact eligible implementation range into
+  the proposal, sealed review, and continuation; compare-and-swap affected
+  paths without overwriting changed bytes; recheck the full program after the
+  single retained observable workload; repair and revalidate retained review
+  evidence on retry; reject incoherent proof currentness; and durably start one
+  replay-stable continuation with `start_count=1`. Exact successor revision and
+  independent review remain pending.
 
 ### Stop
 

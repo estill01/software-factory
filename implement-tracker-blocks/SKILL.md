@@ -302,10 +302,12 @@ and execute its target-owner/currentness contract.
    roundtrip, bytes API, and protected results. Recheck target and supervision
    currentness after the effect before recording acceptance.
 8. Bind the current effect to one deterministic execution key over the handoff,
-   reviewed commit, review, and effect. Replays rehydrate the same next action
-   and key without another integration or proof transition, so an interrupted
-   caller cannot lose continuation and the executor can deduplicate by key.
-   Continue Block 9 automatically; never request a human Resume.
+   reviewed commit, review, effect, and current policy-owned implementation
+   range. Under the target owner lock, durably record exactly one
+   `work-started` continuation before returning. Replays rehydrate the same
+   continuation root, next action, and key with `start_count=1` without another
+   integration, proof transition, or observable workload run. Continue Block 9
+   automatically; never request a human Resume.
 
 This operation is a bounded normal-owner seam, not a deployment service. It
 does not release or install Software Factory skills, alter supervision policy,
