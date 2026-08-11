@@ -127,7 +127,11 @@ class CodexAppServerClientTests(unittest.TestCase):
     def test_execution_contract_rejects_missing_and_symlinked_task_sources(self) -> None:
         thread = fake_thread(str(self.project_root))
         with self.assertRaises(AppServerError) as missing:
-            app_server_module._task_execution_contract(thread, "task-fake-001")
+            app_server_module._task_execution_contract(
+                thread,
+                "task-fake-001",
+                self.root / "codex",
+            )
         self.assertEqual(missing.exception.code, "task_execution_contract_unavailable")
 
         sessions = self.root / "codex" / "sessions" / "2026" / "08" / "10"
@@ -148,7 +152,11 @@ class CodexAppServerClientTests(unittest.TestCase):
         symlink.symlink_to(source)
         thread["path"] = str(symlink)
         with self.assertRaises(AppServerError) as unsafe:
-            app_server_module._task_execution_contract(thread, "task-fake-001")
+            app_server_module._task_execution_contract(
+                thread,
+                "task-fake-001",
+                self.root / "codex",
+            )
         self.assertEqual(unsafe.exception.code, "task_execution_contract_path_invalid")
 
     def test_task_and_turn_operations_are_bound_to_registered_cwd(self) -> None:

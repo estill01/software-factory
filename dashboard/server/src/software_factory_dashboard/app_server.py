@@ -409,6 +409,7 @@ class CodexAppServerClient:
         self._write_lock = Lock()
         self._process: subprocess.Popen[str] | None = None
         self._compatibility: GeneratedCompatibility | None = None
+        self._codex_home: Path | None = None
         self._pending: dict[int, PendingCall] = {}
         self._completed_ids: deque[int] = deque(maxlen=MAX_COMPLETED_REQUEST_IDS)
         self._server_requests: OrderedDict[str, PendingServerRequest] = OrderedDict()
@@ -538,6 +539,43 @@ class CodexAppServerClient:
                         "app_server_initialize_invalid",
                         "Codex App Server returned an invalid initialize result.",
                     )
+                raw_codex_home = initialized.get("codexHome")
+                unresolved_codex_home = (
+                    Path(raw_codex_home)
+                    if isinstance(raw_codex_home, str)
+                    else None
+                )
+                try:
+                    codex_home = (
+                        unresolved_codex_home.resolve(strict=True)
+                        if unresolved_codex_home is not None
+                        else None
+                    )
+                except (OSError, RuntimeError) as error:
+                    raise AppServerError(
+                        "app_server_codex_home_invalid",
+                        "Codex App Server returned an unavailable owner root.",
+                    ) from error
+                if (
+                    unresolved_codex_home is None
+                    or not unresolved_codex_home.is_absolute()
+                    or unresolved_codex_home.is_symlink()
+                    or codex_home != unresolved_codex_home
+                    or not codex_home.is_dir()
+                    or codex_home.stat().st_uid != os.getuid()
+                ):
+                    raise AppServerError(
+                        "app_server_codex_home_invalid",
+                        "Codex App Server returned an invalid owner root.",
+                    )
+                with self._state_lock:
+                    if generation != self._generation:
+                        raise AppServerError(
+                            "app_server_generation_changed",
+                            "Codex App Server changed generation during initialization.",
+                            retryable=True,
+                        )
+                    self._codex_home = codex_home
                 self._write_message(
                     {"method": "initialized", "params": {}},
                     expected_generation=generation,
@@ -584,6 +622,7 @@ class CodexAppServerClient:
         with self._state_lock:
             process = self._process
             self._process = None
+            self._codex_home = None
             pending = list(self._pending.values())
             self._pending.clear()
             for request in self._server_requests.values():
@@ -1407,7 +1446,19 @@ class CodexAppServerClient:
         )
         thread = result["thread"]
         task = _task_projection(thread, projects)
-        task["execution_contract"] = _task_execution_contract(thread, task_id)
+        with self._state_lock:
+            codex_home = self._codex_home
+        if codex_home is None:
+            raise AppServerError(
+                "task_execution_contract_unavailable",
+                "The exact Codex owner root is unavailable.",
+                status=409,
+            )
+        task["execution_contract"] = _task_execution_contract(
+            thread,
+            task_id,
+            codex_home,
+        )
         return {
             "task": task,
             "pending_requests": [
@@ -1811,6 +1862,7 @@ def _turn_projection(turn: Mapping[str, Any]) -> dict[str, Any]:
 def _task_execution_contract(
     thread: Mapping[str, Any],
     task_id: str,
+    codex_home: Path,
 ) -> dict[str, Any]:
     """Resolve the latest exact turn contract from the App Server-owned task path."""
 
@@ -1837,12 +1889,25 @@ def _task_execution_contract(
             "The exact persisted task source is unavailable.",
             status=409,
         ) from error
+    try:
+        session_root = (codex_home / "sessions").resolve(strict=True)
+        relative = resolved.relative_to(session_root)
+    except (OSError, RuntimeError, ValueError) as error:
+        raise AppServerError(
+            "task_execution_contract_path_invalid",
+            "The persisted task source escaped the exact Codex sessions root.",
+            status=409,
+        ) from error
     if (
-        resolved != unresolved
+        session_root != codex_home / "sessions"
+        or resolved != unresolved
         or not resolved.is_file()
-        or len(resolved.parents) < 4
-        or resolved.parents[3].name != "sessions"
-        or not resolved.name.endswith(f"-{task_id}.jsonl")
+        or len(relative.parts) != 4
+        or not re.fullmatch(r"\d{4}", relative.parts[0])
+        or not re.fullmatch(r"\d{2}", relative.parts[1])
+        or not re.fullmatch(r"\d{2}", relative.parts[2])
+        or not relative.name.startswith("rollout-")
+        or not relative.name.endswith(f"-{task_id}.jsonl")
         or metadata_before.st_uid != os.getuid()
         or metadata_before.st_mode & 0o022
     ):

@@ -387,7 +387,7 @@ def run_server(mode: str, cwd: str) -> int:
                     "id": message["id"],
                     "result": {
                         "userAgent": "fake-app-server/0.145.0",
-                        "codexHome": "/tmp/fake-codex-home",
+                        "codexHome": str(session_directory.parents[3]),
                         "platformFamily": "unix",
                         "platformOs": "macos",
                     },
