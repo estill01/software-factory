@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -25,45 +26,49 @@ SOURCE_TRACKER = (
     Path(__file__).resolve().parents[2]
     / "docs/software-factory-adaptive-implementation-decision-control-implementation-tracker.md"
 )
-BLOCK9_HEADING = "## Block 9 — Cut over a winning candidate, reconcile currentness, and resume"
-BLOCK10_HEADING = "## Block 10 — Bind the same protocol to target repositories and Software Factory self-work"
-BLOCK11_HEADING = "## Block 11 — Dogfood all decision paths and document demonstrated operation"
-
-
 def block9_program_snapshot(source: str) -> str:
     """Freeze the accepted Block 9 status frontier after the live tracker advances."""
 
-    replacements = (
-        (
-            "| 9 | Cut over a winning candidate, reconcile currentness, and resume | 6, 7 | `completed` |",
-            "| 9 | Cut over a winning candidate, reconcile currentness, and resume | 6, 7 | `in-progress` |",
-        ),
-        (
-            "| 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `completed` |",
-            "| 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `not-started` |",
-        ),
-        (
-            "| 11 | Dogfood all decision paths and document demonstrated operation | 10 | `in-progress` |",
-            "| 11 | Dogfood all decision paths and document demonstrated operation | 10 | `not-started` |",
-        ),
-        (
-            f"{BLOCK9_HEADING}\n\nStatus: `completed`",
-            f"{BLOCK9_HEADING}\n\nStatus: `in-progress`",
-        ),
-        (
-            f"{BLOCK10_HEADING}\n\nStatus: `completed`",
-            f"{BLOCK10_HEADING}\n\nStatus: `not-started`",
-        ),
-        (
-            f"{BLOCK11_HEADING}\n\nStatus: `in-progress`",
-            f"{BLOCK11_HEADING}\n\nStatus: `not-started`",
-        ),
+    table_pattern = re.compile(
+        r"^(\|\s*(\d+)\s*\|.*\|\s*)`(completed|in-progress|not-started)`(\s*\|)$"
     )
-    for current, historical in replacements:
-        if source.count(current) != 1:
-            raise AssertionError("current tracker status frontier differs")
-        source = source.replace(current, historical, 1)
-    return source
+    heading_pattern = re.compile(r"^## Block (\d+)\b")
+    lines = source.splitlines()
+    table_seen: set[int] = set()
+    heading_seen: set[int] = set()
+    current_heading: int | None = None
+    for index, line in enumerate(lines):
+        table_match = table_pattern.fullmatch(line)
+        if table_match is not None:
+            block = int(table_match.group(2))
+            if block >= 9:
+                desired = "in-progress" if block == 9 else "not-started"
+                lines[index] = (
+                    f"{table_match.group(1)}`{desired}`{table_match.group(4)}"
+                )
+                table_seen.add(block)
+            continue
+        heading_match = heading_pattern.match(line)
+        if heading_match is not None:
+            current_heading = int(heading_match.group(1))
+            continue
+        if current_heading is not None and line.startswith("Status: `"):
+            if current_heading >= 9:
+                if line not in {
+                    "Status: `completed`",
+                    "Status: `in-progress`",
+                    "Status: `not-started`",
+                }:
+                    raise AssertionError("current tracker status frontier differs")
+                desired = "in-progress" if current_heading == 9 else "not-started"
+                lines[index] = f"Status: `{desired}`"
+                heading_seen.add(current_heading)
+            current_heading = None
+    expected = set(range(9, 18))
+    if table_seen != expected or heading_seen != expected:
+        raise AssertionError("current tracker status frontier differs")
+    suffix = "\n" if source.endswith("\n") else ""
+    return "\n".join(lines) + suffix
 
 
 class CandidateCutoverContractTests(unittest.TestCase):
