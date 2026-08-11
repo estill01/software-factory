@@ -2129,6 +2129,7 @@ def build_candidate_evaluation_handoff(
     baseline_validation_results: Any,
     baseline_comparison_provenance_root: Any,
     evaluator_authority_key_sha256: Any,
+    target_owner_currentness_root: Any,
 ) -> dict[str, Any]:
     """Bind one raw incumbent/candidate comparison to its distinct evaluator."""
 
@@ -2156,6 +2157,10 @@ def build_candidate_evaluation_handoff(
     evaluator_key_root = _exact_sha256(
         evaluator_authority_key_sha256,
         label="evaluator authority key SHA-256",
+    )
+    target_currentness_root = _exact_sha256(
+        target_owner_currentness_root,
+        label="target owner currentness root",
     )
     candidate = _normalize_execution_results(
         verified_ack["validation_results"], label="candidate validation results"
@@ -2205,6 +2210,7 @@ def build_candidate_evaluation_handoff(
         "baseline_validation_root": digest(baseline),
         "baseline_comparison_provenance_root": provenance_root,
         "candidate_validation_root": digest(candidate),
+        "target_owner_currentness_root": target_currentness_root,
         "protected_capability_results": list(protected),
         "resource_usage": dict(verified_ack["resource_usage"]),
         "reversibility_posture": "direct-child-isolated-candidate",
@@ -2232,6 +2238,7 @@ def verify_candidate_evaluation_handoff(
         evaluation_handoff.get("baseline_validation_results"),
         evaluation_handoff.get("baseline_comparison_provenance_root"),
         evaluation_handoff.get("evaluator_authority_key_sha256"),
+        evaluation_handoff.get("target_owner_currentness_root"),
     )
     if canonical(expected) != canonical(evaluation_handoff):
         raise FactoryEvolutionError("Factory candidate evaluation handoff differs")

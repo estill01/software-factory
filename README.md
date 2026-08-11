@@ -410,16 +410,19 @@ protected-capability, provenance, and Stop evidence. The input does not supply
 outcomes or owner claims. Only a current bounded candidate reaches comparison.
 One further `orchestrate` call runs the declared mapped incumbent proof and
 records the exact nonauthorizing evaluator handoff. The sealed evaluator
-interface is preflighted first, and an owner-authenticated pending result makes
-an interrupted append reuse the one comparison. The handoff binds that
-provenance and fixed evaluator-key root. A fixed-key independent
+interface is preflighted first, and a per-cycle owner lock plus an
+owner-authenticated, file-and-directory-synced pending result makes concurrent
+or interrupted delivery reuse the one comparison. The handoff binds that
+provenance, the fixed evaluator-key root, and exact target-owner ref/reflog
+currentness. A fixed-key independent
 evaluator can then submit one signed, revision-bound disposition covering every
 positive and exception case plus contrary and regression evidence. The
 canonical result retains raw baseline/candidate roots and exposes `promote`
 only as adoption eligibility. The incumbent remains authoritative and no
 adoption, installation, or cutover occurs in this evaluation stage. Any target
 currentness loss during the handoff or evaluation append is canonically
-corrected before the stale record can become active.
+corrected. The bound owner root keeps the stale source inactive even if that
+correction is interrupted or the target transiently changes and returns.
 
 ## Full demonstrated operation
 

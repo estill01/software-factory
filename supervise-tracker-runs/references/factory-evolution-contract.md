@@ -266,17 +266,21 @@ Only a current `candidate-ready-for-comparison` owner proof can create the one
 evaluation handoff. Before the comparison starts, the supervision owner
 preflights the fixed sealed evaluator key and verification interface. It then
 runs the same declared focused tests against the exact incumbent archive once.
-An owner-authenticated pending record retains those raw command results before
-the handoff append; interruption reuses that exact result. The handoff pairs it
+A per-cycle owner lock serializes duplicate delivery, and an owner-authenticated
+pending record retains those raw command results through file and parent-
+directory durability before the handoff append; interruption reuses that exact
+result. The handoff pairs it
 with the already-retained candidate results and binds its provenance root and
 the preflighted evaluator-key root together with
 the packet, review, experiment, candidate contract, owner handoff,
 acknowledgment, exact baseline/candidate revisions and roots, every positive
 and exception case ID, protected-capability results, resource use,
-reversibility, and incumbent production authority. A stale root rejects before
-that mapped comparison is run. Target-currentness loss during the physical
-handoff append records an exact correction before returning rejection, so the
-stale handoff is never active.
+reversibility, incumbent production authority, and the exact target-owner
+ref/reflog currentness root. A stale root rejects before that mapped comparison
+is run. Target-currentness loss during the physical handoff append records an
+exact correction before returning rejection. The owner root keeps the stale
+handoff inactive if correction persistence is interrupted or the target
+transiently changes and returns.
 
 The configured sealed adaptive evaluator is distinct from the review proposer
 and implementation owner. Its submission is signed by the fixed evaluator key
@@ -295,8 +299,9 @@ incumbent remains authoritative. `advisory`, `revise`, and `reject` route to
 their exact non-adoption Stop/owner posture. The canonical evaluation event is
 immutable and idempotent; retry rehydrates its exact disposition without
 rerunning comparison or performing a target write. Target-currentness loss
-during its physical append similarly records an exact correction and leaves no
-active evaluation disposition.
+during its physical append similarly records an exact correction. Its bound
+target-owner root leaves no active evaluation disposition across correction
+interruption or a transient ref change-and-return.
 
 ## Exact submission wire shapes
 

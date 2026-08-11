@@ -14210,6 +14210,92 @@ def factory_evolution_target_revision(policy: Mapping[str, Any]) -> tuple[Path, 
     return root, revision
 
 
+def factory_evolution_target_owner_currentness_root(
+    policy: Mapping[str, Any],
+) -> str:
+    root, revision = factory_evolution_target_revision(policy)
+
+    def git_output(*arguments: str, allowed: tuple[int, ...] = (0,)) -> str:
+        result = subprocess.run(
+            ["/usr/bin/git", "-C", str(root), *arguments],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+        )
+        if result.returncode not in allowed:
+            raise SupervisionLogError(
+                "Factory-evolution target ownership currentness is unavailable"
+            )
+        return result.stdout.strip()
+
+    symbolic_ref = git_output("symbolic-ref", "-q", "HEAD", allowed=(0, 1))
+    recent_revisions = [
+        item
+        for item in git_output(
+            "reflog", "show", "-n", "2", "--format=%H", "HEAD", allowed=(0, 1)
+        ).splitlines()
+        if item
+    ]
+    if any(re.fullmatch(r"[0-9a-f]{40,64}", item) is None for item in recent_revisions):
+        raise SupervisionLogError(
+            "Factory-evolution target ownership currentness differs"
+        )
+    path_tokens = ["HEAD"]
+    if symbolic_ref:
+        path_tokens.append(symbolic_ref)
+    retained_paths: list[dict[str, Any]] = []
+    for token in path_tokens:
+        raw_path = git_output("rev-parse", "--git-path", token)
+        path = Path(raw_path)
+        if not path.is_absolute():
+            path = root / path
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = -1
+        try:
+            before_path = path.lstat()
+            if not stat.S_ISREG(before_path.st_mode) or before_path.st_size > 4096:
+                raise SupervisionLogError(
+                    "Factory-evolution target ownership currentness differs"
+                )
+            descriptor = os.open(path, flags)
+            before = factory_evolution_admission_stat_identity(os.fstat(descriptor))
+            raw = os.read(descriptor, 4097)
+            after = factory_evolution_admission_stat_identity(os.fstat(descriptor))
+            after_path = factory_evolution_admission_stat_identity(path.lstat())
+        except (FileNotFoundError, OSError) as exc:
+            raise SupervisionLogError(
+                "Factory-evolution target ownership currentness is unavailable"
+            ) from exc
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+        if len(raw) > 4096 or before != after or after != after_path:
+            raise SupervisionLogError(
+                "Factory-evolution target ownership currentness changed while reading"
+            )
+        retained_paths.append(
+            {
+                "token": token,
+                "path": str(path.resolve(strict=False)),
+                "stat": list(before),
+                "content_sha256": hashlib.sha256(raw).hexdigest(),
+            }
+        )
+    return digest(
+        {
+            "schema_version": 1,
+            "kind": "software-factory-target-owner-currentness",
+            "repository_root": str(root.resolve(strict=True)),
+            "revision": revision,
+            "symbolic_ref": symbolic_ref or None,
+            "recent_revisions": recent_revisions,
+            "retained_paths": retained_paths,
+        }
+    )
+
+
 def factory_evolution_supported_novelty(
     packet: Mapping[str, Any],
     *,
@@ -15465,32 +15551,42 @@ def factory_candidate_load_or_produce_baseline_comparison(
         directory, str(state["context"]["evolution_id"])
     )
     pending_path = evolution_directory / "comparison-pending.json"
-    if factory_evolution_artifact_exists(pending_path):
+    with factory_evolution_lock(evolution_directory):
+        if factory_evolution_artifact_exists(pending_path):
+            return validate_factory_candidate_comparison_pending(
+                read_factory_evolution_json(pending_path),
+                state=state,
+                owner_key=owner_key,
+            )
+        results = factory_candidate_execute_baseline_comparison(
+            state["expected_owner_handoff"],
+            state["acknowledgment_record"]["payload"],
+        )
+        material = {
+            **factory_candidate_comparison_identity(state),
+            "producer_recorded_at": utc_now(),
+            "baseline_validation_results": results,
+        }
+        owner_hmac = hmac.new(
+            owner_key, canonical(material), hashlib.sha256
+        ).hexdigest()
+        rooted = {**material, "owner_hmac_sha256": owner_hmac}
+        pending = {**rooted, "comparison_provenance_root": digest(rooted)}
+        evolution_fd = os.open(
+            evolution_directory,
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
+        try:
+            atomic_json_at(evolution_fd, pending_path.name, pending)
+        finally:
+            os.close(evolution_fd)
         return validate_factory_candidate_comparison_pending(
             read_factory_evolution_json(pending_path),
             state=state,
             owner_key=owner_key,
         )
-    results = factory_candidate_execute_baseline_comparison(
-        state["expected_owner_handoff"],
-        state["acknowledgment_record"]["payload"],
-    )
-    material = {
-        **factory_candidate_comparison_identity(state),
-        "producer_recorded_at": utc_now(),
-        "baseline_validation_results": results,
-    }
-    owner_hmac = hmac.new(
-        owner_key, canonical(material), hashlib.sha256
-    ).hexdigest()
-    rooted = {**material, "owner_hmac_sha256": owner_hmac}
-    pending = {**rooted, "comparison_provenance_root": digest(rooted)}
-    atomic_json(pending_path, pending)
-    return validate_factory_candidate_comparison_pending(
-        read_factory_evolution_json(pending_path),
-        state=state,
-        owner_key=owner_key,
-    )
 
 
 def factory_candidate_protected_results(
@@ -17449,6 +17545,12 @@ def factory_evolution_cycle_state(
             raise SupervisionLogError(str(exc)) from exc
         if evaluation_handoff["evaluator_id"] != ADAPTIVE_EVALUATOR_ID:
             raise SupervisionLogError("Factory evolution evaluator ownership differs")
+        if evaluation_handoff["target_owner_currentness_root"] != (
+            factory_evolution_target_owner_currentness_root(policy)
+        ):
+            raise SupervisionLogError(
+                "Factory evolution evaluation target ownership is stale"
+            )
     evaluation = None
     if evaluation_record is not None:
         if evaluation_handoff is None:
@@ -17683,6 +17785,9 @@ def append_factory_evolution_evaluation_handoff(
                 "Factory evolution evaluation comparison changed before append"
             )
         try:
+            target_owner_currentness_root = (
+                factory_evolution_target_owner_currentness_root(policy)
+            )
             rebuilt = module.build_candidate_evaluation_handoff(
                 current["packet"],
                 current["review"],
@@ -17691,6 +17796,7 @@ def append_factory_evolution_evaluation_handoff(
                 pending["baseline_validation_results"],
                 pending["comparison_provenance_root"],
                 ADAPTIVE_EVALUATOR_PUBLIC_KEY_SHA256,
+                target_owner_currentness_root,
             )
         except module.FactoryEvolutionError as exc:
             raise SupervisionLogError(str(exc)) from exc
@@ -17824,6 +17930,9 @@ def cmd_factory_evolution_orchestrate(args: argparse.Namespace) -> None:
         )
         module = factory_evolution_module()
         try:
+            target_owner_currentness_root = (
+                factory_evolution_target_owner_currentness_root(policy)
+            )
             payload = module.build_candidate_evaluation_handoff(
                 state["packet"],
                 state["review"],
@@ -17832,6 +17941,7 @@ def cmd_factory_evolution_orchestrate(args: argparse.Namespace) -> None:
                 pending["baseline_validation_results"],
                 pending["comparison_provenance_root"],
                 ADAPTIVE_EVALUATOR_PUBLIC_KEY_SHA256,
+                target_owner_currentness_root,
             )
         except module.FactoryEvolutionError as exc:
             raise SupervisionLogError(str(exc)) from exc

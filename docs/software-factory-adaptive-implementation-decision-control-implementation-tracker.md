@@ -3737,14 +3737,23 @@ effects before reading either implementer's narrative.
   evaluation append before a canonical correction; and evaluator availability
   was not preflighted before the sole comparison. Its focused `17/17`, legacy
   `30/30`, validator, compilation, and diff evidence remains diagnostic.
-- The corrective successor retains an owner-authenticated pending comparison,
-  binds its provenance and the preflighted evaluator key into the handoff, and
-  records exact currentness corrections if the target changes during either
-  the handoff or evaluation append. Focused orchestration `21/21`, legacy
-  evolution `30/30`, all three fixed skill validators, full 18-Block tracker
-  verification, compilation, and diff checks pass. Exact independent replay of
-  `B14-F01`–`B14-F03` and the adjacent handoff boundary is pending before broad
-  mapped validation and acceptance.
+- Rejected corrective checkpoint
+  `092d29b8f651528f7ac189e909a8e605e2cd1186` added an
+  owner-authenticated pending comparison, evaluator preflight/key binding, and
+  explicit currentness-correction events. Exact review recorded `B14-RF01`–
+  `B14-RF04`: interruption between the stale source and correction could
+  reactivate the source after target restoration; concurrent delivery could
+  run and replace two pending comparisons; pending bytes lacked file/directory
+  durability; and pre/post revision checks missed a transient target change and
+  return. Its focused `21/21` evidence remains diagnostic.
+- The next corrective successor serializes one comparison under the per-cycle
+  owner lock, persists its pending record with file and directory durability,
+  and binds exact target ref/reflog ownership currentness into the handoff. That
+  root keeps a stale source inactive across correction interruption and a
+  transient target change-and-return. Targeted concurrency, interrupted
+  handoff/evaluation correction, and transient-currentness regressions pass;
+  exact independent replay remains pending before broad mapped validation and
+  acceptance.
 
 ### Stop
 
