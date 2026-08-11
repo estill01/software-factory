@@ -5575,6 +5575,44 @@ drill-down and never beyond the declared safe tracker-file bound.
   source comparison. No generic repository diff, editor, author/review/
   implement start, acceptance, operation preview, automation, lifecycle,
   continuity, reporting, evolution, or later-Block work is started.
+- Product candidate: commit
+  `816935d109be7f34b8bc63e6d393497c56cc2bfa`, tree
+  `1072088619f1e2604f12ba7833e865b5cc5828e0`, parent Block 18 transition
+  `27e91ec21a3d0357d5c0b14cc1ade048b924316a`, pushed with local/upstream
+  `0 0` and exact remote identity. The maintained tracker/Git adapter now
+  emits at most 200 selected-file semantic rows with 600-character side
+  bounds, exact HEAD/working roots, source path and line/Block anchors,
+  owning revision, verifier posture, limitations, and a currentness
+  fingerprint. Exact-revision and working-root source routes fail closed on
+  unsafe files, stale content, missing commits, or mid-projection tracker,
+  verifier, or HEAD changes. The client cross-validates every embedded root,
+  owner, count, side, and completion claim before rendering.
+- Supplied-source adaptation: copied Beautiful UI
+  `components/DiffTable.tsx` through the site's built-in source viewer at
+  <https://beautiful-ui-five.vercel.app/>, source SHA-256
+  `aef76b9473debb1abf8cb3b8fe9cf71cfacd4b13ba03916932b1dd41f3007ab2`.
+  The adaptation retains its compact fixed-column table, semantic row tint,
+  status dots, and explicit change cues while removing demo data, staged
+  timers, menu semantics, and unsupported controls. It uses typed source rows,
+  existing dashboard tokens, plain-text rendering, exact source links, and no
+  browser-side diff parser or mutation action.
+- Candidate validation: Ruff passed; focused backend tracker/API/currentness
+  proof passed 26/26 with `ResourceWarning` fatal; full backend passed 117/117
+  serially with `ResourceWarning` fatal. Focused tracker contract/component
+  proof passed 23/23; full frontend passed 95/95 with invocation-scoped
+  `--maxWorkers=1 --testTimeout=15000`; TypeScript and the production build
+  passed. Playwright passed 18/18 across desktop/tablet/mobile, including
+  added/removed/changed non-color cues, long and hostile literal text, exact
+  before/after links, keyboard focus, theme switching, Axe, no document
+  overflow, and no component mutation control. The full-profile verifier
+  returned Blocks 0-29 with 0 errors/warnings and its tests passed 30/30;
+  `git diff --check` passed. A deliberately parallel full-suite launch first
+  produced unrelated five-second DOM and App Server timing failures; isolated
+  reruns and the serial full proofs above passed without product or harness
+  changes. Live exact-server checks returned a complete zero-row no-change
+  semantic projection with matching HEAD/working roots and verified both
+  immutable HEAD and content-hash source routes. Exact-review outcome:
+  pending.
 
 ### Stop
 
