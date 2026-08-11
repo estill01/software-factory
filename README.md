@@ -344,6 +344,30 @@ python3 "$SKILL_VALIDATOR" ./implement-tracker-blocks
 python3 "$SKILL_VALIDATOR" ./supervise-tracker-runs
 ```
 
+### Bounded adaptive-protocol dogfood
+
+The repository includes one small, reproducible matrix for the demonstrated
+adaptive implementation paths:
+
+```bash
+/usr/bin/python3 implement-tracker-blocks/scripts/adaptive_protocol_dogfood.py --pretty
+```
+
+It exercises an ordinary-target inline correction, selective bounded candidate
+comparison and retirement, exceptional structural routing, Software Factory
+self-work, the cheap justified-no-change path, full-autonomous ordinary work,
+narrow reserved-external deferral, and maintained recovery cases. The output is
+rooted JSON with observed dispositions, current effect or protocol roots,
+normal-owner handoffs, bounded usage, and the aggregate human-request count.
+
+This is a read-only evidence runner over temporary repositories. It does not
+apply a handoff, cut over or adopt a candidate, edit a tracker, mutate global
+configuration, release a skill, or perform an external action. Its bounded
+cases demonstrate the documented envelope only; they are not a statistical
+benchmark or unlimited autonomous authority. See
+[`adaptive-protocol-dogfood.md`](implement-tracker-blocks/references/adaptive-protocol-dogfood.md)
+for the evidence and review boundary.
+
 ## Full demonstrated operation
 
 The recorded implementation program and included supervision window show two complementary parts of the system. These are observations from specific runs, not general benchmarks for Codex or software engineering.

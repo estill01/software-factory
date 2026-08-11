@@ -378,6 +378,23 @@ binding before starting the expensive computation. If valid proof output
 already exists and only reporting fails, freeze and reuse that output and rerun
 only reporting; never rerun the producer solely for a reporting failure.
 
+## Reproduce the bounded adaptive-protocol dogfood evidence
+
+When an active tracker requires current paired evidence across the adaptive
+paths, read [references/adaptive-protocol-dogfood.md](references/adaptive-protocol-dogfood.md)
+and run the maintained read-only matrix. It composes the existing inline,
+candidate, structural, target-class, self-target, no-change, autonomy, and
+recovery owners; do not treat it as a new controller or as application
+authority. Its fixture discloses raw input conditions but no intended
+disposition, and its result binds the observed path, current effect, handoff,
+human-request count, and exact maintained recovery checks.
+
+Use the matrix only at an exact frozen source revision and obtain independent
+review of its raw cases and current effects before recording completion. It
+creates temporary canonical state only. It does not authorize a tracker edit,
+candidate cutover, Software Factory adoption, release, policy or mission
+change, lifecycle transition, or external action.
+
 Preserve authority provenance exactly. A `codex_delegation` packet routes a
 source instruction; it is not direct user speech and must never be relabeled as
 such. Before classifying `reserved-authority`, cite the exact current controlling

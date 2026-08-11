@@ -27,6 +27,7 @@ SOURCE_TRACKER = (
 )
 BLOCK9_HEADING = "## Block 9 — Cut over a winning candidate, reconcile currentness, and resume"
 BLOCK10_HEADING = "## Block 10 — Bind the same protocol to target repositories and Software Factory self-work"
+BLOCK11_HEADING = "## Block 11 — Dogfood all decision paths and document demonstrated operation"
 
 
 def block9_program_snapshot(source: str) -> str:
@@ -38,16 +39,24 @@ def block9_program_snapshot(source: str) -> str:
             "| 9 | Cut over a winning candidate, reconcile currentness, and resume | 6, 7 | `in-progress` |",
         ),
         (
-            "| 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `in-progress` |",
+            "| 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `completed` |",
             "| 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `not-started` |",
+        ),
+        (
+            "| 11 | Dogfood all decision paths and document demonstrated operation | 10 | `in-progress` |",
+            "| 11 | Dogfood all decision paths and document demonstrated operation | 10 | `not-started` |",
         ),
         (
             f"{BLOCK9_HEADING}\n\nStatus: `completed`",
             f"{BLOCK9_HEADING}\n\nStatus: `in-progress`",
         ),
         (
-            f"{BLOCK10_HEADING}\n\nStatus: `in-progress`",
+            f"{BLOCK10_HEADING}\n\nStatus: `completed`",
             f"{BLOCK10_HEADING}\n\nStatus: `not-started`",
+        ),
+        (
+            f"{BLOCK11_HEADING}\n\nStatus: `in-progress`",
+            f"{BLOCK11_HEADING}\n\nStatus: `not-started`",
         ),
     )
     for current, historical in replacements:
