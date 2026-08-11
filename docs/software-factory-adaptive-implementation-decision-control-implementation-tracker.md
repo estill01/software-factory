@@ -659,7 +659,7 @@ continuous cognition the price of ordinary execution.
 | 6 | Build and independently compare one bounded parallel candidate | 5 | `completed` |
 | 7 | Add configurable adaptive authority, budgets, and human-input posture | 5, 6 | `completed` |
 | 8 | Amend and apply the tracker only for structural invalidation | 4, 7 | `completed` |
-| 9 | Cut over a winning candidate, reconcile currentness, and resume | 6, 7 | `not-started` |
+| 9 | Cut over a winning candidate, reconcile currentness, and resume | 6, 7 | `in-progress` |
 | 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `not-started` |
 | 11 | Dogfood all decision paths and document demonstrated operation | 10 | `not-started` |
 | 12 | Admit newly eligible Factory evidence automatically and economically | 11 | `not-started` |
@@ -2466,7 +2466,7 @@ Stop before candidate cutover, dual-target integration, or final dogfood.
 
 ## Block 9 — Cut over a winning candidate, reconcile currentness, and resume
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
