@@ -7,6 +7,7 @@ import base64
 import binascii
 import hashlib
 import importlib.util
+import json
 import os
 import stat
 import subprocess
@@ -110,7 +111,8 @@ def _verify_evolution_acceptance(
     }
     source = dict(_exact_fields(value, fields, "Factory evolution acceptance"))
     if (
-        source["schema_version"] != 1
+        type(source["schema_version"]) is not int
+        or source["schema_version"] != 1
         or source["kind"] != EVOLUTION_ACCEPTANCE_KIND
         or any(source.get(key) != item for key, item in expected.items())
         or source["acceptance_authority_id"]
@@ -126,6 +128,10 @@ def _verify_evolution_acceptance(
     }
     if source["acceptance_root"] != digest(material):
         raise TargetClassProtocolError("Factory evolution acceptance root differs")
+    if type(source["acceptance_signature_base64"]) is not str:
+        raise TargetClassProtocolError(
+            "Factory evolution acceptance signature differs"
+        )
     try:
         signature = base64.b64decode(
             source["acceptance_signature_base64"], validate=True
@@ -437,21 +443,108 @@ def _canonical_evolution_bundle(
             directory,
             _safe_id(evolution_id, "Factory evolution ID"),
         )
-        supervision.verify_factory_evolution_inventory(evolution_directory)
-        evolution_packet, evolution_review = (
-            supervision.verify_factory_evolution_finalize(
-                factory_evolution, evolution_directory
+        before_directory = supervision.path_snapshot(evolution_directory)
+        if before_directory is None or not stat.S_ISDIR(
+            evolution_directory.lstat().st_mode
+        ):
+            raise TargetClassProtocolError(
+                "Factory evolution directory is not current"
             )
+        required_names = set(supervision.FACTORY_EVOLUTION_ARTIFACT_NAMES)
+        names = set(os.listdir(evolution_directory))
+        if not required_names <= names or not names <= required_names | {
+            ".append.lock"
+        }:
+            raise TargetClassProtocolError(
+                "Factory evolution inventory is not current"
+            )
+        if ".append.lock" in names and not stat.S_ISREG(
+            (evolution_directory / ".append.lock").lstat().st_mode
+        ):
+            raise TargetClassProtocolError("Factory evolution lock is not current")
+        retained: dict[str, dict[str, Any]] = {}
+        aggregate_bytes = 0
+        for name in sorted(required_names):
+            path = evolution_directory / name
+            flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            descriptor = -1
+            try:
+                before_path = path.lstat()
+                if (
+                    not stat.S_ISREG(before_path.st_mode)
+                    or before_path.st_size > factory_evolution.MAX_ARTIFACT_BYTES
+                ):
+                    raise TargetClassProtocolError(
+                        "Factory evolution artifact is not current"
+                    )
+                descriptor = os.open(path, flags)
+                before = supervision.file_snapshot(os.fstat(descriptor))
+                with os.fdopen(descriptor, "rb") as handle:
+                    descriptor = -1
+                    raw = handle.read(factory_evolution.MAX_ARTIFACT_BYTES + 1)
+                    after = supervision.file_snapshot(os.fstat(handle.fileno()))
+                if (
+                    before != after
+                    or supervision.path_snapshot(path) != before
+                    or len(raw) > factory_evolution.MAX_ARTIFACT_BYTES
+                ):
+                    raise TargetClassProtocolError(
+                        "Factory evolution artifact changed while reading"
+                    )
+            finally:
+                if descriptor >= 0:
+                    os.close(descriptor)
+            aggregate_bytes += len(raw)
+            if aggregate_bytes > factory_evolution.MAX_MANIFEST_ARTIFACT_BYTES:
+                raise TargetClassProtocolError(
+                    "Factory evolution artifacts exceed their aggregate bound"
+                )
+            value = json.loads(
+                raw,
+                object_pairs_hook=supervision.reject_duplicate_json_pairs,
+            )
+            if not isinstance(value, dict):
+                raise TargetClassProtocolError(
+                    "Factory evolution artifact is not an object"
+                )
+            supervision.validate_exact_json_value(value)
+            if raw != supervision.factory_evolution_json_bytes(value):
+                raise TargetClassProtocolError(
+                    "Factory evolution artifact bytes are not exact"
+                )
+            retained[name] = value
+        if (
+            supervision.path_snapshot(evolution_directory) != before_directory
+            or set(os.listdir(evolution_directory)) != names
+        ):
+            raise TargetClassProtocolError(
+                "Factory evolution directory changed while reading"
+            )
+        evolution_packet = factory_evolution.verify_learning_packet(
+            retained["learning-packet.json"]
         )
-        artifacts = supervision.require_factory_evolution_artifacts(
-            evolution_directory,
-            ("evaluation.json", "machine-report.json", "manifest.json"),
+        factory_evolution.verify_evolution_manifest(
+            retained["prepare-manifest.json"],
+            {"learning-packet.json": evolution_packet},
+        )
+        evolution_review = factory_evolution.verify_evolution_review(
+            evolution_packet,
+            retained["review.json"],
+        )
+        factory_evolution.verify_evolution_manifest(
+            retained["finalize-manifest.json"],
+            {
+                "learning-packet.json": evolution_packet,
+                "review.json": evolution_review,
+            },
         )
         return factory_evolution.verify_evolution_bundle(
             {
                 "learning-packet.json": evolution_packet,
                 "review.json": evolution_review,
-                **artifacts,
+                "evaluation.json": retained["evaluation.json"],
+                "machine-report.json": retained["machine-report.json"],
+                "manifest.json": retained["manifest.json"],
             }
         )
     except Exception as error:

@@ -2888,12 +2888,21 @@ claims.
   Its focused `10/10`, mapped implementation `108/108`, fixed validators,
   18-Block tracker verification, compilation, and diff evidence remain
   diagnostic.
-- The current corrective candidate uses a truthful post-commit observation
-  time, requires the sealed evaluator to accept the exact decision,
-  currentness, skill, candidate, evolution, review, evaluation, experiment, and
-  disposition roots, and reopens the canonical evolution inventory at final
-  currentness. A deleted/rebuilt artifact directory cannot replace the signed
-  result for the same decision.
+- Rejected checkpoint `ccfd997e1f0cde5eb78f7e9aaf2e45e0fdb3ce4f`
+  used a truthful post-commit observation time, required the sealed evaluator
+  to accept the exact decision/currentness/evolution roots, rejected derived
+  artifact replacement, and reopened the evolution inventory at final
+  currentness. Exact review then found that its schema treated Boolean version
+  `true` as integer `1` and accepted byte-string signatures, while its artifact
+  reader followed externally resolving symlinks and did not bound or require
+  exact stored bytes. Its focused `11/11` and targeted `3/3` results remain
+  diagnostic; mapped validation was intentionally not repeated.
+- The current corrective candidate requires exact integer schema and text
+  signature types, reads the complete evolution set as stable regular
+  no-follow files under the canonical owner, enforces existing per-artifact and
+  aggregate byte limits, rejects unexpected inventory and noncanonical stored
+  JSON, and verifies retained manifests and the bundle only from those bounded
+  bytes.
 - Corrective focused coverage passes `11/11`, mapped implementation validation
   passes `109/109`, and the historical Block 9 suite remains accepted at
   `29/29` under `/usr/bin/python3`. It covers both target classes and all

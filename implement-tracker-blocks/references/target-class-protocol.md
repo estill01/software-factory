@@ -73,6 +73,13 @@ accepted result for the same decision. A
 release, install, activation, or promotion authority. Structural work instead
 binds its validated program-revision author and application owner.
 
+Every staged artifact read is exact and bounded: the evolution directory and
+each retained member keep stable identity, artifacts are regular no-follow
+files under that owner, stored JSON bytes use the one canonical writer form,
+and the existing per-artifact and aggregate bounds apply before parsing. The
+sealed acceptance schema requires an exact integer version and text signature;
+lookalike scalar or byte-string forms are invalid.
+
 Keep Factory-alignment findings and target-product findings in separate,
 ordered, nonempty rooted lists for mutating paths. Every finding root must be a
 claim-bound root from the exact decision, candidate, structural review, live

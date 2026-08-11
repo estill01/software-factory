@@ -694,17 +694,23 @@ class TargetClassProtocolTests(unittest.TestCase):
             "acceptance_root": "",
             "acceptance_signature_base64": "",
         }
+        return self.sign_evolution_acceptance(value)
+
+    def sign_evolution_acceptance(
+        self, value: dict[str, object]
+    ) -> dict[str, object]:
+        signed = copy.deepcopy(value)
         material = {
             key: item
-            for key, item in value.items()
+            for key, item in signed.items()
             if key not in {"acceptance_root", "acceptance_signature_base64"}
         }
-        value["acceptance_root"] = protocol.digest(material)
+        signed["acceptance_root"] = protocol.digest(material)
         content = self.root / "evolution-acceptance.json"
         signature = self.root / "evolution-acceptance.sig"
         content.write_bytes(
             protocol.supervision.canonical(
-                {**material, "acceptance_root": value["acceptance_root"]}
+                {**material, "acceptance_root": signed["acceptance_root"]}
             )
         )
         subprocess.run(
@@ -724,10 +730,10 @@ class TargetClassProtocolTests(unittest.TestCase):
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
-        value["acceptance_signature_base64"] = base64.b64encode(
+        signed["acceptance_signature_base64"] = base64.b64encode(
             signature.read_bytes()
         ).decode()
-        return value
+        return signed
 
     def packet(
         self,
@@ -926,6 +932,62 @@ class TargetClassProtocolTests(unittest.TestCase):
             protocol.TargetClassProtocolError, "signature differs"
         ):
             self.validate(changed_acceptance)
+        for invalid_version in (True, 1.0, "1"):
+            changed_acceptance = copy.deepcopy(packet)
+            invalid_acceptance = copy.deepcopy(
+                changed_acceptance["factory_evolution_acceptance"]
+            )
+            invalid_acceptance["schema_version"] = invalid_version
+            if type(invalid_version) is bool:
+                invalid_acceptance = self.sign_evolution_acceptance(
+                    invalid_acceptance
+                )
+            changed_acceptance["factory_evolution_acceptance"] = (
+                invalid_acceptance
+            )
+            with self.assertRaisesRegex(
+                protocol.TargetClassProtocolError, "acceptance differs"
+            ):
+                self.validate(changed_acceptance)
+        changed_acceptance = copy.deepcopy(packet)
+        changed_acceptance["factory_evolution_acceptance"][
+            "acceptance_signature_base64"
+        ] = changed_acceptance["factory_evolution_acceptance"][
+            "acceptance_signature_base64"
+        ].encode()
+        with self.assertRaisesRegex(
+            protocol.TargetClassProtocolError, "signature differs"
+        ):
+            self.validate(changed_acceptance)
+        evolution_directory = protocol.supervision.factory_evolution_directory(
+            self.adaptive.root / self.adaptive.target,
+            packet["factory_evolution_id"],
+        )
+        evaluation_path = evolution_directory / "evaluation.json"
+        external_evaluation = self.root / "external-evaluation.json"
+        evaluation_path.replace(external_evaluation)
+        evaluation_path.symlink_to(external_evaluation)
+        with self.assertRaisesRegex(
+            protocol.TargetClassProtocolError, "bundle is not current"
+        ):
+            self.validate(packet)
+        evaluation_path.unlink()
+        external_evaluation.replace(evaluation_path)
+        exact_evaluation = evaluation_path.read_bytes()
+        evaluation_path.write_bytes(
+            b" " * (protocol.factory_evolution.MAX_ARTIFACT_BYTES + 1)
+            + exact_evaluation
+        )
+        with self.assertRaisesRegex(
+            protocol.TargetClassProtocolError, "bundle is not current"
+        ):
+            self.validate(packet)
+        evaluation_path.write_bytes(b" " + exact_evaluation)
+        with self.assertRaisesRegex(
+            protocol.TargetClassProtocolError, "bundle is not current"
+        ):
+            self.validate(packet)
+        evaluation_path.write_bytes(exact_evaluation)
         replacement = self.evolution_bundle(
             decision_event=_event,
             candidate=packet["decision_packet"]["candidate_evidence"],
@@ -938,10 +1000,6 @@ class TargetClassProtocolTests(unittest.TestCase):
             "artifact differs",
         ):
             self.retain_evolution(packet["factory_evolution_id"], replacement)
-        evolution_directory = protocol.supervision.factory_evolution_directory(
-            self.adaptive.root / self.adaptive.target,
-            packet["factory_evolution_id"],
-        )
         shutil.rmtree(evolution_directory)
         self.retain_evolution(packet["factory_evolution_id"], replacement)
         with self.assertRaisesRegex(

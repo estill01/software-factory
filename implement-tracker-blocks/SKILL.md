@@ -358,6 +358,12 @@ capability-reconciliation completion event before recording any claimed
 improvement. Rehydrate the exact evolution inventory and all other owners after
 the final evidence load and reject changed currentness.
 
+Read every staged evolution artifact as an exact, bounded, regular no-follow
+file under its canonical supervision-owned directory. Reject changed path
+identity, unexpected inventory, noncanonical stored JSON, non-integer schema
+versions, non-text signatures, and per-file or aggregate byte excess before
+interpreting the sealed acceptance.
+
 For a materially expensive read-only proof or audit with a separate reporter or
 helper, cheaply preflight the maintained reporting interface and its invocation
 binding before starting the expensive computation. If valid proof output
