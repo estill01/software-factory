@@ -326,7 +326,10 @@ Productive evidence is limited to exact independently reviewed
 not adjudicating evidence. Recurring productive meta-patterns require at least
 two exact completion records.
 
-Use the sequence `prepare → finalize → evaluate → verify`:
+Use the staged artifact sequence `prepare → finalize → evaluate → verify`.
+For an admitted automatic cycle, insert the existing-owner orchestration
+sequence `orchestrate(review) → finalize → orchestrate(owner) → acknowledge →
+status(compare-or-reject)` before evaluation:
 
 1. `prepare` accepts explicit verified weekly `report.json` and canonical
    `events.jsonl` paths. Reports nominate hypotheses; exact source-bound events
@@ -343,6 +346,12 @@ Use the sequence `prepare → finalize → evaluate → verify`:
    selected candidate through their ordinary authority, tracker, validation,
    review, commit, and push contracts. This command family has no implementation
    or target-write action.
+   `orchestrate` derives the complete candidate-type owner map, binds the
+   packet/review/target/range/tracker/capability/skill/budget currentness, and
+   appends one nonauthorizing owner handoff. `acknowledge` rehydrates an exact
+   isolated Git candidate, recomputes its scope, usage, validations, protected
+   capabilities, and Stop, and appends one owner result while leaving the
+   incumbent authoritative.
 4. `evaluate` accepts condition- and revision-bound baseline/candidate evidence
    from a separate `gpt-5.6-sol` evaluator at `xhigh` (or Max for a
    consequential disposition), distinct from proposer and implementer. It records
@@ -357,9 +366,11 @@ disposition is evidence for the separately governed skill-maintenance path; it
 is not automatic adoption, editing, installation, notification, routing,
 scheduling, deployment, or authority expansion. No action in this workflow may
 write a target repository, `policy.json`, Gmail state, or automation
-configuration. Only `admit` may append its content-minimized eligibility result
-to canonical `events.jsonl`; `prepare`, `finalize`, `evaluate`, and `verify`
-retain their existing derived-artifact behavior.
+configuration. `admit` may append its content-minimized eligibility result;
+`orchestrate` and `acknowledge` may append only their exact mission-scoped,
+nonauthorizing handoff or acknowledgment records. `prepare`, `finalize`,
+`evaluate`, `verify`, and `status` retain derived/read-only behavior and none of
+these actions performs the target mutation.
 
 ## Mission binding and authority provenance
 

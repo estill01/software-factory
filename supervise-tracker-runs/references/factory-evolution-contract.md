@@ -188,6 +188,65 @@ admission event owns their evolution ID. Retry in the same context reuses them;
 a current-context retry may prepare the same packet under its new deterministic
 cycle ID and appends at most one admission.
 
+## Existing-owner candidate orchestration
+
+After one current `admitted` event owns a prepared packet, `status` and
+`orchestrate` expose a deterministic, nonauthorizing cycle action. The stage
+sequence is `review-required` → `owner-handoff-required` →
+`owner-acknowledgment-required` → `candidate-ready-for-comparison` or
+`candidate-stopped`. The corresponding next actions are `review`, `author`,
+`implement`, `compare`, or `reject`; evaluation, adoption, installation, and
+cutover remain later separately governed stages.
+
+The first orchestration event routes the exact packet root and current
+mission/policy/range/tracker/Factory revision to the policy-owned cognitive
+reviewer. The finalized review retains the existing exact review schema,
+counterexample floor, complete selection dimensions, one experiment, and three
+distinct proposer, implementation-owner, and evaluator identities. Its
+baseline revision equals the current Factory target revision.
+
+The selected candidate type determines one normal owner through this complete
+map; prose and detector-first routing cannot override it:
+
+- `correction`, `detector`, `exculpator`, `resource-policy`, and `supervision`
+  route to `supervise-tracker-runs`;
+- `architecture`, `evaluation`, `execution`, `experiment`, `removal`, and
+  `skill-method` route to `implement-tracker-blocks`; and
+- `tracker-method` routes to `author-implementation-trackers`.
+
+The owner handoff binds the admitted packet and review roots, selected
+candidate and experiment roots, exact target repository/revision, current
+mission and policy, active implementation-range head and tracker hash,
+capability-frame root, all three skill tree roots, full candidate budget,
+protected capabilities, role identities, and incumbent production authority.
+Unknown types, an incomplete map, stale roots, an implementation-owner claim
+that differs from the mapped owner, or a later candidate outside that owner's
+bounded source scope rejects before any acknowledgment.
+
+`acknowledge --owner-ack-json` accepts one exact canonical JSON object with
+these keys:
+
+`schema_version`, `kind`, `handoff_root`, `normal_owner`, `owner_id`,
+`target_revision`, `candidate_basis_revision`, `candidate_revision`,
+`lane_started_at`, `observed_at`, `validation_results`,
+`protected_capability_postures`, and `stop_disposition`. Use JSON integer `1`
+and `software-factory-evolution-owner-acknowledgment-input` as `kind`.
+Candidate revision must be a non-current descendant of the exact incumbent,
+and its complete diff must remain inside the mapped owner's scope. The owner
+recomputes affected paths, changed lines, candidate/scope/capability roots,
+chronology, validation result roots, protected-capability evidence, resource
+usage, and Stop. A failed validation, protected regression, or resource ceiling
+returns a terminal stopped posture; only a current isolated candidate within
+every ceiling returns `compare`.
+
+Review handoff, owner handoff, and owner acknowledgment use the existing
+mission-scoped canonical supervision event log. Each stage is immutable,
+idempotent on retry, and rehydrated from exact packet/artifact/repository state;
+duplicate delivery cannot create another review, owner handoff, candidate, or
+production authority. The evolution helper validates and records these stages
+but never edits a skill, tracker, Git branch, policy, or target. The incumbent
+remains the sole production authority through the Block 13 Stop.
+
 ## Exact submission wire shapes
 
 The public helper rejects extra or missing fields. Submission JSON is bounded,

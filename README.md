@@ -397,6 +397,16 @@ with `supervision_log.py factory-evolution --action admit`; status and verified
 weekly projections expose the current result without turning report prose into
 authority.
 
+Once admitted, `factory-evolution --action orchestrate` records one exact
+packet-to-reviewer handoff and, after review finalization, one deterministic
+candidate-type-to-normal-owner handoff. The authoring, implementation, or
+supervision owner—not the evolution helper—creates the isolated candidate.
+`--action acknowledge --owner-ack-json <ack.json>` then reopens the current Git
+revision and recomputes exact scope, budget, validation, protected-capability,
+and Stop evidence. Only a current bounded candidate reaches the later
+comparison step; the incumbent remains authoritative and no evaluation,
+adoption, installation, or cutover occurs in this orchestration stage.
+
 ## Full demonstrated operation
 
 The recorded implementation program and included supervision window show two complementary parts of the system. These are observations from specific runs, not general benchmarks for Codex or software engineering.

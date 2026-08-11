@@ -953,6 +953,43 @@ CANDIDATE_TYPES = frozenset(
         "experiment",
     }
 )
+CANDIDATE_OWNER_ROUTES = {
+    "correction": "supervise-tracker-runs",
+    "detector": "supervise-tracker-runs",
+    "exculpator": "supervise-tracker-runs",
+    "resource-policy": "supervise-tracker-runs",
+    "supervision": "supervise-tracker-runs",
+    "architecture": "implement-tracker-blocks",
+    "evaluation": "implement-tracker-blocks",
+    "execution": "implement-tracker-blocks",
+    "experiment": "implement-tracker-blocks",
+    "removal": "implement-tracker-blocks",
+    "skill-method": "implement-tracker-blocks",
+    "tracker-method": "author-implementation-trackers",
+}
+FACTORY_SKILL_IDS = (
+    "author-implementation-trackers",
+    "implement-tracker-blocks",
+    "supervise-tracker-runs",
+)
+OWNER_HANDOFF_KIND = "software-factory-evolution-owner-handoff"
+OWNER_ACKNOWLEDGMENT_KIND = "software-factory-evolution-owner-acknowledgment"
+CYCLE_ACTION_KIND = "software-factory-evolution-cycle-action"
+HANDOFF_CONTEXT_FIELDS = frozenset(
+    {
+        "evolution_id",
+        "target_repository_root",
+        "target_revision",
+        "mission_root",
+        "policy_sha256",
+        "range_id",
+        "range_history_head_sha256",
+        "tracker_sha256",
+        "capability_frame_root",
+        "skill_source_roots",
+        "candidate_budget",
+    }
+)
 SELECTION_DIMENSIONS = (
     "effect",
     "recurrence",
@@ -1534,7 +1571,11 @@ def _normalize_review_material(
         },
         label="Evolution review submission",
     )
-    if submission.get("schema_version") != SCHEMA_VERSION or submission.get("kind") != REVIEW_KIND:
+    if (
+        type(submission.get("schema_version")) is not int
+        or submission.get("schema_version") != SCHEMA_VERSION
+        or submission.get("kind") != REVIEW_KIND
+    ):
         raise FactoryEvolutionError("Evolution review kind or schema is unsupported")
     if submission.get("packet_id") != packet.get("packet_id") or submission.get(
         "packet_root"
@@ -1641,6 +1682,338 @@ def verify_evolution_review(
     if rebuilt["review_root"] != recorded_root or rebuilt["review_id"] != review_id:
         raise FactoryEvolutionError("Evolution review identity is stale")
     return dict(review)
+
+
+def candidate_owner_route(candidate_type: Any) -> str:
+    if set(CANDIDATE_OWNER_ROUTES) != set(CANDIDATE_TYPES):
+        raise FactoryEvolutionError("Factory candidate owner map is incomplete")
+    if type(candidate_type) is not str or candidate_type not in CANDIDATE_TYPES:
+        raise FactoryEvolutionError("Candidate type is unsupported")
+    return CANDIDATE_OWNER_ROUTES[candidate_type]
+
+
+def selected_candidate(review: Mapping[str, Any]) -> dict[str, Any]:
+    selected_id = review["selection"]["candidate_id"]
+    return next(
+        dict(item) for item in review["candidates"] if item["candidate_id"] == selected_id
+    )
+
+
+def _handoff_context(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise FactoryEvolutionError("Factory owner-handoff context must be an object")
+    _exact_keys(value, HANDOFF_CONTEXT_FIELDS, label="Factory owner-handoff context")
+    repository_root = str(value.get("target_repository_root"))
+    if not repository_root.startswith("/") or Path(repository_root).as_posix() != repository_root:
+        raise FactoryEvolutionError("Factory owner-handoff repository root is not canonical")
+    skills = value.get("skill_source_roots")
+    if not isinstance(skills, Mapping) or tuple(sorted(skills)) != tuple(sorted(FACTORY_SKILL_IDS)):
+        raise FactoryEvolutionError("Factory owner-handoff skill source set differs")
+    skill_roots = {
+        name: _exact_revision(skills[name], label=f"{name} source root")
+        for name in FACTORY_SKILL_IDS
+    }
+    budget = value.get("candidate_budget")
+    integer_budget_fields = {
+        "max_files",
+        "max_changed_lines",
+        "max_commands",
+        "max_elapsed_minutes",
+        "max_active_lanes_per_decision",
+        "max_active_lanes_per_target",
+        "max_mapped_comparisons",
+        "max_review_passes",
+    }
+    boolean_budget_fields = {
+        "independent_review_required",
+        "stop_on_protected_regression",
+        "stop_on_resource_exhaustion",
+    }
+    budget_fields = integer_budget_fields | boolean_budget_fields
+    if (
+        not isinstance(budget, Mapping)
+        or set(budget) != budget_fields
+        or any(
+            type(budget[field]) is not int or budget[field] < 1
+            for field in integer_budget_fields
+        )
+        or any(type(budget[field]) is not bool for field in boolean_budget_fields)
+    ):
+        raise FactoryEvolutionError("Factory owner-handoff candidate budget differs")
+    return {
+        "evolution_id": _exact_identifier(value.get("evolution_id"), label="evolution_id"),
+        "target_repository_root": repository_root,
+        "target_revision": _exact_revision(value.get("target_revision"), label="target revision"),
+        "mission_root": _exact_sha256(value.get("mission_root"), label="mission root"),
+        "policy_sha256": _exact_sha256(value.get("policy_sha256"), label="policy SHA-256"),
+        "range_id": _exact_identifier(value.get("range_id"), label="range_id"),
+        "range_history_head_sha256": _exact_sha256(
+            value.get("range_history_head_sha256"), label="range history head"
+        ),
+        "tracker_sha256": _exact_sha256(value.get("tracker_sha256"), label="tracker SHA-256"),
+        "capability_frame_root": _exact_sha256(
+            value.get("capability_frame_root"), label="capability frame root"
+        ),
+        "skill_source_roots": skill_roots,
+        "candidate_budget": {field: budget[field] for field in sorted(budget_fields)},
+    }
+
+
+def build_candidate_owner_handoff(
+    packet: Mapping[str, Any],
+    review: Mapping[str, Any],
+    context: Mapping[str, Any],
+) -> dict[str, Any]:
+    verified_packet = verify_learning_packet(packet)
+    verified_review = verify_evolution_review(verified_packet, review)
+    selected = selected_candidate(verified_review)
+    experiment = dict(verified_review["experiment"])
+    normalized_context = _handoff_context(context)
+    normal_owner = candidate_owner_route(selected["candidate_type"])
+    if selected["implementation_owner"] != normal_owner:
+        raise FactoryEvolutionError(
+            "Factory candidate implementation owner differs from its normal owner"
+        )
+    if experiment["baseline_revision"] != normalized_context["target_revision"]:
+        raise FactoryEvolutionError(
+            "Factory candidate baseline revision is not current"
+        )
+    material = {
+        "schema_version": SCHEMA_VERSION,
+        "kind": OWNER_HANDOFF_KIND,
+        **normalized_context,
+        "packet_id": verified_packet["packet_id"],
+        "packet_root": verified_packet["packet_root"],
+        "review_id": verified_review["review_id"],
+        "review_root": verified_review["review_root"],
+        "candidate_id": selected["candidate_id"],
+        "candidate_type": selected["candidate_type"],
+        "candidate_contract_root": digest(selected),
+        "experiment_id": experiment["experiment_id"],
+        "experiment_root": digest(experiment),
+        "candidate_basis_revision": experiment["candidate_revision"],
+        "proposer_id": experiment["proposer_id"],
+        "implementation_owner_id": experiment["implementer_id"],
+        "evaluation_owner_id": experiment["evaluator_id"],
+        "normal_owner": normal_owner,
+        "owner_action": "author" if normal_owner == "author-implementation-trackers" else "implement",
+        "protected_capabilities": list(selected["protected_capabilities"]),
+        "expected_effects": list(experiment["expected_effects"]),
+        "resource_bounds": list(experiment["resource_bounds"]),
+        "stop_condition": experiment["stop_condition"],
+        "production_authority": "incumbent",
+    }
+    return {**material, "handoff_root": digest(material)}
+
+
+def verify_candidate_owner_handoff(
+    packet: Mapping[str, Any],
+    review: Mapping[str, Any],
+    context: Mapping[str, Any],
+    handoff: Mapping[str, Any],
+) -> dict[str, Any]:
+    expected = build_candidate_owner_handoff(packet, review, context)
+    if canonical(expected) != canonical(handoff):
+        raise FactoryEvolutionError("Factory candidate owner handoff differs")
+    return dict(handoff)
+
+
+def build_owner_acknowledgment(
+    handoff: Mapping[str, Any], submission: Mapping[str, Any]
+) -> dict[str, Any]:
+    expected = {
+        "schema_version",
+        "kind",
+        "handoff_root",
+        "evolution_id",
+        "candidate_id",
+        "candidate_type",
+        "normal_owner",
+        "owner_id",
+        "target_revision",
+        "candidate_basis_revision",
+        "candidate_revision",
+        "lane_started_at",
+        "observed_at",
+        "candidate_root",
+        "affected_paths",
+        "scope_root",
+        "capability_root",
+        "protected_capability_results",
+        "resource_usage",
+        "validation_results",
+        "isolated",
+        "production_authority",
+        "stop_disposition",
+        "currentness_root",
+    }
+    if not isinstance(submission, Mapping):
+        raise FactoryEvolutionError("Factory owner acknowledgment must be an object")
+    _exact_keys(submission, expected, label="Factory owner acknowledgment")
+    for field in (
+        "handoff_root",
+        "candidate_root",
+        "scope_root",
+        "capability_root",
+        "currentness_root",
+    ):
+        _exact_sha256(submission.get(field), label=field)
+    if (
+        type(submission.get("schema_version")) is not int
+        or submission.get("schema_version") != SCHEMA_VERSION
+        or submission.get("kind") != OWNER_ACKNOWLEDGMENT_KIND
+        or submission.get("handoff_root") != handoff.get("handoff_root")
+        or submission.get("evolution_id") != handoff.get("evolution_id")
+        or submission.get("candidate_id") != handoff.get("candidate_id")
+        or submission.get("candidate_type") != handoff.get("candidate_type")
+        or submission.get("normal_owner") != handoff.get("normal_owner")
+        or submission.get("owner_id") != handoff.get("implementation_owner_id")
+        or submission.get("target_revision") != handoff.get("target_revision")
+        or submission.get("candidate_basis_revision") != handoff.get("candidate_basis_revision")
+        or submission.get("production_authority") != "incumbent"
+        or type(submission.get("isolated")) is not bool
+        or not submission.get("isolated")
+    ):
+        raise FactoryEvolutionError("Factory owner acknowledgment binding differs")
+    _exact_revision(submission.get("candidate_revision"), label="candidate revision")
+    for field in ("lane_started_at", "observed_at"):
+        _semantic_text(submission.get(field), label=f"owner acknowledgment {field}")
+    affected_paths = submission.get("affected_paths")
+    if (
+        not isinstance(affected_paths, list)
+        or not affected_paths
+        or affected_paths != sorted(set(affected_paths))
+        or any(
+            type(item) is not str
+            or item.startswith("/")
+            or "." in Path(item).parts
+            or ".." in Path(item).parts
+            for item in affected_paths
+        )
+    ):
+        raise FactoryEvolutionError("Factory owner acknowledgment scope differs")
+    protected = submission.get("protected_capability_results")
+    if (
+        not isinstance(protected, list)
+        or not protected
+        or any(
+            not isinstance(item, Mapping)
+            or set(item) != {"capability_id", "result", "evidence_root"}
+            or type(item["capability_id"]) is not str
+            or item["result"] not in {"preserved", "regressed", "unverified"}
+            or not SHA256.fullmatch(str(item["evidence_root"]))
+            for item in protected
+        )
+        or [item["capability_id"] for item in protected]
+        != sorted({item["capability_id"] for item in protected})
+    ):
+        raise FactoryEvolutionError("Factory owner protected-capability results differ")
+    usage = submission.get("resource_usage")
+    usage_fields = {"files", "changed_lines", "commands", "elapsed_minutes"}
+    if (
+        not isinstance(usage, Mapping)
+        or set(usage) != usage_fields
+        or any(type(usage[field]) is not int or usage[field] < 0 for field in usage_fields)
+    ):
+        raise FactoryEvolutionError("Factory owner resource usage differs")
+    validation_results = submission.get("validation_results")
+    if (
+        not isinstance(validation_results, list)
+        or not validation_results
+        or len(validation_results) > 16
+        or any(
+            not isinstance(item, Mapping)
+            or set(item)
+            != {"command_id", "command", "exit_code", "stdout_sha256", "stderr_sha256"}
+            or type(item["command_id"]) is not str
+            or type(item["command"]) is not str
+            or type(item["exit_code"]) is not int
+            or type(item["stdout_sha256"]) is not str
+            or type(item["stderr_sha256"]) is not str
+            or not SHA256.fullmatch(item["stdout_sha256"])
+            or not SHA256.fullmatch(item["stderr_sha256"])
+            for item in validation_results
+        )
+        or [item["command_id"] for item in validation_results]
+        != sorted({item["command_id"] for item in validation_results})
+    ):
+        raise FactoryEvolutionError("Factory owner validation results differ")
+    stop_disposition = submission.get("stop_disposition")
+    if stop_disposition not in {
+        "candidate-ready-for-comparison",
+        "ceiling-expired",
+        "protected-regression",
+        "hypothesis-falsified",
+        "owner-rejected",
+    }:
+        raise FactoryEvolutionError("Factory owner Stop disposition differs")
+    material = dict(submission)
+    material.pop("currentness_root")
+    if submission["currentness_root"] != digest(material):
+        raise FactoryEvolutionError("Factory owner acknowledgment currentness differs")
+    return dict(submission)
+
+
+def build_cycle_action(
+    packet: Mapping[str, Any],
+    *,
+    review: Mapping[str, Any] | None = None,
+    handoff: Mapping[str, Any] | None = None,
+    acknowledgment: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    verified_packet = verify_learning_packet(packet)
+    if review is None:
+        stage = "review-required"
+        next_action = "review"
+        selected_id = None
+        normal_owner = None
+        review_root = None
+        handoff_root = None
+        acknowledgment_root = None
+    else:
+        verified_review = verify_evolution_review(verified_packet, review)
+        selected = selected_candidate(verified_review)
+        selected_id = selected["candidate_id"]
+        normal_owner = candidate_owner_route(selected["candidate_type"])
+        review_root = verified_review["review_root"]
+        handoff_root = handoff.get("handoff_root") if handoff is not None else None
+        acknowledgment_root = (
+            acknowledgment.get("currentness_root") if acknowledgment is not None else None
+        )
+        if handoff is None:
+            stage = "owner-handoff-required"
+            next_action = "author" if normal_owner == "author-implementation-trackers" else "implement"
+        elif acknowledgment is None:
+            stage = "owner-acknowledgment-required"
+            next_action = handoff["owner_action"]
+        else:
+            verify_candidate_owner_handoff(
+                verified_packet,
+                verified_review,
+                {key: handoff[key] for key in HANDOFF_CONTEXT_FIELDS},
+                handoff,
+            )
+            verified_ack = build_owner_acknowledgment(handoff, acknowledgment)
+            stage = (
+                "candidate-ready-for-comparison"
+                if verified_ack["stop_disposition"] == "candidate-ready-for-comparison"
+                else "candidate-stopped"
+            )
+            next_action = "compare" if stage == "candidate-ready-for-comparison" else "reject"
+    material = {
+        "schema_version": SCHEMA_VERSION,
+        "kind": CYCLE_ACTION_KIND,
+        "packet_id": verified_packet["packet_id"],
+        "packet_root": verified_packet["packet_root"],
+        "stage": stage,
+        "next_action": next_action,
+        "selected_candidate_id": selected_id,
+        "normal_owner": normal_owner,
+        "review_root": review_root,
+        "handoff_root": handoff_root,
+        "acknowledgment_root": acknowledgment_root,
+    }
+    return {**material, "action_root": digest(material)}
 
 
 def _normalize_results(

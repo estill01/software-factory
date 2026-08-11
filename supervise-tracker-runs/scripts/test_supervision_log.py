@@ -155,6 +155,25 @@ class FactoryEvolutionContractTests(unittest.TestCase):
         self.assertIn("regular file under that owner", normalized)
         self.assertIn("four-megabyte stored-byte ceiling", normalized)
 
+    def test_orchestration_contract_binds_complete_owner_map_and_stops_before_evaluation(self) -> None:
+        normalized = " ".join(self.contract.split()).lower()
+
+        for candidate_type in supervision_log.factory_evolution_module().CANDIDATE_TYPES:
+            self.assertIn(f"`{candidate_type}`", self.contract)
+        for owner in (
+            "author-implementation-trackers",
+            "implement-tracker-blocks",
+            "supervise-tracker-runs",
+        ):
+            self.assertIn(owner, self.contract)
+        self.assertIn("owner-acknowledgment-required", normalized)
+        self.assertIn(
+            "software-factory-evolution-owner-acknowledgment-input",
+            self.contract,
+        )
+        self.assertIn("incumbent remains the sole production authority", normalized)
+        self.assertIn("evaluation, adoption, installation, and cutover remain later", normalized)
+
 
 class FactoryEvolutionCliTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -179,6 +198,7 @@ class FactoryEvolutionCliTests(unittest.TestCase):
             "event_paths": [],
             "review_json": None,
             "evaluation_json": None,
+            "owner_ack_json": None,
         }
         values.update(overrides)
         return argparse.Namespace(**values)
@@ -303,7 +323,17 @@ class FactoryEvolutionCliTests(unittest.TestCase):
             if isinstance(item, argparse._SubParsersAction)
         ).choices["factory-evolution"]._option_string_actions["--action"].choices
         self.assertEqual(
-            tuple(action), ("admit", "prepare", "finalize", "evaluate", "verify")
+            tuple(action),
+            (
+                "admit",
+                "prepare",
+                "finalize",
+                "evaluate",
+                "verify",
+                "status",
+                "orchestrate",
+                "acknowledge",
+            ),
         )
 
     def test_nested_owner_symlink_escape_is_rejected(self) -> None:

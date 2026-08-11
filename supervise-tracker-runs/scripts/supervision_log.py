@@ -100,6 +100,7 @@ MAX_ADAPTIVE_DECISION_EVIDENCE_BYTES = 64 * 1024
 MAX_ADAPTIVE_REVIEW_EVIDENCE_BYTES = 64 * 1024
 MAX_PROGRAM_REVISION_EVIDENCE_BYTES = 256 * 1024
 MAX_FACTORY_EVOLUTION_STORED_ARTIFACT_BYTES = 4 * 1024 * 1024
+MAX_FACTORY_EVOLUTION_OWNER_ACK_BYTES = 256 * 1024
 TRACKER_AUTHORING_PROFILE_SOURCE_PATH = (
     "docs/software-factory-tracker-authoring-supervision-implementation-tracker.md"
 )
@@ -14677,6 +14678,583 @@ def verify_factory_evolution_finalize(
     return packet, review
 
 
+FACTORY_EVOLUTION_REVIEW_HANDOFF_EVENT_KIND = "factory-evolution-review-handoff"
+FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND = "factory-evolution-owner-handoff"
+FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND = "factory-evolution-owner-acknowledgment"
+FACTORY_EVOLUTION_OWNER_ACK_INPUT_KIND = (
+    "software-factory-evolution-owner-acknowledgment-input"
+)
+FACTORY_EVOLUTION_OWNER_SCOPE = {
+    "author-implementation-trackers": (
+        "author-implementation-trackers/",
+        "docs/",
+    ),
+    "implement-tracker-blocks": ("implement-tracker-blocks/",),
+    "supervise-tracker-runs": ("supervise-tracker-runs/",),
+}
+
+
+def factory_git_output(repository: Path, *arguments: str) -> str:
+    result = subprocess.run(
+        ["/usr/bin/git", "-C", str(repository), *arguments],
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+    )
+    if result.returncode != 0:
+        raise SupervisionLogError("Factory evolution repository evidence differs")
+    return result.stdout.strip()
+
+
+def factory_skill_source_roots(repository: Path, revision: str) -> dict[str, str]:
+    roots: dict[str, str] = {}
+    for name in (
+        "author-implementation-trackers",
+        "implement-tracker-blocks",
+        "supervise-tracker-runs",
+    ):
+        value = factory_git_output(repository, "rev-parse", f"{revision}:{name}")
+        if re.fullmatch(r"[0-9a-f]{40}", value) is None:
+            raise SupervisionLogError("Factory evolution skill source root differs")
+        roots[name] = value
+    return roots
+
+
+def factory_capability_frame_root(
+    tracker_path: str, *, expected_tracker_sha256: str
+) -> str:
+    source = Path(tracker_path)
+    descriptor = -1
+    try:
+        before_path = source.lstat()
+        if not stat.S_ISREG(before_path.st_mode) or source.is_symlink():
+            raise SupervisionLogError(
+                "Factory evolution tracker must be one regular owner file"
+            )
+        descriptor = os.open(
+            source,
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+        )
+        before = file_snapshot(os.fstat(descriptor))
+        if before[2] > MAX_IMPLEMENTATION_TRACKER_BYTES:
+            raise SupervisionLogError("Factory evolution tracker exceeds its byte bound")
+        with os.fdopen(descriptor, "rb") as handle:
+            descriptor = -1
+            raw = handle.read(MAX_IMPLEMENTATION_TRACKER_BYTES + 1)
+            after = file_snapshot(os.fstat(handle.fileno()))
+    except OSError as exc:
+        raise SupervisionLogError("Factory evolution tracker cannot be read") from exc
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+    if (
+        before != after
+        or path_snapshot(source) != before
+        or len(raw) > MAX_IMPLEMENTATION_TRACKER_BYTES
+        or hashlib.sha256(raw).hexdigest() != expected_tracker_sha256
+    ):
+        raise SupervisionLogError("Factory evolution tracker currentness differs")
+    heading = b"### Target-product capability frame\n"
+    start = raw.find(heading)
+    if start < 0:
+        raise SupervisionLogError("Factory evolution capability frame is missing")
+    cursor = start + len(heading)
+    end = len(raw)
+    for line in raw[cursor:].splitlines(keepends=True):
+        if line.startswith(b"### ") or line.startswith(b"## ") or line.startswith(b"# "):
+            end = cursor
+            break
+        cursor += len(line)
+    return hashlib.sha256(raw[start:end]).hexdigest()
+
+
+def factory_evolution_owner_context(
+    policy: Mapping[str, Any], *, evolution_id: str
+) -> dict[str, Any]:
+    control = policy.get("adaptive_decision_control")
+    if not isinstance(control, Mapping):
+        raise SupervisionLogError("Factory evolution adaptive policy is unavailable")
+    validate_adaptive_decision_control(control)
+    if control["target_class"] != "software-factory":
+        raise SupervisionLogError("Factory evolution orchestration requires Factory scope")
+    mission = bound_mission(dict(policy))
+    if mission is None:
+        raise SupervisionLogError("Factory evolution orchestration requires a current mission")
+    range_state = implementation_range_state(policy)
+    if range_state is None or (
+        13 not in range_state["eligible_blocks"]
+        and 13 not in range_state["accepted_blocks"]
+    ):
+        raise SupervisionLogError("Factory evolution Block 13 is not the current range frontier")
+    repository, revision = factory_evolution_target_revision(policy)
+    if str(repository) != control["target_repository_root"]:
+        raise SupervisionLogError("Factory evolution target repository differs")
+    return {
+        "evolution_id": safe_id(evolution_id, label="factory evolution ID"),
+        "target_repository_root": str(repository),
+        "target_revision": revision,
+        "mission_root": mission["mission_root"],
+        "policy_sha256": policy["policy_sha256"],
+        "range_id": range_state["range_id"],
+        "range_history_head_sha256": range_state["range_history_head_sha256"],
+        "tracker_sha256": range_state["tracker_sha256"],
+        "capability_frame_root": factory_capability_frame_root(
+            range_state["tracker_path"],
+            expected_tracker_sha256=range_state["tracker_sha256"],
+        ),
+        "skill_source_roots": factory_skill_source_roots(repository, revision),
+        "candidate_budget": dict(control["candidate_budget"]),
+    }
+
+
+def factory_evolution_admitted_event(
+    directory: Path,
+    policy: Mapping[str, Any],
+    all_events: list[dict[str, Any]],
+    *,
+    evolution_id: str,
+) -> dict[str, Any]:
+    scoped = mission_scoped_events(directory, policy, all_events)
+    admissions, corrections = factory_evolution_admission_history(scoped)
+    mission = bound_mission(dict(policy))
+    if mission is None:
+        raise SupervisionLogError(
+            "Factory evolution orchestration requires a current mission"
+        )
+    corrected = {str(item["supersedes_record_id"]) for item in corrections}
+    matches = [
+        item
+        for item in admissions
+        if item["evolution_id"] == evolution_id
+        and item["record_id"] not in corrected
+        and item["disposition"] == "admitted"
+        and item["policy_sha256"] == policy["policy_sha256"]
+        and item["mission_root"] == mission["mission_root"]
+    ]
+    if len(matches) != 1:
+        raise SupervisionLogError(
+            "Factory evolution orchestration requires one current admitted cycle"
+        )
+    return matches[0]
+
+
+def factory_evolution_governed_admission(
+    directory: Path,
+    policy: Mapping[str, Any],
+    all_events: list[dict[str, Any]],
+    *,
+    evolution_id: str,
+) -> dict[str, Any] | None:
+    scoped = mission_scoped_events(directory, policy, all_events)
+    admissions, _corrections = factory_evolution_admission_history(scoped)
+    if not any(item["evolution_id"] == evolution_id for item in admissions):
+        return None
+    return factory_evolution_admitted_event(
+        directory,
+        policy,
+        all_events,
+        evolution_id=evolution_id,
+    )
+
+
+def factory_evolution_orchestration_record(
+    *,
+    kind: str,
+    record_id: str,
+    policy: Mapping[str, Any],
+    evolution_id: str,
+    payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    mission = bound_mission(dict(policy))
+    if mission is None:
+        raise SupervisionLogError("Factory evolution orchestration mission is unavailable")
+    material = {
+        "schema_version": 1,
+        "kind": kind,
+        "record_id": record_id,
+        "timestamp": utc_now(),
+        "target_thread_id": policy["target_thread_id"],
+        "policy_sha256": policy["policy_sha256"],
+        "mission_root": mission["mission_root"],
+        "evolution_id": evolution_id,
+        "payload": dict(payload),
+        "payload_root": digest(payload),
+    }
+    return {**material, "orchestration_root": digest(material)}
+
+
+def validate_factory_evolution_orchestration_record(
+    value: Any, *, policy: Mapping[str, Any]
+) -> dict[str, Any]:
+    expected = {
+        "schema_version",
+        "kind",
+        "record_id",
+        "timestamp",
+        "target_thread_id",
+        "policy_sha256",
+        "mission_root",
+        "evolution_id",
+        "payload",
+        "payload_root",
+        "orchestration_root",
+        "previous_record_sha256",
+        "record_sha256",
+    }
+    if not isinstance(value, Mapping) or set(value) != expected:
+        raise SupervisionLogError("Factory evolution orchestration record shape differs")
+    if type(value.get("schema_version")) is not int or value["schema_version"] != 1:
+        raise SupervisionLogError("Factory evolution orchestration record version differs")
+    if value.get("kind") not in {
+        FACTORY_EVOLUTION_REVIEW_HANDOFF_EVENT_KIND,
+        FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND,
+        FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND,
+    }:
+        raise SupervisionLogError("Factory evolution orchestration record kind differs")
+    safe_id(str(value.get("record_id", "")), label="orchestration record ID")
+    safe_id(str(value.get("evolution_id", "")), label="factory evolution ID")
+    parse_time(str(value.get("timestamp", "")))
+    mission = bound_mission(dict(policy))
+    if (
+        mission is None
+        or value.get("target_thread_id") != policy["target_thread_id"]
+        or value.get("policy_sha256") != policy["policy_sha256"]
+        or value.get("mission_root") != mission["mission_root"]
+        or not isinstance(value.get("payload"), Mapping)
+        or value.get("payload_root") != digest(value["payload"])
+    ):
+        raise SupervisionLogError("Factory evolution orchestration ownership differs")
+    material = {
+        key: item
+        for key, item in value.items()
+        if key not in {"orchestration_root", "previous_record_sha256", "record_sha256"}
+    }
+    if value.get("orchestration_root") != digest(material):
+        raise SupervisionLogError("Factory evolution orchestration root differs")
+    return dict(value)
+
+
+def factory_evolution_orchestration_history(
+    directory: Path,
+    policy: Mapping[str, Any],
+    all_events: list[dict[str, Any]],
+    *,
+    evolution_id: str,
+) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in mission_scoped_events(directory, policy, all_events):
+        if item.get("kind") in {
+            FACTORY_EVOLUTION_REVIEW_HANDOFF_EVENT_KIND,
+            FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND,
+            FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND,
+        }:
+            validated = validate_factory_evolution_orchestration_record(
+                item, policy=policy
+            )
+            if validated["evolution_id"] == evolution_id:
+                result.append(validated)
+    return result
+
+
+def factory_candidate_path_allowed(normal_owner: str, path: str) -> bool:
+    if (
+        not path
+        or path.startswith("/")
+        or "." in Path(path).parts
+        or ".." in Path(path).parts
+    ):
+        return False
+    prefixes = FACTORY_EVOLUTION_OWNER_SCOPE.get(normal_owner)
+    if prefixes is None:
+        return False
+    if normal_owner == "author-implementation-trackers" and path.startswith("docs/"):
+        return path.endswith("implementation-tracker.md")
+    return any(path.startswith(prefix) for prefix in prefixes)
+
+
+def factory_git_tree_entry(repository: Path, revision: str, path: str) -> dict[str, Any] | None:
+    raw = factory_git_output(repository, "ls-tree", revision, "--", path)
+    if not raw:
+        return None
+    lines = raw.splitlines()
+    if len(lines) != 1 or "\t" not in lines[0]:
+        raise SupervisionLogError("Factory candidate tree entry differs")
+    metadata, recorded_path = lines[0].split("\t", 1)
+    parts = metadata.split()
+    if (
+        len(parts) != 3
+        or recorded_path != path
+        or parts[1] != "blob"
+        or parts[0] not in {"100644", "100755"}
+    ):
+        raise SupervisionLogError("Factory candidate tree entry differs")
+    return {"mode": parts[0], "object": parts[2]}
+
+
+def factory_candidate_source_projection(
+    handoff: Mapping[str, Any], candidate_revision: str
+) -> tuple[list[dict[str, Any]], int]:
+    repository = Path(str(handoff["target_repository_root"]))
+    target_revision = str(handoff["target_revision"])
+    candidate_revision = str(candidate_revision)
+    if re.fullmatch(r"[0-9a-f]{40}", candidate_revision) is None:
+        raise SupervisionLogError("Factory candidate revision differs")
+    if factory_git_output(repository, "rev-parse", "HEAD") != target_revision:
+        raise SupervisionLogError("Factory candidate incumbent revision is not current")
+    if factory_git_output(repository, "rev-parse", f"{candidate_revision}^{{commit}}") != candidate_revision:
+        raise SupervisionLogError("Factory candidate commit is unavailable")
+    ancestor = subprocess.run(
+        [
+            "/usr/bin/git",
+            "-C",
+            str(repository),
+            "merge-base",
+            "--is-ancestor",
+            target_revision,
+            candidate_revision,
+        ],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+    )
+    if ancestor.returncode != 0 or candidate_revision == target_revision:
+        raise SupervisionLogError("Factory candidate revision is not isolated from its baseline")
+    name_status = factory_git_output(
+        repository,
+        "diff",
+        "--name-status",
+        "--no-renames",
+        target_revision,
+        candidate_revision,
+        "--",
+    )
+    records: list[dict[str, Any]] = []
+    for line in name_status.splitlines():
+        if "\t" not in line:
+            raise SupervisionLogError("Factory candidate changed-path evidence differs")
+        change, path = line.split("\t", 1)
+        if change not in {"A", "D", "M"} or not factory_candidate_path_allowed(
+            str(handoff["normal_owner"]), path
+        ):
+            raise SupervisionLogError("Factory candidate scope differs from its normal owner")
+        records.append(
+            {
+                "path": path,
+                "change": change,
+                "baseline": factory_git_tree_entry(repository, target_revision, path),
+                "candidate": factory_git_tree_entry(repository, candidate_revision, path),
+            }
+        )
+    if not records or [item["path"] for item in records] != sorted(
+        item["path"] for item in records
+    ):
+        raise SupervisionLogError("Factory candidate changed-path evidence differs")
+    changed_lines = 0
+    numstat = factory_git_output(
+        repository,
+        "diff",
+        "--numstat",
+        "--no-renames",
+        target_revision,
+        candidate_revision,
+        "--",
+    )
+    numstat_paths: list[str] = []
+    for line in numstat.splitlines():
+        parts = line.split("\t")
+        if len(parts) != 3 or not parts[0].isdigit() or not parts[1].isdigit():
+            raise SupervisionLogError("Factory candidate changed-line evidence differs")
+        changed_lines += int(parts[0]) + int(parts[1])
+        numstat_paths.append(parts[2])
+    if numstat_paths != [item["path"] for item in records]:
+        raise SupervisionLogError("Factory candidate changed-line paths differ")
+    return records, changed_lines
+
+
+def factory_candidate_protected_results(
+    handoff: Mapping[str, Any],
+    *,
+    candidate_root: str,
+    validation_root: str,
+    postures: Mapping[str, str],
+) -> list[dict[str, str]]:
+    expected_ids = {
+        "capability-" + hashlib.sha256(item.encode("utf-8")).hexdigest()[:20]
+        for item in handoff["protected_capabilities"]
+    }
+    if set(postures) != expected_ids:
+        raise SupervisionLogError("Factory candidate protected-capability set differs")
+    results: list[dict[str, str]] = []
+    for capability_id in sorted(expected_ids):
+        posture = postures[capability_id]
+        if posture not in {"preserved", "regressed", "unverified"}:
+            raise SupervisionLogError("Factory candidate protected-capability result differs")
+        results.append(
+            {
+                "capability_id": capability_id,
+                "result": posture,
+                "evidence_root": digest(
+                    {
+                        "capability_id": capability_id,
+                        "result": posture,
+                        "candidate_contract_root": handoff["candidate_contract_root"],
+                        "candidate_root": candidate_root,
+                        "validation_root": validation_root,
+                    }
+                ),
+            }
+        )
+    return results
+
+
+def factory_candidate_acknowledgment(
+    handoff: Mapping[str, Any], submission: Mapping[str, Any]
+) -> dict[str, Any]:
+    module = factory_evolution_module()
+    expected_submission = {
+        "schema_version",
+        "kind",
+        "handoff_root",
+        "normal_owner",
+        "owner_id",
+        "target_revision",
+        "candidate_basis_revision",
+        "candidate_revision",
+        "lane_started_at",
+        "observed_at",
+        "validation_results",
+        "protected_capability_postures",
+        "stop_disposition",
+    }
+    if not isinstance(submission, Mapping) or set(submission) != expected_submission:
+        raise SupervisionLogError("Factory candidate acknowledgment input shape differs")
+    if (
+        type(submission.get("schema_version")) is not int
+        or submission.get("schema_version") != 1
+        or submission.get("kind") != FACTORY_EVOLUTION_OWNER_ACK_INPUT_KIND
+        or submission.get("handoff_root") != handoff.get("handoff_root")
+        or submission.get("normal_owner") != handoff.get("normal_owner")
+        or submission.get("owner_id") != handoff.get("implementation_owner_id")
+        or submission.get("target_revision") != handoff.get("target_revision")
+        or submission.get("candidate_basis_revision")
+        != handoff.get("candidate_basis_revision")
+    ):
+        raise SupervisionLogError("Factory candidate acknowledgment input binding differs")
+    candidate_revision = str(submission.get("candidate_revision", ""))
+    projection, changed_lines = factory_candidate_source_projection(
+        handoff, candidate_revision
+    )
+    affected_paths = [item["path"] for item in projection]
+    candidate_root = digest(projection)
+    validation_results = submission.get("validation_results")
+    if not isinstance(validation_results, list):
+        raise SupervisionLogError("Factory candidate validation results are required")
+    validation_root = digest(validation_results)
+    postures_source = submission.get("protected_capability_postures")
+    if not isinstance(postures_source, Mapping):
+        raise SupervisionLogError("Factory candidate protected postures are required")
+    postures = {str(key): str(value) for key, value in postures_source.items()}
+    protected = factory_candidate_protected_results(
+        handoff,
+        candidate_root=candidate_root,
+        validation_root=validation_root,
+        postures=postures,
+    )
+    lane_started = parse_time(str(submission.get("lane_started_at", "")))
+    observed = parse_time(str(submission.get("observed_at", "")))
+    target_committed = parse_time(
+        factory_git_output(
+            Path(str(handoff["target_repository_root"])),
+            "show",
+            "-s",
+            "--format=%cI",
+            str(handoff["target_revision"]),
+        )
+    )
+    candidate_committed = parse_time(
+        factory_git_output(
+            Path(str(handoff["target_repository_root"])),
+            "show",
+            "-s",
+            "--format=%cI",
+            candidate_revision,
+        )
+    )
+    if not (
+        target_committed <= lane_started <= candidate_committed <= observed <= dt.datetime.now(dt.timezone.utc)
+    ):
+        raise SupervisionLogError("Factory candidate chronology differs")
+    elapsed_seconds = int((observed - lane_started).total_seconds())
+    usage = {
+        "files": len(affected_paths),
+        "changed_lines": changed_lines,
+        "commands": len(validation_results),
+        "elapsed_minutes": max(1, (elapsed_seconds + 59) // 60),
+    }
+    budget = handoff["candidate_budget"]
+    over_budget = any(
+        usage[field] > budget[f"max_{field}"]
+        for field in ("files", "changed_lines", "commands", "elapsed_minutes")
+    )
+    validation_failed = any(
+        not isinstance(item, Mapping)
+        or type(item.get("exit_code")) is not int
+        or item["exit_code"] != 0
+        for item in validation_results
+    )
+    protected_failed = any(item["result"] != "preserved" for item in protected)
+    expected_stop = (
+        "ceiling-expired"
+        if over_budget
+        else "protected-regression"
+        if protected_failed
+        else "hypothesis-falsified"
+        if validation_failed
+        else "candidate-ready-for-comparison"
+    )
+    if submission.get("stop_disposition") != expected_stop:
+        raise SupervisionLogError("Factory candidate Stop disposition differs")
+    material = {
+        "schema_version": 1,
+        "kind": module.OWNER_ACKNOWLEDGMENT_KIND,
+        "handoff_root": handoff["handoff_root"],
+        "evolution_id": handoff["evolution_id"],
+        "candidate_id": handoff["candidate_id"],
+        "candidate_type": handoff["candidate_type"],
+        "normal_owner": handoff["normal_owner"],
+        "owner_id": handoff["implementation_owner_id"],
+        "target_revision": handoff["target_revision"],
+        "candidate_basis_revision": handoff["candidate_basis_revision"],
+        "candidate_revision": candidate_revision,
+        "lane_started_at": str(submission["lane_started_at"]),
+        "observed_at": str(submission["observed_at"]),
+        "candidate_root": candidate_root,
+        "affected_paths": affected_paths,
+        "scope_root": digest(affected_paths),
+        "capability_root": digest(
+            {
+                "candidate_contract_root": handoff["candidate_contract_root"],
+                "experiment_root": handoff["experiment_root"],
+                "protected_capability_results": protected,
+            }
+        ),
+        "protected_capability_results": protected,
+        "resource_usage": usage,
+        "validation_results": validation_results,
+        "isolated": True,
+        "production_authority": "incumbent",
+        "stop_disposition": expected_stop,
+    }
+    acknowledgment = {**material, "currentness_root": digest(material)}
+    try:
+        return module.build_owner_acknowledgment(handoff, acknowledgment)
+    except module.FactoryEvolutionError as exc:
+        raise SupervisionLogError(str(exc)) from exc
+
+
 def factory_evolution_admission_result(
     *,
     checkpoint_kind: str,
@@ -15655,6 +16233,34 @@ def cmd_factory_evolution_finalize(args: argparse.Namespace) -> None:
             "Factory evolution finalize requires only an explicit review JSON"
         )
     module = factory_evolution_module()
+    governed: tuple[Path, dict[str, Any], list[dict[str, Any]]] | None = None
+    target = target_dir(args)
+    if (target / "policy.json").exists():
+        governed_directory, governed_policy = load_policy(args)
+        governed_events = events(governed_directory / "events.jsonl")
+        if factory_evolution_governed_admission(
+            governed_directory,
+            governed_policy,
+            governed_events,
+            evolution_id=safe_id(
+                args.evolution_id, label="factory evolution ID"
+            ),
+        ) is not None:
+            governed = (
+                governed_directory,
+                governed_policy,
+                governed_events,
+            )
+            routed = factory_evolution_cycle_state(
+                governed_directory,
+                governed_policy,
+                governed_events,
+                evolution_id=args.evolution_id,
+            )
+            if routed["review_record"] is None:
+                raise SupervisionLogError(
+                    "Factory evolution review requires its canonical reviewer handoff"
+                )
     directory = factory_evolution_directory(
         target_dir(args), safe_id(args.evolution_id, label="factory evolution ID")
     )
@@ -15663,6 +16269,12 @@ def cmd_factory_evolution_finalize(args: argparse.Namespace) -> None:
     review = factory_evolution_call(
         module, "build_evolution_review", packet, review_submission
     )
+    if (
+        governed is not None
+        and review["reviewer_id"]
+        != governed[1]["runtime"]["base_reviewer_thread_id"]
+    ):
+        raise SupervisionLogError("Factory evolution review owner differs")
     finalize_manifest = factory_evolution_call(
         module,
         "build_evolution_manifest",
@@ -15676,6 +16288,14 @@ def cmd_factory_evolution_finalize(args: argparse.Namespace) -> None:
             "finalize-manifest.json": finalize_manifest,
         },
     )
+    if governed is not None:
+        refreshed_events = events(governed[0] / "events.jsonl")
+        factory_evolution_cycle_state(
+            governed[0],
+            governed[1],
+            refreshed_events,
+            evolution_id=args.evolution_id,
+        )
     print(
         json.dumps(
             {
@@ -15701,6 +16321,27 @@ def cmd_factory_evolution_evaluate(args: argparse.Namespace) -> None:
         raise SupervisionLogError(
             "Factory evolution evaluate requires only an explicit evaluation JSON"
         )
+    target = target_dir(args)
+    if (target / "policy.json").exists():
+        governed_directory, governed_policy = load_policy(args)
+        governed_events = events(governed_directory / "events.jsonl")
+        admission = factory_evolution_governed_admission(
+            governed_directory,
+            governed_policy,
+            governed_events,
+            evolution_id=safe_id(
+                args.evolution_id, label="factory evolution ID"
+            ),
+        )
+        if admission is not None:
+            range_state = implementation_range_state(governed_policy)
+            if range_state is None or (
+                14 not in range_state["eligible_blocks"]
+                and 14 not in range_state["accepted_blocks"]
+            ):
+                raise SupervisionLogError(
+                    "Factory evolution evaluation is beyond the current Block Stop"
+                )
     module = factory_evolution_module()
     directory = factory_evolution_directory(
         target_dir(args), safe_id(args.evolution_id, label="factory evolution ID")
@@ -15795,6 +16436,409 @@ def cmd_factory_evolution_verify(args: argparse.Namespace) -> None:
     )
 
 
+def factory_evolution_review_handoff(
+    policy: Mapping[str, Any],
+    *,
+    packet: Mapping[str, Any],
+    context: Mapping[str, Any],
+) -> dict[str, Any]:
+    runtime = policy["runtime"]
+    reviewer_id = runtime["base_reviewer_thread_id"]
+    material = {
+        "schema_version": 1,
+        "kind": "software-factory-evolution-review-handoff",
+        "evolution_id": context["evolution_id"],
+        "packet_id": packet["packet_id"],
+        "packet_root": packet["packet_root"],
+        "reviewer_id": reviewer_id,
+        "reviewer_model": policy["models"]["base_reviewer"]["model"],
+        "reviewer_reasoning": policy["models"]["base_reviewer"]["reasoning"],
+        "target_revision": context["target_revision"],
+        "policy_sha256": context["policy_sha256"],
+        "mission_root": context["mission_root"],
+        "context_root": digest(context),
+        "next_action": "review",
+        "application_authorized": False,
+        "candidate_started": False,
+    }
+    return {**material, "review_handoff_root": digest(material)}
+
+
+def factory_candidate_ack_source(
+    acknowledgment: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "kind": FACTORY_EVOLUTION_OWNER_ACK_INPUT_KIND,
+        "handoff_root": acknowledgment["handoff_root"],
+        "normal_owner": acknowledgment["normal_owner"],
+        "owner_id": acknowledgment["owner_id"],
+        "target_revision": acknowledgment["target_revision"],
+        "candidate_basis_revision": acknowledgment["candidate_basis_revision"],
+        "candidate_revision": acknowledgment["candidate_revision"],
+        "lane_started_at": acknowledgment["lane_started_at"],
+        "observed_at": acknowledgment["observed_at"],
+        "validation_results": acknowledgment["validation_results"],
+        "protected_capability_postures": {
+            item["capability_id"]: item["result"]
+            for item in acknowledgment["protected_capability_results"]
+        },
+        "stop_disposition": acknowledgment["stop_disposition"],
+    }
+
+
+def factory_evolution_cycle_state(
+    directory: Path,
+    policy: Mapping[str, Any],
+    all_events: list[dict[str, Any]],
+    *,
+    evolution_id: str,
+) -> dict[str, Any]:
+    module = factory_evolution_module()
+    admitted = factory_evolution_admitted_event(
+        directory, policy, all_events, evolution_id=evolution_id
+    )
+    context = factory_evolution_owner_context(policy, evolution_id=evolution_id)
+    if admitted["target_revision"] != context["target_revision"]:
+        raise SupervisionLogError("Factory evolution admitted context is not current")
+    evolution_directory = factory_evolution_directory(directory, evolution_id)
+    verify_factory_evolution_inventory(evolution_directory)
+    packet = verify_factory_evolution_prepare(module, evolution_directory)
+    if packet["packet_root"] != admitted["packet_root"]:
+        raise SupervisionLogError("Factory evolution admitted packet differs")
+    final_names = ("evaluation.json", "machine-report.json", "manifest.json")
+    if any(
+        factory_evolution_artifact_exists(evolution_directory / name)
+        for name in final_names
+    ):
+        raise SupervisionLogError("Factory evolution cycle exceeded the Block 13 Stop")
+    review_present = factory_evolution_artifact_exists(
+        evolution_directory / "review.json"
+    ) or factory_evolution_artifact_exists(
+        evolution_directory / "finalize-manifest.json"
+    )
+    review = None
+    if review_present:
+        packet, review = verify_factory_evolution_finalize(module, evolution_directory)
+    history = factory_evolution_orchestration_history(
+        directory, policy, all_events, evolution_id=evolution_id
+    )
+    grouped: dict[str, list[dict[str, Any]]] = {
+        kind: []
+        for kind in (
+            FACTORY_EVOLUTION_REVIEW_HANDOFF_EVENT_KIND,
+            FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND,
+            FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND,
+        )
+    }
+    for item in history:
+        grouped[item["kind"]].append(item)
+    if any(len(items) > 1 for items in grouped.values()):
+        raise SupervisionLogError("Factory evolution orchestration stage repeats")
+    review_record = (
+        grouped[FACTORY_EVOLUTION_REVIEW_HANDOFF_EVENT_KIND][0]
+        if grouped[FACTORY_EVOLUTION_REVIEW_HANDOFF_EVENT_KIND]
+        else None
+    )
+    owner_record = (
+        grouped[FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND][0]
+        if grouped[FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND]
+        else None
+    )
+    acknowledgment_record = (
+        grouped[FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND][0]
+        if grouped[FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND]
+        else None
+    )
+    expected_review_handoff = factory_evolution_review_handoff(
+        policy, packet=packet, context=context
+    )
+    if review_record is not None and review_record["payload"] != expected_review_handoff:
+        raise SupervisionLogError("Factory evolution review handoff is stale")
+    if review is not None:
+        if review_record is None:
+            raise SupervisionLogError("Factory evolution review bypassed its routed owner")
+        if review["reviewer_id"] != expected_review_handoff["reviewer_id"]:
+            raise SupervisionLogError("Factory evolution review owner differs")
+    elif owner_record is not None or acknowledgment_record is not None:
+        raise SupervisionLogError("Factory evolution owner work precedes review")
+    handoff = None
+    if review is not None:
+        try:
+            handoff = module.build_candidate_owner_handoff(packet, review, context)
+        except module.FactoryEvolutionError as exc:
+            raise SupervisionLogError(str(exc)) from exc
+        if owner_record is not None and owner_record["payload"] != handoff:
+            raise SupervisionLogError("Factory evolution candidate handoff is stale")
+        if owner_record is None and acknowledgment_record is not None:
+            raise SupervisionLogError("Factory evolution acknowledgment lacks its handoff")
+    acknowledgment = None
+    if acknowledgment_record is not None:
+        assert handoff is not None
+        acknowledgment = factory_candidate_acknowledgment(
+            handoff, factory_candidate_ack_source(acknowledgment_record["payload"])
+        )
+        if acknowledgment_record["payload"] != acknowledgment:
+            raise SupervisionLogError("Factory evolution owner acknowledgment is stale")
+    try:
+        action = module.build_cycle_action(
+            packet,
+            review=review,
+            handoff=(owner_record["payload"] if owner_record is not None else None),
+            acknowledgment=acknowledgment,
+        )
+    except module.FactoryEvolutionError as exc:
+        raise SupervisionLogError(str(exc)) from exc
+    return {
+        "admission_record_id": admitted["record_id"],
+        "packet": packet,
+        "review": review,
+        "context": context,
+        "review_record": review_record,
+        "owner_record": owner_record,
+        "acknowledgment_record": acknowledgment_record,
+        "expected_review_handoff": expected_review_handoff,
+        "expected_owner_handoff": handoff,
+        "action": action,
+    }
+
+
+def factory_evolution_other_active_candidate(
+    directory: Path,
+    policy: Mapping[str, Any],
+    all_events: list[dict[str, Any]],
+    *,
+    evolution_id: str,
+) -> bool:
+    scoped = mission_scoped_events(directory, policy, all_events)
+    other_ids: set[str] = set()
+    for item in scoped:
+        if item.get("kind") != FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND:
+            continue
+        validated = validate_factory_evolution_orchestration_record(
+            item, policy=policy
+        )
+        if validated["evolution_id"] != evolution_id:
+            other_ids.add(str(validated["evolution_id"]))
+    for other_id in sorted(other_ids):
+        state = factory_evolution_cycle_state(
+            directory,
+            policy,
+            all_events,
+            evolution_id=other_id,
+        )
+        if state["owner_record"] is None:
+            continue
+        if (
+            state["acknowledgment_record"] is None
+            or state["action"]["stage"] == "candidate-ready-for-comparison"
+        ):
+            return True
+    return False
+
+
+def append_factory_evolution_orchestration(
+    args: argparse.Namespace,
+    *,
+    expected_kind: str,
+    expected_payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    directory, policy, policy_snapshot, directory_snapshot = (
+        load_policy_directory_snapshot(args)
+    )
+    all_events, event_snapshot = events_snapshot(directory / "events.jsonl")
+    evolution_id = safe_id(args.evolution_id, label="factory evolution ID")
+    with owner_append_lock(
+        root_from(args), args.target_thread, directory_snapshot
+    ) as directory_fd:
+        require_bound_policy_at(
+            directory_fd,
+            expected_policy=policy,
+            expected_snapshot=policy_snapshot,
+        )
+        current_events, current_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        if current_events != all_events or current_snapshot != event_snapshot:
+            raise SupervisionLogError(
+                "Factory evolution orchestration event head changed; retry current state"
+            )
+        current = factory_evolution_cycle_state(
+            directory, policy, current_events, evolution_id=evolution_id
+        )
+        current_payload = (
+            current["expected_review_handoff"]
+            if expected_kind == FACTORY_EVOLUTION_REVIEW_HANDOFF_EVENT_KIND
+            else current["expected_owner_handoff"]
+        )
+        if current_payload != expected_payload:
+            raise SupervisionLogError(
+                "Factory evolution orchestration inputs changed before append"
+            )
+        record = factory_evolution_orchestration_record(
+            kind=expected_kind,
+            record_id=f"EVT-{len(current_events) + 1:06d}",
+            policy=policy,
+            evolution_id=evolution_id,
+            payload=expected_payload,
+        )
+        previous = str(current_events[-1]["record_sha256"]) if current_events else None
+        append_raw_locked_at(
+            directory_fd,
+            "events.jsonl",
+            record,
+            previous_record_sha256=previous,
+            expected_file_snapshot=current_snapshot,
+            require_event_anchor=bool(current_events),
+        )
+    refreshed = events(directory / "events.jsonl")
+    state = factory_evolution_cycle_state(
+        directory, policy, refreshed, evolution_id=evolution_id
+    )
+    return {"duplicate": False, "record": refreshed[-1], "action": state["action"]}
+
+
+def cmd_factory_evolution_cycle_status(args: argparse.Namespace) -> None:
+    directory, policy = load_policy(args)
+    state = factory_evolution_cycle_state(
+        directory,
+        policy,
+        events(directory / "events.jsonl"),
+        evolution_id=safe_id(args.evolution_id, label="factory evolution ID"),
+    )
+    print(json.dumps(state["action"], sort_keys=True))
+
+
+def cmd_factory_evolution_orchestrate(args: argparse.Namespace) -> None:
+    directory, policy = load_policy(args)
+    all_events = events(directory / "events.jsonl")
+    evolution_id = safe_id(args.evolution_id, label="factory evolution ID")
+    state = factory_evolution_cycle_state(
+        directory, policy, all_events, evolution_id=evolution_id
+    )
+    if state["action"]["stage"] == "review-required":
+        if state["review_record"] is not None:
+            print(json.dumps({"duplicate": True, "action": state["action"]}, sort_keys=True))
+            return
+        result = append_factory_evolution_orchestration(
+            args,
+            expected_kind=FACTORY_EVOLUTION_REVIEW_HANDOFF_EVENT_KIND,
+            expected_payload=state["expected_review_handoff"],
+        )
+        print(json.dumps(result, sort_keys=True))
+        return
+    if state["action"]["stage"] == "owner-handoff-required":
+        if factory_evolution_other_active_candidate(
+            directory, policy, all_events, evolution_id=evolution_id
+        ):
+            raise SupervisionLogError(
+                "Factory evolution target already has another active candidate"
+            )
+        result = append_factory_evolution_orchestration(
+            args,
+            expected_kind=FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND,
+            expected_payload=state["expected_owner_handoff"],
+        )
+        print(json.dumps(result, sort_keys=True))
+        return
+    print(json.dumps({"duplicate": True, "action": state["action"]}, sort_keys=True))
+
+
+def cmd_factory_evolution_acknowledge(args: argparse.Namespace) -> None:
+    if not args.owner_ack_json:
+        raise SupervisionLogError(
+            "Factory evolution acknowledge requires --owner-ack-json"
+        )
+    directory, policy, policy_snapshot, directory_snapshot = (
+        load_policy_directory_snapshot(args)
+    )
+    all_events, event_snapshot = events_snapshot(directory / "events.jsonl")
+    evolution_id = safe_id(args.evolution_id, label="factory evolution ID")
+    state = factory_evolution_cycle_state(
+        directory, policy, all_events, evolution_id=evolution_id
+    )
+    if state["acknowledgment_record"] is not None:
+        current = state["acknowledgment_record"]["payload"]
+        requested = load_bounded_canonical_json(
+            args.owner_ack_json,
+            label="Factory evolution owner acknowledgment",
+            maximum_bytes=MAX_FACTORY_EVOLUTION_OWNER_ACK_BYTES,
+        )
+        if factory_candidate_ack_source(current) != requested:
+            raise SupervisionLogError(
+                "Factory evolution owner acknowledgment already differs"
+            )
+        print(json.dumps({"duplicate": True, "action": state["action"]}, sort_keys=True))
+        return
+    if state["owner_record"] is None:
+        raise SupervisionLogError("Factory evolution owner handoff is not current")
+    source = load_bounded_canonical_json(
+        args.owner_ack_json,
+        label="Factory evolution owner acknowledgment",
+        maximum_bytes=MAX_FACTORY_EVOLUTION_OWNER_ACK_BYTES,
+    )
+    acknowledgment = factory_candidate_acknowledgment(
+        state["owner_record"]["payload"], source
+    )
+    with owner_append_lock(
+        root_from(args), args.target_thread, directory_snapshot
+    ) as directory_fd:
+        require_bound_policy_at(
+            directory_fd,
+            expected_policy=policy,
+            expected_snapshot=policy_snapshot,
+        )
+        current_events, current_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        if current_events != all_events or current_snapshot != event_snapshot:
+            raise SupervisionLogError(
+                "Factory evolution acknowledgment event head changed; retry current state"
+            )
+        current_state = factory_evolution_cycle_state(
+            directory, policy, current_events, evolution_id=evolution_id
+        )
+        if current_state["owner_record"] is None or current_state[
+            "owner_record"
+        ]["payload"] != state["owner_record"]["payload"]:
+            raise SupervisionLogError(
+                "Factory evolution owner handoff changed before acknowledgment"
+            )
+        current_ack = factory_candidate_acknowledgment(
+            current_state["owner_record"]["payload"], source
+        )
+        if current_ack != acknowledgment:
+            raise SupervisionLogError(
+                "Factory evolution acknowledgment evidence changed before append"
+            )
+        record = factory_evolution_orchestration_record(
+            kind=FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND,
+            record_id=f"EVT-{len(current_events) + 1:06d}",
+            policy=policy,
+            evolution_id=evolution_id,
+            payload=acknowledgment,
+        )
+        previous = str(current_events[-1]["record_sha256"])
+        append_raw_locked_at(
+            directory_fd,
+            "events.jsonl",
+            record,
+            previous_record_sha256=previous,
+            expected_file_snapshot=current_snapshot,
+            require_event_anchor=True,
+        )
+    refreshed = events(directory / "events.jsonl")
+    final_state = factory_evolution_cycle_state(
+        directory, policy, refreshed, evolution_id=evolution_id
+    )
+    print(
+        json.dumps(
+            {"duplicate": False, "record": refreshed[-1], "action": final_state["action"]},
+            sort_keys=True,
+        )
+    )
+
+
 def cmd_factory_evolution_admit(args: argparse.Namespace) -> None:
     if not args.report_paths or not args.event_paths:
         raise SupervisionLogError(
@@ -15834,6 +16878,23 @@ def cmd_factory_evolution(args: argparse.Namespace) -> None:
         return
     if args.action == "verify":
         cmd_factory_evolution_verify(args)
+        return
+    if args.report_paths or args.event_paths or args.review_json or args.evaluation_json:
+        raise SupervisionLogError(
+            "Factory evolution cycle actions do not accept staged producer inputs"
+        )
+    if args.action == "status":
+        cmd_factory_evolution_cycle_status(args)
+        return
+    if args.action == "orchestrate":
+        if args.owner_ack_json:
+            raise SupervisionLogError(
+                "Factory evolution orchestrate does not accept owner acknowledgment input"
+            )
+        cmd_factory_evolution_orchestrate(args)
+        return
+    if args.action == "acknowledge":
+        cmd_factory_evolution_acknowledge(args)
         return
     raise SupervisionLogError("Unsupported factory evolution action")
 
@@ -17956,7 +19017,16 @@ def parser() -> argparse.ArgumentParser:
     factory_evolution.add_argument("--evolution-id")
     factory_evolution.add_argument(
         "--action",
-        choices=("admit", "prepare", "finalize", "evaluate", "verify"),
+        choices=(
+            "admit",
+            "prepare",
+            "finalize",
+            "evaluate",
+            "verify",
+            "status",
+            "orchestrate",
+            "acknowledge",
+        ),
         required=True,
     )
     factory_evolution.add_argument(
@@ -17967,6 +19037,7 @@ def parser() -> argparse.ArgumentParser:
     )
     factory_evolution.add_argument("--review-json")
     factory_evolution.add_argument("--evaluation-json")
+    factory_evolution.add_argument("--owner-ack-json")
     factory_evolution.set_defaults(func=cmd_factory_evolution)
 
     terminal_report = subparsers.add_parser("terminal-report")

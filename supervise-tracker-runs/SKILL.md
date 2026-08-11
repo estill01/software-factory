@@ -731,13 +731,26 @@ Keep the roles and authority sequence exact:
    `author-implementation-trackers`, `implement-tracker-blocks`, or
    `supervise-tracker-runs` owner under its ordinary tracker, review, Git, and
    authorization contract. The evolution command never edits a skill or target.
-4. A separate `gpt-5.6-sol` evaluator at `xhigh` (or Max for a consequential
+   For an admitted cycle, run `factory-evolution --action orchestrate` once to
+   append the packet-to-reviewer handoff. After the exact review is finalized,
+   run it again to append the deterministic candidate-type-to-owner handoff.
+   The complete map and bound currentness fields are defined in
+   `references/factory-evolution-contract.md`; no prose classifier or detector
+   prerequisite may change the owner.
+4. The normal owner creates at most one isolated candidate revision while the
+   incumbent stays current. Submit its canonical bounded acknowledgment with
+   `factory-evolution --action acknowledge --owner-ack-json <ack.json>`.
+   `status` returns `compare` only for a current candidate within scope,
+   protected-capability, command, file, line, elapsed-time, and Stop ceilings;
+   otherwise it returns a stopped/reject posture. Retry rehydrates the one
+   existing canonical stage rather than delivering it twice.
+5. A separate `gpt-5.6-sol` evaluator at `xhigh` (or Max for a consequential
    disposition), independent of the proposer and implementer, submits
    separately attributable, revision-bound baseline and candidate results for
    every positive and exception case. `evaluate` validates the evaluation JSON
    and records one evidence disposition: `promote`, `advisory`, `revise`, or
    `reject`.
-5. Run `verify` against the stored set. Verification reopens the immutable
+6. Run `verify` against the stored set. Verification reopens the immutable
    packet, review, evaluation, report, and manifests and recomputes their hashes
    and schemas without rerunning a producer.
 
