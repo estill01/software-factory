@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).with_name("adaptive_protocol_dogfood.py")
@@ -21,6 +23,24 @@ class AdaptiveProtocolDogfoodTests(unittest.TestCase):
 
     def indexed(self, key: str) -> dict[str, dict[str, object]]:
         return {str(item["case_id"]): item for item in self.result[key]}
+
+    def test_gitless_archive_source_revision_is_repository_bound(self) -> None:
+        unavailable = subprocess.CompletedProcess(
+            ["/usr/bin/git", "rev-parse", "HEAD"], 128, "", "no Git database"
+        )
+        with (
+            mock.patch.object(dogfood.subprocess, "run", return_value=unavailable),
+            mock.patch.object(dogfood, "ARCHIVE_SOURCE_REVISION", "a" * 40),
+        ):
+            self.assertEqual(dogfood.source_revision(), "a" * 40)
+        with (
+            mock.patch.object(dogfood.subprocess, "run", return_value=unavailable),
+            mock.patch.object(
+                dogfood, "ARCHIVE_SOURCE_REVISION", "$Format:%H$"
+            ),
+            self.assertRaisesRegex(dogfood.DogfoodError, "source revision"),
+        ):
+            dogfood.source_revision()
 
     def test_fixture_is_blind_and_result_is_exactly_rooted(self) -> None:
         forbidden = {"expected_disposition", "intended_disposition", "expected_action"}

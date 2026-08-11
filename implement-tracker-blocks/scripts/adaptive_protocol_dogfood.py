@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import importlib.util
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -16,6 +17,7 @@ from pathlib import Path
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = SKILL_ROOT.parent
 FIXTURE_PATH = SKILL_ROOT / "fixtures" / "adaptive_protocol_dogfood_v1.json"
+ARCHIVE_SOURCE_REVISION = "$Format:%H$"
 
 
 class DogfoodError(RuntimeError):
@@ -74,11 +76,16 @@ def source_revision() -> str:
     completed = subprocess.run(
         ["/usr/bin/git", "rev-parse", "HEAD"],
         cwd=REPO_ROOT,
-        check=True,
         text=True,
         capture_output=True,
     )
-    return completed.stdout.strip()
+    if completed.returncode == 0:
+        revision = completed.stdout.strip()
+        if re.fullmatch(r"[0-9a-f]{40}", revision):
+            return revision
+    if re.fullmatch(r"[0-9a-f]{40}", ARCHIVE_SOURCE_REVISION):
+        return ARCHIVE_SOURCE_REVISION
+    raise DogfoodError("exact source revision is unavailable")
 
 
 def _inline_results(cases: list[dict[str, object]]) -> list[dict[str, object]]:
