@@ -404,8 +404,10 @@ supervision owner—not the evolution helper—creates the isolated candidate.
 That direct candidate commit binds the canonical owner-handoff record.
 `--action acknowledge --owner-ack-json <ack.json>` then reopens the current Git
 revision, executes the changed focused owner tests from its bounded archive,
-and derives exact scope, budget, validation, protected-capability, provenance,
-and Stop evidence. The input does not supply outcomes or owner claims. Only a
+requires one distinct executed test for every protected capability, enforces
+one handoff-to-proof deadline, and derives exact scope, budget, validation,
+protected-capability, provenance, and Stop evidence. The input does not supply
+outcomes or owner claims. Only a
 current bounded candidate reaches the later comparison step; the incumbent
 remains authoritative and no evaluation, adoption, installation, or cutover
 occurs in this orchestration stage.

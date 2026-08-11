@@ -9,6 +9,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -416,17 +417,40 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         source.parent.mkdir(parents=True, exist_ok=True)
         previous = source.read_text(encoding="utf-8") if source.exists() else ""
         source.write_text(previous + "\nCandidate proves one bounded owner change.\n", encoding="utf-8")
-        test_path = "implement-tracker-blocks/scripts/test_candidate_owner_proof.py"
-        test_source = self.repository / test_path
-        test_source.parent.mkdir(parents=True, exist_ok=True)
-        test_source.write_text(
-            "import unittest\n\n"
-            "class CandidateOwnerProofTests(unittest.TestCase):\n"
-            "    def test_candidate_effect(self):\n"
-            f"        self.assertTrue({passing!r})\n",
-            encoding="utf-8",
-        )
-        self.git("add", path, test_path)
+        if owner_record is not None:
+            protected_capabilities = owner_record["payload"]["protected_capabilities"]
+        else:
+            review = self.review_submission()
+            selected = next(
+                item
+                for item in review["candidates"]
+                if item["candidate_id"] == review["selection"]["candidate_id"]
+            )
+            protected_capabilities = selected["protected_capabilities"]
+        owner_directory = Path(path).parts[0]
+        self.last_candidate_test_paths: dict[str, str] = {}
+        added = [path]
+        for index, capability in enumerate(protected_capabilities, start=1):
+            capability_id = (
+                "capability-"
+                + hashlib.sha256(str(capability).encode("utf-8")).hexdigest()[:20]
+            )
+            test_path = (
+                f"{owner_directory}/scripts/"
+                f"test_{capability_id.replace('-', '_')}.py"
+            )
+            self.last_candidate_test_paths[capability_id] = test_path
+            test_source = self.repository / test_path
+            test_source.parent.mkdir(parents=True, exist_ok=True)
+            test_source.write_text(
+                "import unittest\n\n"
+                f"class CandidateCapabilityProof{index}Tests(unittest.TestCase):\n"
+                "    def test_candidate_effect(self):\n"
+                f"        self.assertTrue({passing!r})\n",
+                encoding="utf-8",
+            )
+            added.append(test_path)
+        self.git("add", *added)
         message = "Build isolated Block 13 candidate"
         if owner_record is not None:
             message += (
@@ -484,9 +508,9 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             "handoff_root": handoff["handoff_root"],
             "target_revision": handoff["target_revision"],
             "candidate_revision": candidate_revision,
-            "focused_test_paths": [
-                "implement-tracker-blocks/scripts/test_candidate_owner_proof.py"
-            ],
+            "protected_capability_test_paths": dict(
+                self.last_candidate_test_paths
+            ),
         }
 
     def test_one_candidate_reaches_compare_without_changing_incumbent(self) -> None:
@@ -546,6 +570,14 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         evidence = state["acknowledgment_record"]["payload"]
         self.assertEqual(evidence["owner_handoff_record_id"], owner_record["record_id"])
         self.assertEqual(evidence["validation_results"][0]["exit_code"], 0)
+        self.assertEqual(
+            len(evidence["validation_results"]),
+            len(evidence["protected_capability_test_paths"]),
+        )
+        self.assertEqual(
+            {item["test_path"] for item in evidence["validation_results"]},
+            set(evidence["protected_capability_test_paths"].values()),
+        )
         self.assertNotEqual(
             evidence["validation_results"][0]["stdout_sha256"], "0" * 64
         )
@@ -730,8 +762,86 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         )
         self.assertEqual(stopped["action"]["stage"], "candidate-stopped")
         self.assertEqual(stopped["action"]["next_action"], "reject")
+        state = supervision_log.factory_evolution_cycle_state(
+            self.directory,
+            supervision_log.read_json(self.directory / "policy.json"),
+            supervision_log.events(self.directory / "events.jsonl"),
+            evolution_id=self.evolution_id,
+        )
+        evidence = state["acknowledgment_record"]["payload"]
+        self.assertLess(
+            len(evidence["validation_results"]),
+            len(evidence["protected_capability_test_paths"]),
+        )
+        self.assertIn(
+            "unverified",
+            {item["result"] for item in evidence["protected_capability_results"]},
+        )
         self.assertEqual(self.git("rev-parse", "HEAD"), self.baseline_revision)
         self.assertEqual(self.git("status", "--short"), "")
+
+    def test_candidate_validation_uses_one_remaining_lane_deadline(self) -> None:
+        self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "orchestrate",
+            "--evolution-id",
+            self.evolution_id,
+        )
+        self.finalize_review()
+        handed_off = self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "orchestrate",
+            "--evolution-id",
+            self.evolution_id,
+        )
+        owner_record = handed_off["record"]
+        candidate_revision = self.create_candidate(owner_record)
+        source = self.acknowledgment_source(owner_record, candidate_revision)
+        time.sleep(2)
+        lane_start = dt.datetime.fromisoformat(str(owner_record["timestamp"]))
+        midpoint = lane_start + dt.timedelta(seconds=1)
+        observed = dt.datetime.now(dt.timezone.utc)
+        clock = iter(
+            [
+                lane_start.isoformat(),
+                midpoint.isoformat(),
+                midpoint.isoformat(),
+                observed.isoformat(),
+                observed.isoformat(),
+            ]
+        )
+        original_run = supervision_log.subprocess.run
+        timeouts: list[int] = []
+
+        def run_with_observed_timeout(*args: object, **kwargs: object) -> object:
+            command = args[0]
+            if (
+                isinstance(command, list)
+                and len(command) > 3
+                and command[1:3] == ["-m", "unittest"]
+            ):
+                timeouts.append(int(kwargs["timeout"]))
+                return subprocess.CompletedProcess(command, 0)
+            return original_run(*args, **kwargs)
+
+        with mock.patch.object(supervision_log, "utc_now", side_effect=lambda: next(clock)):
+            with mock.patch.object(
+                supervision_log.subprocess,
+                "run",
+                side_effect=run_with_observed_timeout,
+            ):
+                acknowledgment = supervision_log.factory_candidate_acknowledgment(
+                    owner_record, source
+                )
+        self.assertEqual(acknowledgment["stop_disposition"], "candidate-ready-for-comparison")
+        self.assertEqual(len(timeouts), 2)
+        self.assertLess(timeouts[1], timeouts[0])
 
     def test_candidate_created_before_owner_handoff_is_rejected(self) -> None:
         candidate_revision = self.create_candidate(None)

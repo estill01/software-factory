@@ -740,12 +740,14 @@ Keep the roles and authority sequence exact:
 4. After the canonical owner-handoff event, the normal owner creates at most
    one direct isolated candidate revision while the incumbent stays current.
    Bind that exact handoff record ID, orchestration root, and record SHA-256 in
-   the candidate commit and submit only the candidate revision plus changed
-   focused-test paths with
+   the candidate commit and submit only the candidate revision plus one
+   distinct changed focused-test path for each exact protected capability with
    `factory-evolution --action acknowledge --owner-ack-json <ack.json>`.
    The supervision owner executes those tests from the exact candidate archive;
    it does not accept submitted pass/fail, output-hash, protected-posture,
-   timestamp, owner, or Stop assertions. `status` returns `compare` only for a
+   timestamp, owner, or Stop assertions. One aggregate deadline begins at the
+   canonical handoff; each test receives only the remaining time and execution
+   stops at the first failure or exhaustion. `status` returns `compare` only for a
    current candidate within scope, protected-capability, command, file, line,
    elapsed-time, and Stop ceilings; otherwise it returns a stopped/reject
    posture. Retry rehydrates the one existing canonical stage without rerunning

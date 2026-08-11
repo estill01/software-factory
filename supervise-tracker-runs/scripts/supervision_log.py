@@ -15096,18 +15096,23 @@ def factory_candidate_validation_plan(
     handoff: Mapping[str, Any],
     projection: list[dict[str, Any]],
     value: Any,
-) -> list[str]:
+) -> tuple[list[str], dict[str, str]]:
     budget = handoff["candidate_budget"]
+    expected_ids = {
+        "capability-" + hashlib.sha256(item.encode("utf-8")).hexdigest()[:20]
+        for item in handoff["protected_capabilities"]
+    }
     if (
-        not isinstance(value, list)
-        or not value
+        not isinstance(value, Mapping)
+        or set(value) != expected_ids
         or len(value) > int(budget["max_commands"])
-        or value != sorted(set(value))
     ):
         raise SupervisionLogError("Factory candidate focused validation plan differs")
     changed = {str(item["path"]): item for item in projection}
-    result: list[str] = []
-    for item in value:
+    bindings: dict[str, str] = {}
+    for capability_id in sorted(expected_ids):
+        item = value[capability_id]
+        expected_name = f"test_{capability_id.replace('-', '_')}.py"
         if (
             type(item) is not str
             or item not in changed
@@ -15115,14 +15120,20 @@ def factory_candidate_validation_plan(
             or Path(item).name == "__init__.py"
             or not Path(item).name.startswith("test_")
             or Path(item).suffix != ".py"
+            or Path(item).name != expected_name
             or changed[item]["candidate"] is None
             or changed[item]["candidate"]["mode"] != "100644"
         ):
             raise SupervisionLogError(
                 "Factory candidate focused validation must name changed owner test files"
             )
-        result.append(item)
-    return result
+        bindings[capability_id] = item
+    paths = sorted(bindings.values())
+    if len(paths) != len(set(paths)):
+        raise SupervisionLogError(
+            "Factory candidate protected capabilities require distinct focused tests"
+        )
+    return paths, bindings
 
 
 def factory_candidate_archive(repository: Path, revision: str, destination: Path) -> None:
@@ -15176,6 +15187,9 @@ def factory_candidate_execute_validations(
     runtime = Path(sys.executable).resolve(strict=True)
     runtime_root = hashlib.sha256(runtime.read_bytes()).hexdigest()
     lane_started_at = str(owner_record["timestamp"])
+    deadline = parse_time(lane_started_at) + dt.timedelta(
+        minutes=int(handoff["candidate_budget"]["max_elapsed_minutes"])
+    )
     results: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory(prefix="factory-candidate-proof-") as temp_value:
         temp = Path(temp_value)
@@ -15196,30 +15210,35 @@ def factory_candidate_execute_validations(
             stdout_path = temp / f"stdout-{index}.bin"
             stderr_path = temp / f"stderr-{index}.bin"
             started_at = utc_now()
+            remaining_seconds = int(
+                (deadline - parse_time(started_at)).total_seconds()
+            )
             timed_out = False
-            with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
-                try:
-                    completed = subprocess.run(
-                        command,
-                        cwd=source_root,
-                        check=False,
-                        stdout=stdout,
-                        stderr=stderr,
-                        timeout=max(
-                            1,
-                            int(handoff["candidate_budget"]["max_elapsed_minutes"])
-                            * 60,
-                        ),
-                        env={
-                            "PATH": "/usr/bin:/bin",
-                            "LC_ALL": "C",
-                            "PYTHONDONTWRITEBYTECODE": "1",
-                        },
-                    )
-                    exit_code = int(completed.returncode)
-                except subprocess.TimeoutExpired:
-                    timed_out = True
-                    exit_code = 124
+            if remaining_seconds <= 0:
+                stdout_path.write_bytes(b"")
+                stderr_path.write_bytes(b"")
+                timed_out = True
+                exit_code = 124
+            else:
+                with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+                    try:
+                        completed = subprocess.run(
+                            command,
+                            cwd=source_root,
+                            check=False,
+                            stdout=stdout,
+                            stderr=stderr,
+                            timeout=max(1, remaining_seconds),
+                            env={
+                                "PATH": "/usr/bin:/bin",
+                                "LC_ALL": "C",
+                                "PYTHONDONTWRITEBYTECODE": "1",
+                            },
+                        )
+                        exit_code = int(completed.returncode)
+                    except subprocess.TimeoutExpired:
+                        timed_out = True
+                        exit_code = 124
             finished_at = utc_now()
             stdout_bytes = stdout_path.read_bytes()
             stderr_bytes = stderr_path.read_bytes()
@@ -15231,6 +15250,7 @@ def factory_candidate_execute_validations(
             results.append(
                 {
                     "command_id": f"focused-owner-proof-{index:02d}",
+                    "test_path": test_path,
                     "argv": ["python", "-m", "unittest", "discover", "-s", str(relative.parent), "-p", relative.name],
                     "runtime_sha256": runtime_root,
                     "started_at": started_at,
@@ -15241,6 +15261,8 @@ def factory_candidate_execute_validations(
                     "stderr_sha256": hashlib.sha256(stderr_bytes).hexdigest(),
                 }
             )
+            if timed_out or exit_code != 0:
+                break
     return results, lane_started_at, utc_now()
 
 
@@ -15250,18 +15272,23 @@ def factory_candidate_protected_results(
     candidate_root: str,
     validation_root: str,
     validation_results: list[dict[str, Any]],
+    protected_capability_test_paths: Mapping[str, str],
 ) -> list[dict[str, str]]:
     expected_ids = {
         "capability-" + hashlib.sha256(item.encode("utf-8")).hexdigest()[:20]
         for item in handoff["protected_capabilities"]
     }
-    passed = all(
-        item["exit_code"] == 0 and item["timed_out"] is False
-        for item in validation_results
-    )
+    results_by_path = {str(item["test_path"]): item for item in validation_results}
     results: list[dict[str, str]] = []
     for capability_id in sorted(expected_ids):
-        posture = "preserved" if passed else "unverified"
+        evidence = results_by_path.get(protected_capability_test_paths[capability_id])
+        posture = (
+            "preserved"
+            if evidence is not None
+            and evidence["exit_code"] == 0
+            and evidence["timed_out"] is False
+            else "unverified"
+        )
         results.append(
             {
                 "capability_id": capability_id,
@@ -15303,7 +15330,7 @@ def factory_candidate_acknowledgment(
         "handoff_root",
         "target_revision",
         "candidate_revision",
-        "focused_test_paths",
+        "protected_capability_test_paths",
     }
     if not isinstance(submission, Mapping) or set(submission) != expected_submission:
         raise SupervisionLogError("Factory candidate acknowledgment input shape differs")
@@ -15328,8 +15355,12 @@ def factory_candidate_acknowledgment(
     factory_candidate_handoff_trailers(repository, candidate_revision, owner_record)
     affected_paths = [item["path"] for item in projection]
     candidate_root = digest(projection)
-    focused_test_paths = factory_candidate_validation_plan(
-        handoff, projection, submission.get("focused_test_paths")
+    focused_test_paths, protected_capability_test_paths = (
+        factory_candidate_validation_plan(
+            handoff,
+            projection,
+            submission.get("protected_capability_test_paths"),
+        )
     )
     if retained_validation_results is None:
         validation_results, lane_started_at, observed_at = (
@@ -15363,16 +15394,20 @@ def factory_candidate_acknowledgment(
     ]
     if (
         not isinstance(validation_results, list)
-        or len(validation_results) != len(expected_commands)
+        or not validation_results
+        or len(validation_results) > len(expected_commands)
     ):
         raise SupervisionLogError("Factory candidate retained validation evidence differs")
     prior_finish: dt.datetime | None = None
-    for expected, item in zip(expected_commands, validation_results):
+    for expected, test_path, item in zip(
+        expected_commands, focused_test_paths, validation_results
+    ):
         if (
             not isinstance(item, Mapping)
             or set(item)
             != {
                 "command_id",
+                "test_path",
                 "argv",
                 "runtime_sha256",
                 "started_at",
@@ -15383,6 +15418,7 @@ def factory_candidate_acknowledgment(
                 "stderr_sha256",
             }
             or item.get("command_id") != expected["command_id"]
+            or item.get("test_path") != test_path
             or item.get("argv") != expected["argv"]
             or type(item.get("exit_code")) is not int
             or type(item.get("timed_out")) is not bool
@@ -15401,6 +15437,7 @@ def factory_candidate_acknowledgment(
         candidate_root=candidate_root,
         validation_root=validation_root,
         validation_results=validation_results,
+        protected_capability_test_paths=protected_capability_test_paths,
     )
     lane_started = parse_time(lane_started_at)
     observed = parse_time(observed_at)
@@ -15449,11 +15486,15 @@ def factory_candidate_acknowledgment(
         or item["exit_code"] != 0
         for item in validation_results
     )
+    ceiling_exhausted = any(item["timed_out"] for item in validation_results)
+    protected_failed = any(item["result"] != "preserved" for item in protected)
     expected_stop = (
         "ceiling-expired"
-        if over_budget
+        if over_budget or ceiling_exhausted
         else "hypothesis-falsified"
         if validation_failed
+        else "protected-regression"
+        if protected_failed
         else "candidate-ready-for-comparison"
     )
     material = {
@@ -15486,6 +15527,7 @@ def factory_candidate_acknowledgment(
         "protected_capability_results": protected,
         "resource_usage": usage,
         "focused_test_paths": focused_test_paths,
+        "protected_capability_test_paths": protected_capability_test_paths,
         "validation_results": validation_results,
         "validation_root": validation_root,
         "owner_proof_root": digest(
@@ -15494,6 +15536,7 @@ def factory_candidate_acknowledgment(
                 "candidate_revision": candidate_revision,
                 "candidate_root": candidate_root,
                 "validation_root": validation_root,
+                "protected_capability_test_paths": protected_capability_test_paths,
                 "protected_capability_results": protected,
             }
         ),
@@ -16733,7 +16776,9 @@ def factory_candidate_ack_source(
         "handoff_root": acknowledgment["handoff_root"],
         "target_revision": acknowledgment["target_revision"],
         "candidate_revision": acknowledgment["candidate_revision"],
-        "focused_test_paths": acknowledgment["focused_test_paths"],
+        "protected_capability_test_paths": acknowledgment[
+            "protected_capability_test_paths"
+        ],
     }
 
 

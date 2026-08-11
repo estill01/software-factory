@@ -1845,6 +1845,7 @@ def build_owner_acknowledgment(
         "protected_capability_results",
         "resource_usage",
         "focused_test_paths",
+        "protected_capability_test_paths",
         "validation_results",
         "validation_root",
         "owner_proof_root",
@@ -1940,6 +1941,7 @@ def build_owner_acknowledgment(
             or set(item)
             != {
                 "command_id",
+                "test_path",
                 "argv",
                 "runtime_sha256",
                 "started_at",
@@ -1950,6 +1952,7 @@ def build_owner_acknowledgment(
                 "stderr_sha256",
             }
             or type(item["command_id"]) is not str
+            or type(item["test_path"]) is not str
             or not isinstance(item["argv"], list)
             or not item["argv"]
             or any(type(argument) is not str for argument in item["argv"])
@@ -1975,10 +1978,28 @@ def build_owner_acknowledgment(
         not isinstance(focused_test_paths, list)
         or not focused_test_paths
         or focused_test_paths != sorted(set(focused_test_paths))
-        or len(focused_test_paths) != len(validation_results)
+        or len(validation_results) > len(focused_test_paths)
         or any(type(item) is not str for item in focused_test_paths)
     ):
         raise FactoryEvolutionError("Factory owner focused validation plan differs")
+    if [item["test_path"] for item in validation_results] != focused_test_paths[
+        : len(validation_results)
+    ]:
+        raise FactoryEvolutionError("Factory owner validation path order differs")
+    protected_test_paths = submission.get("protected_capability_test_paths")
+    protected_ids = {
+        str(item["capability_id"])
+        for item in submission["protected_capability_results"]
+    }
+    if (
+        not isinstance(protected_test_paths, Mapping)
+        or set(protected_test_paths) != protected_ids
+        or sorted(protected_test_paths.values()) != focused_test_paths
+        or any(type(item) is not str for item in protected_test_paths.values())
+    ):
+        raise FactoryEvolutionError(
+            "Factory owner protected-capability proof map differs"
+        )
     expected_owner_proof = digest(
         {
             "owner_handoff_record_sha256": submission[
@@ -1987,6 +2008,9 @@ def build_owner_acknowledgment(
             "candidate_revision": submission["candidate_revision"],
             "candidate_root": submission["candidate_root"],
             "validation_root": submission["validation_root"],
+            "protected_capability_test_paths": submission[
+                "protected_capability_test_paths"
+            ],
             "protected_capability_results": submission[
                 "protected_capability_results"
             ],

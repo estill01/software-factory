@@ -229,17 +229,22 @@ these keys:
 `schema_version`, `kind`, `owner_handoff_record_id`,
 `owner_handoff_orchestration_root`, `owner_handoff_record_sha256`,
 `handoff_root`, `target_revision`, `candidate_revision`, and
-`focused_test_paths`. Use JSON integer `1` and
+`protected_capability_test_paths`. Use JSON integer `1` and
 `software-factory-evolution-owner-acknowledgment-input` as `kind`.
 
-The candidate must be the one direct non-current child of the exact incumbent.
+The protected-capability map has every exact derived capability ID once and
+maps each to a distinct changed test named for that ID. The candidate must be
+the one direct non-current child of the exact incumbent.
 Its commit message binds the canonical owner-handoff record ID, orchestration
 root, and record SHA-256, and its complete diff remains inside the mapped
-owner's scope. Each focused test path is a changed regular Python test file in
-that same scope. The supervision owner—not the input JSON—executes those exact
-tests from a bounded archive of the candidate revision and records runtime,
-argv, chronology, exit status, timeout posture, and output hashes. It then
-derives validation, protected-capability, resource, owner-proof, and Stop roots.
+owner's scope. Each mapped focused test path is a changed regular Python test
+file in that same scope. The supervision owner—not the input JSON—executes
+those exact tests from a bounded archive of the candidate revision and records
+runtime, argv, chronology, exit status, timeout posture, and output hashes.
+One aggregate deadline runs from the canonical handoff timestamp; each next
+test receives only the remaining time and execution stops at the first failed
+or exhausted command. It then derives separately attributable validation,
+protected-capability, resource, owner-proof, and Stop roots.
 Submitted exit codes, output hashes, protected postures, timestamps, owner
 names, or Stop labels are not accepted. A failed executed validation or
 resource ceiling returns a terminal stopped posture; only a current isolated

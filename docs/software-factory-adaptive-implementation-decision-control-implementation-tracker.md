@@ -3589,7 +3589,22 @@ owner/architecture is proportional before broad validation.
   protected-capability, resource, owner-proof, and Stop roots under the
   canonical supervision owner. Reject the prior submitted-result shape and
   reuse the completed canonical proof on duplicate acknowledgment. Exact
-  successor freeze and independent correction review remain pending.
+  successor `5bf479c13518680dc1285fc6c2a549ef8e7c6418` (tree
+  `c36d798894a01676e7bd75fe311b26ecc286db1b`) passed affected Factory proof
+  `65/65`, contract/CLI `16/16`, the supervision validator, full 18-Block
+  tracker verification, compilation, and diff checks. Independent exact
+  review confirmed B13-F01 and the submitted-assertion portion of B13-F02 were
+  closed, but retained the successor as rejected: one green test was
+  over-attributed to every protected capability, and each test independently
+  received the full lane timeout rather than a remaining aggregate deadline.
+  No later-Block or reserved effect was produced.
+- Current second correction: map every exact protected-capability ID to one
+  distinct changed owner test named for that capability, derive each posture
+  only from its own executed result, and stop when any mapped result remains
+  unverified. Compute one deadline from the canonical handoff timestamp, pass
+  only remaining time to each next test, and stop execution on first failure or
+  exhaustion. Exact successor freeze and independent correction review remain
+  pending.
 
 ### Stop
 
