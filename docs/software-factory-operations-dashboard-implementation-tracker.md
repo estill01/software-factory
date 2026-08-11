@@ -539,8 +539,8 @@ the relevant authority and evidence contract.
 | 16 | Role-task binding repair | 7, 10, 11 | `accepted` |
 | 17 | Factory Floor operational rows and exact count filters | 6, 7 | `accepted` |
 | 18 | Tracker review queue and exact count filters | 3, 8 | `accepted` |
-| 19 | Tracker semantic source diffs | 3, 8 | `in-progress` |
-| 20 | Automation binding repair | 7, 10, 11 | `not-started` |
+| 19 | Tracker semantic source diffs | 3, 8 | `accepted` |
+| 20 | Automation binding repair | 7, 10, 11 | `in-progress` |
 | 21 | Owner-backed operation semantic diffs | 10, 14, 15, 16, 19, 20 | `not-started` |
 | 22 | Supervision pause and resume | 7, 10, 11 | `not-started` |
 | 23 | Same-target mission succession | 7, 10, 11 | `not-started` |
@@ -5459,7 +5459,7 @@ diffs, pause/resume, continuity, reporting, evolution, or lifecycle operations.
 
 ## Block 19 — Tracker semantic source diffs
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -5664,7 +5664,16 @@ drill-down and never beyond the declared safe tracker-file bound.
   both exact sources. Ruff passed; affected tracker and HTTP tests passed 28/28
   with `ResourceWarning` fatal; `git diff --check` passed. The already accepted
   frontend 24/24, build, 18/18 responsive browser, verifier 30/30, remote, and
-  Stop evidence is unaffected and reused. Fresh exact-review outcome: pending.
+  Stop evidence is unaffected and reused. Fresh exact-review outcome: accepted
+  with no material findings at exact evidence revision
+  `e85154ba936f15878b0abb3c89c9308aa26bb26a`, tree
+  `766b6a4552662fa148938121cc253ba0604cff9b`. The independent audit reproduced
+  raw and semantic exhaustion in 0.0439 seconds, the useful repeated case in
+  0.0055 seconds, the 1,000-case reconstruction/shortest-edit matrix, focused
+  Python 12/12 with `ResourceWarning` fatal, Ruff, the 30-Block verifier with 0
+  errors/warnings, verifier tests 30/30, links, diff, exact remote identity,
+  cleanliness, and every read-only Stop. Block 19 is accepted only at this
+  exact reviewed revision.
 
 ### Stop
 
@@ -5675,7 +5684,7 @@ continuity, reporting, evolution, or lifecycle operations.
 
 ## Block 20 — Automation binding repair
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -5771,7 +5780,19 @@ check. Never enumerate or reconcile unrelated automation families.
 
 ### Completion evidence
 
-Pending.
+- Activation and authority: started automatically from independently accepted
+  Block 19 evidence revision
+  `e85154ba936f15878b0abb3c89c9308aa26bb26a`; direct dependencies Blocks 7,
+  10, and 11 are accepted, local/upstream/remote are exact at `0 0`, and Blocks
+  21-29 remain unopened. Governing implementation authority remains direct-user
+  item 44 under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+- Work-start boundary: re-read Block 20 and begin with the maintained automation
+  projection, automation-tool owner, policy/bind owner, existing operation
+  registry, and their current tests. First work is limited to one exact
+  automation/group-role mismatch and its dual postconditions; no operation
+  semantic diff, pause/resume, continuity, report, evolution, or lifecycle
+  surface is started.
 
 ### Stop
 
