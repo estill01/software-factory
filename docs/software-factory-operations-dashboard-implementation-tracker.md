@@ -4466,6 +4466,63 @@ group check. Never scan or reconcile unrelated groups.
   nor used as Block 15 evidence. The binding assertions were isolated in the
   focused fixture above, which then passed all three viewports without replaying
   the unaffected matrix.
+- Rejected exact-revision candidate: the independent audit of evidence commit
+  `1bd991da09b888c2597c652767252f8bf062caa6`, tree
+  `a4c9b3b172e36bdb9a0cde0decdb558abe491c72`, and product commit
+  `a38ab04dfbba8a2e2eab926cc78a4413a73b46bb` rejected acceptance. The App
+  Server projection silently bounded user text and treated every projected
+  `userMessage` as direct-user authority; the verifier omitted exact source
+  item/hash and live-target status from its postcondition; and the source and
+  verifier did not require the canonical run-path project claim to agree with
+  the task/tracker project. Its green focused suites remain diagnostic only.
+- Correction boundary: routed incident
+  `INC-20260811-030055-388652` and action root
+  `4940242ad5264d9de5b98a9becf01839cda1473206052a06f4b9d883166a619e`
+  required the operator action to remain only confirmation to request review,
+  never source attestation, provenance, or authority. Governing implementation
+  authority remains the direct-user item and mission root recorded above; the
+  routed correction is provenance only. Blocks 16–25 stayed closed.
+- Corrected product successor: commit
+  `2f835f8339e49dd1f23c5066d2954dee4b6e942e`, tree
+  `bf15f35cc966055f5738447f5910694aafda6962`, parent rejected evidence
+  `1bd991da09b888c2597c652767252f8bf062caa6`. Representative blobs are App
+  Server projection `a6838db6ae1cb2e37fdd0b9d3de6c06ba92b96f6`, workflow owner
+  `679ff791e5ac97143f54218263890b0239b4df6d`, run-project projection
+  `a33935bbbf322e97fada0cfb3540f05e320d6ea5`, operation dialog
+  `8523818a6d64d2a3e56098e0fa8bc371a1288370`, run actions
+  `7560fff49384ab661dfc0f7015b921abaa2d00f3`, and responsive styles
+  `4426ed51ba96f92714a78c9cfc724cf6fe991361`. The projection now retains the
+  full-byte user-content root, truncation, transport classification, client ID,
+  and an explicitly unverified authority status. Routed and dashboard-generated
+  messages are ineligible. The source and postcondition recheck the exact live
+  task, full source tuple, tracker, and canonical run/project claim.
+- Independent-authority gate: `REQUEST BINDING REVIEW` starts only the bounded
+  reviewer request. Dispatch evidence remains
+  `unverified-reviewer-verification-required` and contains no attestation. A
+  canonical bind is not accepted as this operation's repair until the exact
+  configured reviewer turn completes with one full, hash-checked
+  `SOFTWARE_FACTORY_DASHBOARD_BINDING_AUTHORITY_REVIEW` result matching the
+  source bytes, client, tracker, mission, intent, reviewer, and preview. Missing,
+  partial, truncated, wrong, routed, generated, or unverifiable source/review
+  evidence yields no verified bind. The dialog labels the candidate and exposes
+  exact values without truncating them; it does not call the operator action
+  attestation or direct-user proof.
+- Corrected affected proof: App Server 19/19, operations 27/27, and workflow
+  13/13 tests passed with `ResourceWarning` fatal; Ruff passed. The two affected
+  frontend files passed 14/14 tests, TypeScript and the production build passed,
+  and the one focused browser case passed 3/3 at desktop, tablet, and mobile
+  with full source identities, historical suppression, one heading, and no
+  overflow. A diagnostic earlier run exposed generic identity ellipsis in the
+  confirmation dialog; the corrected exact-value rendering then passed all
+  three viewports. The restarted loopback runtime at port 8787 reported healthy
+  App Server compatibility; live item 44 projected root
+  `ff144b6e23b4fb416d8fac84731a9f26c2ef3d2dc9d8ba9d59ffdd029a3aa601`,
+  `ordinary-user-message`, and `unverified`, while routed item 46 projected root
+  `80d12529a3d8a66cd7f0e446b1902130950f968943898f5ac242a518a7459613`,
+  `routed-delegation`, and `ineligible`. The full-profile verifier passed all 26
+  Blocks with zero errors/warnings, all 30 verifier tests passed, diff checks
+  were clean, and the corrected product successor was pushed. Block 15 remains
+  `in-progress` pending ordinary exact-revision acceptance.
 
 ### Stop
 
