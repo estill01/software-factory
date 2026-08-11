@@ -263,6 +263,49 @@ dependency parallelism and not a generalized experiment service. It does not
 edit the tracker, change adaptive policy, cut over a winner, publish a branch,
 or ask a human to choose an ordinary engineering tradeoff.
 
+## Cut over one accepted winner through the target owner
+
+Use this path only when the exact Block 6 lane head and sealed independent
+review emit the accepted non-mutating Block 9 handoff. Read
+[references/winning-candidate-cutover.md](references/winning-candidate-cutover.md)
+and execute its target-owner/currentness contract.
+
+1. Revalidate the exact accepted snapshot, review signature, lane head,
+   `candidate-better` decision, candidate bytes, resource root, protected
+   results, and handoff. The handoff carries no cutover, publish, tracker, or
+   policy authority.
+2. Through the current normal target owner, resolve mission, policy, governing
+   event head, tracker bytes, Block 9 contract, target Git head, affected bytes,
+   and target-state root at the write boundary. Reject caller-selected roots,
+   stale target state, owner mismatch, another active handoff, or an
+   inconclusive/losing disposition.
+3. If the current or future Block contract changes, perform no target write and
+   route the exact structural effect to Block 8. Otherwise integrate only the
+   frozen affected candidate bytes and one `effect-pending` cutover record in a
+   single target-owner Git commit. Preserve unrelated staged, unstaged,
+   untracked, and historical work.
+4. Keep exactly one authoritative implementation. The candidate becomes sole
+   authority only in the integration commit; the incumbent becomes superseded
+   non-authoritative Git history. A failure before that commit restores the
+   exact incumbent. A retry after it resumes effect proof without integrating
+   again.
+5. Invalidate only proof whose subject is the superseded incumbent plus its
+   declared descendants. Retain candidate validation, independent review,
+   policy/tracker evidence, and unrelated proof without rerunning producers.
+6. Execute the retained observable workload against the committed target bytes.
+   Require the accepted artifact size, semantic roundtrip, bytes API, and
+   protected results. Keep the decision open and emit no resume token while
+   that current effect is missing or changed.
+7. Bind the accepted effect to one deterministic resume token over the handoff,
+   integration commit, and effect root. The executor claims that token exactly
+   once; claim replays are no-ops. Cutover replays return the same token with no
+   second integration, review, invalidation, or producer. Continue Block 9
+   automatically; never request a human Resume.
+
+This operation is a bounded normal-owner seam, not a deployment service. It
+does not release or install Software Factory skills, alter supervision policy,
+promote a self-target candidate, edit the tracker, or authorize later Blocks.
+
 For a materially expensive read-only proof or audit with a separate reporter or
 helper, cheaply preflight the maintained reporting interface and its invocation
 binding before starting the expensive computation. If valid proof output
