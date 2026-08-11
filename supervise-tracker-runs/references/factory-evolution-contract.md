@@ -226,18 +226,25 @@ bounded source scope rejects before any acknowledgment.
 `acknowledge --owner-ack-json` accepts one exact canonical JSON object with
 these keys:
 
-`schema_version`, `kind`, `handoff_root`, `normal_owner`, `owner_id`,
-`target_revision`, `candidate_basis_revision`, `candidate_revision`,
-`lane_started_at`, `observed_at`, `validation_results`,
-`protected_capability_postures`, and `stop_disposition`. Use JSON integer `1`
-and `software-factory-evolution-owner-acknowledgment-input` as `kind`.
-Candidate revision must be a non-current descendant of the exact incumbent,
-and its complete diff must remain inside the mapped owner's scope. The owner
-recomputes affected paths, changed lines, candidate/scope/capability roots,
-chronology, validation result roots, protected-capability evidence, resource
-usage, and Stop. A failed validation, protected regression, or resource ceiling
-returns a terminal stopped posture; only a current isolated candidate within
-every ceiling returns `compare`.
+`schema_version`, `kind`, `owner_handoff_record_id`,
+`owner_handoff_orchestration_root`, `owner_handoff_record_sha256`,
+`handoff_root`, `target_revision`, `candidate_revision`, and
+`focused_test_paths`. Use JSON integer `1` and
+`software-factory-evolution-owner-acknowledgment-input` as `kind`.
+
+The candidate must be the one direct non-current child of the exact incumbent.
+Its commit message binds the canonical owner-handoff record ID, orchestration
+root, and record SHA-256, and its complete diff remains inside the mapped
+owner's scope. Each focused test path is a changed regular Python test file in
+that same scope. The supervision owner—not the input JSON—executes those exact
+tests from a bounded archive of the candidate revision and records runtime,
+argv, chronology, exit status, timeout posture, and output hashes. It then
+derives validation, protected-capability, resource, owner-proof, and Stop roots.
+Submitted exit codes, output hashes, protected postures, timestamps, owner
+names, or Stop labels are not accepted. A failed executed validation or
+resource ceiling returns a terminal stopped posture; only a current isolated
+candidate created after its exact owner handoff and within every ceiling
+returns `compare`.
 
 Review handoff, owner handoff, and owner acknowledgment use the existing
 mission-scoped canonical supervision event log. Each stage is immutable,

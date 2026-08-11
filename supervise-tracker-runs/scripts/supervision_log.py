@@ -17,6 +17,7 @@ import secrets
 import stat
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unicodedata
 from contextlib import contextmanager
@@ -101,6 +102,8 @@ MAX_ADAPTIVE_REVIEW_EVIDENCE_BYTES = 64 * 1024
 MAX_PROGRAM_REVISION_EVIDENCE_BYTES = 256 * 1024
 MAX_FACTORY_EVOLUTION_STORED_ARTIFACT_BYTES = 4 * 1024 * 1024
 MAX_FACTORY_EVOLUTION_OWNER_ACK_BYTES = 256 * 1024
+MAX_FACTORY_CANDIDATE_ARCHIVE_BYTES = 64 * 1024 * 1024
+MAX_FACTORY_CANDIDATE_OUTPUT_BYTES = 1024 * 1024
 TRACKER_AUTHORING_PROFILE_SOURCE_PATH = (
     "docs/software-factory-tracker-authoring-supervision-implementation-tracker.md"
 )
@@ -15005,23 +15008,13 @@ def factory_candidate_source_projection(
         raise SupervisionLogError("Factory candidate incumbent revision is not current")
     if factory_git_output(repository, "rev-parse", f"{candidate_revision}^{{commit}}") != candidate_revision:
         raise SupervisionLogError("Factory candidate commit is unavailable")
-    ancestor = subprocess.run(
-        [
-            "/usr/bin/git",
-            "-C",
-            str(repository),
-            "merge-base",
-            "--is-ancestor",
-            target_revision,
-            candidate_revision,
-        ],
-        check=False,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
-    )
-    if ancestor.returncode != 0 or candidate_revision == target_revision:
-        raise SupervisionLogError("Factory candidate revision is not isolated from its baseline")
+    ancestry = factory_git_output(
+        repository, "rev-list", "--parents", "-n", "1", candidate_revision
+    ).split()
+    if ancestry != [candidate_revision, target_revision]:
+        raise SupervisionLogError(
+            "Factory candidate must be one direct isolated revision from its baseline"
+        )
     name_status = factory_git_output(
         repository,
         "diff",
@@ -15074,24 +15067,201 @@ def factory_candidate_source_projection(
     return records, changed_lines
 
 
+def factory_candidate_handoff_trailers(
+    repository: Path,
+    candidate_revision: str,
+    owner_record: Mapping[str, Any],
+) -> None:
+    message = factory_git_output(repository, "show", "-s", "--format=%B", candidate_revision)
+    expected = {
+        "Software-Factory-Handoff-Record": str(owner_record["record_id"]),
+        "Software-Factory-Handoff-Root": str(owner_record["orchestration_root"]),
+        "Software-Factory-Handoff-Record-SHA256": str(owner_record["record_sha256"]),
+    }
+    observed: dict[str, str] = {}
+    for line in message.splitlines():
+        for label in expected:
+            prefix = f"{label}: "
+            if line.startswith(prefix):
+                if label in observed:
+                    raise SupervisionLogError("Factory candidate handoff trailer repeats")
+                observed[label] = line[len(prefix) :]
+    if observed != expected:
+        raise SupervisionLogError(
+            "Factory candidate revision does not bind the canonical owner handoff"
+        )
+
+
+def factory_candidate_validation_plan(
+    handoff: Mapping[str, Any],
+    projection: list[dict[str, Any]],
+    value: Any,
+) -> list[str]:
+    budget = handoff["candidate_budget"]
+    if (
+        not isinstance(value, list)
+        or not value
+        or len(value) > int(budget["max_commands"])
+        or value != sorted(set(value))
+    ):
+        raise SupervisionLogError("Factory candidate focused validation plan differs")
+    changed = {str(item["path"]): item for item in projection}
+    result: list[str] = []
+    for item in value:
+        if (
+            type(item) is not str
+            or item not in changed
+            or not factory_candidate_path_allowed(str(handoff["normal_owner"]), item)
+            or Path(item).name == "__init__.py"
+            or not Path(item).name.startswith("test_")
+            or Path(item).suffix != ".py"
+            or changed[item]["candidate"] is None
+            or changed[item]["candidate"]["mode"] != "100644"
+        ):
+            raise SupervisionLogError(
+                "Factory candidate focused validation must name changed owner test files"
+            )
+        result.append(item)
+    return result
+
+
+def factory_candidate_archive(repository: Path, revision: str, destination: Path) -> None:
+    archive_path = destination / "candidate.tar"
+    with archive_path.open("wb") as handle:
+        result = subprocess.run(
+            ["/usr/bin/git", "-C", str(repository), "archive", "--format=tar", revision],
+            check=False,
+            stdout=handle,
+            stderr=subprocess.PIPE,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+        )
+    if (
+        result.returncode != 0
+        or archive_path.stat().st_size > MAX_FACTORY_CANDIDATE_ARCHIVE_BYTES
+    ):
+        raise SupervisionLogError("Factory candidate archive evidence differs")
+    extracted = destination / "source"
+    extracted.mkdir(mode=0o700)
+    try:
+        with tarfile.open(archive_path, mode="r:") as archive:
+            members = archive.getmembers()
+            if len(members) > 10_000:
+                raise SupervisionLogError("Factory candidate archive exceeds its entry bound")
+            total = 0
+            for member in members:
+                path = Path(member.name)
+                if (
+                    path.is_absolute()
+                    or "." in path.parts
+                    or ".." in path.parts
+                    or not (member.isdir() or member.isreg())
+                ):
+                    raise SupervisionLogError("Factory candidate archive entry differs")
+                total += member.size
+            if total > MAX_FACTORY_CANDIDATE_ARCHIVE_BYTES:
+                raise SupervisionLogError("Factory candidate archive exceeds its byte bound")
+            archive.extractall(extracted, members=members)
+    except (OSError, tarfile.TarError) as exc:
+        raise SupervisionLogError("Factory candidate archive cannot be read") from exc
+
+
+def factory_candidate_execute_validations(
+    handoff: Mapping[str, Any],
+    owner_record: Mapping[str, Any],
+    candidate_revision: str,
+    projection: list[dict[str, Any]],
+    focused_test_paths: list[str],
+) -> tuple[list[dict[str, Any]], str, str]:
+    repository = Path(str(handoff["target_repository_root"]))
+    runtime = Path(sys.executable).resolve(strict=True)
+    runtime_root = hashlib.sha256(runtime.read_bytes()).hexdigest()
+    lane_started_at = str(owner_record["timestamp"])
+    results: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory(prefix="factory-candidate-proof-") as temp_value:
+        temp = Path(temp_value)
+        factory_candidate_archive(repository, candidate_revision, temp)
+        source_root = temp / "source"
+        for index, test_path in enumerate(focused_test_paths, start=1):
+            relative = Path(test_path)
+            command = [
+                str(runtime),
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                str(relative.parent),
+                "-p",
+                relative.name,
+            ]
+            stdout_path = temp / f"stdout-{index}.bin"
+            stderr_path = temp / f"stderr-{index}.bin"
+            started_at = utc_now()
+            timed_out = False
+            with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+                try:
+                    completed = subprocess.run(
+                        command,
+                        cwd=source_root,
+                        check=False,
+                        stdout=stdout,
+                        stderr=stderr,
+                        timeout=max(
+                            1,
+                            int(handoff["candidate_budget"]["max_elapsed_minutes"])
+                            * 60,
+                        ),
+                        env={
+                            "PATH": "/usr/bin:/bin",
+                            "LC_ALL": "C",
+                            "PYTHONDONTWRITEBYTECODE": "1",
+                        },
+                    )
+                    exit_code = int(completed.returncode)
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+                    exit_code = 124
+            finished_at = utc_now()
+            stdout_bytes = stdout_path.read_bytes()
+            stderr_bytes = stderr_path.read_bytes()
+            if (
+                len(stdout_bytes) > MAX_FACTORY_CANDIDATE_OUTPUT_BYTES
+                or len(stderr_bytes) > MAX_FACTORY_CANDIDATE_OUTPUT_BYTES
+            ):
+                raise SupervisionLogError("Factory candidate validation output exceeds its bound")
+            results.append(
+                {
+                    "command_id": f"focused-owner-proof-{index:02d}",
+                    "argv": ["python", "-m", "unittest", "discover", "-s", str(relative.parent), "-p", relative.name],
+                    "runtime_sha256": runtime_root,
+                    "started_at": started_at,
+                    "finished_at": finished_at,
+                    "exit_code": exit_code,
+                    "timed_out": timed_out,
+                    "stdout_sha256": hashlib.sha256(stdout_bytes).hexdigest(),
+                    "stderr_sha256": hashlib.sha256(stderr_bytes).hexdigest(),
+                }
+            )
+    return results, lane_started_at, utc_now()
+
+
 def factory_candidate_protected_results(
     handoff: Mapping[str, Any],
     *,
     candidate_root: str,
     validation_root: str,
-    postures: Mapping[str, str],
+    validation_results: list[dict[str, Any]],
 ) -> list[dict[str, str]]:
     expected_ids = {
         "capability-" + hashlib.sha256(item.encode("utf-8")).hexdigest()[:20]
         for item in handoff["protected_capabilities"]
     }
-    if set(postures) != expected_ids:
-        raise SupervisionLogError("Factory candidate protected-capability set differs")
+    passed = all(
+        item["exit_code"] == 0 and item["timed_out"] is False
+        for item in validation_results
+    )
     results: list[dict[str, str]] = []
     for capability_id in sorted(expected_ids):
-        posture = postures[capability_id]
-        if posture not in {"preserved", "regressed", "unverified"}:
-            raise SupervisionLogError("Factory candidate protected-capability result differs")
+        posture = "preserved" if passed else "unverified"
         results.append(
             {
                 "capability_id": capability_id,
@@ -15111,23 +15281,29 @@ def factory_candidate_protected_results(
 
 
 def factory_candidate_acknowledgment(
-    handoff: Mapping[str, Any], submission: Mapping[str, Any]
+    owner_record: Mapping[str, Any],
+    submission: Mapping[str, Any],
+    *,
+    retained_validation_results: list[dict[str, Any]] | None = None,
+    retained_lane_started_at: str | None = None,
+    retained_observed_at: str | None = None,
 ) -> dict[str, Any]:
     module = factory_evolution_module()
+    if owner_record.get("kind") != FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND:
+        raise SupervisionLogError("Factory candidate owner handoff record differs")
+    handoff = owner_record.get("payload")
+    if not isinstance(handoff, Mapping):
+        raise SupervisionLogError("Factory candidate owner handoff payload differs")
     expected_submission = {
         "schema_version",
         "kind",
+        "owner_handoff_record_id",
+        "owner_handoff_orchestration_root",
+        "owner_handoff_record_sha256",
         "handoff_root",
-        "normal_owner",
-        "owner_id",
         "target_revision",
-        "candidate_basis_revision",
         "candidate_revision",
-        "lane_started_at",
-        "observed_at",
-        "validation_results",
-        "protected_capability_postures",
-        "stop_disposition",
+        "focused_test_paths",
     }
     if not isinstance(submission, Mapping) or set(submission) != expected_submission:
         raise SupervisionLogError("Factory candidate acknowledgment input shape differs")
@@ -15135,39 +15311,103 @@ def factory_candidate_acknowledgment(
         type(submission.get("schema_version")) is not int
         or submission.get("schema_version") != 1
         or submission.get("kind") != FACTORY_EVOLUTION_OWNER_ACK_INPUT_KIND
+        or submission.get("owner_handoff_record_id") != owner_record.get("record_id")
+        or submission.get("owner_handoff_orchestration_root")
+        != owner_record.get("orchestration_root")
+        or submission.get("owner_handoff_record_sha256")
+        != owner_record.get("record_sha256")
         or submission.get("handoff_root") != handoff.get("handoff_root")
-        or submission.get("normal_owner") != handoff.get("normal_owner")
-        or submission.get("owner_id") != handoff.get("implementation_owner_id")
         or submission.get("target_revision") != handoff.get("target_revision")
-        or submission.get("candidate_basis_revision")
-        != handoff.get("candidate_basis_revision")
     ):
         raise SupervisionLogError("Factory candidate acknowledgment input binding differs")
     candidate_revision = str(submission.get("candidate_revision", ""))
     projection, changed_lines = factory_candidate_source_projection(
         handoff, candidate_revision
     )
+    repository = Path(str(handoff["target_repository_root"]))
+    factory_candidate_handoff_trailers(repository, candidate_revision, owner_record)
     affected_paths = [item["path"] for item in projection]
     candidate_root = digest(projection)
-    validation_results = submission.get("validation_results")
-    if not isinstance(validation_results, list):
-        raise SupervisionLogError("Factory candidate validation results are required")
+    focused_test_paths = factory_candidate_validation_plan(
+        handoff, projection, submission.get("focused_test_paths")
+    )
+    if retained_validation_results is None:
+        validation_results, lane_started_at, observed_at = (
+            factory_candidate_execute_validations(
+                handoff,
+                owner_record,
+                candidate_revision,
+                projection,
+                focused_test_paths,
+            )
+        )
+    else:
+        validation_results = retained_validation_results
+        lane_started_at = str(retained_lane_started_at or "")
+        observed_at = str(retained_observed_at or "")
+    expected_commands = [
+        {
+            "command_id": f"focused-owner-proof-{index:02d}",
+            "argv": [
+                "python",
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                str(Path(path).parent),
+                "-p",
+                Path(path).name,
+            ],
+        }
+        for index, path in enumerate(focused_test_paths, start=1)
+    ]
+    if (
+        not isinstance(validation_results, list)
+        or len(validation_results) != len(expected_commands)
+    ):
+        raise SupervisionLogError("Factory candidate retained validation evidence differs")
+    prior_finish: dt.datetime | None = None
+    for expected, item in zip(expected_commands, validation_results):
+        if (
+            not isinstance(item, Mapping)
+            or set(item)
+            != {
+                "command_id",
+                "argv",
+                "runtime_sha256",
+                "started_at",
+                "finished_at",
+                "exit_code",
+                "timed_out",
+                "stdout_sha256",
+                "stderr_sha256",
+            }
+            or item.get("command_id") != expected["command_id"]
+            or item.get("argv") != expected["argv"]
+            or type(item.get("exit_code")) is not int
+            or type(item.get("timed_out")) is not bool
+        ):
+            raise SupervisionLogError("Factory candidate retained validation evidence differs")
+        for field in ("runtime_sha256", "stdout_sha256", "stderr_sha256"):
+            exact_sha256(str(item.get(field, "")), label=f"Factory candidate {field}")
+        started = parse_time(str(item.get("started_at", "")))
+        finished = parse_time(str(item.get("finished_at", "")))
+        if finished < started or (prior_finish is not None and started < prior_finish):
+            raise SupervisionLogError("Factory candidate validation chronology differs")
+        prior_finish = finished
     validation_root = digest(validation_results)
-    postures_source = submission.get("protected_capability_postures")
-    if not isinstance(postures_source, Mapping):
-        raise SupervisionLogError("Factory candidate protected postures are required")
-    postures = {str(key): str(value) for key, value in postures_source.items()}
     protected = factory_candidate_protected_results(
         handoff,
         candidate_root=candidate_root,
         validation_root=validation_root,
-        postures=postures,
+        validation_results=validation_results,
     )
-    lane_started = parse_time(str(submission.get("lane_started_at", "")))
-    observed = parse_time(str(submission.get("observed_at", "")))
+    lane_started = parse_time(lane_started_at)
+    observed = parse_time(observed_at)
+    handoff_recorded = parse_time(str(owner_record["timestamp"]))
     target_committed = parse_time(
         factory_git_output(
-            Path(str(handoff["target_repository_root"])),
+            repository,
             "show",
             "-s",
             "--format=%cI",
@@ -15176,7 +15416,7 @@ def factory_candidate_acknowledgment(
     )
     candidate_committed = parse_time(
         factory_git_output(
-            Path(str(handoff["target_repository_root"])),
+            repository,
             "show",
             "-s",
             "--format=%cI",
@@ -15184,7 +15424,11 @@ def factory_candidate_acknowledgment(
         )
     )
     if not (
-        target_committed <= lane_started <= candidate_committed <= observed <= dt.datetime.now(dt.timezone.utc)
+        target_committed <= handoff_recorded == lane_started
+        and handoff_recorded.replace(microsecond=0)
+        <= candidate_committed
+        <= observed
+        <= dt.datetime.now(dt.timezone.utc)
     ):
         raise SupervisionLogError("Factory candidate chronology differs")
     elapsed_seconds = int((observed - lane_started).total_seconds())
@@ -15205,21 +15449,19 @@ def factory_candidate_acknowledgment(
         or item["exit_code"] != 0
         for item in validation_results
     )
-    protected_failed = any(item["result"] != "preserved" for item in protected)
     expected_stop = (
         "ceiling-expired"
         if over_budget
-        else "protected-regression"
-        if protected_failed
         else "hypothesis-falsified"
         if validation_failed
         else "candidate-ready-for-comparison"
     )
-    if submission.get("stop_disposition") != expected_stop:
-        raise SupervisionLogError("Factory candidate Stop disposition differs")
     material = {
         "schema_version": 1,
         "kind": module.OWNER_ACKNOWLEDGMENT_KIND,
+        "owner_handoff_record_id": owner_record["record_id"],
+        "owner_handoff_orchestration_root": owner_record["orchestration_root"],
+        "owner_handoff_record_sha256": owner_record["record_sha256"],
         "handoff_root": handoff["handoff_root"],
         "evolution_id": handoff["evolution_id"],
         "candidate_id": handoff["candidate_id"],
@@ -15229,8 +15471,8 @@ def factory_candidate_acknowledgment(
         "target_revision": handoff["target_revision"],
         "candidate_basis_revision": handoff["candidate_basis_revision"],
         "candidate_revision": candidate_revision,
-        "lane_started_at": str(submission["lane_started_at"]),
-        "observed_at": str(submission["observed_at"]),
+        "lane_started_at": lane_started_at,
+        "observed_at": observed_at,
         "candidate_root": candidate_root,
         "affected_paths": affected_paths,
         "scope_root": digest(affected_paths),
@@ -15243,7 +15485,18 @@ def factory_candidate_acknowledgment(
         ),
         "protected_capability_results": protected,
         "resource_usage": usage,
+        "focused_test_paths": focused_test_paths,
         "validation_results": validation_results,
+        "validation_root": validation_root,
+        "owner_proof_root": digest(
+            {
+                "owner_handoff_record_sha256": owner_record["record_sha256"],
+                "candidate_revision": candidate_revision,
+                "candidate_root": candidate_root,
+                "validation_root": validation_root,
+                "protected_capability_results": protected,
+            }
+        ),
         "isolated": True,
         "production_authority": "incumbent",
         "stop_disposition": expected_stop,
@@ -16470,20 +16723,17 @@ def factory_candidate_ack_source(
     return {
         "schema_version": 1,
         "kind": FACTORY_EVOLUTION_OWNER_ACK_INPUT_KIND,
+        "owner_handoff_record_id": acknowledgment["owner_handoff_record_id"],
+        "owner_handoff_orchestration_root": acknowledgment[
+            "owner_handoff_orchestration_root"
+        ],
+        "owner_handoff_record_sha256": acknowledgment[
+            "owner_handoff_record_sha256"
+        ],
         "handoff_root": acknowledgment["handoff_root"],
-        "normal_owner": acknowledgment["normal_owner"],
-        "owner_id": acknowledgment["owner_id"],
         "target_revision": acknowledgment["target_revision"],
-        "candidate_basis_revision": acknowledgment["candidate_basis_revision"],
         "candidate_revision": acknowledgment["candidate_revision"],
-        "lane_started_at": acknowledgment["lane_started_at"],
-        "observed_at": acknowledgment["observed_at"],
-        "validation_results": acknowledgment["validation_results"],
-        "protected_capability_postures": {
-            item["capability_id"]: item["result"]
-            for item in acknowledgment["protected_capability_results"]
-        },
-        "stop_disposition": acknowledgment["stop_disposition"],
+        "focused_test_paths": acknowledgment["focused_test_paths"],
     }
 
 
@@ -16574,9 +16824,19 @@ def factory_evolution_cycle_state(
             raise SupervisionLogError("Factory evolution acknowledgment lacks its handoff")
     acknowledgment = None
     if acknowledgment_record is not None:
-        assert handoff is not None
+        assert handoff is not None and owner_record is not None
         acknowledgment = factory_candidate_acknowledgment(
-            handoff, factory_candidate_ack_source(acknowledgment_record["payload"])
+            owner_record,
+            factory_candidate_ack_source(acknowledgment_record["payload"]),
+            retained_validation_results=acknowledgment_record["payload"].get(
+                "validation_results"
+            ),
+            retained_lane_started_at=acknowledgment_record["payload"].get(
+                "lane_started_at"
+            ),
+            retained_observed_at=acknowledgment_record["payload"].get(
+                "observed_at"
+            ),
         )
         if acknowledgment_record["payload"] != acknowledgment:
             raise SupervisionLogError("Factory evolution owner acknowledgment is stale")
@@ -16778,7 +17038,7 @@ def cmd_factory_evolution_acknowledge(args: argparse.Namespace) -> None:
         maximum_bytes=MAX_FACTORY_EVOLUTION_OWNER_ACK_BYTES,
     )
     acknowledgment = factory_candidate_acknowledgment(
-        state["owner_record"]["payload"], source
+        state["owner_record"], source
     )
     with owner_append_lock(
         root_from(args), args.target_thread, directory_snapshot
@@ -16805,7 +17065,11 @@ def cmd_factory_evolution_acknowledge(args: argparse.Namespace) -> None:
                 "Factory evolution owner handoff changed before acknowledgment"
             )
         current_ack = factory_candidate_acknowledgment(
-            current_state["owner_record"]["payload"], source
+            current_state["owner_record"],
+            source,
+            retained_validation_results=acknowledgment["validation_results"],
+            retained_lane_started_at=acknowledgment["lane_started_at"],
+            retained_observed_at=acknowledgment["observed_at"],
         )
         if current_ack != acknowledgment:
             raise SupervisionLogError(

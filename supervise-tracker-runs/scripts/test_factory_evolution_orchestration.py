@@ -6,6 +6,7 @@ import datetime as dt
 import hashlib
 import io
 import json
+import os
 import subprocess
 import sys
 import unittest
@@ -402,22 +403,66 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             str(source),
         )
 
-    def create_candidate(self, path: str = "implement-tracker-blocks/SKILL.md") -> str:
+    def create_candidate(
+        self,
+        owner_record: dict[str, object] | None,
+        path: str = "implement-tracker-blocks/SKILL.md",
+        *,
+        passing: bool = True,
+    ) -> str:
         branch = self.git("branch", "--show-current")
         self.git("switch", "-c", "candidate-block13")
         source = self.repository / path
         source.parent.mkdir(parents=True, exist_ok=True)
         previous = source.read_text(encoding="utf-8") if source.exists() else ""
         source.write_text(previous + "\nCandidate proves one bounded owner change.\n", encoding="utf-8")
-        self.git("add", path)
-        self.git(
-            "-c",
-            "user.name=Factory Candidate Owner",
-            "-c",
-            "user.email=factory-candidate@example.test",
-            "commit",
-            "-m",
-            "Build isolated Block 13 candidate",
+        test_path = "implement-tracker-blocks/scripts/test_candidate_owner_proof.py"
+        test_source = self.repository / test_path
+        test_source.parent.mkdir(parents=True, exist_ok=True)
+        test_source.write_text(
+            "import unittest\n\n"
+            "class CandidateOwnerProofTests(unittest.TestCase):\n"
+            "    def test_candidate_effect(self):\n"
+            f"        self.assertTrue({passing!r})\n",
+            encoding="utf-8",
+        )
+        self.git("add", path, test_path)
+        message = "Build isolated Block 13 candidate"
+        if owner_record is not None:
+            message += (
+                "\n\n"
+                f"Software-Factory-Handoff-Record: {owner_record['record_id']}\n"
+                f"Software-Factory-Handoff-Root: {owner_record['orchestration_root']}\n"
+                "Software-Factory-Handoff-Record-SHA256: "
+                f"{owner_record['record_sha256']}"
+            )
+            commit_time = dt.datetime.now(dt.timezone.utc).isoformat()
+        else:
+            commit_time = dt.datetime.now(dt.timezone.utc).isoformat()
+        env = dict(os.environ)
+        env.update(
+            {
+                "GIT_AUTHOR_DATE": commit_time,
+                "GIT_COMMITTER_DATE": commit_time,
+            }
+        )
+        subprocess.run(
+            [
+                "/usr/bin/git",
+                "-C",
+                str(self.repository),
+                "-c",
+                "user.name=Factory Candidate Owner",
+                "-c",
+                "user.email=factory-candidate@example.test",
+                "commit",
+                "-m",
+                message,
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env,
         )
         revision = self.git("rev-parse", "HEAD")
         self.git("switch", branch)
@@ -425,35 +470,23 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         return revision
 
     def acknowledgment_source(
-        self, handoff: dict[str, object], candidate_revision: str
+        self, owner_record: dict[str, object], candidate_revision: str
     ) -> dict[str, object]:
-        target_time = self.git("show", "-s", "--format=%cI", self.baseline_revision)
-        protected = {
-            "capability-" + hashlib.sha256(item.encode("utf-8")).hexdigest()[:20]: "preserved"
-            for item in handoff["protected_capabilities"]
-        }
+        handoff = owner_record["payload"]
         return {
             "schema_version": 1,
             "kind": supervision_log.FACTORY_EVOLUTION_OWNER_ACK_INPUT_KIND,
-            "handoff_root": handoff["handoff_root"],
-            "normal_owner": handoff["normal_owner"],
-            "owner_id": handoff["implementation_owner_id"],
-            "target_revision": handoff["target_revision"],
-            "candidate_basis_revision": handoff["candidate_basis_revision"],
-            "candidate_revision": candidate_revision,
-            "lane_started_at": target_time,
-            "observed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-            "validation_results": [
-                {
-                    "command_id": "focused-owner-proof",
-                    "command": "python3 -m unittest focused-owner-proof",
-                    "exit_code": 0,
-                    "stdout_sha256": hashlib.sha256(b"PASS\n").hexdigest(),
-                    "stderr_sha256": hashlib.sha256(b"").hexdigest(),
-                }
+            "owner_handoff_record_id": owner_record["record_id"],
+            "owner_handoff_orchestration_root": owner_record[
+                "orchestration_root"
             ],
-            "protected_capability_postures": protected,
-            "stop_disposition": "candidate-ready-for-comparison",
+            "owner_handoff_record_sha256": owner_record["record_sha256"],
+            "handoff_root": handoff["handoff_root"],
+            "target_revision": handoff["target_revision"],
+            "candidate_revision": candidate_revision,
+            "focused_test_paths": [
+                "implement-tracker-blocks/scripts/test_candidate_owner_proof.py"
+            ],
         }
 
     def test_one_candidate_reaches_compare_without_changing_incumbent(self) -> None:
@@ -478,13 +511,14 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             self.evolution_id,
         )
         self.assertEqual(handed_off["action"]["stage"], "owner-acknowledgment-required")
-        handoff = handed_off["record"]["payload"]
+        owner_record = handed_off["record"]
+        handoff = owner_record["payload"]
         self.assertEqual(handoff["normal_owner"], "implement-tracker-blocks")
-        candidate_revision = self.create_candidate()
+        candidate_revision = self.create_candidate(owner_record)
         source = self.admission.root / "owner-ack.json"
         source.write_bytes(
             supervision_log.canonical(
-                self.acknowledgment_source(handoff, candidate_revision)
+                self.acknowledgment_source(owner_record, candidate_revision)
             )
             + b"\n"
         )
@@ -503,6 +537,22 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             acknowledged["action"]["stage"], "candidate-ready-for-comparison"
         )
         self.assertEqual(acknowledged["action"]["next_action"], "compare")
+        state = supervision_log.factory_evolution_cycle_state(
+            self.directory,
+            supervision_log.read_json(self.directory / "policy.json"),
+            supervision_log.events(self.directory / "events.jsonl"),
+            evolution_id=self.evolution_id,
+        )
+        evidence = state["acknowledgment_record"]["payload"]
+        self.assertEqual(evidence["owner_handoff_record_id"], owner_record["record_id"])
+        self.assertEqual(evidence["validation_results"][0]["exit_code"], 0)
+        self.assertNotEqual(
+            evidence["validation_results"][0]["stdout_sha256"], "0" * 64
+        )
+        self.assertEqual(
+            evidence["validation_root"],
+            supervision_log.digest(evidence["validation_results"]),
+        )
         self.assertEqual(self.git("rev-parse", "HEAD"), self.baseline_revision)
         self.assertEqual(self.git("status", "--short"), "")
         evolution = supervision_log.factory_evolution_directory(
@@ -510,17 +560,22 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         )
         self.assertFalse((evolution / "evaluation.json").exists())
 
-        duplicate = self.command(
-            "factory-evolution",
-            "--target-thread",
-            self.target_thread,
-            "--action",
-            "acknowledge",
-            "--evolution-id",
-            self.evolution_id,
-            "--owner-ack-json",
-            str(source),
-        )
+        with mock.patch.object(
+            supervision_log,
+            "factory_candidate_execute_validations",
+            side_effect=AssertionError("completed owner proof must be reused"),
+        ):
+            duplicate = self.command(
+                "factory-evolution",
+                "--target-thread",
+                self.target_thread,
+                "--action",
+                "acknowledge",
+                "--evolution-id",
+                self.evolution_id,
+                "--owner-ack-json",
+                str(source),
+            )
         self.assertTrue(duplicate["duplicate"])
         self.assertEqual(duplicate["action"], acknowledged["action"])
 
@@ -612,9 +667,9 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             "--evolution-id",
             self.evolution_id,
         )
-        handoff = handed_off["record"]["payload"]
-        candidate_revision = self.create_candidate()
-        source_value = self.acknowledgment_source(handoff, candidate_revision)
+        owner_record = handed_off["record"]
+        candidate_revision = self.create_candidate(owner_record)
+        source_value = self.acknowledgment_source(owner_record, candidate_revision)
         source = self.admission.root / "owner-mismatch.json"
         source.write_bytes(supervision_log.canonical(source_value) + b"\n")
         before = supervision_log.events(self.directory / "events.jsonl")
@@ -657,11 +712,9 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             "--evolution-id",
             self.evolution_id,
         )
-        handoff = handed_off["record"]["payload"]
-        candidate_revision = self.create_candidate()
-        source_value = self.acknowledgment_source(handoff, candidate_revision)
-        source_value["validation_results"][0]["exit_code"] = 1
-        source_value["stop_disposition"] = "hypothesis-falsified"
+        owner_record = handed_off["record"]
+        candidate_revision = self.create_candidate(owner_record, passing=False)
+        source_value = self.acknowledgment_source(owner_record, candidate_revision)
         source = self.admission.root / "owner-stopped.json"
         source.write_bytes(supervision_log.canonical(source_value) + b"\n")
         stopped = self.command(
@@ -679,6 +732,104 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         self.assertEqual(stopped["action"]["next_action"], "reject")
         self.assertEqual(self.git("rev-parse", "HEAD"), self.baseline_revision)
         self.assertEqual(self.git("status", "--short"), "")
+
+    def test_candidate_created_before_owner_handoff_is_rejected(self) -> None:
+        candidate_revision = self.create_candidate(None)
+        self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "orchestrate",
+            "--evolution-id",
+            self.evolution_id,
+        )
+        self.finalize_review()
+        handed_off = self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "orchestrate",
+            "--evolution-id",
+            self.evolution_id,
+        )
+        source = self.admission.root / "pre-handoff-candidate.json"
+        source.write_bytes(
+            supervision_log.canonical(
+                self.acknowledgment_source(handed_off["record"], candidate_revision)
+            )
+            + b"\n"
+        )
+        before = supervision_log.events(self.directory / "events.jsonl")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "canonical owner handoff",
+        ):
+            self.command(
+                "factory-evolution",
+                "--target-thread",
+                self.target_thread,
+                "--action",
+                "acknowledge",
+                "--evolution-id",
+                self.evolution_id,
+                "--owner-ack-json",
+                str(source),
+            )
+        self.assertEqual(supervision_log.events(self.directory / "events.jsonl"), before)
+
+    def test_submitted_validation_outcomes_are_rejected(self) -> None:
+        self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "orchestrate",
+            "--evolution-id",
+            self.evolution_id,
+        )
+        self.finalize_review()
+        handed_off = self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "orchestrate",
+            "--evolution-id",
+            self.evolution_id,
+        )
+        candidate_revision = self.create_candidate(handed_off["record"])
+        source_value = self.acknowledgment_source(
+            handed_off["record"], candidate_revision
+        )
+        source_value["validation_results"] = [
+            {
+                "command": "this-command-was-never-run",
+                "exit_code": 0,
+                "stdout_sha256": "0" * 64,
+                "stderr_sha256": "0" * 64,
+            }
+        ]
+        source = self.admission.root / "submitted-results.json"
+        source.write_bytes(supervision_log.canonical(source_value) + b"\n")
+        before = supervision_log.events(self.directory / "events.jsonl")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "input shape differs",
+        ):
+            self.command(
+                "factory-evolution",
+                "--target-thread",
+                self.target_thread,
+                "--action",
+                "acknowledge",
+                "--evolution-id",
+                self.evolution_id,
+                "--owner-ack-json",
+                str(source),
+            )
+        self.assertEqual(supervision_log.events(self.directory / "events.jsonl"), before)
 
     def test_review_handoff_and_block_stop_precede_later_artifacts(self) -> None:
         with self.assertRaisesRegex(

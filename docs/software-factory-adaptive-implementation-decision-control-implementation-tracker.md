@@ -3567,7 +3567,29 @@ owner/architecture is proportional before broad validation.
 
 ### Completion evidence
 
-Pending.
+- Rejected implementation checkpoint:
+  `778b71ce4fea32ef2fa6d6e84444f5ed178661ba` (tree
+  `9d2b4b5d197c94350c0298271dc38cac984addd9`) passed focused orchestration
+  `9/9`, preserved the complete 12-type owner map and current Block 13 Stop,
+  and remained clean/pushed. Independent exact review rejected it on two
+  validation-boundary findings. B13-F01: a candidate revision created before
+  the canonical owner handoff could be accepted because chronology used
+  submitted timestamps rather than the handoff event. B13-F02: submitted
+  owner, command outcome, output hashes, and protected postures were
+  self-asserted rather than derived from a canonical normal-owner proof.
+  Preserve this exact revision as rejected history; no evaluation, adoption,
+  installation, release, policy, mission, lifecycle, or later-Block effect was
+  produced.
+- Current corrective slice: require the candidate to be the one direct child
+  of the incumbent and bind the exact canonical owner-handoff record ID,
+  orchestration root, and record SHA-256 in its commit. Accept only that event
+  identity, candidate revision, and changed focused-test paths as public input.
+  Execute those tests from a bounded archive of the exact candidate revision,
+  retain actual runtime/argv/chronology/exit/timeout/output evidence, and derive
+  protected-capability, resource, owner-proof, and Stop roots under the
+  canonical supervision owner. Reject the prior submitted-result shape and
+  reuse the completed canonical proof on duplicate acknowledgment. Exact
+  successor freeze and independent correction review remain pending.
 
 ### Stop
 

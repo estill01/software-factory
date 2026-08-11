@@ -1824,6 +1824,9 @@ def build_owner_acknowledgment(
     expected = {
         "schema_version",
         "kind",
+        "owner_handoff_record_id",
+        "owner_handoff_orchestration_root",
+        "owner_handoff_record_sha256",
         "handoff_root",
         "evolution_id",
         "candidate_id",
@@ -1841,7 +1844,10 @@ def build_owner_acknowledgment(
         "capability_root",
         "protected_capability_results",
         "resource_usage",
+        "focused_test_paths",
         "validation_results",
+        "validation_root",
+        "owner_proof_root",
         "isolated",
         "production_authority",
         "stop_disposition",
@@ -1852,9 +1858,13 @@ def build_owner_acknowledgment(
     _exact_keys(submission, expected, label="Factory owner acknowledgment")
     for field in (
         "handoff_root",
+        "owner_handoff_orchestration_root",
+        "owner_handoff_record_sha256",
         "candidate_root",
         "scope_root",
         "capability_root",
+        "validation_root",
+        "owner_proof_root",
         "currentness_root",
     ):
         _exact_sha256(submission.get(field), label=field)
@@ -1875,6 +1885,10 @@ def build_owner_acknowledgment(
         or not submission.get("isolated")
     ):
         raise FactoryEvolutionError("Factory owner acknowledgment binding differs")
+    _semantic_text(
+        submission.get("owner_handoff_record_id"),
+        label="owner handoff record ID",
+    )
     _exact_revision(submission.get("candidate_revision"), label="candidate revision")
     for field in ("lane_started_at", "observed_at"):
         _semantic_text(submission.get(field), label=f"owner acknowledgment {field}")
@@ -1924,10 +1938,26 @@ def build_owner_acknowledgment(
         or any(
             not isinstance(item, Mapping)
             or set(item)
-            != {"command_id", "command", "exit_code", "stdout_sha256", "stderr_sha256"}
+            != {
+                "command_id",
+                "argv",
+                "runtime_sha256",
+                "started_at",
+                "finished_at",
+                "exit_code",
+                "timed_out",
+                "stdout_sha256",
+                "stderr_sha256",
+            }
             or type(item["command_id"]) is not str
-            or type(item["command"]) is not str
+            or not isinstance(item["argv"], list)
+            or not item["argv"]
+            or any(type(argument) is not str for argument in item["argv"])
+            or not SHA256.fullmatch(str(item["runtime_sha256"]))
+            or type(item["started_at"]) is not str
+            or type(item["finished_at"]) is not str
             or type(item["exit_code"]) is not int
+            or type(item["timed_out"]) is not bool
             or type(item["stdout_sha256"]) is not str
             or type(item["stderr_sha256"]) is not str
             or not SHA256.fullmatch(item["stdout_sha256"])
@@ -1938,6 +1968,32 @@ def build_owner_acknowledgment(
         != sorted({item["command_id"] for item in validation_results})
     ):
         raise FactoryEvolutionError("Factory owner validation results differ")
+    if submission["validation_root"] != digest(validation_results):
+        raise FactoryEvolutionError("Factory owner validation root differs")
+    focused_test_paths = submission.get("focused_test_paths")
+    if (
+        not isinstance(focused_test_paths, list)
+        or not focused_test_paths
+        or focused_test_paths != sorted(set(focused_test_paths))
+        or len(focused_test_paths) != len(validation_results)
+        or any(type(item) is not str for item in focused_test_paths)
+    ):
+        raise FactoryEvolutionError("Factory owner focused validation plan differs")
+    expected_owner_proof = digest(
+        {
+            "owner_handoff_record_sha256": submission[
+                "owner_handoff_record_sha256"
+            ],
+            "candidate_revision": submission["candidate_revision"],
+            "candidate_root": submission["candidate_root"],
+            "validation_root": submission["validation_root"],
+            "protected_capability_results": submission[
+                "protected_capability_results"
+            ],
+        }
+    )
+    if submission["owner_proof_root"] != expected_owner_proof:
+        raise FactoryEvolutionError("Factory owner proof root differs")
     stop_disposition = submission.get("stop_disposition")
     if stop_disposition not in {
         "candidate-ready-for-comparison",

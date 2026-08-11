@@ -401,11 +401,14 @@ Once admitted, `factory-evolution --action orchestrate` records one exact
 packet-to-reviewer handoff and, after review finalization, one deterministic
 candidate-type-to-normal-owner handoff. The authoring, implementation, or
 supervision owner—not the evolution helper—creates the isolated candidate.
+That direct candidate commit binds the canonical owner-handoff record.
 `--action acknowledge --owner-ack-json <ack.json>` then reopens the current Git
-revision and recomputes exact scope, budget, validation, protected-capability,
-and Stop evidence. Only a current bounded candidate reaches the later
-comparison step; the incumbent remains authoritative and no evaluation,
-adoption, installation, or cutover occurs in this orchestration stage.
+revision, executes the changed focused owner tests from its bounded archive,
+and derives exact scope, budget, validation, protected-capability, provenance,
+and Stop evidence. The input does not supply outcomes or owner claims. Only a
+current bounded candidate reaches the later comparison step; the incumbent
+remains authoritative and no evaluation, adoption, installation, or cutover
+occurs in this orchestration stage.
 
 ## Full demonstrated operation
 

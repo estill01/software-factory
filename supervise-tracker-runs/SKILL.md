@@ -737,13 +737,19 @@ Keep the roles and authority sequence exact:
    The complete map and bound currentness fields are defined in
    `references/factory-evolution-contract.md`; no prose classifier or detector
    prerequisite may change the owner.
-4. The normal owner creates at most one isolated candidate revision while the
-   incumbent stays current. Submit its canonical bounded acknowledgment with
+4. After the canonical owner-handoff event, the normal owner creates at most
+   one direct isolated candidate revision while the incumbent stays current.
+   Bind that exact handoff record ID, orchestration root, and record SHA-256 in
+   the candidate commit and submit only the candidate revision plus changed
+   focused-test paths with
    `factory-evolution --action acknowledge --owner-ack-json <ack.json>`.
-   `status` returns `compare` only for a current candidate within scope,
-   protected-capability, command, file, line, elapsed-time, and Stop ceilings;
-   otherwise it returns a stopped/reject posture. Retry rehydrates the one
-   existing canonical stage rather than delivering it twice.
+   The supervision owner executes those tests from the exact candidate archive;
+   it does not accept submitted pass/fail, output-hash, protected-posture,
+   timestamp, owner, or Stop assertions. `status` returns `compare` only for a
+   current candidate within scope, protected-capability, command, file, line,
+   elapsed-time, and Stop ceilings; otherwise it returns a stopped/reject
+   posture. Retry rehydrates the one existing canonical stage without rerunning
+   its completed owner proof.
 5. A separate `gpt-5.6-sol` evaluator at `xhigh` (or Max for a consequential
    disposition), independent of the proposer and implementer, submits
    separately attributable, revision-bound baseline and candidate results for
