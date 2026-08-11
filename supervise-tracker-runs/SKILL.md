@@ -438,19 +438,34 @@ frontier. Do not send a Resume instruction.
 
 An accepted `amend-structure` adaptive decision is only the trigger for the
 existing tracker-authoring owner. It is not tracker bytes or range authority.
+Before authoring begins, bind one immutable `tracker-authoring` policy profile
+to the exact authoring target thread through `adjust
+--program-revision-authoring-thread`; its policy-owned watcher, sealed semantic
+reviewer, sealed adjudicator, and optional fix executor are provenance, not
+caller labels. The binding resolves and retains the exact Git revision and blob
+root of this maintained supervision-policy reference. The mechanical route
+cites the source adaptive decision, the
+semantic review cites the canonical signed review event, and adjudication cites
+the separately signed evaluation root.
 The author builds an exact active-program revision packet through
 `author-implementation-trackers/scripts/program_revision.py`; a distinct sealed
 reviewer signs the exact predecessor/proposal, accepted history, Block map,
-affected closure, and resume Block. Import that result with
+affected closure, finding lineage, profile source/binding, and resume Block.
+Import that result with
 `implementation-program-revision --previous-tracker --proposed-tracker
 --packet-json --review-json --decision-evidence`. The command records one
 append-only `implementation-program-revision` event and never edits the target.
 Only `accepted` permits the repository owner to install the exact proposal and
 then call `implementation-range-amend` with that event. `revise` and `rejected`
-remain history and continue unaffected safe work. Full-tracker intent expands
-across inserts/splits/renumbering; explicit ranges map to the union of their
-successors. Revalidate and resume the derived dependency-safe Block without a
-user scheduling step. Do not use this path for status-only or local corrections.
+remain history and continue unaffected safe work; a successor must bind and
+resolve their open findings before acceptance. Full-tracker intent expands
+across inserts/splits/renumbering; explicit ranges map to the successor union
+plus every incomplete inserted prerequisite. The application must be one
+single-parent tracker-only commit whose parent is the packet target revision,
+with exact predecessor/proposal blobs. Revalidate current policy and decision
+at first application, then resume the derived dependency-safe Block without a
+user scheduling step. An identical retry returns that same resume state. Do not
+use this path for status-only or local corrections.
 
 Adaptive mode never grants repository, command, credential, spend, destructive,
 Gmail, deployment, release, promotion, or skill-maintenance permission. A

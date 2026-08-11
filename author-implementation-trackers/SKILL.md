@@ -198,6 +198,16 @@ not a structural revision and must remain on its existing cheaper owner path.
 The author produces proposal bytes and the packet; it cannot accept its own
 work. The independently signed review and maintained supervision event decide
 acceptance before the implementation range may advance to the new tracker.
+Before building, require the supervision policy's immutable
+`tracker-authoring` profile binding for the exact authoring target thread. The
+packet and review expose its exact maintained policy-source revision/root. The
+proposal must carry the exact active-program control section and append one
+Program revision history row derived from the complete Block map, structure
+root, affected closure, and resume Block. A later correction to a `revise` or
+`rejected` proposal binds the predecessor review and resolves every finding;
+changing only its revision ID is not a correction. At application, require the
+single-parent tracker-only commit whose parent is the packet target revision and
+return the same canonical resume state on an identical retry.
 
 An accepted amendment changes the plan, not the standing direct implementation
 range. When the user authorized implementation of the tracker as a whole,

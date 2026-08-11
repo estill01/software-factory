@@ -2355,6 +2355,16 @@ delta, and a local correction incorrectly escalated to structural change.
   exact root above. The corrected wrappers used `validator_exit`; each validator
   exited `0` with the same output root. This records the first-attempt envelope
   explicitly rather than replacing it with the successful retry.
+- Rejected exact candidate `f298666b58c46cf9194aa896bbaaeba39aba4c35`
+  remains append-only history. Independent review retained ten open finding
+  IDs: `B8-F01` mapping collision, `B8-F02` stale application policy,
+  `B8-F03` application ancestry, `B8-F04` application path scope,
+  `B8-F05` inserted-prerequisite range retention, `B8-F06` tracker-wide
+  control/history verification, `B8-F07` revise/rejected finding lineage,
+  `B8-F08` live-Git historical-tracker presence, `B8-F09` authoring-profile
+  provenance/topology, and `B8-F10` retry resume rehydration. The corrective
+  successor must bind each ID to a focused negative regression and fresh
+  exact-revision review before acceptance.
 - Block 8 remains `in-progress`; exact source acceptance, release, activation,
   installed outcome, and final completion evidence are pending.
 

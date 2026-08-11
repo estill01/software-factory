@@ -1516,7 +1516,8 @@ def validate_accepted_source_manifest(repo_root: Path) -> None:
         path = repo_root / relative
         if not path.exists():
             if (
-                relative == tracker_relative
+                not git_available
+                and relative == tracker_relative
                 and expected_sha256 == ACCEPTED_SNAPSHOT["tracker_sha256"]
             ):
                 continue

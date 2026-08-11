@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
+import re
 import subprocess
 import tempfile
 import unittest
@@ -42,6 +44,52 @@ class ProgramRevisionTests(unittest.TestCase):
                 ("Revised active work", [2], "in-progress"),
                 ("Independent later work", [1], "not-started"),
             ],
+        )
+        self.install_program_control(
+            {"0": [0], "1": [1], "2": [2, 3], "3": [4]},
+            affected=[2, 3],
+            resume=2,
+        )
+
+    def install_program_control(
+        self,
+        mapping: dict[str, list[int]],
+        *,
+        affected: list[int],
+        resume: int,
+        revision_id: str = "REV-STRUCTURAL-0001",
+    ) -> None:
+        text = self.proposed.read_text(encoding="utf-8")
+        text = re.sub(
+            r"\n## Active-program revision control\n.*?(?=\n## Block 0\b)",
+            "",
+            text,
+            flags=re.S,
+        )
+        self.proposed.write_text(text, encoding="utf-8")
+        previous = program_revision.tracker_snapshot(self.previous)
+        proposed = program_revision.tracker_snapshot(self.proposed)
+        blocks = sorted(proposed["blocks"])
+        block_text = ",".join(str(item) for item in blocks)
+        affected_text = ",".join(str(item) for item in affected)
+        control = f"""## Active-program revision control
+
+- Terminal Block: `{max(blocks)}`
+- Required order: `{block_text}`
+- Prose-reference Blocks: `{block_text}`
+- Source-map Blocks: `{block_text}`
+- Verification-matrix Blocks: `{block_text}`
+- Handoff Block: `{resume}`
+
+### Program revision history
+
+| Revision ID | Predecessor tracker SHA-256 | Current structure SHA-256 | Block map SHA-256 | Affected Blocks | Resume Block |
+|---|---|---|---|---|---:|
+| `{revision_id}` | `{previous['sha256']}` | `{proposed['structure_sha256']}` | `{program_revision.digest(mapping)}` | `{affected_text}` | `{resume}` |
+"""
+        self.proposed.write_text(
+            text.replace("## Block 0", control + "\n## Block 0", 1),
+            encoding="utf-8",
         )
 
     def write_tracker(
@@ -141,10 +189,30 @@ Stop before the next Block.
 |---:|---|---|---|
 {rows}
 
+## Program source map
+
+| Block | Current source basis |
+|---:|---|
+{source_rows}
+
+## Program verification matrix
+
+| Block | Current verification basis |
+|---:|---|
+{verification_rows}
+
 {sections}
 """.format(
                 terminal=len(blocks) - 1,
                 rows="\n".join(rows),
+                source_rows="\n".join(
+                    f"| {number} | source-block-{number} |"
+                    for number in range(len(blocks))
+                ),
+                verification_rows="\n".join(
+                    f"| {number} | verify-block-{number} |"
+                    for number in range(len(blocks))
+                ),
                 sections="\n---\n\n".join(sections),
             ),
             encoding="utf-8",
@@ -153,6 +221,9 @@ Stop before the next Block.
     def metadata(self, mapping: dict[str, list[int]] | None = None) -> dict[str, object]:
         return {
             "revision_id": "REV-STRUCTURAL-0001",
+            "predecessor_revision_id": None,
+            "predecessor_review_root": None,
+            "resolved_finding_refs": [],
             "target_thread_id": "target-thread-1234",
             "target_class": "software-factory",
             "mission_root": "1" * 64,
@@ -183,6 +254,19 @@ Stop before the next Block.
             "invalidated_proof_refs": ["PROOF-OLD-ACTIVE-0001"],
             "authority_mode": "full-autonomous",
             "stop": "before-candidate-cutover",
+            "application_owner_id": "target-application-owner-1234",
+            "authoring_profile_revision": "tracker-authoring-profile-v1",
+            "authoring_profile_root": "b" * 64,
+            "authoring_profile_source_revision": "f" * 40,
+            "authoring_profile_source_root": "a" * 64,
+            "authoring_profile_binding_root": "c" * 64,
+            "mechanical_watcher_id": "tracker-watcher-1234",
+            "mechanical_route_record_id": "EVT-ROUTE-1234",
+            "semantic_review_record_id": "EVT-REVIEW-1234",
+            "semantic_review_root": "d" * 64,
+            "adjudicator_id": "tracker-adjudicator-1234",
+            "adjudication_root": "e" * 64,
+            "fix_executor_id": "tracker-fix-executor-1234",
             "block_number_map": mapping
             or {"0": [0], "1": [1], "2": [2, 3], "3": [4]},
         }
@@ -260,6 +344,51 @@ Stop before the next Block.
         ):
             self.build()
 
+    def test_open_block_cannot_collide_with_accepted_successor(self) -> None:
+        with self.assertRaisesRegex(
+            program_revision.ProgramRevisionError,
+            "Accepted Block history was rewritten|Open Block cannot map to completed work",
+        ):
+            program_revision.build_revision_packet(
+                previous_tracker=self.previous,
+                proposed_tracker=self.proposed,
+                target_tracker_path=self.previous,
+                metadata=self.metadata(
+                    {"0": [0], "1": [1], "2": [1], "3": [4]}
+                ),
+            )
+
+    def test_structural_proposal_requires_complete_program_control(self) -> None:
+        original = self.proposed.read_text(encoding="utf-8")
+        mutations = (
+            re.sub(
+                r"\n## Active-program revision control\n.*?(?=\n## Block 0\b)",
+                "",
+                original,
+                flags=re.S,
+            ),
+            original.replace("- Terminal Block: `4`", "- Terminal Block: `3`"),
+            original.replace(
+                "- Source-map Blocks: `0,1,2,3,4`",
+                "- Source-map Blocks: `0,1,2,3`",
+            ),
+            original.replace("- Handoff Block: `2`", "- Handoff Block: `4`"),
+            original.replace(
+                "| 4 | source-block-4 |",
+                "| 3 | source-block-4 |",
+            ),
+            original.replace(
+                "| Revision ID | Predecessor tracker SHA-256 |",
+                "| Revision | Previous tracker SHA-256 |",
+            ),
+        )
+        for changed in mutations:
+            with self.subTest(root=hashlib.sha256(changed.encode()).hexdigest()):
+                self.proposed.write_text(changed, encoding="utf-8")
+                with self.assertRaises(program_revision.ProgramRevisionError):
+                    self.build()
+        self.proposed.write_text(original, encoding="utf-8")
+
     def test_merge_remove_and_reorder_open_blocks_are_mappable(self) -> None:
         self.write_tracker(
             self.proposed,
@@ -268,6 +397,11 @@ Stop before the next Block.
                 ("Accepted owner", [0], "completed"),
                 ("Merged open work", [1], "in-progress"),
             ],
+        )
+        self.install_program_control(
+            {"0": [0], "1": [1], "2": [2], "3": [2]},
+            affected=[2],
+            resume=2,
         )
         packet = program_revision.build_revision_packet(
             previous_tracker=self.previous,
@@ -295,18 +429,22 @@ Stop before the next Block.
                         metadata=self.metadata(mapping),
                     )
 
-    def test_packet_tamper_and_self_review_reject(self) -> None:
+    def test_packet_integrity_mismatch_and_self_review_reject(self) -> None:
         packet = self.build()
-        tampered = copy.deepcopy(packet)
-        tampered["resume_block"] = 4
-        tampered["packet_root"] = program_revision.digest(
-            {key: value for key, value in tampered.items() if key != "packet_root"}
+        changed_packet = copy.deepcopy(packet)
+        changed_packet["resume_block"] = 4
+        changed_packet["packet_root"] = program_revision.digest(
+            {
+                key: value
+                for key, value in changed_packet.items()
+                if key != "packet_root"
+            }
         )
         with self.assertRaisesRegex(
             program_revision.ProgramRevisionError, "differs from current sources"
         ):
             program_revision.validate_revision_packet(
-                tampered,
+                changed_packet,
                 previous_tracker=self.previous,
                 proposed_tracker=self.proposed,
             )
@@ -356,6 +494,9 @@ Stop before the next Block.
             "kind": "software-factory-program-revision-independent-review",
             "record_id": "REVIEW-STRUCTURAL-0001",
             "revision_id": packet["revision_id"],
+            "predecessor_revision_id": packet["predecessor_revision_id"],
+            "predecessor_review_root": packet["predecessor_review_root"],
+            "resolved_finding_refs": packet["resolved_finding_refs"],
             "packet_root": packet["packet_root"],
             "previous_tracker_sha256": packet["previous_tracker_sha256"],
             "proposed_tracker_sha256": packet["proposed_tracker_sha256"],
@@ -369,7 +510,24 @@ Stop before the next Block.
             ),
             "resume_block": packet["resume_block"],
             "author_id": packet["author_id"],
+            "application_owner_id": packet["application_owner_id"],
             "reviewer_id": packet["reviewer_id"],
+            "authoring_profile_source_revision": packet[
+                "authoring_profile_source_revision"
+            ],
+            "authoring_profile_source_root": packet[
+                "authoring_profile_source_root"
+            ],
+            "authoring_profile_binding_root": packet[
+                "authoring_profile_binding_root"
+            ],
+            "mechanical_route_record_id": packet[
+                "mechanical_route_record_id"
+            ],
+            "semantic_review_record_id": packet[
+                "semantic_review_record_id"
+            ],
+            "adjudication_root": packet["adjudication_root"],
             "disposition": "accepted",
             "finding_refs": [],
             "evidence_root": "8" * 64,

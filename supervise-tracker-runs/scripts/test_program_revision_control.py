@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import re
 import subprocess
 import tempfile
 import unittest
@@ -45,6 +46,17 @@ class ProgramRevisionControlTests(unittest.TestCase):
                 ("Structural revision", [6], "in-progress"),
             ],
         )
+        profile_source = (
+            Path(self.fixture.repository_root)
+            / supervision_log.TRACKER_AUTHORING_PROFILE_SOURCE_PATH
+        )
+        profile_source.parent.mkdir(parents=True, exist_ok=True)
+        profile_source.write_text(
+            "# Maintained tracker-authoring supervision policy\n\n"
+            "The author writes; the watcher routes; distinct semantic and "
+            "adjudication roles remain read-only.\n",
+            encoding="utf-8",
+        )
         subprocess.run(
             [
                 "/usr/bin/git",
@@ -52,6 +64,7 @@ class ProgramRevisionControlTests(unittest.TestCase):
                 self.fixture.repository_root,
                 "add",
                 "tracker.md",
+                supervision_log.TRACKER_AUTHORING_PROFILE_SOURCE_PATH,
             ],
             check=True,
         )
@@ -79,6 +92,10 @@ class ProgramRevisionControlTests(unittest.TestCase):
             evidence_values=["test-direct-repository-write-authority"],
         )
         self.policy = self.fixture.adjust(
+            "--program-revision-authoring-thread",
+            "tracker-authoring-thread-1234",
+        )
+        self.policy = self.fixture.adjust(
             "--adaptive-target-class", "software-factory"
         )
         self.proposal = self.fixture.root / "proposal.md"
@@ -96,11 +113,18 @@ class ProgramRevisionControlTests(unittest.TestCase):
                 ("Revised structural application", [7], "not-started"),
             ],
         )
+        self.install_program_control(
+            {**{str(number): [number] for number in range(7)}, "7": [7, 8]},
+            affected=[7, 8],
+            resume=7,
+        )
         self.decision_evidence = self.structural_decision_evidence()
         pending = self.fixture.run_gate(
             self.fixture.gate_args(self.decision_evidence)
         )["record"]
         adaptive_review = self.fixture.run_review(pending)["record"]
+        self.mechanical_route = pending
+        self.semantic_review = adaptive_review
         self.source = self.fixture.run_gate(
             self.fixture.gate_args(
                 self.decision_evidence,
@@ -109,6 +133,47 @@ class ProgramRevisionControlTests(unittest.TestCase):
         )["record"]
         self.packet = self.build_packet()
         self.packet_path = self.fixture.write_json("program-revision.json", self.packet)
+
+    def install_program_control(
+        self,
+        mapping: dict[str, list[int]],
+        *,
+        affected: list[int],
+        resume: int,
+        revision_id: str = "PROGRAM-REVISION-1234",
+    ) -> None:
+        text = self.proposal.read_text(encoding="utf-8")
+        text = re.sub(
+            r"\n## Active-program revision control\n.*?(?=\n## Block 0\b)",
+            "",
+            text,
+            flags=re.S,
+        )
+        self.proposal.write_text(text, encoding="utf-8")
+        previous = program_revision.tracker_snapshot(self.fixture.tracker_path)
+        proposed = program_revision.tracker_snapshot(self.proposal)
+        blocks = sorted(proposed["blocks"])
+        block_text = ",".join(str(item) for item in blocks)
+        affected_text = ",".join(str(item) for item in affected)
+        control = f"""## Active-program revision control
+
+- Terminal Block: `{max(blocks)}`
+- Required order: `{block_text}`
+- Prose-reference Blocks: `{block_text}`
+- Source-map Blocks: `{block_text}`
+- Verification-matrix Blocks: `{block_text}`
+- Handoff Block: `{resume}`
+
+### Program revision history
+
+| Revision ID | Predecessor tracker SHA-256 | Current structure SHA-256 | Block map SHA-256 | Affected Blocks | Resume Block |
+|---|---|---|---|---|---:|
+| `{revision_id}` | `{previous['sha256']}` | `{proposed['structure_sha256']}` | `{program_revision.digest(mapping)}` | `{affected_text}` | `{resume}` |
+"""
+        self.proposal.write_text(
+            text.replace("## Block 0", control + "\n## Block 0", 1),
+            encoding="utf-8",
+        )
 
     def refresh_fixture_revision(self) -> None:
         self.fixture.target_revision = subprocess.run(
@@ -229,10 +294,30 @@ Stop before the next Block mutation.
 |---:|---|---|---|
 {rows}
 
+## Program source map
+
+| Block | Current source basis |
+|---:|---|
+{source_rows}
+
+## Program verification matrix
+
+| Block | Current verification basis |
+|---:|---|
+{verification_rows}
+
 {sections}
 """.format(
                 terminal=len(blocks) - 1,
                 rows="\n".join(rows),
+                source_rows="\n".join(
+                    f"| {number} | source-block-{number} |"
+                    for number in range(len(blocks))
+                ),
+                verification_rows="\n".join(
+                    f"| {number} | verify-block-{number} |"
+                    for number in range(len(blocks))
+                ),
                 sections="\n---\n\n".join(sections),
             ),
             encoding="utf-8",
@@ -275,11 +360,23 @@ Stop before the next Block mutation.
         value["source_root"] = supervision_log.digest(material)
         return value
 
-    def build_packet(self) -> dict[str, object]:
+    def build_packet(
+        self,
+        *,
+        last_block_successors: list[int] | None = None,
+        revision_id: str = "PROGRAM-REVISION-1234",
+        predecessor_revision_id: str | None = None,
+        predecessor_review_root: str | None = None,
+        resolved_finding_refs: list[str] | None = None,
+    ) -> dict[str, object]:
         mission = supervision_log.bound_mission(self.policy)
         assert mission is not None
+        authoring_profile = self.policy["program_revision_authoring_profile"]
         metadata = {
-            "revision_id": "PROGRAM-REVISION-1234",
+            "revision_id": revision_id,
+            "predecessor_revision_id": predecessor_revision_id,
+            "predecessor_review_root": predecessor_review_root,
+            "resolved_finding_refs": resolved_finding_refs or [],
             "target_thread_id": self.fixture.target,
             "target_class": "software-factory",
             "mission_root": mission["mission_root"],
@@ -301,8 +398,25 @@ Stop before the next Block mutation.
             "repository_root": self.fixture.repository_root,
             "target_revision": self.fixture.target_revision,
             "target_revision_root": self.decision_evidence["target_revision_root"],
-            "author_id": self.fixture.target,
-            "reviewer_id": supervision_log.ADAPTIVE_REVIEWER_ID,
+            "author_id": authoring_profile["authoring_target_thread_id"],
+            "application_owner_id": self.source["implementation_owner_id"],
+            "reviewer_id": authoring_profile["semantic_reviewer_id"],
+            "authoring_profile_revision": authoring_profile["profile_revision"],
+            "authoring_profile_root": authoring_profile["profile_root"],
+            "authoring_profile_source_revision": authoring_profile[
+                "profile_source_revision"
+            ],
+            "authoring_profile_source_root": authoring_profile[
+                "profile_source_root"
+            ],
+            "authoring_profile_binding_root": authoring_profile["binding_root"],
+            "mechanical_watcher_id": authoring_profile["mechanical_watcher_id"],
+            "mechanical_route_record_id": self.mechanical_route["record_id"],
+            "semantic_review_record_id": self.semantic_review["record_id"],
+            "semantic_review_root": self.semantic_review["review_root"],
+            "adjudicator_id": authoring_profile["adjudicator_id"],
+            "adjudication_root": self.semantic_review["evaluation_root"],
+            "fix_executor_id": authoring_profile["fix_executor_id"],
             "learned_fact_refs": ["FACT-STRUCTURE-1234"],
             "capability_effects": {
                 "gains": ["dependency-safe revised program"],
@@ -318,7 +432,7 @@ Stop before the next Block mutation.
             "stop": "before-candidate-implementation",
             "block_number_map": {
                 **{str(number): [number] for number in range(7)},
-                "7": [7, 8],
+                "7": last_block_successors or [7, 8],
             },
         }
         return program_revision.build_revision_packet(
@@ -336,6 +450,9 @@ Stop before the next Block mutation.
             "kind": "software-factory-program-revision-independent-review",
             "record_id": f"program-review-{disposition}-1234",
             "revision_id": self.packet["revision_id"],
+            "predecessor_revision_id": self.packet["predecessor_revision_id"],
+            "predecessor_review_root": self.packet["predecessor_review_root"],
+            "resolved_finding_refs": self.packet["resolved_finding_refs"],
             "packet_root": self.packet["packet_root"],
             "previous_tracker_sha256": self.packet["previous_tracker_sha256"],
             "proposed_tracker_sha256": self.packet["proposed_tracker_sha256"],
@@ -351,7 +468,24 @@ Stop before the next Block mutation.
             ),
             "resume_block": self.packet["resume_block"],
             "author_id": self.packet["author_id"],
+            "application_owner_id": self.packet["application_owner_id"],
             "reviewer_id": supervision_log.ADAPTIVE_REVIEWER_ID,
+            "authoring_profile_source_revision": self.packet[
+                "authoring_profile_source_revision"
+            ],
+            "authoring_profile_source_root": self.packet[
+                "authoring_profile_source_root"
+            ],
+            "authoring_profile_binding_root": self.packet[
+                "authoring_profile_binding_root"
+            ],
+            "mechanical_route_record_id": self.packet[
+                "mechanical_route_record_id"
+            ],
+            "semantic_review_record_id": self.packet[
+                "semantic_review_record_id"
+            ],
+            "adjudication_root": self.packet["adjudication_root"],
             "disposition": disposition,
             "finding_refs": [] if disposition == "accepted" else ["FINDING-1234"],
             "evidence_root": program_revision.digest(
@@ -490,6 +624,7 @@ Stop before the next Block mutation.
         self.fixture.tracker_path.write_bytes(self.proposal.read_bytes())
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError,
+            "parent differs from the accepted target revision|"
             "does not contain the accepted tracker",
         ):
             self.range_amend(
@@ -512,6 +647,9 @@ Stop before the next Block mutation.
             "resume-block-7-without-user-scheduling",
         )
         self.assertTrue(duplicate_amend["duplicate"])
+        self.assertEqual(
+            duplicate_amend["program_revision"], amended["program_revision"]
+        )
         policy = supervision_log.read_json(
             self.fixture.root / self.fixture.target / "policy.json"
         )
@@ -540,6 +678,190 @@ Stop before the next Block mutation.
                 str(retained["record"]["record_id"]), application_commit
             )
 
+    def test_revise_findings_require_exact_corrective_delta_lineage(self) -> None:
+        retained = self.record_program_revision(disposition="revise")
+        lineage = {
+            "revision_id": "PROGRAM-REVISION-1235",
+            "predecessor_revision_id": retained["record"]["revision_id"],
+            "predecessor_review_root": retained["record"]["review_root"],
+            "resolved_finding_refs": retained["record"]["review_payload"][
+                "finding_refs"
+            ],
+        }
+        self.install_program_control(
+            {**{str(number): [number] for number in range(7)}, "7": [7, 8]},
+            affected=[7, 8],
+            resume=7,
+            revision_id="PROGRAM-REVISION-1235",
+        )
+        self.packet = self.build_packet(**lineage)
+        self.packet_path.write_bytes(program_revision.canonical(self.packet) + b"\n")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "lacks a corrective structural delta",
+        ):
+            self.record_program_revision()
+        self.proposal.write_text(
+            self.proposal.read_text(encoding="utf-8").replace(
+                "Revised structural application",
+                "Corrected structural application",
+            ),
+            encoding="utf-8",
+        )
+        self.install_program_control(
+            {**{str(number): [number] for number in range(7)}, "7": [7, 8]},
+            affected=[7, 8],
+            resume=7,
+            revision_id="PROGRAM-REVISION-1235",
+        )
+        self.packet = self.build_packet(**lineage)
+        self.packet_path.write_bytes(program_revision.canonical(self.packet) + b"\n")
+        corrected = self.record_program_revision()
+        self.assertEqual(corrected["record"]["review_disposition"], "accepted")
+        self.assertEqual(
+            corrected["record"]["packet"]["predecessor_review_root"],
+            retained["record"]["review_root"],
+        )
+
+    def test_application_rejects_policy_change_after_revision_acceptance(self) -> None:
+        accepted = self.record_program_revision()
+        self.policy = self.fixture.adjust(
+            "--adaptive-decision-mode", "reviewed-autonomous"
+        )
+        application_commit = self.apply_proposal()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "stale for the current policy",
+        ):
+            self.range_amend(
+                str(accepted["record"]["record_id"]), application_commit
+            )
+
+    def test_application_commit_parent_must_equal_accepted_target_revision(self) -> None:
+        accepted = self.record_program_revision()
+        application_commit = self.apply_proposal()
+        tree = subprocess.run(
+            [
+                "/usr/bin/git",
+                "-C",
+                self.fixture.repository_root,
+                "rev-parse",
+                f"{application_commit}^{{tree}}",
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+        unrelated_parent = subprocess.run(
+            [
+                "/usr/bin/git",
+                "-C",
+                self.fixture.repository_root,
+                "commit-tree",
+                tree,
+            ],
+            check=True,
+            input="unrelated root\n",
+            stdout=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+        detached = subprocess.run(
+            [
+                "/usr/bin/git",
+                "-C",
+                self.fixture.repository_root,
+                "commit-tree",
+                tree,
+                "-p",
+                unrelated_parent,
+            ],
+            check=True,
+            input="detached accepted bytes\n",
+            stdout=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+        merge = subprocess.run(
+            [
+                "/usr/bin/git",
+                "-C",
+                self.fixture.repository_root,
+                "commit-tree",
+                tree,
+                "-p",
+                application_commit,
+                "-p",
+                detached,
+            ],
+            check=True,
+            input="merge detached witness\n",
+            stdout=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+        subprocess.run(
+            [
+                "/usr/bin/git",
+                "-C",
+                self.fixture.repository_root,
+                "update-ref",
+                "HEAD",
+                merge,
+            ],
+            check=True,
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "parent differs from the accepted target revision",
+        ):
+            self.range_amend(str(accepted["record"]["record_id"]), detached)
+
+    def test_application_commit_rejects_unrelated_target_change(self) -> None:
+        accepted = self.record_program_revision()
+        self.fixture.tracker_path.write_bytes(self.proposal.read_bytes())
+        owned = Path(self.fixture.owned_path)
+        owned.write_text("unrelated target implementation\n", encoding="utf-8")
+        subprocess.run(
+            [
+                "/usr/bin/git",
+                "-C",
+                self.fixture.repository_root,
+                "add",
+                "tracker.md",
+                owned.name,
+            ],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "/usr/bin/git",
+                "-C",
+                self.fixture.repository_root,
+                "commit",
+                "-q",
+                "-m",
+                "mix program revision with unrelated work",
+            ],
+            check=True,
+        )
+        mixed_commit = subprocess.run(
+            [
+                "/usr/bin/git",
+                "-C",
+                self.fixture.repository_root,
+                "rev-parse",
+                "HEAD",
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            text=True,
+        ).stdout.strip()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "changes unrelated repository paths",
+        ):
+            self.range_amend(
+                str(accepted["record"]["record_id"]), mixed_commit
+            )
+
     def test_stale_packet_and_signature_fail_before_event_append(self) -> None:
         stale = copy.deepcopy(self.packet)
         stale["resume_block"] = 8
@@ -559,6 +881,74 @@ Stop before the next Block mutation.
             self.fixture.root / self.fixture.target / "events.jsonl"
         )
         self.assertEqual(after, before)
+
+    def test_authoring_profile_and_canonical_route_are_not_caller_replaceable(self) -> None:
+        changed_packet = copy.deepcopy(self.packet)
+        changed_packet["authoring_profile_binding_root"] = "f" * 64
+        changed_packet["mechanical_route_record_id"] = "EVT-UNVERIFIED-ROUTE-1234"
+        changed_packet["packet_root"] = program_revision.digest(
+            {
+                key: value
+                for key, value in changed_packet.items()
+                if key != "packet_root"
+            }
+        )
+        self.packet = changed_packet
+        self.packet_path.write_bytes(
+            program_revision.canonical(changed_packet) + b"\n"
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "tracker-authoring supervision binding",
+        ):
+            self.record_program_revision()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "roles are not distinct",
+        ):
+            supervision_log.tracker_authoring_profile_binding(
+                authoring_thread_id=self.policy["runtime"]["watcher_thread_id"],
+                runtime=self.policy["runtime"],
+                repository_root=self.fixture.repository_root,
+            )
+
+    def test_authoring_profile_resolves_exact_maintained_source_revision(self) -> None:
+        profile = self.policy["program_revision_authoring_profile"]
+        source_bytes = subprocess.run(
+            [
+                "/usr/bin/git",
+                "-C",
+                self.fixture.repository_root,
+                "cat-file",
+                "blob",
+                f"{profile['profile_source_revision']}:"
+                f"{supervision_log.TRACKER_AUTHORING_PROFILE_SOURCE_PATH}",
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+        ).stdout
+        self.assertEqual(
+            profile["profile_source_root"], hashlib.sha256(source_bytes).hexdigest()
+        )
+        changed_policy = copy.deepcopy(self.policy)
+        changed_profile = dict(profile)
+        changed_profile["profile_source_root"] = "f" * 64
+        changed_profile["binding_root"] = supervision_log.digest(
+            {
+                key: value
+                for key, value in changed_profile.items()
+                if key != "binding_root"
+            }
+        )
+        changed_policy["program_revision_authoring_profile"] = changed_profile
+        changed_policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(changed_policy)
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "profile binding differs",
+        ):
+            supervision_log.validate_policy(changed_policy)
 
     def test_exact_explicit_range_maps_to_successor_union_without_contraction(self) -> None:
         directory = self.fixture.root / self.fixture.target
@@ -603,13 +993,24 @@ Stop before the next Block mutation.
             self.fixture.gate_args(self.decision_evidence)
         )["record"]
         adaptive_review = self.fixture.run_review(pending)["record"]
+        self.mechanical_route = pending
+        self.semantic_review = adaptive_review
         self.source = self.fixture.run_gate(
             self.fixture.gate_args(
                 self.decision_evidence,
                 review_record=str(adaptive_review["record_id"]),
             )
         )["record"]
-        self.packet = self.build_packet()
+        explicit_map = {
+            **{str(number): [number] for number in range(7)},
+            "7": [8],
+        }
+        self.install_program_control(
+            explicit_map,
+            affected=[7, 8],
+            resume=7,
+        )
+        self.packet = self.build_packet(last_block_successors=[8])
         self.packet_path.write_bytes(program_revision.canonical(self.packet) + b"\n")
         accepted = self.record_program_revision()
         application_commit = self.apply_proposal()

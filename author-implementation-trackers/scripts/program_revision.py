@@ -3,13 +3,13 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import importlib.util
 import json
 import os
 import re
 import stat
-import argparse
 import sys
 import unicodedata
 from collections.abc import Mapping, Sequence
@@ -23,6 +23,34 @@ SHA256 = re.compile(r"^[0-9a-f]{64}$")
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{3,127}$")
 BLOCK_HEADING = re.compile(r"^## Block (\d+)\b", re.MULTILINE)
 TABLE_ROW = re.compile(r"^\|\s*(\d+)\s*\|(.+)$")
+PROGRAM_CONTROL_HEADING = re.compile(
+    r"^## Active-program revision control\s*$", re.MULTILINE
+)
+PROGRAM_CONTROL_FIELD = re.compile(
+    r"^- (?P<label>Terminal Block|Required order|Prose-reference Blocks|"
+    r"Source-map Blocks|Verification-matrix Blocks|Handoff Block): "
+    r"`(?P<value>[^`]+)`$"
+)
+PROGRAM_CONTROL_FIELD_ORDER = (
+    "Terminal Block",
+    "Required order",
+    "Prose-reference Blocks",
+    "Source-map Blocks",
+    "Verification-matrix Blocks",
+    "Handoff Block",
+)
+PROGRAM_HISTORY_HEADING = "### Program revision history"
+PROGRAM_HISTORY_HEADER = (
+    "| Revision ID | Predecessor tracker SHA-256 | Current structure SHA-256 "
+    "| Block map SHA-256 | Affected Blocks | Resume Block |"
+)
+PROGRAM_HISTORY_SEPARATOR = "|---|---|---|---|---|---:|"
+PROGRAM_HISTORY_ROW = re.compile(
+    r"^\| `(?P<revision>[A-Za-z0-9][A-Za-z0-9._:-]{3,127})` "
+    r"\| `(?P<previous>[0-9a-f]{64})` \| `(?P<current>[0-9a-f]{64})` "
+    r"\| `(?P<map>[0-9a-f]{64})` \| `(?P<affected>\d+(?:,\d+)*)` "
+    r"\| `(?P<resume>\d+)` \|$"
+)
 ALLOWED_TARGET_CLASSES = {"target-repository", "software-factory"}
 ALLOWED_AUTHORITY_MODES = {
     "fixed",
@@ -34,6 +62,9 @@ PACKET_FIELDS = {
     "schema_version",
     "kind",
     "revision_id",
+    "predecessor_revision_id",
+    "predecessor_review_root",
+    "resolved_finding_refs",
     "target_thread_id",
     "target_class",
     "mission_root",
@@ -73,7 +104,20 @@ PACKET_FIELDS = {
     "invalidated_proof_refs",
     "authority_mode",
     "author_id",
+    "application_owner_id",
     "reviewer_id",
+    "authoring_profile_revision",
+    "authoring_profile_root",
+    "authoring_profile_source_revision",
+    "authoring_profile_source_root",
+    "authoring_profile_binding_root",
+    "mechanical_watcher_id",
+    "mechanical_route_record_id",
+    "semantic_review_record_id",
+    "semantic_review_root",
+    "adjudicator_id",
+    "adjudication_root",
+    "fix_executor_id",
     "stop",
     "full_verifier_result_root",
     "packet_root",
@@ -131,6 +175,12 @@ def exact_sha256(value: Any, *, label: str) -> str:
     return value
 
 
+def exact_git_revision(value: Any, *, label: str) -> str:
+    if type(value) is not str or re.fullmatch(r"[0-9a-f]{40}", value) is None:
+        raise ProgramRevisionError(f"{label} must be an exact Git commit")
+    return value
+
+
 def safe_id(value: Any, *, label: str) -> str:
     if type(value) is not str or SAFE_ID.fullmatch(value) is None:
         raise ProgramRevisionError(f"{label} is invalid")
@@ -147,6 +197,91 @@ def exact_string_list(value: Any, *, label: str, allow_empty: bool = False) -> l
     ):
         raise ProgramRevisionError(f"{label} is invalid")
     return list(value)
+
+
+def exact_block_list_text(value: str, *, label: str) -> list[int]:
+    if re.fullmatch(r"\d+(?:,\d+)*", value) is None:
+        raise ProgramRevisionError(f"{label} is invalid")
+    items = [int(item) for item in value.split(",")]
+    if items != sorted(set(items)) or len(items) > MAX_LIST_ITEMS:
+        raise ProgramRevisionError(f"{label} is invalid")
+    return items
+
+
+def parse_program_revision_control(text: str) -> dict[str, Any] | None:
+    headings = list(PROGRAM_CONTROL_HEADING.finditer(text))
+    if not headings:
+        return None
+    if len(headings) != 1:
+        raise ProgramRevisionError("Tracker repeats active-program revision control")
+    start = headings[0].end()
+    following = re.search(r"^##\s+", text[start:], re.MULTILINE)
+    end = start + following.start() if following is not None else len(text)
+    lines = [line for line in text[start:end].strip().splitlines() if line]
+    if (
+        len(lines) < len(PROGRAM_CONTROL_FIELD_ORDER) + 4
+        or lines[len(PROGRAM_CONTROL_FIELD_ORDER)] != PROGRAM_HISTORY_HEADING
+        or lines[len(PROGRAM_CONTROL_FIELD_ORDER) + 1] != PROGRAM_HISTORY_HEADER
+        or lines[len(PROGRAM_CONTROL_FIELD_ORDER) + 2] != PROGRAM_HISTORY_SEPARATOR
+    ):
+        raise ProgramRevisionError(
+            "Active-program revision control layout is not canonical"
+        )
+    fields: dict[str, str] = {}
+    history: list[dict[str, Any]] = []
+    for position, label in enumerate(PROGRAM_CONTROL_FIELD_ORDER):
+        line = lines[position]
+        field = PROGRAM_CONTROL_FIELD.fullmatch(line)
+        if field is None or field.group("label") != label:
+            raise ProgramRevisionError(
+                "Active-program revision control field order differs"
+            )
+        fields[label] = field.group("value")
+    for line in lines[len(PROGRAM_CONTROL_FIELD_ORDER) + 3 :]:
+        row = PROGRAM_HISTORY_ROW.fullmatch(line)
+        if row is None:
+            raise ProgramRevisionError(
+                "Program revision history contains a noncanonical row"
+            )
+        history.append(
+            {
+                "revision_id": row.group("revision"),
+                "previous_tracker_sha256": row.group("previous"),
+                "current_tracker_structure_sha256": row.group("current"),
+                "block_map_root": row.group("map"),
+                "affected_blocks": exact_block_list_text(
+                    row.group("affected"), label="program history affected Blocks"
+                ),
+                "resume_block": int(row.group("resume")),
+            }
+        )
+    if set(fields) != set(PROGRAM_CONTROL_FIELD_ORDER) or not history:
+        raise ProgramRevisionError("Active-program revision control is incomplete")
+    for label in ("Terminal Block", "Handoff Block"):
+        if re.fullmatch(r"\d+", fields[label]) is None:
+            raise ProgramRevisionError(f"Active-program {label} is invalid")
+    revision_ids = [item["revision_id"] for item in history]
+    if len(revision_ids) != len(set(revision_ids)):
+        raise ProgramRevisionError("Program revision history repeats a revision ID")
+    return {
+        "terminal_block": int(fields["Terminal Block"]),
+        "required_order": exact_block_list_text(
+            fields["Required order"], label="active-program required order"
+        ),
+        "prose_reference_blocks": exact_block_list_text(
+            fields["Prose-reference Blocks"],
+            label="active-program prose references",
+        ),
+        "source_map_blocks": exact_block_list_text(
+            fields["Source-map Blocks"], label="active-program source map"
+        ),
+        "verification_matrix_blocks": exact_block_list_text(
+            fields["Verification-matrix Blocks"],
+            label="active-program verification matrix",
+        ),
+        "handoff_block": int(fields["Handoff Block"]),
+        "history": history,
+    }
 
 
 def read_regular_file(path_value: str | Path) -> tuple[Path, bytes]:
@@ -294,6 +429,20 @@ def tracker_snapshot(path_value: str | Path, *, require_full: bool = True) -> di
             "blocks": contracts,
         }
     )
+    program_control = parse_program_revision_control(text)
+    if program_control is not None:
+        expected_blocks = sorted(numbers)
+        if (
+            program_control["terminal_block"] != max(numbers)
+            or program_control["required_order"] != expected_blocks
+            or program_control["prose_reference_blocks"] != expected_blocks
+            or program_control["source_map_blocks"] != expected_blocks
+            or program_control["verification_matrix_blocks"] != expected_blocks
+            or program_control["handoff_block"] not in rows
+        ):
+            raise ProgramRevisionError(
+                "Active-program structural indexes differ from current Blocks"
+            )
     verifier_result: dict[str, Any] | None = None
     if require_full:
         verifier = _load_full_verifier()
@@ -305,6 +454,7 @@ def tracker_snapshot(path_value: str | Path, *, require_full: bool = True) -> di
         "sha256": hashlib.sha256(raw).hexdigest(),
         "structure_sha256": structure_sha256,
         "blocks": rows,
+        "program_revision_control": program_control,
         "verifier_result_root": digest(verifier_result) if verifier_result else None,
     }
 
@@ -362,6 +512,9 @@ def build_revision_packet(
 ) -> dict[str, Any]:
     required_metadata = {
         "revision_id",
+        "predecessor_revision_id",
+        "predecessor_review_root",
+        "resolved_finding_refs",
         "target_thread_id",
         "target_class",
         "mission_root",
@@ -378,7 +531,20 @@ def build_revision_packet(
         "target_revision",
         "target_revision_root",
         "author_id",
+        "application_owner_id",
         "reviewer_id",
+        "authoring_profile_revision",
+        "authoring_profile_root",
+        "authoring_profile_source_revision",
+        "authoring_profile_source_root",
+        "authoring_profile_binding_root",
+        "mechanical_watcher_id",
+        "mechanical_route_record_id",
+        "semantic_review_record_id",
+        "semantic_review_root",
+        "adjudicator_id",
+        "adjudication_root",
+        "fix_executor_id",
         "learned_fact_refs",
         "capability_effects",
         "selected_path",
@@ -442,6 +608,10 @@ def build_revision_packet(
         if not targets or set(targets) & affected_new
     }
     accepted_history = _accepted_history(previous)
+    successor_predecessors: dict[int, set[int]] = {}
+    for old, targets in ((item, block_map[str(item)]) for item in old_blocks):
+        for target in targets:
+            successor_predecessors.setdefault(target, set()).add(old)
     for item in accepted_history:
         old = int(item["block"])
         targets = block_map[str(old)]
@@ -457,6 +627,8 @@ def build_revision_packet(
             }
         )
         if (
+            successor_predecessors.get(targets[0]) != {old}
+            or
             new_block["status"] != "completed"
             or new_block["scope"] != old_block["scope"]
             or new_block["history_sha256"] != item["history_sha256"]
@@ -465,6 +637,14 @@ def build_revision_packet(
             or new_block["dependencies"] != mapped_dependencies
         ):
             raise ProgramRevisionError("Accepted Block history was rewritten")
+    for old, old_block in previous["blocks"].items():
+        if old_block["status"] == "completed":
+            continue
+        if any(
+            proposed["blocks"][target]["status"] == "completed"
+            for target in block_map[str(old)]
+        ):
+            raise ProgramRevisionError("Open Block cannot map to completed work")
     completed_new = {
         number
         for number, block in proposed["blocks"].items()
@@ -485,6 +665,34 @@ def build_revision_packet(
     )
     if not resume_candidates:
         raise ProgramRevisionError("Structural revision has no dependency-safe resume Block")
+    proposed_control = proposed["program_revision_control"]
+    if proposed_control is None:
+        raise ProgramRevisionError(
+            "Structural proposal lacks active-program revision control"
+        )
+    previous_control = previous["program_revision_control"]
+    previous_history = previous_control["history"] if previous_control else []
+    proposed_history = proposed_control["history"]
+    if (
+        len(proposed_history) != len(previous_history) + 1
+        or proposed_history[:-1] != previous_history
+    ):
+        raise ProgramRevisionError("Program revision history is not append-only")
+    expected_history_entry = {
+        "revision_id": metadata["revision_id"],
+        "previous_tracker_sha256": previous["sha256"],
+        "current_tracker_structure_sha256": proposed["structure_sha256"],
+        "block_map_root": digest(block_map),
+        "affected_blocks": sorted(affected_new),
+        "resume_block": resume_candidates[0],
+    }
+    if (
+        proposed_history[-1] != expected_history_entry
+        or proposed_control["handoff_block"] != resume_candidates[0]
+    ):
+        raise ProgramRevisionError(
+            "Program revision history or handoff differs from the exact delta"
+        )
     capability_effects = metadata["capability_effects"]
     if not isinstance(capability_effects, Mapping) or set(capability_effects) != {
         "gains",
@@ -502,6 +710,27 @@ def build_revision_packet(
         "schema_version": 1,
         "kind": "implementation-program-revision-packet",
         "revision_id": safe_id(metadata["revision_id"], label="program revision ID"),
+        "predecessor_revision_id": (
+            safe_id(
+                metadata["predecessor_revision_id"],
+                label="predecessor program revision ID",
+            )
+            if metadata["predecessor_revision_id"] is not None
+            else None
+        ),
+        "predecessor_review_root": (
+            exact_sha256(
+                metadata["predecessor_review_root"],
+                label="predecessor program review root",
+            )
+            if metadata["predecessor_review_root"] is not None
+            else None
+        ),
+        "resolved_finding_refs": exact_string_list(
+            metadata["resolved_finding_refs"],
+            label="resolved program revision findings",
+            allow_empty=True,
+        ),
         "target_thread_id": safe_id(metadata["target_thread_id"], label="target thread ID"),
         "target_class": metadata["target_class"],
         "mission_root": exact_sha256(metadata["mission_root"], label="mission root"),
@@ -545,7 +774,55 @@ def build_revision_packet(
         "invalidated_proof_refs": exact_string_list(metadata["invalidated_proof_refs"], label="invalidated-proof references"),
         "authority_mode": metadata["authority_mode"],
         "author_id": safe_id(metadata["author_id"], label="author ID"),
+        "application_owner_id": safe_id(
+            metadata["application_owner_id"], label="application owner ID"
+        ),
         "reviewer_id": safe_id(metadata["reviewer_id"], label="reviewer ID"),
+        "authoring_profile_revision": safe_id(
+            metadata["authoring_profile_revision"],
+            label="tracker-authoring profile revision",
+        ),
+        "authoring_profile_root": exact_sha256(
+            metadata["authoring_profile_root"],
+            label="tracker-authoring profile root",
+        ),
+        "authoring_profile_source_revision": exact_git_revision(
+            metadata["authoring_profile_source_revision"],
+            label="tracker-authoring profile source revision",
+        ),
+        "authoring_profile_source_root": exact_sha256(
+            metadata["authoring_profile_source_root"],
+            label="tracker-authoring profile source root",
+        ),
+        "authoring_profile_binding_root": exact_sha256(
+            metadata["authoring_profile_binding_root"],
+            label="tracker-authoring binding root",
+        ),
+        "mechanical_watcher_id": safe_id(
+            metadata["mechanical_watcher_id"], label="mechanical watcher ID"
+        ),
+        "mechanical_route_record_id": safe_id(
+            metadata["mechanical_route_record_id"],
+            label="mechanical route record ID",
+        ),
+        "semantic_review_record_id": safe_id(
+            metadata["semantic_review_record_id"],
+            label="semantic review record ID",
+        ),
+        "semantic_review_root": exact_sha256(
+            metadata["semantic_review_root"], label="semantic review root"
+        ),
+        "adjudicator_id": safe_id(
+            metadata["adjudicator_id"], label="program adjudicator ID"
+        ),
+        "adjudication_root": exact_sha256(
+            metadata["adjudication_root"], label="program adjudication root"
+        ),
+        "fix_executor_id": (
+            safe_id(metadata["fix_executor_id"], label="fix executor ID")
+            if metadata["fix_executor_id"] is not None
+            else None
+        ),
         "stop": safe_id(metadata["stop"], label="revision Stop"),
         "full_verifier_result_root": proposed["verifier_result_root"],
     }
@@ -553,8 +830,27 @@ def build_revision_packet(
         raise ProgramRevisionError("Program revision target class is invalid")
     if packet["authority_mode"] not in ALLOWED_AUTHORITY_MODES:
         raise ProgramRevisionError("Program revision authority mode is invalid")
-    if packet["author_id"] == packet["reviewer_id"]:
-        raise ProgramRevisionError("Program revision author and reviewer must differ")
+    role_ids = {
+        packet["author_id"],
+        packet["reviewer_id"],
+        packet["mechanical_watcher_id"],
+        packet["adjudicator_id"],
+    }
+    if (
+        len(role_ids) != 4
+        or packet["application_owner_id"] == packet["author_id"]
+        or packet["fix_executor_id"] in role_ids
+    ):
+        raise ProgramRevisionError("Program revision authoring roles must differ")
+    if (
+        (packet["predecessor_revision_id"] is None)
+        != (packet["predecessor_review_root"] is None)
+        or (
+            packet["predecessor_revision_id"] is None
+            and packet["resolved_finding_refs"]
+        )
+    ):
+        raise ProgramRevisionError("Program revision finding lineage is incomplete")
     packet["packet_root"] = digest(packet)
     return packet
 
@@ -569,6 +865,9 @@ def validate_revision_packet(
         raise ProgramRevisionError("Program revision packet must be an object")
     metadata_fields = {
         "revision_id",
+        "predecessor_revision_id",
+        "predecessor_review_root",
+        "resolved_finding_refs",
         "target_thread_id",
         "target_class",
         "mission_root",
@@ -585,7 +884,20 @@ def validate_revision_packet(
         "target_revision",
         "target_revision_root",
         "author_id",
+        "application_owner_id",
         "reviewer_id",
+        "authoring_profile_revision",
+        "authoring_profile_root",
+        "authoring_profile_source_revision",
+        "authoring_profile_source_root",
+        "authoring_profile_binding_root",
+        "mechanical_watcher_id",
+        "mechanical_route_record_id",
+        "semantic_review_record_id",
+        "semantic_review_root",
+        "adjudicator_id",
+        "adjudication_root",
+        "fix_executor_id",
         "learned_fact_refs",
         "capability_effects",
         "selected_path",
@@ -638,9 +950,19 @@ def validate_stored_packet(value: Any) -> dict[str, Any]:
         "proposed_tracker_structure_sha256",
         "accepted_history_root",
         "full_verifier_result_root",
+        "authoring_profile_root",
+        "authoring_profile_source_root",
+        "authoring_profile_binding_root",
+        "semantic_review_root",
+        "adjudication_root",
         "packet_root",
     ):
         exact_sha256(packet.get(field), label=field.replace("_", " "))
+    if packet.get("predecessor_review_root") is not None:
+        exact_sha256(
+            packet.get("predecessor_review_root"),
+            label="predecessor program review root",
+        )
     if packet.get("candidate_evidence_root") is not None:
         exact_sha256(
             packet.get("candidate_evidence_root"), label="candidate evidence root"
@@ -652,11 +974,52 @@ def validate_stored_packet(value: Any) -> dict[str, Any]:
         "target_revision",
         "selected_path",
         "author_id",
+        "application_owner_id",
         "reviewer_id",
+        "authoring_profile_revision",
+        "mechanical_watcher_id",
+        "mechanical_route_record_id",
+        "semantic_review_record_id",
+        "adjudicator_id",
         "stop",
     ):
         safe_id(packet.get(field), label=field.replace("_", " "))
-    if packet["author_id"] == packet["reviewer_id"]:
+    exact_git_revision(
+        packet.get("authoring_profile_source_revision"),
+        label="tracker-authoring profile source revision",
+    )
+    if packet.get("predecessor_revision_id") is not None:
+        safe_id(
+            packet.get("predecessor_revision_id"),
+            label="predecessor program revision ID",
+        )
+    exact_string_list(
+        packet.get("resolved_finding_refs"),
+        label="resolved program revision findings",
+        allow_empty=True,
+    )
+    if (
+        (packet.get("predecessor_revision_id") is None)
+        != (packet.get("predecessor_review_root") is None)
+        or (
+            packet.get("predecessor_revision_id") is None
+            and packet.get("resolved_finding_refs")
+        )
+    ):
+        raise ProgramRevisionError("Stored program revision finding lineage differs")
+    if packet.get("fix_executor_id") is not None:
+        safe_id(packet.get("fix_executor_id"), label="fix executor ID")
+    role_ids = {
+        packet["author_id"],
+        packet["reviewer_id"],
+        packet["mechanical_watcher_id"],
+        packet["adjudicator_id"],
+    }
+    if (
+        len(role_ids) != 4
+        or packet["application_owner_id"] == packet["author_id"]
+        or packet.get("fix_executor_id") in role_ids
+    ):
         raise ProgramRevisionError("Stored program revision roles are not distinct")
     if packet.get("target_class") not in ALLOWED_TARGET_CLASSES:
         raise ProgramRevisionError("Stored program revision target class differs")
@@ -713,6 +1076,9 @@ def validate_review_shape(
         "kind",
         "record_id",
         "revision_id",
+        "predecessor_revision_id",
+        "predecessor_review_root",
+        "resolved_finding_refs",
         "packet_root",
         "previous_tracker_sha256",
         "proposed_tracker_sha256",
@@ -722,7 +1088,14 @@ def validate_review_shape(
         "affected_closure_root",
         "resume_block",
         "author_id",
+        "application_owner_id",
         "reviewer_id",
+        "authoring_profile_source_revision",
+        "authoring_profile_source_root",
+        "authoring_profile_binding_root",
+        "mechanical_route_record_id",
+        "semantic_review_record_id",
+        "adjudication_root",
         "disposition",
         "finding_refs",
         "evidence_root",
@@ -738,6 +1111,9 @@ def validate_review_shape(
         raise ProgramRevisionError("Program revision review kind differs")
     exact = {
         "revision_id": packet["revision_id"],
+        "predecessor_revision_id": packet["predecessor_revision_id"],
+        "predecessor_review_root": packet["predecessor_review_root"],
+        "resolved_finding_refs": packet["resolved_finding_refs"],
         "packet_root": packet["packet_root"],
         "previous_tracker_sha256": packet["previous_tracker_sha256"],
         "proposed_tracker_sha256": packet["proposed_tracker_sha256"],
@@ -747,7 +1123,20 @@ def validate_review_shape(
         "affected_closure_root": digest(packet["affected_proposed_blocks"]),
         "resume_block": packet["resume_block"],
         "author_id": packet["author_id"],
+        "application_owner_id": packet["application_owner_id"],
         "reviewer_id": packet["reviewer_id"],
+        "authoring_profile_source_revision": packet[
+            "authoring_profile_source_revision"
+        ],
+        "authoring_profile_source_root": packet[
+            "authoring_profile_source_root"
+        ],
+        "authoring_profile_binding_root": packet[
+            "authoring_profile_binding_root"
+        ],
+        "mechanical_route_record_id": packet["mechanical_route_record_id"],
+        "semantic_review_record_id": packet["semantic_review_record_id"],
+        "adjudication_root": packet["adjudication_root"],
         "authority_key_sha256": authority_key_sha256,
     }
     if any(value.get(key) != item for key, item in exact.items()):

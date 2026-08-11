@@ -62,6 +62,35 @@ CAPABILITY_DELTA_FIELDS = (
     "tradeoff and source evidence",
 )
 CAPABILITY_POSTURES = {"consequential", "routine", "not-applicable"}
+PROGRAM_CONTROL_HEADING = "active-program revision control"
+PROGRAM_CONTROL_FIELD = re.compile(
+    r"^- (?P<label>Terminal Block|Required order|Prose-reference Blocks|"
+    r"Source-map Blocks|Verification-matrix Blocks|Handoff Block): "
+    r"`(?P<value>[^`]+)`$"
+)
+PROGRAM_CONTROL_FIELD_ORDER = (
+    "Terminal Block",
+    "Required order",
+    "Prose-reference Blocks",
+    "Source-map Blocks",
+    "Verification-matrix Blocks",
+    "Handoff Block",
+)
+PROGRAM_HISTORY_HEADING = "### Program revision history"
+PROGRAM_HISTORY_HEADER = (
+    "| Revision ID | Predecessor tracker SHA-256 | Current structure SHA-256 "
+    "| Block map SHA-256 | Affected Blocks | Resume Block |"
+)
+PROGRAM_HISTORY_SEPARATOR = "|---|---|---|---|---|---:|"
+PROGRAM_SOURCE_MAP_HEADING = "Program source map"
+PROGRAM_VERIFICATION_MATRIX_HEADING = "Program verification matrix"
+PROGRAM_INDEX_ROW = re.compile(r"^\|\s*(?P<block>\d+)\s*\|\s*(?P<value>[^|]+)\|$")
+PROGRAM_HISTORY_ROW = re.compile(
+    r"^\| `(?P<revision>[A-Za-z0-9][A-Za-z0-9._:-]{3,127})` "
+    r"\| `(?P<previous>[0-9a-f]{64})` \| `(?P<current>[0-9a-f]{64})` "
+    r"\| `(?P<map>[0-9a-f]{64})` \| `(?P<affected>\d+(?:,\d+)*)` "
+    r"\| `(?P<resume>\d+)` \|$"
+)
 
 
 @dataclass(frozen=True)
@@ -389,6 +418,106 @@ def sequence_metadata(lines: list[str]) -> tuple[int | None, int | None]:
     return None, None
 
 
+def verify_program_revision_control(
+    lines: list[str], numbers: list[int]
+) -> list[str]:
+    count = count_section_headings(
+        lines, PROGRAM_CONTROL_HEADING, expected_level=2
+    )
+    if count == 0:
+        return []
+    if count != 1:
+        return [
+            f"tracker has {count} sections named '{PROGRAM_CONTROL_HEADING}'; expected at most one"
+        ]
+    section = extract_section(
+        lines, PROGRAM_CONTROL_HEADING, expected_level=2
+    )
+    assert section is not None
+    canonical_lines = [line for line in section if line]
+    if (
+        len(canonical_lines) < len(PROGRAM_CONTROL_FIELD_ORDER) + 4
+        or canonical_lines[len(PROGRAM_CONTROL_FIELD_ORDER)]
+        != PROGRAM_HISTORY_HEADING
+        or canonical_lines[len(PROGRAM_CONTROL_FIELD_ORDER) + 1]
+        != PROGRAM_HISTORY_HEADER
+        or canonical_lines[len(PROGRAM_CONTROL_FIELD_ORDER) + 2]
+        != PROGRAM_HISTORY_SEPARATOR
+    ):
+        return ["active-program revision control layout is not canonical"]
+    fields: dict[str, str] = {}
+    revision_ids: list[str] = []
+    errors: list[str] = []
+    for position, label in enumerate(PROGRAM_CONTROL_FIELD_ORDER):
+        line = canonical_lines[position]
+        field = PROGRAM_CONTROL_FIELD.fullmatch(line)
+        if field is None or field.group("label") != label:
+            errors.append("active-program revision control field order differs")
+            continue
+        fields[label] = field.group("value")
+    for line in canonical_lines[len(PROGRAM_CONTROL_FIELD_ORDER) + 3 :]:
+        history = PROGRAM_HISTORY_ROW.fullmatch(line)
+        if history is None:
+            errors.append("program revision history contains a noncanonical row")
+            continue
+        revision_ids.append(history.group("revision"))
+        affected = [int(item) for item in history.group("affected").split(",")]
+        resume = int(history.group("resume"))
+        if affected != sorted(set(affected)) or not set(affected) <= set(numbers):
+            errors.append("program revision history has invalid affected Blocks")
+        if resume not in affected:
+            errors.append("program revision history resume Block is not affected")
+    if set(fields) != set(PROGRAM_CONTROL_FIELD_ORDER):
+        errors.append("active-program revision control fields are incomplete")
+        return errors
+    expected_text = ",".join(str(item) for item in numbers)
+    if fields["Terminal Block"] != str(max(numbers)):
+        errors.append("active-program terminal Block differs from headings")
+    for label in (
+        "Required order",
+        "Prose-reference Blocks",
+        "Source-map Blocks",
+        "Verification-matrix Blocks",
+    ):
+        if fields[label] != expected_text:
+            errors.append(f"active-program field '{label}' differs from headings")
+    if fields["Handoff Block"] not in {str(item) for item in numbers}:
+        errors.append("active-program handoff Block is unavailable")
+    if not revision_ids:
+        errors.append("active-program Program revision history is empty")
+    elif len(revision_ids) != len(set(revision_ids)):
+        errors.append("Program revision history repeats a revision ID")
+    for heading, field in (
+        (PROGRAM_SOURCE_MAP_HEADING, "Source-map Blocks"),
+        (PROGRAM_VERIFICATION_MATRIX_HEADING, "Verification-matrix Blocks"),
+    ):
+        if count_section_headings(lines, heading, expected_level=2) != 1:
+            errors.append(f"active-program tracker requires one '{heading}' section")
+            continue
+        index_section = extract_section(lines, heading, expected_level=2)
+        assert index_section is not None
+        indexed: list[int] = []
+        for _, line in iter_unfenced_lines(index_section):
+            row = PROGRAM_INDEX_ROW.fullmatch(line)
+            if row is None:
+                continue
+            value = row.group("value").strip()
+            if not value or normalized_value(value) in {
+                "pending",
+                "tbd",
+                "todo",
+                "unknown",
+            }:
+                errors.append(f"active-program section '{heading}' has an empty basis")
+            indexed.append(int(row.group("block")))
+        expected_index = [int(item) for item in fields[field].split(",")]
+        if indexed != expected_index or len(indexed) != len(set(indexed)):
+            errors.append(
+                f"active-program section '{heading}' differs from '{field}'"
+            )
+    return errors
+
+
 def verify(path: Path, profile: str) -> dict[str, object]:
     text = path.read_text(encoding="utf-8")
     lines = text.splitlines()
@@ -493,6 +622,8 @@ def verify(path: Path, profile: str) -> dict[str, object]:
         )
     elif declared_terminal is None:
         warnings.append("no explicit 'Tracker sequence: Blocks 0–N' metadata found")
+
+    errors.extend(verify_program_revision_control(lines, numbers))
 
     return {
         "path": str(path),

@@ -801,6 +801,27 @@ python3 <LOG_HELPER> implementation-range-gate \
   --response-kind <block-boundary|outcome-terminal>
 ```
 
+Before the first program-revision packet, bind the existing policy owner to one
+exact authoring target thread:
+
+```bash
+python3 <LOG_HELPER> adjust \
+  --target-thread <TARGET> \
+  --program-revision-authoring-thread <AUTHORING_TARGET_THREAD> \
+  --reason <BOUNDED_BINDING_REASON> \
+  --evidence <CURRENT_PROFILE_AND_ROLE_RECORD>
+```
+
+The resulting `tracker-authoring` profile binding is immutable. It derives the
+mechanical watcher, sealed semantic reviewer, sealed adjudicator, and optional
+fix executor from the current supervision/adaptive policy and binds the exact
+authoring target thread. Program-revision import resolves the route record,
+canonical review event, evaluation root, application owner, and all distinct
+role identities against that policy binding. It also resolves this maintained
+policy reference as a bounded Git blob and retains its exact repository
+revision/root; the revision must remain in current repository history. Caller
+strings or a populated packet cannot substitute for it.
+
 The initial source must resolve to the bound direct mission or an already
 reviewed canonical authority receipt. A contraction first resolves a separately
 ingested `direct-user-authority-source` owner event by exact ledger record:
@@ -827,12 +848,21 @@ the exact current mission/policy/repository revision, canonical adaptive
 `amend-structure` decision and application precondition, old/proposed paths and
 hashes, complete Block sets, one-to-zero/one/many mapping, accepted-history
 root, affected dependency closure, safe frontier, and dependency-safe resume
-Block. Its separate reviewer signs that exact delta with the sealed reviewer
-authority. The author cannot review itself; `revise` and `rejected` events are
-retained but cannot amend the range. The event must predate the range amendment
-and match the current mission and policy-history anchor; a caller-supplied map,
-replacement tracker, release label, routed packet, or stale mission root is
-never amendment authority. The legacy one-to-one
+Block. A completed successor is exclusive to its accepted predecessor; an open
+predecessor cannot map onto completed work. Explicit mapped ranges include all
+incomplete prerequisites and cannot silently remove a requested predecessor.
+Its separate reviewer signs that exact delta, authoring-profile binding, and
+finding lineage with the sealed reviewer authority. The author cannot review
+itself; `revise` and `rejected` events are retained but cannot amend the range,
+and a later proposal must bind their exact review root, resolve every finding,
+and change the structural projection. The event must predate the range
+amendment and match the current mission and policy-history anchor. At first
+application the current policy/decision is revalidated, and the supplied
+application commit must be a single-parent tracker-only commit whose parent is
+the exact packet target revision and whose parent/proposal tracker blobs match.
+An identical retry rehydrates the same program resume state. A caller-supplied
+map, replacement tracker, release label, routed packet, or stale mission root is
+never amendment provenance. The legacy one-to-one
 `implementation-tracker-amendment` event remains readable only for already
 accepted range history. New structural work uses the program-revision path.
 Policy history is version-contiguous and the
