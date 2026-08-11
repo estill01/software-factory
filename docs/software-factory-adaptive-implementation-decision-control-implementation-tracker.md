@@ -658,7 +658,7 @@ continuous cognition the price of ordinary execution.
 | 5 | Correct bad implementation decisions inline and continue | 4 | `completed` |
 | 6 | Build and independently compare one bounded parallel candidate | 5 | `completed` |
 | 7 | Add configurable adaptive authority, budgets, and human-input posture | 5, 6 | `completed` |
-| 8 | Amend and apply the tracker only for structural invalidation | 4, 7 | `in-progress` |
+| 8 | Amend and apply the tracker only for structural invalidation | 4, 7 | `completed` |
 | 9 | Cut over a winning candidate, reconcile currentness, and resume | 6, 7 | `not-started` |
 | 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `not-started` |
 | 11 | Dogfood all decision paths and document demonstrated operation | 10 | `not-started` |
@@ -2191,7 +2191,7 @@ Stop before structural tracker amendment or candidate cutover.
 
 ## Block 8 — Amend and apply the tracker only for structural invalidation
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -2444,8 +2444,19 @@ delta, and a local correction incorrectly escalated to structural change.
   three-owner contract evidence. The corrected live-repository and exact
   Git-less installed-layout focused suites each pass `27/27`; full supervision
   passes `306/306`. Exact successor review and installation are pending.
-- Block 8 remains `in-progress`; exact source acceptance, release, activation,
-  installed outcome, and final completion evidence are pending.
+- Exact independent review accepted successor
+  `dfd7f1c3ca583f8743dded545105ad87c504f296` (tree
+  `79b67fc134259f149ef8a40b94d6b98b657cb3e5`) with no findings. Live and exact
+  four-entry Git-less focused suites passed `27/27`; authoring `42/42`,
+  implementation `69/69`, supervision `306/306`, release control `17/17`, all
+  three fixed validators, the full 18-Block tracker verifier, compilation, and
+  diff checks passed. Sequence-10 operator evidence activated release
+  `dfd7f1c3ca58-eaf9ebf23af4`; the stable links resolve to that release, source
+  commit equals the reviewed revision, installed verification root is
+  `9baf535cdfba71849834f1e18499ab304fb40b09847c4bc89d8824508aa48d66`,
+  and the installed public focused replay passed `27/27`. `B8-F13` is closed;
+  Block 8 is complete without lifecycle, Gmail, candidate-cutover, or
+  successor-mission action.
 
 ### Stop
 
