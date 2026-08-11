@@ -2399,6 +2399,20 @@ delta, and a local correction incorrectly escalated to structural change.
   `179301dcb41ea78accc3fa0048a7e6f6710d891945a751a34addd622020c1818`
   and validator root
   `6cc9dc3199c935916cf6f73fcbbbb0e3bb1b58c8f5109fefa499978908164f51`.
+- Exact independent review accepted source
+  `95a46b64923d1965f4ac40427abc1abd1454f7bd` (tree
+  `371ab36dc5040e345e1564967333c4042b2ac7c0`) with no findings.
+  `B8-F06`, `B8-F07`, `B8-F09`, `B8-F10`, and `B8-F11` each produced the
+  required rejection, correction, or idempotent next action in focused replay.
+  Review validation passed authoring `42/42`, implementation `69/69`,
+  supervision `297/297`, focused authoring `12/12`, focused program control
+  `11/11`, all three fixed validators, the full 18-Block tracker verifier,
+  compilation, and exact diff checks. The tracker-authoring source is accepted
+  only as `profile-design-contract-only` with implementation `not-claimed`;
+  its exact source revision is
+  `a01417376b458325b6554ab6007d2a7d145a785d`, Git blob
+  `fa3b0d6cbd599c3edbffa5eb1326d6758870e150`, and SHA-256
+  `dc87fde4b7fe4017a82426ad0199dd2ef226eb8d9a658d348ec0aea6ea2dd424`.
 - Block 8 remains `in-progress`; exact source acceptance, release, activation,
   installed outcome, and final completion evidence are pending.
 
