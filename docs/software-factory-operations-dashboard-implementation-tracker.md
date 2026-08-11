@@ -4717,26 +4717,30 @@ the named route gate. Never search or mutate unrelated roles.
   title. It accepts only an exact durable idle or not-loaded OpenAI task with
   complete history, no active turn, no existing dashboard-workflow marker, a
   non-conflicting project claim, and the exact canonical working-directory
-  inode. Canonical policy supplies the governed model/effort contract because
-  the frozen App Server thread schema exposes provider but not exact model and
-  effort; that observation gap remains visible rather than inferred.
+  inode. The frozen App Server thread schema exposes provider and the exact
+  owner-controlled persisted task path but not model/effort fields. The adapter
+  therefore reads only that ID-suffixed, owner-controlled session file's latest
+  exact `turn_context` within an 8 MiB tail bound and requires its observed model
+  and effort to equal the canonical role contract; missing, partial, unsafe,
+  changing, stale, or mismatched evidence is unavailable rather than inferred.
 - Owner and recovery boundary: preview exercises the maintained `bind` owner on
   an ephemeral copy and proves that only the selected missing runtime field,
   policy version/hash/time, and next `policy-bind` record would change. Execute
   re-reads the exact task, then under the projection-owner lock rechecks the
-  policy hash/version, history head/count, owner revision, lifecycle, model
-  contract, empty role, and single-role candidate before invoking `cmd_bind`
-  once. Verification independently re-reads the unchanged task, exact next
-  policy/history postcondition, mission and unrelated roles/automations, and the
-  maintained role-purpose route gate. Route denial or any partial postcondition
-  remains `unverified` with manual inspection recovery; there is no task create,
-  resume, turn-start, retry, replacement, direct policy/history write, or
-  automation effect.
+  policy hash/version, history head/count, owner revision, lifecycle, exact
+  task-observed model/effort, empty role, single-role candidate, and current
+  catalog/run-project claim before invoking `cmd_bind` once. Verification
+  independently re-reads the unchanged complete task and persisted contract,
+  exact next policy/history postcondition, mission, unrelated roles/automations,
+  current catalog/run-project claim, and maintained role-purpose route gate.
+  Route denial or any partial postcondition remains `unverified` with manual
+  inspection recovery; there is no task create, resume, turn-start, retry,
+  replacement, direct policy/history write, or automation effect.
 - Implementation candidate: initial product commit
   `1c92924e2eb5a8fbd3a711d29e75a32e9ed28e7b`, tree
   `0bc30702b11b2c2525260e1f7488b4710f5728fc`, added the closed operation,
   maintained-owner adapter, run/Admin control, activity facts, and responsive
-  proof. Current product successor
+  proof. First frozen product candidate
   `5973c4c90cf0d8798749a21be982eaab3397a439`, tree
   `634024d61b0c2dc9f49f3e8b46d7d4bf46f77b90`, parent
   `b163e3cd8b8b4510e5bd7f0902e2e7f9975f2023`, preserves that scope while
@@ -4766,7 +4770,8 @@ the named route gate. Never search or mutate unrelated roles.
   generic three-second test-client deadline after redundant preview work; the
   exact-head optimization above then passed the focused HTTP path and two
   consecutive 108-test aggregate runs without weakening a currentness gate.
-- Live and Stop proof: the restarted exact loopback runtime at port 8787 reports
+- First-candidate live and Stop proof: the restarted exact loopback runtime at
+  port 8787 reports
   healthy runtime, frontend, catalog, tracker, supervision, and App Server
   coverage and advertises 18 operations including the supported role-binding
   descriptor. Its descriptor lists only the five supported role families and
@@ -4777,6 +4782,80 @@ the named route gate. Never search or mutate unrelated roles.
   warnings, all 30 verifier tests passed, and diff checks are clean. Block 17
   remains unopened. Block 16 stays `in-progress` pending fresh independent
   exact-revision review.
+- Rejected exact-revision candidate: independent audit REJECTED evidence commit
+  `8a9c8f38ae7985d5e9f8647bb18d5ef427acd575`, tree
+  `2051c98670b5f49ee839e35e92a694d7eb18bead`, and product
+  `5973c4c90cf0d8798749a21be982eaab3397a439`, tree
+  `634024d61b0c2dc9f49f3e8b46d7d4bf46f77b90`, on three material rows. The
+  task gate accepted per-turn `items_truncated=true` and its fingerprint omitted
+  exact retained item history; dispatch/verification did not independently
+  recheck the captured catalog/run-project claim at the owner boundary; and the
+  UI presented policy-required model/effort as governed task eligibility even
+  though actual task model/effort was unavailable. The reviewer reproduced a
+  partial-history acceptance and a changed project claim reaching one bind, and
+  confirmed any OpenAI-provider task could pass the model gate. Its exact
+  backend 43/43, Ruff, frontend 16/16, build, verifier 26/0/0 plus 30/30, clean
+  diff/checkout, remote `0 0`, and Stop proof remain reusable only for unaffected
+  rows.
+- Three-row product successor: commit
+  `8ecf0e4667fbc9b6c5024cafe8e8a7d152144263`, tree
+  `3d78bf95acb51ace210ca5b0a4af50b4b68617d1`, parent rejected evidence
+  `8a9c8f38ae7985d5e9f8647bb18d5ef427acd575`. Representative blobs are App
+  Server adapter `8f24747705574fd483e1d98bcc7b70fc326a37b0`, workflow
+  owner `25643ecbbb88d37ea7f170ea97677c5458ca5eb1`, App Server proof
+  `d391d4c4ab8bbc4de77c02497d76b69fbaca4681`, workflow proof
+  `fc0337cefc029e612410848179b6c52e96f15c1e`, truth-labeled dialog
+  `7d47494fe3828cff99bb291f0b83e14f7f2706a2`, and browser proof
+  `a1fb95f429ee8d521d1d7b05e5a603f628991e77`. That successor added bounded
+  persisted-source reading, rejected unsafe or changing sources, and stopped
+  returning path or content. Role eligibility now rejects any truncated turn or
+  item history, fingerprints the complete retained turn projection, and
+  requires exact task-observed model and effort to equal policy. Dispatch
+  rechecks catalog and run/project identity immediately before `cmd_bind`;
+  verification rechecks it again before the route gate and exposes the separate
+  postcondition.
+- Final owner-root hardening successor: commit
+  `7e9d05efc5e28cc053bccc727b2e76ac35aec46c`, tree
+  `96bf1120b898c9780c8f9e81746e30c2302dfbcc`, parent
+  `8ecf0e4667fbc9b6c5024cafe8e8a7d152144263`. Current representative blobs are
+  App Server adapter `c32beaf0400b4f14846ed0f5d2a3a0ceaba17ef2`, App Server proof
+  `fa85d26653edfd783d64b9197eff7d5e9d7ec34b`, workflow owner
+  `25643ecbbb88d37ea7f170ea97677c5458ca5eb1`, workflow proof
+  `fc0337cefc029e612410848179b6c52e96f15c1e`, truth-labeled dialog
+  `7d47494fe3828cff99bb291f0b83e14f7f2706a2`, dialog proof
+  `332e7b8d29e8770e5c4b983269b8a2e0a4c67d68`, and browser proof
+  `a1fb95f429ee8d521d1d7b05e5a603f628991e77`. The adapter now accepts only an
+  exact absolute, non-symlinked, ID-suffixed path beneath the exact
+  initialize-time Codex owner root at
+  `sessions/YYYY/MM/DD/rollout-*-<task-id>.jsonl`; it requires owner UID,
+  rejects group/world-write permission, verifies stable device/inode/size/mtime
+  across the bounded read, and clears the root with the App Server generation.
+  Missing, changing, stale, oversized, or owner-root-external sources remain
+  unavailable and cannot authorize a bind.
+- Corrected affected proof: App Server 20/20 and workflow 15/15 tests passed
+  with `ResourceWarning` fatal, and Ruff passed. Focused adversarial fixtures
+  reject missing/symlinked persisted task sources, `items_truncated=true`, wrong
+  observed effort, and changed project claims with zero bind; the postcondition
+  also reports project drift as `unverified` and does not call the route gate.
+  The affected dialog suite passed 4/4, TypeScript and production build passed,
+  and the exact browser case passed 3/3 at desktop, tablet, and mobile while
+  showing separate `Required role model` and `Task-observed model` facts,
+  historical suppression, one heading, and no overflow. One broad frontend run
+  retained 79/80 passing tests but hit the unrelated pre-existing five-second
+  timeout in `floor-page.test.tsx`; it changed no source and is diagnostic, not
+  successor proof. The prior exact full 80/80 frontend result remains reusable
+  for unaffected files.
+- Live final-source proof: a fresh exact 0.145.0 App Server read of task
+  `019fe547-e054-7ca0-9940-ec4aa146df78` resolved its persisted source within
+  the 8 MiB bound and observed `gpt-5.6-sol` with effort `max` plus exact record
+  root `0ec629ba08069db750e749ca8d26804ddb8a66d60ef2397189a0e3363bb63022`;
+  this deliberately demonstrates that actual effort is distinct from a role's
+  required `xhigh` and would fail closed. The final pushed successor
+  `7e9d05efc5e28cc053bccc727b2e76ac35aec46c` is running on
+  loopback port 8787 with healthy complete coverage and available App Server;
+  no live policy mutation was attempted. Local/upstream are `0 0`, Block 17
+  remains unopened, and Block 16 remains `in-progress` pending mechanical proof
+  and fresh exact-revision review.
 
 ### Stop
 
