@@ -510,7 +510,7 @@ the relevant authority and evidence contract.
 | 12 | On-demand mechanical supervision checks | 7, 10, 11 | `accepted` |
 | 13 | Semantic supervision review requests | 7, 10, 11 | `accepted` |
 | 14 | Supervision policy and cadence administration | 7, 10, 11 | `accepted` |
-| 15 | Mission and target/tracker binding repair | 7, 10, 11 | `not-started` |
+| 15 | Mission and target/tracker binding repair | 7, 10, 11 | `in-progress` |
 | 16 | Role-task binding repair | 7, 10, 11 | `not-started` |
 | 17 | Automation binding repair | 7, 10, 11 | `not-started` |
 | 18 | Supervision pause and resume | 7, 10, 11 | `not-started` |
@@ -4289,7 +4289,7 @@ report, evolution, or terminal operations.
 
 ## Block 15 — Mission and target/tracker binding repair
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -4386,7 +4386,36 @@ group check. Never scan or reconcile unrelated groups.
 
 ### Completion evidence
 
-Pending.
+- Activation: Block 15 started automatically from accepted and pushed Block 14
+  checkpoint `c3ec9ca4cfd86a510e0fdde4817d60e929076cfc`, tree
+  `c238fab2e1ed362be1897f764d26bfff83ab10cb`; dependencies 7, 10, and 11
+  are accepted, the checkout/upstream are exact at `0 0`, and Blocks 16–25
+  remain unopened. The direct-user full-tracker request remains Blocks 0–25;
+  this transition does not contract the remaining range.
+- Governing implementation authority: direct-user item 44 at
+  `codex:019fe547-e054-7ca0-9940-ec4aa146df78:019fe572-0536-7692-8505-c8624eefa7ab:item-44`
+  under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+  The maintained optional implementation-range gate remains unavailable: the
+  persisted item text hashes to
+  `ff144b6e23b4fb416d8fac84731a9f26c2ef3d2dc9d8ba9d59ffdd029a3aa601`,
+  while the legacy mission binding records source hash
+  `5ef3d610b6c78be26652df2b4639fad218dd555765a95683d785097fd521dd21`;
+  the owner therefore rejects a range bind rather than accepting normalized
+  display text. Mandatory local reconciliation still identifies Block 15 as
+  the next required Block and preserves the full remaining range.
+- Execution brief: add one closed tuple-repair operation for a reproduced
+  missing mission binding only when the selected run already has exact target,
+  project, tracker-path, and tracker-root identity. Preview the missing current
+  field, exact expected mission root/source, current policy head, preserved
+  tracker identity, owner request, prohibited effects, and next policy
+  postcondition; route one bounded request to the maintained reviewer and fix
+  executor, and verify the next canonical `policy-bind` record plus unchanged
+  tracker/target identity and no duplicate group. Existing incompatible
+  mission bindings, target/tracker drift, ambiguous groups, arbitrary paths,
+  or different intent remain unavailable and fail closed. Do not write policy
+  or ledger files, add tracker fields to `bind`, create a repair database, or
+  open any Block 16+ control.
 
 ### Stop
 
