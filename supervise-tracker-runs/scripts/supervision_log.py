@@ -14317,23 +14317,32 @@ def factory_evolution_supported_novelty(
 def factory_evolution_cycle_inventory(directory: Path) -> list[dict[str, Any]]:
     learning = directory / "learning"
     base = directory / "learning" / "factory-evolution"
-    if not base.exists():
+    try:
+        learning_stat = learning.lstat()
+    except FileNotFoundError:
         return []
+    except OSError as exc:
+        raise SupervisionLogError(
+            "Factory evolution owner directory differs"
+        ) from exc
+    if not stat.S_ISDIR(learning_stat.st_mode) or stat.S_ISLNK(learning_stat.st_mode):
+        raise SupervisionLogError("Factory evolution owner directory differs")
+    try:
+        base_stat = base.lstat()
+    except FileNotFoundError:
+        return []
+    except OSError as exc:
+        raise SupervisionLogError(
+            "Factory evolution owner directory differs"
+        ) from exc
+    if not stat.S_ISDIR(base_stat.st_mode) or stat.S_ISLNK(base_stat.st_mode):
+        raise SupervisionLogError("Factory evolution owner directory differs")
     owner_snapshots: list[
         tuple[Path, tuple[int, int, int, int, int, int, int]]
-    ] = []
-    for owner in (learning, base):
-        try:
-            owner_stat = owner.lstat()
-        except OSError as exc:
-            raise SupervisionLogError(
-                "Factory evolution owner directory differs"
-            ) from exc
-        if not stat.S_ISDIR(owner_stat.st_mode) or stat.S_ISLNK(owner_stat.st_mode):
-            raise SupervisionLogError("Factory evolution owner directory differs")
-        owner_snapshots.append(
-            (owner, factory_evolution_admission_stat_identity(owner_stat))
-        )
+    ] = [
+        (learning, factory_evolution_admission_stat_identity(learning_stat)),
+        (base, factory_evolution_admission_stat_identity(base_stat)),
+    ]
     result: list[dict[str, Any]] = []
     module = factory_evolution_module()
     for item in sorted(base.iterdir(), key=lambda path: path.name):

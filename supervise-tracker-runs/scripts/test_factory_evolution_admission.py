@@ -764,7 +764,9 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
         learning = self.directory / "learning"
         moved = self.root / "outside-learning-owner"
         learning.rename(moved)
-        learning.symlink_to(moved, target_is_directory=True)
+        empty_owner = self.root / "outside-empty-learning-owner"
+        empty_owner.mkdir()
+        learning.symlink_to(empty_owner, target_is_directory=True)
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError, "owner directory differs"
         ):
