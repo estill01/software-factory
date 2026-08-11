@@ -157,7 +157,7 @@ the completed program materially changes Software Factory.
 ### Planned
 
 - **Local Software Factory operations dashboard and factory floor.** A
-  twenty-six-Block implementation program plans a local React/TypeScript/Vite
+  twenty-nine-Block implementation program plans a local React/TypeScript/Vite
   command center that monitors current and historical work across registered
   projects; pairs every discoverable implementation with its supervisor group,
   target, roles, automations, current Block/checkpoint, issues, actions, and
@@ -174,6 +174,10 @@ the completed program materially changes Software Factory.
   fallback. This is planning, not implemented functionality. Planning baseline:
   `c7d4efce3e3bf5fb3a8dbc4d9ab0db0ef2cd89bd`; tracker:
   [`docs/software-factory-operations-dashboard-implementation-tracker.md`](docs/software-factory-operations-dashboard-implementation-tracker.md).
+  The current plan also includes three future source-adaptation slices for
+  compact Factory Floor rows, truthful tracker filters/source diffs, and
+  owner-backed operation semantic diffs using the selected Beautiful UI
+  component sources without adopting its navigation or demo-product shell.
 - **Adaptive implementation decision control and autonomous Factory
   evolution.** A fourteen-Block program plans a
   near-zero-overhead unchanged path, inline correction of bad implementation
