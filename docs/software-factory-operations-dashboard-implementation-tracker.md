@@ -4416,6 +4416,56 @@ group check. Never scan or reconcile unrelated groups.
   or different intent remain unavailable and fail closed. Do not write policy
   or ledger files, add tracker fields to `bind`, create a repair database, or
   open any Block 16+ control.
+- Product-capability review: `consequential`; the maintained `bind` owner can
+  derive and add a missing direct-user mission binding, but it has no tracker-
+  path, tracker-root, or target-association repair field and refuses a
+  different existing mission. The selected implementation therefore exposes
+  only that supported missing-field transition and treats the exact target,
+  project, tracker path/content root, task marker, policy head, and owner
+  revision as immutable proof inputs. Extending `bind`, writing policy/history
+  directly, scanning unrelated groups, accepting operator-supplied paths, or
+  creating a generic reconciliation store were rejected because each would
+  establish a second authority or exceed the maintained postcondition. An
+  ephemeral owner preview proves the exact next normalized policy and
+  `policy-bind` record while tests prove canonical policy/history bytes remain
+  unchanged.
+- Implementation candidate: commit
+  `a38ab04dfbba8a2e2eab926cc78a4413a73b46bb`, tree
+  `87c8356b7d26c530a535a74675806b503dab79bb`, parent
+  `120e9fc0283cf067d2aad9a3621f4cb5a9f4fc9e`; representative blobs are
+  operation coordinator
+  `1a7bbe5123c6584d263229c514c70996f0f677f0`, maintained-owner projection
+  `89a704033f1bbec5f4731f84f910b36b6f50d6ba`, run control
+  `7a3240482b031e92ae5b45e46e399a87b6825aa2`, and browser proof
+  `3683c6d82eccf556320db49c2b7a6fd657b3a4aa`. The closed operation accepts no
+  input fields, resolves one exact current dashboard implementation marker and
+  direct-user item, previews the maintained owner in a disposable root, routes
+  one reviewer request, and verifies the single next policy record plus
+  unchanged target/tracker/history/current-owner facts. Existing missions,
+  partial task history, source or policy drift, different semantics, and
+  unsupported tuple repair remain unavailable.
+- Focused and mapped validation: exact owner/API tests passed 27 plus 13 tests
+  with `ResourceWarning` fatal, and Ruff passed. The two affected frontend
+  suites passed 14 tests, TypeScript and the production build passed, and the
+  isolated missing-binding browser fixture passed 3/3 across desktop, tablet,
+  and mobile, including current visibility, empty-input preview facts,
+  confirmation gating, historical suppression, one heading, and no horizontal
+  overflow. The live exact runtime was healthy with App Server available,
+  advertised 17 registered operations including this supported descriptor,
+  and rejected the current not-loaded target with
+  `binding_repair_target_mismatch` before a route request. Owner-focused
+  negatives prove healthy and materially different missions reject, partial
+  task history and changed owner revision cannot verify, and the disposable
+  preview does not mutate canonical bytes. Full-profile tracker verification
+  passed all 26 Blocks, all 30 verifier tests passed, diff checks were clean,
+  the candidate is pushed, and local/upstream are `0 0`.
+- Proportional-replay note: one attempted pre-freeze broad live drill-down run
+  stopped at its pre-existing expectation that Issue follow-up be disabled;
+  the current live incident posture now enables it. The three affected binding
+  cases in that run passed, and the unrelated assertion was neither rewritten
+  nor used as Block 15 evidence. The binding assertions were isolated in the
+  focused fixture above, which then passed all three viewports without replaying
+  the unaffected matrix.
 
 ### Stop
 
