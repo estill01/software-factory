@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import base64
 import datetime as dt
 import hashlib
 import io
@@ -173,6 +174,7 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         self.directory = self.admission.directory
         self.target_thread = self.admission.target_thread
         self._install_factory_sources_and_range()
+        self._install_evaluator_authority()
         self.review_support = evolution_test_support.EvolutionReviewTests(
             "test_review_can_identify_a_broad_capability_gap"
         )
@@ -181,6 +183,49 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         self.packet = self.review_support.packet
         self.evolution_id = "evolution-orchestration-1234"
         self._record_admission()
+
+    def _install_evaluator_authority(self) -> None:
+        self.evaluator_private_key = self.admission.root / "evaluator-private.pem"
+        self.evaluator_public_key = self.admission.root / "evaluator-public.pem"
+        openssl = str(supervision_log.ADAPTIVE_REVIEW_OPENSSL_PATH)
+        subprocess.run(
+            [
+                openssl,
+                "genpkey",
+                "-algorithm",
+                "ED25519",
+                "-out",
+                str(self.evaluator_private_key),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        subprocess.run(
+            [
+                openssl,
+                "pkey",
+                "-in",
+                str(self.evaluator_private_key),
+                "-pubout",
+                "-out",
+                str(self.evaluator_public_key),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.evaluator_public_key.chmod(0o444)
+        self.evaluator_public_key_sha = hashlib.sha256(
+            self.evaluator_public_key.read_bytes()
+        ).hexdigest()
+        for name, value in (
+            ("ADAPTIVE_EVALUATOR_PUBLIC_KEY_PATH", self.evaluator_public_key),
+            ("ADAPTIVE_EVALUATOR_PUBLIC_KEY_SHA256", self.evaluator_public_key_sha),
+        ):
+            patcher = mock.patch.object(supervision_log, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def git(self, *arguments: str) -> str:
         return subprocess.run(
@@ -372,7 +417,7 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         owner = factory_evolution.candidate_owner_route(candidate_type)
         selected["candidate_type"] = candidate_type
         selected["implementation_owner"] = owner
-        selected["evaluation_owner"] = "independent-evaluator-1234"
+        selected["evaluation_owner"] = supervision_log.ADAPTIVE_EVALUATOR_ID
         policy = supervision_log.read_json(self.directory / "policy.json")
         reviewer = policy["runtime"]["base_reviewer_thread_id"]
         submission["packet_id"] = self.packet["packet_id"]
@@ -380,7 +425,7 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         submission["reviewer_id"] = reviewer
         submission["experiment"]["proposer_id"] = reviewer
         submission["experiment"]["implementer_id"] = owner
-        submission["experiment"]["evaluator_id"] = "independent-evaluator-1234"
+        submission["experiment"]["evaluator_id"] = supervision_log.ADAPTIVE_EVALUATOR_ID
         submission["experiment"]["baseline_revision"] = self.baseline_revision
         submission["experiment"]["candidate_revision"] = "f" * 40
         return submission
@@ -513,6 +558,164 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             ),
         }
 
+    def sign_evaluation_submission(
+        self, value: dict[str, object]
+    ) -> dict[str, object]:
+        value = copy.deepcopy(value)
+        value["evaluation_signature_base64"] = ""
+        content = self.admission.root / "evaluation-to-sign.json"
+        signature = self.admission.root / "evaluation.sig"
+        content.write_bytes(
+            supervision_log.canonical(
+                {
+                    key: item
+                    for key, item in value.items()
+                    if key != "evaluation_signature_base64"
+                }
+            )
+        )
+        subprocess.run(
+            [
+                str(supervision_log.ADAPTIVE_REVIEW_OPENSSL_PATH),
+                "pkeyutl",
+                "-sign",
+                "-inkey",
+                str(self.evaluator_private_key),
+                "-rawin",
+                "-in",
+                str(content),
+                "-out",
+                str(signature),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        value["evaluation_signature_base64"] = base64.b64encode(
+            signature.read_bytes()
+        ).decode()
+        return value
+
+    def evaluation_submission(
+        self,
+        handoff: dict[str, object],
+        *,
+        disposition: str = "promote",
+    ) -> dict[str, object]:
+        case_ids = sorted(
+            set(handoff["positive_case_ids"] + handoff["exception_case_ids"])
+        )
+
+        def results(
+            *, revision: str, source_root: str, outcome: str, label: str
+        ) -> list[dict[str, object]]:
+            items: list[dict[str, object]] = []
+            for case_id in case_ids:
+                material = {
+                    "case_id": case_id,
+                    "outcome": outcome,
+                    "observed_effect": f"{label} observed for {case_id}.",
+                    "resource_cost": f"{label} reused the one mapped comparison.",
+                    "regressions": [],
+                    "condition_revision": revision,
+                    "source_evidence_root": source_root,
+                }
+                items.append(
+                    {
+                        **material,
+                        "evidence_root": supervision_log.digest(
+                            {
+                                "evaluation_handoff_root": handoff[
+                                    "evaluation_handoff_root"
+                                ],
+                                "result": material,
+                            }
+                        ),
+                    }
+                )
+            return items
+
+        value: dict[str, object] = {
+            "schema_version": 1,
+            "kind": factory_evolution.ORCHESTRATED_EVALUATION_SUBMISSION_KIND,
+            "evaluation_handoff_root": handoff["evaluation_handoff_root"],
+            "evaluator_id": handoff["evaluator_id"],
+            "evaluator_authority_key_sha256": self.evaluator_public_key_sha,
+            "evaluation_signature_base64": "",
+            "baseline_results": results(
+                revision=str(handoff["baseline_revision"]),
+                source_root=str(handoff["baseline_validation_root"]),
+                outcome="fail",
+                label="Incumbent",
+            ),
+            "candidate_results": results(
+                revision=str(handoff["candidate_revision"]),
+                source_root=str(handoff["candidate_validation_root"]),
+                outcome="pass",
+                label="Candidate",
+            ),
+            "contrary_evidence": [
+                "The bounded exception cases were inspected and no regression was observed."
+            ],
+            "regression_findings": [],
+            "disposition": disposition,
+            "rationale": "The exact mapped comparison supports the retained disposition.",
+        }
+        return self.sign_evaluation_submission(value)
+
+    def candidate_ready_for_evaluation(
+        self,
+    ) -> tuple[dict[str, object], dict[str, object]]:
+        self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "orchestrate",
+            "--evolution-id",
+            self.evolution_id,
+        )
+        self.finalize_review()
+        handed_off = self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "orchestrate",
+            "--evolution-id",
+            self.evolution_id,
+        )
+        owner_record = handed_off["record"]
+        candidate_revision = self.create_candidate(owner_record)
+        source = self.admission.root / "owner-evaluation-ready.json"
+        source.write_bytes(
+            supervision_log.canonical(
+                self.acknowledgment_source(owner_record, candidate_revision)
+            )
+            + b"\n"
+        )
+        self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "acknowledge",
+            "--evolution-id",
+            self.evolution_id,
+            "--owner-ack-json",
+            str(source),
+        )
+        comparison = self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "orchestrate",
+            "--evolution-id",
+            self.evolution_id,
+        )
+        return comparison, comparison["record"]["payload"]
+
     def test_one_candidate_reaches_compare_without_changing_incumbent(self) -> None:
         routed = self.command(
             "factory-evolution",
@@ -558,7 +761,7 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             str(source),
         )
         self.assertEqual(
-            acknowledged["action"]["stage"], "candidate-ready-for-comparison"
+            acknowledged["action"]["stage"], "evaluation-handoff-required"
         )
         self.assertEqual(acknowledged["action"]["next_action"], "compare")
         state = supervision_log.factory_evolution_cycle_state(
@@ -964,7 +1167,7 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         later = self.admission.root / "evaluation-too-early.json"
         later.write_text("{}\n", encoding="utf-8")
         with self.assertRaisesRegex(
-            supervision_log.SupervisionLogError, "current Block Stop"
+            supervision_log.SupervisionLogError, "evaluator handoff"
         ):
             self.command(
                 "factory-evolution",
@@ -978,6 +1181,206 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
                 str(later),
             )
         self.assertFalse((evolution / "evaluation.json").exists())
+
+    def test_coherent_candidate_receives_one_current_independent_disposition(self) -> None:
+        comparison, handoff = self.candidate_ready_for_evaluation()
+        self.assertEqual(comparison["action"]["stage"], "evaluation-required")
+        self.assertEqual(comparison["action"]["next_action"], "evaluate")
+        self.assertNotEqual(
+            handoff["baseline_validation_root"], handoff["candidate_validation_root"]
+        )
+        source = self.admission.root / "evaluation.json"
+        source.write_bytes(
+            supervision_log.canonical(self.evaluation_submission(handoff)) + b"\n"
+        )
+        before_head = self.git("rev-parse", "HEAD")
+        result = self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "evaluate",
+            "--evolution-id",
+            self.evolution_id,
+            "--evaluation-json",
+            str(source),
+        )
+        self.assertEqual(result["action"]["stage"], "evaluated")
+        self.assertEqual(result["action"]["disposition"], "promote")
+        self.assertTrue(result["action"]["adoption_eligible"])
+        self.assertFalse(result["action"]["adoption_authorized"])
+        self.assertEqual(result["action"]["next_action"], "stop-before-adoption")
+        self.assertEqual(self.git("rev-parse", "HEAD"), before_head)
+        duplicate = self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "evaluate",
+            "--evolution-id",
+            self.evolution_id,
+            "--evaluation-json",
+            str(source),
+        )
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(duplicate["action"], result["action"])
+
+    def test_evaluation_rejects_stale_missing_process_only_and_identity_inputs(self) -> None:
+        _comparison, handoff = self.candidate_ready_for_evaluation()
+        valid = self.evaluation_submission(handoff)
+        mutations: list[tuple[str, dict[str, object], str]] = []
+        stale = copy.deepcopy(valid)
+        stale["evaluation_handoff_root"] = "0" * 64
+        mutations.append(("stale", stale, "binding differs"))
+        missing = copy.deepcopy(valid)
+        missing["candidate_results"] = missing["candidate_results"][:-1]
+        mutations.append(("missing", missing, "cover every experiment case"))
+        process_only = copy.deepcopy(valid)
+        process_only["candidate_results"][0]["source_evidence_root"] = "0" * 64
+        mutations.append(("process-only", process_only, "source evidence is stale"))
+        collapsed = copy.deepcopy(valid)
+        collapsed["evaluator_id"] = "implement-tracker-blocks"
+        mutations.append(("collapsed", collapsed, "evaluator ownership differs"))
+        before = supervision_log.events(self.directory / "events.jsonl")
+        for label, value, message in mutations:
+            with self.subTest(label=label):
+                value = self.sign_evaluation_submission(value)
+                source = self.admission.root / f"evaluation-{label}.json"
+                source.write_bytes(supervision_log.canonical(value) + b"\n")
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, message
+                ):
+                    self.command(
+                        "factory-evolution",
+                        "--target-thread",
+                        self.target_thread,
+                        "--action",
+                        "evaluate",
+                        "--evolution-id",
+                        self.evolution_id,
+                        "--evaluation-json",
+                        str(source),
+                    )
+                self.assertEqual(
+                    supervision_log.events(self.directory / "events.jsonl"), before
+                )
+        invalid_signature = copy.deepcopy(valid)
+        invalid_signature["evaluation_signature_base64"] = base64.b64encode(
+            b"x" * 64
+        ).decode()
+        source = self.admission.root / "evaluation-invalid-signature.json"
+        source.write_bytes(supervision_log.canonical(invalid_signature) + b"\n")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "signature differs"
+        ):
+            self.command(
+                "factory-evolution",
+                "--target-thread",
+                self.target_thread,
+                "--action",
+                "evaluate",
+                "--evolution-id",
+                self.evolution_id,
+                "--evaluation-json",
+                str(source),
+            )
+        self.assertEqual(supervision_log.events(self.directory / "events.jsonl"), before)
+
+    def test_target_change_makes_the_evaluation_handoff_stale(self) -> None:
+        _comparison, handoff = self.candidate_ready_for_evaluation()
+        source = self.admission.root / "evaluation-stale-target.json"
+        source.write_bytes(
+            supervision_log.canonical(self.evaluation_submission(handoff)) + b"\n"
+        )
+        changed = self.repository / "current-target-change.txt"
+        changed.write_text("changed after evaluation handoff\n", encoding="utf-8")
+        self.git("add", str(changed.relative_to(self.repository)))
+        self.git(
+            "-c",
+            "user.name=Factory Test",
+            "-c",
+            "user.email=factory@example.test",
+            "commit",
+            "-m",
+            "Change target after evaluation handoff",
+        )
+        before = supervision_log.events(self.directory / "events.jsonl")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "admitted context is not current"
+        ):
+            self.command(
+                "factory-evolution",
+                "--target-thread",
+                self.target_thread,
+                "--action",
+                "evaluate",
+                "--evolution-id",
+                self.evolution_id,
+                "--evaluation-json",
+                str(source),
+            )
+        self.assertEqual(supervision_log.events(self.directory / "events.jsonl"), before)
+
+    def test_lower_dispositions_never_claim_adoption(self) -> None:
+        _comparison, handoff = self.candidate_ready_for_evaluation()
+        expected = {
+            "advisory": "retain-advisory",
+            "revise": "return-to-normal-owner",
+            "reject": "reject",
+        }
+        for disposition, next_action in expected.items():
+            with self.subTest(disposition=disposition):
+                evaluation = factory_evolution.build_orchestrated_candidate_evaluation(
+                    handoff,
+                    self.evaluation_submission(handoff, disposition=disposition),
+                )
+                self.assertFalse(evaluation["adoption_eligible"])
+                self.assertFalse(evaluation["adoption_authorized"])
+                self.assertIn(disposition, {"advisory", "revise", "reject"})
+                self.assertIn(next_action, {"retain-advisory", "return-to-normal-owner", "reject"})
+
+    def test_interrupted_evaluation_append_rehydrates_exact_disposition(self) -> None:
+        _comparison, handoff = self.candidate_ready_for_evaluation()
+        source = self.admission.root / "evaluation-interrupted.json"
+        source.write_bytes(
+            supervision_log.canonical(self.evaluation_submission(handoff)) + b"\n"
+        )
+        original = supervision_log.append_raw_locked_at
+
+        def append_then_interrupt(*args: object, **kwargs: object) -> str:
+            result = original(*args, **kwargs)
+            raise OSError("simulated interruption after evaluation append")
+
+        with mock.patch.object(
+            supervision_log,
+            "append_raw_locked_at",
+            side_effect=append_then_interrupt,
+        ):
+            with self.assertRaisesRegex(OSError, "simulated interruption"):
+                self.command(
+                    "factory-evolution",
+                    "--target-thread",
+                    self.target_thread,
+                    "--action",
+                    "evaluate",
+                    "--evolution-id",
+                    self.evolution_id,
+                    "--evaluation-json",
+                    str(source),
+                )
+        retried = self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "evaluate",
+            "--evolution-id",
+            self.evolution_id,
+            "--evaluation-json",
+            str(source),
+        )
+        self.assertTrue(retried["duplicate"])
+        self.assertEqual(retried["action"]["stage"], "evaluated")
 
     def test_policy_change_makes_the_admitted_cycle_stale(self) -> None:
         self.admission.set_policy(max_admissions=2)

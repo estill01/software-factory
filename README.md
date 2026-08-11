@@ -407,10 +407,14 @@ revision, executes the changed focused owner tests from its bounded archive,
 requires one distinct executed test for every protected capability, enforces
 one handoff-to-proof deadline, and derives exact scope, budget, validation,
 protected-capability, provenance, and Stop evidence. The input does not supply
-outcomes or owner claims. Only a
-current bounded candidate reaches the later comparison step; the incumbent
-remains authoritative and no evaluation, adoption, installation, or cutover
-occurs in this orchestration stage.
+outcomes or owner claims. Only a current bounded candidate reaches comparison.
+One further `orchestrate` call runs the declared mapped incumbent proof and
+records the exact nonauthorizing evaluator handoff. A fixed-key independent
+evaluator can then submit one signed, revision-bound disposition covering every
+positive and exception case plus contrary and regression evidence. The
+canonical result retains raw baseline/candidate roots and exposes `promote`
+only as adoption eligibility. The incumbent remains authoritative and no
+adoption, installation, or cutover occurs in this evaluation stage.
 
 ## Full demonstrated operation
 

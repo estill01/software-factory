@@ -193,10 +193,11 @@ cycle ID and appends at most one admission.
 After one current `admitted` event owns a prepared packet, `status` and
 `orchestrate` expose a deterministic, nonauthorizing cycle action. The stage
 sequence is `review-required` → `owner-handoff-required` →
-`owner-acknowledgment-required` → `candidate-ready-for-comparison` or
-`candidate-stopped`. The corresponding next actions are `review`, `author`,
-`implement`, `compare`, or `reject`; evaluation, adoption, installation, and
-cutover remain later separately governed stages.
+`owner-acknowledgment-required` → `evaluation-handoff-required` →
+`evaluation-required` → `evaluated`, or a terminal `candidate-stopped`.
+The corresponding next actions are `review`, `author`, `implement`, `compare`,
+`evaluate`, or `reject`. Evaluation is read-only and nonauthorizing; adoption,
+installation, and cutover remain later separately governed stages.
 
 The first orchestration event routes the exact packet root and current
 mission/policy/range/tracker/Factory revision to the policy-owned cognitive
@@ -259,6 +260,36 @@ production authority. The evolution helper validates and records these stages
 but never edits a skill, tracker, Git branch, policy, or target. The incumbent
 remains the sole production authority through the Block 13 Stop.
 
+## Governed candidate evaluation
+
+Only a current `candidate-ready-for-comparison` owner proof can create the one
+evaluation handoff. The supervision owner runs the same declared focused tests
+against the exact incumbent archive once, retains those raw command results,
+and pairs them with the already-retained candidate results. The handoff binds
+the packet, review, experiment, candidate contract, owner handoff,
+acknowledgment, exact baseline/candidate revisions and roots, every positive
+and exception case ID, protected-capability results, resource use,
+reversibility, and incumbent production authority. A stale root rejects before
+that mapped comparison is run.
+
+The configured sealed adaptive evaluator is distinct from the review proposer
+and implementation owner. Its submission is signed by the fixed evaluator key
+and covers every positive and exception case exactly once for both conditions.
+Every semantic result binds its condition revision and the corresponding raw
+validation root; result arrays also retain observed effects, costs, and
+regressions. The signed submission includes bounded contrary evidence,
+regression findings, rationale, and exactly one existing disposition:
+`promote`, `advisory`, `revise`, or `reject`.
+
+`promote` requires complete passing candidate cases, passing raw candidate
+commands, preserved protected capabilities, no regression findings, distinct
+condition evidence, and the review's improvement or non-inferiority posture.
+It means only `adoption_eligible`; `adoption_authorized` remains false and the
+incumbent remains authoritative. `advisory`, `revise`, and `reject` route to
+their exact non-adoption Stop/owner posture. The canonical evaluation event is
+immutable and idempotent; retry rehydrates its exact disposition without
+rerunning comparison or performing a target write.
+
 ## Exact submission wire shapes
 
 The public helper rejects extra or missing fields. Submission JSON is bounded,
@@ -305,7 +336,8 @@ The `finalize --review-json` object has these exact top-level keys:
   The evaluation `evaluator_id` must remain distinct from that reviewer and the
   implementer.
 
-The `evaluate --evaluation-json` object has these exact top-level keys:
+For a legacy on-demand evolution set, the `evaluate --evaluation-json` object
+has these exact top-level keys:
 
 `schema_version`, `kind`, `packet_id`, `packet_root`, `review_id`,
 `review_root`, `experiment_id`, `candidate_id`, `evaluator_id`,
@@ -320,6 +352,22 @@ Every baseline or candidate result has `case_id`, `evidence_class`,
 normalizing ID/string arrays; the validator recomputes it from every result
 field. Baseline and candidate result arrays each cover every positive and
 exception case exactly once.
+
+For a governed admitted cycle, first run `orchestrate` after the owner
+acknowledgment to create the raw evaluation handoff. Its signed
+`evaluate --evaluation-json` object has these exact top-level keys:
+
+`schema_version`, `kind`, `evaluation_handoff_root`, `evaluator_id`,
+`evaluator_authority_key_sha256`, `evaluation_signature_base64`,
+`baseline_results`, `candidate_results`, `contrary_evidence`,
+`regression_findings`, `disposition`, and `rationale`. Use
+`software-factory-orchestrated-candidate-evaluation-submission` as `kind`.
+
+Each governed baseline/candidate result has `case_id`, `outcome`,
+`observed_effect`, `resource_cost`, `regressions`, `condition_revision`,
+`source_evidence_root`, and `evidence_root`. The source root is the exact raw
+condition validation root from the canonical handoff. The evidence root is the
+canonical digest of `{evaluation_handoff_root, result: result_without_root}`.
 
 ### Types and accepted values
 

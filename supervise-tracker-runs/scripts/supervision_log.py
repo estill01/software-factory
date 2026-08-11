@@ -14684,6 +14684,10 @@ def verify_factory_evolution_finalize(
 FACTORY_EVOLUTION_REVIEW_HANDOFF_EVENT_KIND = "factory-evolution-review-handoff"
 FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND = "factory-evolution-owner-handoff"
 FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND = "factory-evolution-owner-acknowledgment"
+FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND = (
+    "factory-evolution-evaluation-handoff"
+)
+FACTORY_EVOLUTION_EVALUATION_EVENT_KIND = "factory-evolution-evaluation"
 FACTORY_EVOLUTION_OWNER_ACK_INPUT_KIND = (
     "software-factory-evolution-owner-acknowledgment-input"
 )
@@ -14914,6 +14918,8 @@ def validate_factory_evolution_orchestration_record(
         FACTORY_EVOLUTION_REVIEW_HANDOFF_EVENT_KIND,
         FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND,
         FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND,
+        FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND,
+        FACTORY_EVOLUTION_EVALUATION_EVENT_KIND,
     }:
         raise SupervisionLogError("Factory evolution orchestration record kind differs")
     safe_id(str(value.get("record_id", "")), label="orchestration record ID")
@@ -14952,6 +14958,8 @@ def factory_evolution_orchestration_history(
             FACTORY_EVOLUTION_REVIEW_HANDOFF_EVENT_KIND,
             FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND,
             FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND,
+            FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND,
+            FACTORY_EVOLUTION_EVALUATION_EVENT_KIND,
         }:
             validated = validate_factory_evolution_orchestration_record(
                 item, policy=policy
@@ -15264,6 +15272,113 @@ def factory_candidate_execute_validations(
             if timed_out or exit_code != 0:
                 break
     return results, lane_started_at, utc_now()
+
+
+def factory_candidate_execute_baseline_comparison(
+    handoff: Mapping[str, Any], acknowledgment: Mapping[str, Any]
+) -> list[dict[str, Any]]:
+    """Run the one declared mapped comparison against the exact incumbent."""
+
+    repository = Path(str(handoff["target_repository_root"]))
+    revision = str(acknowledgment["target_revision"])
+    focused_test_paths = list(acknowledgment["focused_test_paths"])
+    budget = handoff["candidate_budget"]
+    if (
+        int(budget["max_mapped_comparisons"]) != 1
+        or len(focused_test_paths) > int(budget["max_commands"])
+    ):
+        raise SupervisionLogError("Factory candidate comparison budget differs")
+    runtime = Path(sys.executable).resolve(strict=True)
+    runtime_root = hashlib.sha256(runtime.read_bytes()).hexdigest()
+    started = parse_time(utc_now())
+    deadline = started + dt.timedelta(minutes=int(budget["max_elapsed_minutes"]))
+    results: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory(prefix="factory-baseline-proof-") as temp_value:
+        temp = Path(temp_value)
+        factory_candidate_archive(repository, revision, temp)
+        source_root = temp / "source"
+        for index, test_path in enumerate(focused_test_paths, start=1):
+            relative = Path(test_path)
+            command = [
+                str(runtime),
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                str(relative.parent),
+                "-p",
+                relative.name,
+            ]
+            stdout_path = temp / f"baseline-stdout-{index}.bin"
+            stderr_path = temp / f"baseline-stderr-{index}.bin"
+            started_at = utc_now()
+            remaining_seconds = int(
+                (deadline - parse_time(started_at)).total_seconds()
+            )
+            timed_out = False
+            if remaining_seconds <= 0:
+                stdout_path.write_bytes(b"")
+                stderr_path.write_bytes(b"")
+                exit_code = 124
+                timed_out = True
+            else:
+                with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+                    try:
+                        completed = subprocess.run(
+                            command,
+                            cwd=source_root,
+                            check=False,
+                            stdout=stdout,
+                            stderr=stderr,
+                            timeout=max(1, remaining_seconds),
+                            env={
+                                "PATH": "/usr/bin:/bin",
+                                "LC_ALL": "C",
+                                "PYTHONDONTWRITEBYTECODE": "1",
+                            },
+                        )
+                        exit_code = int(completed.returncode)
+                    except subprocess.TimeoutExpired:
+                        exit_code = 124
+                        timed_out = True
+            finished_at = utc_now()
+            stdout_bytes = stdout_path.read_bytes()
+            stderr_bytes = stderr_path.read_bytes()
+            if (
+                len(stdout_bytes) > MAX_FACTORY_CANDIDATE_OUTPUT_BYTES
+                or len(stderr_bytes) > MAX_FACTORY_CANDIDATE_OUTPUT_BYTES
+            ):
+                raise SupervisionLogError(
+                    "Factory baseline comparison output exceeds its bound"
+                )
+            results.append(
+                {
+                    "command_id": f"comparison-baseline-{index:02d}",
+                    "test_path": test_path,
+                    "argv": [
+                        "python",
+                        "-m",
+                        "unittest",
+                        "discover",
+                        "-s",
+                        str(relative.parent),
+                        "-p",
+                        relative.name,
+                    ],
+                    "runtime_sha256": runtime_root,
+                    "started_at": started_at,
+                    "finished_at": finished_at,
+                    "exit_code": exit_code,
+                    "timed_out": timed_out,
+                    "stdout_sha256": hashlib.sha256(stdout_bytes).hexdigest(),
+                    "stderr_sha256": hashlib.sha256(stderr_bytes).hexdigest(),
+                }
+            )
+            if timed_out:
+                break
+    if len(results) != len(focused_test_paths):
+        raise SupervisionLogError("Factory baseline comparison exhausted its ceiling")
+    return results
 
 
 def factory_candidate_protected_results(
@@ -16618,6 +16733,7 @@ def cmd_factory_evolution_evaluate(args: argparse.Namespace) -> None:
             "Factory evolution evaluate requires only an explicit evaluation JSON"
         )
     target = target_dir(args)
+    governed: tuple[Path, dict[str, Any], list[dict[str, Any]]] | None = None
     if (target / "policy.json").exists():
         governed_directory, governed_policy = load_policy(args)
         governed_events = events(governed_directory / "events.jsonl")
@@ -16630,6 +16746,7 @@ def cmd_factory_evolution_evaluate(args: argparse.Namespace) -> None:
             ),
         )
         if admission is not None:
+            governed = (governed_directory, governed_policy, governed_events)
             range_state = implementation_range_state(governed_policy)
             if range_state is None or (
                 14 not in range_state["eligible_blocks"]
@@ -16638,6 +16755,49 @@ def cmd_factory_evolution_evaluate(args: argparse.Namespace) -> None:
                 raise SupervisionLogError(
                     "Factory evolution evaluation is beyond the current Block Stop"
                 )
+    if governed is not None:
+        directory, policy, all_events = governed
+        evolution_id = safe_id(args.evolution_id, label="factory evolution ID")
+        state = factory_evolution_cycle_state(
+            directory, policy, all_events, evolution_id=evolution_id
+        )
+        if state["evaluation_handoff"] is None:
+            raise SupervisionLogError(
+                "Factory evolution evaluation requires its canonical evaluator handoff"
+            )
+        source = load_bounded_canonical_json(
+            args.evaluation_json,
+            label="Factory evolution evaluation submission",
+            maximum_bytes=MAX_FACTORY_EVOLUTION_OWNER_ACK_BYTES,
+        )
+        verify_factory_evolution_evaluation_signature(source)
+        module = factory_evolution_module()
+        try:
+            evaluation = module.build_orchestrated_candidate_evaluation(
+                state["evaluation_handoff"], source
+            )
+        except module.FactoryEvolutionError as exc:
+            raise SupervisionLogError(str(exc)) from exc
+        if state["evaluation_record"] is not None:
+            if state["evaluation_record"]["payload"] != evaluation:
+                raise SupervisionLogError(
+                    "Factory evolution evaluation already differs"
+                )
+            print(
+                json.dumps(
+                    {"duplicate": True, "action": state["action"]}, sort_keys=True
+                )
+            )
+            return
+        _append_factory_evolution_evaluation(
+            args,
+            expected_handoff_root=state["evaluation_handoff"][
+                "evaluation_handoff_root"
+            ],
+            submission=source,
+            expected_evaluation=evaluation,
+        )
+        return
     module = factory_evolution_module()
     directory = factory_evolution_directory(
         target_dir(args), safe_id(args.evolution_id, label="factory evolution ID")
@@ -16671,6 +16831,142 @@ def cmd_factory_evolution_evaluate(args: argparse.Namespace) -> None:
     )
 
 
+def _append_factory_evolution_evaluation(
+    args: argparse.Namespace,
+    *,
+    expected_handoff_root: str,
+    submission: Mapping[str, Any],
+    expected_evaluation: Mapping[str, Any],
+) -> None:
+    directory, policy, policy_snapshot, directory_snapshot = (
+        load_policy_directory_snapshot(args)
+    )
+    all_events, event_snapshot = events_snapshot(directory / "events.jsonl")
+    evolution_id = safe_id(args.evolution_id, label="factory evolution ID")
+    module = factory_evolution_module()
+    with owner_append_lock(
+        root_from(args), args.target_thread, directory_snapshot
+    ) as directory_fd:
+        require_bound_policy_at(
+            directory_fd,
+            expected_policy=policy,
+            expected_snapshot=policy_snapshot,
+        )
+        current_events, current_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        if current_events != all_events or current_snapshot != event_snapshot:
+            raise SupervisionLogError(
+                "Factory evolution evaluation event head changed; retry current state"
+            )
+        current = factory_evolution_cycle_state(
+            directory, policy, current_events, evolution_id=evolution_id
+        )
+        if (
+            current["action"]["stage"] != "evaluation-required"
+            or current["evaluation_handoff"] is None
+            or current["evaluation_handoff"]["evaluation_handoff_root"]
+            != expected_handoff_root
+        ):
+            raise SupervisionLogError(
+                "Factory evolution evaluation inputs changed before append"
+            )
+        verify_factory_evolution_evaluation_signature(submission)
+        try:
+            rebuilt = module.build_orchestrated_candidate_evaluation(
+                current["evaluation_handoff"], submission
+            )
+        except module.FactoryEvolutionError as exc:
+            raise SupervisionLogError(str(exc)) from exc
+        if rebuilt != expected_evaluation:
+            raise SupervisionLogError(
+                "Factory evolution evaluation evidence changed before append"
+            )
+        record = factory_evolution_orchestration_record(
+            kind=FACTORY_EVOLUTION_EVALUATION_EVENT_KIND,
+            record_id=f"EVT-{len(current_events) + 1:06d}",
+            policy=policy,
+            evolution_id=evolution_id,
+            payload=rebuilt,
+        )
+        append_raw_locked_at(
+            directory_fd,
+            "events.jsonl",
+            record,
+            previous_record_sha256=str(current_events[-1]["record_sha256"]),
+            expected_file_snapshot=current_snapshot,
+            require_event_anchor=True,
+        )
+    refreshed = events(directory / "events.jsonl")
+    state = factory_evolution_cycle_state(
+        directory, policy, refreshed, evolution_id=evolution_id
+    )
+    print(
+        json.dumps(
+            {"duplicate": False, "record": refreshed[-1], "action": state["action"]},
+            sort_keys=True,
+        )
+    )
+
+
+def verify_factory_evolution_evaluation_signature(
+    value: Mapping[str, Any],
+) -> None:
+    if (
+        value.get("evaluator_id") != ADAPTIVE_EVALUATOR_ID
+        or value.get("evaluator_authority_key_sha256")
+        != ADAPTIVE_EVALUATOR_PUBLIC_KEY_SHA256
+    ):
+        raise SupervisionLogError("Factory evolution evaluator ownership differs")
+    signature_value = value.get("evaluation_signature_base64")
+    if type(signature_value) is not str:
+        raise SupervisionLogError("Factory evolution evaluation signature differs")
+    try:
+        signature = base64.b64decode(signature_value, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise SupervisionLogError(
+            "Factory evolution evaluation signature differs"
+        ) from exc
+    if len(signature) != 64:
+        raise SupervisionLogError("Factory evolution evaluation signature differs")
+    signed = {
+        key: item
+        for key, item in value.items()
+        if key != "evaluation_signature_base64"
+    }
+    key_bytes = trusted_adaptive_evaluator_key()
+    openssl = trusted_adaptive_review_openssl()
+    with tempfile.TemporaryDirectory(
+        prefix="factory-orchestrated-evaluation-verify-"
+    ) as temp_value:
+        temp = Path(temp_value)
+        content = temp / "evaluation.json"
+        signature_path = temp / "evaluation.sig"
+        key_path = temp / "evaluator.pem"
+        content.write_bytes(canonical(signed))
+        signature_path.write_bytes(signature)
+        key_path.write_bytes(key_bytes)
+        result = subprocess.run(
+            [
+                str(openssl),
+                "pkeyutl",
+                "-verify",
+                "-pubin",
+                "-inkey",
+                str(key_path),
+                "-rawin",
+                "-in",
+                str(content),
+                "-sigfile",
+                str(signature_path),
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+        )
+    if result.returncode != 0:
+        raise SupervisionLogError("Factory evolution evaluation signature differs")
 def cmd_factory_evolution_verify(args: argparse.Namespace) -> None:
     if args.report_paths or args.event_paths or args.review_json or args.evaluation_json:
         raise SupervisionLogError("Factory evolution verify does not accept producer inputs")
@@ -16824,6 +17120,8 @@ def factory_evolution_cycle_state(
             FACTORY_EVOLUTION_REVIEW_HANDOFF_EVENT_KIND,
             FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND,
             FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND,
+            FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND,
+            FACTORY_EVOLUTION_EVALUATION_EVENT_KIND,
         )
     }
     for item in history:
@@ -16843,6 +17141,16 @@ def factory_evolution_cycle_state(
     acknowledgment_record = (
         grouped[FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND][0]
         if grouped[FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND]
+        else None
+    )
+    evaluation_handoff_record = (
+        grouped[FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND][0]
+        if grouped[FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND]
+        else None
+    )
+    evaluation_record = (
+        grouped[FACTORY_EVOLUTION_EVALUATION_EVENT_KIND][0]
+        if grouped[FACTORY_EVOLUTION_EVALUATION_EVENT_KIND]
         else None
     )
     expected_review_handoff = factory_evolution_review_handoff(
@@ -16885,6 +17193,35 @@ def factory_evolution_cycle_state(
         )
         if acknowledgment_record["payload"] != acknowledgment:
             raise SupervisionLogError("Factory evolution owner acknowledgment is stale")
+    if acknowledgment is None and (
+        evaluation_handoff_record is not None or evaluation_record is not None
+    ):
+        raise SupervisionLogError("Factory evolution evaluation precedes owner proof")
+    evaluation_handoff = None
+    if evaluation_handoff_record is not None:
+        assert review is not None and handoff is not None and acknowledgment is not None
+        try:
+            evaluation_handoff = module.verify_candidate_evaluation_handoff(
+                packet,
+                review,
+                handoff,
+                acknowledgment,
+                evaluation_handoff_record["payload"],
+            )
+        except module.FactoryEvolutionError as exc:
+            raise SupervisionLogError(str(exc)) from exc
+        if evaluation_handoff["evaluator_id"] != ADAPTIVE_EVALUATOR_ID:
+            raise SupervisionLogError("Factory evolution evaluator ownership differs")
+    evaluation = None
+    if evaluation_record is not None:
+        if evaluation_handoff is None:
+            raise SupervisionLogError("Factory evolution evaluation lacks its handoff")
+        try:
+            evaluation = module.verify_orchestrated_candidate_evaluation(
+                evaluation_handoff, evaluation_record["payload"]
+            )
+        except module.FactoryEvolutionError as exc:
+            raise SupervisionLogError(str(exc)) from exc
     try:
         action = module.build_cycle_action(
             packet,
@@ -16894,6 +17231,50 @@ def factory_evolution_cycle_state(
         )
     except module.FactoryEvolutionError as exc:
         raise SupervisionLogError(str(exc)) from exc
+    if action["stage"] == "candidate-ready-for-comparison":
+        if evaluation_handoff is None:
+            stage = "evaluation-handoff-required"
+            next_action = "compare"
+            disposition = None
+            evaluation_root = None
+            adoption_eligible = False
+        elif evaluation is None:
+            stage = "evaluation-required"
+            next_action = "evaluate"
+            disposition = None
+            evaluation_root = None
+            adoption_eligible = False
+        else:
+            stage = "evaluated"
+            disposition = evaluation["disposition"]
+            evaluation_root = evaluation["evaluation_root"]
+            adoption_eligible = bool(evaluation["adoption_eligible"])
+            next_action = {
+                "promote": "stop-before-adoption",
+                "advisory": "retain-advisory",
+                "revise": "return-to-normal-owner",
+                "reject": "reject",
+            }[disposition]
+        action_material = {
+            **{
+                key: value
+                for key, value in action.items()
+                if key != "action_root"
+            },
+            "stage": stage,
+            "next_action": next_action,
+            "evaluation_handoff_root": (
+                evaluation_handoff.get("evaluation_handoff_root")
+                if evaluation_handoff is not None
+                else None
+            ),
+            "evaluation_root": evaluation_root,
+            "disposition": disposition,
+            "adoption_eligible": adoption_eligible,
+            "adoption_authorized": False,
+            "production_authority": "incumbent",
+        }
+        action = {**action_material, "action_root": digest(action_material)}
     return {
         "admission_record_id": admitted["record_id"],
         "packet": packet,
@@ -16902,8 +17283,12 @@ def factory_evolution_cycle_state(
         "review_record": review_record,
         "owner_record": owner_record,
         "acknowledgment_record": acknowledgment_record,
+        "evaluation_handoff_record": evaluation_handoff_record,
+        "evaluation_record": evaluation_record,
         "expected_review_handoff": expected_review_handoff,
         "expected_owner_handoff": handoff,
+        "evaluation_handoff": evaluation_handoff,
+        "evaluation": evaluation,
         "action": action,
     }
 
@@ -17003,6 +17388,82 @@ def append_factory_evolution_orchestration(
     return {"duplicate": False, "record": refreshed[-1], "action": state["action"]}
 
 
+def append_factory_evolution_evaluation_handoff(
+    args: argparse.Namespace,
+    *,
+    expected_acknowledgment_root: str,
+    proposed_payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    directory, policy, policy_snapshot, directory_snapshot = (
+        load_policy_directory_snapshot(args)
+    )
+    all_events, event_snapshot = events_snapshot(directory / "events.jsonl")
+    evolution_id = safe_id(args.evolution_id, label="factory evolution ID")
+    module = factory_evolution_module()
+    with owner_append_lock(
+        root_from(args), args.target_thread, directory_snapshot
+    ) as directory_fd:
+        require_bound_policy_at(
+            directory_fd,
+            expected_policy=policy,
+            expected_snapshot=policy_snapshot,
+        )
+        current_events, current_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        if current_events != all_events or current_snapshot != event_snapshot:
+            raise SupervisionLogError(
+                "Factory evolution evaluation event head changed; retry current state"
+            )
+        current = factory_evolution_cycle_state(
+            directory, policy, current_events, evolution_id=evolution_id
+        )
+        if (
+            current["action"]["stage"] != "evaluation-handoff-required"
+            or current["acknowledgment_record"] is None
+            or current["acknowledgment_record"]["payload"]["currentness_root"]
+            != expected_acknowledgment_root
+        ):
+            raise SupervisionLogError(
+                "Factory evolution evaluation inputs changed before append"
+            )
+        try:
+            rebuilt = module.build_candidate_evaluation_handoff(
+                current["packet"],
+                current["review"],
+                current["expected_owner_handoff"],
+                current["acknowledgment_record"]["payload"],
+                proposed_payload.get("baseline_validation_results"),
+            )
+        except module.FactoryEvolutionError as exc:
+            raise SupervisionLogError(str(exc)) from exc
+        if rebuilt != proposed_payload:
+            raise SupervisionLogError(
+                "Factory evolution evaluation comparison changed before append"
+            )
+        record = factory_evolution_orchestration_record(
+            kind=FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND,
+            record_id=f"EVT-{len(current_events) + 1:06d}",
+            policy=policy,
+            evolution_id=evolution_id,
+            payload=proposed_payload,
+        )
+        previous = str(current_events[-1]["record_sha256"])
+        append_raw_locked_at(
+            directory_fd,
+            "events.jsonl",
+            record,
+            previous_record_sha256=previous,
+            expected_file_snapshot=current_snapshot,
+            require_event_anchor=True,
+        )
+    refreshed = events(directory / "events.jsonl")
+    state = factory_evolution_cycle_state(
+        directory, policy, refreshed, evolution_id=evolution_id
+    )
+    return {"duplicate": False, "record": refreshed[-1], "action": state["action"]}
+
+
 def cmd_factory_evolution_cycle_status(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     state = factory_evolution_cycle_state(
@@ -17043,6 +17504,43 @@ def cmd_factory_evolution_orchestrate(args: argparse.Namespace) -> None:
             args,
             expected_kind=FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND,
             expected_payload=state["expected_owner_handoff"],
+        )
+        print(json.dumps(result, sort_keys=True))
+        return
+    if state["action"]["stage"] == "evaluation-handoff-required":
+        range_state = implementation_range_state(policy)
+        if range_state is None or (
+            14 not in range_state["eligible_blocks"]
+            and 14 not in range_state["accepted_blocks"]
+        ):
+            raise SupervisionLogError(
+                "Factory evolution evaluation is beyond the current Block Stop"
+            )
+        assert state["acknowledgment_record"] is not None
+        assert state["expected_owner_handoff"] is not None
+        baseline = factory_candidate_execute_baseline_comparison(
+            state["expected_owner_handoff"],
+            state["acknowledgment_record"]["payload"],
+        )
+        module = factory_evolution_module()
+        try:
+            payload = module.build_candidate_evaluation_handoff(
+                state["packet"],
+                state["review"],
+                state["expected_owner_handoff"],
+                state["acknowledgment_record"]["payload"],
+                baseline,
+            )
+        except module.FactoryEvolutionError as exc:
+            raise SupervisionLogError(str(exc)) from exc
+        if payload["evaluator_id"] != ADAPTIVE_EVALUATOR_ID:
+            raise SupervisionLogError("Factory evolution evaluator ownership differs")
+        result = append_factory_evolution_evaluation_handoff(
+            args,
+            expected_acknowledgment_root=state["acknowledgment_record"][
+                "payload"
+            ]["currentness_root"],
+            proposed_payload=payload,
         )
         print(json.dumps(result, sort_keys=True))
         return
