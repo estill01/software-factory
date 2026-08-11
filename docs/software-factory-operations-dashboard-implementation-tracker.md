@@ -4157,6 +4157,76 @@ automations.
   watcher, meta-review, and optional Gmail automation schedule mappings. No
   accepted Block was reopened, no policy/history or automation manifest was
   mutated, and Blocks 15–25 remain closed.
+- Current recovery acknowledgement and affected work start: routed incident
+  `INC-20260811-010358-90B60A` and route action
+  `60b36fa586670686d571733870637b827735a86ce40e7c6f6fbcb8b774dc0cb7`
+  are recovery evidence only; direct-user item 44 and mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`
+  remain governing. The interrupted browser assertion was recomputed only for
+  the current live run: its canonical lifecycle is `failed`, so the existing
+  immediate-check owner correctly returns its exact unavailable alert instead
+  of a preview. The affected policy-workflow browser case then passed 3/3 with
+  invocation-scoped `--workers=1` at desktop, tablet, and mobile, including the
+  exact policy diff, disabled unbound Gmail fields, recovery posture, and no
+  historical-mission control leakage. No unaffected browser matrix was replayed.
+- Product-capability review:
+  - Trigger: Block 14 has consequential posture.
+  - Frame identity: this tracker, `Target-product capability frame`, Block 14,
+    SHA-256
+    `26664146d46f0880752bad3252c562232fa8d6a2a19adb7804908d2ee1b562ec`.
+  - Capability added or preserved: one operator-confirmed exact policy diff can
+    be requested from the current run while policy-history and each affected
+    named automation remain separately verified.
+  - Paths compared: a local dashboard/settings write, a bounded extension of
+    the accepted operation framework, and the existing supervision plus Codex
+    automation owners.
+  - Selected level and owner: the accepted operation framework coordinates one
+    exact reviewer/fix-executor request; `supervision_log.py adjust` and the
+    Codex automation owner remain the only canonical writers.
+  - Protected-capability result: policy versions/history, route gates,
+    unchanged fields, named-automation single-writer ownership, partial-state
+    attention, and no automatic rollback are preserved.
+  - Rejected alternatives: direct JSON/TOML writes bypass canonical owners; a
+    generic settings store or scheduler has no current source-backed consumer.
+  - Tradeoffs and uncertainty: task-mediated application is asynchronous and
+    canonical records do not expose fix-executor actor attribution; Gmail
+    cadence stays unavailable unless its exact gate and automation are bound.
+  - Frozen-candidate proof: product commit
+    `4690e2a2ae87ea2a12fbdaa50f356574b54b5f7a`, tree
+    `56f2278518af234185b7424f4172e8e9deba67a7`, parent
+    `e9a8dd6c382ab8646524d1e472291d2e61da6766`, pushed exactly to
+    `origin/codex/evolution-mvp`; live preview and mapped proof are recorded
+    below.
+- Implementation candidate: the 14-file product revision above registers
+  `factory.supervision-adjust` as the fifteenth supported closed operation,
+  derives the nine-field/range contract from the maintained owner, binds exact
+  target/project/mission, reviewer and fix-executor tasks, route source, prior
+  policy head, preserved values, next normalized policy root, and only affected
+  automations. Dispatch starts one exact reviewer turn after source recheck;
+  verification requires its exact marker, one exact next `policy-adjust`
+  history record with four correlation values, current policy head, and every
+  named active automation schedule/binding. The React run workspace exposes a
+  compact functional diff dialog, current values/ranges, conditional Gmail
+  availability, reconciliation facts, partial/failure recovery, and no control
+  on predecessor missions. The binary diff SHA-256 is
+  `00da2f87efa3e3912dec25b860e0c226d6ea9bf67a1c200f79353821d38d0baa`.
+- Validation archive: the focused policy-workflow and target-specific
+  projection tests pass with the corrected repository-owned Python envelope
+  `PYTHONPATH=src:tests:../..`; the complete workflow module passed 12/12, the
+  operations module passed 25/25, and full backend discovery passed with
+  `ResourceWarning` fatal. Ruff passed the four affected Python files. Focused
+  frontend proof passed four files/18 tests, full Vitest passed 18 files/76
+  tests, and the TypeScript production build passed. The affected live
+  Playwright case passed 3/3 after the lifecycle-aware correction. A live
+  current-target preview created operation `op_jeqc-ryjg8-yjdS3`, showed policy
+  v5 with its exact previewed SHA-256 to expected v6, routine cadence 20 to 25,
+  eight preserved fields, the exact watcher automation,
+  semantic-escalation route allowance, and source `EVT-000131`; it was
+  cancelled before request, remained
+  `cancelled`, and left policy/history/automations unchanged. Direct-write and
+  diff scans are clean. Full-profile verification reports all 26 Blocks with 0
+  errors/warnings, all 30 verifier tests pass, and the documentation diff check
+  is clean. Independent exact-revision acceptance remains pending.
 
 ### Stop
 
