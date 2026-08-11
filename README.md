@@ -375,6 +375,25 @@ autonomous authority. See
 [`adaptive-protocol-dogfood.md`](implement-tracker-blocks/references/adaptive-protocol-dogfood.md)
 for the evidence and review boundary.
 
+### Factory-evolution evidence admission
+
+The supervision owner can admit one evidence-bound Factory-improvement
+opportunity at three maintained checkpoints: explicit Factory maintenance,
+terminal report verification, and weekly report finalization. The gate derives
+novelty only from supported incident, productive-result, gap, or recurring
+meta-signal records; report identity, prose, checkpoint, and Factory revision
+remain currentness context and cannot manufacture a second opportunity.
+
+Unchanged, unsupported, already-consumed, resource-exhausted, or conflicting
+evidence is a deterministic no-op. Fixed mode does not build a packet;
+recommend mode emits a nonauthorizing recommendation; reviewed-autonomous and
+full-autonomous modes may retain one prepared admission for later governed
+work. Admission never performs cognitive review, creates a candidate, writes a
+target, or adopts an outcome. Operators can run the same bounded gate directly
+with `supervision_log.py factory-evolution --action admit`; status and verified
+weekly projections expose the current result without turning report prose into
+authority.
+
 ## Full demonstrated operation
 
 The recorded implementation program and included supervision window show two complementary parts of the system. These are observations from specific runs, not general benchmarks for Codex or software engineering.

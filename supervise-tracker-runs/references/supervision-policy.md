@@ -304,11 +304,23 @@ owner identity makes the ready event a no-op and requires currentness refresh.
 
 ## Factory capability-evolution workflow
 
-Factory capability evolution is explicit, on demand, and derived. It does not
-run in watcher, heartbeat, Gmail, roundup, or scheduled automation roles. It
-does not add a canonical ledger. `supervision_log.py` remains the only public
-supervision filesystem writer and stores immutable-or-identical artifact sets
-under the target's `learning/factory-evolution/<evolution-id>/` directory.
+Factory capability evolution is derived and uses one deterministic admission
+gate at weekly finalization, terminal verification, or an explicit Factory-
+maintenance checkpoint. It does not run in watcher, heartbeat, Gmail, roundup,
+or a new scheduled automation role and adds no canonical ledger.
+`supervision_log.py` remains the only public supervision filesystem writer and
+stores immutable-or-identical artifact sets under the target's
+`learning/factory-evolution/<evolution-id>/` directory.
+
+Before the later cognitive sequence, the gate resolves report nominations to
+exact canonical event/outcome records and computes a canonical-evidence novelty
+key separately from its packet/mission/policy/checkpoint/Factory-revision
+context root. Report packaging, prose, checkpoint identity, overlapping
+coverage, and unrelated revisions cannot create novelty. `fixed` is a
+zero-producer no-op; `recommend` is non-authorizing; reviewed/full autonomy may
+admit one current cycle. The gate writes at most the existing prepared packet
+and one content-minimized canonical admission event. It never calls cognition,
+starts a candidate, requests a human, or writes a skill or target repository.
 
 Use the sequence `prepare → finalize → evaluate → verify`:
 
@@ -340,8 +352,10 @@ Changed content under an existing evolution ID is an error. A `promote`
 disposition is evidence for the separately governed skill-maintenance path; it
 is not automatic adoption, editing, installation, notification, routing,
 scheduling, deployment, or authority expansion. No action in this workflow may
-write a target repository, canonical `events.jsonl`, `policy.json`, Gmail state,
-or automation configuration.
+write a target repository, `policy.json`, Gmail state, or automation
+configuration. Only `admit` may append its content-minimized eligibility result
+to canonical `events.jsonl`; `prepare`, `finalize`, `evaluate`, and `verify`
+retain their existing derived-artifact behavior.
 
 ## Mission binding and authority provenance
 

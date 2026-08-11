@@ -686,10 +686,25 @@ reserved deferrals, safe frontier, and application posture.
 
 ### Factory capability evolution
 
-Use the explicit `factory-evolution` workflow only when an operator request or
-maintained plan calls for evidence-grounded improvement of the Factory's
-reusable capability set. This is an on-demand derived-artifact workflow, not a
-watcher loop, schedule, detector, or new supervision ledger.
+At weekly-report finalization, terminal-report verification, or an explicit
+Factory-maintenance checkpoint, run the deterministic eligibility gate once.
+It resolves report nominations to exact canonical event/outcome evidence,
+derives a novelty key distinct from its currentness context, and either prepares
+the existing packet or returns a reasoned no-op. `fixed` performs no packet
+build; `recommend` may prepare only a non-authorizing recommendation;
+`reviewed-autonomous` and `full-autonomous` may admit one cycle within the
+existing mission, permissions, and resource contract. Repackaged reports,
+overlapping windows, changed checkpoints, unrelated Factory revisions, and
+prose-only themes cannot create novelty. This gate performs no model/reviewer
+call, candidate work, human request, skill edit, or target write.
+
+Use the later explicit `factory-evolution` workflow only after a supported
+admission or when an operator request or maintained plan calls for
+evidence-grounded improvement of the Factory's reusable capability set. This
+is an on-demand derived-artifact workflow, not a watcher loop, schedule,
+detector, or new supervision ledger. An explicit checkpoint uses
+`factory-evolution --action admit --report-json <report.json> --events-jsonl
+<events.jsonl>`; its safe evolution ID is derived rather than supplied.
 
 Keep the roles and authority sequence exact:
 

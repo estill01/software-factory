@@ -129,6 +129,28 @@ class FactoryEvolutionContractTests(unittest.TestCase):
         self.assertIn("`non-inferiority`", self.contract)
         self.assertIn("`observed`, `shadow`, or `synthetic`", self.contract)
 
+    def test_admission_contract_separates_novelty_from_currentness_and_stops_early(self) -> None:
+        normalized = " ".join(self.contract.split()).lower()
+
+        for checkpoint in (
+            "explicit factory maintenance",
+            "terminal report verification",
+            "weekly report finalization",
+        ):
+            self.assertIn(checkpoint, normalized)
+        for mode in (
+            "fixed",
+            "recommend",
+            "reviewed-autonomous",
+            "full-autonomous",
+        ):
+            self.assertIn(mode, normalized)
+        self.assertIn("novelty identity", normalized)
+        self.assertIn("context/currentness identity", normalized)
+        self.assertIn("does not call a model", normalized)
+        self.assertIn("does not start cognitive review", normalized)
+        self.assertIn("does not create a candidate", normalized)
+
 
 class FactoryEvolutionCliTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -276,7 +298,9 @@ class FactoryEvolutionCliTests(unittest.TestCase):
             for item in supervision_log.parser()._actions
             if isinstance(item, argparse._SubParsersAction)
         ).choices["factory-evolution"]._option_string_actions["--action"].choices
-        self.assertEqual(tuple(action), ("prepare", "finalize", "evaluate", "verify"))
+        self.assertEqual(
+            tuple(action), ("admit", "prepare", "finalize", "evaluate", "verify")
+        )
 
     def test_nested_owner_symlink_escape_is_rejected(self) -> None:
         target = self.root / self.target_thread

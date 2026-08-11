@@ -157,6 +157,27 @@ ADAPTIVE_DECISION_MODES = {
     "reviewed-autonomous",
     "full-autonomous",
 }
+FACTORY_EVOLUTION_ADMISSION_CHECKPOINTS = {
+    "explicit-factory-maintenance",
+    "terminal-report-verification",
+    "weekly-report-finalization",
+}
+FACTORY_EVOLUTION_NOMINATION_SECTIONS = {
+    "blind_spots_and_misses",
+    "caught_and_prevented",
+    "fixes_and_effectiveness",
+    "monitoring_machinery_changes",
+    "recommended_bounded_improvements",
+    "recurring_patterns",
+    "resource_efficiency",
+}
+FACTORY_EVOLUTION_PRODUCTIVE_CATEGORIES = {
+    "capability-preserved",
+    "economy-gain",
+    "owner-method-effect",
+    "productive-pattern",
+}
+FACTORY_EVOLUTION_GAP_STATUSES = {"blocked", "failed", "reopened"}
 ADAPTIVE_DISPOSITIONS = {
     "continue-unchanged",
     "correct-inline",
@@ -831,6 +852,62 @@ def adaptive_candidate_budget_contract() -> dict[str, Any]:
         "stop_on_resource_exhaustion": True,
         "stop_on_protected_regression": True,
     }
+
+
+def factory_evolution_admission_contract() -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "enabled": True,
+        "factory_target_only": True,
+        "checkpoint_kinds": sorted(FACTORY_EVOLUTION_ADMISSION_CHECKPOINTS),
+        "max_active_cycles_per_target": 1,
+        "max_admissions_per_mission": 8,
+        "packet_build_limit_per_checkpoint": 1,
+        "review_call_limit": 0,
+        "model_call_limit": 0,
+        "human_request_limit": 0,
+        "unchanged_posture": "canonical-novelty-no-op",
+        "report_posture": "nomination-only-non-authoritative",
+    }
+
+
+def validate_factory_evolution_admission(value: Mapping[str, Any]) -> None:
+    expected = factory_evolution_admission_contract()
+    if not isinstance(value, Mapping) or set(value) != set(expected):
+        raise SupervisionLogError("Factory-evolution admission contract differs")
+    if type(value.get("schema_version")) is not int or value.get("schema_version") != 1:
+        raise SupervisionLogError("Factory-evolution admission schema differs")
+    if value.get("enabled") is not True or value.get("factory_target_only") is not True:
+        raise SupervisionLogError("Factory-evolution admission boundary differs")
+    if value.get("checkpoint_kinds") != expected["checkpoint_kinds"]:
+        raise SupervisionLogError("Factory-evolution admission checkpoints differ")
+    for field, minimum, maximum in (
+        ("max_active_cycles_per_target", 1, 1),
+        ("max_admissions_per_mission", 1, 32),
+        ("packet_build_limit_per_checkpoint", 1, 1),
+        ("review_call_limit", 0, 0),
+        ("model_call_limit", 0, 0),
+        ("human_request_limit", 0, 0),
+    ):
+        item = value.get(field)
+        if type(item) is not int or not minimum <= item <= maximum:
+            raise SupervisionLogError(
+                f"Factory-evolution admission {field} is invalid"
+            )
+    if (
+        value.get("unchanged_posture") != expected["unchanged_posture"]
+        or value.get("report_posture") != expected["report_posture"]
+    ):
+        raise SupervisionLogError("Factory-evolution admission posture differs")
+
+
+def ensure_factory_evolution_admission_policy(policy: dict[str, Any]) -> bool:
+    current = policy.get("factory_evolution_admission")
+    if current is None:
+        policy["factory_evolution_admission"] = factory_evolution_admission_contract()
+        return True
+    validate_factory_evolution_admission(current)
+    return False
 
 
 def adaptive_decision_control_contract(
@@ -1844,6 +1921,7 @@ def default_policy(args: argparse.Namespace) -> dict[str, Any]:
                 args, "adaptive_target_repository_root", None
             )
         ),
+        "factory_evolution_admission": factory_evolution_admission_contract(),
         "reports": {
             "weekly": weekly_report_contract(),
             "terminal": terminal_report_contract(),
@@ -2054,6 +2132,9 @@ def validate_policy(policy: dict[str, Any]) -> None:
         if not isinstance(adaptive, Mapping):
             raise SupervisionLogError("Adaptive-decision policy is malformed")
         validate_adaptive_decision_control(adaptive)
+    factory_admission = policy.get("factory_evolution_admission")
+    if factory_admission is not None:
+        validate_factory_evolution_admission(factory_admission)
     authoring_profile = policy.get("program_revision_authoring_profile")
     if authoring_profile is not None:
         validate_tracker_authoring_profile_binding(
@@ -4626,6 +4707,8 @@ def cmd_bind(args: argparse.Namespace) -> None:
     }
     changed = ensure_execution_economy_policy(policy)
     if ensure_adaptive_decision_policy(policy):
+        changed = True
+    if ensure_factory_evolution_admission_policy(policy):
         changed = True
     requested_mission = mission_binding_from_args(args, required=False)
     current_mission = bound_mission(policy)
@@ -11245,6 +11328,9 @@ def cmd_adjust(args: argparse.Namespace) -> None:
         "candidate_max_elapsed_minutes": getattr(args, "candidate_max_elapsed_minutes", None),
         "candidate_max_mapped_comparisons": getattr(args, "candidate_max_mapped_comparisons", None),
         "candidate_max_review_passes": getattr(args, "candidate_max_review_passes", None),
+        "factory_evolution_max_admissions": getattr(
+            args, "factory_evolution_max_admissions", None
+        ),
         "program_revision_authoring_thread": getattr(
             args, "program_revision_authoring_thread", None
         ),
@@ -11253,6 +11339,8 @@ def cmd_adjust(args: argparse.Namespace) -> None:
         ),
     }
     changed = ensure_adaptive_decision_policy(policy)
+    if ensure_factory_evolution_admission_policy(policy):
+        changed = True
     if requested["routine_minutes"] is not None:
         value = int(requested["routine_minutes"])
         if not 15 <= value <= 60:
@@ -11430,6 +11518,15 @@ def cmd_adjust(args: argparse.Namespace) -> None:
         validate_adaptive_decision_control(replacement)
         if replacement != policy["adaptive_decision_control"]:
             policy["adaptive_decision_control"] = replacement
+            changed = True
+    if requested["factory_evolution_max_admissions"] is not None:
+        factory_admission = dict(policy["factory_evolution_admission"])
+        factory_admission["max_admissions_per_mission"] = int(
+            requested["factory_evolution_max_admissions"]
+        )
+        validate_factory_evolution_admission(factory_admission)
+        if factory_admission != policy["factory_evolution_admission"]:
+            policy["factory_evolution_admission"] = factory_admission
             changed = True
     if requested["program_revision_authoring_thread"] is not None:
         if not evidence_values:
@@ -13975,6 +14072,286 @@ def cmd_adaptive_decision_review(args: argparse.Namespace) -> None:
     print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
 
 
+def factory_evolution_admission_source(
+    directory: Path, path_value: str | Path, *, report: bool
+) -> tuple[Path, tuple[int, int, int, int, int, int, int]]:
+    path = Path(path_value)
+    if not path.is_absolute():
+        raise SupervisionLogError("Factory-evolution admission source must be absolute")
+    try:
+        owner = directory.resolve(strict=True)
+        resolved = path.resolve(strict=True)
+        relative = resolved.relative_to(owner)
+        source_stat = resolved.lstat()
+    except (OSError, ValueError) as exc:
+        raise SupervisionLogError(
+            "Factory-evolution admission source is outside its owner"
+        ) from exc
+    expected = (
+        len(relative.parts) == 4
+        and relative.parts[0:2] == ("reports", "weekly")
+        and relative.parts[-1] == "report.json"
+        if report
+        else relative.parts == ("events.jsonl",)
+    )
+    if not expected or path != resolved or not stat.S_ISREG(source_stat.st_mode):
+        raise SupervisionLogError(
+            "Factory-evolution admission source path differs"
+        )
+    current = owner
+    for part in relative.parts[:-1]:
+        current = current / part
+        item_stat = current.lstat()
+        if not stat.S_ISDIR(item_stat.st_mode) or stat.S_ISLNK(item_stat.st_mode):
+            raise SupervisionLogError(
+                "Factory-evolution admission source owner differs"
+            )
+    snapshot = (
+        source_stat.st_dev,
+        source_stat.st_ino,
+        source_stat.st_mode,
+        source_stat.st_nlink,
+        source_stat.st_size,
+        source_stat.st_mtime_ns,
+        source_stat.st_ctime_ns,
+    )
+    return resolved, snapshot
+
+
+def factory_evolution_admission_source_snapshot(
+    path: Path,
+) -> tuple[int, int, int, int, int, int, int]:
+    try:
+        value = path.lstat()
+    except OSError as exc:
+        raise SupervisionLogError(
+            "Factory-evolution admission source changed"
+        ) from exc
+    if not stat.S_ISREG(value.st_mode):
+        raise SupervisionLogError("Factory-evolution admission source changed")
+    return (
+        value.st_dev,
+        value.st_ino,
+        value.st_mode,
+        value.st_nlink,
+        value.st_size,
+        value.st_mtime_ns,
+        value.st_ctime_ns,
+    )
+
+
+def factory_evolution_target_revision(policy: Mapping[str, Any]) -> tuple[Path, str]:
+    adaptive = policy.get("adaptive_decision_control")
+    if not isinstance(adaptive, Mapping):
+        raise SupervisionLogError("Factory-evolution target policy is unavailable")
+    validate_adaptive_decision_control(adaptive)
+    if adaptive.get("target_class") != "software-factory":
+        raise SupervisionLogError("Factory-evolution target is not Software Factory")
+    root_value = adaptive.get("target_repository_root")
+    if not isinstance(root_value, str):
+        raise SupervisionLogError("Factory-evolution target repository is unbound")
+    root = Path(root_value)
+    result = subprocess.run(
+        ["/usr/bin/git", "-C", str(root), "rev-parse", "HEAD"],
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+    )
+    revision = result.stdout.strip()
+    if result.returncode != 0 or re.fullmatch(r"[0-9a-f]{40,64}", revision) is None:
+        raise SupervisionLogError("Factory-evolution target revision is unavailable")
+    return root, revision
+
+
+def factory_evolution_supported_novelty(
+    packet: Mapping[str, Any]
+) -> tuple[str | None, dict[str, Any]]:
+    evidence = packet.get("evidence")
+    if not isinstance(evidence, Mapping):
+        raise SupervisionLogError("Factory-evolution packet evidence differs")
+    events_by_id = {
+        str(item["record_id"]): item
+        for item in evidence.get("events", [])
+        if isinstance(item, Mapping) and isinstance(item.get("record_id"), str)
+    }
+    supported_records: dict[str, dict[str, str]] = {}
+    signal_classes: set[str] = set()
+    nominations = 0
+    for hypothesis in evidence.get("report_hypotheses", []):
+        if not isinstance(hypothesis, Mapping):
+            continue
+        section = str(hypothesis.get("section", ""))
+        if section not in FACTORY_EVOLUTION_NOMINATION_SECTIONS:
+            continue
+        references = hypothesis.get("evidence_refs")
+        if not isinstance(references, list) or not references:
+            continue
+        resolved = [events_by_id.get(str(item)) for item in references]
+        if any(item is None for item in resolved):
+            continue
+        records = [item for item in resolved if isinstance(item, Mapping)]
+        gap_records = [
+            item
+            for item in records
+            if (
+                item.get("kind") in {"incident", "escalation"}
+                or item.get("status") in FACTORY_EVOLUTION_GAP_STATUSES
+            )
+        ]
+        productive = all(
+            item.get("kind") in {"check", "checkpoint-review", "resolution"}
+            and item.get("category") in FACTORY_EVOLUTION_PRODUCTIVE_CATEGORIES
+            and item.get("status")
+            in {"completed", "observed", "passed", "resolved", "verified"}
+            for item in records
+        )
+        meta_pattern = (
+            productive
+            and section == "recurring_patterns"
+            and len({str(item["record_sha256"]) for item in records}) >= 2
+        )
+        if not gap_records and not productive:
+            continue
+        adjudicating_records = gap_records if gap_records else records
+        nominations += 1
+        signal_classes.add(
+            "supported-gap"
+            if gap_records
+            else "supported-productive-meta-pattern"
+            if meta_pattern
+            else "supported-productive-result"
+        )
+        for item in adjudicating_records:
+            record_id = str(item["record_id"])
+            supported_records[record_id] = {
+                "record_id": record_id,
+                "record_sha256": exact_sha256(
+                    item.get("record_sha256"), label="Factory evidence record SHA-256"
+                ),
+                "kind": str(item.get("kind", "")),
+                "status": str(item.get("status", "")),
+                "category": str(item.get("category", "")),
+            }
+    records = [supported_records[key] for key in sorted(supported_records)]
+    projection = {
+        "schema_version": 1,
+        "kind": "software-factory-evolution-canonical-novelty",
+        "canonical_records": records,
+        "coverage": {
+            "record_count": len(records),
+            "record_ids": [item["record_id"] for item in records],
+            "record_sha256s": sorted(item["record_sha256"] for item in records),
+            "signal_classes": sorted(signal_classes),
+            "supported_nomination_count": nominations,
+        },
+    }
+    if not records:
+        return None, projection
+    novelty_material = {
+        "schema_version": 1,
+        "kind": "software-factory-evolution-canonical-novelty-identity",
+        "canonical_records": records,
+    }
+    return digest(novelty_material), projection
+
+
+def factory_evolution_cycle_inventory(directory: Path) -> list[dict[str, Any]]:
+    base = directory / "learning" / "factory-evolution"
+    if not base.exists():
+        return []
+    if base.is_symlink() or not base.is_dir():
+        raise SupervisionLogError("Factory evolution owner directory differs")
+    result: list[dict[str, Any]] = []
+    module = factory_evolution_module()
+    for item in sorted(base.iterdir(), key=lambda path: path.name):
+        if item.name.startswith("."):
+            continue
+        if item.is_symlink() or not item.is_dir():
+            raise SupervisionLogError("Factory evolution inventory differs")
+        packet = item / "learning-packet.json"
+        if not packet.exists():
+            continue
+        verify_factory_evolution_inventory(item)
+        verify_factory_evolution_prepare(module, item)
+        final_names = ("evaluation.json", "machine-report.json", "manifest.json")
+        terminal = any((item / name).exists() for name in final_names)
+        if terminal:
+            require_factory_evolution_artifacts(item, final_names)
+            bundle = {
+                name: read_json(item / name)
+                for name in (
+                    "learning-packet.json",
+                    "review.json",
+                    "evaluation.json",
+                    "machine-report.json",
+                    "manifest.json",
+                )
+            }
+            factory_evolution_call(module, "verify_evolution_bundle", bundle)
+        result.append(
+            {
+                "evolution_id": safe_id(item.name, label="factory evolution ID"),
+                "state": "terminal" if terminal else "active",
+            }
+        )
+    return result
+
+
+def factory_evolution_admission_status(
+    directory: Path, policy: Mapping[str, Any], all_events: list[dict[str, Any]]
+) -> dict[str, Any]:
+    configured = policy.get("factory_evolution_admission")
+    if configured is None:
+        return {
+            "configured": False,
+            "enabled": False,
+            "state": "legacy-policy-disabled",
+            "active_cycles": [],
+            "latest_admission": None,
+        }
+    validate_factory_evolution_admission(configured)
+    active_events = mission_scoped_events(directory, policy, all_events)
+    corrections = [
+        item
+        for item in active_events
+        if item.get("kind") == "factory-evolution-admission-currentness-rejected"
+    ]
+    corrected_records = {
+        str(item.get("supersedes_record_id")) for item in corrections
+    }
+    admissions = [
+        item
+        for item in active_events
+        if item.get("kind") == "factory-evolution-admission"
+        and item.get("record_id") not in corrected_records
+    ]
+    corrected_evolution_ids = {
+        str(item.get("evolution_id")) for item in corrections
+    }
+    inventory = factory_evolution_cycle_inventory(directory)
+    active_cycles = [
+        item["evolution_id"]
+        for item in inventory
+        if item["state"] == "active"
+        and item["evolution_id"] not in corrected_evolution_ids
+    ]
+    latest_admission = admissions[-1] if admissions else None
+    if corrections and (
+        latest_admission is None
+        or active_events.index(corrections[-1]) > active_events.index(latest_admission)
+    ):
+        latest_admission = corrections[-1]
+    return {
+        "configured": True,
+        "enabled": bool(configured["enabled"]),
+        "state": "active" if active_cycles else "idle",
+        "active_cycles": active_cycles,
+        "latest_admission": latest_admission,
+    }
+
+
 def factory_evolution_module() -> Any:
     try:
         import factory_evolution
@@ -14117,6 +14494,572 @@ def verify_factory_evolution_finalize(
         {"learning-packet.json": packet, "review.json": review},
     )
     return packet, review
+
+
+def factory_evolution_admission_result(
+    *,
+    checkpoint_kind: str,
+    eligible: bool,
+    admission_authorized: bool,
+    disposition: str,
+    next_revisit_condition: str,
+    packet_root: str | None = None,
+    novelty_key: str | None = None,
+    context_root: str | None = None,
+    evolution_id: str | None = None,
+    admission_record_id: str | None = None,
+    signal_classes: list[str] | None = None,
+    canonical_record_count: int = 0,
+    packet_builds: int = 0,
+    prepared: bool = False,
+    reused: bool = False,
+) -> dict[str, Any]:
+    material: dict[str, Any] = {
+        "schema_version": 1,
+        "kind": "software-factory-evolution-eligibility-result",
+        "checkpoint_kind": checkpoint_kind,
+        "eligible": eligible,
+        "admission_authorized": admission_authorized,
+        "disposition": disposition,
+        "next_revisit_condition": next_revisit_condition,
+        "packet_root": packet_root,
+        "canonical_evidence_novelty_key": novelty_key,
+        "context_root": context_root,
+        "evolution_id": evolution_id,
+        "admission_record_id": admission_record_id,
+        "signal_classes": sorted(signal_classes or []),
+        "canonical_record_count": canonical_record_count,
+        "packet_builds": packet_builds,
+        "prepared": prepared,
+        "reused": reused,
+        "model_calls": 0,
+        "reviewer_calls": 0,
+        "human_request_count": 0,
+        "candidate_started": False,
+    }
+    material["summary"] = (
+        f"Factory evolution nomination: {disposition}; "
+        f"revisit when {next_revisit_condition}."
+    )
+    material["result_root"] = digest(material)
+    return material
+
+
+def validate_factory_evolution_admission_result(
+    value: Mapping[str, Any]
+) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise SupervisionLogError("Factory-evolution eligibility result is malformed")
+    result = dict(value)
+    recorded = result.pop("result_root", None)
+    if set(result) != {
+        "schema_version",
+        "kind",
+        "checkpoint_kind",
+        "eligible",
+        "admission_authorized",
+        "disposition",
+        "next_revisit_condition",
+        "packet_root",
+        "canonical_evidence_novelty_key",
+        "context_root",
+        "evolution_id",
+        "admission_record_id",
+        "signal_classes",
+        "canonical_record_count",
+        "packet_builds",
+        "prepared",
+        "reused",
+        "model_calls",
+        "reviewer_calls",
+        "human_request_count",
+        "candidate_started",
+        "summary",
+    }:
+        raise SupervisionLogError("Factory-evolution eligibility result shape differs")
+    if (
+        type(result.get("schema_version")) is not int
+        or result.get("schema_version") != 1
+        or result.get("kind") != "software-factory-evolution-eligibility-result"
+        or result.get("checkpoint_kind") not in FACTORY_EVOLUTION_ADMISSION_CHECKPOINTS
+        or type(result.get("eligible")) is not bool
+        or type(result.get("admission_authorized")) is not bool
+        or type(result.get("disposition")) is not str
+        or not result.get("disposition")
+        or type(result.get("next_revisit_condition")) is not str
+        or not result.get("next_revisit_condition")
+        or type(result.get("prepared")) is not bool
+        or type(result.get("reused")) is not bool
+        or type(result.get("canonical_record_count")) is not int
+        or result.get("canonical_record_count", -1) < 0
+        or type(result.get("packet_builds")) is not int
+        or result.get("packet_builds") not in {0, 1}
+        or type(result.get("model_calls")) is not int
+        or result.get("model_calls") != 0
+        or type(result.get("reviewer_calls")) is not int
+        or result.get("reviewer_calls") != 0
+        or type(result.get("human_request_count")) is not int
+        or result.get("human_request_count") != 0
+        or result.get("candidate_started") is not False
+        or result.get("admission_authorized") is True
+        and result.get("eligible") is not True
+        or recorded != digest(result)
+    ):
+        raise SupervisionLogError("Factory-evolution eligibility result differs")
+    for field in (
+        "packet_root",
+        "canonical_evidence_novelty_key",
+        "context_root",
+    ):
+        item = result[field]
+        if item is not None:
+            if type(item) is not str:
+                raise SupervisionLogError(
+                    f"Factory-evolution eligibility {field} must be a string"
+                )
+            exact_sha256(item, label=f"Factory-evolution eligibility {field}")
+    for field in ("evolution_id", "admission_record_id"):
+        item = result[field]
+        if item is not None:
+            if type(item) is not str:
+                raise SupervisionLogError(
+                    f"Factory-evolution eligibility {field} must be a string"
+                )
+            safe_id(item, label=f"Factory-evolution eligibility {field}")
+    signal_classes = result.get("signal_classes")
+    if (
+        type(signal_classes) is not list
+        or signal_classes != sorted(set(signal_classes))
+        or any(type(item) is not str or not item for item in signal_classes)
+    ):
+        raise SupervisionLogError("Factory-evolution eligibility signal classes differ")
+    expected_summary = (
+        f"Factory evolution nomination: {result['disposition']}; "
+        f"revisit when {result['next_revisit_condition']}."
+    )
+    if result.get("summary") != expected_summary:
+        raise SupervisionLogError("Factory-evolution eligibility summary differs")
+    return dict(value)
+
+
+def factory_evolution_checkpoint_admission(
+    args: argparse.Namespace,
+    *,
+    checkpoint_kind: str,
+    report_paths: list[str | Path],
+    event_paths: list[str | Path],
+) -> dict[str, Any]:
+    if checkpoint_kind not in FACTORY_EVOLUTION_ADMISSION_CHECKPOINTS:
+        raise SupervisionLogError("Factory-evolution checkpoint kind differs")
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        all_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
+    reports_with_snapshots = [
+        factory_evolution_admission_source(directory, item, report=True)
+        for item in report_paths
+    ]
+    events_with_snapshots = [
+        factory_evolution_admission_source(directory, item, report=False)
+        for item in event_paths
+    ]
+    if len(events_with_snapshots) != 1 or len(reports_with_snapshots) > 16:
+        raise SupervisionLogError("Factory-evolution checkpoint source count differs")
+    if events_with_snapshots[0][0] != directory / "events.jsonl":
+        raise SupervisionLogError("Factory-evolution checkpoint event owner differs")
+    admission = policy.get("factory_evolution_admission")
+    if admission is None:
+        return factory_evolution_admission_result(
+            checkpoint_kind=checkpoint_kind,
+            eligible=False,
+            admission_authorized=False,
+            disposition="legacy-policy-disabled",
+            next_revisit_condition="an explicit policy bind enables admission",
+        )
+    validate_factory_evolution_admission(admission)
+    if not admission["enabled"]:
+        return factory_evolution_admission_result(
+            checkpoint_kind=checkpoint_kind,
+            eligible=False,
+            admission_authorized=False,
+            disposition="policy-disabled",
+            next_revisit_condition="the canonical policy enables admission",
+        )
+    mode = effective_adaptive_decision_mode(policy)
+    if mode == "fixed":
+        return factory_evolution_admission_result(
+            checkpoint_kind=checkpoint_kind,
+            eligible=False,
+            admission_authorized=False,
+            disposition="fixed-mode-record-only",
+            next_revisit_condition="the canonical adaptive mode changes",
+        )
+    mission = bound_mission(policy)
+    if mission is None:
+        return factory_evolution_admission_result(
+            checkpoint_kind=checkpoint_kind,
+            eligible=False,
+            admission_authorized=False,
+            disposition="mission-unbound",
+            next_revisit_condition="an exact mission binding becomes current",
+        )
+    try:
+        target_root, target_revision = factory_evolution_target_revision(policy)
+    except SupervisionLogError:
+        return factory_evolution_admission_result(
+            checkpoint_kind=checkpoint_kind,
+            eligible=False,
+            admission_authorized=False,
+            disposition="factory-scope-unavailable",
+            next_revisit_condition="the canonical Software Factory target becomes current",
+        )
+    permissions = policy.get("permissions", {})
+    if not all(
+        permissions.get(field) is True
+        for field in ("bounded_supervision_maintenance", "supervision_log_write")
+    ):
+        return factory_evolution_admission_result(
+            checkpoint_kind=checkpoint_kind,
+            eligible=False,
+            admission_authorized=False,
+            disposition="permission-ineligible",
+            next_revisit_condition="the existing supervision permissions become current",
+        )
+    module = factory_evolution_module()
+    try:
+        packet = factory_evolution_call(
+            module,
+            "build_learning_packet",
+            report_paths=[item[0] for item in reports_with_snapshots],
+            event_paths=[item[0] for item in events_with_snapshots],
+        )
+    except SupervisionLogError:
+        return factory_evolution_admission_result(
+            checkpoint_kind=checkpoint_kind,
+            eligible=False,
+            admission_authorized=False,
+            disposition="unsupported-source-evidence",
+            next_revisit_condition="verified bounded report and event evidence changes",
+            packet_builds=1,
+        )
+    source_threads = {
+        str(thread_id)
+        for ledger in packet.get("sources", {}).get("event_ledgers", [])
+        if isinstance(ledger, Mapping)
+        for thread_id in ledger.get("target_thread_ids", [])
+    }
+    if source_threads != {str(policy["target_thread_id"])}:
+        return factory_evolution_admission_result(
+            checkpoint_kind=checkpoint_kind,
+            eligible=False,
+            admission_authorized=False,
+            disposition="event-owner-mismatch",
+            next_revisit_condition="canonical evidence belongs to the current target",
+            packet_root=str(packet["packet_root"]),
+            packet_builds=1,
+        )
+    report_ids = {
+        str(item.get("report_id"))
+        for item in packet.get("sources", {}).get("reports", [])
+        if isinstance(item, Mapping)
+    }
+    if report_ids != {path.parent.name for path, _snapshot in reports_with_snapshots}:
+        raise SupervisionLogError("Factory-evolution report owner identity differs")
+    for path, snapshot in reports_with_snapshots + events_with_snapshots:
+        if factory_evolution_admission_source_snapshot(path) != snapshot:
+            raise SupervisionLogError("Factory-evolution source changed during packet build")
+    novelty_key, novelty = factory_evolution_supported_novelty(packet)
+    coverage = novelty["coverage"]
+    if novelty_key is None:
+        return factory_evolution_admission_result(
+            checkpoint_kind=checkpoint_kind,
+            eligible=False,
+            admission_authorized=False,
+            disposition="unsupported-report-nomination",
+            next_revisit_condition="a report nomination resolves to new canonical evidence",
+            packet_root=str(packet["packet_root"]),
+            signal_classes=list(coverage["signal_classes"]),
+            canonical_record_count=int(coverage["record_count"]),
+            packet_builds=1,
+        )
+    context_projection = {
+        "schema_version": 1,
+        "kind": "software-factory-evolution-admission-context",
+        "packet_root": packet["packet_root"],
+        "canonical_evidence_novelty_key": novelty_key,
+        "target_repository_root": str(target_root),
+        "target_revision": target_revision,
+        "mission_root": mission["mission_root"],
+        "policy_sha256": policy["policy_sha256"],
+        "checkpoint_kind": checkpoint_kind,
+    }
+    context_root = digest(context_projection)
+    evolution_id = f"evolution-auto-{novelty_key[:12]}-{context_root[:12]}"
+    active_events = mission_scoped_events(directory, policy, all_events)
+    corrections = {
+        str(item.get("supersedes_record_id"))
+        for item in active_events
+        if item.get("kind") == "factory-evolution-admission-currentness-rejected"
+    }
+    admissions = [
+        item
+        for item in active_events
+        if item.get("kind") == "factory-evolution-admission"
+        and item.get("record_id") not in corrections
+    ]
+    prior = next(
+        (
+            item
+            for item in reversed(admissions)
+            if item.get("canonical_evidence_novelty_key") == novelty_key
+        ),
+        None,
+    )
+    inventory = factory_evolution_cycle_inventory(directory)
+    corrected_evolution_ids = {
+        str(item.get("evolution_id"))
+        for item in active_events
+        if item.get("kind") == "factory-evolution-admission-currentness-rejected"
+    }
+    terminal_ids = {
+        item["evolution_id"] for item in inventory if item["state"] == "terminal"
+    }
+    consumed_hashes = {
+        str(item)
+        for admission_event in admissions
+        if admission_event.get("evolution_id") in terminal_ids
+        for item in admission_event.get("canonical_record_sha256s", [])
+    }
+    record_hashes = set(coverage["record_sha256s"])
+    if record_hashes and record_hashes <= consumed_hashes:
+        return factory_evolution_admission_result(
+            checkpoint_kind=checkpoint_kind,
+            eligible=False,
+            admission_authorized=False,
+            disposition="already-consumed-canonical-coverage",
+            next_revisit_condition="new adjudicating canonical evidence appears",
+            packet_root=str(packet["packet_root"]),
+            novelty_key=novelty_key,
+            context_root=context_root,
+            evolution_id=str(prior.get("evolution_id")) if prior else None,
+            admission_record_id=str(prior.get("record_id")) if prior else None,
+            signal_classes=list(coverage["signal_classes"]),
+            canonical_record_count=int(coverage["record_count"]),
+            packet_builds=1,
+            reused=True,
+        )
+    if prior is not None:
+        same_context = prior.get("context_root") == context_root
+        return factory_evolution_admission_result(
+            checkpoint_kind=checkpoint_kind,
+            eligible=False,
+            admission_authorized=False,
+            disposition=(
+                "duplicate-canonical-evidence"
+                if same_context
+                else "active-cycle-currentness-revalidation-required"
+            ),
+            next_revisit_condition=(
+                "new adjudicating canonical evidence appears"
+                if same_context
+                else "the existing cycle is revalidated under the current context"
+            ),
+            packet_root=str(packet["packet_root"]),
+            novelty_key=novelty_key,
+            context_root=context_root,
+            evolution_id=str(prior["evolution_id"]),
+            admission_record_id=str(prior["record_id"]),
+            signal_classes=list(coverage["signal_classes"]),
+            canonical_record_count=int(coverage["record_count"]),
+            packet_builds=1,
+            reused=True,
+        )
+    active_cycles = [
+        item
+        for item in inventory
+        if item["state"] == "active"
+        and item["evolution_id"] not in corrected_evolution_ids
+    ]
+    conflicting_cycles = [
+        item for item in active_cycles if item["evolution_id"] != evolution_id
+    ]
+    if conflicting_cycles:
+        return factory_evolution_admission_result(
+            checkpoint_kind=checkpoint_kind,
+            eligible=False,
+            admission_authorized=False,
+            disposition="conflicting-active-cycle",
+            next_revisit_condition="the current bounded cycle reaches terminal disposition",
+            packet_root=str(packet["packet_root"]),
+            novelty_key=novelty_key,
+            context_root=context_root,
+            signal_classes=list(coverage["signal_classes"]),
+            canonical_record_count=int(coverage["record_count"]),
+            packet_builds=1,
+        )
+    if len(admissions) >= int(admission["max_admissions_per_mission"]):
+        return factory_evolution_admission_result(
+            checkpoint_kind=checkpoint_kind,
+            eligible=False,
+            admission_authorized=False,
+            disposition="admission-resource-exhausted",
+            next_revisit_condition="a new mission or explicit resource policy becomes current",
+            packet_root=str(packet["packet_root"]),
+            novelty_key=novelty_key,
+            context_root=context_root,
+            signal_classes=list(coverage["signal_classes"]),
+            canonical_record_count=int(coverage["record_count"]),
+            packet_builds=1,
+        )
+    disposition = (
+        "recommendation-only" if mode == "recommend" else "admitted"
+    )
+    admission_authorized = mode in {"reviewed-autonomous", "full-autonomous"}
+    prepare_manifest = factory_evolution_call(
+        module,
+        "build_evolution_manifest",
+        {"learning-packet.json": packet},
+    )
+    record_id = f"EVT-{len(all_events) + 1:06d}"
+    result = factory_evolution_admission_result(
+        checkpoint_kind=checkpoint_kind,
+        eligible=True,
+        admission_authorized=admission_authorized,
+        disposition=disposition,
+        next_revisit_condition="the prepared packet enters its separately governed review path",
+        packet_root=str(packet["packet_root"]),
+        novelty_key=novelty_key,
+        context_root=context_root,
+        evolution_id=evolution_id,
+        admission_record_id=record_id,
+        signal_classes=list(coverage["signal_classes"]),
+        canonical_record_count=int(coverage["record_count"]),
+        packet_builds=1,
+        prepared=True,
+    )
+    event = {
+        "schema_version": 1,
+        "kind": "factory-evolution-admission",
+        "record_id": record_id,
+        "timestamp": utc_now(),
+        "target_thread_id": policy["target_thread_id"],
+        "policy_sha256": policy["policy_sha256"],
+        "mission_root": mission["mission_root"],
+        "checkpoint_kind": checkpoint_kind,
+        "adaptive_decision_mode": mode,
+        "disposition": disposition,
+        "canonical_evidence_novelty_key": novelty_key,
+        "canonical_record_sha256s": coverage["record_sha256s"],
+        "context_root": context_root,
+        "packet_root": packet["packet_root"],
+        "evolution_id": evolution_id,
+        "target_revision": target_revision,
+        "eligibility_result_root": result["result_root"],
+        "human_request_count": 0,
+        "model_calls": 0,
+        "reviewer_calls": 0,
+    }
+    evolution_directory = factory_evolution_directory(directory, evolution_id)
+    with owner_append_lock(
+        root_from(args), args.target_thread, directory_snapshot
+    ) as directory_fd:
+        require_bound_policy_at(
+            directory_fd,
+            expected_policy=policy,
+            expected_snapshot=policy_snapshot,
+        )
+        current_events, current_event_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        if current_events != all_events or current_event_snapshot != event_snapshot:
+            raise SupervisionLogError(
+                "Factory-evolution event head changed; retry current admission state"
+            )
+        if factory_evolution_target_revision(policy)[1] != target_revision:
+            raise SupervisionLogError(
+                "Factory-evolution target changed; retry current admission state"
+            )
+        for path, snapshot in reports_with_snapshots + events_with_snapshots:
+            if factory_evolution_admission_source_snapshot(path) != snapshot:
+                raise SupervisionLogError(
+                    "Factory-evolution source changed; retry current admission state"
+                )
+        write_result = write_factory_evolution_set(
+            evolution_directory,
+            {
+                "learning-packet.json": packet,
+                "prepare-manifest.json": prepare_manifest,
+            },
+        )
+        result["reused"] = not bool(write_result["written"])
+        result["result_root"] = digest(
+            {key: value for key, value in result.items() if key != "result_root"}
+        )
+        event["eligibility_result_root"] = result["result_root"]
+        previous = str(current_events[-1]["record_sha256"]) if current_events else None
+        append_raw_locked_at(
+            directory_fd,
+            "events.jsonl",
+            event,
+            previous_record_sha256=previous,
+            expected_file_snapshot=current_event_snapshot,
+            require_event_anchor=bool(current_events),
+        )
+        written_events, written_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        changed = factory_evolution_target_revision(policy)[1] != target_revision
+        changed = changed or any(
+            factory_evolution_admission_source_snapshot(path) != snapshot
+            for path, snapshot in reports_with_snapshots
+        )
+        if changed:
+            correction_id = f"EVT-{len(written_events) + 1:06d}"
+            correction_result = factory_evolution_admission_result(
+                checkpoint_kind=checkpoint_kind,
+                eligible=False,
+                admission_authorized=False,
+                disposition="currentness-changed-during-admission",
+                next_revisit_condition="the exact sources and target become current",
+                packet_root=str(packet["packet_root"]),
+                novelty_key=novelty_key,
+                context_root=context_root,
+                evolution_id=evolution_id,
+                admission_record_id=correction_id,
+                signal_classes=list(coverage["signal_classes"]),
+                canonical_record_count=int(coverage["record_count"]),
+                packet_builds=1,
+                prepared=True,
+            )
+            correction = {
+                "schema_version": 1,
+                "kind": "factory-evolution-admission-currentness-rejected",
+                "record_id": correction_id,
+                "timestamp": utc_now(),
+                "target_thread_id": policy["target_thread_id"],
+                "policy_sha256": policy["policy_sha256"],
+                "mission_root": mission["mission_root"],
+                "supersedes_record_id": record_id,
+                "canonical_evidence_novelty_key": novelty_key,
+                "context_root": context_root,
+                "evolution_id": evolution_id,
+                "disposition": "currentness-rejected",
+                "eligibility_result_root": correction_result["result_root"],
+            }
+            append_raw_locked_at(
+                directory_fd,
+                "events.jsonl",
+                correction,
+                previous_record_sha256=str(written_events[-1]["record_sha256"]),
+                expected_file_snapshot=written_snapshot,
+                require_event_anchor=True,
+            )
+            return correction_result
+    return validate_factory_evolution_admission_result(result)
 
 
 def cmd_factory_evolution_prepare(args: argparse.Namespace) -> None:
@@ -14307,7 +15250,34 @@ def cmd_factory_evolution_verify(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_factory_evolution_admit(args: argparse.Namespace) -> None:
+    if not args.report_paths or not args.event_paths:
+        raise SupervisionLogError(
+            "Factory evolution admit requires explicit report and event paths"
+        )
+    if args.review_json or args.evaluation_json:
+        raise SupervisionLogError("Factory evolution admit received a later-stage input")
+    print(
+        json.dumps(
+            factory_evolution_checkpoint_admission(
+                args,
+                checkpoint_kind="explicit-factory-maintenance",
+                report_paths=args.report_paths,
+                event_paths=args.event_paths,
+            ),
+            sort_keys=True,
+        )
+    )
+
+
 def cmd_factory_evolution(args: argparse.Namespace) -> None:
+    if args.action == "admit":
+        cmd_factory_evolution_admit(args)
+        return
+    if not args.evolution_id:
+        raise SupervisionLogError(
+            "Factory evolution staged actions require --evolution-id"
+        )
     if args.action == "prepare":
         cmd_factory_evolution_prepare(args)
         return
@@ -14366,6 +15336,23 @@ def write_exact_or_reuse(path: Path, value: Mapping[str, Any]) -> bool:
         return True
     module.atomic_write(path, expected)
     return False
+
+
+def weekly_report_markdown_bytes(
+    module: Any,
+    metrics: Mapping[str, Any],
+    review: Mapping[str, Any],
+    admission: Mapping[str, Any] | None,
+) -> bytes:
+    text = module.markdown_report(metrics, review)
+    if admission is not None:
+        validated = validate_factory_evolution_admission_result(admission)
+        text += (
+            "\n## Factory evolution nomination\n\n"
+            + str(validated["summary"])
+            + "\n"
+        )
+    return text.encode("utf-8")
 
 
 def cmd_weekly_report_prepare(args: argparse.Namespace) -> None:
@@ -14488,7 +15475,27 @@ def cmd_weekly_report_finalize(args: argparse.Namespace) -> None:
     review_reused = write_exact_or_reuse(review_path, review)
     machine_report = module.machine_report(metrics, review)
     report_json_reused = write_exact_or_reuse(report_json_path, machine_report)
-    markdown_bytes = module.markdown_report(metrics, review).encode("utf-8")
+    admission_path = report_directory / "factory-evolution-eligibility.json"
+    legacy_finalized = manifest_path.exists() and not admission_path.exists()
+    if legacy_finalized:
+        admission_result = None
+        admission_reused = True
+    elif admission_path.exists():
+        admission_result = validate_factory_evolution_admission_result(
+            read_json(admission_path)
+        )
+        admission_reused = True
+    else:
+        admission_result = factory_evolution_checkpoint_admission(
+            args,
+            checkpoint_kind="weekly-report-finalization",
+            report_paths=[report_json_path],
+            event_paths=[directory / "events.jsonl"],
+        )
+        admission_reused = write_exact_or_reuse(admission_path, admission_result)
+    markdown_bytes = weekly_report_markdown_bytes(
+        module, metrics, review, admission_result
+    )
     if markdown_path.exists():
         if markdown_path.read_bytes() != markdown_bytes:
             raise SupervisionLogError("Existing weekly Markdown report differs")
@@ -14499,7 +15506,12 @@ def cmd_weekly_report_finalize(args: argparse.Namespace) -> None:
     else:
         temporary_pdf = report_directory / ".report.pdf.prepared"
         try:
-            module.render_pdf(temporary_pdf, metrics, review)
+            module.render_pdf(
+                temporary_pdf,
+                metrics,
+                review,
+                factory_evolution_eligibility=admission_result,
+            )
             os.replace(temporary_pdf, pdf_path)
         finally:
             if temporary_pdf.exists():
@@ -14513,6 +15525,12 @@ def cmd_weekly_report_finalize(args: argparse.Namespace) -> None:
         markdown_path=markdown_path,
         pdf_path=pdf_path,
     )
+    if admission_result is not None:
+        manifest["files"][admission_path.name] = {
+            "sha256": hashlib.sha256(admission_path.read_bytes()).hexdigest(),
+            "bytes": admission_path.stat().st_size,
+        }
+        manifest["manifest_root"] = digest(manifest["files"])
     manifest["report_id"] = args.report_id
     manifest["source_root"] = metrics["source"]["source_root"]
     write_exact_or_reuse(manifest_path, manifest)
@@ -14528,6 +15546,8 @@ def cmd_weekly_report_finalize(args: argparse.Namespace) -> None:
                 "report_json_path": str(report_json_path),
                 "markdown_path": str(markdown_path),
                 "manifest_path": str(manifest_path),
+                "factory_evolution_eligibility": admission_result,
+                "factory_evolution_eligibility_reused": admission_reused,
             },
             sort_keys=True,
         )
@@ -14563,6 +15583,9 @@ def verify_weekly_report_set(directory: Path, report_id: str) -> dict[str, Any]:
         "report.md": report_directory / "report.md",
         "report.pdf": report_directory / "report.pdf",
     }
+    admission_path = report_directory / "factory-evolution-eligibility.json"
+    if admission_path.is_file():
+        paths[admission_path.name] = admission_path
     if set(manifest.get("files", {})) != set(paths):
         raise SupervisionLogError("Weekly report manifest file set differs")
     for name, path in paths.items():
@@ -14577,7 +15600,14 @@ def verify_weekly_report_set(directory: Path, report_id: str) -> dict[str, Any]:
             raise SupervisionLogError(f"Weekly report artifact differs: {name}")
     if digest(manifest["files"]) != manifest.get("manifest_root"):
         raise SupervisionLogError("Weekly report manifest root differs")
-    expected_markdown = module.markdown_report(metrics, review).encode("utf-8")
+    admission_result = (
+        validate_factory_evolution_admission_result(read_json(admission_path))
+        if admission_path.is_file()
+        else None
+    )
+    expected_markdown = weekly_report_markdown_bytes(
+        module, metrics, review, admission_result
+    )
     if paths["report.md"].read_bytes() != expected_markdown:
         raise SupervisionLogError("Weekly Markdown projection differs")
     expected_machine_report = module.machine_report(metrics, review)
@@ -14607,6 +15637,7 @@ def verify_weekly_report_set(directory: Path, report_id: str) -> dict[str, Any]:
         "report_sha256": hashlib.sha256(paths["report.json"].read_bytes()).hexdigest(),
         "review_sha256": hashlib.sha256(paths["review.json"].read_bytes()).hexdigest(),
         "pdf_sha256": hashlib.sha256(paths["report.pdf"].read_bytes()).hexdigest(),
+        "factory_evolution_eligibility": admission_result,
     }
 
 
@@ -15057,7 +16088,19 @@ def verify_terminal_report_set(
 
 def cmd_terminal_report_verify(args: argparse.Namespace) -> None:
     directory, _policy = load_policy(args)
-    print(json.dumps(verify_terminal_report_set(directory, args.report_set_id), sort_keys=True))
+    verified = verify_terminal_report_set(directory, args.report_set_id)
+    prior_reports = terminal_prior_report_inventory(directory)
+    admission = factory_evolution_checkpoint_admission(
+        args,
+        checkpoint_kind="terminal-report-verification",
+        report_paths=[
+            weekly_report_directory(directory, str(item["report_id"])) / "report.json"
+            for item in prior_reports[-16:]
+        ],
+        event_paths=[directory / "events.jsonl"],
+    )
+    verified["factory_evolution_eligibility"] = admission
+    print(json.dumps(verified, sort_keys=True))
 
 
 def decode_terminal_gmail_readback(value: str) -> dict[str, Any]:
@@ -15749,6 +16792,9 @@ def cmd_status(args: argparse.Namespace) -> None:
     transition_heads = successor_transition_heads(all_events)
     open_transitions = successor_transition_heads(all_events, open_only=True)
     adaptive_control = adaptive_status_projection(policy, active_events)
+    factory_evolution_control = factory_evolution_admission_status(
+        directory, policy, all_events
+    )
     control_posture = reduce_control_posture(
         directory=directory,
         policy=policy,
@@ -15814,6 +16860,7 @@ def cmd_status(args: argparse.Namespace) -> None:
                 "successor_transition_count": len(transition_heads),
                 "open_successor_transitions": list(open_transitions.values()),
                 "adaptive_decision_control": adaptive_control,
+                "factory_evolution_admission": factory_evolution_control,
                 "control_posture": control_posture,
                 "required_target_posture": control_posture[
                     "required_target_posture"
@@ -16317,6 +17364,7 @@ def parser() -> argparse.ArgumentParser:
     adjust.add_argument("--candidate-max-elapsed-minutes", type=int)
     adjust.add_argument("--candidate-max-mapped-comparisons", type=int)
     adjust.add_argument("--candidate-max-review-passes", type=int)
+    adjust.add_argument("--factory-evolution-max-admissions", type=int)
     adjust.add_argument("--program-revision-authoring-thread")
     adjust.add_argument("--program-revision-authoring-profile-review")
     adjust.add_argument("--reason", required=True)
@@ -16360,10 +17408,10 @@ def parser() -> argparse.ArgumentParser:
 
     factory_evolution = subparsers.add_parser("factory-evolution")
     factory_evolution.add_argument("--target-thread", required=True)
-    factory_evolution.add_argument("--evolution-id", required=True)
+    factory_evolution.add_argument("--evolution-id")
     factory_evolution.add_argument(
         "--action",
-        choices=("prepare", "finalize", "evaluate", "verify"),
+        choices=("admit", "prepare", "finalize", "evaluate", "verify"),
         required=True,
     )
     factory_evolution.add_argument(

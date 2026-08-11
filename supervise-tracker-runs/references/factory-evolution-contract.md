@@ -136,6 +136,51 @@ identifiers and atomic immutable-or-identical writes. Deleting a derived set
 does not delete or mutate canonical evidence; the set can be rebuilt from its
 declared sources.
 
+## Automatic evidence admission
+
+Automatic admission is one deterministic checkpoint gate in the existing
+supervision owner, not a cognitive reviewer, candidate runner, watcher, or new
+ledger. It runs only during weekly-report finalization, terminal-report
+verification, or the explicit `factory-evolution --action admit` maintenance
+command. These are the weekly report finalization, terminal report verification,
+and explicit Factory maintenance checkpoints.
+
+The policy reuses `adaptive_decision_mode`. `fixed` is a zero-producer
+record-only result. `recommend` may prepare one immutable recommendation packet
+but cannot authorize admission. `reviewed-autonomous` and `full-autonomous` may
+record one admitted cycle when the existing supervision permissions, mission,
+Software Factory target, active-cycle limit, and bounded resource contract are
+current. The gate does not call a model or reviewer, does not start cognitive
+review, and does not create a candidate, human request, skill write, or target
+write.
+
+The gate derives two identities which must not collapse:
+
+- the novelty identity (the canonical-evidence novelty key) hashes only sorted
+  exact adjudicating event/outcome record identities and their supported
+  coverage; and
+- the context/currentness identity (the context root) hashes the verified
+  packet, novelty key, target repository, Factory revision, mission, policy,
+  and checkpoint kind for reproducibility and currentness.
+
+Report IDs, report prose, report hashes, coverage packaging, checkpoint kind,
+and Factory revision cannot create novelty. A report hypothesis nominates a
+signal only when its exact evidence references resolve to canonical gap/failure
+records, a structured productive capability/economy/preservation/owner-method
+result, or a recurring-pattern hypothesis supported by at least two such exact
+records. Praise, frequency, a prose-only positive theme, and an unbound report
+section remain ineligible.
+
+One target may have at most one active cycle. Repackaged or overlapping reports,
+changed checkpoints, and unrelated Factory revisions return a no-op for the
+same novelty key. A context change may require revalidating the existing cycle
+but cannot create another cycle. After a verified terminal disposition, at
+least one new adjudicating record beyond consumed coverage is required. The
+eligible path writes the existing byte-identical learning packet and prepare
+manifest once, then appends one content-minimized admission record through the
+canonical supervision writer. Interruption may leave only those non-authoritative
+prepared artifacts; retry reuses them and appends at most one admission.
+
 ## Exact submission wire shapes
 
 The public helper rejects extra or missing fields. Submission JSON is bounded,

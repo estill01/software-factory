@@ -338,6 +338,35 @@ class WeeklyMetricsTests(unittest.TestCase):
             self.assertIn("Monitoring machinery evolution", extracted)
             self.assertNotIn("Material line items", extracted)
 
+    def test_pdf_retains_factory_evolution_eligibility_summary(self) -> None:
+        metrics, _packet = self.build()
+        review = weekly_report.validate_review(
+            fixture_review(metrics["report_id"], metrics["source"]["source_root"]),
+            report_id=metrics["report_id"],
+            source_root=metrics["source"]["source_root"],
+            record_ids={item["record_id"] for item in fixture_events()},
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "report.pdf"
+            weekly_report.render_pdf(
+                output,
+                metrics,
+                review,
+                factory_evolution_eligibility={
+                    "summary": (
+                        "Factory evolution nomination: duplicate-canonical-evidence; "
+                        "revisit when new adjudicating canonical evidence appears."
+                    )
+                },
+            )
+            from pypdf import PdfReader
+
+            extracted = " ".join(
+                "".join(page.extract_text() or "" for page in PdfReader(str(output)).pages).split()
+            )
+            self.assertIn("Factory evolution nomination", extracted)
+            self.assertIn("duplicate-canonical-evidence", extracted)
+
     def test_review_rejects_unbounded_section_density(self) -> None:
         metrics, _packet = self.build()
         review = fixture_review(metrics["report_id"], metrics["source"]["source_root"])
