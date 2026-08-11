@@ -537,8 +537,8 @@ the relevant authority and evidence contract.
 | 14 | Supervision policy and cadence administration | 7, 10, 11 | `accepted` |
 | 15 | Mission and target/tracker binding repair | 7, 10, 11 | `accepted` |
 | 16 | Role-task binding repair | 7, 10, 11 | `accepted` |
-| 17 | Factory Floor operational rows and exact count filters | 6, 7 | `in-progress` |
-| 18 | Tracker review queue and exact count filters | 3, 8 | `not-started` |
+| 17 | Factory Floor operational rows and exact count filters | 6, 7 | `accepted` |
+| 18 | Tracker review queue and exact count filters | 3, 8 | `in-progress` |
 | 19 | Tracker semantic source diffs | 3, 8 | `not-started` |
 | 20 | Automation binding repair | 7, 10, 11 | `not-started` |
 | 21 | Owner-backed operation semantic diffs | 10, 14, 15, 16, 19, 20 | `not-started` |
@@ -4968,7 +4968,7 @@ reporting, evolution, or terminal lifecycle.
 
 ## Block 17 — Factory Floor operational rows and exact count filters
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -5197,6 +5197,19 @@ filters, and viewports rather than unrelated workspaces.
   separate. Unaffected frontend/build/browser and full backend proof remains
   bound to the preserved candidate. Block 17 remains `in-progress` pending a
   fresh independent delta review; Blocks 18-29 remain unopened.
+- Accepted exact-revision outcome: independent delta audit ACCEPTED evidence
+  `55d5ee9ff788b04038015fc0e864410771ffe16f`, tree
+  `84253f3dee0cdd4bd9cdb70b139667df6c07901f`, and product parent
+  `9b8a1d7769958baa480bccae4b718fc227f8fc4f`. Exact adversarial proof showed
+  task None plus tracker/supervision Block 6 now produces conflict/amber;
+  `notLoaded` and unsupported task states remain unavailable/partial; workflow
+  marker, turn-coverage, and item-coverage changes each alter the semantic
+  fingerprint while read-time-only refresh remains stable. The affected Floor
+  suite passed 11/11 with `ResourceWarning` fatal, Ruff passed, full-profile
+  verification remained Blocks 0-29 with 0 errors/warnings, verifier tests
+  passed 30/30, and remote `0 0`, clean diff, and Stop proof passed. Post-block
+  audit: `accepted`; retained open Block 17 work: none. Blocks 19-29 remain
+  unopened.
 
 ### Stop
 
@@ -5207,7 +5220,7 @@ semantic diffs, pause/resume, continuity, reporting, evolution, or lifecycle.
 
 ## Block 18 — Tracker review queue and exact count filters
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -5322,7 +5335,21 @@ rows. Widen only for an explicit exact active-claim drill-down.
 
 ### Completion evidence
 
-Pending.
+- Activation and authority: started automatically from independently accepted
+  and pushed Block 17 evidence revision
+  `55d5ee9ff788b04038015fc0e864410771ffe16f`; accepted Blocks 3 and 8 satisfy
+  every direct dependency, local/upstream were exact at `0 0`, and Blocks
+  19-29 remain unopened. Governing implementation authority remains direct-user
+  item 44 under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`;
+  routed design/count packets remain provenance only.
+- Work-start boundary: re-read this Block and inspect only the accepted tracker
+  list/detail projection, typed API contracts, tracker routes/tests, and the
+  already adapted `FilterTable.tsx` count-chip component. The first work is
+  limited to truthful tracker queue/count/progress discovery, plural current
+  claims, and exact source navigation. No tracker source diff, operation,
+  mutation, automation, lifecycle, continuity, reporting, evolution, or later-
+  Block work is started.
 
 ### Stop
 
