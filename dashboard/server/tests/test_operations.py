@@ -495,16 +495,37 @@ class OperationsProjectionTests(unittest.TestCase):
         )
         self.assertEqual((directory / "policy.json").read_bytes(), before_policy)
 
-        applied = self.service.apply_role_bind(
-            TARGET,
-            role="base_reviewer",
-            candidate_task_id=candidate,
-            prior_policy_sha256=missing["policy_sha256"],
-            prior_policy_version=missing["policy_version"],
-            expected_normalized_policy_sha256=preview[
+        apply_arguments = {
+            "role": "base_reviewer",
+            "candidate_task_id": candidate,
+            "prior_policy_sha256": missing["policy_sha256"],
+            "prior_policy_version": missing["policy_version"],
+            "prior_policy_history_head": preview["control"][
+                "policy_history_head"
+            ],
+            "prior_policy_history_count": len(
+                preview["control"]["policy_history_records"]
+            ),
+            "expected_owner_sha256": preview["owner_sha256"],
+            "expected_normalized_policy_sha256": preview[
                 "expected_normalized_policy_sha256"
             ],
-        )
+        }
+        with self.assertRaises(OperationsProjectionError) as stale:
+            self.service.apply_role_bind(
+                TARGET,
+                **{
+                    **apply_arguments,
+                    "prior_policy_history_count": apply_arguments[
+                        "prior_policy_history_count"
+                    ]
+                    + 1,
+                },
+            )
+        self.assertEqual(stale.exception.code, "role_binding_source_stale")
+        self.assertEqual((directory / "policy.json").read_bytes(), before_policy)
+
+        applied = self.service.apply_role_bind(TARGET, **apply_arguments)
 
         current = applied["control"]
         self.assertEqual(

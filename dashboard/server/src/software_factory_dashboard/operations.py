@@ -1423,20 +1423,49 @@ class OperationsProjectionService:
         candidate_task_id: str,
         prior_policy_sha256: str,
         prior_policy_version: int,
+        prior_policy_history_head: str,
+        prior_policy_history_count: int,
+        expected_owner_sha256: str,
         expected_normalized_policy_sha256: str,
     ) -> dict[str, Any]:
         """Invoke one exact maintained bind assignment after revalidating its plan."""
 
         with self._lock:
-            plan = self.preview_role_bind(target_thread_id, role=role)
-            control = plan.get("control")
+            binding = ROLE_BIND_FIELDS.get(role)
+            if binding is None:
+                raise OperationsProjectionError(
+                    "role_binding_owner_unavailable",
+                    "The maintained bind owner cannot assign the selected role.",
+                    status=409,
+                )
+            field, _ = binding
+            control = self.policy_control_snapshot(target_thread_id)
+            policy = control.get("policy")
+            runtime = control.get("runtime")
+            history = control.get("policy_history_records")
+            models = policy.get("models") if isinstance(policy, Mapping) else None
+            current_role_ids = {
+                value
+                for role_field in ROLE_THREAD_KEYS
+                if isinstance(runtime, Mapping)
+                and isinstance((value := runtime.get(role_field)), str)
+                and value
+            }
             if (
-                not isinstance(control, Mapping)
-                or plan.get("candidate_task_id") != candidate_task_id
+                not isinstance(policy, Mapping)
+                or not isinstance(runtime, Mapping)
+                or not isinstance(history, list)
                 or control.get("policy_sha256") != prior_policy_sha256
                 or control.get("policy_version") != prior_policy_version
-                or plan.get("expected_normalized_policy_sha256")
-                != expected_normalized_policy_sha256
+                or control.get("policy_history_head") != prior_policy_history_head
+                or len(history) != prior_policy_history_count
+                or control.get("owner_sha256") != expected_owner_sha256
+                or control.get("lifecycle_status") in {"completed", "stopped"}
+                or runtime.get(field) is not None
+                or candidate_task_id == target_thread_id
+                or candidate_task_id in current_role_ids
+                or not isinstance(models, Mapping)
+                or models.get(role) != ROLE_MODEL_CONTRACTS[role]
             ):
                 raise OperationsProjectionError(
                     "role_binding_source_stale",
@@ -1474,11 +1503,10 @@ class OperationsProjectionService:
                 normalized.pop("updated_at", None)
             if (
                 result.get("changed") is not True
-                or current.get("policy_version") != plan["expected_policy_version"]
+                or current.get("policy_version") != prior_policy_version + 1
                 or not isinstance(normalized, dict)
                 or _digest(normalized) != expected_normalized_policy_sha256
-                or current.get("runtime", {}).get(plan["runtime_field"])
-                != candidate_task_id
+                or current.get("runtime", {}).get(field) != candidate_task_id
             ):
                 raise OperationsProjectionError(
                     "role_binding_owner_postcondition_unverified",
@@ -1488,7 +1516,10 @@ class OperationsProjectionService:
             return {
                 "owner_result": result,
                 "control": current,
-                "plan": plan,
+                "plan": {
+                    "runtime_field": field,
+                    "expected_policy_version": prior_policy_version + 1,
+                },
             }
 
     def _module(self, family: str) -> ModuleType:

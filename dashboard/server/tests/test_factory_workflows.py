@@ -2477,6 +2477,9 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                 candidate_task_id,
                 prior_policy_sha256,
                 prior_policy_version,
+                prior_policy_history_head,
+                prior_policy_history_count,
+                expected_owner_sha256,
                 expected_normalized_policy_sha256,
             ):
                 if (
@@ -2485,6 +2488,9 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                     or candidate_task_id != candidate_id
                     or prior_policy_sha256 != policy["policy_sha256"]
                     or prior_policy_version != 7
+                    or prior_policy_history_head != prior_record["record_sha256"]
+                    or prior_policy_history_count != 1
+                    or expected_owner_sha256 != "1" * 64
                     or expected_normalized_policy_sha256 != expected_root
                 ):
                     raise AssertionError("wrong role bind apply")

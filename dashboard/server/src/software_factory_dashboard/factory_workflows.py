@@ -6333,6 +6333,13 @@ class FactoryWorkflowOwner:
                         prior_policy_version=int(
                             source.evidence["prior_policy_version"]
                         ),
+                        prior_policy_history_head=str(
+                            source.evidence["prior_policy_history_head"]
+                        ),
+                        prior_policy_history_count=int(
+                            source.evidence["prior_policy_history_count"]
+                        ),
+                        expected_owner_sha256=str(source.evidence["owner_sha256"]),
                         expected_normalized_policy_sha256=str(
                             source.evidence["expected_normalized_policy_sha256"]
                         ),
