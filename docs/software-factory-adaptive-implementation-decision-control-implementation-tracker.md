@@ -2715,8 +2715,22 @@ accepted delta without absorbing optional work.
   surviving tree while preserving unrelated staged state, and carry exact
   regular/executable/symlink mode through worktree recovery. Focused proof,
   including retained durability and ordinary recovery boundaries, passed
-  `11/11`; successor freeze, independent challenge, one post-review
-  affected-proof rerun, and broad revalidation remain pending.
+  `11/11`. Exact successor
+  `f2481a18ad84d4b9c21e29f70442944e3a4424a1` (tree
+  `d682ec0f50f16ce25f63db415db85183fc291613`) passed independent narrow
+  review with no findings: the maintained atomicity/recovery/normal set passed
+  `11/11`, retained owner-spool durability/provenance passed `2/2`, and custom
+  regular, executable, and symlink surviving-tree modes restored exactly.
+  The implementation thread then reran the affected proof exactly once after
+  review: `11/11` passed. Broad revalidation passed: the full Block 9 focused
+  suite passed `29/29`; the mapped implementation suite passed `98/98` under
+  its required `/usr/bin/python3` runtime; all three fixed skill validators
+  passed; the full-profile tracker verifier reported 18 Blocks with no errors
+  or warnings; maintained Python compiled under the pinned runtime; and exact
+  diff, branch, and upstream checks passed. The author and supervision trees
+  are byte-identical to the previously accepted `42/42` and `307/307` evidence
+  roots, so that unaffected proof remains current. Exact final evidence-child
+  review remains pending.
 
 ### Stop
 
