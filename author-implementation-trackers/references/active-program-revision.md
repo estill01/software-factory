@@ -14,8 +14,14 @@ or adaptive-decision owner.
   `tracker-authoring` profile to the exact authoring target thread. That policy
   binding resolves the mechanical watcher, semantic reviewer, adjudicator, and
   optional fix executor through the existing policy and event owner. It also
-  resolves the exact Git revision and blob root of the maintained supervision-
-  policy reference; packet strings cannot establish those roles or source.
+  resolves an independently accepted exact Git revision and blob root of
+  `docs/software-factory-tracker-authoring-supervision-implementation-tracker.md`;
+  acceptance is limited to its profile-design contract and does not claim that
+  tracker's separate implementation Blocks are complete;
+  packet strings cannot establish those roles or source. The authoring thread
+  is the writer, the runtime watcher routes mechanically, the runtime base
+  reviewer performs semantic review, the runtime reviewer adjudicates, and the
+  optional runtime fix executor remains separately owned.
 - The maintained full tracker verifier owns mechanical tracker validity.
 - A distinct configured reviewer owns the semantic disposition and signs the
   exact packet projection outside the author process.
@@ -105,6 +111,12 @@ The builder requires exactly one new row, preserves every predecessor row
 byte-for-byte in parsed order, and proves the row from the packet rather than
 accepting it as narrative. The full verifier checks the section linearly while
 remaining compatible with trackers that have never had a program revision.
+The structural projection also covers the six control values, current source-
+map and verification-matrix rows, and tracker-wide Block/range/handoff prose.
+It excludes the append-only Program revision history rows so a newly derived
+history root does not create a self-reference. Therefore a finding in any
+canonical current surface can be corrected without requiring an unrelated
+Block-contract change.
 
 The builder derives, rather than accepts from the caller:
 
@@ -148,14 +160,19 @@ For an accepted review:
 current mission/policy/adaptive decision, repository revision, and exact
 application precondition.
 2. Append one canonical program-revision event under the supervision owner
-   lock. Identical current input is idempotent.
+   lock. Identical current input is idempotent and returns the same repository-
+   installation next action.
 3. Install and commit only the accepted proposal bytes through the normal
    repository owner.
 4. Run `implementation-range-amend` against that exact tracker and canonical
    event, supplying the exact application commit. The range owner verifies that
    the application is a single-parent, tracker-only commit whose parent is the
    exact packet target revision and contains the exact predecessor tracker; the
-   the commit contains the exact proposal. It records that commit in the
+   commit contains the exact proposal. The commit must still be current HEAD
+   and the live tracker bytes must still match at the policy-write boundary.
+   If either changes during the write, append a compensating policy version
+   restoring the prior range and return retry-current-state. It records the
+   current commit in the
    append-only range/program-revision history. Map explicit ranges by successor
    union plus incomplete prerequisite closure; preserve full-tracker intent.
 5. Retain accepted Blocks, accepted evidence, and unaffected proof. Mark only

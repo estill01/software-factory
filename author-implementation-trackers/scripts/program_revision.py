@@ -51,6 +51,9 @@ PROGRAM_HISTORY_ROW = re.compile(
     r"\| `(?P<map>[0-9a-f]{64})` \| `(?P<affected>\d+(?:,\d+)*)` "
     r"\| `(?P<resume>\d+)` \|$"
 )
+PROGRAM_INDEX_ROW = re.compile(
+    r"^\|\s*(?P<block>\d+)\s*\|\s*(?P<value>[^|]+)\|$"
+)
 ALLOWED_TARGET_CLASSES = {"target-repository", "software-factory"}
 ALLOWED_AUTHORITY_MODES = {
     "fixed",
@@ -284,6 +287,82 @@ def parse_program_revision_control(text: str) -> dict[str, Any] | None:
     }
 
 
+def _program_index(text: str, heading: str) -> list[dict[str, Any]]:
+    headings = list(re.finditer(rf"^## {re.escape(heading)}\s*$", text, re.MULTILINE))
+    if len(headings) != 1:
+        raise ProgramRevisionError(
+            f"Active-program tracker requires one {heading} section"
+        )
+    start = headings[0].end()
+    following = re.search(r"^##\s+", text[start:], re.MULTILINE)
+    end = start + following.start() if following is not None else len(text)
+    rows: list[dict[str, Any]] = []
+    for line in text[start:end].splitlines():
+        match = PROGRAM_INDEX_ROW.fullmatch(line)
+        if match is not None:
+            rows.append(
+                {
+                    "block": int(match.group("block")),
+                    "basis": match.group("value").strip(),
+                }
+            )
+    if not rows or [item["block"] for item in rows] != list(
+        dict.fromkeys(item["block"] for item in rows)
+    ):
+        raise ProgramRevisionError(f"Active-program {heading} is malformed")
+    return rows
+
+
+def _tracker_wide_program_claims(text: str) -> list[str]:
+    current = text
+    for heading in (
+        "Active-program revision control",
+        "Program source map",
+        "Program verification matrix",
+    ):
+        current = re.sub(
+            rf"^## {re.escape(heading)}\s*$.*?(?=^##\s+|\Z)",
+            "",
+            current,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+    claims: list[str] = []
+    in_block = False
+    for line in current.splitlines():
+        if BLOCK_HEADING.fullmatch(line) is not None:
+            in_block = True
+        elif re.fullmatch(r"##\s+.+", line) is not None:
+            in_block = False
+        if (
+            not in_block
+            and re.search(r"\bBlocks?\s+\d+", line, re.I)
+            and re.search(
+                r"\b(?:range|order|handoff|resume|terminal)\b", line, re.I
+            )
+        ):
+            claims.append(line.strip())
+    return claims
+
+
+def active_program_surface_projection(text: str) -> dict[str, Any] | None:
+    control = parse_program_revision_control(text)
+    if control is None:
+        return None
+    return {
+        "schema_version": 1,
+        "kind": "active-program-structural-surface",
+        "terminal_block": control["terminal_block"],
+        "required_order": control["required_order"],
+        "prose_reference_blocks": control["prose_reference_blocks"],
+        "source_map_blocks": control["source_map_blocks"],
+        "verification_matrix_blocks": control["verification_matrix_blocks"],
+        "handoff_block": control["handoff_block"],
+        "source_map": _program_index(text, "Program source map"),
+        "verification_matrix": _program_index(text, "Program verification matrix"),
+        "tracker_wide_claims": _tracker_wide_program_claims(text),
+    }
+
+
 def read_regular_file(path_value: str | Path) -> tuple[Path, bytes]:
     supplied = Path(path_value).expanduser()
     descriptor = -1
@@ -422,13 +501,15 @@ def tracker_snapshot(path_value: str | Path, *, require_full: bool = True) -> di
                 "contract_sha256": contract_sha256,
             }
         )
-    structure_sha256 = digest(
-        {
-            "schema_version": 1,
-            "kind": "implementation-tracker-structure",
-            "blocks": contracts,
-        }
-    )
+    program_surface = active_program_surface_projection(text)
+    structure_material = {
+        "schema_version": 1,
+        "kind": "implementation-tracker-structure",
+        "blocks": contracts,
+    }
+    if program_surface is not None:
+        structure_material["active_program_surface"] = program_surface
+    structure_sha256 = digest(structure_material)
     program_control = parse_program_revision_control(text)
     if program_control is not None:
         expected_blocks = sorted(numbers)
@@ -455,6 +536,9 @@ def tracker_snapshot(path_value: str | Path, *, require_full: bool = True) -> di
         "structure_sha256": structure_sha256,
         "blocks": rows,
         "program_revision_control": program_control,
+        "active_program_surface_root": (
+            digest(program_surface) if program_surface is not None else None
+        ),
         "verifier_result_root": digest(verifier_result) if verifier_result else None,
     }
 
@@ -1090,6 +1174,9 @@ def validate_review_shape(
         "author_id",
         "application_owner_id",
         "reviewer_id",
+        "mechanical_watcher_id",
+        "adjudicator_id",
+        "fix_executor_id",
         "authoring_profile_source_revision",
         "authoring_profile_source_root",
         "authoring_profile_binding_root",
@@ -1125,6 +1212,9 @@ def validate_review_shape(
         "author_id": packet["author_id"],
         "application_owner_id": packet["application_owner_id"],
         "reviewer_id": packet["reviewer_id"],
+        "mechanical_watcher_id": packet["mechanical_watcher_id"],
+        "adjudicator_id": packet["adjudicator_id"],
+        "fix_executor_id": packet["fix_executor_id"],
         "authoring_profile_source_revision": packet[
             "authoring_profile_source_revision"
         ],

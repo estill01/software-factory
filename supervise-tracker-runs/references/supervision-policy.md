@@ -808,19 +808,25 @@ exact authoring target thread:
 python3 <LOG_HELPER> adjust \
   --target-thread <TARGET> \
   --program-revision-authoring-thread <AUTHORING_TARGET_THREAD> \
+  --program-revision-authoring-profile-review <SEALED_ACCEPTED_PROFILE_REVIEW> \
   --reason <BOUNDED_BINDING_REASON> \
   --evidence <CURRENT_PROFILE_AND_ROLE_RECORD>
 ```
 
-The resulting `tracker-authoring` profile binding is immutable. It derives the
-mechanical watcher, sealed semantic reviewer, sealed adjudicator, and optional
-fix executor from the current supervision/adaptive policy and binds the exact
+The resulting `tracker-authoring` profile binding is immutable. The signed
+profile review independently accepts the exact repository revision/root of
+`docs/software-factory-tracker-authoring-supervision-implementation-tracker.md`.
+Its scope is `profile-design-contract-only` with implementation explicitly
+`not-claimed`; it is not completion evidence for that separate tracker.
+The binding derives the mechanical watcher, semantic reviewer, adjudicator, and
+optional fix executor from the current supervision runtime as watcher, base
+reviewer, reviewer, and fix-executor threads respectively, and binds the exact
 authoring target thread. Program-revision import resolves the route record,
 canonical review event, evaluation root, application owner, and all distinct
-role identities against that policy binding. It also resolves this maintained
-policy reference as a bounded Git blob and retains its exact repository
-revision/root; the revision must remain in current repository history. Caller
-strings or a populated packet cannot substitute for it.
+role identities against that policy binding. The program-revision review signs
+those actor IDs directly. The profile source revision must remain in current
+repository history. Caller strings or a populated packet cannot substitute for
+the signed acceptance and exact source.
 
 The initial source must resolve to the bound direct mission or an already
 reviewed canonical authority receipt. A contraction first resolves a separately
@@ -855,12 +861,19 @@ Its separate reviewer signs that exact delta, authoring-profile binding, and
 finding lineage with the sealed reviewer authority. The author cannot review
 itself; `revise` and `rejected` events are retained but cannot amend the range,
 and a later proposal must bind their exact review root, resolve every finding,
-and change the structural projection. The event must predate the range
+and change the structural projection. That projection covers current control,
+source-map, verification-matrix, and tracker-wide Block/range/handoff prose as
+well as Block contracts; append-only history rows are excluded from the self-
+root. The event must predate the range
 amendment and match the current mission and policy-history anchor. At first
 application the current policy/decision is revalidated, and the supplied
 application commit must be a single-parent tracker-only commit whose parent is
 the exact packet target revision and whose parent/proposal tracker blobs match.
-An identical retry rehydrates the same program resume state. A caller-supplied
+It must remain current HEAD with matching live tracker bytes at the final
+policy-write boundary; a concurrent change restores the prior range through an
+append-only compensating policy version and requires retry-current-state. An
+identical event retry rehydrates the same installation action, and an identical
+range retry rehydrates the same program resume state. A caller-supplied
 map, replacement tracker, release label, routed packet, or stale mission root is
 never amendment provenance. The legacy one-to-one
 `implementation-tracker-amendment` event remains readable only for already

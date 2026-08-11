@@ -91,6 +91,19 @@ class ProgramRevisionTests(unittest.TestCase):
             text.replace("## Block 0", control + "\n## Block 0", 1),
             encoding="utf-8",
         )
+        current_structure = program_revision.tracker_snapshot(
+            self.proposed, require_full=False
+        )["structure_sha256"]
+        self.proposed.write_text(
+            self.proposed.read_text(encoding="utf-8").replace(
+                f"| `{revision_id}` | `{previous['sha256']}` | "
+                f"`{proposed['structure_sha256']}` |",
+                f"| `{revision_id}` | `{previous['sha256']}` | "
+                f"`{current_structure}` |",
+                1,
+            ),
+            encoding="utf-8",
+        )
 
     def write_tracker(
         self, path: Path, blocks: list[tuple[str, list[int], str]]
@@ -381,6 +394,15 @@ Stop before the next Block.
                 "| Revision ID | Predecessor tracker SHA-256 |",
                 "| Revision | Previous tracker SHA-256 |",
             ),
+            original.replace(
+                "## Block 0",
+                "Retained implementation range: Blocks 2–3 only; "
+                "handoff to obsolete Block 3.\n\n## Block 0",
+                1,
+            ),
+            original
+            + "\n## Retained program handoff\n\n"
+            + "Resume at obsolete Block 3.\n",
         )
         for changed in mutations:
             with self.subTest(root=hashlib.sha256(changed.encode()).hexdigest()):
@@ -512,6 +534,9 @@ Stop before the next Block.
             "author_id": packet["author_id"],
             "application_owner_id": packet["application_owner_id"],
             "reviewer_id": packet["reviewer_id"],
+            "mechanical_watcher_id": packet["mechanical_watcher_id"],
+            "adjudicator_id": packet["adjudicator_id"],
+            "fix_executor_id": packet["fix_executor_id"],
             "authoring_profile_source_revision": packet[
                 "authoring_profile_source_revision"
             ],

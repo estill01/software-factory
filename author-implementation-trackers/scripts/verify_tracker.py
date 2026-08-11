@@ -91,6 +91,11 @@ PROGRAM_HISTORY_ROW = re.compile(
     r"\| `(?P<map>[0-9a-f]{64})` \| `(?P<affected>\d+(?:,\d+)*)` "
     r"\| `(?P<resume>\d+)` \|$"
 )
+TRACKER_WIDE_BLOCK_REFERENCE = re.compile(
+    r"\bBlocks?\s+(?P<blocks>\d+(?:\s*[–-]\s*\d+)?"
+    r"(?:\s*(?:,|and)\s*\d+(?:\s*[–-]\s*\d+)?)*)\b",
+    re.I,
+)
 
 
 @dataclass(frozen=True)
@@ -418,6 +423,71 @@ def sequence_metadata(lines: list[str]) -> tuple[int | None, int | None]:
     return None, None
 
 
+def tracker_wide_reference_blocks(value: str) -> list[int]:
+    match = TRACKER_WIDE_BLOCK_REFERENCE.search(value)
+    if match is None:
+        return []
+    result: set[int] = set()
+    for range_start, range_end, single in re.findall(
+        r"(\d+)\s*[–-]\s*(\d+)|(\d+)", match.group("blocks")
+    ):
+        if single:
+            result.add(int(single))
+            continue
+        start = int(range_start)
+        end = int(range_end)
+        if end < start:
+            return []
+        result.update(range(start, end + 1))
+    return sorted(result)
+
+
+def verify_tracker_wide_program_references(
+    lines: list[str], numbers: list[int], *, handoff_block: int
+) -> list[str]:
+    """Reject stale active range, handoff, resume, and terminal prose claims."""
+
+    tracker_wide_lines: set[int] = set()
+    in_block = False
+    for index, line in enumerate(lines):
+        if BLOCK_HEADING.fullmatch(line) is not None:
+            in_block = True
+        elif re.fullmatch(r"##\s+.+", line) is not None:
+            in_block = False
+        if not in_block:
+            tracker_wide_lines.add(index)
+    errors: list[str] = []
+    for index, line in iter_unfenced_lines(lines):
+        if index not in tracker_wide_lines:
+            continue
+        if (
+            PROGRAM_CONTROL_FIELD.fullmatch(line) is not None
+            or PROGRAM_HISTORY_ROW.fullmatch(line) is not None
+            or PROGRAM_INDEX_ROW.fullmatch(line) is not None
+        ):
+            continue
+        for clause in re.split(r"[.;]", line):
+            references = tracker_wide_reference_blocks(clause)
+            if not references:
+                continue
+            normalized = clause.casefold()
+            if "handoff" in normalized or "resume" in normalized:
+                if references != [handoff_block]:
+                    errors.append(
+                        f"line {index + 1}: tracker-wide handoff/resume prose differs from the active Block"
+                    )
+            if "range" in normalized or "required order" in normalized:
+                if references != numbers:
+                    errors.append(
+                        f"line {index + 1}: tracker-wide range/order prose differs from current Blocks"
+                    )
+            if "terminal" in normalized and references != [max(numbers)]:
+                errors.append(
+                    f"line {index + 1}: tracker-wide terminal prose differs from the terminal Block"
+                )
+    return errors
+
+
 def verify_program_revision_control(
     lines: list[str], numbers: list[int]
 ) -> list[str]:
@@ -483,6 +553,14 @@ def verify_program_revision_control(
             errors.append(f"active-program field '{label}' differs from headings")
     if fields["Handoff Block"] not in {str(item) for item in numbers}:
         errors.append("active-program handoff Block is unavailable")
+    else:
+        errors.extend(
+            verify_tracker_wide_program_references(
+                lines,
+                numbers,
+                handoff_block=int(fields["Handoff Block"]),
+            )
+        )
     if not revision_ids:
         errors.append("active-program Program revision history is empty")
     elif len(revision_ids) != len(set(revision_ids)):

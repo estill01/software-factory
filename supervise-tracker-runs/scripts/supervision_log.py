@@ -100,7 +100,7 @@ MAX_ADAPTIVE_DECISION_EVIDENCE_BYTES = 64 * 1024
 MAX_ADAPTIVE_REVIEW_EVIDENCE_BYTES = 64 * 1024
 MAX_PROGRAM_REVISION_EVIDENCE_BYTES = 256 * 1024
 TRACKER_AUTHORING_PROFILE_SOURCE_PATH = (
-    "supervise-tracker-runs/references/supervision-policy.md"
+    "docs/software-factory-tracker-authoring-supervision-implementation-tracker.md"
 )
 ADAPTIVE_REVIEWER_ID = "software-factory-release-reviewer-v1"
 ADAPTIVE_EVALUATOR_ID = "software-factory-adaptive-evaluator-v1"
@@ -524,18 +524,128 @@ def skill_maintenance_contract(mode: str = "propose-only") -> dict[str, Any]:
     }
 
 
-def tracker_authoring_profile_definition() -> dict[str, Any]:
+TRACKER_AUTHORING_PROFILE_REVIEW_FIELDS = {
+    "schema_version",
+    "kind",
+    "record_id",
+    "profile_source_path",
+    "profile_source_revision",
+    "profile_source_root",
+    "disposition",
+    "acceptance_scope",
+    "implementation_claim",
+    "finding_count",
+    "reviewer_id",
+    "authority_key_sha256",
+    "observed_at",
+    "review_root",
+    "signature_base64",
+}
+
+
+def tracker_authoring_profile_review_root_material(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
     return {
-        "schema_version": 1,
-        "kind": "tracker-authoring",
-        "profile_revision": "tracker-authoring-profile-v1",
-        "writer_posture": "authoring-thread-sole-tracker-writer",
-        "mechanical_posture": "route-only-no-semantic-disposition",
-        "semantic_review_posture": "independent-read-only-exact-delta-review",
-        "adjudication_posture": "finding-adjudication-no-target-edit",
-        "application_posture": "repository-owner-exact-commit-only",
-        "new_ledger": False,
+        key: item
+        for key, item in value.items()
+        if key not in {"review_root", "signature_base64"}
     }
+
+
+def verify_tracker_authoring_profile_review_signature(
+    value: Mapping[str, Any],
+) -> None:
+    signature_value = value.get("signature_base64")
+    if type(signature_value) is not str:
+        raise SupervisionLogError(
+            "Tracker-authoring profile review signature must be base64 text"
+        )
+    try:
+        signature = base64.b64decode(signature_value, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise SupervisionLogError(
+            "Tracker-authoring profile review signature is invalid"
+        ) from exc
+    if len(signature) != 64:
+        raise SupervisionLogError(
+            "Tracker-authoring profile review signature length differs"
+        )
+    signed = dict(value)
+    signed.pop("signature_base64", None)
+    key_bytes = trusted_adaptive_reviewer_key()
+    openssl = trusted_adaptive_review_openssl()
+    with tempfile.TemporaryDirectory(
+        prefix="tracker-authoring-profile-review-"
+    ) as temp_value:
+        temp = Path(temp_value)
+        content = temp / "review.json"
+        signature_path = temp / "review.sig"
+        key_path = temp / "reviewer.pem"
+        content.write_bytes(canonical(signed))
+        signature_path.write_bytes(signature)
+        key_path.write_bytes(key_bytes)
+        result = subprocess.run(
+            [
+                str(openssl),
+                "pkeyutl",
+                "-verify",
+                "-pubin",
+                "-inkey",
+                str(key_path),
+                "-rawin",
+                "-in",
+                str(content),
+                "-sigfile",
+                str(signature_path),
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+        )
+    if result.returncode != 0:
+        raise SupervisionLogError(
+            "Tracker-authoring profile review signature verification failed"
+        )
+
+
+def validate_tracker_authoring_profile_review(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != TRACKER_AUTHORING_PROFILE_REVIEW_FIELDS:
+        raise SupervisionLogError("Tracker-authoring profile review shape differs")
+    review = dict(value)
+    if type(review.get("schema_version")) is not int or review["schema_version"] != 1:
+        raise SupervisionLogError("Tracker-authoring profile review version differs")
+    if review.get("kind") != "software-factory-tracker-authoring-profile-review":
+        raise SupervisionLogError("Tracker-authoring profile review kind differs")
+    safe_id(str(review.get("record_id", "")), label="tracker-authoring profile review")
+    if review.get("profile_source_path") != TRACKER_AUTHORING_PROFILE_SOURCE_PATH:
+        raise SupervisionLogError("Tracker-authoring profile review source path differs")
+    if type(review.get("profile_source_revision")) is not str or re.fullmatch(
+        r"[0-9a-f]{40}", review["profile_source_revision"]
+    ) is None:
+        raise SupervisionLogError("Tracker-authoring profile review revision differs")
+    exact_sha256(
+        str(review.get("profile_source_root", "")),
+        label="tracker-authoring profile review source root",
+    )
+    if (
+        review.get("disposition") != "accepted"
+        or review.get("acceptance_scope") != "profile-design-contract-only"
+        or review.get("implementation_claim") != "not-claimed"
+        or type(review.get("finding_count")) is not int
+        or review["finding_count"] != 0
+        or review.get("reviewer_id") != ADAPTIVE_REVIEWER_ID
+        or review.get("authority_key_sha256") != ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256
+    ):
+        raise SupervisionLogError("Tracker-authoring profile review is not accepted")
+    parse_time(str(review.get("observed_at", "")))
+    if review.get("review_root") != digest(
+        tracker_authoring_profile_review_root_material(review)
+    ):
+        raise SupervisionLogError("Tracker-authoring profile review root differs")
+    verify_tracker_authoring_profile_review_signature(review)
+    return review
 
 
 def tracker_authoring_profile_source(
@@ -632,40 +742,53 @@ def tracker_authoring_profile_binding(
     authoring_thread_id: str,
     runtime: Mapping[str, Any],
     repository_root: str,
-    source_revision: str | None = None,
+    profile_review: Mapping[str, Any],
 ) -> dict[str, Any]:
-    definition = tracker_authoring_profile_definition()
+    accepted_review = validate_tracker_authoring_profile_review(profile_review)
     source = tracker_authoring_profile_source(
         repository_root=repository_root,
-        source_revision=source_revision,
+        source_revision=str(accepted_review["profile_source_revision"]),
     )
+    if (
+        accepted_review["profile_source_path"] != source["profile_source_path"]
+        or accepted_review["profile_source_root"] != source["profile_source_root"]
+    ):
+        raise SupervisionLogError(
+            "Tracker-authoring profile review differs from its exact source"
+        )
     watcher = safe_id(
         str(runtime.get("watcher_thread_id", "")),
         label="tracker-authoring mechanical watcher",
     )
     author = safe_id(authoring_thread_id, label="tracker-authoring thread")
+    semantic_reviewer = safe_id(
+        str(runtime.get("base_reviewer_thread_id", "")),
+        label="tracker-authoring semantic reviewer",
+    )
+    adjudicator = safe_id(
+        str(runtime.get("reviewer_thread_id", "")),
+        label="tracker-authoring adjudicator",
+    )
     fix_executor = optional_safe_id(
         runtime.get("fix_executor_thread_id"),
         label="tracker-authoring fix executor",
     )
-    identities = {
-        author,
-        watcher,
-        ADAPTIVE_REVIEWER_ID,
-        ADAPTIVE_EVALUATOR_ID,
-    }
-    if len(identities) != 4 or fix_executor in identities:
+    identities = {author, watcher, semantic_reviewer, adjudicator}
+    if len(identities) != 4 or (fix_executor is not None and fix_executor in identities):
         raise SupervisionLogError("Tracker-authoring profile roles are not distinct")
     binding: dict[str, Any] = {
         "schema_version": 1,
         "kind": "tracker-authoring-profile-binding",
-        "profile_revision": definition["profile_revision"],
-        "profile_root": digest(definition),
+        "profile_revision": source["profile_source_revision"],
+        "profile_root": source["profile_source_root"],
         **source,
+        "profile_acceptance": accepted_review,
+        "profile_acceptance_record_id": accepted_review["record_id"],
+        "profile_acceptance_root": accepted_review["review_root"],
         "authoring_target_thread_id": author,
         "mechanical_watcher_id": watcher,
-        "semantic_reviewer_id": ADAPTIVE_REVIEWER_ID,
-        "adjudicator_id": ADAPTIVE_EVALUATOR_ID,
+        "semantic_reviewer_id": semantic_reviewer,
+        "adjudicator_id": adjudicator,
         "fix_executor_id": fix_executor,
         "author_is_sole_writer": True,
         "supervisors_are_read_only": True,
@@ -686,7 +809,7 @@ def validate_tracker_authoring_profile_binding(
         authoring_thread_id=str(value.get("authoring_target_thread_id", "")),
         runtime=runtime,
         repository_root=repository_root,
-        source_revision=str(value.get("profile_source_revision", "")),
+        profile_review=value.get("profile_acceptance", {}),
     )
     if dict(value) != expected:
         raise SupervisionLogError("Tracker-authoring profile binding differs")
@@ -2818,8 +2941,6 @@ def validate_program_revision_review(
         )
     except module.ProgramRevisionError as exc:
         raise SupervisionLogError(str(exc)) from exc
-    if review["reviewer_id"] != ADAPTIVE_REVIEWER_ID:
-        raise SupervisionLogError("Program revision reviewer authority differs")
     verify_program_revision_review_signature(review)
     return review
 
@@ -2934,7 +3055,7 @@ def canonical_program_revision_event(
 
 
 def validate_program_revision_application_commit(
-    event: Mapping[str, Any], application_commit: str
+    event: Mapping[str, Any], application_commit: str, *, require_current: bool = False
 ) -> str:
     if re.fullmatch(r"[0-9a-f]{40}", application_commit) is None:
         raise SupervisionLogError("Program revision application commit is not exact")
@@ -3046,25 +3167,49 @@ def validate_program_revision_application_commit(
         raise SupervisionLogError(
             "Program revision application commit changes unrelated repository paths"
         )
-    ancestor = subprocess.run(
-        [
-            "/usr/bin/git",
-            "-C",
-            str(repository),
-            "merge-base",
-            "--is-ancestor",
-            application_commit,
-            "HEAD",
-        ],
-        check=False,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
-    )
-    if ancestor.returncode != 0:
-        raise SupervisionLogError(
-            "Program revision application commit is not in current repository history"
+    if require_current:
+        current_head = subprocess.run(
+            [
+                "/usr/bin/git",
+                "-C",
+                str(repository),
+                "rev-parse",
+                "--verify",
+                "HEAD",
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
         )
+        if (
+            current_head.returncode != 0
+            or current_head.stdout.strip() != application_commit
+        ):
+            raise SupervisionLogError(
+                "Program revision application commit is not the current repository HEAD"
+            )
+    else:
+        ancestor = subprocess.run(
+            [
+                "/usr/bin/git",
+                "-C",
+                str(repository),
+                "merge-base",
+                "--is-ancestor",
+                application_commit,
+                "HEAD",
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+        )
+        if ancestor.returncode != 0:
+            raise SupervisionLogError(
+                "Program revision application commit is not in current repository history"
+            )
     for revision, label in (
         (parent_revision, "predecessor"),
         (application_commit, "proposal"),
@@ -3159,6 +3304,19 @@ def validate_program_revision_application_commit(
         raise SupervisionLogError(
             "Program revision application commit does not contain the accepted tracker"
         )
+    if require_current:
+        live_path, live_sha256, live_structure, live_blocks = (
+            implementation_tracker_snapshot(str(tracker))
+        )
+        if (
+            live_path != tracker
+            or live_sha256 != packet["proposed_tracker_sha256"]
+            or live_structure != packet["proposed_tracker_structure_sha256"]
+            or sorted(live_blocks) != packet["proposed_blocks"]
+        ):
+            raise SupervisionLogError(
+                "Program revision application tracker is not current in the repository worktree"
+            )
     return application_commit
 
 
@@ -6720,13 +6878,18 @@ def implementation_tracker_snapshot(
                 "contract_sha256": contract_sha256,
             }
         )
-    structure_sha256 = digest(
-        {
-            "schema_version": 1,
-            "kind": "implementation-tracker-structure",
-            "blocks": block_contract_roots,
-        }
-    )
+    try:
+        program_surface = program_revision_module().active_program_surface_projection(text)
+    except ValueError as exc:
+        raise SupervisionLogError(str(exc)) from exc
+    structure_material: dict[str, Any] = {
+        "schema_version": 1,
+        "kind": "implementation-tracker-structure",
+        "blocks": block_contract_roots,
+    }
+    if program_surface is not None:
+        structure_material["active_program_surface"] = program_surface
+    structure_sha256 = digest(structure_material)
     return resolved, hashlib.sha256(raw).hexdigest(), structure_sha256, rows
 
 
@@ -7580,6 +7743,11 @@ def cmd_implementation_program_revision(args: argparse.Namespace) -> None:
         policy=policy,
         all_events=all_events,
     )
+    next_action = {
+        "accepted": "install-exact-proposal-through-repository-owner-then-range-amend",
+        "revise": "return-exact-findings-to-author-and-continue-safe-frontier",
+        "rejected": "retain-rejection-and-continue-current-program-safe-frontier",
+    }[review["disposition"]]
     record: dict[str, Any] = {
         "schema_version": 1,
         "record_id": "",
@@ -7664,7 +7832,16 @@ def cmd_implementation_program_revision(args: argparse.Namespace) -> None:
                 if key not in {"record_id", "timestamp"}
             }
             if comparable == current:
-                print(json.dumps({"duplicate": True, "record": prior[-1]}, sort_keys=True))
+                print(
+                    json.dumps(
+                        {
+                            "duplicate": True,
+                            "next_action": next_action,
+                            "record": prior[-1],
+                        },
+                        sort_keys=True,
+                    )
+                )
                 return
             raise SupervisionLogError("Program revision ID already has a different record")
         record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
@@ -7681,11 +7858,6 @@ def cmd_implementation_program_revision(args: argparse.Namespace) -> None:
             Path("events.jsonl"), directory_fd=directory_fd
         )
         record = written_events[-1]
-    next_action = {
-        "accepted": "install-exact-proposal-through-repository-owner-then-range-amend",
-        "revise": "return-exact-findings-to-author-and-continue-safe-frontier",
-        "rejected": "retain-rejection-and-continue-current-program-safe-frontier",
-    }[review["disposition"]]
     print(
         json.dumps(
             {"duplicate": False, "next_action": next_action, "record": record},
@@ -7718,6 +7890,7 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
     if contract is None:
         raise SupervisionLogError("Implementation range is not bound")
     validate_implementation_range_contract(contract)
+    prior_contract = dict(contract)
     (
         tracker_path,
         tracker_sha256,
@@ -7753,7 +7926,9 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
                     )
                     if historical_event.get("kind") == PROGRAM_REVISION_EVENT_KIND:
                         validate_program_revision_application_commit(
-                            historical_event, args.application_commit
+                            historical_event,
+                            args.application_commit,
+                            require_current=True,
                         )
                         program_state = program_revision_resume_state(
                             historical_event, args.application_commit
@@ -7830,7 +8005,9 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
                 all_events=all_events,
             )
             validate_program_revision_application_commit(
-                amendment_event, args.application_commit
+                amendment_event,
+                args.application_commit,
+                require_current=True,
             )
         elif args.application_commit:
             raise SupervisionLogError(
@@ -7979,13 +8156,45 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
     )
     validate_implementation_range_contract(contract)
     policy["implementation_range"] = contract
-    write_policy_version(
-        directory,
-        policy,
-        kind="implementation-range-amend",
-        reason="Advance the canonical tracker identity without losing direct range intent.",
-        evidence_values=[tracker_sha256, entry["entry_sha256"], *( [amendment_map] if amendment_map else [])],
-    )
+    try:
+        write_policy_version(
+            directory,
+            policy,
+            kind="implementation-range-amend",
+            reason="Advance the canonical tracker identity without losing direct range intent.",
+            evidence_values=[tracker_sha256, entry["entry_sha256"], *( [amendment_map] if amendment_map else [])],
+        )
+        if (
+            amendment_event is not None
+            and amendment_event.get("kind") == PROGRAM_REVISION_EVENT_KIND
+        ):
+            validate_program_revision_application_commit(
+                amendment_event,
+                args.application_commit,
+                require_current=True,
+            )
+    except SupervisionLogError as exc:
+        installed = read_json(directory / "policy.json")
+        if (
+            installed.get("implementation_range", {}).get(
+                "history_head_sha256"
+            )
+            == entry["entry_sha256"]
+        ):
+            installed["implementation_range"] = prior_contract
+            write_policy_version(
+                directory,
+                installed,
+                kind="implementation-range-amend-currentness-rejected",
+                reason=(
+                    "Restore the prior range after repository application "
+                    "currentness changed during the policy update."
+                ),
+                evidence_values=[entry["entry_sha256"], args.application_commit],
+            )
+        raise SupervisionLogError(
+            "Program revision application changed during the range update; retry current state"
+        ) from exc
     program_state = None
     if (
         amendment_event is not None
@@ -10349,6 +10558,9 @@ def cmd_adjust(args: argparse.Namespace) -> None:
         "program_revision_authoring_thread": getattr(
             args, "program_revision_authoring_thread", None
         ),
+        "program_revision_authoring_profile_review": getattr(
+            args, "program_revision_authoring_profile_review", None
+        ),
     }
     changed = ensure_adaptive_decision_policy(policy)
     if requested["routine_minutes"] is not None:
@@ -10534,6 +10746,16 @@ def cmd_adjust(args: argparse.Namespace) -> None:
             raise SupervisionLogError(
                 "Tracker-authoring profile binding requires exact operator or review evidence"
             )
+        review_path = requested["program_revision_authoring_profile_review"]
+        if review_path is None:
+            raise SupervisionLogError(
+                "Tracker-authoring profile binding requires an exact accepted profile review"
+            )
+        profile_review = load_bounded_canonical_json(
+            str(review_path),
+            label="tracker-authoring profile review",
+            maximum_bytes=MAX_ADAPTIVE_REVIEW_EVIDENCE_BYTES,
+        )
         replacement_profile = tracker_authoring_profile_binding(
             authoring_thread_id=str(
                 requested["program_revision_authoring_thread"]
@@ -10544,6 +10766,7 @@ def cmd_adjust(args: argparse.Namespace) -> None:
                     "target_repository_root", ""
                 )
             ),
+            profile_review=profile_review,
         )
         existing_profile = policy.get("program_revision_authoring_profile")
         if existing_profile is not None and existing_profile != replacement_profile:
@@ -15383,6 +15606,7 @@ def parser() -> argparse.ArgumentParser:
     adjust.add_argument("--candidate-max-mapped-comparisons", type=int)
     adjust.add_argument("--candidate-max-review-passes", type=int)
     adjust.add_argument("--program-revision-authoring-thread")
+    adjust.add_argument("--program-revision-authoring-profile-review")
     adjust.add_argument("--reason", required=True)
     adjust.add_argument("--evidence", action="append", default=[])
     adjust.set_defaults(func=cmd_adjust)

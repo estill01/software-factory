@@ -13,6 +13,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
+from unittest import mock
 
 
 SUPPORT_PATH = Path(__file__).with_name("test_adaptive_decision_policy.py")
@@ -81,6 +82,13 @@ class ProgramRevisionControlTests(unittest.TestCase):
             check=True,
         )
         self.refresh_fixture_revision()
+        self.profile_review = self.signed_profile_review(
+            source_revision=self.fixture.target_revision,
+            source_root=hashlib.sha256(profile_source.read_bytes()).hexdigest(),
+        )
+        self.profile_review_path = self.fixture.write_json(
+            "tracker-authoring-profile-review.json", self.profile_review
+        )
         self.policy = self.fixture.init()
         directory = self.fixture.root / self.fixture.target
         self.policy["permissions"]["repository_write"] = True
@@ -94,6 +102,8 @@ class ProgramRevisionControlTests(unittest.TestCase):
         self.policy = self.fixture.adjust(
             "--program-revision-authoring-thread",
             "tracker-authoring-thread-1234",
+            "--program-revision-authoring-profile-review",
+            str(self.profile_review_path),
         )
         self.policy = self.fixture.adjust(
             "--adaptive-target-class", "software-factory"
@@ -174,6 +184,19 @@ class ProgramRevisionControlTests(unittest.TestCase):
             text.replace("## Block 0", control + "\n## Block 0", 1),
             encoding="utf-8",
         )
+        current_structure = program_revision.tracker_snapshot(
+            self.proposal, require_full=False
+        )["structure_sha256"]
+        self.proposal.write_text(
+            self.proposal.read_text(encoding="utf-8").replace(
+                f"| `{revision_id}` | `{previous['sha256']}` | "
+                f"`{proposed['structure_sha256']}` |",
+                f"| `{revision_id}` | `{previous['sha256']}` | "
+                f"`{current_structure}` |",
+                1,
+            ),
+            encoding="utf-8",
+        )
 
     def refresh_fixture_revision(self) -> None:
         self.fixture.target_revision = subprocess.run(
@@ -196,6 +219,56 @@ class ProgramRevisionControlTests(unittest.TestCase):
         ) = supervision_log.implementation_tracker_snapshot(
             str(self.fixture.tracker_path)
         )
+
+    def signed_profile_review(
+        self, *, source_revision: str, source_root: str
+    ) -> dict[str, object]:
+        value: dict[str, object] = {
+            "schema_version": 1,
+            "kind": "software-factory-tracker-authoring-profile-review",
+            "record_id": "tracker-authoring-profile-review-1234",
+            "profile_source_path": supervision_log.TRACKER_AUTHORING_PROFILE_SOURCE_PATH,
+            "profile_source_revision": source_revision,
+            "profile_source_root": source_root,
+            "disposition": "accepted",
+            "acceptance_scope": "profile-design-contract-only",
+            "implementation_claim": "not-claimed",
+            "finding_count": 0,
+            "reviewer_id": supervision_log.ADAPTIVE_REVIEWER_ID,
+            "authority_key_sha256": self.fixture.public_key_sha,
+            "observed_at": "2026-08-10T00:00:00+00:00",
+            "review_root": "",
+            "signature_base64": "",
+        }
+        value["review_root"] = supervision_log.digest(
+            supervision_log.tracker_authoring_profile_review_root_material(value)
+        )
+        signed = dict(value)
+        signed.pop("signature_base64")
+        content = self.fixture.root / "tracker-authoring-profile-review-to-sign.json"
+        signature = self.fixture.root / "tracker-authoring-profile-review.sig"
+        content.write_bytes(supervision_log.canonical(signed))
+        subprocess.run(
+            [
+                str(supervision_log.ADAPTIVE_REVIEW_OPENSSL_PATH),
+                "pkeyutl",
+                "-sign",
+                "-inkey",
+                str(self.fixture.private_key),
+                "-rawin",
+                "-in",
+                str(content),
+                "-out",
+                str(signature),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        value["signature_base64"] = base64.b64encode(
+            signature.read_bytes()
+        ).decode("ascii")
+        return value
 
     def write_tracker(
         self, path: Path, blocks: list[tuple[str, list[int], str]]
@@ -469,7 +542,10 @@ Stop before the next Block mutation.
             "resume_block": self.packet["resume_block"],
             "author_id": self.packet["author_id"],
             "application_owner_id": self.packet["application_owner_id"],
-            "reviewer_id": supervision_log.ADAPTIVE_REVIEWER_ID,
+            "reviewer_id": self.packet["reviewer_id"],
+            "mechanical_watcher_id": self.packet["mechanical_watcher_id"],
+            "adjudicator_id": self.packet["adjudicator_id"],
+            "fix_executor_id": self.packet["fix_executor_id"],
             "authoring_profile_source_revision": self.packet[
                 "authoring_profile_source_revision"
             ],
@@ -620,6 +696,9 @@ Stop before the next Block mutation.
         duplicate_record = self.record_program_revision()
         self.assertFalse(accepted["duplicate"])
         self.assertTrue(duplicate_record["duplicate"])
+        self.assertEqual(
+            duplicate_record["next_action"], accepted["next_action"]
+        )
         self.assertEqual(accepted["record"]["review_disposition"], "accepted")
         self.fixture.tracker_path.write_bytes(self.proposal.read_bytes())
         with self.assertRaisesRegex(
@@ -703,8 +782,8 @@ Stop before the next Block mutation.
             self.record_program_revision()
         self.proposal.write_text(
             self.proposal.read_text(encoding="utf-8").replace(
-                "Revised structural application",
-                "Corrected structural application",
+                "| 8 | source-block-8 |",
+                "| 8 | corrected-source-block-8 |",
             ),
             encoding="utf-8",
         )
@@ -862,6 +941,63 @@ Stop before the next Block mutation.
                 str(accepted["record"]["record_id"]), mixed_commit
             )
 
+    def test_application_currentness_change_during_policy_update_is_rejected(self) -> None:
+        accepted = self.record_program_revision()
+        application_commit = self.apply_proposal()
+        directory = self.fixture.root / self.fixture.target
+        before = supervision_log.read_json(directory / "policy.json")[
+            "implementation_range"
+        ]
+        original_write = supervision_log.write_policy_version
+
+        def write_with_currentness_change(*args, **kwargs):
+            if kwargs.get("kind") == "implementation-range-amend":
+                self.fixture.tracker_path.write_text(
+                    self.fixture.tracker_path.read_text(encoding="utf-8")
+                    + "\nRepository-owned later tracker change.\n",
+                    encoding="utf-8",
+                )
+                subprocess.run(
+                    [
+                        "/usr/bin/git",
+                        "-C",
+                        self.fixture.repository_root,
+                        "add",
+                        "tracker.md",
+                    ],
+                    check=True,
+                )
+                subprocess.run(
+                    [
+                        "/usr/bin/git",
+                        "-C",
+                        self.fixture.repository_root,
+                        "commit",
+                        "-q",
+                        "-m",
+                        "advance tracker after application validation",
+                    ],
+                    check=True,
+                )
+            return original_write(*args, **kwargs)
+
+        with (
+            mock.patch.object(
+                supervision_log,
+                "write_policy_version",
+                side_effect=write_with_currentness_change,
+            ),
+            self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "changed during the range update",
+            ),
+        ):
+            self.range_amend(
+                str(accepted["record"]["record_id"]), application_commit
+            )
+        after = supervision_log.read_json(directory / "policy.json")
+        self.assertEqual(after["implementation_range"], before)
+
     def test_stale_packet_and_signature_fail_before_event_append(self) -> None:
         stale = copy.deepcopy(self.packet)
         stale["resume_block"] = 8
@@ -910,10 +1046,36 @@ Stop before the next Block mutation.
                 authoring_thread_id=self.policy["runtime"]["watcher_thread_id"],
                 runtime=self.policy["runtime"],
                 repository_root=self.fixture.repository_root,
+                profile_review=self.profile_review,
             )
 
     def test_authoring_profile_resolves_exact_maintained_source_revision(self) -> None:
         profile = self.policy["program_revision_authoring_profile"]
+        self.assertEqual(
+            profile["profile_source_path"],
+            "docs/software-factory-tracker-authoring-supervision-implementation-tracker.md",
+        )
+        self.assertEqual(profile["profile_revision"], self.fixture.target_revision)
+        self.assertEqual(profile["profile_root"], profile["profile_source_root"])
+        self.assertEqual(
+            profile["profile_acceptance_record_id"], self.profile_review["record_id"]
+        )
+        self.assertEqual(
+            profile["profile_acceptance_root"], self.profile_review["review_root"]
+        )
+        self.assertEqual(
+            profile["mechanical_watcher_id"], self.policy["runtime"]["watcher_thread_id"]
+        )
+        self.assertEqual(
+            profile["semantic_reviewer_id"],
+            self.policy["runtime"]["base_reviewer_thread_id"],
+        )
+        self.assertEqual(
+            profile["adjudicator_id"], self.policy["runtime"]["reviewer_thread_id"]
+        )
+        self.assertEqual(
+            profile["fix_executor_id"], self.policy["runtime"]["fix_executor_thread_id"]
+        )
         source_bytes = subprocess.run(
             [
                 "/usr/bin/git",
@@ -949,6 +1111,15 @@ Stop before the next Block mutation.
             "profile binding differs",
         ):
             supervision_log.validate_policy(changed_policy)
+        changed_review = copy.deepcopy(self.profile_review)
+        changed_review["signature_base64"] = base64.b64encode(b"x" * 64).decode()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "signature verification failed",
+        ):
+            supervision_log.validate_tracker_authoring_profile_review(
+                changed_review
+            )
 
     def test_exact_explicit_range_maps_to_successor_union_without_contraction(self) -> None:
         directory = self.fixture.root / self.fixture.target

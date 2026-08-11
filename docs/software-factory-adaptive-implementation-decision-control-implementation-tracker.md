@@ -2365,6 +2365,40 @@ delta, and a local correction incorrectly escalated to structural change.
   provenance/topology, and `B8-F10` retry resume rehydration. The corrective
   successor must bind each ID to a focused negative regression and fresh
   exact-revision review before acceptance.
+- Rejected corrective checkpoint
+  `af27d0e9b4527a42ebee589b64ade364fe667459` retained five open review
+  findings. `B8-F06` invariant: tracker-wide Block/range/handoff prose is part
+  of structural currentness; input: stale prose with unchanged control indexes;
+  expected: rejection; evidence: the focused builder accepted the changed
+  prose. `B8-F07` invariant: findings on any canonical current program surface
+  can be corrected; input: a source-map-only correction with exact lineage;
+  expected: acceptance; evidence: the Block-only projection rejected it.
+  `B8-F09` invariant: structural authoring resolves an independently accepted
+  tracker-authoring profile and exact runtime actors; input: a generic policy
+  blob plus substitute role IDs; expected: rejection; evidence: the binding
+  accepted that substitute. `B8-F10` invariant: an identical event retry
+  rehydrates its next action; input: retry after canonical event append;
+  expected: the original installation action; evidence: the duplicate response
+  omitted it. `B8-F11` invariant: application HEAD and tracker bytes remain
+  current at canonical policy write; input: repository change after validation;
+  expected: retry-current-state with the prior range restored; evidence: the
+  stale range amendment was recorded.
+- Routed correction `EVT-000211` acknowledged items 2115–2116 as delegated
+  provenance rather than direct-user authority. The diagnostic record is
+  retained, while its active nomenclature candidate was removed from runtime
+  identifiers, persisted fields, commands, fixtures, tests, and contracts.
+  The resumed delta contains only `B8-F06`, `B8-F07`, `B8-F09`, `B8-F10`, and
+  `B8-F11`; effectiveness evidence and exact independent review remain pending.
+- Narrow resumed proof before exact-revision review: authoring `42/42`,
+  implementation `69/69`, supervision `297/297`, release `17/17`, and focused
+  program-revision `11/11` passed; the full tracker verifier passed all 18
+  Blocks. Each naturally required fixed Skill Creator validator first attempt
+  exited `0` with output root `db349825903d66adffea3ecf1bd8e1803043e8a71cf1a051235dabc5371f5bb0`;
+  the per-command identities were `author-implementation-trackers`,
+  `implement-tracker-blocks`, and `supervise-tracker-runs`, using runtime root
+  `179301dcb41ea78accc3fa0048a7e6f6710d891945a751a34addd622020c1818`
+  and validator root
+  `6cc9dc3199c935916cf6f73fcbbbb0e3bb1b58c8f5109fefa499978908164f51`.
 - Block 8 remains `in-progress`; exact source acceptance, release, activation,
   installed outcome, and final completion evidence are pending.
 
