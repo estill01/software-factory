@@ -4148,6 +4148,15 @@ automations.
   the accepted operation coordinator and current projections. Do not write
   policy/history JSON or automation TOML, add a settings store/scheduler, read
   or send Gmail, or open any Block 15+ control.
+- Continuation acknowledgement and work start: routed incident
+  `INC-20260811-001923-2AADC3` is continuation evidence only and does not replace
+  the direct-user authority above. The earlier platform usage-limit failure did
+  not terminalize this run. From exact pushed activation `dbf765c`, Block 14
+  work resumed by reading the maintained `adjust` field/range contract, current
+  validated policy/history shape, route-purpose/role bindings, and exact
+  watcher, meta-review, and optional Gmail automation schedule mappings. No
+  accepted Block was reopened, no policy/history or automation manifest was
+  mutated, and Blocks 15–25 remain closed.
 
 ### Stop
 
