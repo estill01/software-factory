@@ -511,7 +511,7 @@ the relevant authority and evidence contract.
 | 13 | Semantic supervision review requests | 7, 10, 11 | `accepted` |
 | 14 | Supervision policy and cadence administration | 7, 10, 11 | `accepted` |
 | 15 | Mission and target/tracker binding repair | 7, 10, 11 | `accepted` |
-| 16 | Role-task binding repair | 7, 10, 11 | `not-started` |
+| 16 | Role-task binding repair | 7, 10, 11 | `in-progress` |
 | 17 | Automation binding repair | 7, 10, 11 | `not-started` |
 | 18 | Supervision pause and resume | 7, 10, 11 | `not-started` |
 | 19 | Same-target mission succession | 7, 10, 11 | `not-started` |
@@ -4595,7 +4595,7 @@ lifecycle, continuity, report, evolution, or terminal operations.
 
 ## Block 16 — Role-task binding repair
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -4691,7 +4691,21 @@ the named route gate. Never search or mutate unrelated roles.
 
 ### Completion evidence
 
-Pending.
+- Activation: Block 16 started automatically from accepted and pushed Block 15
+  checkpoint `3b960552010bc21edaa3757da84dbbbe42e46e01`, tree
+  `6deeccfa2ccfa2e2cf30a7d193e01a231f95e249`; dependencies 7, 10, and 11
+  are accepted, checkout/upstream are exact at `0 0`, and Blocks 17–25 remain
+  unopened. Governing implementation authority remains direct-user item 44 at
+  `codex:019fe547-e054-7ca0-9940-ec4aa146df78:019fe572-0536-7692-8505-c8624eefa7ab:item-44`
+  under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`;
+  the requested range remains Blocks 0–25.
+- Work-start boundary: inspect the exact maintained task, policy/bind, and route
+  owners and select only one supported role/task repair with separate task and
+  canonical policy postconditions. Current live project association is
+  unavailable, so live state remains read-only and mutation proof will use a
+  disposable exact group/task. Do not infer candidates from labels, create a
+  generic role directory, touch automation bindings, or open Block 17.
 
 ### Stop
 
