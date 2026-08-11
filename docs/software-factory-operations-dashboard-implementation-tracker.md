@@ -1,7 +1,7 @@
 # Software Factory Operations Dashboard Implementation Tracker
 
 - Tracker status: `in-progress`
-- Tracker sequence: Blocks 0–28
+- Tracker sequence: Blocks 0–29
 - Repository: `https://github.com/estill01/software-factory.git`
 - Governing objective: direct user request in Codex task
   `019fe547-e054-7ca0-9940-ec4aa146df78`, 2026-08-08: provide a dashboard
@@ -15,7 +15,9 @@
   glance. Direct design refinement routed from task
   `019fef2b-3f0d-7d02-96d5-d1bf3ff1a62d`, 2026-08-10: selectively adapt the
   supplied Beautiful UI Task Rows, Filter Table, and Diff Table source into the
-  existing sparse shell while preserving exact data/owner contracts.
+  existing sparse shell while preserving exact data/owner contracts; show the
+  maintained-verifier total Block count and every current active-Block claim on
+  Factory Floor and tracker surfaces without coalescing conflicts.
 - Planning baseline: repository commit
   `c7d4efce3e3bf5fb3a8dbc4d9ab0db0ef2cd89bd`. The audit began at predecessor
   `e2b7064a7a226409518a883ecec88661469309b8` while unrelated supervision work
@@ -30,7 +32,7 @@ Create a local, single-operator Software Factory factory-floor dashboard that
 answers, without shell archaeology:
 
 1. What is the Factory doing now, in which project, task, run, tracker, and
-   Block?
+   Block or independently reported active Blocks?
 2. What has it done, what evidence establishes the result, and what remains
    open or stale?
 3. What do cross-project throughput, availability, review, incident, decision,
@@ -42,9 +44,9 @@ answers, without shell archaeology:
 
 The default experience is a factory floor: one row/card per running or recently
 active implementation, directly paired with the supervisor group watching it,
-what that group is supervising, current Block/checkpoint, last and next check,
-open issue posture, recent supervisory action, and latest evidence-bound
-conclusion.
+what that group is supervising, exact tracker total, every current source-
+labeled active Block/checkpoint, last and next check, open issue posture, recent
+supervisory action, and latest evidence-bound conclusion.
 
 The dashboard is a maintained projection and control surface over existing
 owners. It does not become a second tracker, task system, event ledger,
@@ -69,8 +71,9 @@ Completion means:
   their exact evidence and target;
 - tracker review exposes the capability frame, dependency order, Block status,
   acceptance, negative tests, completion evidence, verifier profile and
-  diagnostics, Git currentness, and mapped execution state without rewriting
-  tracker truth;
+  diagnostics, Git currentness, exact parsed total, separately sourced current
+  active-Block claims, and mapped execution state without rewriting tracker
+  truth;
 - cross-project metrics preserve source coverage and limitations, label cost as
   an estimate rather than billing telemetry, and let the operator reach the
   underlying records;
@@ -129,7 +132,7 @@ Completion means:
   official Codex App Server contract at
   `https://learn.chatgpt.com/docs/app-server`; plus the selected source supplied
   by <https://beautiful-ui-five.vercel.app/> through its per-component `Copy`
-  actions and frozen in Blocks 17, 18, and 20.
+  actions and frozen in Blocks 17–19 and 21.
 - Product thesis and intended effect: a simple, clean, progressively disclosed
   factory-floor dashboard should make Factory truth legible and actionable
   across projects. Observation is broad; mutation remains narrow, explicit,
@@ -383,9 +386,9 @@ an explicit compatibility change in Block 1:
 | Official Codex App Server protocol | installed CLI `codex-cli 0.145.0` observed during planning; regenerate in Block 5 | adapt | 5 | handshake, schema generation, task/turn streaming, approvals/input, and fail-closed compatibility |
 | Beautiful UI Task Rows | `components/TaskRows.tsx`; copied source SHA-256 `665e31820b041600662fcffff044d6a4994ecd18059d5e8ef1026251bf996b0e` | adapt | 17 | retain compact disclosure grammar; remove demo timers/data/retry and bind typed Factory Floor truth |
 | Beautiful UI Filter Table | `components/FilterTable.tsx`; copied source SHA-256 `4a48c51cd6e5c0aa3bab91aab9975005518fd82dd294d059e402c2bb4ce681f4` | adapt | 17, 18 | retain count-chip/filter interaction; add exact/partial/unavailable coverage semantics |
-| Beautiful UI Diff Table | `components/DiffTable.tsx`; copied source SHA-256 `aef76b9473debb1abf8cb3b8fe9cf71cfacd4b13ba03916932b1dd41f3007ab2` | adapt | 18, 20 | retain compact semantic row grammar; remove demo stages/data and bind Git/operation owners |
-| Beautiful UI Sidebar/Chat/Prompt/Recommendation and other gallery components | gallery inspected 2026-08-10 | not adopted | 17, 18, 20 | current sparse shell and maintained controls are a better product fit; do not add cosmetic breadth |
-| Adaptive decision/evolution tracker | plan current at implementation time | not-adopted as live capability | 0, 25 | show planned/unavailable until independently accepted implementation exists |
+| Beautiful UI Diff Table | `components/DiffTable.tsx`; copied source SHA-256 `aef76b9473debb1abf8cb3b8fe9cf71cfacd4b13ba03916932b1dd41f3007ab2` | adapt | 19, 21 | retain compact semantic row grammar; remove demo stages/data and bind Git/operation owners |
+| Beautiful UI Sidebar/Chat/Prompt/Recommendation and other gallery components | gallery inspected 2026-08-10 | not adopted | 17–19, 21 | current sparse shell and maintained controls are a better product fit; do not add cosmetic breadth |
+| Adaptive decision/evolution tracker | plan current at implementation time | not-adopted as live capability | 0, 26 | show planned/unavailable until independently accepted implementation exists |
 | Tracker-authoring supervision tracker | plan current at implementation time | not-adopted as live capability | 0, 11 | do not expose a working control until implementation is proven |
 
 ## 5. Scope, non-goals, and proportionality
@@ -444,7 +447,7 @@ the relevant authority and evidence contract.
 
 ## 6. Block execution contract
 
-1. Execute Blocks 0–28 in dependency order. Parallel work is allowed only
+1. Execute Blocks 0–29 in dependency order. Parallel work is allowed only
    where the status table has no unmet dependency and each worker has disjoint
    files and one declared integration owner.
 2. Re-read the selected Block and inspect the live repository, external
@@ -531,17 +534,18 @@ the relevant authority and evidence contract.
 | 15 | Mission and target/tracker binding repair | 7, 10, 11 | `accepted` |
 | 16 | Role-task binding repair | 7, 10, 11 | `accepted` |
 | 17 | Factory Floor operational rows and exact count filters | 6, 7 | `not-started` |
-| 18 | Tracker review queue, exact filters, and source diffs | 3, 8 | `not-started` |
-| 19 | Automation binding repair | 7, 10, 11 | `not-started` |
-| 20 | Owner-backed operation semantic diffs | 10, 14, 15, 16, 18, 19 | `not-started` |
-| 21 | Supervision pause and resume | 7, 10, 11 | `not-started` |
-| 22 | Same-target mission succession | 7, 10, 11 | `not-started` |
-| 23 | Successor-task continuity | 7, 10, 11 | `not-started` |
-| 24 | Weekly supervision report workflow | 9, 10, 11, 13 | `not-started` |
-| 25 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `not-started` |
-| 26 | Terminal report workflow | 9, 10, 11, 13, 24 | `not-started` |
-| 27 | Request-stop and terminal shutdown | 7, 9, 10, 11, 26 | `not-started` |
-| 28 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27 | `not-started` |
+| 18 | Tracker review queue and exact count filters | 3, 8 | `not-started` |
+| 19 | Tracker semantic source diffs | 3, 8 | `not-started` |
+| 20 | Automation binding repair | 7, 10, 11 | `not-started` |
+| 21 | Owner-backed operation semantic diffs | 10, 14, 15, 16, 19, 20 | `not-started` |
+| 22 | Supervision pause and resume | 7, 10, 11 | `not-started` |
+| 23 | Same-target mission succession | 7, 10, 11 | `not-started` |
+| 24 | Successor-task continuity | 7, 10, 11 | `not-started` |
+| 25 | Weekly supervision report workflow | 9, 10, 11, 13 | `not-started` |
+| 26 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `not-started` |
+| 27 | Terminal report workflow | 9, 10, 11, 13, 25 | `not-started` |
+| 28 | Request-stop and terminal shutdown | 7, 9, 10, 11, 27 | `not-started` |
+| 29 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 | `not-started` |
 
 Required order:
 
@@ -554,13 +558,13 @@ Required order:
 {2, 4, 5} → 10
 {8, 10} → 11
 {6, 7} → 17
-{3, 8} → 18
-{7, 10, 11} → {12, 13, 14, 15, 16, 19, 21, 22, 23}
-{10, 14, 15, 16, 18, 19} → 20
-{9, 10, 11, 13} → {24, 25}
-{9, 10, 11, 13, 24} → 26
-{7, 9, 10, 11, 26} → 27
-{6–27} → 28
+{3, 8} → {18, 19}
+{7, 10, 11} → {12, 13, 14, 15, 16, 20, 22, 23, 24}
+{10, 14, 15, 16, 19, 20} → 21
+{9, 10, 11, 13} → {25, 26}
+{9, 10, 11, 13, 25} → 27
+{7, 9, 10, 11, 27} → 28
+{6–28} → 29
 ```
 
 Blocks with satisfied direct dependencies may proceed concurrently; exact order
@@ -569,24 +573,31 @@ is governed by the dependency table, not diagram layout.
 Renumbering note: commit `0fe280cc1deac763b906755265c7d0e53307ff0c`
 is preserved as the rejected predecessor for incident
 `INC-20260809-073305-B81DCB`. Its old Block 12 was split into current Blocks
-12–16, 19, and 21–27 at independent owner, acceptance, recovery, and Stop
-boundaries; its old Block 13 moved mechanically to Block 28. Blocks 0–11 remain substantively
+12–16, 20, and 22–28 at independent owner, acceptance, recovery, and Stop
+boundaries; its old Block 13 moved mechanically to Block 29. Blocks 0–11 remain substantively
 unchanged. Exact-review-rejected successor commit
 `cbe7c55cc2eae20d3c2bd70704cf5a5fc93546e4` is also preserved: its Block 15
-was split into current Blocks 15, 16, and 19, its Blocks 16–19 moved to current
-Blocks 21–24, its Block 20 was narrowed to current Block 25's derived
+was split into current Blocks 15, 16, and 20, its Blocks 16–19 moved to current
+Blocks 22–25, its Block 20 was narrowed to current Block 26's derived
 evaluation/disposition owner, and its Blocks 21–23 moved to current Blocks
-26–28. Prior structural verification/review remains diagnostic rather than
+27–29. Prior structural verification/review remains diagnostic rather than
 current completion proof.
 
 Beautiful UI source-baseline amendment note: the 2026-08-10 direct design
-steer inserted current Blocks 17, 18, and 20 at independent surface/owner and
-acceptance boundaries. The former Block 17 moved to current Block 19, former
-Blocks 18–25 moved to current Blocks 21–28, and accepted Blocks 0–16 remain
-substantively unchanged except mechanically affected forward references and
-range language. Historical evidence that names the then-current 0–25 range or
-old Block numbers remains evidence for that exact revision, not current
-numbering.
+steer first produced rejected authoring commit `8fb09cc9dfe2d5207f9cc3992e7a90924bee0689`,
+whose Block 18 combined independently acceptable tracker queue/count discovery
+and selected-tracker source-diff inspection. The corrected revision keeps the
+Factory Floor surface in current Block 17, splits tracker queue/count review and
+tracker source diffs into current Blocks 18 and 19, and keeps owner-backed
+operation diffs in current Block 21. The former Block 17 moved to current Block
+20, former Blocks 18–25 moved to current Blocks 22–29, and accepted Blocks 0–16
+remain substantively unchanged except mechanically affected forward references
+and range language. The exact-total and plural active-Block additions are bound
+to the direct requirement routed from task
+`019fef2b-3f0d-7d02-96d5-d1bf3ff1a62d` under allowed route action SHA-256
+`54ff49b846b7fcf7628c458f1d83b890f2dec5512574a2a0871b31dbd5e87148`.
+Historical evidence that names a then-current range or old Block numbers remains
+evidence for that exact revision, not current numbering.
 
 Data-backing clarification: the direct 2026-08-09 operator request to ensure
 that the application is backed by primary Software Factory functionality and
@@ -4369,7 +4380,7 @@ mission or creating a parallel supervision root.
   reset, or creation of another group.
 - Verify the next canonical policy/history record, exact active tuple, unchanged
   mission semantics, and absence of another active group for that tuple.
-- Treat materially different mission intent as Block 22 mission succession,
+- Treat materially different mission intent as Block 23 mission succession,
   never a repair or `bind` overwrite.
 
 ### Scope and non-goals
@@ -4728,12 +4739,12 @@ the named route gate. Never search or mutate unrelated roles.
 - Activation: Block 16 started automatically from accepted and pushed Block 15
   checkpoint `3b960552010bc21edaa3757da84dbbbe42e46e01`, tree
   `6deeccfa2ccfa2e2cf30a7d193e01a231f95e249`; dependencies 7, 10, and 11
-  are accepted, checkout/upstream are exact at `0 0`, and Blocks 17–28 remain
+  are accepted, checkout/upstream are exact at `0 0`, and Blocks 17–29 remain
   unopened. Governing implementation authority remains direct-user item 44 at
   `codex:019fe547-e054-7ca0-9940-ec4aa146df78:019fe572-0536-7692-8505-c8624eefa7ab:item-44`
   under mission root
   `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`;
-  the requested range remains the full current Blocks 0–28.
+  the requested range remains the full current Blocks 0–29.
 - Work-start boundary: inspect the exact maintained task, policy/bind, and route
   owners and select only one supported role/task repair with separate task and
   canonical policy postconditions. Current live project association is
@@ -4814,7 +4825,7 @@ the named route gate. Never search or mutate unrelated roles.
   attempted. The product and proof commits are pushed with local/upstream
   `0 0`; the full-profile verifier passed all 26 Blocks with zero errors and
   warnings, all 30 verifier tests passed, and diff checks are clean. The
-  then-current Block 17 automation repair, now Block 19, remained unopened.
+  then-current Block 17 automation repair, now Block 20, remained unopened.
   Block 16 stayed `in-progress` pending fresh independent exact-revision review.
 - Rejected exact-revision candidate: independent audit REJECTED evidence commit
   `8a9c8f38ae7985d5e9f8647bb18d5ef427acd575`, tree
@@ -4888,7 +4899,7 @@ the named route gate. Never search or mutate unrelated roles.
   `7e9d05efc5e28cc053bccc727b2e76ac35aec46c` is running on
   loopback port 8787 with healthy complete coverage and available App Server;
   no live policy mutation was attempted. Local/upstream were `0 0`, the
-  then-current Block 17 automation repair, now Block 19, remained unopened, and
+  then-current Block 17 automation repair, now Block 20, remained unopened, and
   Block 16 remained `in-progress` pending mechanical proof and fresh
   exact-revision review.
 - Rejected owner-root successor review: independent exact-revision audit
@@ -4952,7 +4963,8 @@ Status: `not-started`
 ### Objective
 
 Make implementations, runs, and supervisor groups scannable as compact,
-expandable, source-backed operational rows with honest status-filter counts.
+expandable, source-backed operational rows with honest tracker totals, active-
+Block claims, and status-filter counts.
 
 ### Target-product capability delta
 
@@ -4993,14 +5005,25 @@ expandable, source-backed operational rows with honest status-filter counts.
   unsupported retry behavior.
 - Make each collapsed Factory Floor row expose exact project and implementation
   task identity, task lifecycle, supervision run/mission/group and named role
-  identities, current tracker Block/checkpoint or unavailable posture,
+  identities, exact total parsed tracker Block count, every current active Block
+  number and concise tracker-owned heading, checkpoint or unavailable posture,
   attention/failure state, and observation freshness without merging those
-  identities into one label.
+  identities into one label. Derive the total only from the maintained
+  tracker/verifier projection, never from returned rows or heading heuristics.
+- Preserve tracker-status, current implementation-task, and current supervision-
+  mission active-Block claims as separately source-labeled values. If they
+  disagree, show each claim and degrade the row as `Conflict`; never coalesce
+  them or carry a predecessor mission's active Block into the current row.
+  Render `None active`, `Unavailable`, or `Partial` when those are the exact
+  source postures. Show accepted/total only when parsed coverage is complete;
+  do not synthesize a percentage.
 - Make expansion show only source-backed checkpoints, exact open issues and
   bounded recovery, maintained-owner actions, current conclusions, and safe
-  workspace/source links. Reuse existing projections and operation activity;
-  add only the minimum typed read-only projection fields required for an exact
-  current mission identity or coverage label.
+  workspace/source links, including the exact tracker heading/status plus the
+  task and supervision records supporting each active claim. Reuse existing
+  projections and operation activity; add only the minimum typed read-only
+  projection fields required for exact current-mission identity, tracker total,
+  plural active claims, title, or coverage label.
 - Adapt the supplied `FilterTable.tsx` chip structure for `All`,
   `Active/Running`, `Attention`, `Blocked/Failed`, and `Completed`, while
   retaining current project/severity/time controls. Define every category from
@@ -5039,10 +5062,12 @@ filters, and viewports rather than unrelated workspaces.
 
 ### QA and independent review
 
-- Test exact and conflicting identities, active/completed/failed/unavailable
-  lifecycle, missing mission/role/checkpoint, critical attention, partial
-  sources, truncated rows, stale observations, long IDs/text, and no invented
-  progress or recovery.
+- Test exact and conflicting identities; one, multiple, and no active Blocks;
+  task/tracker/supervision disagreement; predecessor-only and stale mission
+  claims; malformed, zero-Block, partial, and truncated tracker projections;
+  active/completed/failed/unavailable lifecycle; missing mission/role/
+  checkpoint; critical attention; stale observations; long Block headings,
+  IDs, and text; and no invented progress or recovery.
 - Browser-test disclosure by pointer and keyboard, `aria-expanded`/controlled
   region linkage, focus visibility, reduced motion, desktop/tablet/mobile, and
   no horizontal overflow.
@@ -5056,6 +5081,10 @@ filters, and viewports rather than unrelated workspaces.
   represented implementation and supervisor group without identity merging;
   expansion reaches exact checkpoints, issues/recovery, actions, conclusions,
   and sources.
+- Every supported row shows an exact maintained-verifier total such as
+  `26 Blocks` and every current active Block as exact number plus tracker-owned
+  heading. None, unavailable, partial, and conflicting source claims are
+  explicit, and expansion reaches the exact tracker/task/supervision evidence.
 - Filter counts and accessible labels are exact, explicitly lower-bound/
   returned, partial, or unavailable according to owner coverage.
 - The adapted rows remain usable at all maintained viewports and by keyboard,
@@ -5065,8 +5094,11 @@ filters, and viewports rather than unrelated workspaces.
 ### Negative tests
 
 - Reject an exact-looking chip count from truncated/partial rows, a progress
-  percentage not owned by the tracker, or a current supervisor label derived
-  from predecessor-only evidence.
+  percentage not owned by the tracker, a total derived from visible rows or
+  heading heuristics, a plural active set collapsed to one Block, or a current
+  active/supervisor label derived from predecessor-only evidence.
+- Reject a confident total for a malformed/zero-Block/partial projection or a
+  unified active label when tracker, task, and supervision claims disagree.
 - Reject disclosure that merges task/run/mission/group IDs, hides a critical
   failure, fetches unbounded history, or exposes demo retry controls.
 
@@ -5081,42 +5113,39 @@ semantic diffs, pause/resume, continuity, reporting, evolution, or lifecycle.
 
 ---
 
-## Block 18 — Tracker review queue, exact filters, and source diffs
+## Block 18 — Tracker review queue and exact count filters
 
 Status: `not-started`
 
 ### Objective
 
-Make tracker review a compact source-backed queue whose filters and semantic
-changes remain exact, bounded, and read-only.
+Make tracker review a compact source-backed queue whose progress, active-Block
+claims, and filter counts remain exact, bounded, and read-only.
 
 ### Target-product capability delta
 
 - Posture: `consequential`.
-- Intended capability gain: let the operator find the tracker needing review,
-  understand current progress/attention, and inspect exact source changes
-  without entering an editor or inferring acceptance.
-- Potential capability loss or regression: status normalization or attractive
-  red/green diffs could hide verifier/Git disagreement, imply acceptance, or
-  present a bounded working-tree excerpt as the complete change.
+- Intended capability gain: let the operator find the tracker needing review
+  and understand its exact total, current active work, progress, and attention
+  posture without opening a deep inspector.
+- Potential capability loss or regression: status normalization or counts from
+  bounded rows could hide verifier/task/supervision disagreement, imply
+  acceptance, or present one active Block when multiple claims exist.
 - Protected-capability effect: preserves tracker Markdown/Git/verifier
   authority, exact content/currentness roots, source drill-down, partial
   coverage, and the absence of a second authoring or acceptance path.
 - Architecture and operating-model effect: adapts the existing tracker index
-  and read-only detail projection plus the current Git owner; it introduces no
-  dashboard tracker writer.
-- Tradeoff and source evidence: the selected Beautiful UI filter/diff grammar
-  is denser and easier to scan, but all visual change semantics must be bound to
-  exact owner-projected records rather than animated demo state.
+  and read-only progress projection; it introduces no dashboard tracker writer,
+  task-state owner, or supervision interpretation.
+- Tradeoff and source evidence: the selected Beautiful UI count-chip grammar
+  is denser and easier to scan, but every total and active claim must remain
+  bound to an exact owner projection rather than visible rows or demo state.
 
 ### Inputs and dependencies
 
 - Accepted Blocks 3 and 8 tracker/Git projection and review workspace.
 - Supplied Beautiful UI `components/FilterTable.tsx` at SHA-256
   `4a48c51cd6e5c0aa3bab91aab9975005518fd82dd294d059e402c2bb4ce681f4`.
-- Supplied Beautiful UI `components/DiffTable.tsx`, copied through the site's
-  `Copy` action, at SHA-256
-  `aef76b9473debb1abf8cb3b8fe9cf71cfacd4b13ba03916932b1dd41f3007ab2`.
 
 ### Required work
 
@@ -5127,6 +5156,127 @@ changes remain exact, bounded, and read-only.
 - Make counts exact only for complete unbounded tracker coverage; otherwise
   render returned/lower-bound, partial, or unavailable posture in visible and
   accessible labels.
+- Show the maintained verifier's exact total parsed Block count on every
+  supported tracker row and selected-tracker progress summary. Beside it show
+  every current active Block as exact number plus concise tracker-owned heading;
+  do not assume the set is singular or derive it from visible rows/headings.
+- Keep tracker-status, current implementation-task, and current supervision-
+  mission active-Block claims separately source-labeled. Display all claims and
+  degrade to `Conflict` on disagreement. Exclude predecessor-only claims and
+  render `None active`, `Unavailable`, or `Partial` exactly when warranted.
+- Provide drill-down from every active claim to the exact tracker heading and
+  status plus the task/supervision evidence supporting it. Show accepted/total
+  only with complete parsed coverage; never fabricate a percentage or equate
+  accepted count with active work.
+- Keep the workspace read-only: no content editing, author/review/implement
+  start, status mutation, acceptance, staging, or direct Git write. Preserve
+  sparse page chrome and avoid redundant page-explaining headers.
+
+### Scope and non-goals
+
+- In scope: tracker list filtering/counts, exact total and plural active-Block
+  progress claims, conflict/coverage posture, and exact source navigation.
+- Not in scope: tracker source diffs, operation previews, a repository diff
+  viewer, tracker editor, acceptance workflow, failure-mode/recovery workspace,
+  or revival of the previously omitted side-task scope without canonical
+  authority.
+- The adapted filter component may be reused later, but this Block owns only
+  tracker queue/progress discovery.
+
+### Deliverables and recorded state
+
+- Adapted exact-count filter component, bounded typed tracker/progress contract,
+  tracker list/detail integration, provenance note, and focused tests.
+
+### Resource and economy contract
+
+Reuse the maintained tracker/verifier projection and existing current task/
+mission bindings. Do not scan history or fetch source bodies for collapsed
+rows. Widen only for an explicit exact active-claim drill-down.
+
+### QA and independent review
+
+- Test full/partial/unavailable index coverage; malformed and zero-Block
+  trackers; active, blocked, failed, completed, dirty, stale, untracked, and
+  verifier-conflict rows; one active Block, multiple active Blocks, none active,
+  task/tracker/supervision disagreement, stale/predecessor mission, long titles,
+  truncation, safe rendering, and exact source navigation.
+- Browser-test chip selection, URL restoration, active-claim links and screen-
+  reader labels, keyboard behavior, desktop/tablet/mobile, dark mode, and no
+  overflow.
+- Independent tracker/UI review compares totals, active claims, counts, and
+  coverage labels with exact maintained verifier/task/supervision output and
+  verifies no mutation/acceptance path.
+
+### Acceptance
+
+- The operator can find trackers by truthful high-signal posture and every chip
+  count discloses exact, lower-bound/returned, partial, or unavailable coverage.
+- Every supported tracker row and selected progress surface shows the exact
+  parsed total and every current active Block number/title; none, unavailable,
+  partial, predecessor, and conflicting claims remain explicit and source-
+  drillable.
+- No tracker edit, task start, status write, Git write, or acceptance control is
+  exposed.
+
+### Negative tests
+
+- Reject counts derived from only visible/truncated rows, a status inferred from
+  color, an exact total for malformed/zero-Block/partial data, or a total derived
+  from headings rather than the maintained verifier projection.
+- Reject a plural active set collapsed to one, accepted count presented as
+  active, a predecessor claim presented as current, coalesced disagreement, or
+  any UI action that bypasses the maintained authoring/review/implementation
+  owner.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before tracker source diffs, automation binding repair, operation semantic
+diffs, pause/resume, continuity, reporting, evolution, or lifecycle operations.
+
+---
+
+## Block 19 — Tracker semantic source diffs
+
+Status: `not-started`
+
+### Objective
+
+Show bounded, exact semantic changes for one selected tracker without creating
+an editor, acceptance path, or generic repository-diff surface.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: let the operator inspect what changed in the
+  selected tracker and reach the exact before/after source and currentness
+  evidence without shell archaeology.
+- Potential capability loss or regression: an attractive red/green diff could
+  imply acceptance, disclose unrelated repository changes, or present a bounded
+  excerpt as the complete change.
+- Protected-capability effect: preserves tracker Markdown/Git/verifier
+  authority, exact content/currentness roots, partial coverage, safe source
+  drill-down, and the absence of a second authoring or acceptance path.
+- Architecture and operating-model effect: adapts one read-only detail
+  projection through the existing Git/tracker owner; it adds no dashboard
+  tracker writer or browser-side diff authority.
+- Tradeoff and source evidence: the selected compact semantic row grammar is
+  easier to scan than a raw patch, but the owner must supply every comparison
+  and unsupported or unavailable bases remain explicit.
+
+### Inputs and dependencies
+
+- Accepted Blocks 3 and 8 tracker/Git projection and review workspace.
+- Supplied Beautiful UI `components/DiffTable.tsx`, copied through the site's
+  `Copy` action, at SHA-256
+  `aef76b9473debb1abf8cb3b8fe9cf71cfacd4b13ba03916932b1dd41f3007ab2`.
+
+### Required work
+
 - Adapt the supplied `DiffTable.tsx` row structure, semantic added/removed/
   changed styling, compact table grammar, and non-color cues into a bounded
   tracker source-difference view. Remove demo stages, timers, fictitious data,
@@ -5138,25 +5288,24 @@ changes remain exact, bounded, and read-only.
 - Keep long or sensitive unrelated repository diffs out of the payload. A
   truncated diff must state its bound and cannot support an exact no-change or
   complete-change claim.
-- Keep the workspace read-only: no content editing, author/review/implement
-  start, status mutation, acceptance, staging, or direct Git write. Preserve
-  sparse page chrome and avoid redundant page-explaining headers.
+- Keep the view read-only: no content editing, author/review/implement start,
+  status mutation, acceptance, staging, or direct Git write. Preserve sparse
+  page chrome and avoid redundant page-explaining headers.
 
 ### Scope and non-goals
 
-- In scope: tracker list filtering/counts and bounded semantic tracker-source
-  differences through current owners.
-- Not in scope: operation previews, a generic repository diff viewer, tracker
-  editor, acceptance workflow, failure-mode/recovery workspace, or revival of
-  the previously omitted side-task scope without canonical authority.
-- The adapted component may be reused later, but this Block owns only tracker
-  review behavior.
+- In scope: one selected tracker's bounded semantic source differences through
+  the current tracker/Git owners.
+- Not in scope: queue filtering/counts, operation previews, a generic repository
+  diff viewer, tracker editor, acceptance workflow, failure-mode/recovery
+  workspace, or a second Git/tracker owner.
+- The adapted diff component may be reused later, but this Block owns only the
+  selected-tracker source comparison.
 
 ### Deliverables and recorded state
 
-- Adapted exact-count filter and semantic-diff components, bounded typed
-  tracker/Git contract, tracker list/detail integration, provenance note, and
-  focused tests.
+- Adapted semantic-diff component, bounded typed tracker/Git contract, selected-
+  tracker detail integration, provenance note, and focused tests.
 
 ### Resource and economy contract
 
@@ -5167,32 +5316,30 @@ drill-down and never beyond the declared safe tracker-file bound.
 
 ### QA and independent review
 
-- Test full/partial/unavailable index coverage; malformed and zero-Block
-  trackers; active, blocked, failed, completed, dirty, stale, untracked, and
-  verifier-conflict rows; added/removed/changed/no-change; rename/unavailable
-  base; truncation; long lines; safe rendering; and source navigation.
-- Browser-test chip selection, URL restoration, semantic table keyboard/screen-
-  reader cues, desktop/tablet/mobile, dark mode, and no overflow.
-- Independent tracker/UI review compares counts and diff samples with exact
-  maintained verifier and Git output and verifies no mutation/acceptance path.
+- Test added/removed/changed/no-change, rename/unavailable base, dirty/stale/
+  untracked and verifier-conflict state, truncation, long lines, hostile text,
+  safe rendering, exact source navigation, and partial/unavailable owner state.
+- Browser-test semantic table keyboard/screen-reader cues, non-color meaning,
+  desktop/tablet/mobile, dark mode, and no overflow.
+- Independent tracker/UI review compares diff samples with exact maintained Git
+  and verifier output and verifies no unrelated disclosure or mutation/
+  acceptance path.
 
 ### Acceptance
 
-- The operator can find trackers by truthful high-signal posture and every chip
-  count discloses exact, lower-bound/returned, partial, or unavailable coverage.
 - A selected tracker shows bounded added/removed/changed source rows with exact
   owner identity, roots/currentness, limitations, and drill-down; truncated or
   unavailable data never becomes a complete/no-change claim.
-- No tracker edit, task start, status write, Git write, or acceptance control is
-  exposed.
+- No unrelated repository content is exposed and no tracker edit, task start,
+  status write, Git write, or acceptance control exists.
 
 ### Negative tests
 
-- Reject counts derived from only visible/truncated rows, a status inferred from
-  color, or a diff whose before/after root cannot be tied to the selected
-  tracker and Git state.
-- Reject executable/active diff content, unrelated repository disclosure, or a
-  UI action that bypasses the maintained authoring/review/implementation owner.
+- Reject a diff whose before/after root cannot be tied to the selected tracker
+  and current Git state, or whose truncated subset is labeled complete.
+- Reject executable/active diff content, unrelated repository disclosure,
+  browser-derived semantic authority, or a UI action that bypasses the
+  maintained authoring/review/implementation owner.
 
 ### Completion evidence
 
@@ -5205,7 +5352,7 @@ continuity, reporting, evolution, or lifecycle operations.
 
 ---
 
-## Block 19 — Automation binding repair
+## Block 20 — Automation binding repair
 
 Status: `not-started`
 
@@ -5313,7 +5460,7 @@ lifecycle operations.
 
 ---
 
-## Block 20 — Owner-backed operation semantic diffs
+## Block 21 — Owner-backed operation semantic diffs
 
 Status: `not-started`
 
@@ -5336,7 +5483,7 @@ previews without creating another editor, confirmation, or mutation path.
   currentness fingerprints, source drill-down, and direct-write prohibitions.
 - Architecture and operating-model effect: adds a typed read-only semantic
   change projection to the existing operation preview envelope and adapts the
-  Block 18 diff component; it adds no operation or writer.
+  Block 19 diff component; it adds no operation or writer.
 - Tradeoff and source evidence: semantic rows are clearer than prose-only risk
   summaries, but the server owner must supply them and unsupported/unavailable
   comparisons remain explicit rather than guessed.
@@ -5344,8 +5491,8 @@ previews without creating another editor, confirmation, or mutation path.
 ### Inputs and dependencies
 
 - Accepted Block 10 operation framework; accepted Blocks 14–16 policy and
-  binding operations; accepted Block 19 automation binding repair.
-- Accepted Block 18 adapted semantic-diff component and supplied Beautiful UI
+  binding operations; accepted Block 20 automation binding repair.
+- Accepted Block 19 adapted semantic-diff component and supplied Beautiful UI
   `components/DiffTable.tsx` source at SHA-256
   `aef76b9473debb1abf8cb3b8fe9cf71cfacd4b13ba03916932b1dd41f3007ab2`.
 
@@ -5435,7 +5582,7 @@ request-stop, or terminal lifecycle operations.
 
 ---
 
-## Block 21 — Supervision pause and resume
+## Block 22 — Supervision pause and resume
 
 Status: `not-started`
 
@@ -5537,7 +5684,7 @@ reporting, evolution, request-stop, or terminal shutdown.
 
 ---
 
-## Block 22 — Same-target mission succession
+## Block 23 — Same-target mission succession
 
 Status: `not-started`
 
@@ -5649,7 +5796,7 @@ evolution, or changing terminal lifecycle.
 
 ---
 
-## Block 23 — Successor-task continuity
+## Block 24 — Successor-task continuity
 
 Status: `not-started`
 
@@ -5697,7 +5844,7 @@ bound successor without allowing the source mission to stop prematurely.
   as direct authority.
 - Call the maintained successor transition gate and keep the source active until
   `source_stop_permitted=true` from current `work-started` evidence.
-- Label successor-task continuity separately from Block 22 same-target mission
+- Label successor-task continuity separately from Block 23 same-target mission
   succession in controls, history, metrics, and attention.
 
 ### Scope and non-goals
@@ -5760,7 +5907,7 @@ or terminal shutdown.
 
 ---
 
-## Block 24 — Weekly supervision report workflow
+## Block 25 — Weekly supervision report workflow
 
 Status: `not-started`
 
@@ -5872,7 +6019,7 @@ Stop before terminal reporting, Factory evolution, request-stop, or shutdown.
 
 ---
 
-## Block 25 — Factory evolution evaluation and disposition
+## Block 26 — Factory evolution evaluation and disposition
 
 Status: `not-started`
 
@@ -6003,7 +6150,7 @@ acceptance.
 
 ---
 
-## Block 26 — Terminal report workflow
+## Block 27 — Terminal report workflow
 
 Status: `not-started`
 
@@ -6026,7 +6173,7 @@ terminal supervision report without stopping or pausing the run.
   and shutdown separation.
 - Architecture and operating-model effect: exposes the maintained terminal-
   report owner as one staged operation dependent on report history; shutdown
-  remains Block 27.
+  remains Block 28.
 - Tradeoff and source evidence: required currentness, cognitive review,
   verification, and delivery add latency but are mandated by the terminal report
   and supervision lifecycle contracts.
@@ -6035,7 +6182,7 @@ terminal supervision report without stopping or pausing the run.
 
 - Accepted Block 9 report/history workspace.
 - Accepted Blocks 10 and 11 operation/task owners.
-- Accepted Block 13 semantic-review handling and Block 24 verified prior-report
+- Accepted Block 13 semantic-review handling and Block 25 verified prior-report
   workflow.
 - Current terminal-report/outcome/delivery contract from Block 0.
 
@@ -6116,7 +6263,7 @@ cross-project acceptance.
 
 ---
 
-## Block 27 — Request-stop and terminal shutdown
+## Block 28 — Request-stop and terminal shutdown
 
 Status: `not-started`
 
@@ -6150,7 +6297,7 @@ owner gate permits source stop.
 
 - Accepted Block 7 run/lifecycle/continuity workspace and Block 9 report view.
 - Accepted Blocks 10 and 11 operation/task owners.
-- Accepted Block 26 verified terminal report workflow.
+- Accepted Block 27 verified terminal report workflow.
 - Current outcome, incident, decision, successor-transition, lifecycle,
   automation, report/delivery, and stop-gate contracts from Blocks 0 and 4.
 
@@ -6172,7 +6319,7 @@ owner gate permits source stop.
   automation state separately.
 - Preserve partial/failure state without automatic retry; expose only the exact
   supported recovery or separately authorized compensating operation.
-- Keep turn interruption, Block 21 pause/resume, Block 26 terminal report, and
+- Keep turn interruption, Block 22 pause/resume, Block 27 terminal report, and
   this terminal workflow visibly distinct in UI and history.
 
 ### Scope and non-goals
@@ -6234,7 +6381,7 @@ that the dashboard is ready.
 
 ---
 
-## Block 28 — Integrated outcome validation and operator handoff
+## Block 29 — Integrated outcome validation and operator handoff
 
 Status: `not-started`
 
@@ -6248,12 +6395,12 @@ off a reproducible local operating workflow.
 
 - Posture: `routine`.
 - Routine or not-applicable justification: this Block validates, documents, and
-  hands off the capability selected and implemented in Blocks 0–27; it may fix
+  hands off the capability selected and implemented in Blocks 0–28; it may fix
   mapped defects but must not add a new product surface or operating model.
 
 ### Inputs and dependencies
 
-- Accepted Blocks 6–27 and all inherited accepted dependencies.
+- Accepted Blocks 6–28 and all inherited accepted dependencies.
 - One frozen release candidate commit, exact runtime/dependency lock, generated
   App Server compatibility root, and current source fixtures.
 - At least three authorized registered local projects with collectively: an
@@ -6279,8 +6426,8 @@ off a reproducible local operating workflow.
   drill-downs, tracker review, metrics/reports, Admin/integration health,
   loading/empty/partial/error/stale/unavailable states, keyboard/focus, long
   content, source links, Factory Floor disclosure/count chips, tracker count
-  chips/source diffs, operation semantic diffs, and no page-level horizontal
-  overflow.
+  chips/total-and-active claims/source diffs, operation semantic diffs, and no
+  page-level horizontal overflow.
 - In the disposable validation project, prove project registration, tracker
   authoring or read-only review as appropriate, bounded implementation start,
   supervision attach if supported, task continue/steer/interrupt distinctions,
@@ -6360,10 +6507,14 @@ work solely to inflate coverage.
   traffic-light reason, current issue, last/next check, action history, and
   latest conclusion against exact live sources through compact accessible
   disclosure; its high-signal counts remain exact/partial/unavailable according
-  to live coverage.
+  to live coverage, and its tracker total plus all task/tracker/supervision
+  active-Block claims remain exact, current, separately labeled, and conflict-
+  aware.
 - Tracker filters/source diffs and policy/binding/automation preview diffs trace
   to their exact owners, roots, currentness, bounds, and source links without
-  adding an editor, alternate confirmation, or acceptance path.
+  adding an editor, alternate confirmation, or acceptance path; tracker index
+  and detail show the maintained-verifier total plus every current active claim
+  with explicit none/partial/unavailable/conflict posture.
 - All named frontend stack/runtime owners are present and documented; local
   startup from a clean dependency install is reproducible.
 - All enabled controls have current owner/gate/postcondition proof; unsupported
@@ -6380,9 +6531,10 @@ work solely to inflate coverage.
 
 - Reject release when any primary route is unverified at a maintained viewport,
   a control is inert or lacks a postcondition, partial source loss becomes a
-  healthy/zero state, truncated rows produce an exact-looking count, a semantic
-  diff is browser-inferred or color-only, or an outcome claim rests only on
-  process evidence.
+  healthy/zero state, truncated rows produce an exact-looking count, an active-
+  Block claim is collapsed/coalesced or crosses a predecessor mission boundary,
+  a semantic diff is browser-inferred or color-only, or an outcome claim rests
+  only on process evidence.
 - Reject stale test/review/browser evidence after the candidate or mapped source
   contract changes.
 
@@ -6403,11 +6555,11 @@ capabilities.
 | Local runtime/reference stack | Python health/static tests; manifest/lock checks; TypeScript/build | clean install, server start, shell browser matrix | operator reaches the built dashboard locally with exact stack/integration health |
 | Primary-owner API integration | per-adapter HTTP contract tests against the same owner input/command and structured source failure | three-project live owner-to-API cross-check across tracker/Git, supervision/reporting/metrics, App Server, and one gated mutation | every displayed operational row and enabled action traces through `/api/v1` to one current owner with version/revision, fingerprint, coverage, limitations, and no runtime demo fallback |
 | Project boundary/catalog | store/path/currentness unit tests | multi-project restart and partial-source integration | three projects register/archive/restore without copied operational truth or filesystem escape |
-| Tracker truth | parser fixtures, maintained verifier JSON, exact-count coverage, and bounded Git/source-diff tests | full/core/malformed/dirty/stale tracker comparison plus semantic diff/source drill-down | reviewer reaches exact capability, Block, evidence, diagnostics, semantic source change, and source without an edit/acceptance path |
+| Tracker truth | parser fixtures, maintained verifier JSON, exact-total/active-claim coverage, and bounded Git/source-diff tests | full/core/malformed/dirty/stale tracker comparison, plural/conflicting active claims, plus semantic diff/source drill-down | reviewer sees exact total and every current source-labeled active Block, then reaches exact capability, evidence, diagnostics, semantic source change, and source without an edit/acceptance path |
 | Supervision/history | ledger/policy/report validators and corrupt/partial fixtures | live target source cross-check | active and historical run claims match exact event/incident/decision/transition records |
 | Metrics/reports | definition, unit, coverage, estimate, artifact-path tests | cross-project/report comparison against manifests | each displayed number explains period, denominator, source, limitations, and estimate posture |
 | Codex task integration | fake App Server protocol suite | version-gated live list/read/disposable task smoke | task/turn/items/approval/input state and controls match the official live owner |
-| Factory Floor/UI | adapted operational-row/filter source, component/axe/topology/light/conclusion/count-coverage tests | three-project, three-viewport, light/dark Playwright matrix | operator identifies each implementation/supervisor/mission/target, operating reason, issues, actions, conclusions, history, and freshness through keyboard-accessible disclosure and exact/partial counts |
+| Factory Floor/UI | adapted operational-row/filter source, component/axe/topology/light/conclusion/count-coverage and total/active-claim tests | three-project, three-viewport, light/dark Playwright matrix with one/multiple/none/conflicting active Blocks | operator identifies each implementation/supervisor/mission/target, exact tracker total, every current active claim, operating reason, issues, actions, conclusions, history, and freshness through keyboard-accessible disclosure and exact/partial counts |
 | Administrative safety | schema, nonce/origin, preview, semantic-diff, replay, stale, route-gate, postcondition tests | disposable workflow operations and denied advanced paths | enabled action has intended owner consequence; owner-backed before/after remains distinct from confirmation/applied state; denied/unavailable action fails closed |
 | Supervision check and review actions | watcher/reviewer role, route, candidate, duplicate, and postcondition tests | disposable check plus checkpoint/meta/issue review requests | mechanical checks and semantic conclusions remain separately current and owner-bound |
 | Policy and pause/resume administration | policy/automation dual-state, lifecycle, stale-preview, and preserved-state tests | disposable policy diff and pause/resume cycles | policy/cadence and lifecycle operations remain separately owned and prove both canonical postconditions |

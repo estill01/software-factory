@@ -157,16 +157,19 @@ the completed program materially changes Software Factory.
 ### Planned
 
 - **Local Software Factory operations dashboard and factory floor.** A
-  twenty-nine-Block implementation program plans a local React/TypeScript/Vite
+  thirty-Block implementation program plans a local React/TypeScript/Vite
   command center that monitors current and historical work across registered
   projects; pairs every discoverable implementation with its supervisor group,
-  target, roles, automations, current Block/checkpoint, issues, actions, and
-  conclusions; and exposes transparent red/amber/green/neutral operating states
+  target, roles, automations, current active-Block claims/checkpoints, issues,
+  actions, and conclusions; and exposes transparent red/amber/green/neutral
+  operating states
   with exact reasons and source history. It also plans implementation-tracker
   review, verified cross-project metrics and reports, version-gated Codex App
   Server task control, and owner-gated author/implement/supervise/report/
-  evolution/lifecycle operations. Tracker Markdown, Git, Codex tasks,
-  supervision ledgers, automations, and reports remain their own authorities;
+  evolution/lifecycle operations. Tracker rows expose maintained-verifier total
+  Block counts and every current task/tracker/supervision active-Block claim
+  without coalescing conflicts. Tracker Markdown, Git, Codex tasks, supervision
+  ledgers, automations, and reports remain their own authorities;
   the dashboard stores only project discovery metadata and never treats a green
   light, task terminality, test, commit, or report as completion. The planned
   runtime is explicitly data-backed through loopback `/api/v1` typed adapters
