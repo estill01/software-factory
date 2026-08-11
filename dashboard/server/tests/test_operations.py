@@ -1449,6 +1449,71 @@ class OperationsProjectionTests(unittest.TestCase):
         self.assertEqual(set(loaded_automation_ids), {"watcher-automation-demo"})
         self.assertEqual(snapshot["active_target_owners"]["status"], "available")
 
+        unrelated = self.automations_root / "unrelated-broken-automation"
+        unrelated.mkdir()
+        (unrelated / "automation.toml").write_text(
+            textwrap.dedent(
+                '''\
+                id = "unrelated-broken-automation"
+                status = "ACTIVE"
+                target_thread_id = "unrelated-task-0001"
+                malformed = [
+                '''
+            ),
+            encoding="utf-8",
+        )
+        loaded_automation_ids.clear()
+        unrelated_broken = self.service.automation_binding_snapshot(
+            TARGET,
+            "watcher",
+        )
+        self.assertTrue(unrelated_broken["repairable"])
+        self.assertEqual(
+            unrelated_broken["active_target_owners"]["status"],
+            "available",
+        )
+        self.assertEqual(set(loaded_automation_ids), {"watcher-automation-demo"})
+        run = next(
+            item
+            for item in self.service.snapshot(self.projects)["runs"]
+            if item["target_thread_id"] == TARGET
+        )
+        watcher_reconciliation = next(
+            item
+            for item in run["policy"]["automation_reconciliation"]
+            if item["role"] == "watcher"
+        )
+        self.assertTrue(watcher_reconciliation["repairable"])
+        self.assertEqual(watcher_reconciliation["duplicate_coverage"], "exact")
+
+        related = self.automations_root / "related-broken-automation"
+        related.mkdir()
+        related_manifest = related / "automation.toml"
+        related_manifest.write_text(
+            textwrap.dedent(
+                f'''\
+                id = "related-broken-automation"
+                status = "ACTIVE"
+                target_thread_id = "{WATCHER + TARGET[-1]}"
+                malformed = [
+                '''
+            ),
+            encoding="utf-8",
+        )
+        related_broken = self.service.automation_binding_snapshot(TARGET, "watcher")
+        self.assertFalse(related_broken["repairable"])
+        self.assertEqual(
+            related_broken["active_target_owners"]["status"],
+            "unavailable",
+        )
+        related_manifest.write_text(
+            related_manifest.read_text(encoding="utf-8").replace(
+                WATCHER + TARGET[-1],
+                "unrelated-task-0002",
+            ),
+            encoding="utf-8",
+        )
+
         second_owner = self.automations_root / "second-watcher-owner"
         second_owner.mkdir()
         second_manifest = second_owner / "automation.toml"
