@@ -354,20 +354,23 @@ describe("tracker review workspace", () => {
       claim.blocks = [activeBlock]
       claim.range = null
     })
-    const historical = structuredClone(currentFloor.data.rows[0])
-    historical.id = "run:historical"
-    historical.implementation.task_id = "historical"
-    historical.implementation.status = "terminal"
-    historical.implementation.status_label = "System error"
-    historical.supervision.run_id = "historical"
-    historical.supervision.target_thread_id = "historical"
-    historical.supervision.status = "completed"
-    historical.work.block_claims.claims.forEach((claim) => {
-      claim.status = "none"
-      claim.blocks = []
-      claim.range = null
+    const historicalRows = (["completed", "stopped"] as const).map((status) => {
+      const historical = structuredClone(currentFloor.data.rows[0])
+      historical.id = `run:historical-${status}`
+      historical.implementation.task_id = `historical-${status}`
+      historical.implementation.status = "idle"
+      historical.implementation.status_label = "Idle"
+      historical.supervision.run_id = `historical-${status}`
+      historical.supervision.target_thread_id = `historical-${status}`
+      historical.supervision.status = status
+      historical.work.block_claims.claims.forEach((claim) => {
+        claim.status = "none"
+        claim.blocks = []
+        claim.range = null
+      })
+      return historical
     })
-    currentFloor.data.rows = [currentFloor.data.rows[0], historical]
+    currentFloor.data.rows = [currentFloor.data.rows[0], ...historicalRows]
     mocks.fetchTrackers.mockResolvedValue({
       data: {
         recovered_from_previous: false,

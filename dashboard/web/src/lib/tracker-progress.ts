@@ -140,6 +140,16 @@ function mappedClaim(row: FactoryFloorRow, claim: FloorClaim): TrackerProgressCl
   }
 }
 
+function hasCurrentTaskClaim(row: FactoryFloorRow): boolean {
+  return (row.implementation.status === "active" || row.implementation.status === "idle")
+    && row.supervision.status !== "completed"
+    && row.supervision.status !== "stopped"
+}
+
+function hasCurrentSupervisionClaim(row: FactoryFloorRow): boolean {
+  return ["active", "paused", "blocked", "failed", "unavailable"].includes(row.supervision.status)
+}
+
 function unavailableMappedClaim(source: "task" | "supervision", reason: string): TrackerProgressClaim {
   return {
     key: `unavailable:${source}`,
@@ -215,9 +225,7 @@ export function projectTrackerProgress(
       && row.project.project_id === tracker.project_id,
   ) ?? []
   const exactMappedRows = associatedRows.filter(
-    (row) => row.implementation.status === "active"
-      || row.implementation.status === "idle"
-      || ["active", "paused", "blocked", "failed", "unavailable"].includes(row.supervision.status),
+    (row) => hasCurrentTaskClaim(row) || hasCurrentSupervisionClaim(row),
   )
   const excludedCandidateRows = floor?.data.rows.filter(
     (row) => row.work.tracker.id === tracker.id
@@ -240,10 +248,10 @@ export function projectTrackerProgress(
       row.work.block_claims.claims
         .filter((claim) => {
           if (claim.source === "task") {
-            return row.implementation.status === "active" || row.implementation.status === "idle"
+            return hasCurrentTaskClaim(row)
           }
           if (claim.source === "supervision") {
-            return ["active", "paused", "blocked", "failed", "unavailable"].includes(row.supervision.status)
+            return hasCurrentSupervisionClaim(row)
           }
           return false
         })
