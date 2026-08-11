@@ -33,7 +33,11 @@ or promotion.
 
 Before the target ref changes, compare-and-swap replacement rejects changed
 affected bytes without overwriting them, and every exception class restores
-only bytes still owned by the operation plus the prior caller index. After ref
+only bytes still owned by the operation plus the prior caller index. Recovery
+is independent per affected path: a changed, symlinked, or otherwise
+caller-owned path is preserved without preventing restoration and index reset
+for every other operation-owned path. Apply the same compare-and-swap recovery
+after ref promotion so later caller bytes are never overwritten. After ref
 promotion, retry revalidates the signed proposal, current committed bytes,
 target proof, retained review, and missing effect outcome. It never creates a
 second integration. A failed effect rolls back only the exact reviewed ref; a
@@ -47,21 +51,26 @@ bind the before/after roots in both proposal and review. Preserve candidate
 validation, policy, tracker, unrelated work, and proof outside that closure.
 Reject a graph that labels proof current while any dependency is stale.
 
-Rehydrate the source from the current Git commit and execute the retained
-observable workload once against those bytes. Recheck the target ref, worktree,
-proof, full tracker program, policy-owned range, policy, mission, and event head
-after execution. Retain and revalidate the exact review and outcome; replay
-must not rerun the workload.
+Rehydrate the source from the current Git commit and execute the observable
+workload once against those bytes. Persist and directory-sync its complete
+rooted result before any later outcome or continuation transition. That
+retained current-effect validation is the first safe Block 9 continuation
+action. Recheck the target ref, worktree, proof, full tracker program,
+policy-owned range, policy, mission, and event head after execution. Retain and
+revalidate the exact review and outcome; interruption or replay must rehydrate
+the retained result and must not rerun the workload.
 Require the exact artifact size, semantic roundtrip, bytes API, and protected
 capability results accepted by Block 6. Until that proof is current, the
 decision remains pending and no continuation execution key exists.
 
-The accepted effect produces one deterministic execution key bound to the
-handoff, reviewed commit, integration review, effect root, and current range.
-The cutover owner durably records the one `work-started` transition before
-returning. Replaying the cutover rehydrates that same continuation root, next
-action, and key with `start_count=1`, without another integration, proof
-transition, or workload execution. An interruption immediately before or after
-the start record therefore cannot suppress or duplicate the first safe work
-start. No human Resume, tracker amendment, release, publication, policy change,
-or Software Factory self-target promotion is authorized.
+The accepted retained effect produces one deterministic execution key bound to
+the handoff, reviewed commit, integration review, effect root, and current
+range. After that first action actually completed, the cutover owner appends
+the canonical supervision `work-started` successor transition with the exact
+effect result as concrete start evidence. Replaying the cutover rehydrates that
+same continuation root, next action, and key with `start_count=1`, without
+another integration, proof transition, or workload execution. A final
+target/proof/program/supervision comparison surrounds the transition write, so
+changed state never yields an authoritative result. No human Resume, tracker
+amendment, release, publication, policy change, or Software Factory self-target
+promotion is authorized.

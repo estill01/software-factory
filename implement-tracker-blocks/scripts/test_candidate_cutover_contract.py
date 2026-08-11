@@ -186,6 +186,56 @@ class CandidateCutoverContractTests(unittest.TestCase):
         )
         with redirect_stdout(io.StringIO()):
             module.cmd_implementation_range_bind(bind)
+        directory = self.supervision_root / self.owner_id
+        policy = module.read_json(directory / "policy.json")
+        range_state = module.implementation_range_state(policy)
+        assert range_state is not None
+        mission = module.bound_mission(policy)
+        assert mission is not None
+        transition = module.parser().parse_args(
+            [
+                "--root",
+                str(self.supervision_root),
+                "successor-transition-record",
+                "--target-thread",
+                self.owner_id,
+                "--transition-id",
+                cutover.CONTINUATION_TRANSITION_ID,
+                "--phase",
+                "required",
+                "--tracker-sha256",
+                range_state["tracker_sha256"],
+                "--tracker-source-record",
+                "implementation-range-history:"
+                + range_state["range_history_head_sha256"],
+                "--requested-block-range",
+                module.format_implementation_block_set(
+                    list(range_state["requested_blocks"])
+                ),
+                "--first-eligible-block",
+                "Block 9",
+                "--source-mission-root",
+                mission["mission_root"],
+                "--governing-authority-source-class",
+                "direct-user",
+                "--governing-authority-source-record",
+                "direct-block9-target",
+                "--governing-authority-source-sha256",
+                source_sha,
+                "--topology-posture",
+                "same-task-new-run",
+                "--topology-basis",
+                "same-task-default",
+                "--topology-rationale",
+                "Continue the exact current Block 9 range in this task.",
+                "--state-fingerprint",
+                cutover.object_root(range_state),
+                "--evidence",
+                "implementation-range:" + cutover.object_root(range_state),
+            ]
+        )
+        with redirect_stdout(io.StringIO()):
+            module.cmd_successor_transition_record(transition)
 
     def _prepare(self) -> dict[str, object]:
         return cutover.prepare_cutover(self.target, self.tracker)
@@ -313,6 +363,25 @@ class CandidateCutoverContractTests(unittest.TestCase):
         self.assertEqual(duplicate["continuation_state"], "work-started")
         self.assertEqual(duplicate["continuation_start_count"], 1)
         self.assertEqual(producer_calls, 1)
+        module = cutover._supervision_module()
+        gate = module.parser().parse_args(
+            [
+                "--root",
+                str(self.supervision_root),
+                "successor-transition-gate",
+                "--target-thread",
+                self.owner_id,
+                "--transition-id",
+                cutover.CONTINUATION_TRANSITION_ID,
+            ]
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            module.cmd_successor_transition_gate(gate)
+        gate_result = json.loads(output.getvalue())
+        self.assertEqual(gate_result["phase"], "work-started")
+        self.assertEqual(gate_result["next_action"], "continue-same-task-run")
+        self.assertFalse(gate_result["source_stop_permitted"])
 
     def test_affected_staged_work_rejects_before_preparation(self) -> None:
         incumbent = (self.target / self.relative).read_bytes()
@@ -325,11 +394,10 @@ class CandidateCutoverContractTests(unittest.TestCase):
 
     def test_unrelated_canonical_range_rejects_before_proposal(self) -> None:
         shutil.rmtree(self.supervision_root)
-        self._init_supervision("Implement Block 1.")
         with self.assertRaisesRegex(
-            cutover.CutoverError, "implementation range does not own Block 9"
+            Exception, "no dependency-safe first Block"
         ):
-            self._prepare()
+            self._init_supervision("Implement Block 1.")
         self.assertFalse(cutover._proposal_path(self.target).exists())
 
     def test_missing_or_changed_canonical_supervision_context_rejects(self) -> None:
@@ -421,6 +489,94 @@ class CandidateCutoverContractTests(unittest.TestCase):
         self.assertEqual((self.target / self.relative).read_bytes(), changed)
         self.assertEqual(self._git("rev-parse", "HEAD"), self.base_head)
 
+    def test_per_path_recovery_preserves_changed_path_and_restores_other_owned_path(self) -> None:
+        _prepared, review = self._reviewed()
+        restore = cutover._restore_owned_replacements
+        caller_target = self.target / "caller-proof-target.json"
+        caller_target.write_text("caller proof bytes\n", encoding="utf-8")
+
+        def change_one_path_before_recovery(
+            repo: Path,
+            head: str,
+            previous: dict[str, bytes | None],
+            replacements: dict[str, bytes],
+        ) -> None:
+            self.proof_path.unlink()
+            self.proof_path.symlink_to(caller_target)
+            restore(repo, head, previous, replacements)
+
+        with mock.patch.object(
+            cutover,
+            "_restore_owned_replacements",
+            side_effect=change_one_path_before_recovery,
+        ):
+            with self.assertRaisesRegex(
+                cutover.CutoverError, "concurrent affected paths were preserved"
+            ):
+                cutover.apply_cutover(
+                    self.target, self.tracker, review, failpoint="after-write"
+                )
+        _full, _relative, incumbent = cutover._artifact_file(
+            cutover.load_accepted_bundle(), "incumbent"
+        )
+        self.assertEqual((self.target / self.relative).read_bytes(), incumbent)
+        self.assertTrue(self.proof_path.is_symlink())
+        self.assertEqual(self.proof_path.resolve().read_text(), "caller proof bytes\n")
+        self.assertEqual(self._git("rev-parse", "HEAD"), self.base_head)
+        self.assertEqual(
+            self._git("diff", "--cached", "--name-only", "--", self.relative), ""
+        )
+
+    def test_post_promotion_recovery_preserves_changed_bytes_and_restores_owned_proof(self) -> None:
+        _prepared, review = self._reviewed()
+        caller_bytes = b"# caller bytes after promotion\n"
+
+        def change_target_then_fail(
+            source: bytes, exercise: dict[str, object]
+        ) -> dict[str, object]:
+            (self.target / self.relative).write_bytes(caller_bytes)
+            raise cutover.CutoverError("fixture effect validation failure")
+
+        with mock.patch.object(
+            cutover, "_run_observable_effect", side_effect=change_target_then_fail
+        ):
+            with self.assertRaisesRegex(
+                cutover.CutoverError, "fixture effect validation failure"
+            ):
+                cutover.apply_cutover(self.target, self.tracker, review)
+        self.assertEqual(self._git("rev-parse", "HEAD"), self.base_head)
+        self.assertEqual((self.target / self.relative).read_bytes(), caller_bytes)
+        expected_proof = self._git("show", f"{self.base_head}:{cutover.PROOF_RELATIVE}")
+        self.assertEqual(self.proof_path.read_text(encoding="utf-8").strip(), expected_proof)
+
+    def test_changed_target_before_continuation_start_withholds_authoritative_result(self) -> None:
+        _prepared, review = self._reviewed()
+        retain = cutover._retain_review_copy
+        retain_calls = 0
+        caller_bytes = b"# changed before continuation start\n"
+
+        def retain_then_change(repo: Path, record: dict[str, object]) -> None:
+            nonlocal retain_calls
+            retain_calls += 1
+            retain(repo, record)
+            if retain_calls == 2:
+                (self.target / self.relative).write_bytes(caller_bytes)
+
+        with mock.patch.object(
+            cutover, "_retain_review_copy", side_effect=retain_then_change
+        ):
+            with self.assertRaisesRegex(
+                cutover.CutoverError, "current target differs"
+            ):
+                cutover.apply_cutover(self.target, self.tracker, review)
+        module = cutover._supervision_module()
+        records = module.successor_transition_events(
+            module.events(self.supervision_root / self.owner_id / "events.jsonl"),
+            cutover.CONTINUATION_TRANSITION_ID,
+        )
+        self.assertEqual(records[-1]["phase"], "required")
+        self.assertEqual((self.target / self.relative).read_bytes(), caller_bytes)
+
     def test_post_ref_and_post_effect_interruptions_recover_without_false_state(self) -> None:
         prepared, review = self._reviewed()
         with self.assertRaisesRegex(cutover.CutoverError, "after atomic promotion"):
@@ -434,15 +590,25 @@ class CandidateCutoverContractTests(unittest.TestCase):
 
     def test_missing_outcome_after_reviewed_promotion_is_recomputed_from_current_target(self) -> None:
         prepared, review = self._reviewed()
-        with self.assertRaisesRegex(cutover.CutoverError, "before current outcome"):
-            cutover.apply_cutover(
-                self.target, self.tracker, review, failpoint="before-outcome-write"
-            )
+        producer = cutover._run_observable_effect
+        producer_calls = 0
+
+        def count_effect(source: bytes, exercise: dict[str, object]) -> dict[str, object]:
+            nonlocal producer_calls
+            producer_calls += 1
+            return producer(source, exercise)
+
+        with mock.patch.object(cutover, "_run_observable_effect", side_effect=count_effect):
+            with self.assertRaisesRegex(cutover.CutoverError, "before current outcome"):
+                cutover.apply_cutover(
+                    self.target, self.tracker, review, failpoint="before-outcome-write"
+                )
+            self.assertTrue(cutover._effect_path(self.target).is_file())
+            recovered = cutover.apply_cutover(self.target, self.tracker, review)
         self.assertEqual(self._git("rev-parse", "HEAD"), prepared["prepared_commit"])
-        self.assertFalse(cutover._outcome_path(self.target).exists())
-        recovered = cutover.apply_cutover(self.target, self.tracker, review)
         self.assertTrue(recovered["duplicate"])
         self.assertTrue(cutover._outcome_path(self.target).is_file())
+        self.assertEqual(producer_calls, 1)
 
     def test_missing_review_copy_is_repaired_without_repeating_effect(self) -> None:
         _prepared, review = self._reviewed()
@@ -483,13 +649,16 @@ class CandidateCutoverContractTests(unittest.TestCase):
                 review,
                 failpoint="after-continuation-start",
             )
-        retained = cutover._rooted(
-            cutover._load_json(cutover._continuation_path(self.target)),
-            "continuation_root",
-            "cutover continuation",
+        module = cutover._supervision_module()
+        events = module.events(
+            self.supervision_root / self.owner_id / "events.jsonl"
         )
+        retained = module.successor_transition_events(
+            events, cutover.CONTINUATION_TRANSITION_ID
+        )[-1]
+        self.assertEqual(retained["phase"], "work-started")
         recovered = cutover.apply_cutover(self.target, self.tracker, review)
-        self.assertEqual(recovered["continuation_root"], retained["continuation_root"])
+        self.assertEqual(recovered["continuation_root"], retained["record_sha256"])
         self.assertEqual(recovered["continuation_state"], "work-started")
         self.assertEqual(recovered["continuation_start_count"], 1)
 

@@ -2640,6 +2640,26 @@ accepted delta without absorbing optional work.
   evidence on retry; reject incoherent proof currentness; and durably start one
   replay-stable continuation with `start_count=1`. Exact successor revision and
   independent review remain pending.
+- Rejected second corrective checkpoint:
+  `ad499a90216aba734d4dd3dea7f113be3efb9ac3` (tree
+  `f701fabe51793a02b72cd909e90272d80e6b9ba1`) passed focused `17/17`, mapped
+  implementation `86/86`, the three fixed validators, full 18-Block tracker
+  verification, compilation, and diff checks. Independent exact review retained
+  it as rejected evidence because producer completion was not durable across
+  the post-effect/pre-outcome interruption; one changed recovery path could
+  prevent restoration of another operation-owned path; currentness could change
+  before continuation persistence; the local continuation label did not prove
+  an owner-executed start; and post-promotion recovery could overwrite later
+  caller bytes. No release review or installation was produced.
+- Current corrective slice (`INC-20260811-062440-44D597`): retain and
+  directory-sync the one current-effect result before outcome/continuation,
+  designate that completed proof as the concrete first safe Block 9 action,
+  append its `work-started` evidence through the canonical supervision owner,
+  compare current target/proof/program/supervision state around that append,
+  and restore operation-owned replacements independently per path while
+  preserving changed bytes and path types. Focused producer-durability and
+  per-path recovery proof passed `5/5`; exact successor freeze, independent
+  challenge, and the required one-time affected-proof rerun remain pending.
 
 ### Stop
 
