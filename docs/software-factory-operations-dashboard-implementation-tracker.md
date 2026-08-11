@@ -4227,6 +4227,45 @@ automations.
   diff scans are clean. Full-profile verification reports all 26 Blocks with 0
   errors/warnings, all 30 verifier tests pass, and the documentation diff check
   is clean. Independent exact-revision acceptance remains pending.
+- Rejected exact review: evidence revision
+  `90651775142017dc2a6af7d65c2fdad5a92c67c0`, tree
+  `2c5b7e85dd2a2a956481cd80098227e60e98d35c`, and product revision
+  `4690e2a2ae87ea2a12fbdaa50f356574b54b5f7a`, tree
+  `56f2278518af234185b7424f4172e8e9deba67a7`, remain immutable rejected
+  history. Independent review found one material row: the maintained
+  `gmail-cadence` owner derives one bound automation's desired RRULE from quiet,
+  active, and active-window fields, while the candidate mapped only the quiet
+  field and assumed quiet mode. Active/window-only changes could therefore
+  produce an empty affected set and policy-only success, and quiet changes
+  during an active window could reject the owner-correct active RRULE. The
+  reviewer reproduced both cases; focused backend 37/37 with `ResourceWarning`
+  fatal, Ruff, full-profile 0/0, verifier 30/30, remote identity, diff, and Stop
+  proof otherwise passed, with no unaffected browser replay.
+- Gmail-cadence successor: product commit
+  `0c1b0fdfea9f033c622205df6d257e716f14870a`, tree
+  `55e5fecd39f427a74e9b330fc65b3cc613d34903`, parent
+  `90651775142017dc2a6af7d65c2fdad5a92c67c0`, is pushed exactly to
+  `origin/codex/evolution-mvp`. Its ten-file diff has SHA-256
+  `69dcb8949105c284a0314ee4a898766623680188c5bf684e79ee4b4ee5d0d388`.
+  All three Gmail cadence fields now identify `gmail_gate`; multiple changed
+  fields deduplicate to one named automation. Current projection and
+  post-policy verification invoke the maintained `gmail-cadence` owner, retain
+  active/quiet mode, and compare the actual manifest to its current
+  `desired_rrule`; volatile seconds-to-quiet are excluded from the preview
+  fingerprint while mode, active-until, policy values, and source identity
+  remain bound. Unavailable cadence fails closed, the UI no longer claims no
+  affected schedule owner, and active mode is displayed in reconciliation.
+- Successor proof: the exact three adversarial backend cases passed, then the
+  complete affected workflow and operations modules passed 38/38 with
+  `ResourceWarning` fatal. They prove all three fields map to one automation,
+  current active interval 1 is reconciled rather than compared to quiet
+  interval 2, a three-field next policy re-resolves active interval 2 exactly
+  once, and actual interval 2 is partial while owner-desired interval remains
+  1. Ruff and diff checks passed. Affected frontend proof passed three files and
+  16 tests plus the run workspace's 3/3, the production build passed, and the
+  exact live drill-down Playwright case passed 3/3 across desktop, tablet, and
+  mobile with invocation-scoped `--workers=1`. Fresh exact-revision acceptance
+  remains pending; Blocks 15–25 remain closed.
 
 ### Stop
 
