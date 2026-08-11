@@ -4856,6 +4856,38 @@ the named route gate. Never search or mutate unrelated roles.
   no live policy mutation was attempted. Local/upstream are `0 0`, Block 17
   remains unopened, and Block 16 remains `in-progress` pending mechanical proof
   and fresh exact-revision review.
+- Rejected owner-root successor review: independent exact-revision audit
+  REJECTED evidence `a95acfc62f098404653a1c6c73dc12a5ee7b9a0d`, tree
+  `ba8696fe8acf0f1a8d7cb63549bb49605079333f`, and parent/product
+  `7e9d05efc5e28cc053bccc727b2e76ac35aec46c`, tree
+  `96bf1120b898c9780c8f9e81746e30c2302dfbcc`. The three prior rows were
+  closed, but the reviewer reproduced one Stop violation: candidate derivation
+  scanned role assignments from every policy-history mission and successfully
+  bound a task known only to predecessor mission A into current successor
+  mission B. Its backend 35/35, Ruff, dialog 4/4, build, browser 3/3, live
+  owner-root read, verifier 26/0/0 plus 30/30, exact remote/clean, and three-row
+  closure proof remain reusable for unaffected scope only.
+- Current-mission correction: product successor
+  `e15e95b2c59d7bbc50a93556dbdf7e0ad5c941a0`, tree
+  `d9c9b60812e91eb9421aab13a6aee9a4d37cb9aa`, parent rejected evidence
+  `a95acfc62f098404653a1c6c73dc12a5ee7b9a0d`. The current operations owner
+  blob is `3d605609832b6cacbaf6d006da248cfc79407bdf`; focused proof blob is
+  `80b789277ab6c99a45f89789a40f3d88a88fac8a`. Candidate derivation and
+  historical cross-role conflict checks now consider only snapshots whose full
+  canonical `mission_binding` equals the current policy binding; missing
+  current mission identity is unavailable. A predecessor-only notice-reviewer
+  fixture now returns `role_binding_task_authority_unavailable` with the policy
+  bytes unchanged, while the exact valid same-mission preview/apply regression
+  still passes.
+- Affected correction proof: the predecessor-only and valid same-mission tests
+  passed 2/2; the full operations projection module passed 29/29 with
+  `ResourceWarning` fatal; the two mapped HTTP and task/policy/route role-repair
+  workflow tests passed; Ruff and diff checks passed. Reusable unchanged proof
+  remains bound to the exact rejected candidate as stated above. The exact
+  successor is pushed, local/upstream are `0 0`, the loopback runtime was
+  restarted at port 8787 and reports complete healthy coverage with App Server
+  available, no binding was attempted, Block 17 remains unopened, and Block 16
+  remains `in-progress` pending fresh exact-revision review.
 
 ### Stop
 
