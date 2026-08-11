@@ -3746,14 +3746,20 @@ effects before reading either implementer's narrative.
   run and replace two pending comparisons; pending bytes lacked file/directory
   durability; and pre/post revision checks missed a transient target change and
   return. Its focused `21/21` evidence remains diagnostic.
-- The next corrective successor serializes one comparison under the per-cycle
-  owner lock, persists its pending record with file and directory durability,
-  and binds exact target ref/reflog ownership currentness into the handoff. That
-  root keeps a stale source inactive across correction interruption and a
-  transient target change-and-return. Targeted concurrency, interrupted
-  handoff/evaluation correction, and transient-currentness regressions pass;
-  exact independent replay remains pending before broad mapped validation and
-  acceptance.
+- Rejected corrective checkpoint
+  `d6606a7` serialized one comparison under the per-cycle owner lock, persisted
+  its pending record with file/directory durability, and bound target ref plus
+  recent object-ID currentness into the handoff. Exact review recorded
+  `B14-RF05`–`B14-RF06`: repeated same-HEAD reflog events could leave that
+  projection unchanged, and deleting completed pending evidence before its
+  handoff caused a second producer run. Its focused `25/25` evidence remains
+  diagnostic.
+- The next successor retains exact bounded reflog-file identity/content in the
+  target-owner root and appends a canonical comparison-start event before the
+  producer. Same-HEAD events now invalidate the handoff, while missing completed
+  evidence stops instead of rerunning. Targeted same-HEAD and missing-result
+  regressions pass; exact independent replay remains pending before broad
+  mapped validation and acceptance.
 
 ### Stop
 

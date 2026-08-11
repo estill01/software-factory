@@ -1433,6 +1433,62 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         )
         self.assertTrue((evolution / "comparison-pending.json").is_file())
 
+    def test_missing_completed_comparison_never_reruns_producer(self) -> None:
+        self.candidate_ready_for_comparison()
+        original_execute = supervision_log.factory_candidate_execute_baseline_comparison
+        calls = 0
+
+        def counted_execute(*args: object, **kwargs: object) -> object:
+            nonlocal calls
+            calls += 1
+            return original_execute(*args, **kwargs)
+
+        with mock.patch.object(
+            supervision_log,
+            "factory_candidate_execute_baseline_comparison",
+            side_effect=counted_execute,
+        ):
+            with mock.patch.object(
+                supervision_log,
+                "append_factory_evolution_evaluation_handoff",
+                side_effect=OSError("simulated interruption before handoff append"),
+            ):
+                with self.assertRaisesRegex(OSError, "simulated interruption"):
+                    self.command(
+                        "factory-evolution",
+                        "--target-thread",
+                        self.target_thread,
+                        "--action",
+                        "orchestrate",
+                        "--evolution-id",
+                        self.evolution_id,
+                    )
+            evolution = supervision_log.factory_evolution_directory(
+                self.directory, self.evolution_id
+            )
+            (evolution / "comparison-pending.json").unlink()
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "result is missing after its canonical start",
+            ):
+                self.command(
+                    "factory-evolution",
+                    "--target-thread",
+                    self.target_thread,
+                    "--action",
+                    "orchestrate",
+                    "--evolution-id",
+                    self.evolution_id,
+                )
+        self.assertEqual(calls, 1)
+        self.assertFalse(
+            any(
+                item.get("kind")
+                == supervision_log.FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND
+                for item in supervision_log.events(self.directory / "events.jsonl")
+            )
+        )
+
     def test_concurrent_comparison_delivery_reuses_one_durable_result(self) -> None:
         self.candidate_ready_for_comparison()
         policy = supervision_log.read_json(self.directory / "policy.json")
@@ -1469,6 +1525,7 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
                         supervision_log.factory_candidate_load_or_produce_baseline_comparison,
                         self.directory,
                         state,
+                        allow_produce=True,
                     )
                     for _ in range(2)
                 ]
@@ -1889,6 +1946,38 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             0,
         )
         policy = supervision_log.read_json(self.directory / "policy.json")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "target ownership is stale",
+        ):
+            supervision_log.factory_evolution_cycle_state(
+                self.directory,
+                policy,
+                supervision_log.events(self.directory / "events.jsonl"),
+                evolution_id=self.evolution_id,
+            )
+
+    def test_same_head_reflog_event_invalidates_evaluation_handoff(self) -> None:
+        self.candidate_ready_for_comparison()
+        self.git("reset", "--hard", "HEAD")
+        self.git("reset", "--hard", "HEAD")
+        comparison = self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "orchestrate",
+            "--evolution-id",
+            self.evolution_id,
+        )
+        self.assertEqual(comparison["action"]["stage"], "evaluation-required")
+        policy = supervision_log.read_json(self.directory / "policy.json")
+        before = supervision_log.factory_evolution_target_owner_currentness_root(
+            policy
+        )
+        self.git("reset", "--hard", "HEAD")
+        after = supervision_log.factory_evolution_target_owner_currentness_root(policy)
+        self.assertNotEqual(before, after)
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError,
             "target ownership is stale",

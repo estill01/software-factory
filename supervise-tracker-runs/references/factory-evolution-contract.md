@@ -266,17 +266,19 @@ Only a current `candidate-ready-for-comparison` owner proof can create the one
 evaluation handoff. Before the comparison starts, the supervision owner
 preflights the fixed sealed evaluator key and verification interface. It then
 runs the same declared focused tests against the exact incumbent archive once.
-A per-cycle owner lock serializes duplicate delivery, and an owner-authenticated
-pending record retains those raw command results through file and parent-
-directory durability before the handoff append; interruption reuses that exact
-result. The handoff pairs it
+A canonical comparison-start event makes a later missing completed result a
+Stop rather than permission to rerun. A per-cycle owner lock serializes
+duplicate delivery, and an owner-authenticated pending record retains those raw
+command results through file and parent-directory durability before the handoff
+append; interruption reuses that exact result. The handoff pairs it
 with the already-retained candidate results and binds its provenance root and
 the preflighted evaluator-key root together with
 the packet, review, experiment, candidate contract, owner handoff,
 acknowledgment, exact baseline/candidate revisions and roots, every positive
 and exception case ID, protected-capability results, resource use,
-reversibility, incumbent production authority, and the exact target-owner
-ref/reflog currentness root. A stale root rejects before that mapped comparison
+reversibility, incumbent production authority, and the exact target-owner ref
+plus bounded reflog-file currentness root, including same-HEAD events. A stale
+root rejects before that mapped comparison
 is run. Target-currentness loss during the physical handoff append records an
 exact correction before returning rejection. The owner root keeps the stale
 handoff inactive if correction persistence is interrupted or the target

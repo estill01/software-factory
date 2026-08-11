@@ -14242,29 +14242,55 @@ def factory_evolution_target_owner_currentness_root(
         raise SupervisionLogError(
             "Factory-evolution target ownership currentness differs"
         )
-    path_tokens = ["HEAD"]
+    path_specs = [("ref", "HEAD", True)]
     if symbolic_ref:
-        path_tokens.append(symbolic_ref)
+        path_specs.append(("ref", symbolic_ref, False))
+    path_specs.append(("reflog", "logs/HEAD", False))
+    if symbolic_ref:
+        path_specs.append(("reflog", f"logs/{symbolic_ref}", False))
     retained_paths: list[dict[str, Any]] = []
-    for token in path_tokens:
+    seen_paths: set[str] = set()
+    for path_kind, token, required in path_specs:
         raw_path = git_output("rev-parse", "--git-path", token)
         path = Path(raw_path)
         if not path.is_absolute():
             path = root / path
+        normalized_path = str(path.resolve(strict=False))
+        if normalized_path in seen_paths:
+            continue
+        seen_paths.add(normalized_path)
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
         descriptor = -1
         try:
             before_path = path.lstat()
-            if not stat.S_ISREG(before_path.st_mode) or before_path.st_size > 4096:
+            if not stat.S_ISREG(before_path.st_mode) or (
+                path_kind == "ref" and before_path.st_size > 4096
+            ):
                 raise SupervisionLogError(
                     "Factory-evolution target ownership currentness differs"
                 )
             descriptor = os.open(path, flags)
             before = factory_evolution_admission_stat_identity(os.fstat(descriptor))
+            if path_kind == "reflog" and before_path.st_size > 4096:
+                os.lseek(descriptor, before_path.st_size - 4096, os.SEEK_SET)
             raw = os.read(descriptor, 4097)
             after = factory_evolution_admission_stat_identity(os.fstat(descriptor))
             after_path = factory_evolution_admission_stat_identity(path.lstat())
-        except (FileNotFoundError, OSError) as exc:
+        except FileNotFoundError as exc:
+            if required:
+                raise SupervisionLogError(
+                    "Factory-evolution target ownership currentness is unavailable"
+                ) from exc
+            retained_paths.append(
+                {
+                    "kind": path_kind,
+                    "token": token,
+                    "path": normalized_path,
+                    "present": False,
+                }
+            )
+            continue
+        except OSError as exc:
             raise SupervisionLogError(
                 "Factory-evolution target ownership currentness is unavailable"
             ) from exc
@@ -14277,10 +14303,12 @@ def factory_evolution_target_owner_currentness_root(
             )
         retained_paths.append(
             {
+                "kind": path_kind,
                 "token": token,
-                "path": str(path.resolve(strict=False)),
+                "path": normalized_path,
+                "present": True,
                 "stat": list(before),
-                "content_sha256": hashlib.sha256(raw).hexdigest(),
+                "content_tail_sha256": hashlib.sha256(raw).hexdigest(),
             }
         )
     return digest(
@@ -14771,6 +14799,9 @@ def verify_factory_evolution_finalize(
 FACTORY_EVOLUTION_REVIEW_HANDOFF_EVENT_KIND = "factory-evolution-review-handoff"
 FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND = "factory-evolution-owner-handoff"
 FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND = "factory-evolution-owner-acknowledgment"
+FACTORY_EVOLUTION_BASELINE_COMPARISON_START_EVENT_KIND = (
+    "factory-evolution-baseline-comparison-started"
+)
 FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND = (
     "factory-evolution-evaluation-handoff"
 )
@@ -15011,6 +15042,7 @@ def validate_factory_evolution_orchestration_record(
         FACTORY_EVOLUTION_REVIEW_HANDOFF_EVENT_KIND,
         FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND,
         FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND,
+        FACTORY_EVOLUTION_BASELINE_COMPARISON_START_EVENT_KIND,
         FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND,
         FACTORY_EVOLUTION_EVALUATION_HANDOFF_CORRECTION_EVENT_KIND,
         FACTORY_EVOLUTION_EVALUATION_EVENT_KIND,
@@ -15053,6 +15085,7 @@ def factory_evolution_orchestration_history(
             FACTORY_EVOLUTION_REVIEW_HANDOFF_EVENT_KIND,
             FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND,
             FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND,
+            FACTORY_EVOLUTION_BASELINE_COMPARISON_START_EVENT_KIND,
             FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND,
             FACTORY_EVOLUTION_EVALUATION_HANDOFF_CORRECTION_EVENT_KIND,
             FACTORY_EVOLUTION_EVALUATION_EVENT_KIND,
@@ -15496,6 +15529,16 @@ def factory_candidate_comparison_identity(
     }
 
 
+def factory_candidate_comparison_start_payload(
+    state: Mapping[str, Any],
+) -> dict[str, Any]:
+    material = {
+        **factory_candidate_comparison_identity(state),
+        "kind": "software-factory-baseline-comparison-started",
+    }
+    return {**material, "comparison_start_root": digest(material)}
+
+
 def validate_factory_candidate_comparison_pending(
     value: Mapping[str, Any],
     *,
@@ -15540,6 +15583,8 @@ def validate_factory_candidate_comparison_pending(
 def factory_candidate_load_or_produce_baseline_comparison(
     directory: Path,
     state: Mapping[str, Any],
+    *,
+    allow_produce: bool,
 ) -> dict[str, Any]:
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
     directory_fd = os.open(directory, flags)
@@ -15557,6 +15602,10 @@ def factory_candidate_load_or_produce_baseline_comparison(
                 read_factory_evolution_json(pending_path),
                 state=state,
                 owner_key=owner_key,
+            )
+        if not allow_produce:
+            raise SupervisionLogError(
+                "Factory baseline comparison result is missing after its canonical start"
             )
         results = factory_candidate_execute_baseline_comparison(
             state["expected_owner_handoff"],
@@ -17369,6 +17418,7 @@ def factory_evolution_cycle_state(
             FACTORY_EVOLUTION_REVIEW_HANDOFF_EVENT_KIND,
             FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND,
             FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND,
+            FACTORY_EVOLUTION_BASELINE_COMPARISON_START_EVENT_KIND,
             FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND,
             FACTORY_EVOLUTION_EVALUATION_HANDOFF_CORRECTION_EVENT_KIND,
             FACTORY_EVOLUTION_EVALUATION_EVENT_KIND,
@@ -17392,6 +17442,11 @@ def factory_evolution_cycle_state(
     acknowledgment_record = (
         grouped[FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND][0]
         if grouped[FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND]
+        else None
+    )
+    comparison_start_record = (
+        grouped[FACTORY_EVOLUTION_BASELINE_COMPARISON_START_EVENT_KIND][0]
+        if grouped[FACTORY_EVOLUTION_BASELINE_COMPARISON_START_EVENT_KIND]
         else None
     )
     evaluation_handoff_record = (
@@ -17527,9 +17582,28 @@ def factory_evolution_cycle_state(
         if acknowledgment_record["payload"] != acknowledgment:
             raise SupervisionLogError("Factory evolution owner acknowledgment is stale")
     if acknowledgment is None and (
-        evaluation_handoff_record is not None or evaluation_record is not None
+        comparison_start_record is not None
+        or evaluation_handoff_record is not None
+        or evaluation_record is not None
     ):
         raise SupervisionLogError("Factory evolution evaluation precedes owner proof")
+    if comparison_start_record is not None:
+        expected_comparison_start = factory_candidate_comparison_start_payload(
+            {
+                "packet": packet,
+                "review": review,
+                "expected_owner_handoff": handoff,
+                "acknowledgment_record": acknowledgment_record,
+            }
+        )
+        if comparison_start_record["payload"] != expected_comparison_start:
+            raise SupervisionLogError(
+                "Factory evolution baseline comparison start differs"
+            )
+    if evaluation_handoff_record is not None and comparison_start_record is None:
+        raise SupervisionLogError(
+            "Factory evolution evaluation handoff lacks its comparison start"
+        )
     evaluation_handoff = None
     if evaluation_handoff_record is not None:
         assert review is not None and handoff is not None and acknowledgment is not None
@@ -17622,6 +17696,7 @@ def factory_evolution_cycle_state(
         "review_record": review_record,
         "owner_record": owner_record,
         "acknowledgment_record": acknowledgment_record,
+        "comparison_start_record": comparison_start_record,
         "evaluation_handoff_record": evaluation_handoff_record,
         "evaluation_handoff_correction_record": (
             evaluation_handoff_correction_record
@@ -17869,6 +17944,72 @@ def append_factory_evolution_evaluation_handoff(
     return {"duplicate": False, "record": refreshed[-1], "action": state["action"]}
 
 
+def append_factory_evolution_comparison_start(
+    args: argparse.Namespace,
+    *,
+    expected_acknowledgment_root: str,
+    proposed_payload: Mapping[str, Any],
+) -> dict[str, Any]:
+    directory, policy, policy_snapshot, directory_snapshot = (
+        load_policy_directory_snapshot(args)
+    )
+    all_events, event_snapshot = events_snapshot(directory / "events.jsonl")
+    evolution_id = safe_id(args.evolution_id, label="factory evolution ID")
+    with owner_append_lock(
+        root_from(args), args.target_thread, directory_snapshot
+    ) as directory_fd:
+        require_bound_policy_at(
+            directory_fd,
+            expected_policy=policy,
+            expected_snapshot=policy_snapshot,
+        )
+        current_events, current_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        if current_events != all_events or current_snapshot != event_snapshot:
+            raise SupervisionLogError(
+                "Factory evolution comparison event head changed; retry current state"
+            )
+        current = factory_evolution_cycle_state(
+            directory, policy, current_events, evolution_id=evolution_id
+        )
+        if (
+            current["action"]["stage"] != "evaluation-handoff-required"
+            or current["comparison_start_record"] is not None
+            or current["acknowledgment_record"] is None
+            or current["acknowledgment_record"]["payload"]["currentness_root"]
+            != expected_acknowledgment_root
+        ):
+            raise SupervisionLogError(
+                "Factory evolution comparison inputs changed before start"
+            )
+        rebuilt = factory_candidate_comparison_start_payload(current)
+        if rebuilt != proposed_payload:
+            raise SupervisionLogError(
+                "Factory evolution comparison start changed before append"
+            )
+        record = factory_evolution_orchestration_record(
+            kind=FACTORY_EVOLUTION_BASELINE_COMPARISON_START_EVENT_KIND,
+            record_id=f"EVT-{len(current_events) + 1:06d}",
+            policy=policy,
+            evolution_id=evolution_id,
+            payload=rebuilt,
+        )
+        append_raw_locked_at(
+            directory_fd,
+            "events.jsonl",
+            record,
+            previous_record_sha256=str(current_events[-1]["record_sha256"]),
+            expected_file_snapshot=current_snapshot,
+            require_event_anchor=True,
+        )
+    refreshed = events(directory / "events.jsonl")
+    state = factory_evolution_cycle_state(
+        directory, policy, refreshed, evolution_id=evolution_id
+    )
+    return {"duplicate": False, "record": refreshed[-1], "action": state["action"]}
+
+
 def cmd_factory_evolution_cycle_status(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     state = factory_evolution_cycle_state(
@@ -17925,8 +18066,25 @@ def cmd_factory_evolution_orchestrate(args: argparse.Namespace) -> None:
         assert state["expected_owner_handoff"] is not None
         trusted_adaptive_evaluator_key()
         trusted_adaptive_review_openssl()
+        comparison_started = False
+        if state["comparison_start_record"] is None:
+            comparison_start_payload = factory_candidate_comparison_start_payload(
+                state
+            )
+            append_factory_evolution_comparison_start(
+                args,
+                expected_acknowledgment_root=state["acknowledgment_record"][
+                    "payload"
+                ]["currentness_root"],
+                proposed_payload=comparison_start_payload,
+            )
+            comparison_started = True
+            all_events = events(directory / "events.jsonl")
+            state = factory_evolution_cycle_state(
+                directory, policy, all_events, evolution_id=evolution_id
+            )
         pending = factory_candidate_load_or_produce_baseline_comparison(
-            directory, state
+            directory, state, allow_produce=comparison_started
         )
         module = factory_evolution_module()
         try:

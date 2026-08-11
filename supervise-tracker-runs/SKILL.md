@@ -755,7 +755,9 @@ Keep the roles and authority sequence exact:
 5. Run `orchestrate` once more only after the owner proof is comparison-ready.
    It first verifies the configured sealed evaluator interface, then the
    supervision owner executes the one declared mapped incumbent comparison.
-   A per-cycle owner lock serializes duplicate deliveries, while an
+   A canonical comparison-start event makes a missing completed result a Stop,
+   not permission to rerun. A per-cycle owner lock serializes duplicate
+   deliveries, while an
    owner-authenticated, file-and-directory-synced pending result makes an
    interrupted handoff append reuse that exact comparison instead of rerunning
    it. The resulting
@@ -769,7 +771,8 @@ Keep the roles and authority sequence exact:
    then records one immutable disposition: `promote`, `advisory`, `revise`, or
    `reject`. `promote` is adoption eligibility only; every disposition preserves
    incumbent authority and stops before adoption or installed-skill mutation.
-   The handoff also binds the exact target-owner ref/reflog currentness root.
+   The handoff also binds the exact target-owner ref and bounded reflog-file
+   currentness root, including same-HEAD events.
    Target-currentness loss at either canonical handoff or evaluation append is
    followed by an exact correction event; the bound owner root keeps a stale
    source inactive even if correction persistence is interrupted or the target
