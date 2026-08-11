@@ -2127,6 +2127,8 @@ def build_candidate_evaluation_handoff(
     handoff: Mapping[str, Any],
     acknowledgment: Mapping[str, Any],
     baseline_validation_results: Any,
+    baseline_comparison_provenance_root: Any,
+    evaluator_authority_key_sha256: Any,
 ) -> dict[str, Any]:
     """Bind one raw incumbent/candidate comparison to its distinct evaluator."""
 
@@ -2146,6 +2148,14 @@ def build_candidate_evaluation_handoff(
         )
     baseline = _normalize_execution_results(
         baseline_validation_results, label="baseline validation results"
+    )
+    provenance_root = _exact_sha256(
+        baseline_comparison_provenance_root,
+        label="baseline comparison provenance root",
+    )
+    evaluator_key_root = _exact_sha256(
+        evaluator_authority_key_sha256,
+        label="evaluator authority key SHA-256",
     )
     candidate = _normalize_execution_results(
         verified_ack["validation_results"], label="candidate validation results"
@@ -2189,9 +2199,11 @@ def build_candidate_evaluation_handoff(
         "exception_case_ids": list(experiment["exception_case_ids"]),
         "expected_effects": list(experiment["expected_effects"]),
         "evaluator_id": evaluator_id,
+        "evaluator_authority_key_sha256": evaluator_key_root,
         "baseline_validation_results": baseline,
         "candidate_validation_results": candidate,
         "baseline_validation_root": digest(baseline),
+        "baseline_comparison_provenance_root": provenance_root,
         "candidate_validation_root": digest(candidate),
         "protected_capability_results": list(protected),
         "resource_usage": dict(verified_ack["resource_usage"]),
@@ -2218,6 +2230,8 @@ def verify_candidate_evaluation_handoff(
         handoff,
         acknowledgment,
         evaluation_handoff.get("baseline_validation_results"),
+        evaluation_handoff.get("baseline_comparison_provenance_root"),
+        evaluation_handoff.get("evaluator_authority_key_sha256"),
     )
     if canonical(expected) != canonical(evaluation_handoff):
         raise FactoryEvolutionError("Factory candidate evaluation handoff differs")
@@ -2326,9 +2340,8 @@ def build_orchestrated_candidate_evaluation(
         or submission.get("evaluation_handoff_root")
         != evaluation_handoff.get("evaluation_handoff_root")
         or submission.get("evaluator_id") != evaluation_handoff.get("evaluator_id")
-        or not SHA256.fullmatch(
-            str(submission.get("evaluator_authority_key_sha256", ""))
-        )
+        or submission.get("evaluator_authority_key_sha256")
+        != evaluation_handoff.get("evaluator_authority_key_sha256")
         or type(submission.get("evaluation_signature_base64")) is not str
         or not submission.get("evaluation_signature_base64")
     ):

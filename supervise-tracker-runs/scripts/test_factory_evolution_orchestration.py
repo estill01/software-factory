@@ -663,9 +663,7 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         }
         return self.sign_evaluation_submission(value)
 
-    def candidate_ready_for_evaluation(
-        self,
-    ) -> tuple[dict[str, object], dict[str, object]]:
+    def candidate_ready_for_comparison(self) -> dict[str, object]:
         self.command(
             "factory-evolution",
             "--target-thread",
@@ -694,7 +692,7 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             )
             + b"\n"
         )
-        self.command(
+        return self.command(
             "factory-evolution",
             "--target-thread",
             self.target_thread,
@@ -705,6 +703,11 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             "--owner-ack-json",
             str(source),
         )
+
+    def candidate_ready_for_evaluation(
+        self,
+    ) -> tuple[dict[str, object], dict[str, object]]:
+        self.candidate_ready_for_comparison()
         comparison = self.command(
             "factory-evolution",
             "--target-thread",
@@ -1381,6 +1384,224 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         )
         self.assertTrue(retried["duplicate"])
         self.assertEqual(retried["action"]["stage"], "evaluated")
+
+    def test_interrupted_comparison_append_reuses_durable_raw_result(self) -> None:
+        self.candidate_ready_for_comparison()
+        original_execute = supervision_log.factory_candidate_execute_baseline_comparison
+        calls = 0
+
+        def counted_execute(*args: object, **kwargs: object) -> object:
+            nonlocal calls
+            calls += 1
+            return original_execute(*args, **kwargs)
+
+        with mock.patch.object(
+            supervision_log,
+            "factory_candidate_execute_baseline_comparison",
+            side_effect=counted_execute,
+        ):
+            with mock.patch.object(
+                supervision_log,
+                "append_factory_evolution_evaluation_handoff",
+                side_effect=OSError("simulated interruption before handoff append"),
+            ):
+                with self.assertRaisesRegex(OSError, "simulated interruption"):
+                    self.command(
+                        "factory-evolution",
+                        "--target-thread",
+                        self.target_thread,
+                        "--action",
+                        "orchestrate",
+                        "--evolution-id",
+                        self.evolution_id,
+                    )
+            retried = self.command(
+                "factory-evolution",
+                "--target-thread",
+                self.target_thread,
+                "--action",
+                "orchestrate",
+                "--evolution-id",
+                self.evolution_id,
+            )
+        self.assertEqual(calls, 1)
+        self.assertEqual(retried["action"]["stage"], "evaluation-required")
+        evolution = supervision_log.factory_evolution_directory(
+            self.directory, self.evolution_id
+        )
+        self.assertTrue((evolution / "comparison-pending.json").is_file())
+
+    def test_unavailable_evaluator_rejects_before_raw_comparison(self) -> None:
+        self.candidate_ready_for_comparison()
+        with mock.patch.object(
+            supervision_log,
+            "factory_candidate_execute_baseline_comparison",
+            side_effect=AssertionError("comparison must not run"),
+        ):
+            with mock.patch.object(
+                supervision_log,
+                "trusted_adaptive_evaluator_key",
+                side_effect=supervision_log.SupervisionLogError(
+                    "sealed evaluator unavailable"
+                ),
+            ):
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "sealed evaluator unavailable",
+                ):
+                    self.command(
+                        "factory-evolution",
+                        "--target-thread",
+                        self.target_thread,
+                        "--action",
+                        "orchestrate",
+                        "--evolution-id",
+                        self.evolution_id,
+                    )
+        evolution = supervision_log.factory_evolution_directory(
+            self.directory, self.evolution_id
+        )
+        self.assertFalse((evolution / "comparison-pending.json").exists())
+        self.assertFalse(
+            any(
+                item.get("kind")
+                == supervision_log.FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND
+                for item in supervision_log.events(self.directory / "events.jsonl")
+            )
+        )
+
+    def test_target_change_during_evaluation_handoff_records_correction(self) -> None:
+        self.candidate_ready_for_comparison()
+        original = supervision_log.append_raw_locked_at
+        changed = False
+
+        def change_target_before_append(*args: object, **kwargs: object) -> str:
+            nonlocal changed
+            value = args[2]
+            if (
+                not changed
+                and isinstance(value, dict)
+                and value.get("kind")
+                == supervision_log.FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND
+            ):
+                changed = True
+                target = self.repository / "evaluation-handoff-currentness-change.txt"
+                target.write_text(
+                    "changed at evaluation handoff append\n", encoding="utf-8"
+                )
+                self.git("add", str(target.relative_to(self.repository)))
+                self.git(
+                    "-c",
+                    "user.name=Factory Test",
+                    "-c",
+                    "user.email=factory@example.test",
+                    "commit",
+                    "-m",
+                    "Change target at evaluation handoff append",
+                )
+            return original(*args, **kwargs)
+
+        with mock.patch.object(
+            supervision_log,
+            "append_raw_locked_at",
+            side_effect=change_target_before_append,
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "changed during evaluation handoff append",
+            ):
+                self.command(
+                    "factory-evolution",
+                    "--target-thread",
+                    self.target_thread,
+                    "--action",
+                    "orchestrate",
+                    "--evolution-id",
+                    self.evolution_id,
+                )
+        kinds = [
+            item.get("kind")
+            for item in supervision_log.events(self.directory / "events.jsonl")
+        ]
+        self.assertEqual(
+            kinds.count(
+                supervision_log.FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND
+            ),
+            1,
+        )
+        self.assertEqual(
+            kinds.count(
+                supervision_log.FACTORY_EVOLUTION_EVALUATION_HANDOFF_CORRECTION_EVENT_KIND
+            ),
+            1,
+        )
+
+    def test_target_change_during_evaluation_append_records_correction(self) -> None:
+        _comparison, handoff = self.candidate_ready_for_evaluation()
+        source = self.admission.root / "evaluation-append-currentness.json"
+        source.write_bytes(
+            supervision_log.canonical(self.evaluation_submission(handoff)) + b"\n"
+        )
+        original = supervision_log.append_raw_locked_at
+        changed = False
+
+        def change_target_before_append(*args: object, **kwargs: object) -> str:
+            nonlocal changed
+            value = args[2]
+            if (
+                not changed
+                and isinstance(value, dict)
+                and value.get("kind")
+                == supervision_log.FACTORY_EVOLUTION_EVALUATION_EVENT_KIND
+            ):
+                changed = True
+                target = self.repository / "evaluation-currentness-change.txt"
+                target.write_text("changed at evaluation append\n", encoding="utf-8")
+                self.git("add", str(target.relative_to(self.repository)))
+                self.git(
+                    "-c",
+                    "user.name=Factory Test",
+                    "-c",
+                    "user.email=factory@example.test",
+                    "commit",
+                    "-m",
+                    "Change target at evaluation append",
+                )
+            return original(*args, **kwargs)
+
+        with mock.patch.object(
+            supervision_log,
+            "append_raw_locked_at",
+            side_effect=change_target_before_append,
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "changed during evaluation append"
+            ):
+                self.command(
+                    "factory-evolution",
+                    "--target-thread",
+                    self.target_thread,
+                    "--action",
+                    "evaluate",
+                    "--evolution-id",
+                    self.evolution_id,
+                    "--evaluation-json",
+                    str(source),
+                )
+        kinds = [
+            item.get("kind")
+            for item in supervision_log.events(self.directory / "events.jsonl")
+        ]
+        self.assertEqual(
+            kinds.count(supervision_log.FACTORY_EVOLUTION_EVALUATION_EVENT_KIND),
+            1,
+        )
+        self.assertEqual(
+            kinds.count(
+                supervision_log.FACTORY_EVOLUTION_EVALUATION_CORRECTION_EVENT_KIND
+            ),
+            1,
+        )
 
     def test_policy_change_makes_the_admitted_cycle_stale(self) -> None:
         self.admission.set_policy(max_admissions=2)

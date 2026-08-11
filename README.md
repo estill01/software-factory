@@ -409,12 +409,17 @@ one handoff-to-proof deadline, and derives exact scope, budget, validation,
 protected-capability, provenance, and Stop evidence. The input does not supply
 outcomes or owner claims. Only a current bounded candidate reaches comparison.
 One further `orchestrate` call runs the declared mapped incumbent proof and
-records the exact nonauthorizing evaluator handoff. A fixed-key independent
+records the exact nonauthorizing evaluator handoff. The sealed evaluator
+interface is preflighted first, and an owner-authenticated pending result makes
+an interrupted append reuse the one comparison. The handoff binds that
+provenance and fixed evaluator-key root. A fixed-key independent
 evaluator can then submit one signed, revision-bound disposition covering every
 positive and exception case plus contrary and regression evidence. The
 canonical result retains raw baseline/candidate roots and exposes `promote`
 only as adoption eligibility. The incumbent remains authoritative and no
-adoption, installation, or cutover occurs in this evaluation stage.
+adoption, installation, or cutover occurs in this evaluation stage. Any target
+currentness loss during the handoff or evaluation append is canonically
+corrected before the stale record can become active.
 
 ## Full demonstrated operation
 

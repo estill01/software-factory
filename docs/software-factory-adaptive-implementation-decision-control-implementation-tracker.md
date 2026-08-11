@@ -3728,7 +3728,23 @@ effects before reading either implementer's narrative.
 
 ### Completion evidence
 
-Pending.
+- Rejected checkpoint `5bad12adf867fb0329fe78e55528b0b544b67c67`
+  first added the governed baseline/candidate comparison, exact evaluator
+  handoff, sealed disposition, four existing outcomes, nonauthorizing adoption
+  eligibility, status projection, legacy compatibility, and Block 14 Stop.
+  Exact independent review recorded `B14-F01`–`B14-F03`: interruption after
+  the raw comparison reran the producer; target currentness could change at the
+  evaluation append before a canonical correction; and evaluator availability
+  was not preflighted before the sole comparison. Its focused `17/17`, legacy
+  `30/30`, validator, compilation, and diff evidence remains diagnostic.
+- The corrective successor retains an owner-authenticated pending comparison,
+  binds its provenance and the preflighted evaluator key into the handoff, and
+  records exact currentness corrections if the target changes during either
+  the handoff or evaluation append. Focused orchestration `21/21`, legacy
+  evolution `30/30`, all three fixed skill validators, full 18-Block tracker
+  verification, compilation, and diff checks pass. Exact independent replay of
+  `B14-F01`–`B14-F03` and the adjacent handoff boundary is pending before broad
+  mapped validation and acceptance.
 
 ### Stop
 

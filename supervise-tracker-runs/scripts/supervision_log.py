@@ -310,6 +310,7 @@ FACTORY_EVOLUTION_ARTIFACT_NAMES = {
     "evaluation.json",
     "machine-report.json",
     "manifest.json",
+    "comparison-pending.json",
 }
 ALLOWLISTED_MAINTENANCE_SKILLS = [
     "author-implementation-trackers",
@@ -14687,7 +14688,13 @@ FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND = "factory-evolution-owner-acknowledgment
 FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND = (
     "factory-evolution-evaluation-handoff"
 )
+FACTORY_EVOLUTION_EVALUATION_HANDOFF_CORRECTION_EVENT_KIND = (
+    "factory-evolution-evaluation-handoff-currentness-rejected"
+)
 FACTORY_EVOLUTION_EVALUATION_EVENT_KIND = "factory-evolution-evaluation"
+FACTORY_EVOLUTION_EVALUATION_CORRECTION_EVENT_KIND = (
+    "factory-evolution-evaluation-currentness-rejected"
+)
 FACTORY_EVOLUTION_OWNER_ACK_INPUT_KIND = (
     "software-factory-evolution-owner-acknowledgment-input"
 )
@@ -14919,7 +14926,9 @@ def validate_factory_evolution_orchestration_record(
         FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND,
         FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND,
         FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND,
+        FACTORY_EVOLUTION_EVALUATION_HANDOFF_CORRECTION_EVENT_KIND,
         FACTORY_EVOLUTION_EVALUATION_EVENT_KIND,
+        FACTORY_EVOLUTION_EVALUATION_CORRECTION_EVENT_KIND,
     }:
         raise SupervisionLogError("Factory evolution orchestration record kind differs")
     safe_id(str(value.get("record_id", "")), label="orchestration record ID")
@@ -14959,7 +14968,9 @@ def factory_evolution_orchestration_history(
             FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND,
             FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND,
             FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND,
+            FACTORY_EVOLUTION_EVALUATION_HANDOFF_CORRECTION_EVENT_KIND,
             FACTORY_EVOLUTION_EVALUATION_EVENT_KIND,
+            FACTORY_EVOLUTION_EVALUATION_CORRECTION_EVENT_KIND,
         }:
             validated = validate_factory_evolution_orchestration_record(
                 item, policy=policy
@@ -15379,6 +15390,107 @@ def factory_candidate_execute_baseline_comparison(
     if len(results) != len(focused_test_paths):
         raise SupervisionLogError("Factory baseline comparison exhausted its ceiling")
     return results
+
+
+def factory_candidate_comparison_identity(
+    state: Mapping[str, Any]
+) -> dict[str, Any]:
+    handoff = state["expected_owner_handoff"]
+    acknowledgment = state["acknowledgment_record"]["payload"]
+    return {
+        "schema_version": 1,
+        "kind": "software-factory-baseline-comparison-pending",
+        "packet_root": state["packet"]["packet_root"],
+        "review_root": state["review"]["review_root"],
+        "handoff_root": handoff["handoff_root"],
+        "acknowledgment_root": acknowledgment["currentness_root"],
+        "baseline_revision": acknowledgment["target_revision"],
+        "candidate_revision": acknowledgment["candidate_revision"],
+        "candidate_root": acknowledgment["candidate_root"],
+    }
+
+
+def validate_factory_candidate_comparison_pending(
+    value: Mapping[str, Any],
+    *,
+    state: Mapping[str, Any],
+    owner_key: bytes,
+) -> dict[str, Any]:
+    identity = factory_candidate_comparison_identity(state)
+    expected = {
+        *identity,
+        "producer_recorded_at",
+        "baseline_validation_results",
+        "owner_hmac_sha256",
+        "comparison_provenance_root",
+    }
+    if not isinstance(value, Mapping) or set(value) != expected:
+        raise SupervisionLogError("Factory baseline comparison provenance differs")
+    material = {
+        key: item
+        for key, item in value.items()
+        if key not in {"owner_hmac_sha256", "comparison_provenance_root"}
+    }
+    expected_hmac = hmac.new(
+        owner_key, canonical(material), hashlib.sha256
+    ).hexdigest()
+    rooted = {
+        **material,
+        "owner_hmac_sha256": value.get("owner_hmac_sha256"),
+    }
+    if (
+        {key: value.get(key) for key in identity} != identity
+        or type(value.get("producer_recorded_at")) is not str
+        or type(value.get("baseline_validation_results")) is not list
+        or not hmac.compare_digest(
+            str(value.get("owner_hmac_sha256", "")), expected_hmac
+        )
+        or value.get("comparison_provenance_root") != digest(rooted)
+    ):
+        raise SupervisionLogError("Factory baseline comparison provenance differs")
+    return dict(value)
+
+
+def factory_candidate_load_or_produce_baseline_comparison(
+    directory: Path,
+    state: Mapping[str, Any],
+) -> dict[str, Any]:
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    directory_fd = os.open(directory, flags)
+    try:
+        owner_key = owner_root_key_at(directory_fd, allow_create=False)
+    finally:
+        os.close(directory_fd)
+    evolution_directory = factory_evolution_directory(
+        directory, str(state["context"]["evolution_id"])
+    )
+    pending_path = evolution_directory / "comparison-pending.json"
+    if factory_evolution_artifact_exists(pending_path):
+        return validate_factory_candidate_comparison_pending(
+            read_factory_evolution_json(pending_path),
+            state=state,
+            owner_key=owner_key,
+        )
+    results = factory_candidate_execute_baseline_comparison(
+        state["expected_owner_handoff"],
+        state["acknowledgment_record"]["payload"],
+    )
+    material = {
+        **factory_candidate_comparison_identity(state),
+        "producer_recorded_at": utc_now(),
+        "baseline_validation_results": results,
+    }
+    owner_hmac = hmac.new(
+        owner_key, canonical(material), hashlib.sha256
+    ).hexdigest()
+    rooted = {**material, "owner_hmac_sha256": owner_hmac}
+    pending = {**rooted, "comparison_provenance_root": digest(rooted)}
+    atomic_json(pending_path, pending)
+    return validate_factory_candidate_comparison_pending(
+        read_factory_evolution_json(pending_path),
+        state=state,
+        owner_key=owner_key,
+    )
 
 
 def factory_candidate_protected_results(
@@ -16844,6 +16956,7 @@ def _append_factory_evolution_evaluation(
     all_events, event_snapshot = events_snapshot(directory / "events.jsonl")
     evolution_id = safe_id(args.evolution_id, label="factory evolution ID")
     module = factory_evolution_module()
+    currentness_rejected = False
     with owner_append_lock(
         root_from(args), args.target_thread, directory_snapshot
     ) as directory_fd:
@@ -16889,6 +17002,13 @@ def _append_factory_evolution_evaluation(
             evolution_id=evolution_id,
             payload=rebuilt,
         )
+        expected_target_revision = str(
+            current["evaluation_handoff"]["baseline_revision"]
+        )
+        if factory_evolution_target_revision(policy)[1] != expected_target_revision:
+            raise SupervisionLogError(
+                "Factory evolution target changed before evaluation append"
+            )
         append_raw_locked_at(
             directory_fd,
             "events.jsonl",
@@ -16896,6 +17016,39 @@ def _append_factory_evolution_evaluation(
             previous_record_sha256=str(current_events[-1]["record_sha256"]),
             expected_file_snapshot=current_snapshot,
             require_event_anchor=True,
+        )
+        if factory_evolution_target_revision(policy)[1] != expected_target_revision:
+            written_events, written_snapshot = events_snapshot(
+                Path("events.jsonl"), directory_fd=directory_fd
+            )
+            correction_payload = {
+                "schema_version": 1,
+                "kind": "software-factory-evaluation-currentness-rejected",
+                "supersedes_record_id": record["record_id"],
+                "evaluation_root": rebuilt["evaluation_root"],
+                "baseline_revision": rebuilt["baseline_revision"],
+                "candidate_revision": rebuilt["candidate_revision"],
+                "disposition": "currentness-rejected",
+            }
+            correction = factory_evolution_orchestration_record(
+                kind=FACTORY_EVOLUTION_EVALUATION_CORRECTION_EVENT_KIND,
+                record_id=f"EVT-{len(written_events) + 1:06d}",
+                policy=policy,
+                evolution_id=evolution_id,
+                payload=correction_payload,
+            )
+            append_raw_locked_at(
+                directory_fd,
+                "events.jsonl",
+                correction,
+                previous_record_sha256=str(written_events[-1]["record_sha256"]),
+                expected_file_snapshot=written_snapshot,
+                require_event_anchor=True,
+            )
+            currentness_rejected = True
+    if currentness_rejected:
+        raise SupervisionLogError(
+            "Factory evolution target changed during evaluation append"
         )
     refreshed = events(directory / "events.jsonl")
     state = factory_evolution_cycle_state(
@@ -17121,7 +17274,9 @@ def factory_evolution_cycle_state(
             FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND,
             FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND,
             FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND,
+            FACTORY_EVOLUTION_EVALUATION_HANDOFF_CORRECTION_EVENT_KIND,
             FACTORY_EVOLUTION_EVALUATION_EVENT_KIND,
+            FACTORY_EVOLUTION_EVALUATION_CORRECTION_EVENT_KIND,
         )
     }
     for item in history:
@@ -17148,11 +17303,93 @@ def factory_evolution_cycle_state(
         if grouped[FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND]
         else None
     )
+    evaluation_handoff_correction_record = (
+        grouped[FACTORY_EVOLUTION_EVALUATION_HANDOFF_CORRECTION_EVENT_KIND][0]
+        if grouped[FACTORY_EVOLUTION_EVALUATION_HANDOFF_CORRECTION_EVENT_KIND]
+        else None
+    )
+    if evaluation_handoff_correction_record is not None:
+        if evaluation_handoff_record is None:
+            raise SupervisionLogError(
+                "Factory evolution evaluation handoff correction lacks its source"
+            )
+        correction = evaluation_handoff_correction_record["payload"]
+        if (
+            not isinstance(correction, Mapping)
+            or set(correction)
+            != {
+                "schema_version",
+                "kind",
+                "supersedes_record_id",
+                "evaluation_handoff_root",
+                "baseline_revision",
+                "candidate_revision",
+                "disposition",
+            }
+            or type(correction.get("schema_version")) is not int
+            or correction.get("schema_version") != 1
+            or correction.get("kind")
+            != "software-factory-evaluation-handoff-currentness-rejected"
+            or correction.get("supersedes_record_id")
+            != evaluation_handoff_record["record_id"]
+            or correction.get("evaluation_handoff_root")
+            != evaluation_handoff_record["payload"].get("evaluation_handoff_root")
+            or correction.get("baseline_revision")
+            != evaluation_handoff_record["payload"].get("baseline_revision")
+            or correction.get("candidate_revision")
+            != evaluation_handoff_record["payload"].get("candidate_revision")
+            or correction.get("disposition") != "currentness-rejected"
+        ):
+            raise SupervisionLogError(
+                "Factory evolution evaluation handoff correction differs"
+            )
+        evaluation_handoff_record = None
     evaluation_record = (
         grouped[FACTORY_EVOLUTION_EVALUATION_EVENT_KIND][0]
         if grouped[FACTORY_EVOLUTION_EVALUATION_EVENT_KIND]
         else None
     )
+    evaluation_correction_record = (
+        grouped[FACTORY_EVOLUTION_EVALUATION_CORRECTION_EVENT_KIND][0]
+        if grouped[FACTORY_EVOLUTION_EVALUATION_CORRECTION_EVENT_KIND]
+        else None
+    )
+    if evaluation_correction_record is not None:
+        if evaluation_record is None:
+            raise SupervisionLogError(
+                "Factory evolution evaluation correction lacks its source"
+            )
+        correction = evaluation_correction_record["payload"]
+        if (
+            not isinstance(correction, Mapping)
+            or set(correction)
+            != {
+                "schema_version",
+                "kind",
+                "supersedes_record_id",
+                "evaluation_root",
+                "baseline_revision",
+                "candidate_revision",
+                "disposition",
+            }
+            or type(correction.get("schema_version")) is not int
+            or correction.get("schema_version") != 1
+            or correction.get("kind")
+            != "software-factory-evaluation-currentness-rejected"
+            or correction.get("supersedes_record_id")
+            != evaluation_record["record_id"]
+            or correction.get("evaluation_root")
+            != evaluation_record["payload"].get("evaluation_root")
+            or correction.get("baseline_revision")
+            != evaluation_record["payload"].get("baseline_revision")
+            or correction.get("candidate_revision")
+            != evaluation_record["payload"].get("candidate_revision")
+            or correction.get("disposition") != "currentness-rejected"
+        ):
+            raise SupervisionLogError(
+                "Factory evolution evaluation correction differs"
+            )
+        evaluation_record = None
     expected_review_handoff = factory_evolution_review_handoff(
         policy, packet=packet, context=context
     )
@@ -17284,7 +17521,11 @@ def factory_evolution_cycle_state(
         "owner_record": owner_record,
         "acknowledgment_record": acknowledgment_record,
         "evaluation_handoff_record": evaluation_handoff_record,
+        "evaluation_handoff_correction_record": (
+            evaluation_handoff_correction_record
+        ),
         "evaluation_record": evaluation_record,
+        "evaluation_correction_record": evaluation_correction_record,
         "expected_review_handoff": expected_review_handoff,
         "expected_owner_handoff": handoff,
         "evaluation_handoff": evaluation_handoff,
@@ -17392,6 +17633,7 @@ def append_factory_evolution_evaluation_handoff(
     args: argparse.Namespace,
     *,
     expected_acknowledgment_root: str,
+    expected_comparison_provenance_root: str,
     proposed_payload: Mapping[str, Any],
 ) -> dict[str, Any]:
     directory, policy, policy_snapshot, directory_snapshot = (
@@ -17400,6 +17642,7 @@ def append_factory_evolution_evaluation_handoff(
     all_events, event_snapshot = events_snapshot(directory / "events.jsonl")
     evolution_id = safe_id(args.evolution_id, label="factory evolution ID")
     module = factory_evolution_module()
+    currentness_rejected = False
     with owner_append_lock(
         root_from(args), args.target_thread, directory_snapshot
     ) as directory_fd:
@@ -17427,13 +17670,27 @@ def append_factory_evolution_evaluation_handoff(
             raise SupervisionLogError(
                 "Factory evolution evaluation inputs changed before append"
             )
+        pending_path = factory_evolution_directory(
+            directory, evolution_id
+        ) / "comparison-pending.json"
+        pending = validate_factory_candidate_comparison_pending(
+            read_factory_evolution_json(pending_path),
+            state=current,
+            owner_key=owner_root_key_at(directory_fd, allow_create=False),
+        )
+        if pending["comparison_provenance_root"] != expected_comparison_provenance_root:
+            raise SupervisionLogError(
+                "Factory evolution evaluation comparison changed before append"
+            )
         try:
             rebuilt = module.build_candidate_evaluation_handoff(
                 current["packet"],
                 current["review"],
                 current["expected_owner_handoff"],
                 current["acknowledgment_record"]["payload"],
-                proposed_payload.get("baseline_validation_results"),
+                pending["baseline_validation_results"],
+                pending["comparison_provenance_root"],
+                ADAPTIVE_EVALUATOR_PUBLIC_KEY_SHA256,
             )
         except module.FactoryEvolutionError as exc:
             raise SupervisionLogError(str(exc)) from exc
@@ -17448,6 +17705,11 @@ def append_factory_evolution_evaluation_handoff(
             evolution_id=evolution_id,
             payload=proposed_payload,
         )
+        expected_target_revision = str(rebuilt["baseline_revision"])
+        if factory_evolution_target_revision(policy)[1] != expected_target_revision:
+            raise SupervisionLogError(
+                "Factory evolution target changed before evaluation handoff append"
+            )
         previous = str(current_events[-1]["record_sha256"])
         append_raw_locked_at(
             directory_fd,
@@ -17456,6 +17718,43 @@ def append_factory_evolution_evaluation_handoff(
             previous_record_sha256=previous,
             expected_file_snapshot=current_snapshot,
             require_event_anchor=True,
+        )
+        if factory_evolution_target_revision(policy)[1] != expected_target_revision:
+            written_events, written_snapshot = events_snapshot(
+                Path("events.jsonl"), directory_fd=directory_fd
+            )
+            correction_payload = {
+                "schema_version": 1,
+                "kind": (
+                    "software-factory-evaluation-handoff-currentness-rejected"
+                ),
+                "supersedes_record_id": record["record_id"],
+                "evaluation_handoff_root": rebuilt["evaluation_handoff_root"],
+                "baseline_revision": rebuilt["baseline_revision"],
+                "candidate_revision": rebuilt["candidate_revision"],
+                "disposition": "currentness-rejected",
+            }
+            correction = factory_evolution_orchestration_record(
+                kind=(
+                    FACTORY_EVOLUTION_EVALUATION_HANDOFF_CORRECTION_EVENT_KIND
+                ),
+                record_id=f"EVT-{len(written_events) + 1:06d}",
+                policy=policy,
+                evolution_id=evolution_id,
+                payload=correction_payload,
+            )
+            append_raw_locked_at(
+                directory_fd,
+                "events.jsonl",
+                correction,
+                previous_record_sha256=str(written_events[-1]["record_sha256"]),
+                expected_file_snapshot=written_snapshot,
+                require_event_anchor=True,
+            )
+            currentness_rejected = True
+    if currentness_rejected:
+        raise SupervisionLogError(
+            "Factory evolution target changed during evaluation handoff append"
         )
     refreshed = events(directory / "events.jsonl")
     state = factory_evolution_cycle_state(
@@ -17518,9 +17817,10 @@ def cmd_factory_evolution_orchestrate(args: argparse.Namespace) -> None:
             )
         assert state["acknowledgment_record"] is not None
         assert state["expected_owner_handoff"] is not None
-        baseline = factory_candidate_execute_baseline_comparison(
-            state["expected_owner_handoff"],
-            state["acknowledgment_record"]["payload"],
+        trusted_adaptive_evaluator_key()
+        trusted_adaptive_review_openssl()
+        pending = factory_candidate_load_or_produce_baseline_comparison(
+            directory, state
         )
         module = factory_evolution_module()
         try:
@@ -17529,7 +17829,9 @@ def cmd_factory_evolution_orchestrate(args: argparse.Namespace) -> None:
                 state["review"],
                 state["expected_owner_handoff"],
                 state["acknowledgment_record"]["payload"],
-                baseline,
+                pending["baseline_validation_results"],
+                pending["comparison_provenance_root"],
+                ADAPTIVE_EVALUATOR_PUBLIC_KEY_SHA256,
             )
         except module.FactoryEvolutionError as exc:
             raise SupervisionLogError(str(exc)) from exc
@@ -17540,6 +17842,9 @@ def cmd_factory_evolution_orchestrate(args: argparse.Namespace) -> None:
             expected_acknowledgment_root=state["acknowledgment_record"][
                 "payload"
             ]["currentness_root"],
+            expected_comparison_provenance_root=pending[
+                "comparison_provenance_root"
+            ],
             proposed_payload=payload,
         )
         print(json.dumps(result, sort_keys=True))

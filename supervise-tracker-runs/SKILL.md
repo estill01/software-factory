@@ -753,9 +753,13 @@ Keep the roles and authority sequence exact:
    posture. Retry rehydrates the one existing canonical stage without rerunning
    its completed owner proof.
 5. Run `orchestrate` once more only after the owner proof is comparison-ready.
-   The supervision owner executes the one declared mapped incumbent comparison
-   and records a nonauthorizing evaluation handoff containing the raw incumbent
-   and retained candidate proof. The sealed adaptive evaluator, distinct from
+   It first verifies the configured sealed evaluator interface, then the
+   supervision owner executes the one declared mapped incumbent comparison.
+   The owner-authenticated pending result makes an interrupted handoff append
+   reuse that exact comparison instead of rerunning it. The resulting
+   nonauthorizing evaluation handoff binds that provenance, the evaluator key,
+   the raw incumbent result, and the retained candidate proof. The sealed
+   adaptive evaluator, distinct from
    proposer, reviewer, and implementer, signs separately attributable,
    revision-bound baseline and candidate results for every positive and
    exception case. `evaluate` verifies the fixed evaluator key, exact handoff,
@@ -763,6 +767,9 @@ Keep the roles and authority sequence exact:
    then records one immutable disposition: `promote`, `advisory`, `revise`, or
    `reject`. `promote` is adoption eligibility only; every disposition preserves
    incumbent authority and stops before adoption or installed-skill mutation.
+   Target-currentness loss at either canonical handoff or evaluation append is
+   followed by an exact correction event, so the stale event cannot become the
+   active result.
 6. Run `verify` against the stored set. Verification reopens the immutable
    packet, review, evaluation, report, and manifests and recomputes their hashes
    and schemas without rerunning a producer.
