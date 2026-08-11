@@ -10,6 +10,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -126,8 +127,9 @@ class TargetClassProtocolTests(unittest.TestCase):
             capture_output=True,
         ).stdout.strip()
         self.adaptive.target_committed_at = dt.datetime.fromisoformat(committed_at)
-        self.adaptive.candidate_observed_at = (
-            self.adaptive.target_committed_at + dt.timedelta(seconds=1)
+        self.adaptive.candidate_observed_at = max(
+            self.adaptive.target_committed_at,
+            dt.datetime.now(dt.timezone.utc),
         )
 
         self.original_constants = {
@@ -656,6 +658,77 @@ class TargetClassProtocolTests(unittest.TestCase):
             },
         )
 
+    def evolution_acceptance(
+        self,
+        *,
+        evolution_id: str,
+        bundle: dict[str, object],
+        decision_event: dict[str, object],
+        candidate: dict[str, object],
+        live_sources_root: str,
+    ) -> dict[str, object]:
+        review = bundle["review.json"]
+        evaluation = bundle["evaluation.json"]
+        value = {
+            "schema_version": 1,
+            "kind": protocol.EVOLUTION_ACCEPTANCE_KIND,
+            "decision_id": decision_event["decision_id"],
+            "decision_fingerprint": decision_event["decision_fingerprint"],
+            "decision_currentness_root": decision_event[
+                "decision_currentness_root"
+            ],
+            "evolution_id": evolution_id,
+            "evolution_root": protocol.digest(bundle),
+            "evolution_review_root": review["review_root"],
+            "evaluation_root": evaluation["evaluation_root"],
+            "experiment_root": protocol.digest(review["experiment"]),
+            "candidate_root": candidate["candidate_root"],
+            "live_skill_sources_root": live_sources_root,
+            "evaluation_disposition": evaluation["disposition"],
+            "acceptance_authority_id": (
+                protocol.supervision.ADAPTIVE_EVALUATOR_ID
+            ),
+            "acceptance_authority_key_sha256": (
+                self.adaptive.evaluator_public_key_sha
+            ),
+            "acceptance_root": "",
+            "acceptance_signature_base64": "",
+        }
+        material = {
+            key: item
+            for key, item in value.items()
+            if key not in {"acceptance_root", "acceptance_signature_base64"}
+        }
+        value["acceptance_root"] = protocol.digest(material)
+        content = self.root / "evolution-acceptance.json"
+        signature = self.root / "evolution-acceptance.sig"
+        content.write_bytes(
+            protocol.supervision.canonical(
+                {**material, "acceptance_root": value["acceptance_root"]}
+            )
+        )
+        subprocess.run(
+            [
+                str(protocol.supervision.ADAPTIVE_REVIEW_OPENSSL_PATH),
+                "pkeyutl",
+                "-sign",
+                "-inkey",
+                str(self.adaptive.evaluator_private_key),
+                "-rawin",
+                "-in",
+                str(content),
+                "-out",
+                str(signature),
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        value["acceptance_signature_base64"] = base64.b64encode(
+            signature.read_bytes()
+        ).decode()
+        return value
+
     def packet(
         self,
         target_class: str,
@@ -717,6 +790,7 @@ class TargetClassProtocolTests(unittest.TestCase):
         live_sources_root = protocol.digest(live_sources)
         evolution = None
         evolution_id = None
+        evolution_acceptance = None
         if (
             target_class == "software-factory"
             and disposition in protocol.FACTORY_EVALUATED_DISPOSITIONS
@@ -732,6 +806,13 @@ class TargetClassProtocolTests(unittest.TestCase):
                 "target-class-" + decision_event["decision_fingerprint"][:20]
             )
             self.retain_evolution(evolution_id, evolution)
+            evolution_acceptance = self.evolution_acceptance(
+                evolution_id=evolution_id,
+                bundle=evolution,
+                decision_event=decision_event,
+                candidate=candidate,
+                live_sources_root=live_sources_root,
+            )
         product_root = (
             candidate["evidence_root"]
             if candidate is not None
@@ -751,6 +832,7 @@ class TargetClassProtocolTests(unittest.TestCase):
             "program_revision_review": program_review,
             "factory_skill_sources": live_sources,
             "factory_evolution_id": evolution_id,
+            "factory_evolution_acceptance": evolution_acceptance,
             "capability_context": capability,
             "claimed_improvement": disposition == "continue-unchanged",
             "factory_alignment_findings": (
@@ -836,6 +918,14 @@ class TargetClassProtocolTests(unittest.TestCase):
     def test_evolution_is_exact_decision_evidence_not_role_only(self) -> None:
         packet, _event = self.packet("software-factory", "cutover-candidate")
         accepted = self.validate(packet)
+        changed_acceptance = copy.deepcopy(packet)
+        changed_acceptance["factory_evolution_acceptance"][
+            "acceptance_signature_base64"
+        ] = base64.b64encode(b"0" * 64).decode()
+        with self.assertRaisesRegex(
+            protocol.TargetClassProtocolError, "signature differs"
+        ):
+            self.validate(changed_acceptance)
         replacement = self.evolution_bundle(
             decision_event=_event,
             candidate=packet["decision_packet"]["candidate_evidence"],
@@ -848,6 +938,16 @@ class TargetClassProtocolTests(unittest.TestCase):
             "artifact differs",
         ):
             self.retain_evolution(packet["factory_evolution_id"], replacement)
+        evolution_directory = protocol.supervision.factory_evolution_directory(
+            self.adaptive.root / self.adaptive.target,
+            packet["factory_evolution_id"],
+        )
+        shutil.rmtree(evolution_directory)
+        self.retain_evolution(packet["factory_evolution_id"], replacement)
+        with self.assertRaisesRegex(
+            protocol.TargetClassProtocolError, "acceptance differs"
+        ):
+            self.validate(packet)
         self.assertIsNotNone(accepted["factory_evolution_root"])
         self.assertIn(
             accepted["factory_evolution_root"],
@@ -986,6 +1086,35 @@ class TargetClassProtocolTests(unittest.TestCase):
                 protocol.TargetClassProtocolError, "currentness changed"
             ):
                 self.validate(packet)
+
+    def test_final_currentness_rejects_changed_evolution_artifacts(self) -> None:
+        packet, _event = self.packet("software-factory", "cutover-candidate")
+        evolution_directory = protocol.supervision.factory_evolution_directory(
+            self.adaptive.root / self.adaptive.target,
+            packet["factory_evolution_id"],
+        )
+        original = protocol._canonical_evolution_bundle
+        reads = 0
+
+        def load_then_remove(*args, **kwargs):
+            nonlocal reads
+            value = original(*args, **kwargs)
+            reads += 1
+            if reads == 1:
+                (evolution_directory / "evaluation.json").unlink()
+            return value
+
+        with mock.patch.object(
+            protocol,
+            "_canonical_evolution_bundle",
+            side_effect=load_then_remove,
+        ):
+            with self.assertRaisesRegex(
+                protocol.TargetClassProtocolError,
+                "Factory evolution bundle is not current",
+            ):
+                self.validate(packet)
+        self.assertEqual(reads, 1)
 
     def test_planned_new_file_uses_canonical_parent_containment(self) -> None:
         packet, _event = self.packet("target-repository", "correct-inline")

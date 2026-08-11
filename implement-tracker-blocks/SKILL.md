@@ -342,8 +342,9 @@ semantics identical. Load canonical policy, mission-scoped events, target
 identity, active candidates, and live skills from their fixed owners rather than
 accepting them from the caller. Ordinary target work must not reach live Factory
 skills, global configuration, evolution, or promotion. Software Factory
-mutation adds one exact live-source content hash and canonical write-once
-evolution experiment/result binding plus
+mutation adds one exact live-source content hash and canonical staged
+evolution experiment/result binding plus a sealed evaluator acceptance that
+survives derived-artifact deletion or replacement, and
 distinct proposer/author, implementer, reviewer, and evaluator identities. A
 Factory-evolution `promote` disposition is only eligibility for a separately
 governed adoption path; this protocol never applies, releases, installs,
@@ -354,8 +355,8 @@ fully rooted non-authorizing handoff to the exact normal owner, keep nonempty
 Factory-alignment and target-product findings separately claim-bound, require a
 signed exact structural review, and require the canonical current
 capability-reconciliation completion event before recording any claimed
-improvement. Rehydrate all owners after the final evidence load and reject
-changed currentness.
+improvement. Rehydrate the exact evolution inventory and all other owners after
+the final evidence load and reject changed currentness.
 
 For a materially expensive read-only proof or audit with a separate reporter or
 helper, cheaply preflight the maintained reporting interface and its invocation

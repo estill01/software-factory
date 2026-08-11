@@ -2877,24 +2877,33 @@ claims.
   timing-sensitive candidate fixture. Its independent review, focused `8/8`,
   planned-new-file positive, historical Block 9 `29/29`, and mapped
   `105` pass/`1` chronology error are diagnostic.
-- The corrective candidate loads canonical policy and mission-scoped events
-  internally, binds the latest target-wide adaptive decision/review, resolves
-  fixed target/supervision/skill/configuration roots independently of `HOME`,
-  loads decision-derived write-once evolution artifacts from their canonical
-  owner, requires the latest completion event, disposition-specific routing,
-  one content-hash pass, and exact Git-derived candidate chronology, and
-  rehydrates all current owners after the final evidence load. Every mutating
-  disposition returns one fully rooted but non-authorizing handoff to the
-  existing owner.
-- Corrective focused coverage passes `10/10`, mapped implementation validation
-  passes `108/108`, and the historical Block 9 suite remains accepted at
+- Rejected checkpoint `6dcd1241c5a79554c35dced95ec6f19f17fee9b5`
+  closed the prior review set by loading canonical policy and mission-scoped
+  events, fixed target/supervision/skill/configuration roots, the latest target
+  decision and completion, and disposition-specific owner routing. It still
+  retained a time-sensitive future observation in the focused fixture, allowed
+  deletion and semantic replacement of the decision-derived evolution
+  directory under the same evolution identity, and did not reopen that exact
+  artifact set during the final currentness check.
+  Its focused `10/10`, mapped implementation `108/108`, fixed validators,
+  18-Block tracker verification, compilation, and diff evidence remain
+  diagnostic.
+- The current corrective candidate uses a truthful post-commit observation
+  time, requires the sealed evaluator to accept the exact decision,
+  currentness, skill, candidate, evolution, review, evaluation, experiment, and
+  disposition roots, and reopens the canonical evolution inventory at final
+  currentness. A deleted/rebuilt artifact directory cannot replace the signed
+  result for the same decision.
+- Corrective focused coverage passes `11/11`, mapped implementation validation
+  passes `109/109`, and the historical Block 9 suite remains accepted at
   `29/29` under `/usr/bin/python3`. It covers both target classes and all
   five paths plus canonical owner substitution, evolution identity/replacement,
   structural revision/owner/scope/review binding, finding evidence, latest
   completion provenance, final target currentness, planned-new-file acceptance,
   newer-decision invalidation, disposition-specific routing, ambient-home
-  substitution, exact candidate chronology, and one-hash economy. Exact
-  successor review remains pending. All three fixed skill validators, the full
+  substitution, exact candidate chronology, sealed-acceptance integrity, final
+  evolution currentness, and one-hash economy. Exact successor review remains
+  pending. All three fixed skill validators, the full
   18-Block tracker verifier, compilation, and exact diff checks pass.
 - No target cutover, Factory evolution producer, skill release/installation,
   policy, mission, lifecycle, Gmail, or later-Block effect was performed.

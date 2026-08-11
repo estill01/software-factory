@@ -61,12 +61,14 @@ The canonical proposer/author, implementation owner, independent reviewer, and
 evaluator must be four distinct identities. The adaptive review remains the
 decision review. Inline correction remains a normal-owner correction and cannot
 claim adoption eligibility before retained candidate behavior exists. For
-candidate comparison and candidate cutover, load the decision-derived,
-write-once Factory-evolution artifact set from its canonical supervision owner;
+candidate comparison and candidate cutover, load the decision-derived, staged
+Factory-evolution artifact set from its canonical supervision owner;
 do not accept bundle bytes from the caller. Bind its staged manifests,
 experiment, baseline, retained candidate, proposer, implementer, evaluator,
 review, evaluation, and disposition to the exact decision/currentness and live
-skill manifest. A
+skill manifest. Require a sealed evaluator acceptance over those exact roots so
+deleting and rebuilding the derived artifact directory cannot replace an
+accepted result for the same decision. A
 `promote` evaluation means only `adoption_eligible=true`; it grants no edit,
 release, install, activation, or promotion authority. Structural work instead
 binds its validated program-revision author and application owner.
@@ -91,11 +93,12 @@ mismatched, failed, or reopening reconciliation. Reject an unclaimed
 reconciliation as ambiguous.
 
 After the last evidence load, rehydrate the canonical policy/ledger, target
-revision and affected content, live skill sources, and current behavior. Reject
-any changed source before returning a result. The application handoff binds the
+revision and affected content, live skill sources, exact evolution inventory,
+and current behavior. Reject any changed source before returning a result. The application handoff binds the
 exact decision event, target revision, candidate, structural packet and signed
-review, live skill sources, evolution review/evaluation/experiment, role map,
-findings, current behavior, action, and normal owner. Resume
+review, live skill sources, sealed evolution acceptance plus
+review/evaluation/experiment, role map, findings, current behavior, action, and
+normal owner. Resume
 `continue-unchanged` directly. All other paths route to their existing owner
 without conferring application authority or creating a second live
 implementation.
@@ -107,4 +110,4 @@ classes across unchanged, inline, candidate comparison, structural amendment,
 and candidate-cutover routing, plus canonical owner/target identity, exact
 evolution binding, signed structural revision/review binding, nonempty
 claim-bound findings, canonical current-outcome completion, final currentness,
-and absent planned-file containment.
+derived-evolution replacement, and absent planned-file containment.

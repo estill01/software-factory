@@ -3,10 +3,14 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import importlib.util
 import os
 import stat
+import subprocess
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Mapping, Optional, Sequence
@@ -39,6 +43,7 @@ FACTORY_EVALUATED_DISPOSITIONS = {
 }
 MAX_SKILL_FILES = 256
 MAX_SKILL_BYTES = 4 * 1024 * 1024
+EVOLUTION_ACCEPTANCE_KIND = "software-factory-evolution-exact-acceptance"
 
 
 def _load_module(name: str, path: Path) -> Any:
@@ -79,6 +84,103 @@ def _safe_id(value: Any, label: str) -> str:
         return supervision.safe_id(value, label=label)
     except Exception as error:
         raise TargetClassProtocolError(f"{label} differs") from error
+
+
+def _verify_evolution_acceptance(
+    value: Any, *, expected: Mapping[str, Any]
+) -> dict[str, Any]:
+    fields = {
+        "schema_version",
+        "kind",
+        "decision_id",
+        "decision_fingerprint",
+        "decision_currentness_root",
+        "evolution_id",
+        "evolution_root",
+        "evolution_review_root",
+        "evaluation_root",
+        "experiment_root",
+        "candidate_root",
+        "live_skill_sources_root",
+        "evaluation_disposition",
+        "acceptance_authority_id",
+        "acceptance_authority_key_sha256",
+        "acceptance_root",
+        "acceptance_signature_base64",
+    }
+    source = dict(_exact_fields(value, fields, "Factory evolution acceptance"))
+    if (
+        source["schema_version"] != 1
+        or source["kind"] != EVOLUTION_ACCEPTANCE_KIND
+        or any(source.get(key) != item for key, item in expected.items())
+        or source["acceptance_authority_id"]
+        != supervision.ADAPTIVE_EVALUATOR_ID
+        or source["acceptance_authority_key_sha256"]
+        != supervision.ADAPTIVE_EVALUATOR_PUBLIC_KEY_SHA256
+    ):
+        raise TargetClassProtocolError("Factory evolution acceptance differs")
+    material = {
+        key: item
+        for key, item in source.items()
+        if key not in {"acceptance_root", "acceptance_signature_base64"}
+    }
+    if source["acceptance_root"] != digest(material):
+        raise TargetClassProtocolError("Factory evolution acceptance root differs")
+    try:
+        signature = base64.b64decode(
+            source["acceptance_signature_base64"], validate=True
+        )
+    except (TypeError, ValueError, binascii.Error) as error:
+        raise TargetClassProtocolError(
+            "Factory evolution acceptance signature differs"
+        ) from error
+    if len(signature) != 64:
+        raise TargetClassProtocolError(
+            "Factory evolution acceptance signature differs"
+        )
+    try:
+        key_bytes = supervision.trusted_adaptive_evaluator_key()
+        openssl = supervision.trusted_adaptive_review_openssl()
+    except Exception as error:
+        raise TargetClassProtocolError(
+            "Factory evolution acceptance owner is unavailable"
+        ) from error
+    with tempfile.TemporaryDirectory(prefix="factory-evolution-acceptance-") as temp:
+        root = Path(temp)
+        content = root / "acceptance.json"
+        signature_path = root / "acceptance.sig"
+        key_path = root / "evaluator.pem"
+        content.write_bytes(
+            supervision.canonical(
+                {**material, "acceptance_root": source["acceptance_root"]}
+            )
+        )
+        signature_path.write_bytes(signature)
+        key_path.write_bytes(key_bytes)
+        verified = subprocess.run(
+            [
+                str(openssl),
+                "pkeyutl",
+                "-verify",
+                "-pubin",
+                "-inkey",
+                str(key_path),
+                "-rawin",
+                "-in",
+                str(content),
+                "-sigfile",
+                str(signature_path),
+            ],
+            check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"},
+        )
+    if verified.returncode != 0:
+        raise TargetClassProtocolError(
+            "Factory evolution acceptance signature differs"
+        )
+    return source
 
 
 def _manifest_root(source: Path) -> tuple[str, int, int]:
@@ -327,6 +429,37 @@ def _control_snapshot(
     )
 
 
+def _canonical_evolution_bundle(
+    directory: Path, evolution_id: str
+) -> dict[str, Any]:
+    try:
+        evolution_directory = supervision.factory_evolution_directory(
+            directory,
+            _safe_id(evolution_id, "Factory evolution ID"),
+        )
+        supervision.verify_factory_evolution_inventory(evolution_directory)
+        evolution_packet, evolution_review = (
+            supervision.verify_factory_evolution_finalize(
+                factory_evolution, evolution_directory
+            )
+        )
+        artifacts = supervision.require_factory_evolution_artifacts(
+            evolution_directory,
+            ("evaluation.json", "machine-report.json", "manifest.json"),
+        )
+        return factory_evolution.verify_evolution_bundle(
+            {
+                "learning-packet.json": evolution_packet,
+                "review.json": evolution_review,
+                **artifacts,
+            }
+        )
+    except Exception as error:
+        raise TargetClassProtocolError(
+            "Factory evolution bundle is not current"
+        ) from error
+
+
 def validate_target_class_protocol(
     target_thread: str,
     packet: Mapping[str, Any],
@@ -352,6 +485,7 @@ def validate_target_class_protocol(
         "program_revision_review",
         "factory_skill_sources",
         "factory_evolution_id",
+        "factory_evolution_acceptance",
         "capability_context",
         "claimed_improvement",
         "factory_alignment_findings",
@@ -576,6 +710,7 @@ def validate_target_class_protocol(
     live_skill_identity: Optional[str] = None
     live_sources_root = digest(live_sources)
     evolution_root: Optional[str] = None
+    evolution_acceptance_root: Optional[str] = None
     evolution_id: Optional[str] = None
     evolution_review_root: Optional[str] = None
     evaluation_root: Optional[str] = None
@@ -585,7 +720,11 @@ def validate_target_class_protocol(
     reviewer: Optional[str] = None
     evaluator: Optional[str] = None
     if target_class == "target-repository":
-        if source["factory_skill_sources"] or source["factory_evolution_id"] is not None:
+        if (
+            source["factory_skill_sources"]
+            or source["factory_evolution_id"] is not None
+            or source["factory_evolution_acceptance"] is not None
+        ):
             raise TargetClassProtocolError("ordinary target work invoked Factory evolution")
         if source["factory_alignment_findings"]:
             raise TargetClassProtocolError("ordinary target work claimed Factory ownership")
@@ -637,35 +776,7 @@ def validate_target_class_protocol(
                     raise TargetClassProtocolError(
                         "Factory evolution identity differs from the decision"
                     )
-                try:
-                    evolution_directory = supervision.factory_evolution_directory(
-                        directory,
-                        _safe_id(evolution_id, "Factory evolution ID"),
-                    )
-                    supervision.verify_factory_evolution_inventory(
-                        evolution_directory
-                    )
-                    evolution_packet, evolution_review = (
-                        supervision.verify_factory_evolution_finalize(
-                            factory_evolution, evolution_directory
-                        )
-                    )
-                    artifacts = supervision.require_factory_evolution_artifacts(
-                        evolution_directory,
-                        (
-                            "evaluation.json",
-                            "machine-report.json",
-                            "manifest.json",
-                        ),
-                    )
-                    evolution = {
-                        "learning-packet.json": evolution_packet,
-                        "review.json": evolution_review,
-                        **artifacts,
-                    }
-                    evolution = factory_evolution.verify_evolution_bundle(evolution)
-                except Exception as error:
-                    raise TargetClassProtocolError("Factory evolution bundle is not current") from error
+                evolution = _canonical_evolution_bundle(directory, evolution_id)
                 evolution_review = evolution["review.json"]
                 evaluation = evolution["evaluation.json"]
                 experiment = evolution_review["experiment"]
@@ -716,9 +827,35 @@ def validate_target_class_protocol(
                 experiment_root = digest(experiment)
                 evolution_disposition = str(evaluation["disposition"])
                 adoption_eligible = evolution_disposition == "promote"
+                acceptance = _verify_evolution_acceptance(
+                    source["factory_evolution_acceptance"],
+                    expected={
+                        "decision_id": result["decision_id"],
+                        "decision_fingerprint": result["decision_fingerprint"],
+                        "decision_currentness_root": result[
+                            "decision_currentness_root"
+                        ],
+                        "evolution_id": evolution_id,
+                        "evolution_root": evolution_root,
+                        "evolution_review_root": evolution_review_root,
+                        "evaluation_root": evaluation_root,
+                        "experiment_root": experiment_root,
+                        "candidate_root": candidate["candidate_root"],
+                        "live_skill_sources_root": live_sources_root,
+                        "evaluation_disposition": evolution_disposition,
+                    },
+                )
+                evolution_acceptance_root = acceptance["acceptance_root"]
             elif evolution_id is not None:
                 raise TargetClassProtocolError("Factory evolution is not required for this path")
-        elif source["factory_evolution_id"] is not None:
+            elif source["factory_evolution_acceptance"] is not None:
+                raise TargetClassProtocolError(
+                    "Factory evolution acceptance is not required for this path"
+                )
+        elif (
+            source["factory_evolution_id"] is not None
+            or source["factory_evolution_acceptance"] is not None
+        ):
             raise TargetClassProtocolError("unchanged Factory work opened an evolution cycle")
     capability_root: Optional[str] = None
     capability_completion_record_id: Optional[str] = None
@@ -842,6 +979,7 @@ def validate_target_class_protocol(
     for optional_root in (
         live_sources_root if live_sources else None,
         evolution_root,
+        evolution_acceptance_root,
         evolution_review_root,
         evaluation_root,
         experiment_root,
@@ -929,6 +1067,10 @@ def validate_target_class_protocol(
     if target_class == "software-factory" and disposition != "continue-unchanged":
         if _live_skill_identity(DEFAULT_SKILLS_ROOT) != live_skill_identity:
             raise TargetClassProtocolError("software-factory skill sources changed")
+    if evolution_id is not None:
+        final_evolution = _canonical_evolution_bundle(directory, evolution_id)
+        if digest(final_evolution) != evolution_root:
+            raise TargetClassProtocolError("Factory evolution currentness changed")
     if capability_context is not None:
         try:
             final_capability, final_capability_root = (
@@ -992,6 +1134,7 @@ def validate_target_class_protocol(
             "factory_skill_sources_root": live_sources_root,
             "factory_evolution_id": evolution_id,
             "factory_evolution_root": evolution_root,
+            "factory_evolution_acceptance_root": evolution_acceptance_root,
             "factory_evolution_review_root": evolution_review_root,
             "factory_evaluation_root": evaluation_root,
             "factory_experiment_root": experiment_root,
@@ -1042,6 +1185,7 @@ def validate_target_class_protocol(
         "factory_skill_sources_root": live_sources_root,
         "factory_evolution_id": evolution_id,
         "factory_evolution_root": evolution_root,
+        "factory_evolution_acceptance_root": evolution_acceptance_root,
         "factory_evolution_review_root": evolution_review_root,
         "factory_evaluation_root": evaluation_root,
         "factory_experiment_root": experiment_root,
