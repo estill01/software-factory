@@ -1238,13 +1238,28 @@ class OperationsProjectionService:
                 "The selected role's governed model and reasoning contract is unavailable or differs.",
                 status=409,
             )
+        current_mission_binding = policy.get("mission_binding")
+        if not isinstance(current_mission_binding, Mapping):
+            raise OperationsProjectionError(
+                "role_binding_source_unavailable",
+                "The current mission binding is unavailable.",
+                status=422,
+            )
 
         prior_candidates: list[tuple[str, str]] = []
         candidate_other_roles: dict[str, set[str]] = {}
         for record in history[:-1]:
             snapshot = record.get("policy") if isinstance(record, Mapping) else None
+            if not isinstance(snapshot, Mapping):
+                raise OperationsProjectionError(
+                    "role_binding_source_unavailable",
+                    "Canonical policy history contains an incomplete policy snapshot.",
+                    status=422,
+                )
+            if snapshot.get("mission_binding") != current_mission_binding:
+                continue
             historical_runtime = (
-                snapshot.get("runtime") if isinstance(snapshot, Mapping) else None
+                snapshot.get("runtime")
             )
             if not isinstance(historical_runtime, Mapping):
                 raise OperationsProjectionError(

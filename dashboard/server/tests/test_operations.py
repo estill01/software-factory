@@ -542,6 +542,64 @@ class OperationsProjectionTests(unittest.TestCase):
             self.service.preview_role_bind(TARGET, role="base_reviewer")
         self.assertEqual(healthy.exception.code, "role_binding_owner_cannot_replace")
 
+    def test_role_bind_preview_rejects_predecessor_mission_task(self) -> None:
+        directory = self.supervision_root / TARGET
+        policy = self.owner.read_json(directory / "policy.json")
+        predecessor = json.loads(json.dumps(policy))
+        predecessor["mission_binding"] = self.owner.mission_binding_contract(
+            "c" * 64,
+            "direct-predecessor-item",
+        )
+        predecessor["runtime"]["notice_reviewer_thread_id"] = (
+            "predecessor-notice-reviewer-0001"
+        )
+        predecessor["policy_version"] += 1
+        predecessor["policy_sha256"] = self.owner.digest(
+            self.owner.policy_material(predecessor)
+        )
+        self.owner.append_raw(
+            directory / "policy-history.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": "POLICY-PREDECESSOR-NOTICE",
+                "timestamp": "2026-08-09T10:20:00+00:00",
+                "kind": "policy-bind",
+                "policy": predecessor,
+            },
+        )
+
+        successor = json.loads(json.dumps(predecessor))
+        successor["mission_binding"] = self.owner.mission_binding_contract(
+            "d" * 64,
+            "direct-successor-item",
+        )
+        successor["runtime"]["notice_reviewer_thread_id"] = None
+        successor["policy_version"] += 1
+        successor["policy_sha256"] = self.owner.digest(
+            self.owner.policy_material(successor)
+        )
+        self.owner.atomic_json(directory / "policy.json", successor)
+        self.owner.append_raw(
+            directory / "policy-history.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": "POLICY-SUCCESSOR-NOTICE-MISSING",
+                "timestamp": "2026-08-09T10:21:00+00:00",
+                "kind": "policy-mission-successor",
+                "policy": successor,
+            },
+        )
+
+        before_policy = (directory / "policy.json").read_bytes()
+        with self.assertRaises(OperationsProjectionError) as unavailable:
+            self.service.preview_role_bind(TARGET, role="notice_reviewer")
+
+        self.assertEqual(
+            unavailable.exception.code,
+            "role_binding_task_authority_unavailable",
+        )
+        self.assertEqual((directory / "policy.json").read_bytes(), before_policy)
+
     def test_gmail_cadence_uses_active_owner_result_for_all_three_fields(self) -> None:
         self._command(
             "bind",
