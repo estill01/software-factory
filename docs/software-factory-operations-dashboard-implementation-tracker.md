@@ -5844,10 +5844,57 @@ check. Never enumerate or reconcile unrelated automation families.
   attempted. The full-profile verifier returned Blocks 0-29 with 0 errors and
   0 warnings, verifier tests passed 30/30, `git diff --check` passed, and the
   Block 20 Stop remained closed.
+- Rejected exact revision retained as evidence: independent review rejected
+  exact evidence commit `b35afc0f5438d098331437dad8f4eaa78a8de4f6`, tree
+  `074e3ca9fdb262c0fe83df4edc3da13cf64c7947`, for four bounded truth gaps in
+  product `95de6d70440bdf87ac2b10800bcb7bfeccff6318`: the canonical role-target task
+  was not proven existing/current/same-project; the fix executor was not bound
+  to the selected project and repository root; a different-ID active heartbeat
+  on the same exact role target escaped the duplicate verifier; and arbitrary
+  nonempty roundup timezone text could be treated as supported without a
+  separate automation-owner timezone postcondition. The reviewer otherwise
+  reproduced Ruff, the 30-Block full verifier with 0 errors and 0 warnings,
+  verifier tests 30/30, the recorded backend/frontend/build/browser proof,
+  exact remote identity, clean diff, and the Block 20 Stop. The revision was
+  not accepted and no later Block was opened.
+- Bounded correction product: successor commit
+  `6cbde0b70bcd7cd38952baa3ccd5824abd4ef1b4`, tree
+  `9b0d02ddec003fc0d9ed323c07fe7bc1f7e24941`, parent rejected evidence
+  `b35afc0f5438d098331437dad8f4eaa78a8de4f6`, is pushed with exact local,
+  upstream, and remote identity. Source resolution now reads the exact
+  canonical role-target task, permits only current App Server states, and
+  requires its bound project and canonical cwd to remain inside the selected
+  registered root. The fix executor has the same project/root constraint and
+  is re-read with the role task at verification. A bounded automation-inventory
+  scan proves active owners on the exact target: an unclaimed or same-role
+  different ID blocks repair, while a separately claimed sibling role such as
+  roundup writer versus weekly report remains distinct. Calendar roles accept
+  only the maintained `America/Los_Angeles` contract and separately compare it
+  with the local timezone used by the desktop automation owner; missing,
+  different, or unsupported timezone truth is unavailable or non-repairable.
+  The role task, fix executor, duplicate-owner set, and timezone are included
+  in the source fingerprint and required again for applied verification.
+- Correction proof: adversarial coverage rejects a missing/different role
+  target, wrong-project binding, out-of-project fix cwd, unclaimed active
+  duplicate owner, invalid `Mars/Olympus` policy timezone, and different owner
+  timezone; it also preserves two independently claimed calendar automations
+  on the shared roundup-writer task. The complete affected operations/workflow
+  modules passed 48/48 with `ResourceWarning` fatal, Ruff passed all changed
+  Python source/tests, the full frontend passed 97/97 with the existing
+  invocation-scoped serial command, and TypeScript plus production build
+  passed. Focused Playwright passed 3/3 at desktop/tablet/mobile with the exact
+  duplicate/timezone preview facts, Axe serious/critical 0, one functional
+  `h1`, no horizontal overflow, and no predecessor-mission action. The live
+  loopback server was restarted on port 8787; health and App Server integration
+  are available, and the current watcher/reviewer rows report exact duplicate
+  coverage and reconciled interval-timezone posture. No live automation,
+  policy, or task mutation was attempted. The full-profile verifier again
+  returned Blocks 0-29 with 0 errors and 0 warnings, verifier tests passed
+  30/30, and `git diff --check` passed.
 - Candidate review posture: Block 20 remains `in-progress` and Blocks 21-29
   remain unopened until a fresh independent exact-revision product, owner,
-  recovery, resource-bound, responsive-UI, and Stop review accepts the frozen
-  evidence successor.
+  recovery, resource-bound, responsive-UI, and Stop review accepts this
+  corrected evidence successor.
 
 ### Stop
 
