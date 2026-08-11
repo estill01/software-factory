@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import copy
 import hashlib
 import importlib.util
@@ -2153,6 +2154,352 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.assertIn("newer exact direct-user", authoring)
         self.assertIn("unauthorized requested-range contraction", changelog)
         self.assertIn("019fb18f-3d03-7ca0-9fe9-68353f0405ce", changelog)
+
+
+class CanonicalAuthoritySourceIngestionTests(unittest.TestCase):
+    target = "canonical-target-1234"
+    source_task = "canonical-task-1234"
+    source_item = "item-44"
+    source_record = (
+        f"codex:{target}:{source_task}:{source_item}"
+    )
+    canonical_request = b"Implement this tracker.\n"
+    reconstructed_request = b"Implement this tracker.\\n"
+    canonical_sha256 = hashlib.sha256(canonical_request).hexdigest()
+    reconstructed_sha256 = hashlib.sha256(reconstructed_request).hexdigest()
+    reviewer = "canonical-reviewer-1234"
+    base_reviewer = "canonical-base-reviewer-1234"
+    watcher = "canonical-watcher-1234"
+    fix_executor = "canonical-fix-executor-1234"
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "init",
+                "--target-thread",
+                self.target,
+                "--target-label",
+                "Canonical source target",
+                "--watcher-thread",
+                self.watcher,
+                "--reviewer-thread",
+                self.reviewer,
+                "--base-reviewer-thread",
+                self.base_reviewer,
+                "--fix-executor-thread",
+                self.fix_executor,
+                "--mission-source-class",
+                "direct-user",
+                "--mission-source-record",
+                self.source_record,
+                "--mission-source-sha256",
+                self.reconstructed_sha256,
+            ]
+        )
+        with redirect_stdout(io.StringIO()):
+            args.func(args)
+        self.directory = self.root / self.target
+        supervision_log.append_raw(
+            self.directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": "EVT-000001",
+                "timestamp": supervision_log.utc_now(),
+                "target_thread_id": self.target,
+                "kind": "check",
+                "status": "canonical-source-verified",
+                "summary": "Canonical source owner verified exact bytes.",
+                "evidence": [
+                    self.source_record,
+                    f"canonical-item-bytes:{len(self.canonical_request)}",
+                    f"canonical-item-sha256:{self.canonical_sha256}",
+                ],
+            },
+        )
+        self.tracker = self.root / "tracker.md"
+        self.write_tracker()
+
+    def write_tracker(self) -> None:
+        self.tracker.write_text(
+            "| Block | Scope | Depends on | Status |\n"
+            "|---:|---|---:|---|\n"
+            "| 0 | Foundation | — | `completed` |\n"
+            "| 1 | Remaining | 0 | `in-progress` |\n\n"
+            "## Block 0 — Foundation\n\nStatus: `completed`\n\n"
+            "### Completion evidence\n\nAccepted.\n\n"
+            "### Stop\n\nStop at this Block boundary.\n\n"
+            "## Block 1 — Remaining\n\nStatus: `in-progress`\n\n"
+            "### Completion evidence\n\nPending.\n\n"
+            "### Stop\n\nStop at this Block boundary.\n",
+            encoding="utf-8",
+        )
+
+    def call(self, *arguments: str) -> dict[str, object]:
+        args = supervision_log.parser().parse_args(
+            ["--root", str(self.root), *arguments]
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            args.func(args)
+        return json.loads(output.getvalue())
+
+    def current_policy(self) -> dict[str, object]:
+        return supervision_log.read_json(self.directory / "policy.json")
+
+    def ingest_arguments(
+        self,
+        *,
+        source_bytes: bytes | None = None,
+        source_record: str | None = None,
+        verifier: str | None = None,
+        policy_sha256: str | None = None,
+        source_base64: str | None = None,
+    ) -> list[str]:
+        policy = self.current_policy()
+        encoded = (
+            source_base64
+            if source_base64 is not None
+            else base64.b64encode(
+                self.canonical_request if source_bytes is None else source_bytes
+            ).decode("ascii")
+        )
+        return [
+            "implementation-range-authority-source-ingest",
+            "--target-thread",
+            self.target,
+            "--source-task",
+            self.source_task,
+            "--source-item",
+            self.source_item,
+            "--source-record",
+            self.source_record if source_record is None else source_record,
+            "--source-text-base64",
+            encoded,
+            "--verifier-thread",
+            self.reviewer if verifier is None else verifier,
+            "--provenance-evidence-record",
+            "EVT-000001",
+            "--expected-policy-sha256",
+            str(policy["policy_sha256"])
+            if policy_sha256 is None
+            else policy_sha256,
+        ]
+
+    def ingest(self, **overrides: object) -> dict[str, object]:
+        return self.call(*self.ingest_arguments(**overrides))
+
+    def test_exact_lf_bytes_accept_deduplicate_and_reject_divergence(self) -> None:
+        self.assertNotEqual(self.canonical_sha256, self.reconstructed_sha256)
+
+        accepted = self.ingest()
+        duplicate = self.ingest()
+
+        self.assertFalse(accepted["duplicate"])
+        self.assertEqual(
+            accepted["record"]["source_sha256"], self.canonical_sha256
+        )
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(
+            duplicate["record"]["record_id"], accepted["record"]["record_id"]
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "divergent record"
+        ):
+            self.ingest(source_bytes=self.reconstructed_request)
+
+    def test_ingest_rejects_bad_encoding_tuple_policy_and_reviewer(self) -> None:
+        cases = (
+            ({"source_base64": "%%%"}, "not valid base64"),
+            (
+                {
+                    "source_base64": base64.b64encode(
+                        b"x" * (supervision_log.MAX_DIRECT_AUTHORITY_SOURCE_BYTES + 1)
+                    ).decode("ascii")
+                },
+                "exceeds its byte bound",
+            ),
+            (
+                {"source_base64": base64.b64encode(b"\xff").decode("ascii")},
+                "not valid UTF-8",
+            ),
+            (
+                {
+                    "source_record": (
+                        f"codex:{self.target}:{self.source_task}:item-45"
+                    )
+                },
+                "differs from its exact tuple",
+            ),
+            (
+                {"source_bytes": self.reconstructed_request},
+                "differ from provenance evidence",
+            ),
+            ({"policy_sha256": "f" * 64}, "stale policy"),
+            ({"verifier": self.watcher}, "eligible independent reviewer"),
+            ({"verifier": self.fix_executor}, "eligible independent reviewer"),
+        )
+        for overrides, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, message
+            ):
+                self.ingest(**overrides)
+        self.assertEqual(
+            len(supervision_log.events(self.directory / "events.jsonl")), 1
+        )
+
+    def test_receipt_exact_root_conversion_and_full_range_gate(self) -> None:
+        original_policy = self.current_policy()
+        original_binding = original_policy["mission_binding"]
+        original_history = supervision_log.events(
+            self.directory / "policy-history.jsonl"
+        )
+        authority_event = self.ingest()["record"]
+        self.call(
+            "implementation-range-authority-receipt",
+            "--target-thread",
+            self.target,
+            "--authority-event-record",
+            str(authority_event["record_id"]),
+        )
+        receipt_policy = self.current_policy()
+        receipt_history = supervision_log.events(
+            self.directory / "policy-history.jsonl"
+        )
+        post_receipt_duplicate = self.ingest()
+        self.assertTrue(post_receipt_duplicate["duplicate"])
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "would change mission identity"
+        ):
+            self.call(
+                "bind",
+                "--target-thread",
+                self.target,
+                "--mission-root",
+                "f" * 64,
+                "--mission-source-record",
+                self.source_record,
+                "--exact-mission-root-conversion-only",
+                "--expected-policy-sha256",
+                str(receipt_policy["policy_sha256"]),
+            )
+
+        converted = self.call(
+            "bind",
+            "--target-thread",
+            self.target,
+            "--mission-root",
+            str(original_binding["mission_root"]),
+            "--mission-source-record",
+            self.source_record,
+            "--exact-mission-root-conversion-only",
+            "--expected-policy-sha256",
+            str(receipt_policy["policy_sha256"]),
+        )
+        converted_policy = converted["policy"]
+        converted_history = supervision_log.events(
+            self.directory / "policy-history.jsonl"
+        )
+
+        self.assertTrue(converted["changed"])
+        self.assertEqual(
+            supervision_log.mission_binding_identity(
+                converted_policy["mission_binding"]
+            ),
+            supervision_log.mission_binding_identity(original_binding),
+        )
+        self.assertEqual(
+            converted_policy["mission_binding"]["mission_derivation"]["mode"],
+            "explicit-exact-root",
+        )
+        self.assertEqual(
+            converted_history[: len(receipt_history)], receipt_history
+        )
+        for key, value in receipt_policy.items():
+            if key not in {
+                "mission_binding",
+                "policy_version",
+                "updated_at",
+                "policy_sha256",
+            }:
+                self.assertEqual(converted_policy[key], value, key)
+        self.assertEqual(
+            original_history[-1]["policy"]["mission_binding"][
+                "mission_derivation"
+            ]["controlling_source"]["sha256"],
+            self.reconstructed_sha256,
+        )
+
+        duplicate = self.call(
+            "bind",
+            "--target-thread",
+            self.target,
+            "--mission-root",
+            str(original_binding["mission_root"]),
+            "--mission-source-record",
+            self.source_record,
+            "--exact-mission-root-conversion-only",
+            "--expected-policy-sha256",
+            str(converted_policy["policy_sha256"]),
+        )
+        self.assertFalse(duplicate["changed"])
+
+        binding = self.call(
+            "implementation-range-bind",
+            "--target-thread",
+            self.target,
+            "--range-id",
+            "full-tracker-canonical-1234",
+            "--tracker",
+            str(self.tracker),
+            "--request-text-base64",
+            base64.b64encode(self.canonical_request).decode("ascii"),
+            "--authority-source-record",
+            self.source_record,
+            "--authority-source-sha256",
+            self.canonical_sha256,
+        )["binding"]
+        gate = self.call(
+            "implementation-range-gate",
+            "--target-thread",
+            self.target,
+            "--response-kind",
+            "block-boundary",
+        )
+
+        self.assertEqual(
+            binding["history"][0]["request_text_sha256"],
+            self.canonical_sha256,
+        )
+        self.assertEqual(gate["requested_blocks"], [0, 1])
+        self.assertEqual(gate["remaining_blocks"], [1])
+        self.assertEqual(gate["next_action"], "continue-next-eligible-block")
+        self.assertFalse(gate["final_response_permitted"])
+
+    def test_exact_root_conversion_requires_receipt_and_same_identity(self) -> None:
+        policy = self.current_policy()
+        binding = policy["mission_binding"]
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "accepted canonical source receipt"
+        ):
+            self.call(
+                "bind",
+                "--target-thread",
+                self.target,
+                "--mission-root",
+                str(binding["mission_root"]),
+                "--mission-source-record",
+                self.source_record,
+                "--exact-mission-root-conversion-only",
+                "--expected-policy-sha256",
+                str(policy["policy_sha256"]),
+            )
+        self.assertEqual(self.current_policy(), policy)
 
 
 class ControlPostureReducerTests(unittest.TestCase):

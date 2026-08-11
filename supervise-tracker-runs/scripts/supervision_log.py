@@ -339,6 +339,7 @@ EVENT_LEDGER_ANCHOR_NAME = "events-head.json"
 OWNER_ROOT_HISTORY_NAME = "owner-root-history.jsonl"
 OWNER_ROOT_KEY_DIRECTORY = ".owner-root-keys"
 MAX_IMPLEMENTATION_TRACKER_BYTES = 2 * 1024 * 1024
+MAX_DIRECT_AUTHORITY_SOURCE_BYTES = 64 * 1024
 IMPLEMENTATION_BLOCK_HEADING = re.compile(r"^## Block (\d+)\b", re.MULTILINE)
 IMPLEMENTATION_TABLE_ROW = re.compile(r"^\|\s*(\d+)\s*\|(.+)$")
 SUCCESSOR_TRANSITION_IDENTITY_FIELDS = (
@@ -1480,6 +1481,24 @@ def exact_sha256(value: str, *, label: str) -> str:
     if not SHA256.fullmatch(text):
         raise SupervisionLogError(f"{label} must be an exact lowercase SHA-256")
     return text
+
+
+def decode_exact_utf8_base64(
+    value: str, *, label: str, maximum_bytes: int
+) -> tuple[bytes, str]:
+    if not isinstance(value, str) or not value:
+        raise SupervisionLogError(f"{label} is missing")
+    try:
+        raw = base64.b64decode(value, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise SupervisionLogError(f"{label} is not valid base64") from exc
+    if len(raw) > maximum_bytes:
+        raise SupervisionLogError(f"{label} exceeds its byte bound")
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise SupervisionLogError(f"{label} is not valid UTF-8") from exc
+    return raw, text
 
 
 def mission_meta_charter_profile() -> dict[str, Any]:
@@ -2782,11 +2801,19 @@ def canonical_direct_authority_event(
     source_item_id = safe_id(
         str(event["source_item_id"]), label="direct-authority source item"
     )
-    if source_record != source_item_id:
+    source_task_id = safe_id(
+        str(event["source_task_id"]), label="direct-authority source task"
+    )
+    canonical_source_record = (
+        f"codex:{policy.get('target_thread_id')}:{source_task_id}:{source_item_id}"
+    )
+    if (
+        source_record != source_item_id
+        and source_record != canonical_source_record
+    ):
         raise SupervisionLogError(
-            "Canonical direct-authority source record and item differ"
+            "Canonical direct-authority source record differs from its exact tuple"
         )
-    safe_id(str(event["source_task_id"]), label="direct-authority source task")
     exact_sha256(str(event["source_sha256"]), label="direct-authority source SHA-256")
     exact_sha256(str(event["record_sha256"]), label="direct-authority event SHA-256")
     source_policy_sha256 = exact_sha256(
@@ -4176,6 +4203,104 @@ def write_policy_version(
 
 def cmd_bind(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
+    if args.exact_mission_root_conversion_only:
+        expected_policy_sha256 = exact_sha256(
+            args.expected_policy_sha256,
+            label="expected policy SHA-256",
+        )
+        if policy.get("policy_sha256") != expected_policy_sha256:
+            raise SupervisionLogError(
+                "Exact mission-root conversion cites a stale policy"
+            )
+        forbidden = (
+            args.base_reviewer_thread,
+            args.notice_reviewer_thread,
+            args.fix_executor_thread,
+            args.routine_automation,
+            args.meta_automation,
+            args.gmail_gate_thread,
+            args.gmail_processor_thread,
+            args.gmail_poll_automation,
+            args.roundup_thread,
+            args.roundup_automation,
+            args.gmail_reply_message_id,
+            args.gmail_project_key,
+            args.gmail_subject,
+            args.gmail_priority_reply_message_id,
+            args.gmail_priority_project_key,
+            args.gmail_priority_subject,
+            args.gmail_roundup_reply_message_id,
+            args.gmail_roundup_project_key,
+            args.gmail_roundup_subject,
+            args.mission_source_class,
+            args.mission_source_sha256,
+        )
+        if any(forbidden) or args.gmail_priority_decision_context:
+            raise SupervisionLogError(
+                "Exact mission-root conversion cannot carry unrelated bindings"
+            )
+        requested_mission = mission_binding_from_args(args, required=True)
+        current_mission = bound_mission(policy)
+        if current_mission is None:
+            raise SupervisionLogError(
+                "Exact mission-root conversion requires a current mission binding"
+            )
+        if mission_binding_identity(current_mission) != mission_binding_identity(
+            requested_mission
+        ):
+            raise SupervisionLogError(
+                "Exact mission-root conversion would change mission identity"
+            )
+        if current_mission == requested_mission:
+            print(
+                json.dumps(
+                    {"changed": False, "policy": policy}, sort_keys=True
+                )
+            )
+            return
+        derivation = current_mission.get("mission_derivation")
+        if (
+            not isinstance(derivation, Mapping)
+            or derivation.get("mode")
+            != "derived-from-versioned-meta-charter"
+        ):
+            raise SupervisionLogError(
+                "Exact mission-root conversion requires the derived predecessor"
+            )
+        source_record = str(requested_mission["mission_source_record"])
+        receipts = [
+            item
+            for item in policy.get("direct_authority_receipts", [])
+            if item.get("source_class") == "direct-user"
+            and item.get("source_record") == source_record
+            and item.get("accepted") is True
+        ]
+        if len(receipts) != 1:
+            raise SupervisionLogError(
+                "Exact mission-root conversion requires one accepted canonical source receipt"
+            )
+        receipt = receipts[0]
+        policy["mission_binding"] = requested_mission
+        write_policy_version(
+            directory,
+            policy,
+            kind="mission-binding-provenance-correction",
+            reason=(
+                "Replace a false derived digest assertion with the same exact "
+                "mission root and source identity after canonical receipt."
+            ),
+            evidence_values=[
+                str(receipt["source_event_record_id"]),
+                str(receipt["source_event_sha256"]),
+                str(receipt["source_sha256"]),
+            ],
+        )
+        print(json.dumps({"changed": True, "policy": policy}, sort_keys=True))
+        return
+    if args.expected_policy_sha256:
+        raise SupervisionLogError(
+            "Expected policy SHA-256 is only valid for exact mission-root conversion"
+        )
     runtime = policy["runtime"]
     updates = {
         "base_reviewer_thread_id": args.base_reviewer_thread,
@@ -7363,12 +7488,223 @@ def cmd_implementation_authority_receipt(args: argparse.Namespace) -> None:
     print(json.dumps({"duplicate": False, "receipt": receipt}, sort_keys=True))
 
 
+def cmd_implementation_authority_source_ingest(args: argparse.Namespace) -> None:
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        all_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
+    expected_policy_sha256 = exact_sha256(
+        args.expected_policy_sha256,
+        label="expected policy SHA-256",
+    )
+    if policy.get("policy_sha256") != expected_policy_sha256:
+        raise SupervisionLogError(
+            "Direct-authority source ingestion cites a stale policy"
+        )
+    target_thread = safe_id(args.target_thread, label="target thread ID")
+    source_task = safe_id(args.source_task, label="direct-authority source task")
+    source_item = safe_id(args.source_item, label="direct-authority source item")
+    source_record = safe_id(
+        args.source_record, label="direct-authority source record"
+    )
+    expected_source_record = (
+        f"codex:{target_thread}:{source_task}:{source_item}"
+    )
+    if source_record != expected_source_record:
+        raise SupervisionLogError(
+            "Direct-authority source record differs from its exact tuple"
+        )
+    mission = bound_mission(policy)
+    if mission is None or mission.get("mission_source_record") != source_record:
+        raise SupervisionLogError(
+            "Direct-authority source tuple differs from the current mission"
+        )
+    source_bytes, _source_text = decode_exact_utf8_base64(
+        args.source_text_base64,
+        label="direct-authority source bytes",
+        maximum_bytes=MAX_DIRECT_AUTHORITY_SOURCE_BYTES,
+    )
+    verifier = safe_id(
+        args.verifier_thread, label="direct-authority provenance verifier"
+    )
+    runtime = policy.get("runtime", {})
+    eligible = {
+        runtime.get("base_reviewer_thread_id"),
+        runtime.get("reviewer_thread_id"),
+    }
+    disallowed = {
+        target_thread,
+        runtime.get("watcher_thread_id"),
+        runtime.get("fix_executor_thread_id"),
+    }
+    if verifier not in eligible or verifier in disallowed:
+        raise SupervisionLogError(
+            "Direct-authority source ingestion requires an eligible independent reviewer"
+        )
+    evidence_record_id = safe_id(
+        args.provenance_evidence_record,
+        label="direct-authority provenance evidence record",
+    )
+    evidence_event = next(
+        (
+            item
+            for item in all_events
+            if item.get("record_id") == evidence_record_id
+        ),
+        None,
+    )
+    if (
+        evidence_event is None
+        or evidence_event.get("target_thread_id") != target_thread
+        or not isinstance(evidence_event.get("record_sha256"), str)
+    ):
+        raise SupervisionLogError(
+            "Direct-authority provenance evidence is not in the current owner ledger"
+        )
+    evidence_sha256 = exact_sha256(
+        str(evidence_event["record_sha256"]),
+        label="direct-authority provenance evidence SHA-256",
+    )
+    source_sha256 = hashlib.sha256(source_bytes).hexdigest()
+    record: dict[str, Any] = {
+        "schema_version": 1,
+        "record_id": "",
+        "timestamp": utc_now(),
+        "target_thread_id": target_thread,
+        "kind": DIRECT_AUTHORITY_EVENT_KIND,
+        "source_class": "direct-user",
+        "source_record": source_record,
+        "source_sha256": source_sha256,
+        "source_task_id": source_task,
+        "source_item_id": source_item,
+        "verifier_id": verifier,
+        "provenance_status": "verified-before-entry",
+        "policy_sha256": expected_policy_sha256,
+        "evidence": [evidence_record_id, evidence_sha256],
+    }
+    with owner_append_lock(
+        root_from(args), target_thread, directory_snapshot
+    ) as directory_fd:
+        require_bound_policy_at(
+            directory_fd,
+            expected_policy=policy,
+            expected_snapshot=policy_snapshot,
+        )
+        current_events, current_event_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        if current_event_snapshot != event_snapshot or current_events != all_events:
+            raise SupervisionLogError(
+                "Direct-authority event head changed; retry current source state"
+            )
+        prior = [
+            item
+            for item in current_events
+            if item.get("kind") == DIRECT_AUTHORITY_EVENT_KIND
+            and item.get("source_record") == source_record
+            and item.get("source_task_id") == source_task
+            and item.get("source_item_id") == source_item
+        ]
+        if prior:
+            comparable = {
+                key: value
+                for key, value in prior[-1].items()
+                if key
+                not in {
+                    "record_id",
+                    "timestamp",
+                    "policy_sha256",
+                    "previous_record_sha256",
+                    "record_sha256",
+                }
+            }
+            current = {
+                key: value
+                for key, value in record.items()
+                if key not in {"record_id", "timestamp", "policy_sha256"}
+            }
+            if comparable == current:
+                policy_history, _policy_history_snapshot = events_snapshot(
+                    Path("policy-history.jsonl"), directory_fd=directory_fd
+                )
+                canonical_direct_authority_event(
+                    current_events,
+                    event_record_id=str(prior[-1]["record_id"]),
+                    policy=policy,
+                    policy_history=policy_history,
+                )
+                print(
+                    json.dumps(
+                        {"duplicate": True, "record": prior[-1]},
+                        sort_keys=True,
+                    )
+                )
+                return
+            raise SupervisionLogError(
+                "Direct-authority source tuple already has a divergent record"
+            )
+        evidence_claims = evidence_event.get("evidence")
+        if (
+            not isinstance(evidence_claims, list)
+            or source_record not in evidence_claims
+            or f"canonical-item-bytes:{len(source_bytes)}" not in evidence_claims
+            or f"canonical-item-sha256:{source_sha256}" not in evidence_claims
+        ):
+            raise SupervisionLogError(
+                "Direct-authority source bytes differ from provenance evidence"
+            )
+        record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
+        previous = (
+            str(current_events[-1]["record_sha256"])
+            if current_events
+            else None
+        )
+        appended_hash = append_raw_locked_at(
+            directory_fd,
+            "events.jsonl",
+            record,
+            previous_record_sha256=previous,
+            expected_file_snapshot=current_event_snapshot,
+            require_event_anchor=bool(current_events),
+        )
+        written_events, _written_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        policy_history, _policy_history_snapshot = events_snapshot(
+            Path("policy-history.jsonl"), directory_fd=directory_fd
+        )
+        record = canonical_direct_authority_event(
+            written_events,
+            event_record_id=str(record["record_id"]),
+            policy=policy,
+            policy_history=policy_history,
+        )
+        current_directory_snapshot = path_snapshot(directory)
+        if (
+            current_directory_snapshot is None
+            or current_directory_snapshot[:2] != directory_snapshot[:2]
+            or event_head_hash(
+                Path("events.jsonl"), directory_fd=directory_fd
+            )
+            != appended_hash
+        ):
+            raise SupervisionLogError(
+                "Direct-authority source append lost canonical owner currentness"
+            )
+    print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
+
+
 def implementation_range_history_entry(
     *,
     sequence: int,
     prior_entry_sha256: str,
     operation: str,
     request_text: str,
+    request_bytes: bytes | None = None,
     tracker_sha256: str,
     tracker_structure_sha256: str,
     tracker_path: str,
@@ -7386,7 +7722,9 @@ def implementation_range_history_entry(
         "sequence": sequence,
         "prior_entry_sha256": prior_entry_sha256,
         "operation": operation,
-        "request_text_sha256": hashlib.sha256(request_text.encode("utf-8")).hexdigest(),
+        "request_text_sha256": hashlib.sha256(
+            request_bytes if request_bytes is not None else request_text.encode("utf-8")
+        ).hexdigest(),
         "tracker_sha256": tracker_sha256,
         "tracker_structure_sha256": tracker_structure_sha256,
         "tracker_path": tracker_path,
@@ -7414,14 +7752,23 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
         tracker_structure_sha256,
         blocks,
     ) = implementation_tracker_snapshot(args.tracker)
-    intent, requested = classify_implementation_request(args.request_text, set(blocks))
+    if args.request_text_base64 is not None:
+        request_bytes, request_text = decode_exact_utf8_base64(
+            args.request_text_base64,
+            label="implementation request bytes",
+            maximum_bytes=MAX_DIRECT_AUTHORITY_SOURCE_BYTES,
+        )
+    else:
+        request_text = args.request_text
+        request_bytes = request_text.encode("utf-8")
+    intent, requested = classify_implementation_request(request_text, set(blocks))
     source_record = safe_id(
         args.authority_source_record, label="range authority source record"
     )
     source_sha256 = exact_sha256(
         args.authority_source_sha256, label="range authority source SHA-256"
     )
-    if hashlib.sha256(args.request_text.encode("utf-8")).hexdigest() != source_sha256:
+    if hashlib.sha256(request_bytes).hexdigest() != source_sha256:
         raise SupervisionLogError(
             "Implementation request text does not match its canonical direct source"
         )
@@ -7440,7 +7787,8 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
         sequence=1,
         prior_entry_sha256="",
         operation="bound",
-        request_text=args.request_text,
+        request_text=request_text,
+        request_bytes=request_bytes,
         tracker_sha256=tracker_sha256,
         tracker_structure_sha256=tracker_structure_sha256,
         tracker_path=str(tracker_path),
@@ -15195,6 +15543,8 @@ def parser() -> argparse.ArgumentParser:
         "--mission-source-class", choices=sorted(DIRECT_AUTHORITY_SOURCE_CLASSES)
     )
     bind.add_argument("--mission-source-sha256")
+    bind.add_argument("--exact-mission-root-conversion-only", action="store_true")
+    bind.add_argument("--expected-policy-sha256", default="")
     bind.set_defaults(func=cmd_bind)
 
     mission_successor = subparsers.add_parser("mission-successor")
@@ -15450,11 +15800,32 @@ def parser() -> argparse.ArgumentParser:
     range_authority.add_argument("--authority-event-record", required=True)
     range_authority.set_defaults(func=cmd_implementation_authority_receipt)
 
+    range_authority_source = subparsers.add_parser(
+        "implementation-range-authority-source-ingest"
+    )
+    range_authority_source.add_argument("--target-thread", required=True)
+    range_authority_source.add_argument("--source-task", required=True)
+    range_authority_source.add_argument("--source-item", required=True)
+    range_authority_source.add_argument("--source-record", required=True)
+    range_authority_source.add_argument("--source-text-base64", required=True)
+    range_authority_source.add_argument("--verifier-thread", required=True)
+    range_authority_source.add_argument(
+        "--provenance-evidence-record", required=True
+    )
+    range_authority_source.add_argument(
+        "--expected-policy-sha256", required=True
+    )
+    range_authority_source.set_defaults(
+        func=cmd_implementation_authority_source_ingest
+    )
+
     range_bind = subparsers.add_parser("implementation-range-bind")
     range_bind.add_argument("--target-thread", required=True)
     range_bind.add_argument("--range-id", required=True)
     range_bind.add_argument("--tracker", required=True)
-    range_bind.add_argument("--request-text", required=True)
+    range_request = range_bind.add_mutually_exclusive_group(required=True)
+    range_request.add_argument("--request-text")
+    range_request.add_argument("--request-text-base64")
     range_bind.add_argument("--authority-source-record", required=True)
     range_bind.add_argument("--authority-source-sha256", required=True)
     range_bind.set_defaults(func=cmd_implementation_range_bind)

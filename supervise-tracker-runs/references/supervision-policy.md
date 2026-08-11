@@ -779,7 +779,8 @@ Bind once, amend only after an accepted tracker revision, and gate every Stop:
 ```bash
 python3 <LOG_HELPER> implementation-range-bind \
   --target-thread <TARGET> --range-id <STABLE_RANGE_ID> \
-  --tracker <ABSOLUTE_TRACKER_PATH> --request-text <EXACT_DIRECT_REQUEST> \
+  --tracker <ABSOLUTE_TRACKER_PATH> \
+  --request-text-base64 <EXACT_UTF8_DIRECT_REQUEST_BASE64> \
   --authority-source-record <DIRECT_ITEM> \
   --authority-source-sha256 <DIRECT_ITEM_SHA256>
 
@@ -833,17 +834,53 @@ reviewed canonical authority receipt. A contraction first resolves a separately
 ingested `direct-user-authority-source` owner event by exact ledger record:
 
 ```bash
+python3 <LOG_HELPER> implementation-range-authority-source-ingest \
+  --target-thread <TARGET> \
+  --source-task <EXACT_SOURCE_TASK> --source-item <EXACT_SOURCE_ITEM> \
+  --source-record <EXACT_CODEX_SOURCE_TUPLE> \
+  --source-text-base64 <EXACT_UTF8_SOURCE_BYTES_BASE64> \
+  --verifier-thread <ELIGIBLE_INDEPENDENT_REVIEWER> \
+  --provenance-evidence-record <EXISTING_CANONICAL_EVIDENCE_EVENT> \
+  --expected-policy-sha256 <CURRENT_POLICY_SHA256>
+
 python3 <LOG_HELPER> implementation-range-authority-receipt \
   --target-thread <TARGET> --authority-event-record <CANONICAL_EVENT_ID>
 ```
 
-The source event must already bind exact task/item provenance, content hash,
-eligible independent verifier, owner policy-history root, and evidence before
-entry. The resolver then cites that source record/hash on
-`implementation-range-amend`. Naming a new event or source string fails closed.
-Initial binding and contraction also hash the exact request text bytes and
-require equality with the accepted direct source SHA-256; authentic authority
-metadata cannot be paired with fabricated scope text.
+The ingestion command is the only public owner for this existing event shape.
+It strictly decodes bounded UTF-8 bytes, computes their SHA-256 internally,
+requires the exact target/source-task/source-item record tuple and current
+policy, resolves the evidence record from the canonical ledger, and accepts
+only the bound base or final reviewer. An exact retry is idempotent; changed
+bytes or provenance for the same tuple fail closed. Do not create a temporary
+source file, reconstruct terminal bytes in shell text, or append this event
+directly. The receipt command then resolves the already-ingested event and
+cites its source record/hash on `implementation-range-bind` or
+`implementation-range-amend`. Initial binding accepts either legacy
+`--request-text` or mutually exclusive `--request-text-base64`; use base64 when
+terminal-byte fidelity matters. Both paths hash the exact supplied UTF-8 bytes
+and require equality with the accepted direct source SHA-256. Authentic
+authority metadata cannot be paired with fabricated scope text.
+
+If an older derived mission binding made a false content-digest assertion but
+the exact mission root and source-record identity remain correct, first ingest
+and accept the canonical source receipt. Then convert only that same identity
+to the already-supported explicit exact-root contract:
+
+```bash
+python3 <LOG_HELPER> bind \
+  --target-thread <TARGET> \
+  --mission-root <UNCHANGED_EXACT_MISSION_ROOT> \
+  --mission-source-record <UNCHANGED_EXACT_SOURCE_RECORD> \
+  --exact-mission-root-conversion-only \
+  --expected-policy-sha256 <CURRENT_POLICY_SHA256>
+```
+
+This narrow conversion requires exactly one accepted receipt for the unchanged
+source, rejects stale policy or any unrelated bind input, and appends a policy
+version without rewriting the historic derived binding. It cannot change the
+mission root, source tuple, roles, permissions, automation, Gmail posture, or
+other policy defaults.
 
 Ordinary tracker status and completion-evidence updates preserve the
 owner-pinned tracker path, exact Block-number set, and canonical structural
