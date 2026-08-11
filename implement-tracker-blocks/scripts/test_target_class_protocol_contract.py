@@ -1118,6 +1118,32 @@ class TargetClassProtocolTests(unittest.TestCase):
 
     def test_final_currentness_rejects_target_change_during_evidence_load(self) -> None:
         packet, _event = self.packet("target-repository", "continue-unchanged")
+        capability_path = Path(packet["capability_context"]["path"])
+        exact_capability = capability_path.read_bytes()
+        original_posture = protocol.supervision._adaptive_decision_posture
+        posture_reads = 0
+
+        def posture_then_change_capability(*args, **kwargs):
+            nonlocal posture_reads
+            value = original_posture(*args, **kwargs)
+            posture_reads += 1
+            if posture_reads == 3:
+                capability_path.write_bytes(exact_capability + b" ")
+            return value
+
+        with mock.patch.object(
+            protocol.supervision,
+            "_adaptive_decision_posture",
+            side_effect=posture_then_change_capability,
+        ):
+            with self.assertRaisesRegex(
+                protocol.TargetClassProtocolError,
+                "current behavior changed during reconciliation",
+            ):
+                self.validate(packet)
+        self.assertEqual(posture_reads, 3)
+        capability_path.write_bytes(exact_capability)
+
         original = protocol.supervision.load_capability_reconciliation
         changed = False
 
@@ -1207,6 +1233,57 @@ class TargetClassProtocolTests(unittest.TestCase):
             ):
                 self.validate(packet)
         self.assertEqual(verify_reads, 2)
+        evaluation_path.write_bytes(exact_evaluation)
+
+        skill_path = (
+            protocol.DEFAULT_SKILLS_ROOT / "implement-tracker-blocks" / "SKILL.md"
+        )
+        exact_skill = skill_path.read_bytes()
+        original_posture = protocol.supervision._adaptive_decision_posture
+        posture_reads = 0
+
+        def posture_then_change_skill(*args, **kwargs):
+            nonlocal posture_reads
+            value = original_posture(*args, **kwargs)
+            posture_reads += 1
+            if posture_reads == 3:
+                skill_path.write_bytes(exact_skill + b"\n")
+            return value
+
+        with mock.patch.object(
+            protocol.supervision,
+            "_adaptive_decision_posture",
+            side_effect=posture_then_change_skill,
+        ):
+            with self.assertRaisesRegex(
+                protocol.TargetClassProtocolError,
+                "skill sources changed",
+            ):
+                self.validate(packet)
+        self.assertEqual(posture_reads, 3)
+        skill_path.write_bytes(exact_skill)
+
+        posture_reads = 0
+
+        def posture_then_remove_evolution(*args, **kwargs):
+            nonlocal posture_reads
+            value = original_posture(*args, **kwargs)
+            posture_reads += 1
+            if posture_reads == 3:
+                evaluation_path.unlink()
+            return value
+
+        with mock.patch.object(
+            protocol.supervision,
+            "_adaptive_decision_posture",
+            side_effect=posture_then_remove_evolution,
+        ):
+            with self.assertRaisesRegex(
+                protocol.TargetClassProtocolError,
+                "Factory evolution currentness changed",
+            ):
+                self.validate(packet)
+        self.assertEqual(posture_reads, 3)
         evaluation_path.write_bytes(exact_evaluation)
 
         exact_target = self.adaptive.owned_path.read_bytes()

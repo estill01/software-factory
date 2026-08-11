@@ -103,8 +103,10 @@ reconciliation as ambiguous.
 After the last evidence load, rehydrate the canonical policy/ledger, target
 revision and affected content, live skill sources, exact evolution inventory,
 and current behavior. After those reads, re-evaluate the canonical decision and
-target state once more and require the exact original result. Reject any changed
-source before returning a result. The application handoff binds the
+target state once more and require the exact original result. Compare the cheap
+live-skill metadata, complete evolution inventory/path identity, and capability
+record snapshot again after that decision pass. Reject any changed source before
+returning a result. The application handoff binds the
 exact decision event, target revision, candidate, structural packet and signed
 review, live skill sources, sealed evolution acceptance plus
 review/evaluation/experiment, role map, findings, current behavior, action, and

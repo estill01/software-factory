@@ -568,6 +568,46 @@ def _canonical_evolution_bundle(
         ) from error
 
 
+def _evolution_identity(directory: Path, evolution_id: str) -> str:
+    try:
+        evolution_directory = supervision.factory_evolution_directory(
+            directory,
+            _safe_id(evolution_id, "Factory evolution ID"),
+        )
+        before = supervision.path_snapshot(evolution_directory)
+        if before is None or not stat.S_ISDIR(evolution_directory.lstat().st_mode):
+            raise TargetClassProtocolError(
+                "Factory evolution directory is not current"
+            )
+        names = sorted(os.listdir(evolution_directory))
+        records = []
+        for name in names:
+            snapshot = supervision.path_snapshot(evolution_directory / name)
+            if snapshot is None:
+                raise TargetClassProtocolError(
+                    "Factory evolution artifact is not current"
+                )
+            records.append({"name": name, "snapshot": list(snapshot)})
+        if (
+            supervision.path_snapshot(evolution_directory) != before
+            or sorted(os.listdir(evolution_directory)) != names
+        ):
+            raise TargetClassProtocolError(
+                "Factory evolution directory changed while reading"
+            )
+        return digest(
+            {
+                "directory": str(evolution_directory),
+                "directory_snapshot": list(before),
+                "artifacts": records,
+            }
+        )
+    except Exception as error:
+        raise TargetClassProtocolError(
+            "Factory evolution identity is not current"
+        ) from error
+
+
 def validate_target_class_protocol(
     target_thread: str,
     packet: Mapping[str, Any],
@@ -1176,14 +1216,25 @@ def validate_target_class_protocol(
         )
     if final_result != result:
         raise TargetClassProtocolError("adaptive decision currentness changed")
+    final_live_skill_identity: Optional[str] = None
     if target_class == "software-factory" and disposition != "continue-unchanged":
-        if _live_skill_identity(DEFAULT_SKILLS_ROOT) != live_skill_identity:
+        final_live_skill_identity = _live_skill_identity(DEFAULT_SKILLS_ROOT)
+        if final_live_skill_identity != live_skill_identity:
             raise TargetClassProtocolError("software-factory skill sources changed")
+    final_evolution_identity: Optional[str] = None
     if evolution_id is not None:
+        before_evolution_identity = _evolution_identity(directory, evolution_id)
         final_evolution = _canonical_evolution_bundle(directory, evolution_id)
-        if digest(final_evolution) != evolution_root:
+        final_evolution_identity = _evolution_identity(directory, evolution_id)
+        if (
+            digest(final_evolution) != evolution_root
+            or final_evolution_identity != before_evolution_identity
+        ):
             raise TargetClassProtocolError("Factory evolution currentness changed")
+    final_capability_snapshot: Optional[tuple[int, int, int, int]] = None
     if capability_context is not None:
+        capability_path = Path(context["path"])
+        before_capability_snapshot = supervision.path_snapshot(capability_path)
         try:
             final_capability, final_capability_root = (
                 supervision.load_capability_reconciliation(
@@ -1200,6 +1251,14 @@ def validate_target_class_protocol(
                 "current behavior changed during reconciliation"
             ) from error
         if final_capability != capability or final_capability_root != capability_root:
+            raise TargetClassProtocolError(
+                "current behavior changed during reconciliation"
+            )
+        final_capability_snapshot = supervision.path_snapshot(capability_path)
+        if (
+            before_capability_snapshot is None
+            or final_capability_snapshot != before_capability_snapshot
+        ):
             raise TargetClassProtocolError(
                 "current behavior changed during reconciliation"
             )
@@ -1253,6 +1312,25 @@ def validate_target_class_protocol(
         )
     if post_result != result:
         raise TargetClassProtocolError("adaptive decision currentness changed")
+    if (
+        final_live_skill_identity is not None
+        and _live_skill_identity(DEFAULT_SKILLS_ROOT) != final_live_skill_identity
+    ):
+        raise TargetClassProtocolError("software-factory skill sources changed")
+    if (
+        final_evolution_identity is not None
+        and _evolution_identity(directory, evolution_id)
+        != final_evolution_identity
+    ):
+        raise TargetClassProtocolError("Factory evolution currentness changed")
+    if (
+        final_capability_snapshot is not None
+        and supervision.path_snapshot(Path(context["path"]))
+        != final_capability_snapshot
+    ):
+        raise TargetClassProtocolError(
+            "current behavior changed during reconciliation"
+        )
     application_action: Optional[str] = None
     if disposition == "correct-inline":
         application_action = "normal-owner-inline-correction"

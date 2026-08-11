@@ -364,7 +364,9 @@ identity, unexpected inventory, noncanonical stored JSON, non-integer schema
 versions, non-text signatures, and per-file or aggregate byte excess before
 interpreting the sealed acceptance. Recheck every retained file and directory
 identity after in-memory verification, then re-evaluate the canonical decision
-and target currentness after all final evidence reads.
+and target currentness after all final evidence reads. Retain the cheap
+live-skill, evolution-inventory, and capability-record identities across that
+last decision pass and reject any difference before result construction.
 
 For a materially expensive read-only proof or audit with a separate reporter or
 helper, cheaply preflight the maintained reporting interface and its invocation

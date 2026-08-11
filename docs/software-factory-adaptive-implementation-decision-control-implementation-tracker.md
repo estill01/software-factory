@@ -2913,6 +2913,17 @@ claims.
   exact decision-posture comparison after all evidence rehydration. Artifact
   deletion, a newer decision, or changed target bytes during the final read now
   rejects before any result is returned.
+- Rejected checkpoint `cb8af16629cbcd1006810db86881f4aea97409dc`
+  closed the post-verification artifact, public schema, and final decision/target
+  findings. Exact review then found that live-skill, evolution, or capability
+  evidence could change during that last decision-posture comparison because
+  their cheap identities were not retained through it. Its focused `11/11` and
+  mapped implementation `109/109` evidence remain diagnostic.
+- The current corrective candidate retains the final live-skill metadata root,
+  complete evolution inventory/path identity, and capability-record snapshot
+  across the post-evidence decision comparison and rejects any difference before
+  constructing a result. No skill content hash, evolution producer, or capability
+  producer is repeated.
 - Corrective focused coverage passes `11/11`, mapped implementation validation
   passes `109/109`, and the historical Block 9 suite remains accepted at
   `29/29` under `/usr/bin/python3`. It covers both target classes and all
