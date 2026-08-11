@@ -9,6 +9,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 
@@ -47,6 +48,7 @@ def load_fixture() -> dict[str, object]:
         "schema_version",
         "kind",
         "cases",
+        "target_effect",
         "recovery_checks",
     }:
         raise DogfoodError("dogfood fixture shape differs")
@@ -96,7 +98,7 @@ def _inline_results(cases: list[dict[str, object]]) -> list[dict[str, object]]:
                 "selected_path": result["selected_path"],
                 "decision_fingerprint": result["decision_fingerprint"],
                 "decision_stages": result["decision_stages"],
-                "current_effect_root": (
+                "decision_state_root": (
                     records[-1]["current_target_state_root"] if records else None
                 ),
                 "continue_to": result["continue_to"],
@@ -107,20 +109,124 @@ def _inline_results(cases: list[dict[str, object]]) -> list[dict[str, object]]:
     return results
 
 
-def _candidate_results(cases: list[dict[str, object]]) -> list[dict[str, object]]:
+def _external_inline_effect(
+    target_effect: dict[str, object], inline_cases: list[dict[str, object]]
+) -> dict[str, object]:
+    exact_fields = {
+        "schema_version",
+        "kind",
+        "relative_path",
+        "baseline_source",
+        "corrected_source",
+        "expected_stdout",
+    }
+    if type(target_effect) is not dict or set(target_effect) != exact_fields:
+        raise DogfoodError("target effect shape differs")
+    if (
+        type(target_effect["schema_version"]) is not int
+        or target_effect["schema_version"] != 1
+        or target_effect["kind"] != "software-factory-dogfood-target-effect"
+    ):
+        raise DogfoodError("target effect identity differs")
+    by_id = {str(case["case_id"]): case for case in inline_cases}
+    required = {
+        "external-inline-wrong-owner": ("correct-inline", "architectural-owner"),
+        "external-inline-generalized-layer": ("correct-inline", "local"),
+    }
+    for case_id, expected in required.items():
+        observed = by_id[case_id]
+        if (observed["disposition"], observed["selected_path"]) != expected:
+            raise DogfoodError("inline target owner selection differs")
+    baseline = str(target_effect["baseline_source"]).encode("utf-8")
+    corrected = str(target_effect["corrected_source"]).encode("utf-8")
+    tracker_path = REPO_ROOT / "docs" / (
+        "software-factory-adaptive-implementation-decision-control-implementation-tracker.md"
+    )
+    tracker_before = hashlib.sha256(tracker_path.read_bytes()).hexdigest()
+    with tempfile.TemporaryDirectory(prefix="software-factory-dogfood-target-") as raw:
+        target_root = Path(raw)
+        path = target_root / str(target_effect["relative_path"])
+        path.write_bytes(baseline)
+        baseline_run = subprocess.run(
+            ["/usr/bin/python3", str(path)],
+            cwd=target_root,
+            text=True,
+            capture_output=True,
+        )
+        path.write_bytes(corrected)
+        observed = subprocess.run(
+            ["/usr/bin/python3", str(path)],
+            cwd=target_root,
+            text=True,
+            capture_output=True,
+        )
+        current_bytes = path.read_bytes()
+    tracker_after = hashlib.sha256(tracker_path.read_bytes()).hexdigest()
+    if (
+        baseline_run.returncode != 0
+        or observed.returncode != 0
+        or observed.stdout != target_effect["expected_stdout"]
+        or current_bytes != corrected
+        or tracker_before != tracker_after
+    ):
+        raise DogfoodError("inline target effect differs")
+    result = {
+        "owner": "temporary-normal-target-owner",
+        "relative_path": target_effect["relative_path"],
+        "baseline_bytes_root": hashlib.sha256(baseline).hexdigest(),
+        "corrected_bytes_root": hashlib.sha256(current_bytes).hexdigest(),
+        "baseline_stdout": baseline_run.stdout,
+        "observed_stdout": observed.stdout,
+        "tracker_root_before": tracker_before,
+        "tracker_root_after": tracker_after,
+        "decision_fingerprints": [
+            by_id[case_id]["decision_fingerprint"] for case_id in sorted(required)
+        ],
+        "application_state": "current-effect-observed",
+    }
+    result["target_effect_root"] = digest(result)
+    return result
+
+
+def _candidate_results(
+    cases: list[dict[str, object]],
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     module = load_module(
         "dogfood_candidate_contract",
         SKILL_ROOT / "scripts" / "test_bounded_candidate_contract.py",
     )
     results = []
+    review_inputs = []
     for case in cases:
-        result = module.evaluate_unaccepted(str(case["source_case_id"]))
+        index = case.get("source_case_index")
+        if type(index) is not int or not 0 <= index < len(module.EXERCISE["cases"]):
+            raise DogfoodError("candidate source index differs")
+        source_case_id = str(module.EXERCISE["cases"][index]["case_id"])
+        result = module.evaluate_unaccepted(source_case_id)
         records = result.get("stage_records", [])
         handoff = result.get("handoff")
+        if result.get("blind_review_packet") is not None:
+            raw_review = {
+                "review_packet": result["blind_review_packet"],
+                "raw_comparison_records": result["raw_comparison_records"],
+            }
+        elif result.get("stop_review_packet") is not None:
+            raw_review = {
+                "review_packet": result["stop_review_packet"],
+                "stop_cause": result["stop_cause"],
+            }
+        else:
+            raw_review = {"eligibility": result["eligibility"]}
+        review_input = {
+            "case_id": case["case_id"],
+            "input_condition": case["input_condition"],
+            "raw_evidence": raw_review,
+        }
+        review_input["review_input_root"] = digest(review_input)
+        review_inputs.append(review_input)
         results.append(
             {
                 "case_id": case["case_id"],
-                "input_condition": case["input_condition"],
                 "action": result["action"],
                 "lane_created": result["lane_created"],
                 "review_cycle": result["review_cycle"],
@@ -157,7 +263,7 @@ def _candidate_results(cases: list[dict[str, object]]) -> list[dict[str, object]
             "replay_root": digest(first),
         }
     )
-    return results
+    return results, review_inputs
 
 
 def _target_class_results(cases: list[dict[str, object]]) -> list[dict[str, object]]:
@@ -196,6 +302,54 @@ def _target_class_results(cases: list[dict[str, object]]) -> list[dict[str, obje
                 }
             )
         return results
+    finally:
+        case_owner.doCleanups()
+
+
+def _structural_effect() -> dict[str, object]:
+    module = load_module(
+        "dogfood_program_revision_control",
+        REPO_ROOT
+        / "supervise-tracker-runs"
+        / "scripts"
+        / "test_program_revision_control.py",
+    )
+    case_owner = module.ProgramRevisionControlTests(
+        methodName="test_accepted_revision_maps_full_range_and_resumes_dependency_safe_block"
+    )
+    case_owner.setUp()
+    try:
+        previous = case_owner.fixture.tracker_path.read_bytes()
+        accepted = case_owner.record_program_revision()
+        application_commit = case_owner.apply_proposal()
+        amended = case_owner.range_amend(
+            str(accepted["record"]["record_id"]), application_commit
+        )
+        current = case_owner.fixture.tracker_path.read_bytes()
+        program = amended["program_revision"]
+        if (
+            accepted["record"]["review_disposition"] != "accepted"
+            or amended["duplicate"]
+            or amended["contraction"]
+            or current == previous
+            or program["next_action"]
+            != "resume-block-7-without-user-scheduling"
+        ):
+            raise DogfoodError("structural target effect differs")
+        result = {
+            "owner": "temporary-program-revision-owner",
+            "revision_id": accepted["record"]["revision_id"],
+            "review_root": accepted["record"]["review_root"],
+            "application_commit": application_commit,
+            "previous_tracker_root": hashlib.sha256(previous).hexdigest(),
+            "current_tracker_root": hashlib.sha256(current).hexdigest(),
+            "resume_block": program["resume_block"],
+            "next_action": program["next_action"],
+            "tracker_blocks": amended["binding"]["tracker_blocks"],
+            "application_state": "reviewed-delta-applied-and-resume-current",
+        }
+        result["structural_effect_root"] = digest(result)
+        return result
     finally:
         case_owner.doCleanups()
 
@@ -239,6 +393,79 @@ def _authority_results(cases: list[dict[str, object]]) -> list[dict[str, object]
                     "revisit_trigger": result["revisit_trigger"],
                 }
             )
+        ordinary = next(
+            item for item in results if item["case_id"] == "full-autonomous-ordinary"
+        )
+        if (
+            ordinary["application_posture"] != "owner-application-ready"
+            or not ordinary["application_ready"]
+            or ordinary["human_request_count"] != 0
+        ):
+            raise DogfoodError("ordinary full-autonomous posture differs")
+        target_path = case_owner.owned_path
+        previous = target_path.read_bytes()
+        target_path.write_text("VALUE = 2\n", encoding="utf-8")
+        subprocess.run(
+            [
+                "/usr/bin/git",
+                "-C",
+                case_owner.repository_root,
+                "add",
+                target_path.name,
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        subprocess.run(
+            [
+                "/usr/bin/git",
+                "-C",
+                case_owner.repository_root,
+                "commit",
+                "-q",
+                "-m",
+                "Apply ordinary owner correction",
+            ],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        observed = subprocess.run(
+            [
+                "/usr/bin/python3",
+                "-c",
+                "import runpy; print(runpy.run_path('owned.py')['VALUE'])",
+            ],
+            cwd=case_owner.repository_root,
+            text=True,
+            capture_output=True,
+        )
+        current = target_path.read_bytes()
+        if observed.returncode != 0 or observed.stdout != "2\n" or current == previous:
+            raise DogfoodError("ordinary full-autonomous current effect differs")
+        ordinary["resolution"] = {
+            "owner": "temporary-normal-target-owner",
+            "previous_bytes_root": hashlib.sha256(previous).hexdigest(),
+            "current_bytes_root": hashlib.sha256(current).hexdigest(),
+            "observed_stdout": observed.stdout,
+            "target_revision": subprocess.run(
+                [
+                    "/usr/bin/git",
+                    "-C",
+                    case_owner.repository_root,
+                    "rev-parse",
+                    "HEAD",
+                ],
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout.strip(),
+            "resolution_state": "current-effect-observed",
+        }
+        ordinary["resolution"]["current_effect_root"] = digest(
+            ordinary["resolution"]
+        )
         return results
     finally:
         case_owner.doCleanups()
@@ -294,17 +521,27 @@ def run_dogfood() -> dict[str, object]:
             "adaptive-decision-policy",
         }
     }
+    inline_results = _inline_results(grouped["inline-correction"])
+    candidate_results, candidate_review_inputs = _candidate_results(
+        grouped["bounded-candidate"]
+    )
     result = {
         "schema_version": 1,
         "kind": "software-factory-adaptive-protocol-dogfood-result",
         "source_revision": source_revision(),
         "fixture_root": digest(fixture),
-        "inline_cases": _inline_results(grouped["inline-correction"]),
-        "candidate_cases": _candidate_results(grouped["bounded-candidate"]),
+        "blind_candidate_review_inputs": candidate_review_inputs,
+        "inline_cases": inline_results,
+        "inline_target_effect": _external_inline_effect(
+            fixture["target_effect"], inline_results
+        ),
+        "candidate_cases": candidate_results,
         "target_class_cases": _target_class_results(grouped["target-class-protocol"]),
+        "structural_target_effect": _structural_effect(),
         "authority_cases": _authority_results(grouped["adaptive-decision-policy"]),
         "recovery_checks": _recovery_results(fixture["recovery_checks"]),
         "external_effects_performed": False,
+        "temporary_target_effects_performed": True,
         "release_mutated": False,
         "policy_mutated": False,
         "mission_mutated": False,

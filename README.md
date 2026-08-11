@@ -356,15 +356,19 @@ adaptive implementation paths:
 It exercises an ordinary-target inline correction, selective bounded candidate
 comparison and retirement, exceptional structural routing, Software Factory
 self-work, the cheap justified-no-change path, full-autonomous ordinary work,
-narrow reserved-external deferral, and maintained recovery cases. The output is
-rooted JSON with observed dispositions, current effect or protocol roots,
-normal-owner handoffs, bounded usage, and the aggregate human-request count.
+narrow reserved-external deferral, and maintained recovery cases. The output
+separates opaque raw comparison inputs from observed dispositions and includes
+executed temporary-target bytes/output, an applied reviewed structural revision
+with automatic resume, current protocol roots, normal-owner handoffs, bounded
+usage, and the aggregate human-request count.
 
-This is a read-only evidence runner over temporary repositories. It does not
-apply a handoff, cut over or adopt a candidate, edit a tracker, mutate global
-configuration, release a skill, or perform an external action. Its bounded
-cases demonstrate the documented envelope only; they are not a statistical
-benchmark or unlimited autonomous authority. See
+This is a live-behavior evidence runner confined to disposable repositories. It
+applies and executes only the temporary target corrections needed to prove the
+current effects. It does not apply a live handoff, cut over or adopt a live
+candidate, edit the governing tracker, mutate global configuration, release a
+skill, or perform an external action. Its bounded cases demonstrate the
+documented envelope only; they are not a statistical benchmark or unlimited
+autonomous authority. See
 [`adaptive-protocol-dogfood.md`](implement-tracker-blocks/references/adaptive-protocol-dogfood.md)
 for the evidence and review boundary.
 

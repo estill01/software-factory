@@ -386,8 +386,10 @@ and run the maintained read-only matrix. It composes the existing inline,
 candidate, structural, target-class, self-target, no-change, autonomy, and
 recovery owners; do not treat it as a new controller or as application
 authority. Its fixture discloses raw input conditions but no intended
-disposition, and its result binds the observed path, current effect, handoff,
-human-request count, and exact maintained recovery checks.
+disposition, and its result binds opaque raw review inputs separately from the
+observed path, executed temporary-target effects, applied reviewed structural
+revision and resume, handoff, human-request count, and exact maintained
+recovery checks.
 
 Use the matrix only at an exact frozen source revision and obtain independent
 review of its raw cases and current effects before recording completion. It

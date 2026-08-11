@@ -31,6 +31,21 @@ class AdaptiveProtocolDogfoodTests(unittest.TestCase):
         root = rebuilt.pop("result_root")
         self.assertEqual(root, dogfood.digest(rebuilt))
         self.assertEqual(self.result["fixture_root"], dogfood.digest(self.fixture))
+        blind = self.result["blind_candidate_review_inputs"]
+        self.assertEqual(len(blind), 7)
+        blind_text = dogfood.canonical(blind).decode("utf-8")
+        for disclosed in (
+            "winning-candidate",
+            "losing-candidate",
+            "inconclusive-comparison",
+            "expected_action",
+            "expected_comparison_disposition",
+        ):
+            self.assertNotIn(disclosed, blind_text)
+        for item in blind:
+            rebuilt_input = dict(item)
+            root = rebuilt_input.pop("review_input_root")
+            self.assertEqual(root, dogfood.digest(rebuilt_input))
 
     def test_inline_default_no_change_and_selective_routing_are_demonstrated(self) -> None:
         cases = self.indexed("inline_cases")
@@ -42,7 +57,7 @@ class AdaptiveProtocolDogfoodTests(unittest.TestCase):
             self.assertEqual(cases[case_id]["disposition"], "correct-inline")
             self.assertEqual(cases[case_id]["selected_path"], selected)
             self.assertEqual(cases[case_id]["decision_stages"][-1], "closed")
-            self.assertIsNotNone(cases[case_id]["current_effect_root"])
+            self.assertIsNotNone(cases[case_id]["decision_state_root"])
             self.assertEqual(cases[case_id]["continue_to"], "block:5:remaining-work")
         self.assertEqual(cases["justified-no-correction"]["disposition"], "continue-unchanged")
         self.assertFalse(cases["justified-no-correction"]["extra_cycle"])
@@ -50,10 +65,18 @@ class AdaptiveProtocolDogfoodTests(unittest.TestCase):
         self.assertTrue(cases["unchanged-fingerprint-repeat"]["deduplicated"])
         self.assertEqual(cases["candidate-needed"]["disposition"], "compare-candidate")
         self.assertEqual(cases["structural-evidence"]["disposition"], "amend-structure")
+        effect = self.result["inline_target_effect"]
+        self.assertEqual(effect["baseline_stdout"], "local-shortcut\n")
+        self.assertEqual(effect["observed_stdout"], "canonical-owner:bounded\n")
+        self.assertEqual(effect["application_state"], "current-effect-observed")
+        self.assertEqual(effect["tracker_root_before"], effect["tracker_root_after"])
+        rebuilt_effect = dict(effect)
+        root = rebuilt_effect.pop("target_effect_root")
+        self.assertEqual(root, dogfood.digest(rebuilt_effect))
 
     def test_candidate_is_bounded_selective_and_never_dual_authority(self) -> None:
         cases = self.indexed("candidate_cases")
-        winner = cases["candidate-winning-comparison"]
+        winner = cases["candidate-comparison-a"]
         self.assertEqual(winner["action"], "handoff-block-9")
         self.assertTrue(winner["lane_created"])
         self.assertTrue(winner["review_cycle"])
@@ -62,19 +85,19 @@ class AdaptiveProtocolDogfoodTests(unittest.TestCase):
         self.assertFalse(winner["cutover_performed"])
         self.assertIsNotNone(winner["handoff_root"])
         for case_id in (
-            "candidate-losing-comparison",
-            "candidate-inconclusive-comparison",
+            "candidate-comparison-b",
+            "candidate-comparison-c",
         ):
             self.assertEqual(cases[case_id]["action"], "retire-candidate")
             self.assertFalse(cases[case_id]["candidate_authoritative"])
             self.assertTrue(cases[case_id]["incumbent_authoritative"])
             self.assertIsNone(cases[case_id]["handoff_root"])
-        self.assertEqual(cases["candidate-read-only-decidable"]["action"], "reject-before-lane")
-        self.assertFalse(cases["candidate-read-only-decidable"]["lane_created"])
+        self.assertEqual(cases["candidate-eligibility-a"]["action"], "reject-before-lane")
+        self.assertFalse(cases["candidate-eligibility-a"]["lane_created"])
         for case_id in (
-            "candidate-ceiling-stop",
-            "candidate-mapped-stop",
-            "candidate-review-currentness-stop",
+            "candidate-stop-a",
+            "candidate-stop-b",
+            "candidate-stop-c",
         ):
             self.assertEqual(cases[case_id]["action"], "stop-retire")
             self.assertEqual(cases[case_id]["terminal_stage"], "closed")
@@ -104,6 +127,13 @@ class AdaptiveProtocolDogfoodTests(unittest.TestCase):
         self.assertFalse(authority["full-autonomous-reserved-external"]["application_ready"])
         self.assertEqual(authority["full-autonomous-reserved-external"]["blocked_subjects"], ["credential-boundary"])
         self.assertTrue(authority["full-autonomous-reserved-external"]["safe_frontier"])
+        resolution = authority["full-autonomous-ordinary"]["resolution"]
+        self.assertEqual(resolution["observed_stdout"], "2\n")
+        self.assertEqual(resolution["resolution_state"], "current-effect-observed")
+        structural = self.result["structural_target_effect"]
+        self.assertEqual(structural["application_state"], "reviewed-delta-applied-and-resume-current")
+        self.assertEqual(structural["next_action"], "resume-block-7-without-user-scheduling")
+        self.assertNotEqual(structural["previous_tracker_root"], structural["current_tracker_root"])
         self.assertEqual(self.result["human_request_count"], 0)
 
     def test_recovery_proof_is_current_and_no_reserved_effect_occurs(self) -> None:
@@ -119,6 +149,7 @@ class AdaptiveProtocolDogfoodTests(unittest.TestCase):
             "lifecycle_mutated",
         ):
             self.assertFalse(self.result[field])
+        self.assertTrue(self.result["temporary_target_effects_performed"])
 
 
 if __name__ == "__main__":
