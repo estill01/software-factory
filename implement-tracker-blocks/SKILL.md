@@ -362,7 +362,9 @@ Read every staged evolution artifact as an exact, bounded, regular no-follow
 file under its canonical supervision-owned directory. Reject changed path
 identity, unexpected inventory, noncanonical stored JSON, non-integer schema
 versions, non-text signatures, and per-file or aggregate byte excess before
-interpreting the sealed acceptance.
+interpreting the sealed acceptance. Recheck every retained file and directory
+identity after in-memory verification, then re-evaluate the canonical decision
+and target currentness after all final evidence reads.
 
 For a materially expensive read-only proof or audit with a separate reporter or
 helper, cheaply preflight the maintained reporting interface and its invocation

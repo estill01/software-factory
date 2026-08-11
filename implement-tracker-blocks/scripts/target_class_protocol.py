@@ -463,6 +463,7 @@ def _canonical_evolution_bundle(
         ):
             raise TargetClassProtocolError("Factory evolution lock is not current")
         retained: dict[str, dict[str, Any]] = {}
+        retained_snapshots: dict[str, tuple[int, int, int, int]] = {}
         aggregate_bytes = 0
         for name in sorted(required_names):
             path = evolution_directory / name
@@ -513,6 +514,7 @@ def _canonical_evolution_bundle(
                     "Factory evolution artifact bytes are not exact"
                 )
             retained[name] = value
+            retained_snapshots[name] = before
         if (
             supervision.path_snapshot(evolution_directory) != before_directory
             or set(os.listdir(evolution_directory)) != names
@@ -538,7 +540,7 @@ def _canonical_evolution_bundle(
                 "review.json": evolution_review,
             },
         )
-        return factory_evolution.verify_evolution_bundle(
+        verified = factory_evolution.verify_evolution_bundle(
             {
                 "learning-packet.json": evolution_packet,
                 "review.json": evolution_review,
@@ -547,6 +549,19 @@ def _canonical_evolution_bundle(
                 "manifest.json": retained["manifest.json"],
             }
         )
+        if (
+            supervision.path_snapshot(evolution_directory) != before_directory
+            or set(os.listdir(evolution_directory)) != names
+            or any(
+                supervision.path_snapshot(evolution_directory / name)
+                != snapshot
+                for name, snapshot in retained_snapshots.items()
+            )
+        ):
+            raise TargetClassProtocolError(
+                "Factory evolution artifacts changed during verification"
+            )
+        return verified
     except Exception as error:
         raise TargetClassProtocolError(
             "Factory evolution bundle is not current"
@@ -585,7 +600,11 @@ def validate_target_class_protocol(
         "target_product_findings",
     }
     source = _exact_fields(packet, expected, "target-class packet")
-    if source.get("schema_version") != 1 or source.get("kind") != "software-factory-target-class-protocol":
+    if (
+        type(source.get("schema_version")) is not int
+        or source.get("schema_version") != 1
+        or source.get("kind") != "software-factory-target-class-protocol"
+    ):
         raise TargetClassProtocolError("target-class packet kind differs")
     target_class = source.get("target_class")
     if target_class not in TARGET_CLASSES:
@@ -1184,6 +1203,56 @@ def validate_target_class_protocol(
             raise TargetClassProtocolError(
                 "current behavior changed during reconciliation"
             )
+    (
+        post_directory,
+        post_policy,
+        post_events,
+        post_policy_snapshot,
+        post_event_snapshot,
+        post_directory_snapshot,
+    ) = _control_snapshot(target_thread)
+    if (
+        post_directory,
+        post_policy,
+        post_events,
+        post_policy_snapshot,
+        post_event_snapshot,
+        post_directory_snapshot,
+    ) != (
+        final_directory,
+        final_policy,
+        final_events,
+        final_policy_snapshot,
+        final_event_snapshot,
+        final_directory_snapshot,
+    ):
+        raise TargetClassProtocolError("canonical supervision currentness changed")
+    try:
+        post_result = supervision._adaptive_decision_posture(
+            post_policy,
+            decision_packet,
+            active_candidate_fingerprints=supervision.adaptive_active_candidate_fingerprints(
+                post_events
+            ),
+        )
+    except Exception as error:
+        raise TargetClassProtocolError(
+            "adaptive decision currentness changed"
+        ) from error
+    if review_record_id is not None:
+        post_result = {
+            **post_result,
+            "independent_review_record": review_record_id,
+        }
+        post_result["result_sha256"] = digest(
+            {
+                key: value
+                for key, value in post_result.items()
+                if key != "result_sha256"
+            }
+        )
+    if post_result != result:
+        raise TargetClassProtocolError("adaptive decision currentness changed")
     application_action: Optional[str] = None
     if disposition == "correct-inline":
         application_action = "normal-owner-inline-correction"

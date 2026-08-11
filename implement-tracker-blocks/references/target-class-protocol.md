@@ -78,7 +78,8 @@ each retained member keep stable identity, artifacts are regular no-follow
 files under that owner, stored JSON bytes use the one canonical writer form,
 and the existing per-artifact and aggregate bounds apply before parsing. The
 sealed acceptance schema requires an exact integer version and text signature;
-lookalike scalar or byte-string forms are invalid.
+lookalike scalar or byte-string forms are invalid. Recheck every retained
+artifact and directory snapshot after in-memory manifest/bundle verification.
 
 Keep Factory-alignment findings and target-product findings in separate,
 ordered, nonempty rooted lists for mutating paths. Every finding root must be a
@@ -101,7 +102,9 @@ reconciliation as ambiguous.
 
 After the last evidence load, rehydrate the canonical policy/ledger, target
 revision and affected content, live skill sources, exact evolution inventory,
-and current behavior. Reject any changed source before returning a result. The application handoff binds the
+and current behavior. After those reads, re-evaluate the canonical decision and
+target state once more and require the exact original result. Reject any changed
+source before returning a result. The application handoff binds the
 exact decision event, target revision, candidate, structural packet and signed
 review, live skill sources, sealed evolution acceptance plus
 review/evaluation/experiment, role map, findings, current behavior, action, and

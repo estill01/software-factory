@@ -900,6 +900,14 @@ class TargetClassProtocolTests(unittest.TestCase):
 
     def test_canonical_owner_and_target_class_cannot_be_substituted(self) -> None:
         packet, _event = self.packet("target-repository", "correct-inline")
+        for invalid_version in (True, 1.0, "1"):
+            changed = copy.deepcopy(packet)
+            changed["schema_version"] = invalid_version
+            with self.assertRaisesRegex(
+                protocol.TargetClassProtocolError, "packet kind differs"
+            ):
+                self.validate(changed)
+        packet, _event = self.packet("target-repository", "correct-inline")
         packet["target_class"] = "software-factory"
         with self.assertRaisesRegex(
             protocol.TargetClassProtocolError, "canonical policy"
@@ -1151,6 +1159,8 @@ class TargetClassProtocolTests(unittest.TestCase):
             self.adaptive.root / self.adaptive.target,
             packet["factory_evolution_id"],
         )
+        evaluation_path = evolution_directory / "evaluation.json"
+        exact_evaluation = evaluation_path.read_bytes()
         original = protocol._canonical_evolution_bundle
         reads = 0
 
@@ -1159,7 +1169,7 @@ class TargetClassProtocolTests(unittest.TestCase):
             value = original(*args, **kwargs)
             reads += 1
             if reads == 1:
-                (evolution_directory / "evaluation.json").unlink()
+                evaluation_path.unlink()
             return value
 
         with mock.patch.object(
@@ -1173,6 +1183,89 @@ class TargetClassProtocolTests(unittest.TestCase):
             ):
                 self.validate(packet)
         self.assertEqual(reads, 1)
+        evaluation_path.write_bytes(exact_evaluation)
+
+        original_verify = protocol.factory_evolution.verify_evolution_bundle
+        verify_reads = 0
+
+        def verify_then_remove(*args, **kwargs):
+            nonlocal verify_reads
+            value = original_verify(*args, **kwargs)
+            verify_reads += 1
+            if verify_reads == 2:
+                evaluation_path.unlink()
+            return value
+
+        with mock.patch.object(
+            protocol.factory_evolution,
+            "verify_evolution_bundle",
+            side_effect=verify_then_remove,
+        ):
+            with self.assertRaisesRegex(
+                protocol.TargetClassProtocolError,
+                "Factory evolution bundle is not current",
+            ):
+                self.validate(packet)
+        self.assertEqual(verify_reads, 2)
+        evaluation_path.write_bytes(exact_evaluation)
+
+        exact_target = self.adaptive.owned_path.read_bytes()
+        target_reads = 0
+
+        def load_then_change_target(*args, **kwargs):
+            nonlocal target_reads
+            value = original(*args, **kwargs)
+            target_reads += 1
+            if target_reads == 2:
+                self.adaptive.owned_path.write_text("VALUE = 99\n", encoding="utf-8")
+            return value
+
+        with mock.patch.object(
+            protocol,
+            "_canonical_evolution_bundle",
+            side_effect=load_then_change_target,
+        ):
+            with self.assertRaisesRegex(
+                protocol.TargetClassProtocolError,
+                "adaptive decision currentness changed",
+            ):
+                self.validate(packet)
+        self.assertEqual(target_reads, 2)
+        self.adaptive.owned_path.write_bytes(exact_target)
+
+        policy = json.loads(
+            (
+                self.adaptive.root
+                / self.adaptive.target
+                / "policy.json"
+            ).read_text(encoding="utf-8")
+        )
+        final_reads = 0
+
+        def load_then_advance(*args, **kwargs):
+            nonlocal final_reads
+            value = original(*args, **kwargs)
+            final_reads += 1
+            if final_reads == 2:
+                self.canonical_decision(
+                    policy,
+                    target_class="software-factory",
+                    disposition="continue-unchanged",
+                    decision_id="post-evolution-decision-1234",
+                )
+            return value
+
+        with mock.patch.object(
+            protocol,
+            "_canonical_evolution_bundle",
+            side_effect=load_then_advance,
+        ):
+            with self.assertRaisesRegex(
+                protocol.TargetClassProtocolError,
+                "canonical supervision currentness changed",
+            ):
+                self.validate(packet)
+        self.assertEqual(final_reads, 2)
 
     def test_planned_new_file_uses_canonical_parent_containment(self) -> None:
         packet, _event = self.packet("target-repository", "correct-inline")

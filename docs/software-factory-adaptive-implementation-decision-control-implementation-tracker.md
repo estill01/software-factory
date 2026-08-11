@@ -2897,12 +2897,22 @@ claims.
   reader followed externally resolving symlinks and did not bound or require
   exact stored bytes. Its focused `11/11` and targeted `3/3` results remain
   diagnostic; mapped validation was intentionally not repeated.
-- The current corrective candidate requires exact integer schema and text
-  signature types, reads the complete evolution set as stable regular
-  no-follow files under the canonical owner, enforces existing per-artifact and
-  aggregate byte limits, rejects unexpected inventory and noncanonical stored
-  JSON, and verifies retained manifests and the bundle only from those bounded
-  bytes.
+- Rejected checkpoint `a0c6aab3819735ac005a30e64c1de8f5d6d11fde`
+  closed the signed-schema and canonical artifact-reader findings with exact
+  types, stable regular no-follow files, bounded/canonical stored JSON, and
+  in-memory verification from those bytes. Exact review
+  then found that artifact identity was not rechecked after in-memory bundle
+  verification, the top-level protocol schema still treated Boolean `true` as
+  integer `1`, and the canonical decision or target bytes could advance during
+  final evolution rehydration after the last decision-posture check. Its
+  focused `11/11` and mapped implementation `109/109` evidence remain
+  diagnostic.
+- The next corrective candidate rechecks the complete retained artifact and
+  directory snapshot after bundle verification, requires an exact integer at
+  the public packet boundary, and takes a final canonical control snapshot plus
+  exact decision-posture comparison after all evidence rehydration. Artifact
+  deletion, a newer decision, or changed target bytes during the final read now
+  rejects before any result is returned.
 - Corrective focused coverage passes `11/11`, mapped implementation validation
   passes `109/109`, and the historical Block 9 suite remains accepted at
   `29/29` under `/usr/bin/python3`. It covers both target classes and all
