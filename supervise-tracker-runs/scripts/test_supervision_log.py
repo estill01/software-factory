@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import copy
 import hashlib
 import importlib.util
@@ -411,6 +412,11 @@ class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
         self.assertIn("reopen only the narrow owner", readme)
         self.assertIn("--capability-reconciliation-json", supervision_skill)
         self.assertIn("--capability-reconciliation-json", policy)
+        self.assertIn("--capability-reconciliation-base64", supervision_skill)
+        self.assertIn("--capability-reconciliation-base64", policy)
+        self.assertIn("--capability-reconciliation-base64", reconciliation_contract)
+        for text in (supervision_skill, policy, reconciliation_contract):
+            self.assertIn("forbids file creation", text)
         for evidence_class in (
             "direct-authority",
             "current-repository",
@@ -6838,6 +6844,7 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
             "open_item_compatibility_sha256": "e" * 64,
             "independent_challenge_sha256": "f" * 64,
             "capability_reconciliation_json": str(self.reconciliation_path),
+            "capability_reconciliation_base64": None,
             "active_block": "Block-64",
             "checkpoint": "checkpoint-1234",
             "summary": "Current operator-visible outcome verified.",
@@ -6845,6 +6852,9 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
         }
         values.update(overrides)
         return argparse.Namespace(**values)
+
+    def reconciliation_base64(self) -> str:
+        return base64.b64encode(self.reconciliation_path.read_bytes()).decode("ascii")
 
     def test_completion_record_is_append_only_and_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -6920,6 +6930,209 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
             lifecycle = json.loads(output.getvalue())["record"]
             self.assertEqual(
                 lifecycle["outcome_completion_record_id"], record["record_id"]
+            )
+
+    def test_file_and_base64_inputs_produce_identical_root_and_record(self) -> None:
+        policy = self.policy()
+
+        def completion_record(args: argparse.Namespace) -> dict[str, object]:
+            with tempfile.TemporaryDirectory() as temporary:
+                output = io.StringIO()
+                with (
+                    mock.patch.object(
+                        supervision_log,
+                        "load_policy",
+                        return_value=(Path(temporary), policy),
+                    ),
+                    mock.patch.object(
+                        supervision_log,
+                        "utc_now",
+                        return_value="2026-08-11T07:34:22+00:00",
+                    ),
+                    redirect_stdout(output),
+                ):
+                    supervision_log.cmd_completion_record(args)
+                return json.loads(output.getvalue())["record"]
+
+        file_record = completion_record(self.completion_args())
+        encoded = self.reconciliation_base64()
+        base64_record = completion_record(
+            self.completion_args(
+                capability_reconciliation_json=None,
+                capability_reconciliation_base64=encoded,
+            )
+        )
+
+        self.assertEqual(file_record, base64_record)
+        reconciliation = json.loads(self.reconciliation_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            file_record["capability_reconciliation_sha256"],
+            supervision_log.digest(reconciliation),
+        )
+        serialized = json.dumps(base64_record, sort_keys=True)
+        self.assertNotIn("requested_capability", serialized)
+        self.assertNotIn(str(self.reconciliation_path), serialized)
+        self.assertNotIn(encoded, serialized)
+
+    def test_legacy_file_input_remains_explicit_and_uses_shared_validation(self) -> None:
+        policy = self.policy()
+        expected = supervision_log.load_capability_reconciliation(
+            str(self.reconciliation_path),
+            target_thread="target-1234",
+            mission_root=self.mission_root,
+            state_fingerprint="state-1234",
+            current_revision="2" * 40,
+            policy=policy,
+        )
+        actual = supervision_log.load_capability_reconciliation_input(
+            str(self.reconciliation_path),
+            None,
+            target_thread="target-1234",
+            mission_root=self.mission_root,
+            state_fingerprint="state-1234",
+            current_revision="2" * 40,
+            policy=policy,
+        )
+        self.assertEqual(actual, expected)
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "not an explicit file"
+        ):
+            supervision_log.load_capability_reconciliation(
+                str(self.reconciliation_path.parent),
+                target_thread="target-1234",
+                mission_root=self.mission_root,
+                state_fingerprint="state-1234",
+                current_revision="2" * 40,
+                policy=policy,
+            )
+
+    def test_completion_record_requires_exactly_one_reconciliation_input(self) -> None:
+        policy = self.policy()
+        encoded = self.reconciliation_base64()
+        with tempfile.TemporaryDirectory() as temporary:
+            with mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(Path(temporary), policy),
+            ):
+                for path_value, base64_value in (
+                    (None, None),
+                    (str(self.reconciliation_path), encoded),
+                ):
+                    with self.subTest(
+                        path=path_value,
+                        base64=base64_value is not None,
+                    ):
+                        with self.assertRaisesRegex(
+                            supervision_log.SupervisionLogError,
+                            "requires exactly one",
+                        ):
+                            supervision_log.cmd_completion_record(
+                                self.completion_args(
+                                    capability_reconciliation_json=path_value,
+                                    capability_reconciliation_base64=base64_value,
+                                )
+                            )
+
+    def test_base64_input_rejects_invalid_and_noncanonical_text(self) -> None:
+        policy = self.policy()
+        invalid_values = ("%%%", self.reconciliation_base64() + "=")
+        for value in invalid_values:
+            with self.subTest(value=value[-8:]):
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "not valid canonical base64",
+                ):
+                    supervision_log.load_capability_reconciliation_base64(
+                        value,
+                        target_thread="target-1234",
+                        mission_root=self.mission_root,
+                        state_fingerprint="state-1234",
+                        current_revision="2" * 40,
+                        policy=policy,
+                    )
+
+    def test_oversized_base64_reconciliation_rejects_before_json_parsing(self) -> None:
+        encoded = base64.b64encode(
+            b"x" * (supervision_log.MAX_CAPABILITY_RECONCILIATION_BYTES + 1)
+        ).decode("ascii")
+        policy = self.policy()
+        with (
+            mock.patch.object(supervision_log.json, "loads") as loads,
+            self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "exceeds its byte bound"
+            ),
+        ):
+            supervision_log.load_capability_reconciliation_base64(
+                encoded,
+                target_thread="target-1234",
+                mission_root=self.mission_root,
+                state_fingerprint="state-1234",
+                current_revision="2" * 40,
+                policy=policy,
+            )
+        loads.assert_not_called()
+
+    def test_base64_input_rejects_malformed_json(self) -> None:
+        encoded = base64.b64encode(b"{").decode("ascii")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "not valid JSON"
+        ):
+            supervision_log.load_capability_reconciliation_base64(
+                encoded,
+                target_thread="target-1234",
+                mission_root=self.mission_root,
+                state_fingerprint="state-1234",
+                current_revision="2" * 40,
+                policy=self.policy(),
+            )
+
+    def test_base64_input_reuses_schema_evidence_and_currentness_failures(self) -> None:
+        policy = self.policy()
+
+        self.write_reconciliation(unexpected="field")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "unexpected or missing fields"
+        ):
+            supervision_log.load_capability_reconciliation_base64(
+                self.reconciliation_base64(),
+                target_thread="target-1234",
+                mission_root=self.mission_root,
+                state_fingerprint="state-1234",
+                current_revision="2" * 40,
+                policy=policy,
+            )
+
+        self.write_reconciliation(state_fingerprint="state-old")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "stale state fingerprint"
+        ):
+            supervision_log.load_capability_reconciliation_base64(
+                self.reconciliation_base64(),
+                target_thread="target-1234",
+                mission_root=self.mission_root,
+                state_fingerprint="state-1234",
+                current_revision="2" * 40,
+                policy=policy,
+            )
+
+        self.write_reconciliation()
+        process_only = json.loads(self.reconciliation_path.read_text(encoding="utf-8"))
+        process_only["evidence"][2]["evidence_class"] = "validation"
+        self.reconciliation_path.write_text(
+            json.dumps(process_only, sort_keys=True), encoding="utf-8"
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "required evidence class"
+        ):
+            supervision_log.load_capability_reconciliation_base64(
+                self.reconciliation_base64(),
+                target_thread="target-1234",
+                mission_root=self.mission_root,
+                state_fingerprint="state-1234",
+                current_revision="2" * 40,
+                policy=policy,
             )
 
     def test_completion_record_rejects_wrong_mission_or_missing_hash(self) -> None:

@@ -4319,6 +4319,97 @@ def load_capability_reconciliation(
         ) from exc
     if len(raw) > MAX_CAPABILITY_RECONCILIATION_BYTES:
         raise SupervisionLogError("Capability reconciliation exceeds its byte bound")
+    return validate_capability_reconciliation(
+        raw,
+        target_thread=target_thread,
+        mission_root=mission_root,
+        state_fingerprint=state_fingerprint,
+        current_revision=current_revision,
+        policy=policy,
+    )
+
+
+def load_capability_reconciliation_base64(
+    encoded_value: str,
+    *,
+    target_thread: str,
+    mission_root: str,
+    state_fingerprint: str,
+    current_revision: str,
+    policy: Mapping[str, Any],
+) -> tuple[dict[str, Any], str]:
+    if not isinstance(encoded_value, str) or not encoded_value:
+        raise SupervisionLogError(
+            "Capability reconciliation base64 must be nonempty canonical text"
+        )
+    try:
+        encoded = encoded_value.encode("ascii")
+        raw = base64.b64decode(encoded, validate=True)
+    except (UnicodeEncodeError, binascii.Error, ValueError) as exc:
+        raise SupervisionLogError(
+            "Capability reconciliation base64 is not valid canonical base64"
+        ) from exc
+    if base64.b64encode(raw) != encoded:
+        raise SupervisionLogError(
+            "Capability reconciliation base64 is not valid canonical base64"
+        )
+    if len(raw) > MAX_CAPABILITY_RECONCILIATION_BYTES:
+        raise SupervisionLogError("Capability reconciliation exceeds its byte bound")
+    return validate_capability_reconciliation(
+        raw,
+        target_thread=target_thread,
+        mission_root=mission_root,
+        state_fingerprint=state_fingerprint,
+        current_revision=current_revision,
+        policy=policy,
+    )
+
+
+def load_capability_reconciliation_input(
+    path_value: str | None,
+    base64_value: str | None,
+    *,
+    target_thread: str,
+    mission_root: str,
+    state_fingerprint: str,
+    current_revision: str,
+    policy: Mapping[str, Any],
+) -> tuple[dict[str, Any], str]:
+    if (path_value is None) == (base64_value is None):
+        raise SupervisionLogError(
+            "Completion record requires exactly one capability reconciliation input"
+        )
+    if path_value is not None:
+        return load_capability_reconciliation(
+            path_value,
+            target_thread=target_thread,
+            mission_root=mission_root,
+            state_fingerprint=state_fingerprint,
+            current_revision=current_revision,
+            policy=policy,
+        )
+    assert base64_value is not None
+    return load_capability_reconciliation_base64(
+        base64_value,
+        target_thread=target_thread,
+        mission_root=mission_root,
+        state_fingerprint=state_fingerprint,
+        current_revision=current_revision,
+        policy=policy,
+    )
+
+
+def validate_capability_reconciliation(
+    raw: bytes,
+    *,
+    target_thread: str,
+    mission_root: str,
+    state_fingerprint: str,
+    current_revision: str,
+    policy: Mapping[str, Any],
+) -> tuple[dict[str, Any], str]:
+    if len(raw) > MAX_CAPABILITY_RECONCILIATION_BYTES:
+        raise SupervisionLogError("Capability reconciliation exceeds its byte bound")
     try:
         value = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -4617,8 +4708,9 @@ def cmd_completion_record(args: argparse.Namespace) -> None:
         raise SupervisionLogError("Outcome completion requires exact source evidence")
     if len(evidence_values) > 16:
         raise SupervisionLogError("Too many outcome-completion evidence references")
-    reconciliation, reconciliation_root = load_capability_reconciliation(
-        args.capability_reconciliation_json,
+    reconciliation, reconciliation_root = load_capability_reconciliation_input(
+        getattr(args, "capability_reconciliation_json", None),
+        getattr(args, "capability_reconciliation_base64", None),
         target_thread=args.target_thread,
         mission_root=mission_root,
         state_fingerprint=state_fingerprint,
@@ -13901,9 +13993,11 @@ def parser() -> argparse.ArgumentParser:
         "--open-item-compatibility-sha256", required=True
     )
     completion_record.add_argument("--independent-challenge-sha256", required=True)
-    completion_record.add_argument(
-        "--capability-reconciliation-json", required=True
+    capability_reconciliation_input = completion_record.add_mutually_exclusive_group(
+        required=True
     )
+    capability_reconciliation_input.add_argument("--capability-reconciliation-json")
+    capability_reconciliation_input.add_argument("--capability-reconciliation-base64")
     completion_record.add_argument("--active-block", default="")
     completion_record.add_argument("--checkpoint", default="")
     completion_record.add_argument("--summary", required=True)

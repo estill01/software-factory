@@ -218,7 +218,11 @@ Repeat independently for additional targets.
   tradeoffs, current behavior, operator-visible effects, and any supported gap
   with its narrow owning skill or repository component. Hash the exact
   normalized reconciliation object and record that root with the other five
-  content-minimized roots through `completion-record --capability-reconciliation-json`.
+  content-minimized roots through `completion-record`, supplying exactly one of
+  `--capability-reconciliation-json` or `--capability-reconciliation-base64`.
+  Preserve the explicit-file path's fail-closed checks. When the reviewer role
+  forbids file creation, require the canonical base64 path rather than creating
+  a temporary file.
   The submitted JSON remains caller-owned and is not copied into the canonical
   ledger; the helper validates it first and retains its normalized root,
   revision, posture, gap count, and independent role identities. The helper must reject

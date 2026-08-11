@@ -400,6 +400,15 @@ exact state fingerprint and mission root, with exact SHA-256 roots for:
   current behavior, operator-visible effects, and every supported gap with its
   narrow owner.
 
+Supply that reconciliation through exactly one completion-record input:
+`--capability-reconciliation-json` for an explicit readable file, or canonical
+`--capability-reconciliation-base64` for a no-filesystem handoff. Preserve the
+file path's explicit-file fail-closed behavior. When the reviewer role forbids
+file creation, require the base64 path; never create a temporary file to bridge
+the role boundary. Both paths use the same decoded-byte ceiling, schema,
+evidence/currentness checks, normalization, and canonical root, and neither
+stores the raw object in the ledger.
+
 The helper rejects a completed lifecycle record when this evidence is absent,
 failed, stale, bound to another mission or fingerprint, produced by an
 ineligible reviewer, or missing any root. `lifecycle-gate` revalidates the same
@@ -1726,8 +1735,11 @@ reconcile expected versus actual effects, and classify every open item for
 compatibility with the primary outcome. Challenge whether the tracker omitted
 or deferred work needed for the direct goal. Passing process evidence cannot
 substitute. Record the six exact roots with `completion-record`; use `verified`
-only when the outcome is actually current. Otherwise record `failed`, escalate
-the false-completion defect, and keep the target active.
+only when the outcome is actually current. Supply exactly one of
+`--capability-reconciliation-json` or `--capability-reconciliation-base64`;
+when this reviewer role forbids file creation, use the canonical base64 input.
+Otherwise record `failed`, escalate the false-completion defect, and keep the
+target active.
 
 When the completion record is verified, remain responsible for the terminal
 report synthesis. Read the complete helper-prepared packet, produce both exact
@@ -2265,11 +2277,15 @@ python3 <LOG_HELPER> completion-record --target-thread <TARGET> \
   --effect-reconciliation-sha256 <SHA256> \
   --open-item-compatibility-sha256 <SHA256> \
   --independent-challenge-sha256 <SHA256> \
-  --capability-reconciliation-json <RECONCILIATION_JSON> \
+  --capability-reconciliation-json <EXPLICIT_RECONCILIATION_PATH> \
   --active-block <BLOCK> --checkpoint <CHECKPOINT> \
   --evidence <TARGET_TURN_OR_ITEM_ID> \
   --summary "Current operator-visible outcome was independently checked."
 ```
+
+Supply exactly one reconciliation input. Replace the explicit-file option above
+with `--capability-reconciliation-base64 <CANONICAL_BASE64_JSON>` when the
+reviewer role forbids file creation. Both or neither input fails closed.
 
 Only a current `verified` record allows the subsequent generic `record --kind
 lifecycle --status completed` command. A missing or failed record must produce
