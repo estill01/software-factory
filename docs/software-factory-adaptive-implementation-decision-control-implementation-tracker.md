@@ -663,8 +663,8 @@ continuous cognition the price of ordinary execution.
 | 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `completed` |
 | 11 | Dogfood all decision paths and document demonstrated operation | 10 | `completed` |
 | 12 | Admit newly eligible Factory evidence automatically and economically | 11 | `completed` |
-| 13 | Orchestrate one bounded Factory candidate through existing owners | 12 | `in-progress` |
-| 14 | Independently evaluate the Factory candidate | 13 | `not-started` |
+| 13 | Orchestrate one bounded Factory candidate through existing owners | 12 | `completed` |
+| 14 | Independently evaluate the Factory candidate | 13 | `in-progress` |
 | 15 | Adopt or retire the evaluated candidate under configurable policy | 14 | `not-started` |
 | 16 | Feed current outcomes back, suppress recurrence, and support rollback | 15 | `not-started` |
 | 17 | Dogfood autonomous evolution and document the integrated system | 16 | `not-started` |
@@ -3416,7 +3416,7 @@ Stop before generating cognitive review or implementing a candidate.
 
 ## Block 13 — Orchestrate one bounded Factory candidate through existing owners
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -3598,13 +3598,27 @@ owner/architecture is proportional before broad validation.
   over-attributed to every protected capability, and each test independently
   received the full lane timeout rather than a remaining aggregate deadline.
   No later-Block or reserved effect was produced.
-- Current second correction: map every exact protected-capability ID to one
+- Accepted second correction: map every exact protected-capability ID to one
   distinct changed owner test named for that capability, derive each posture
   only from its own executed result, and stop when any mapped result remains
   unverified. Compute one deadline from the canonical handoff timestamp, pass
   only remaining time to each next test, and stop execution on first failure or
-  exhaustion. Exact successor freeze and independent correction review remain
-  pending.
+  exhaustion. Exact successor `ca2c9da349a0610c2513209c802dd05ce085f42c`
+  (tree `2bae861de2f59a86cd2cff63d05fadf275102638`) passed independent
+  exact review with no findings and the affected orchestration suite `12/12`.
+  The post-review affected proof also passed `12/12`; mapped authoring passed
+  `42/42`, mapped supervision passed `347/347`, and all three fixed skill
+  validators, full 18-Block tracker verification, compilation, and diff checks
+  passed. The initial mapped implementation run exposed only a stale historical
+  Block 9 tracker-status fixture after the accepted frontier advanced. Exact
+  child `f5a01e026d5ee716b9b825da278e17192b343d40` (tree
+  `c1edd832770393f22c920f431a66f3ab01742ebd`) generalized that status-only
+  projection across exactly Blocks 9–17; focused Block 9 passed `29/29`, the
+  full mapped implementation suite passed `115/115`, and independent exact
+  review confirmed that every Block 13 implementation and contract blob
+  remained byte-identical to `ca2c9da` with no findings. One coherent isolated
+  candidate is comparison-ready under the incumbent authority; no evaluation,
+  adoption, installed-skill cutover, rollback, or reserved effect was produced.
 
 ### Stop
 
@@ -3615,7 +3629,7 @@ rollback.
 
 ## Block 14 — Independently evaluate the Factory candidate
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
