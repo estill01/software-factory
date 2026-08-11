@@ -703,6 +703,67 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
             1,
         )
 
+    def test_interrupted_unrecorded_prepare_does_not_block_current_context(self) -> None:
+        record_id = self.append_event()
+        report = self.write_report([record_id], name="interrupted-currentness")
+        with mock.patch.object(
+            supervision_log,
+            "append_raw_locked_at",
+            side_effect=supervision_log.SupervisionLogError(
+                "simulated append interruption"
+            ),
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "append interruption"
+            ):
+                self.admit(report)
+        evolution_root = self.directory / "learning" / "factory-evolution"
+        retained = {item.name for item in evolution_root.iterdir()}
+        self.assertEqual(len(retained), 1)
+        policy = supervision_log.read_json(self.directory / "policy.json")
+        idle = supervision_log.factory_evolution_admission_status(
+            self.directory,
+            policy,
+            supervision_log.events(self.directory / "events.jsonl"),
+        )
+        self.assertEqual(idle["state"], "idle")
+        self.assertEqual(idle["active_cycles"], [])
+
+        (self.repository / "unrelated.txt").write_text(
+            "new target context\n", encoding="utf-8"
+        )
+        self.git("add", "unrelated.txt")
+        self.git(
+            "-c",
+            "user.name=Factory Test",
+            "-c",
+            "user.email=factory@example.test",
+            "commit",
+            "-m",
+            "Advance Factory context",
+        )
+        recovered = self.admit(report)
+
+        self.assertTrue(recovered["eligible"])
+        self.assertEqual(recovered["disposition"], "admitted")
+        self.assertFalse(recovered["reused"])
+        self.assertNotIn(str(recovered["evolution_id"]), retained)
+        self.assertEqual(len(list(evolution_root.iterdir())), 2)
+        status = supervision_log.factory_evolution_admission_status(
+            self.directory,
+            policy,
+            supervision_log.events(self.directory / "events.jsonl"),
+        )
+        self.assertEqual(status["state"], "active")
+        self.assertEqual(status["active_cycles"], [recovered["evolution_id"]])
+        self.assertEqual(
+            sum(
+                item.get("kind") == "factory-evolution-admission"
+                for item in supervision_log.events(self.directory / "events.jsonl")
+            ),
+            1,
+        )
+
     def test_interrupted_prepare_set_completes_from_the_exact_packet(self) -> None:
         record_id = self.append_event()
         report = self.write_report([record_id], name="prepare-interruption")

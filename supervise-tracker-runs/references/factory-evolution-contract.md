@@ -183,7 +183,10 @@ least one new adjudicating record beyond consumed coverage is required. The
 eligible path writes the existing byte-identical learning packet and prepare
 manifest once, then appends one content-minimized admission record through the
 canonical supervision writer. Interruption may leave only those non-authoritative
-prepared artifacts; retry reuses them and appends at most one admission.
+prepared artifacts; they do not consume the active-cycle ceiling until an exact
+admission event owns their evolution ID. Retry in the same context reuses them;
+a current-context retry may prepare the same packet under its new deterministic
+cycle ID and appends at most one admission.
 
 ## Exact submission wire shapes
 

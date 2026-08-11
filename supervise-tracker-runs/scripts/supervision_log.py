@@ -14438,6 +14438,9 @@ def factory_evolution_admission_status(
         for item in admissions
         if item.get("record_id") not in corrected_records
     ]
+    admitted_evolution_ids = {
+        str(item.get("evolution_id")) for item in admissions
+    }
     corrected_evolution_ids = {
         str(item.get("evolution_id")) for item in corrections
     }
@@ -14446,6 +14449,7 @@ def factory_evolution_admission_status(
         item["evolution_id"]
         for item in inventory
         if item["state"] == "active"
+        and item["evolution_id"] in admitted_evolution_ids
         and item["evolution_id"] not in corrected_evolution_ids
     ]
     latest_admission = admissions[-1] if admissions else None
@@ -15336,6 +15340,9 @@ def factory_evolution_checkpoint_admission(
         for item in all_admissions
         if item.get("record_id") not in corrections
     ]
+    admitted_evolution_ids = {
+        str(item.get("evolution_id")) for item in admissions
+    }
     prior = next(
         (
             item
@@ -15406,6 +15413,7 @@ def factory_evolution_checkpoint_admission(
         item
         for item in inventory
         if item["state"] == "active"
+        and item["evolution_id"] in admitted_evolution_ids
         and item["evolution_id"] not in corrected_evolution_ids
     ]
     conflicting_cycles = [
