@@ -2525,6 +2525,7 @@ class CanonicalAuthoritySourceIngestionTests(unittest.TestCase):
     def test_exact_lf_bytes_accept_deduplicate_and_reject_divergence(self) -> None:
         self.assertNotEqual(self.canonical_sha256, self.reconstructed_sha256)
 
+        original_review = self.provenance_review_path.read_bytes()
         accepted = self.ingest()
         duplicate = self.ingest()
 
@@ -2536,6 +2537,41 @@ class CanonicalAuthoritySourceIngestionTests(unittest.TestCase):
         self.assertEqual(
             duplicate["record"]["record_id"], accepted["record"]["record_id"]
         )
+
+        self.write_provenance_review(
+            overrides={"record_id": "different-source-review-1234"}
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "duplicate provenance differs"
+        ):
+            self.ingest()
+
+        invalid = self.write_provenance_review()
+        invalid["signature_base64"] = base64.b64encode(b"x" * 64).decode()
+        self.provenance_review_path.write_bytes(
+            supervision_log.canonical(invalid) + b"\n"
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "signature verification failed"
+        ):
+            self.ingest()
+
+        self.provenance_review_path.write_bytes(
+            supervision_log.canonical(
+                {
+                    "schema_version": 1,
+                    "record_id": "legacy-unsigned-review-1234",
+                    "target_thread_id": self.target,
+                }
+            )
+            + b"\n"
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "review shape differs"
+        ):
+            self.ingest()
+
+        self.provenance_review_path.write_bytes(original_review)
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError, "divergent record"
         ):
@@ -2661,6 +2697,43 @@ class CanonicalAuthoritySourceIngestionTests(unittest.TestCase):
             len(supervision_log.events(self.directory / "events.jsonl")), 0
         )
 
+    def test_legacy_event_eligibility_remains_current_role_bound(self) -> None:
+        authority_event = self.ingest()["record"]
+        legacy_event = {
+            field: authority_event[field]
+            for field in supervision_log.DIRECT_AUTHORITY_EVENT_FIELDS
+        }
+        policy = self.current_policy()
+        history = supervision_log.events(self.directory / "policy-history.jsonl")
+
+        self.assertEqual(
+            supervision_log.canonical_direct_authority_event(
+                [legacy_event],
+                event_record_id=str(legacy_event["record_id"]),
+                policy=policy,
+                policy_history=history,
+            ),
+            legacy_event,
+        )
+
+        rebound_policy = copy.deepcopy(policy)
+        rebound_policy["runtime"][
+            "base_reviewer_thread_id"
+        ] = "rebound-base-reviewer-1234"
+        rebound_policy["runtime"][
+            "reviewer_thread_id"
+        ] = "rebound-final-reviewer-1234"
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "lacks independent provenance evidence",
+        ):
+            supervision_log.canonical_direct_authority_event(
+                [legacy_event],
+                event_record_id=str(legacy_event["record_id"]),
+                policy=rebound_policy,
+                policy_history=history,
+            )
+
     def test_ingest_surface_and_policy_require_the_signed_review(self) -> None:
         root_parser = supervision_log.parser()
         subparsers = next(
@@ -2708,12 +2781,98 @@ class CanonicalAuthoritySourceIngestionTests(unittest.TestCase):
             receipt["provenance_signature_sha256"],
             authority_event["provenance_signature_sha256"],
         )
+        source_receipt_policy = self.current_policy()
+        source_review_bytes = self.provenance_review_path.read_bytes()
+        rebound_policy = self.current_policy()
+        rebound_policy["runtime"][
+            "base_reviewer_thread_id"
+        ] = "rebound-base-reviewer-1234"
+        rebound_policy["runtime"][
+            "reviewer_thread_id"
+        ] = "rebound-final-reviewer-1234"
+        supervision_log.write_policy_version(
+            self.directory,
+            rebound_policy,
+            kind="test-reviewer-role-rebinding",
+            reason="Exercise signed proof across a later runtime role rebind.",
+            evidence_values=[str(authority_event["record_id"])],
+        )
         receipt_policy = self.current_policy()
         receipt_history = supervision_log.events(
             self.directory / "policy-history.jsonl"
         )
+        self.assertNotEqual(
+            receipt_policy["policy_sha256"],
+            source_receipt_policy["policy_sha256"],
+        )
+        self.provenance_review_path.write_bytes(source_review_bytes)
         post_receipt_duplicate = self.ingest()
         self.assertTrue(post_receipt_duplicate["duplicate"])
+
+        current_events = supervision_log.events(self.directory / "events.jsonl")
+        self.assertEqual(
+            supervision_log.canonical_direct_authority_event(
+                current_events,
+                event_record_id=str(authority_event["record_id"]),
+                policy=receipt_policy,
+                policy_history=receipt_history,
+            )["record_id"],
+            authority_event["record_id"],
+        )
+
+        signature_tampered_events = copy.deepcopy(current_events)
+        signature_tampered_event = next(
+            item
+            for item in signature_tampered_events
+            if item.get("record_id") == authority_event["record_id"]
+        )
+        signature_tampered_event["provenance_review_payload"][
+            "signature_base64"
+        ] = base64.b64encode(b"x" * 64).decode()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "signature verification failed",
+        ):
+            supervision_log.canonical_direct_authority_event(
+                signature_tampered_events,
+                event_record_id=str(authority_event["record_id"]),
+                policy=receipt_policy,
+                policy_history=receipt_history,
+            )
+
+        verifier_tampered_events = copy.deepcopy(current_events)
+        verifier_tampered_event = next(
+            item
+            for item in verifier_tampered_events
+            if item.get("record_id") == authority_event["record_id"]
+        )
+        verifier_tampered_event[
+            "verifier_id"
+        ] = "rebound-final-reviewer-1234"
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "lacks independent provenance evidence",
+        ):
+            supervision_log.canonical_direct_authority_event(
+                verifier_tampered_events,
+                event_record_id=str(authority_event["record_id"]),
+                policy=receipt_policy,
+                policy_history=receipt_history,
+            )
+
+        receipt_tampered_policy = copy.deepcopy(receipt_policy)
+        receipt_tampered_policy["direct_authority_receipts"][0][
+            "reviewer_id"
+        ] = "rebound-final-reviewer-1234"
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "receipt differs from its canonical owner event",
+        ):
+            supervision_log.validate_direct_authority_receipts(
+                receipt_tampered_policy,
+                all_events=current_events,
+                policy_history=receipt_history,
+            )
 
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError, "would change mission identity"

@@ -2034,12 +2034,15 @@ def validate_policy(policy: dict[str, Any]) -> None:
         if (source_record, source_sha256) in seen_authority_receipts:
             raise SupervisionLogError("Direct-authority receipt is duplicated")
         seen_authority_receipts.add((source_record, source_sha256))
-        runtime = policy.get("runtime", {})
-        if reviewer_id not in {
-            runtime.get("base_reviewer_thread_id"),
-            runtime.get("reviewer_thread_id"),
-        }:
-            raise SupervisionLogError("Direct-authority receipt reviewer is not bound")
+        if not signed_receipt_fields:
+            runtime = policy.get("runtime", {})
+            if reviewer_id not in {
+                runtime.get("base_reviewer_thread_id"),
+                runtime.get("reviewer_thread_id"),
+            }:
+                raise SupervisionLogError(
+                    "Direct-authority receipt reviewer is not bound"
+                )
     maintenance = policy.get("skill_maintenance")
     if maintenance is not None:
         if maintenance.get("mode") not in SKILL_MAINTENANCE_MODES:
@@ -3040,13 +3043,14 @@ def canonical_direct_authority_event(
     verifier_id = safe_id(
         str(event["verifier_id"]), label="direct-authority provenance verifier"
     )
-    runtime = policy.get("runtime", {})
+    eligibility_policy = source_policy if signed_event else policy
+    runtime = eligibility_policy.get("runtime", {})
     eligible = {
         runtime.get("base_reviewer_thread_id"),
         runtime.get("reviewer_thread_id"),
     }
     disallowed = {
-        policy.get("target_thread_id"),
+        eligibility_policy.get("target_thread_id"),
         runtime.get("watcher_thread_id"),
         runtime.get("fix_executor_thread_id"),
     }
@@ -7899,26 +7903,58 @@ def cmd_implementation_authority_source_ingest(args: argparse.Namespace) -> None
             and item.get("source_item_id") == source_item
         ]
         if prior:
-            if prior[-1].get("source_sha256") == source_sha256:
-                policy_history, _policy_history_snapshot = events_snapshot(
-                    Path("policy-history.jsonl"), directory_fd=directory_fd
+            if prior[-1].get("source_sha256") != source_sha256:
+                raise SupervisionLogError(
+                    "Direct-authority source tuple already has a divergent record"
                 )
-                canonical_direct_authority_event(
-                    current_events,
-                    event_record_id=str(prior[-1]["record_id"]),
-                    policy=policy,
-                    policy_history=policy_history,
-                )
-                print(
-                    json.dumps(
-                        {"duplicate": True, "record": prior[-1]},
-                        sort_keys=True,
-                    )
-                )
-                return
-            raise SupervisionLogError(
-                "Direct-authority source tuple already has a divergent record"
+            policy_history, _policy_history_snapshot = events_snapshot(
+                Path("policy-history.jsonl"), directory_fd=directory_fd
             )
+            stored = canonical_direct_authority_event(
+                current_events,
+                event_record_id=str(prior[-1]["record_id"]),
+                policy=policy,
+                policy_history=policy_history,
+            )
+            if frozenset(stored) != frozenset(DIRECT_AUTHORITY_SIGNED_EVENT_FIELDS):
+                raise SupervisionLogError(
+                    "Direct-authority source duplicate lacks exact signed provenance"
+                )
+            source_policy = next(
+                (
+                    item["policy"]
+                    for item in policy_history
+                    if isinstance(item.get("policy"), Mapping)
+                    and item["policy"].get("policy_sha256")
+                    == stored.get("policy_sha256")
+                ),
+                None,
+            )
+            if source_policy is None:
+                raise SupervisionLogError(
+                    "Direct-authority source duplicate policy is unavailable"
+                )
+            supplied_review = validate_direct_authority_review(
+                args.provenance_review_record,
+                policy=source_policy,
+                target_thread=target_thread,
+                source_task=source_task,
+                source_item=source_item,
+                source_record=source_record,
+                source_sha256=source_sha256,
+                source_byte_count=len(source_bytes),
+            )
+            if supplied_review != stored.get("provenance_review_payload"):
+                raise SupervisionLogError(
+                    "Direct-authority source duplicate provenance differs"
+                )
+            print(
+                json.dumps(
+                    {"duplicate": True, "record": stored},
+                    sort_keys=True,
+                )
+            )
+            return
         provenance_review = validate_direct_authority_review(
             args.provenance_review_record,
             policy=policy,

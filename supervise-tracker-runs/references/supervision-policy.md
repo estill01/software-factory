@@ -853,10 +853,14 @@ policy, and verifies a bounded canonical source-review object signed by the
 sealed independent reviewer key. That signed review binds the exact bytes,
 tuple, eligible runtime reviewer thread, disposition, finding count, and policy
 root; an ordinary owner-ledger record or caller-supplied reviewer label is not
-review evidence. An exact retry is idempotent; changed bytes or provenance for
-the same tuple fail closed. Do not create a temporary source file, reconstruct
-terminal bytes in shell text, or append this event directly. The receipt
-command then resolves the already-ingested event and cites its source
+review evidence. On a same-tuple, same-byte retry, the helper re-authenticates
+the supplied signed review against the event's source policy and requires exact
+equality with the signed payload already retained by the canonical event. The
+original exact review may therefore deduplicate after later policy or role
+versions; changed, invalid, or legacy provenance for that duplicate fails
+closed. Changed source bytes also fail closed. Do not create a temporary source
+file, reconstruct terminal bytes in shell text, or append this event directly.
+The receipt command then resolves the already-ingested event and cites its source
 record/hash on `implementation-range-bind` or `implementation-range-amend`.
 Initial binding accepts either legacy
 `--request-text` or mutually exclusive `--request-text-base64`; use base64 when
@@ -875,7 +879,12 @@ The source-review file is exact canonical JSON plus one LF and contains only:
 object excluding `review_root` and `signature_base64`. The sealed reviewer signs
 the canonical object excluding only `signature_base64` with Ed25519. Ingestion
 retains the full signed payload in the canonical event and re-verifies it when
-the receipt or mission conversion is resolved.
+the receipt or mission conversion is resolved. Signed event and receipt
+eligibility is anchored to that event's source policy and signed payload, so a
+later base-reviewer or reviewer role rebind does not invalidate authentic
+append-only proof; signer, verifier, payload, and receipt drift still fail
+closed. Legacy event and receipt shapes retain their existing current-runtime
+role checks.
 
 If an older derived mission binding made a false content-digest assertion but
 the exact mission root and source-record identity remain correct, first ingest
