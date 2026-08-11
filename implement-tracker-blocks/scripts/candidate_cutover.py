@@ -7,6 +7,7 @@ import argparse
 import base64
 import fcntl
 import hashlib
+import hmac
 import importlib.util
 import json
 import os
@@ -678,6 +679,10 @@ def _effect_path(repo: Path) -> Path:
     return _operation_directory(repo) / f"{EXPECTED_HANDOFF_ROOT}.effect.json"
 
 
+def _effect_pending_path(repo: Path) -> Path:
+    return _operation_directory(repo) / f"{EXPECTED_HANDOFF_ROOT}.effect.pending.json"
+
+
 def _validate_proof_graph(value: Mapping[str, object]) -> Dict[str, object]:
     graph = _rooted(value, "graph_root", "target proof graph")
     if set(graph) != {
@@ -1168,14 +1173,48 @@ def _retain_review_copy(repo: Path, review: Mapping[str, object]) -> None:
     _write_atomic(path, raw)
 
 
-def _load_or_produce_effect(
+def _validate_effect_record(
+    value: Mapping[str, object],
+    identity: Mapping[str, object],
+    expected_effect: Mapping[str, object],
+    owner_key: bytes,
+) -> Dict[str, object]:
+    retained = _rooted(value, "effect_validation_root", "cutover effect validation")
+    if set(retained) != {
+        *identity,
+        "producer_recorded_at",
+        "observable_effect",
+        "owner_hmac_sha256",
+        "effect_validation_root",
+    }:
+        raise CutoverError("retained cutover effect validation shape differs")
+    signed = {
+        key: retained[key]
+        for key in retained
+        if key not in {"owner_hmac_sha256", "effect_validation_root"}
+    }
+    expected_hmac = hmac.new(owner_key, canonical(signed), hashlib.sha256).hexdigest()
+    if (
+        {key: retained.get(key) for key in identity} != dict(identity)
+        or retained.get("observable_effect") != dict(expected_effect)
+        or type(retained.get("producer_recorded_at")) is not str
+        or not hmac.compare_digest(
+            str(retained.get("owner_hmac_sha256", "")), expected_hmac
+        )
+    ):
+        raise CutoverError("retained cutover effect validation provenance differs")
+    return retained
+
+
+def _produce_durable_effect(
     repo: Path,
     proposal: Mapping[str, object],
     review: Mapping[str, object],
     bundle: Mapping[str, object],
     committed: bytes,
+    module: ModuleType,
+    directory_fd: int,
 ) -> Dict[str, object]:
-    path = _effect_path(repo)
     identity = {
         "schema_version": 1,
         "kind": "software-factory-candidate-cutover-effect-validation",
@@ -1184,21 +1223,81 @@ def _load_or_produce_effect(
         "integration_review_root": review["review_root"],
         "candidate_content_root": proposal["candidate_content_root"],
     }
-    if path.exists():
-        retained = _rooted(
-            _load_json(path), "effect_validation_root", "cutover effect validation"
-        )
-        if (
-            {key: retained.get(key) for key in identity} != identity
-            or retained.get("observable_effect") != _expected_effect(bundle["exercise"])
-        ):
-            raise CutoverError("retained cutover effect validation differs")
-        return retained
     effect = _run_observable_effect(committed, bundle["exercise"])
-    record: Dict[str, object] = {**identity, "observable_effect": effect}
+    record: Dict[str, object] = {
+        **identity,
+        "producer_recorded_at": module.utc_now(),
+        "observable_effect": effect,
+    }
+    owner_key = module.owner_root_key_at(directory_fd, allow_create=False)
+    record["owner_hmac_sha256"] = hmac.new(
+        owner_key, canonical(record), hashlib.sha256
+    ).hexdigest()
     record["effect_validation_root"] = object_root(record)
-    _write_atomic(path, _json_bytes(record))
-    return record
+    pending_path = _effect_pending_path(repo)
+    _write_atomic(pending_path, _json_bytes(record))
+    return _validate_effect_record(
+        _load_json(pending_path),
+        identity,
+        _expected_effect(bundle["exercise"]),
+        owner_key,
+    )
+
+
+def _load_or_produce_effect(
+    repo: Path,
+    proposal: Mapping[str, object],
+    review: Mapping[str, object],
+    bundle: Mapping[str, object],
+    committed: bytes,
+    module: ModuleType,
+    directory_fd: int,
+) -> Dict[str, object]:
+    path = _effect_path(repo)
+    pending_path = _effect_pending_path(repo)
+    identity = {
+        "schema_version": 1,
+        "kind": "software-factory-candidate-cutover-effect-validation",
+        "proposal_root": proposal["proposal_root"],
+        "integration_commit": proposal["prepared_commit"],
+        "integration_review_root": review["review_root"],
+        "candidate_content_root": proposal["candidate_content_root"],
+    }
+    owner_key = module.owner_root_key_at(directory_fd, allow_create=False)
+    expected_effect = _expected_effect(bundle["exercise"])
+    if path.exists():
+        return _validate_effect_record(
+            _load_json(path), identity, expected_effect, owner_key
+        )
+    if pending_path.exists():
+        retained = _validate_effect_record(
+            _load_json(pending_path), identity, expected_effect, owner_key
+        )
+    else:
+        retained = _produce_durable_effect(
+            repo,
+            proposal,
+            review,
+            bundle,
+            committed,
+            module,
+            directory_fd,
+        )
+    _write_atomic(path, _json_bytes(retained))
+    validated = _validate_effect_record(
+        _load_json(path), identity, expected_effect, owner_key
+    )
+    if pending_path.exists() and not pending_path.is_symlink():
+        pending_path.unlink()
+        directory_descriptor = os.open(
+            pending_path.parent,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+        )
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    return validated
 
 
 def _assert_current_cutover(
@@ -1343,6 +1442,88 @@ def _start_executor_transition(
     }
 
 
+def _correct_started_transition(
+    module: ModuleType,
+    directory_fd: int,
+    *,
+    reason: str,
+) -> Optional[Dict[str, object]]:
+    """Close a retained start whose target currentness failed after append."""
+
+    all_events, event_snapshot = module.events_snapshot(
+        Path("events.jsonl"), directory_fd=directory_fd
+    )
+    records = module.successor_transition_events(
+        all_events, CONTINUATION_TRANSITION_ID
+    )
+    if not records or records[-1].get("phase") != "work-started":
+        return None
+    prior = dict(records[-1])
+    policy, _policy_snapshot = module.read_json_snapshot(
+        Path("policy.json"), directory_fd=directory_fd
+    )
+    source = {
+        "source_class": str(prior["governing_authority_source_class"]),
+        "source_record": str(prior["governing_authority_source_record"]),
+        "source_sha256": str(prior["governing_authority_source_sha256"]),
+    }
+    if not module.canonical_authority_source(policy, **source):
+        raise CutoverError("canonical continuation correction provenance differs")
+    record = {
+        key: value
+        for key, value in prior.items()
+        if key not in {"record_id", "timestamp", "previous_record_sha256", "record_sha256"}
+    }
+    correction_evidence = sorted(
+        [
+            *list(prior.get("evidence", [])),
+            "currentness-rejected:"
+            + object_root(
+                {
+                    "transition_root": prior["record_sha256"],
+                    "reason": reason,
+                }
+            ),
+        ]
+    )
+    record.update(
+        {
+            "record_id": f"EVT-{len(all_events) + 1:06d}",
+            "timestamp": module.utc_now(),
+            "phase": "corrected",
+            "prior_record_id": prior["record_id"],
+            "disposition_reason": reason,
+            "correction_authority_source_class": source["source_class"],
+            "correction_authority_source_record": source["source_record"],
+            "correction_authority_source_sha256": source["source_sha256"],
+            "replacement_transition_id": "",
+            "governing_outcome_effect": "continue-same-task",
+            "evidence": correction_evidence,
+        }
+    )
+    module.validate_successor_transition(prior, record, all_events)
+    appended_root = module.append_raw_locked_at(
+        directory_fd,
+        "events.jsonl",
+        record,
+        previous_record_sha256=str(all_events[-1]["record_sha256"]),
+        expected_file_snapshot=event_snapshot,
+        require_event_anchor=True,
+    )
+    written, _snapshot = module.events_snapshot(
+        Path("events.jsonl"), directory_fd=directory_fd
+    )
+    appended = written[-1]
+    if (
+        appended.get("phase") != "corrected"
+        or appended.get("transition_id") != CONTINUATION_TRANSITION_ID
+        or appended.get("record_sha256") != appended_root
+        or appended.get("prior_record_id") != prior["record_id"]
+    ):
+        raise CutoverError("canonical continuation correction was not retained")
+    return appended
+
+
 def _current_result(
     repo: Path,
     tracker_path: Path,
@@ -1357,21 +1538,29 @@ def _current_result(
     duplicate: bool,
     failpoint: Optional[str] = None,
 ) -> Dict[str, object]:
-    proof = _assert_current_cutover(
-        repo,
-        tracker_path,
-        proposal,
-        bundle,
-        module,
-        owner_id,
-        supervision,
-    )
+    try:
+        proof = _assert_current_cutover(
+            repo,
+            tracker_path,
+            proposal,
+            bundle,
+            module,
+            owner_id,
+            supervision,
+        )
+    except CutoverError:
+        _correct_started_transition(
+            module,
+            directory_fd,
+            reason="Block 9 target currentness changed before continuation acceptance.",
+        )
+        raise
     _full, relative, _candidate = _artifact_file(bundle, "winner")
     committed = _git(repo, ["show", f"HEAD:{relative}"])
     if not _effect_path(repo).exists():
         raise CutoverError("retained cutover effect validation is missing")
     retained_effect = _load_or_produce_effect(
-        repo, proposal, review, bundle, committed
+        repo, proposal, review, bundle, committed, module, directory_fd
     )
     outcome = _rooted(_load_json(_outcome_path(repo)), "effect_root", "cutover outcome")
     expected = {
@@ -1397,23 +1586,50 @@ def _current_result(
         owner_id,
         supervision,
     )
-    continuation = _start_executor_transition(
-        module,
-        directory_fd,
-        proposal,
-        review,
-        outcome,
-        failpoint=failpoint,
-    )
-    _assert_current_cutover(
-        repo,
-        tracker_path,
-        proposal,
-        bundle,
-        module,
-        owner_id,
-        supervision,
-    )
+    try:
+        continuation = _start_executor_transition(
+            module,
+            directory_fd,
+            proposal,
+            review,
+            outcome,
+            failpoint=failpoint,
+        )
+    except CutoverError:
+        try:
+            _assert_current_cutover(
+                repo,
+                tracker_path,
+                proposal,
+                bundle,
+                module,
+                owner_id,
+                supervision,
+            )
+        except CutoverError:
+            _correct_started_transition(
+                module,
+                directory_fd,
+                reason="Block 9 target currentness changed during continuation append.",
+            )
+        raise
+    try:
+        _assert_current_cutover(
+            repo,
+            tracker_path,
+            proposal,
+            bundle,
+            module,
+            owner_id,
+            supervision,
+        )
+    except CutoverError:
+        _correct_started_transition(
+            module,
+            directory_fd,
+            reason="Block 9 target currentness changed during continuation append.",
+        )
+        raise
     return {
         "action": "cutover-current" if duplicate else "cutover-applied",
         "duplicate": duplicate,
@@ -1493,7 +1709,13 @@ def apply_cutover(
                     if not _outcome_path(repo).exists():
                         committed = _git(repo, ["show", f"HEAD:{proposal['affected_path']}"])
                         retained_effect = _load_or_produce_effect(
-                            repo, proposal, review, bundle, committed
+                            repo,
+                            proposal,
+                            review,
+                            bundle,
+                            committed,
+                            module,
+                            directory_fd,
                         )
                         refreshed, _directory, _snapshot = _supervision_snapshot(
                             module,
@@ -1588,7 +1810,13 @@ def apply_cutover(
                     if _safe_file(repo, relative) != replacements[relative]:
                         raise CutoverError("reviewed candidate is not current in the worktree")
                     retained_effect = _load_or_produce_effect(
-                        repo, proposal, review, bundle, committed
+                        repo,
+                        proposal,
+                        review,
+                        bundle,
+                        committed,
+                        module,
+                        directory_fd,
                     )
                     refreshed, _directory, _snapshot = _supervision_snapshot(
                         module,
@@ -1604,14 +1832,18 @@ def apply_cutover(
                         != proposal["tracker_program_root"]
                     ):
                         raise CutoverError("current context changed during effect validation")
-                except CutoverError:
+                except Exception as error:
                     if _head(repo) == proposal["prepared_commit"]:
                         ref = _git(repo, ["symbolic-ref", "-q", "HEAD"]).decode()
                         _git(repo, ["update-ref", ref, head, str(proposal["prepared_commit"])])
                         _restore_owned_replacements(
                             repo, head, previous, replacements
                         )
-                    raise
+                    if isinstance(error, CutoverError):
+                        raise
+                    raise CutoverError(
+                        "current effect validation failed after promotion"
+                    ) from error
                 outcome = {
                     "schema_version": 1,
                     "kind": "software-factory-candidate-cutover-outcome",

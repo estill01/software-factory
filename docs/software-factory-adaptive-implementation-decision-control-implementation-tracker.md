@@ -2660,6 +2660,24 @@ accepted delta without absorbing optional work.
   preserving changed bytes and path types. Focused producer-durability and
   per-path recovery proof passed `5/5`; exact successor freeze, independent
   challenge, and the required one-time affected-proof rerun remain pending.
+- Rejected durability checkpoint:
+  `3da7f11947822fc37fe677e7eb3e54f7624005ac` (tree
+  `11603ae9eaf84e42590c32cba2b31ec789fb86eb`) closed both per-path recovery
+  findings and passed its narrow proof `5/5`. Independent exact review rejected
+  it because a failed effect-record write after producer return reran the
+  producer, a predictable unsigned self-rooted effect record could substitute
+  for execution provenance, and target drift at the transition append left the
+  canonical gate at `work-started`. Preserve it as rejected evidence; no release
+  review or installation was produced.
+- Current durability correction: persist the complete effect first in a
+  directory-synced owner-keyed spool, accept only that separately proven
+  producer result, recover a failed final record write without rerunning the
+  workload, and append an exact `corrected` successor disposition if the
+  post-append target/proof/program/supervision check rejects currentness.
+  Pre-freeze focused Block 9 proof passed `23/23`, and the focused canonical
+  transition correction passed `1/1`. Exact successor freeze, independent
+  challenge, and the required one-time post-review affected-proof rerun remain
+  pending.
 
 ### Stop
 

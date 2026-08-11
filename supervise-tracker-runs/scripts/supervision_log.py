@@ -9107,7 +9107,10 @@ def validate_successor_transition(
     prior_phase = str(prior.get("phase", ""))
     if prior_phase not in SUCCESSOR_TRANSITION_ALL_PHASES:
         raise SupervisionLogError("Prior successor transition phase is invalid")
-    if prior_phase in SUCCESSOR_TRANSITION_CLOSED_PHASES:
+    corrective_start_rejection = bool(
+        prior_phase == "work-started" and phase == "corrected"
+    )
+    if prior_phase in SUCCESSOR_TRANSITION_CLOSED_PHASES and not corrective_start_rejection:
         raise SupervisionLogError("A closed successor transition cannot advance")
     for field in SUCCESSOR_TRANSITION_IDENTITY_FIELDS:
         if prior.get(field, "") != record.get(field, ""):

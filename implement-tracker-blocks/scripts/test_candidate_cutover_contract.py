@@ -577,6 +577,64 @@ class CandidateCutoverContractTests(unittest.TestCase):
         self.assertEqual(records[-1]["phase"], "required")
         self.assertEqual((self.target / self.relative).read_bytes(), caller_bytes)
 
+    def test_changed_target_during_transition_append_is_canonically_corrected(self) -> None:
+        _prepared, review = self._reviewed()
+        module = cutover._supervision_module()
+        append = module.append_raw_locked_at
+        changed = False
+        caller_bytes = b"# changed at continuation append\n"
+
+        def change_before_start_append(*args: object, **kwargs: object) -> str:
+            nonlocal changed
+            value = args[2] if len(args) > 2 else {}
+            if (
+                not changed
+                and isinstance(value, dict)
+                and value.get("kind") == "successor-transition"
+                and value.get("phase") == "work-started"
+            ):
+                changed = True
+                (self.target / self.relative).write_bytes(caller_bytes)
+            return append(*args, **kwargs)
+
+        with mock.patch.object(cutover, "_supervision_module", return_value=module):
+            with mock.patch.object(
+                module, "append_raw_locked_at", side_effect=change_before_start_append
+            ):
+                with self.assertRaisesRegex(
+                    cutover.CutoverError, "current target differs"
+                ):
+                    cutover.apply_cutover(self.target, self.tracker, review)
+        records = module.successor_transition_events(
+            module.events(self.supervision_root / self.owner_id / "events.jsonl"),
+            cutover.CONTINUATION_TRANSITION_ID,
+        )
+        self.assertEqual(
+            [item["phase"] for item in records],
+            ["required", "work-started", "corrected"],
+        )
+        gate = module.parser().parse_args(
+            [
+                "--root",
+                str(self.supervision_root),
+                "successor-transition-gate",
+                "--target-thread",
+                self.owner_id,
+                "--transition-id",
+                cutover.CONTINUATION_TRANSITION_ID,
+            ]
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            module.cmd_successor_transition_gate(gate)
+        gate_result = json.loads(output.getvalue())
+        self.assertEqual(gate_result["phase"], "corrected")
+        self.assertEqual(
+            gate_result["next_action"],
+            "continue-governing-outcome-in-source-task",
+        )
+        self.assertFalse(gate_result["source_stop_permitted"])
+
     def test_post_ref_and_post_effect_interruptions_recover_without_false_state(self) -> None:
         prepared, review = self._reviewed()
         with self.assertRaisesRegex(cutover.CutoverError, "after atomic promotion"):
@@ -609,6 +667,69 @@ class CandidateCutoverContractTests(unittest.TestCase):
         self.assertTrue(recovered["duplicate"])
         self.assertTrue(cutover._outcome_path(self.target).is_file())
         self.assertEqual(producer_calls, 1)
+
+    def test_effect_result_spool_survives_final_record_write_interruption(self) -> None:
+        _prepared, review = self._reviewed()
+        producer = cutover._run_observable_effect
+        writer = cutover._write_atomic
+        producer_calls = 0
+        final_write_failed = False
+
+        def count_effect(source: bytes, exercise: dict[str, object]) -> dict[str, object]:
+            nonlocal producer_calls
+            producer_calls += 1
+            return producer(source, exercise)
+
+        def fail_first_final_effect_write(path: Path, raw: bytes) -> None:
+            nonlocal final_write_failed
+            if path == cutover._effect_path(self.target) and not final_write_failed:
+                final_write_failed = True
+                raise OSError("fixture final effect write interruption")
+            writer(path, raw)
+
+        with mock.patch.object(cutover, "_run_observable_effect", side_effect=count_effect):
+            with mock.patch.object(
+                cutover, "_write_atomic", side_effect=fail_first_final_effect_write
+            ):
+                with self.assertRaisesRegex(
+                    cutover.CutoverError, "effect validation failed after promotion"
+                ):
+                    cutover.apply_cutover(self.target, self.tracker, review)
+                self.assertTrue(cutover._effect_pending_path(self.target).is_file())
+                recovered = cutover.apply_cutover(self.target, self.tracker, review)
+        self.assertTrue(recovered["candidate_authoritative"])
+        self.assertEqual(producer_calls, 1)
+        self.assertTrue(cutover._effect_path(self.target).is_file())
+        self.assertFalse(cutover._effect_pending_path(self.target).exists())
+
+    def test_unsigned_precreated_effect_record_cannot_replace_producer_evidence(self) -> None:
+        prepared, review = self._reviewed()
+        proposal = cutover._load_json(Path(str(prepared["proposal_path"])))
+        synthetic: dict[str, object] = {
+            "schema_version": 1,
+            "kind": "software-factory-candidate-cutover-effect-validation",
+            "proposal_root": proposal["proposal_root"],
+            "integration_commit": proposal["prepared_commit"],
+            "integration_review_root": cutover._load_json(review)["review_root"],
+            "candidate_content_root": proposal["candidate_content_root"],
+            "producer_recorded_at": "2026-08-11T06:24:40.000000Z",
+            "observable_effect": cutover._expected_effect(
+                cutover.load_accepted_bundle()["exercise"]
+            ),
+            "owner_hmac_sha256": "0" * 64,
+        }
+        synthetic["effect_validation_root"] = cutover.object_root(synthetic)
+        cutover._effect_path(self.target).write_bytes(cutover._json_bytes(synthetic))
+        with mock.patch.object(
+            cutover,
+            "_run_observable_effect",
+            side_effect=AssertionError("producer must not be reached"),
+        ):
+            with self.assertRaisesRegex(
+                cutover.CutoverError, "effect validation provenance differs"
+            ):
+                cutover.apply_cutover(self.target, self.tracker, review)
+        self.assertEqual(self._git("rev-parse", "HEAD"), self.base_head)
 
     def test_missing_review_copy_is_repaired_without_repeating_effect(self) -> None:
         _prepared, review = self._reviewed()

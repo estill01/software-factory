@@ -678,6 +678,14 @@ Old records remain immutable and inspectable. Routed supervision may trigger
 review but cannot supply correction authority, and expiry ends only its bounded
 operation control—never the governing outcome.
 
+`work-started` normally closes the transition. The sole later transition
+allowed from that phase is `corrected` when the owner detects that the exact
+first-action currentness changed during the append boundary. The correction
+must name that `work-started` record as its prior, retain its immutable
+evidence, cite current direct correction provenance, and continue the governing
+outcome in the source task. The gate then reports the corrected head rather than
+continuing stale work.
+
 Create the initial record with the direct governing source, not the routed
 packet that happened to trigger the topology change:
 

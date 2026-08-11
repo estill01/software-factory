@@ -799,7 +799,10 @@ hidden reasoning into the review.
   contradictory, or merely caller-described topology prose is not authority.
   Reject self-successors. If the premise changes, preserve history and
   append only `corrected`, `cancelled`, bounded `expired`, or `superseded` from
-  reviewed direct authority. A replacement is inactive until its predecessor
+  reviewed direct authority. A `work-started` record whose first-action
+  currentness fails at its write boundary may advance only to an exact
+  `corrected` disposition, preserving the stale start while preventing the
+  gate from continuing it. A replacement is inactive until its predecessor
   carries the exact supersession link, and no retired transition closes the
   governing outcome.
 - Preserve the implementation owner's canonical direct requested-range

@@ -303,9 +303,11 @@ and execute its target-owner/currentness contract.
 7. Execute the observable workload once against bytes rehydrated from the
    current committed target. Require the accepted artifact size, semantic
    roundtrip, bytes API, and protected results. Persist and directory-sync its
-   rooted result as the first safe Block 9 continuation action, then recheck
+   canonical-owner-keyed result first in a recoverable spool and then as the
+   final effect record; reject unsigned or caller-created self-rooted records.
+   Treat that proof as the first safe Block 9 continuation action, then recheck
    target and supervision currentness before recording acceptance. Interruption
-   and replay rehydrate this result and never rerun its producer.
+   and replay rehydrate the retained owner result and never rerun its producer.
 8. Bind the current effect to one deterministic execution key over the handoff,
    reviewed commit, review, effect, and current policy-owned implementation
    range. After the retained effect actually completed, append exactly one
@@ -313,8 +315,10 @@ and execute its target-owner/currentness contract.
    start evidence binds that effect and key. Replays rehydrate the same
    continuation root, next action, and key with `start_count=1` without another
    integration, proof transition, or observable workload run. Recheck current
-   target/proof/program/supervision state around the transition write. Continue
-   Block 9 automatically; never request a human Resume.
+   target/proof/program/supervision state around the transition write. If the
+   post-append check fails, append the exact canonical `corrected` disposition
+   so the successor gate cannot continue the stale start. Continue Block 9
+   automatically; never request a human Resume.
 
 This operation is a bounded normal-owner seam, not a deployment service. It
 does not release or install Software Factory skills, alter supervision policy,

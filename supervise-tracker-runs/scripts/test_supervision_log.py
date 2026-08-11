@@ -595,6 +595,50 @@ class SuccessorTransitionContractTests(unittest.TestCase):
         self.assertTrue(started["source_stop_permitted"])
         self.assertFalse(started["transition_open"])
 
+    def test_stale_work_start_accepts_only_exact_corrective_disposition(self) -> None:
+        self.record("required")
+        successor = ["--successor-thread", "successor-1234"]
+        bound = [
+            *successor,
+            "--successor-mission-root",
+            self.successor_mission_root,
+            "--successor-group-id",
+            "group-1234",
+        ]
+        handed_off = [*bound, "--handoff-record", "HANDOFF-1234"]
+        acknowledged = [*handed_off, "--acknowledgement-record", "ACK-1234"]
+        self.record("successor-created", *successor)
+        self.record("successor-bound", *bound)
+        self.record("handoff-sent", *handed_off)
+        self.record("target-acknowledged", *acknowledged)
+        started = self.record(
+            "work-started", *acknowledged, "--started-block", "Block 0"
+        )["record"]
+        self.record(
+            "corrected",
+            *acknowledged,
+            "--started-block",
+            "Block 0",
+            "--prior-record",
+            str(started["record_id"]),
+            "--disposition-reason",
+            "First-action currentness changed during the start boundary.",
+            "--correction-authority-source-class",
+            "direct-user",
+            "--correction-authority-source-record",
+            "item-340",
+            "--correction-authority-source-sha256",
+            self.authority_sha256,
+            "--governing-outcome-effect",
+            "continue-same-task",
+        )
+        corrected = self.gate()
+        self.assertEqual(corrected["phase"], "corrected")
+        self.assertFalse(corrected["source_stop_permitted"])
+        self.assertEqual(
+            corrected["next_action"], "continue-governing-outcome-in-source-task"
+        )
+
     def test_transition_rejects_skips_identity_drift_and_early_claims(self) -> None:
         self.record("required")
         with self.assertRaisesRegex(

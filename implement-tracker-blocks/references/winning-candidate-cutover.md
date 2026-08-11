@@ -53,9 +53,13 @@ Reject a graph that labels proof current while any dependency is stale.
 
 Rehydrate the source from the current Git commit and execute the observable
 workload once against those bytes. Persist and directory-sync its complete
-rooted result before any later outcome or continuation transition. That
-retained current-effect validation is the first safe Block 9 continuation
-action. Recheck the target ref, worktree, proof, full tracker program,
+rooted result in an operation spool before the final effect record, later
+outcome, or continuation transition. Sign the spool/result with the separately
+retained canonical owner-root key; a caller-created self-rooted record is not
+producer provenance. A failed final record write rehydrates the owner-signed
+spool without another workload run. That retained current-effect validation is
+the first safe Block 9 continuation action. Recheck the target ref, worktree,
+proof, full tracker program,
 policy-owned range, policy, mission, and event head after execution. Retain and
 revalidate the exact review and outcome; interruption or replay must rehydrate
 the retained result and must not rerun the workload.
@@ -70,7 +74,9 @@ the canonical supervision `work-started` successor transition with the exact
 effect result as concrete start evidence. Replaying the cutover rehydrates that
 same continuation root, next action, and key with `start_count=1`, without
 another integration, proof transition, or workload execution. A final
-target/proof/program/supervision comparison surrounds the transition write, so
-changed state never yields an authoritative result. No human Resume, tracker
+target/proof/program/supervision comparison surrounds the transition write. If
+state changes during the append, immediately append the canonical `corrected`
+disposition against that exact `work-started` record so the successor gate
+cannot continue stale work. No human Resume, tracker
 amendment, release, publication, policy change, or Software Factory self-target
 promotion is authorized.
