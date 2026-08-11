@@ -5612,7 +5612,38 @@ drill-down and never beyond the declared safe tracker-file bound.
   changes. Live exact-server checks returned a complete zero-row no-change
   semantic projection with matching HEAD/working roots and verified both
   immutable HEAD and content-hash source routes. Exact-review outcome:
-  pending.
+  rejected at exact evidence revision
+  `f205a046cb470cf4de95230b8d53ea943c83e879`, tree
+  `1492414f4febef21b8d88d62658f842de79c9999`. The independent audit preserved
+  every valid result above but found two bounded truth failures: historical Git
+  blobs were read before enforcing the tracker byte ceiling and semantic
+  matching/repeated Block metadata could exceed their resource budget; the
+  client also accepted an inconsistent partial empty envelope that the route
+  could render as exact no-change. Block 19 remained `in-progress`, later
+  Blocks stayed closed, and the rejected candidate remains immutable history.
+- Bounded correction product: commit
+  `483d64d74eb77976ff8c990440db940dbbbcc9e3`, tree
+  `3e24d753a33db393a9ce247d49b5160ef1995c0f`, parent rejected evidence
+  `f205a046cb470cf4de95230b8d53ea943c83e879`, pushed with exact remote
+  identity. Git blob metadata is now checked before content retrieval and any
+  historical source over 4 MiB fails with `tracker_git_blob_too_large` and no
+  blob body. Semantic comparison is limited to 512 KiB and 10,000 lines per
+  side, uses bounded matching, caps repeated Block titles/anchors at 160/200
+  characters with explicit truth labels, and fails unavailable outside the
+  declared budget. The typed client rejects returned-row/total-row,
+  truncation, metadata-bound, and no-change inconsistencies; the route renders
+  no-change only for a complete untruncated zero-row result.
+- Correction validation: Ruff passed and the full backend passed 119/119 with
+  `ResourceWarning` fatal, including exact oversized-history rejection,
+  bounded repeated-metadata response size, and a 6,000-line repetitive-input
+  timing probe. Affected typed-contract/workspace tests passed 24/24;
+  TypeScript and production build passed. Playwright passed 18/18 across
+  desktop/tablet/mobile with keyboard, Axe, theme, safe hostile text, bounded
+  heading posture, exact source links, no horizontal overflow, and no mutation
+  control. Live exact-server proof returned a 2,994-byte, complete,
+  untruncated, zero-row no-change envelope. The full-profile verifier returned
+  Blocks 0-29 with 0 errors/warnings, verifier tests passed 30/30, and
+  `git diff --check` passed. Fresh exact-review outcome: pending.
 
 ### Stop
 
