@@ -292,10 +292,14 @@ and execute its target-owner/currentness contract.
 5. Keep exactly one authoritative implementation. Before ref promotion, any
    exception restores the exact incumbent and index independently per path,
    preserving every path whose bytes or type changed concurrently. After
-   promotion, apply the same per-path compare-and-swap recovery: a retry
-   revalidates the reviewed commit rather than integrating again, and a failed
-   live effect rolls back only the exact reviewed ref without overwriting later
-   caller bytes.
+   snapshotting the exact index, hold the Git index ownership lock across ref
+   promotion and publish the reviewed index through exact-byte compare-and-swap;
+   preserve any later staged/index state. If another owner advances the ref,
+   restore only operation-owned paths/index entries against that surviving
+   commit. After promotion, apply the same per-path compare-and-swap recovery:
+   a retry revalidates the reviewed commit rather than integrating again, and a
+   failed live effect rolls back only the exact reviewed ref without
+   overwriting later caller bytes.
 6. Read the proof graph from the current target owner. Invalidate only proof
    whose subject is the superseded incumbent plus its declared descendants,
    commit that exact reviewed graph with the candidate, and preserve unrelated

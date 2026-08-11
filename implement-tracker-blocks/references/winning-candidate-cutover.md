@@ -36,8 +36,14 @@ affected bytes without overwriting them, and every exception class restores
 only bytes still owned by the operation plus the prior caller index. Recovery
 is independent per affected path: a changed, symlinked, or otherwise
 caller-owned path is preserved without preventing restoration and index reset
-for every other operation-owned path. Apply the same compare-and-swap recovery
-after ref promotion so later caller bytes are never overwritten. After ref
+for every other operation-owned path. Snapshot the exact affected index, hold
+Git's index ownership lock across reviewed ref promotion, build the successor
+index off-path, and publish it only through an exact-byte compare-and-swap.
+Later staged/index state is caller-owned and must never be reset. If another
+owner advances the ref before or after promotion, preserve that ref and restore
+each still-operation-owned worktree/index path against its actual surviving
+tree. Apply the same compare-and-swap recovery after ref promotion so later
+caller bytes are never overwritten. After ref
 promotion, retry revalidates the signed proposal, current committed bytes,
 target proof, retained review, and missing effect outcome. It never creates a
 second integration. A failed effect rolls back only the exact reviewed ref; a

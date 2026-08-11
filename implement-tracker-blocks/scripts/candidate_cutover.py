@@ -75,6 +75,7 @@ REV_RE = re.compile(r"^[0-9a-f]{40}$")
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$")
 MAX_JSON_BYTES = 2 * 1024 * 1024
 MAX_SOURCE_BYTES = 1024 * 1024
+MAX_INDEX_BYTES = 32 * 1024 * 1024
 PROOF_RELATIVE = ".software-factory/proof-graph-v1.json"
 OPERATION_DIRECTORY = "software-factory-candidate-cutover"
 
@@ -378,7 +379,7 @@ def load_accepted_bundle() -> Dict[str, object]:
     }
 
 
-def _git(
+def _git_raw(
     repo: Path,
     args: Sequence[str],
     *,
@@ -398,7 +399,17 @@ def _git(
     )
     if result.returncode:
         raise CutoverError("Git target-owner operation failed")
-    return result.stdout.strip()
+    return result.stdout
+
+
+def _git(
+    repo: Path,
+    args: Sequence[str],
+    *,
+    env: Optional[Mapping[str, str]] = None,
+    input_bytes: Optional[bytes] = None,
+) -> bytes:
+    return _git_raw(repo, args, env=env, input_bytes=input_bytes).strip()
 
 
 def _repo_root(path: Path) -> Path:
@@ -1121,6 +1132,7 @@ def _restore_owned_replacements(
     head: str,
     previous: Mapping[str, Optional[bytes]],
     replacements: Mapping[str, bytes],
+    expected_index: bytes,
 ) -> None:
     """Restore only bytes still owned by this operation; preserve later caller work."""
 
@@ -1140,12 +1152,178 @@ def _restore_owned_replacements(
         except Exception:
             failures.append(relative)
             continue
-    _git(repo, ["reset", "-q", head, "--", *sorted(previous)])
+    _restore_index_paths_if_unchanged(
+        repo,
+        expected_index,
+        head,
+        sorted(previous),
+    )
     if failures:
         raise CutoverError(
             "concurrent affected paths were preserved while owned writes were restored: "
             + ", ".join(sorted(failures))
         )
+
+
+def _tree_path_bytes(repo: Path, head: str, relative: str) -> Optional[bytes]:
+    entry = _git_raw(repo, ["ls-tree", "-z", head, "--", relative])
+    if not entry:
+        return None
+    expected_suffix = b"\t" + relative.encode("utf-8") + b"\0"
+    if entry.count(b"\0") != 1 or not entry.endswith(expected_suffix) or b" blob " not in entry:
+        raise CutoverError("surviving target tree path differs during recovery")
+    return _git_raw(repo, ["show", f"{head}:{relative}"])
+
+
+def _index_path(repo: Path) -> Path:
+    path = _operation_directory(repo).parent / "index"
+    if path.is_symlink() or not path.is_file():
+        raise CutoverError("target index differs")
+    return path
+
+
+def _index_bytes(repo: Path) -> bytes:
+    path = _index_path(repo)
+    before = path.stat()
+    raw = path.read_bytes()
+    after = path.stat()
+    identity = lambda value: (
+        value.st_dev,
+        value.st_ino,
+        value.st_size,
+        value.st_mtime_ns,
+    )
+    if len(raw) > MAX_INDEX_BYTES or identity(before) != identity(after):
+        raise CutoverError("target index changed while reading")
+    return raw
+
+
+def _updated_index_bytes(
+    repo: Path,
+    source: bytes,
+    target_head: str,
+    paths: Sequence[str],
+) -> bytes:
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix="candidate-cutover-index.", dir=str(_operation_directory(repo))
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(source)
+            handle.flush()
+            os.fsync(handle.fileno())
+        _git(
+            repo,
+            ["reset", "-q", target_head, "--", *paths],
+            env={"GIT_INDEX_FILE": str(temporary)},
+        )
+        raw = temporary.read_bytes()
+        if len(raw) > MAX_INDEX_BYTES:
+            raise CutoverError("updated target index exceeds the bounded size")
+        return raw
+    finally:
+        if temporary.exists() and not temporary.is_symlink():
+            temporary.unlink()
+
+
+def _index_lock(repo: Path) -> Tuple[int, Path]:
+    lock = _index_path(repo).with_name("index.lock")
+    try:
+        descriptor = os.open(
+            lock,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+    except OSError as error:
+        raise CutoverError("target index owner is busy") from error
+    return descriptor, lock
+
+
+def _replace_index_if_unchanged(
+    repo: Path,
+    expected: bytes,
+    replacement: bytes,
+) -> None:
+    descriptor, lock = _index_lock(repo)
+    try:
+        if _index_bytes(repo) != expected:
+            raise CutoverError("affected target index changed")
+        _write_atomic_if_unchanged(_index_path(repo), expected, replacement)
+    finally:
+        os.close(descriptor)
+        if lock.exists() and not lock.is_symlink():
+            lock.unlink()
+
+
+def _restore_index_paths_if_unchanged(
+    repo: Path,
+    expected: bytes,
+    target_head: str,
+    paths: Sequence[str],
+) -> None:
+    if _index_bytes(repo) != expected:
+        return
+    replacement = _updated_index_bytes(repo, expected, target_head, paths)
+    _replace_index_if_unchanged(repo, expected, replacement)
+
+
+def _promote_ref_and_index(
+    repo: Path,
+    ref: str,
+    target_head: str,
+    expected_head: str,
+    expected_index: bytes,
+    paths: Sequence[str],
+) -> bytes:
+    replacement = _updated_index_bytes(repo, expected_index, target_head, paths)
+    descriptor, lock = _index_lock(repo)
+    promoted = False
+    try:
+        if _index_bytes(repo) != expected_index:
+            raise CutoverError("affected target index changed before promotion")
+        _git(repo, ["update-ref", ref, target_head, expected_head])
+        promoted = True
+        if _head(repo) != target_head or _index_bytes(repo) != expected_index:
+            raise CutoverError("target ref or index changed during promotion")
+        _write_atomic_if_unchanged(_index_path(repo), expected_index, replacement)
+        return replacement
+    except Exception:
+        if promoted and _head(repo) == target_head:
+            try:
+                _git(repo, ["update-ref", ref, expected_head, target_head])
+            except CutoverError:
+                pass
+        raise
+    finally:
+        os.close(descriptor)
+        if lock.exists() and not lock.is_symlink():
+            lock.unlink()
+
+
+def _restore_owned_replacements_to_current_head(
+    repo: Path,
+    original_head: str,
+    previous: Mapping[str, Optional[bytes]],
+    replacements: Mapping[str, bytes],
+    expected_index: bytes,
+) -> None:
+    surviving_head = _head(repo)
+    desired = (
+        dict(previous)
+        if surviving_head == original_head
+        else {
+            relative: _tree_path_bytes(repo, surviving_head, relative)
+            for relative in previous
+        }
+    )
+    _restore_owned_replacements(
+        repo,
+        surviving_head,
+        desired,
+        replacements,
+        expected_index,
+    )
 
 
 def _expected_effect(exercise: Mapping[str, object]) -> Dict[str, object]:
@@ -1774,7 +1952,10 @@ def apply_cutover(
                     raise CutoverError("target bytes changed after integration review")
                 paths = sorted(replacements)
                 _paths_clean(repo, head, paths)
+                index_before = _index_bytes(repo)
                 previous = {path: _safe_file(repo, path, required=False) for path in paths}
+                promoted = False
+                promoted_index = index_before
                 try:
                     for relative_path, content in replacements.items():
                         prior = previous[relative_path]
@@ -1791,14 +1972,25 @@ def apply_cutover(
                     ref = _git(repo, ["symbolic-ref", "-q", "HEAD"]).decode()
                     if failpoint == "before-ref-update":
                         raise CutoverError("injected interruption before atomic promotion")
-                    _git(repo, ["update-ref", ref, str(proposal["prepared_commit"]), head])
-                    _git(repo, ["reset", "-q", str(proposal["prepared_commit"]), "--", *paths])
+                    promoted_index = _promote_ref_and_index(
+                        repo,
+                        ref,
+                        str(proposal["prepared_commit"]),
+                        head,
+                        index_before,
+                        paths,
+                    )
+                    promoted = True
                     if failpoint == "after-ref-update":
                         raise CutoverError("injected interruption after atomic promotion")
                 except Exception as error:
-                    if _head(repo) == head:
-                        _restore_owned_replacements(
-                            repo, head, previous, replacements
+                    if not promoted:
+                        _restore_owned_replacements_to_current_head(
+                            repo,
+                            head,
+                            previous,
+                            replacements,
+                            index_before,
                         )
                     if isinstance(error, CutoverError):
                         raise
@@ -1835,10 +2027,25 @@ def apply_cutover(
                 except Exception as error:
                     if _head(repo) == proposal["prepared_commit"]:
                         ref = _git(repo, ["symbolic-ref", "-q", "HEAD"]).decode()
-                        _git(repo, ["update-ref", ref, head, str(proposal["prepared_commit"])])
-                        _restore_owned_replacements(
-                            repo, head, previous, replacements
-                        )
+                        try:
+                            _git(
+                                repo,
+                                [
+                                    "update-ref",
+                                    ref,
+                                    head,
+                                    str(proposal["prepared_commit"]),
+                                ],
+                            )
+                        except CutoverError:
+                            pass
+                    _restore_owned_replacements_to_current_head(
+                        repo,
+                        head,
+                        previous,
+                        replacements,
+                        promoted_index,
+                    )
                     if isinstance(error, CutoverError):
                         raise
                     raise CutoverError(

@@ -2688,6 +2688,24 @@ accepted delta without absorbing optional work.
   full-profile tracker verifier reported 18 Blocks with no errors or warnings;
   all maintained Python compiled under the pinned runtime; and exact diff,
   branch, and upstream checks passed. Exact final review remains pending.
+- Rejected final-review checkpoint:
+  `769848eef23eb9ef5b3e5c72236218cb0616d1ba` (tree
+  `58985eb7f1bf82259461427f8ebea2c4ff4aff68`) was the tracker-only evidence
+  child of `21c045a` and independently reproduced the full green validation
+  counts above. Final exact review nevertheless rejected its inherited Git
+  atomicity boundary: a concurrent ref move before or after promotion could
+  leave operation-owned candidate/proof bytes against the surviving commit,
+  and an affected index change during promotion or ordinary recovery could be
+  overwritten. Preserve this revision as rejected evidence; no release review
+  or installation was produced.
+- Current ref/index correction: snapshot exact index bytes, build the reviewed
+  index off-path, hold Git's index ownership lock across ref promotion, publish
+  only through exact ref/index compare-and-swap, preserve later caller-staged
+  state, and restore each still-operation-owned worktree/index path against the
+  actual surviving HEAD after pre- or post-ref movement. Focused atomicity and
+  retained recovery proof passed `9/9`; exact successor freeze, independent
+  challenge, one post-review affected-proof rerun, and broad revalidation remain
+  pending.
 
 ### Stop
 
