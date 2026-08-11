@@ -4706,6 +4706,77 @@ the named route gate. Never search or mutate unrelated roles.
   unavailable, so live state remains read-only and mutation proof will use a
   disposable exact group/task. Do not infer candidates from labels, create a
   generic role directory, touch automation bindings, or open Block 17.
+- Product-capability review: `consequential`; the maintained `bind` owner and
+  purpose router jointly support a narrow missing-role repair for base reviewer,
+  notice reviewer, fix executor, Gmail processor, and roundup writer. Watcher,
+  effectiveness reviewer, target, and Gmail-gate replacement do not have the
+  same maintained bind-and-route postcondition and therefore remain explicitly
+  unavailable. The implementation derives exactly one prior task ID from the
+  hash-chain-validated policy history, requires the current role to be empty,
+  rejects current or historical use under another role, and never searches by
+  title. It accepts only an exact durable idle or not-loaded OpenAI task with
+  complete history, no active turn, no existing dashboard-workflow marker, a
+  non-conflicting project claim, and the exact canonical working-directory
+  inode. Canonical policy supplies the governed model/effort contract because
+  the frozen App Server thread schema exposes provider but not exact model and
+  effort; that observation gap remains visible rather than inferred.
+- Owner and recovery boundary: preview exercises the maintained `bind` owner on
+  an ephemeral copy and proves that only the selected missing runtime field,
+  policy version/hash/time, and next `policy-bind` record would change. Execute
+  re-reads the exact task, then under the projection-owner lock rechecks the
+  policy hash/version, history head/count, owner revision, lifecycle, model
+  contract, empty role, and single-role candidate before invoking `cmd_bind`
+  once. Verification independently re-reads the unchanged task, exact next
+  policy/history postcondition, mission and unrelated roles/automations, and the
+  maintained role-purpose route gate. Route denial or any partial postcondition
+  remains `unverified` with manual inspection recovery; there is no task create,
+  resume, turn-start, retry, replacement, direct policy/history write, or
+  automation effect.
+- Implementation candidate: initial product commit
+  `1c92924e2eb5a8fbd3a711d29e75a32e9ed28e7b`, tree
+  `0bc30702b11b2c2525260e1f7488b4710f5728fc`, added the closed operation,
+  maintained-owner adapter, run/Admin control, activity facts, and responsive
+  proof. Current product successor
+  `5973c4c90cf0d8798749a21be982eaab3397a439`, tree
+  `634024d61b0c2dc9f49f3e8b46d7d4bf46f77b90`, parent
+  `b163e3cd8b8b4510e5bd7f0902e2e7f9975f2023`, preserves that scope while
+  replacing a duplicate execution-time ephemeral preview with exact head,
+  owner, lifecycle, role, and model rechecks. Representative blobs are
+  maintained projection `d77525772e15f23308b139dfc8f1b2520cfedd38`, workflow
+  owner `e134b660e43d7bd2d50a09eddba848c7547ddf6e`, workflow proof
+  `11839c36988459b959d4cd333abda1756f9200fc`, projection proof
+  `9d2efb29f09fd403ed11e4f84660e42cc01ef9f9`, run control
+  `03f099bb3881864da1f8ee1942e2b729ffb8986f`, activity panel
+  `5fd54f57cf80b6ec8bb071c76be6e970d4661343`, and browser proof
+  `34d72b4b266fada154180d5144f1325012b1726c`.
+- Exact mapped proof: the full backend suite passed 108/108 with
+  `ResourceWarning` fatal and Ruff passed. Projection proof includes an exact
+  stale-history-count attempt that raises `role_binding_source_stale` with
+  canonical policy bytes unchanged; the disposable HTTP exercise passed through
+  the real API, existing task read, maintained `cmd_bind`, canonical
+  policy/history, and maintained route gate while proving task before/after
+  identity and unrelated roles. The full frontend check passed 18 files and
+  80/80 tests, TypeScript and the production build passed, and the isolated
+  missing-role browser fixture passed 3/3 at desktop, tablet, and mobile with
+  current-mission visibility, exact task/role/lifecycle/model/route facts,
+  typed confirmation, historical suppression, one heading, and no horizontal
+  overflow. An initial browser fixture lacked a missing-role projection and was
+  corrected to model the required source state; its green successor is the only
+  browser acceptance evidence. A prior aggregate backend run exposed the
+  generic three-second test-client deadline after redundant preview work; the
+  exact-head optimization above then passed the focused HTTP path and two
+  consecutive 108-test aggregate runs without weakening a currentness gate.
+- Live and Stop proof: the restarted exact loopback runtime at port 8787 reports
+  healthy runtime, frontend, catalog, tracker, supervision, and App Server
+  coverage and advertises 18 operations including the supported role-binding
+  descriptor. Its descriptor lists only the five supported role families and
+  the unavailable replacements and schema observation limits above. Current
+  live project association remains unavailable, so no live policy mutation was
+  attempted. The product and proof commits are pushed with local/upstream
+  `0 0`; the full-profile verifier passed all 26 Blocks with zero errors and
+  warnings, all 30 verifier tests passed, and diff checks are clean. Block 17
+  remains unopened. Block 16 stays `in-progress` pending fresh independent
+  exact-revision review.
 
 ### Stop
 
