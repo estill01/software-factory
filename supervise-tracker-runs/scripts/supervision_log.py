@@ -310,8 +310,8 @@ FACTORY_EVOLUTION_ARTIFACT_NAMES = {
     "evaluation.json",
     "machine-report.json",
     "manifest.json",
-    "comparison-pending.json",
 }
+FACTORY_EVOLUTION_TRANSIENT_ARTIFACT_NAMES = {"comparison-pending.json"}
 ALLOWLISTED_MAINTENANCE_SKILLS = [
     "author-implementation-trackers",
     "implement-tracker-blocks",
@@ -14480,7 +14480,7 @@ def factory_evolution_cycle_inventory(directory: Path) -> list[dict[str, Any]]:
         prepare_manifest_present = factory_evolution_artifact_exists(prepare_manifest)
         if not packet_present and not prepare_manifest_present:
             continue
-        verify_factory_evolution_inventory(item)
+        verify_factory_evolution_inventory(item, allow_transient=True)
         if not packet_present:
             raise SupervisionLogError(
                 "Factory evolution prepared set lacks its learning packet"
@@ -14732,10 +14732,14 @@ def factory_evolution_lock(directory: Path) -> Iterator[None]:
         os.close(descriptor)
 
 
-def verify_factory_evolution_inventory(directory: Path) -> None:
+def verify_factory_evolution_inventory(
+    directory: Path, *, allow_transient: bool = False
+) -> None:
     if not directory.exists():
         return
     allowed = FACTORY_EVOLUTION_ARTIFACT_NAMES | {".append.lock"}
+    if allow_transient:
+        allowed |= FACTORY_EVOLUTION_TRANSIENT_ARTIFACT_NAMES
     unexpected = sorted(item.name for item in directory.iterdir() if item.name not in allowed)
     if unexpected:
         raise SupervisionLogError(
@@ -15660,6 +15664,54 @@ def factory_candidate_load_or_produce_baseline_comparison(
             state=state,
             owner_key=owner_key,
         )
+
+
+def factory_candidate_remove_completed_pending_comparison(
+    directory: Path,
+    state: Mapping[str, Any],
+) -> None:
+    evaluation_handoff = state.get("evaluation_handoff")
+    if not isinstance(evaluation_handoff, Mapping):
+        return
+    directory_fd = os.open(
+        directory,
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0),
+    )
+    try:
+        owner_key = owner_root_key_at(directory_fd, allow_create=False)
+    finally:
+        os.close(directory_fd)
+    evolution_directory = factory_evolution_directory(
+        directory, str(state["context"]["evolution_id"])
+    )
+    pending_path = evolution_directory / "comparison-pending.json"
+    with factory_evolution_lock(evolution_directory):
+        if not factory_evolution_artifact_exists(pending_path):
+            return
+        pending = validate_factory_candidate_comparison_pending(
+            read_factory_evolution_json(pending_path),
+            state=state,
+            owner_key=owner_key,
+        )
+        if pending["comparison_provenance_root"] != evaluation_handoff.get(
+            "baseline_comparison_provenance_root"
+        ):
+            raise SupervisionLogError(
+                "Factory baseline comparison differs from its canonical handoff"
+            )
+        pending_path.unlink()
+        evolution_fd = os.open(
+            evolution_directory,
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_NOFOLLOW", 0),
+        )
+        try:
+            os.fsync(evolution_fd)
+        finally:
+            os.close(evolution_fd)
 
 
 def factory_candidate_protected_results(
@@ -17415,7 +17467,7 @@ def factory_evolution_cycle_state(
     if admitted["target_revision"] != context["target_revision"]:
         raise SupervisionLogError("Factory evolution admitted context is not current")
     evolution_directory = factory_evolution_directory(directory, evolution_id)
-    verify_factory_evolution_inventory(evolution_directory)
+    verify_factory_evolution_inventory(evolution_directory, allow_transient=True)
     packet = verify_factory_evolution_prepare(module, evolution_directory)
     if packet["packet_root"] != admitted["packet_root"]:
         raise SupervisionLogError("Factory evolution admitted packet differs")
@@ -17965,6 +18017,7 @@ def append_factory_evolution_evaluation_handoff(
     state = factory_evolution_cycle_state(
         directory, policy, refreshed, evolution_id=evolution_id
     )
+    factory_candidate_remove_completed_pending_comparison(directory, state)
     return {"duplicate": False, "record": refreshed[-1], "action": state["action"]}
 
 
@@ -18141,6 +18194,7 @@ def cmd_factory_evolution_orchestrate(args: argparse.Namespace) -> None:
         )
         print(json.dumps(result, sort_keys=True))
         return
+    factory_candidate_remove_completed_pending_comparison(directory, state)
     print(json.dumps({"duplicate": True, "action": state["action"]}, sort_keys=True))
 
 

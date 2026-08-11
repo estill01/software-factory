@@ -272,7 +272,11 @@ exact start record ID, record hash, root, and start-before-producer chronology;
 pre-start bytes reject. A per-cycle owner lock serializes duplicate delivery,
 and an owner-authenticated pending record retains those raw command results
 through file and parent-directory durability before the handoff append;
-interruption reuses that exact result. The handoff pairs it
+interruption reuses that exact result. The pending record is transient and is
+not a required finalized evolution artifact. Once the canonical handoff
+retains and revalidates its exact raw result and provenance, the owner removes
+the pending record and syncs the parent directory; duplicate delivery safely
+completes that cleanup without rerunning the producer. The handoff pairs it
 with the already-retained candidate results and binds its provenance root and
 the preflighted evaluator-key root together with
 the packet, review, experiment, candidate contract, owner handoff,

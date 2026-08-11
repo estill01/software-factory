@@ -3759,11 +3759,21 @@ effects before reading either implementer's narrative.
   review recorded `B14-RF07`: a valid retained pending result created before
   that event lacked causal start provenance and was accepted afterward. Its
   focused `27/27` evidence remains diagnostic.
-- The next successor binds the exact start record ID, record hash, root, and
-  start-before-producer chronology into the pending comparison and handoff
-  provenance. Pre-start retained bytes now reject without producer execution;
-  exact independent replay remains pending before broad mapped validation and
-  acceptance.
+- Accepted corrective checkpoint
+  `46333551b0fa94705d6e84c2cf2947f399535c49` binds the exact start record ID,
+  record hash, root, and start-before-producer chronology into the pending
+  comparison and handoff provenance. Exact independent review reported no
+  findings: focused `28/28` passed and direct start-identity, chronology, and
+  provenance mutations rejected without producer execution. Broad author
+  validation passed `42/42`. The first mapped implementation run then exposed
+  a compatibility regression: treating the transient comparison sidecar as a
+  required finalized evolution artifact caused four errors and one failure in
+  the `109`-test suite. The narrow successor restores the finalized artifact
+  contract, permits the owner-authenticated sidecar only while the comparison
+  handoff is incomplete, and removes it with directory durability after the
+  canonical handoff. Affected target-class and dogfood proof plus exact
+  independent successor review remain required before broad mapped rerun and
+  Block acceptance.
 
 ### Stop
 

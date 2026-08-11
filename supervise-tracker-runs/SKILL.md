@@ -762,7 +762,10 @@ Keep the roles and authority sequence exact:
    deliveries, while an
    owner-authenticated, file-and-directory-synced pending result makes an
    interrupted handoff append reuse that exact comparison instead of rerunning
-   it. The resulting
+   it. The pending record is a transient owner artifact, not part of the
+   finalized evolution bundle; after the canonical handoff retains the exact
+   raw result and provenance, the owner verifies and removes the pending file
+   with parent-directory durability. The resulting
    nonauthorizing evaluation handoff binds that provenance, the evaluator key,
    the raw incumbent result, and the retained candidate proof. The sealed
    adaptive evaluator, distinct from

@@ -1455,6 +1455,18 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
                         "--evolution-id",
                         self.evolution_id,
                     )
+            evolution = supervision_log.factory_evolution_directory(
+                self.directory, self.evolution_id
+            )
+            self.assertTrue((evolution / "comparison-pending.json").is_file())
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "unexpected artifacts",
+            ):
+                supervision_log.verify_factory_evolution_inventory(evolution)
+            supervision_log.verify_factory_evolution_inventory(
+                evolution, allow_transient=True
+            )
             retried = self.command(
                 "factory-evolution",
                 "--target-thread",
@@ -1466,10 +1478,8 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             )
         self.assertEqual(calls, 1)
         self.assertEqual(retried["action"]["stage"], "evaluation-required")
-        evolution = supervision_log.factory_evolution_directory(
-            self.directory, self.evolution_id
-        )
-        self.assertTrue((evolution / "comparison-pending.json").is_file())
+        self.assertFalse((evolution / "comparison-pending.json").exists())
+        supervision_log.verify_factory_evolution_inventory(evolution)
 
     def test_missing_completed_comparison_never_reruns_producer(self) -> None:
         self.candidate_ready_for_comparison()
@@ -1526,6 +1536,73 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
                 for item in supervision_log.events(self.directory / "events.jsonl")
             )
         )
+
+    def test_interrupted_completed_comparison_cleanup_rehydrates(self) -> None:
+        self.candidate_ready_for_comparison()
+        original_execute = supervision_log.factory_candidate_execute_baseline_comparison
+        original_remove = (
+            supervision_log.factory_candidate_remove_completed_pending_comparison
+        )
+        producer_calls = 0
+        remove_calls = 0
+
+        def counted_execute(*args: object, **kwargs: object) -> object:
+            nonlocal producer_calls
+            producer_calls += 1
+            return original_execute(*args, **kwargs)
+
+        def interrupt_once(*args: object, **kwargs: object) -> object:
+            nonlocal remove_calls
+            remove_calls += 1
+            if remove_calls == 1:
+                raise OSError("simulated interruption before pending cleanup")
+            return original_remove(*args, **kwargs)
+
+        with mock.patch.object(
+            supervision_log,
+            "factory_candidate_execute_baseline_comparison",
+            side_effect=counted_execute,
+        ), mock.patch.object(
+            supervision_log,
+            "factory_candidate_remove_completed_pending_comparison",
+            side_effect=interrupt_once,
+        ):
+            with self.assertRaisesRegex(OSError, "simulated interruption"):
+                self.command(
+                    "factory-evolution",
+                    "--target-thread",
+                    self.target_thread,
+                    "--action",
+                    "orchestrate",
+                    "--evolution-id",
+                    self.evolution_id,
+                )
+            retried = self.command(
+                "factory-evolution",
+                "--target-thread",
+                self.target_thread,
+                "--action",
+                "orchestrate",
+                "--evolution-id",
+                self.evolution_id,
+            )
+
+        evolution = supervision_log.factory_evolution_directory(
+            self.directory, self.evolution_id
+        )
+        self.assertEqual(producer_calls, 1)
+        self.assertEqual(remove_calls, 2)
+        self.assertTrue(retried["duplicate"])
+        self.assertEqual(retried["action"]["stage"], "evaluation-required")
+        self.assertFalse((evolution / "comparison-pending.json").exists())
+        supervision_log.verify_factory_evolution_inventory(evolution)
+        handoffs = [
+            item
+            for item in supervision_log.events(self.directory / "events.jsonl")
+            if item.get("kind")
+            == supervision_log.FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND
+        ]
+        self.assertEqual(len(handoffs), 1)
 
     def test_pre_start_pending_comparison_is_not_accepted(self) -> None:
         self.candidate_ready_for_comparison()
