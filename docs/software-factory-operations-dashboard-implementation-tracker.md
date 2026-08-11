@@ -5643,7 +5643,28 @@ drill-down and never beyond the declared safe tracker-file bound.
   control. Live exact-server proof returned a 2,994-byte, complete,
   untruncated, zero-row no-change envelope. The full-profile verifier returned
   Blocks 0-29 with 0 errors/warnings, verifier tests passed 30/30, and
-  `git diff --check` passed. Fresh exact-review outcome: pending.
+  `git diff --check` passed. Fresh exact-review outcome: rejected at evidence
+  revision `b00784f2d83780badabac1e58185d96a651a6788`, tree
+  `1521769fb002cd2bc7b1ab5db5ac65ec4b5ddd38`. The audit independently closed
+  the oversized historical blob, 380 KiB repeated-line, long-heading response,
+  and partial/no-change envelope rows, but found one 10,000-line, 90,000-byte
+  valid permutation that still held synchronous `SequenceMatcher` beyond ten
+  seconds. The evidence stayed reusable; Block 19 remained `in-progress` and
+  Blocks 20-29 remained closed.
+- Matching-budget correction product: commit
+  `b666e5bd25b55a075ab4d3f62ae6cb1d1d24c68d`, tree
+  `c477f57971e37415ef604837ef5dbd6673937601`, parent rejected evidence
+  `b00784f2d83780badabac1e58185d96a651a6788`, pushed exactly. Both raw and
+  semantic tracker line comparisons now use one exact shortest-edit owner with
+  a hard 250,000-operation budget; a comparison that exhausts the budget fails
+  unavailable with no partial or no-change claim. The cited adversarial
+  permutation now returns `tracker_semantic_complexity_exceeded` in 0.02
+  seconds, while the useful 6,000-line repeated case remains available with its
+  exact one-row addition. A 1,000-case bounded reconstruction probe preserved
+  both exact sources. Ruff passed; affected tracker and HTTP tests passed 28/28
+  with `ResourceWarning` fatal; `git diff --check` passed. The already accepted
+  frontend 24/24, build, 18/18 responsive browser, verifier 30/30, remote, and
+  Stop evidence is unaffected and reused. Fresh exact-review outcome: pending.
 
 ### Stop
 
