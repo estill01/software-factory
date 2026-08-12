@@ -5986,6 +5986,33 @@ check. Never enumerate or reconcile unrelated automation families.
   Server, and supervision sources are available, while the automation-binding
   operation truthfully reports `unavailable` with the missing-provider reason.
   No live policy, automation, task, or supervision mutation was attempted.
+- Rejected provider-bound revision retained as evidence: fresh independent
+  review rejected exact evidence commit
+  `48d391128e64a27a206e0e2267378cefd6507466`, tree
+  `47ba1946ec478969c2a67012047442539212fc73`, and product
+  `d55c2d6f6ec535fd5d5b3ffae3cac567af6fa679` for one exact-candidate
+  consistency defect. A fresh stable provider response could include a valid
+  non-selected manifest whose declared target differed from the queried role
+  task; the implementation loaded it, silently excluded it from owners, and
+  still marked coverage available and repairable. The review otherwise passed
+  the affected backend 49/49 with `ResourceWarning` fatal, Ruff, full-profile
+  verifier 0/0, verifier tests 30/30, exact remote/diff/fsck/Stop checks, and
+  confirmed the persistent scan/index was absent. Block 21 stayed closed.
+- Exact-candidate correction product: successor commit
+  `f875faadce057e6c0c9be0504ab1d54e302b5ee8`, tree
+  `081f0aec79d4fb8a425b23dfc23bb978b38b1d46`, parent rejected evidence
+  `48d391128e64a27a206e0e2267378cefd6507466`, is pushed with exact local,
+  upstream, and remote identity. Every ID returned by the exact-target provider
+  must now load as an available manifest declaring that exact queried target;
+  any differing target invalidates coverage with
+  `automation_target_query_inconsistent`. The selected automation remains a
+  separate named repair input because target mismatch is itself repairable; it
+  is no longer falsely added to the provider fixture when its current target is
+  known to differ. A valid returned wrong-target heartbeat now fails repair
+  unavailable, while the selected manifest and exact returned candidates remain
+  the complete read set. The one affected adversarial case passed 1/1 with
+  `ResourceWarning` fatal, Ruff and `git diff --check` pass, and the prior exact
+  49/49 unaffected provider/owner proof is preserved rather than replayed.
 - Candidate review posture: Block 20 remains `in-progress` and Blocks 21-29
   remain unopened until a fresh independent exact-revision product, owner,
   recovery, resource-bound, provider-currentness, and Stop review accepts this
