@@ -48,7 +48,11 @@ the completed program materially changes Software Factory.
   action, conclusion, and freshness identities. Tracker surfaces show the
   maintained-verifier total and every current task/tracker/supervision
   active-Block claim without coalescing disagreement; counts remain explicitly
-  exact, partial, lower-bound, conflicting, none-active, or unavailable.
+  exact, partial, lower-bound, conflicting, none-active, or unavailable. The
+  collapsed Factory Floor now also shows exact accepted/done and remaining
+  Block counts beside the maintained-verifier total, with `Tracker complete`
+  reserved for an exact canonical tracker whose Block statuses and accepted or
+  completed header agree; contradictory headers stay visibly conflicting.
   Consequential task, tracker, supervision, binding, lifecycle, reporting,
   evolution, succession, and terminal requests use typed previews, exact source
   fingerprints, owner-supplied semantic diffs, operation-specific confirmation,
@@ -64,7 +68,8 @@ the completed program materially changes Software Factory.
   operating and recovery boundaries are in
   [`dashboard/RUNBOOK.md`](dashboard/RUNBOOK.md). Final independently accepted
   product: `5a83a46b498ab636ac79c5c0c79c1003308b3b04`; acceptance evidence:
-  `4e1fbdd037729e94f3ed0fd1948e083e30b5cf31`.
+  `4e1fbdd037729e94f3ed0fd1948e083e30b5cf31`. Post-acceptance Factory Floor
+  progress correction: `f0b4546f0ff4c9d8d4c3534111f358f15ef5597e`.
 - **Loopback operations-dashboard foundation.** Added an installable Python
   runtime and a responsive React/TypeScript/Vite shell for the planned Factory
   Floor, Projects, Trackers, Reports, and Admin workspaces. The service binds

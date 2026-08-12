@@ -5235,6 +5235,38 @@ filters, and viewports rather than unrelated workspaces.
   passed 30/30, and remote `0 0`, clean diff, and Stop proof passed. Post-block
   audit: `accepted`; retained open Block 17 work: none. Blocks 19-29 remain
   unopened.
+- Post-acceptance operator-priority correction: routed product verification
+  re-inspected the live Factory Floor against this accepted contract and found
+  one bounded gap: collapsed rows exposed exact total and plural active claims
+  but omitted the maintained tracker owner's accepted/done and remaining
+  counts. Product candidate
+  `cbc345df422788548fb21a8cd72b7381b88d5e8a`, tree
+  `5cd562826b4badc6de5d69a07afbfb9740ee4be0`, added a strict read-only
+  `tracker_progress` projection and compact `N done · M remaining` hierarchy,
+  preserved explicit `Unmonitored`, partial, unavailable, and conflicting
+  identities, and moved the two-level row layout to the maintained tablet
+  breakpoint after live visual inspection reproduced trailing-status overlap.
+  Backend Floor proof passed 11/11, schema/component/consumer proof 29/29,
+  production build passed, and the two affected Playwright cases passed 6/6
+  across desktop/tablet/mobile with Axe, geometry non-overlap, and page-overflow
+  assertions. The live port-8787 row retained its truthful ambiguous-tracker
+  posture and withheld counts rather than selecting one of four candidates.
+- Rejected and corrected completion truth: independent review REJECTED
+  `cbc345df422788548fb21a8cd72b7381b88d5e8a` because an all-accepted Block set
+  could still claim `Tracker complete` when the canonical tracker header
+  remained `in-progress` and `header_block_status_conflict` was true. Successor
+  `f0b4546f0ff4c9d8d4c3534111f358f15ef5597e`, tree
+  `167582edbb1e5c3484f184ef7e82baa06dbd0711`, closes that row: exact completion
+  additionally requires a nonconflicting `accepted` or `completed` header;
+  contradictory headers preserve exact counts but expose conflict, withhold
+  completion in visible and accessible text, and degrade the operating light
+  to amber. The adversarial backend suite passed 11/11 with `ResourceWarning`
+  fatal, schema/component proof passed 11/11, Ruff and production build passed,
+  and prior 6/6 responsive proof remained reusable. Fresh independent
+  delta-only review ACCEPTED `f0b4546f0ff4c9d8d4c3534111f358f15ef5597e`
+  with no material findings. This correction adds no parser, tracker writer,
+  acceptance path, progress inference, owner/control mutation, or later-Block
+  scope; Block 17 remains accepted.
 
 ### Stop
 
