@@ -39,6 +39,16 @@ the completed program materially changes Software Factory.
 
 ### Implemented
 
+- **Current-authority reconciliation for stale decision deferrals.** A later
+  canonical direct-authority correction of the exact successor-topology premise
+  now retires the matching safe-deferral posture in the shared governing-outcome
+  reducer immediately. The relation is mission-, source-, state-, lineage-, and
+  currentness-bound; unrelated later evidence remains ineligible. A new
+  append-only `corrected` decision phase preserves the explicit history while
+  the target continues without user scheduling or a manual Resume. The public
+  replay and focused decision/control regressions cover automatic convergence,
+  exact correction recording, and mismatched-source/state rejection.
+
 - **Autonomous Factory evolution with current outcome closure.** Canonical
   weekly/report nominations now admit only supported exact evidence; one
   bounded cycle routes through an independent cognitive review, the existing

@@ -3783,6 +3783,88 @@ class ControlPostureReducerTests(unittest.TestCase):
         self.assertEqual(result["next_action"], "continue-governing-outcome")
         self.assertEqual(result["member_count"], 1)
 
+    def test_later_exact_transition_correction_reconciles_topology_decision(self) -> None:
+        target = "owner-reconciliation-1234"
+        directory, policy = self.create_target(target, self.owner_mission)
+        authority_record = f"mission-{target}"
+        transition = {
+            "record_id": "EVT-000001",
+            "kind": "successor-transition",
+            "transition_id": "TRANSITION-RECONCILIATION-1234",
+            "phase": "required",
+            "tracker_sha256": "c" * 64,
+            "source_mission_root": self.owner_mission,
+            "state_fingerprint": "state-topology-1234",
+            "governing_authority_source_class": "tracker",
+            "governing_authority_source_record": authority_record,
+        }
+        decision = {
+            "record_id": "EVT-000002",
+            "kind": "decision",
+            "decision_id": "DEC-RECONCILIATION-1234",
+            "phase": "target-acknowledged",
+            "classification": "reserved-authority",
+            "outcome": "safe-deferred",
+            "safe_frontier": "empty",
+            "state_fingerprint": "state-topology-1234",
+            "mission_root": self.owner_mission,
+            "authority_source_class": "tracker",
+            "authority_source_record": authority_record,
+            "impact_class": "goal-blocking",
+            "ordinary_means_disabled": True,
+            "independent_mission_review": True,
+        }
+        correction = {
+            **transition,
+            "record_id": "EVT-000003",
+            "phase": "corrected",
+            "prior_record_id": "EVT-000001",
+            "correction_authority_source_class": "tracker",
+            "correction_authority_source_record": authority_record,
+            "correction_authority_source_sha256": self.owner_mission,
+            "governing_outcome_effect": "continue-same-task",
+            "evidence": ["current-direct-correction-1234"],
+        }
+        for record in (transition, decision, correction):
+            self.append(directory, record)
+
+        result = self.reduce(directory, policy)
+
+        self.assertEqual(result["required_target_posture"], "in-progress")
+        self.assertEqual(result["next_action"], "continue-governing-outcome")
+        self.assertEqual(result["open_decision_records"], [])
+        self.assertEqual(result["blocking_decision_records"], [])
+        self.assertEqual(
+            result["reconciled_decisions"][0]["correction_record_id"],
+            "EVT-000003",
+        )
+        self.assertEqual(
+            result["reconciled_decisions"][0]["reconciliation_posture"],
+            "append-explicit-decision-correction",
+        )
+
+        mismatch_target = "owner-reconciliation-mismatch-1234"
+        mismatch_directory, mismatch_policy = self.create_target(
+            mismatch_target, self.owner_mission
+        )
+        mismatch_authority = f"mission-{mismatch_target}"
+        for record in (
+            {**transition, "governing_authority_source_record": mismatch_authority},
+            {
+                **decision,
+                "authority_source_record": mismatch_authority,
+                "state_fingerprint": "different-decision-state-1234",
+            },
+            {
+                **correction,
+                "correction_authority_source_record": mismatch_authority,
+            },
+        ):
+            self.append(mismatch_directory, record)
+        mismatch = self.reduce(mismatch_directory, mismatch_policy)
+        self.assertEqual(mismatch["required_target_posture"], "blocked")
+        self.assertEqual(mismatch["reconciled_decisions"], [])
+
     def test_cyclic_successor_membership_fails_into_reconciliation(self) -> None:
         directory, policy = self.create_target(self.owner, self.owner_mission)
         self.append(
@@ -8966,6 +9048,12 @@ class DecisionResolutionTests(unittest.TestCase):
         reversibility: str = "conditional",
         ordinary_means_disabled: str = "no",
         independent_mission_review: str = "no",
+        prior_record: str = "",
+        disposition_reason: str = "",
+        correction_authority_source_class: str = "",
+        correction_authority_source_record: str = "",
+        correction_authority_source_sha256: str = "",
+        governing_outcome_effect: str = "",
     ) -> dict[str, object]:
         args = supervision_log.parser().parse_args(
             [
@@ -9012,6 +9100,45 @@ class DecisionResolutionTests(unittest.TestCase):
                 ordinary_means_disabled,
                 "--independent-mission-review",
                 independent_mission_review,
+                *(
+                    ["--prior-record", prior_record]
+                    if prior_record
+                    else []
+                ),
+                *(
+                    ["--disposition-reason", disposition_reason]
+                    if disposition_reason
+                    else []
+                ),
+                *(
+                    [
+                        "--correction-authority-source-class",
+                        correction_authority_source_class,
+                    ]
+                    if correction_authority_source_class
+                    else []
+                ),
+                *(
+                    [
+                        "--correction-authority-source-record",
+                        correction_authority_source_record,
+                    ]
+                    if correction_authority_source_record
+                    else []
+                ),
+                *(
+                    [
+                        "--correction-authority-source-sha256",
+                        correction_authority_source_sha256,
+                    ]
+                    if correction_authority_source_sha256
+                    else []
+                ),
+                *(
+                    ["--governing-outcome-effect", governing_outcome_effect]
+                    if governing_outcome_effect
+                    else []
+                ),
                 "--now",
                 now,
             ]
@@ -9601,6 +9728,124 @@ class DecisionResolutionTests(unittest.TestCase):
             self.assertTrue(acknowledged["blocking_permitted"])
             self.assertEqual(acknowledged["required_target_posture"], "blocked")
             self.assertFalse(acknowledged["manual_resume_required"])
+
+    def test_current_direct_correction_retires_exact_safe_deferral(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = supervision_log.default_policy(self.init_args())
+            policy["direct_authority_receipts"] = [
+                {
+                    "source_class": "direct-user",
+                    "source_record": "DIRECT-CORRECTION-1234",
+                    "source_sha256": self.hash_c,
+                    "accepted": True,
+                }
+            ]
+            common = {
+                "classification": "missing-fact",
+                "safe_frontier": "empty",
+                "authority_source_class": "tracker",
+                "authority_source_record": "TRACKER-MISSION-1234",
+            }
+            self.record(directory, policy, phase="decision-ready", **common)
+            for attempt in (1, 2, 3):
+                self.record(
+                    directory,
+                    policy,
+                    phase="attempt-started",
+                    attempt=attempt,
+                    now=f"2026-08-01T1{attempt + 1}:00:00+00:00",
+                    **common,
+                )
+                self.record(
+                    directory,
+                    policy,
+                    phase="attempt-unresolved",
+                    attempt=attempt,
+                    now=f"2026-08-01T1{attempt + 1}:20:00+00:00",
+                    **common,
+                )
+            self.record(
+                directory,
+                policy,
+                phase="safe-deferred",
+                attempt=3,
+                outcome="safe-deferred",
+                now="2026-08-01T14:20:01+00:00",
+                **common,
+            )
+            self.record(
+                directory,
+                policy,
+                phase="handoff-sent",
+                attempt=3,
+                outcome="safe-deferred",
+                now="2026-08-01T14:20:02+00:00",
+                **common,
+            )
+            acknowledged = self.record(
+                directory,
+                policy,
+                phase="target-acknowledged",
+                attempt=3,
+                outcome="safe-deferred",
+                now="2026-08-01T14:20:03+00:00",
+                **common,
+            )["record"]
+            before = self.gate(directory, policy, "2026-08-01T14:20:04+00:00")
+            self.assertTrue(before["blocking_permitted"])
+
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "exact current prior record",
+            ):
+                self.record(
+                    directory,
+                    policy,
+                    phase="corrected",
+                    attempt=3,
+                    outcome="safe-deferred",
+                    prior_record="EVT-WRONG-1234",
+                    disposition_reason="Later canonical evidence resolved the premise.",
+                    correction_authority_source_class="direct-user",
+                    correction_authority_source_record="DIRECT-CORRECTION-1234",
+                    correction_authority_source_sha256=self.hash_c,
+                    governing_outcome_effect="continue-governing-outcome",
+                    now="2026-08-01T14:20:05+00:00",
+                    **common,
+                )
+
+            corrected = self.record(
+                directory,
+                policy,
+                phase="corrected",
+                attempt=3,
+                outcome="safe-deferred",
+                prior_record=str(acknowledged["record_id"]),
+                disposition_reason="Later canonical evidence resolved the premise.",
+                correction_authority_source_class="direct-user",
+                correction_authority_source_record="DIRECT-CORRECTION-1234",
+                correction_authority_source_sha256=self.hash_c,
+                governing_outcome_effect="continue-governing-outcome",
+                now="2026-08-01T14:20:06+00:00",
+                **common,
+            )["record"]
+            after = self.gate(directory, policy, "2026-08-01T14:20:07+00:00")
+
+            self.assertEqual(corrected["phase"], "corrected")
+            self.assertFalse(after["blocking_permitted"])
+            self.assertFalse(after["local_blocking_permitted"])
+            self.assertEqual(after["required_target_posture"], "in-progress")
+            self.assertEqual(
+                after["action"],
+                "continue-governing-outcome-after-decision-correction",
+            )
+            self.assertEqual(
+                after["control_posture"]["reconciled_decisions"][0][
+                    "reconciliation_posture"
+                ],
+                "recorded",
+            )
 
     def test_delegable_decision_cannot_start_resolution_attempt(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

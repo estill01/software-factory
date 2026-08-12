@@ -577,6 +577,22 @@ handoff, and target acknowledgement in the existing content-minimized JSONL
 ledger. Substantive alternatives and rationale remain in the tracker/project's
 existing decision owners. Do not add a second decision ledger or status service.
 
+A safe deferral is provisional, not permanent stop authority. When a later
+canonical direct-authority successor-transition correction closes the exact
+topology premise frozen by that decision, the reducer reconciles the decision
+without waiting for another human or a manual Resume. The relation is exact:
+the transition genesis and decision must share mission, governing source, and
+state fingerprint; the later correction must be the current transition head,
+cite its exact prior record, resolve through the canonical authority owner, and
+continue the governing outcome in the same task. `control-posture-gate` then
+returns `in-progress` and exposes the reconciliation source. The watcher appends
+one `corrected` decision successor record with the exact current prior decision,
+reason, canonical correction source/hash, and
+`continue-governing-outcome`. That append preserves history but is not allowed
+to hold progress after the reducer has already proven the exact correction.
+Unrelated later records, merely matching prose, changed missions, mismatched
+fingerprints, or unowned source strings do not reconcile a deferral.
+
 ## Governing outcome identity and canonical posture
 
 The governing requested outcome persists across subordinate tracker/program,
@@ -605,8 +621,10 @@ The reducer applies one precedence order:
 3. any open implementation/topology transition remains `in-progress`;
 4. any nonempty safe frontier or unresolved nonblocking decision remains
    `in-progress`;
-5. an exact safely deferred missing fact or reserved authority may return
-   `blocked` only when every safe frontier is empty and no transition remains;
+5. an exact current safely deferred missing fact or reserved authority may
+   return `blocked` only when every safe frontier is empty, no transition
+   remains, and no later exact direct-authority correction reconciles the
+   frozen premise;
 6. current independently verified observable completion may return `completed`
    only from the canonical owner locus and when no prior obligation remains;
    subordinate task completion remains diagnostic evidence; and
@@ -1775,6 +1793,12 @@ At each scheduled wake:
    immediately gate the next attempt. If it is `choose-and-handoff` or
    `safe-defer-and-handoff`, route the final bounded disposition to Sol Max
    after purpose `semantic-escalation` is allowed.
+   If the action is
+   `record-decision-correction-and-continue-governing-outcome`, keep the target
+   `in-progress` immediately and append the exact `corrected` decision successor
+   using the returned transition correction and canonical authority source. Do
+   not wait for user input or a manual Resume, and do not accept a loosely
+   related later event as correction evidence.
    Send only helper-approved priority phase notices and keep the incident open
    until target acknowledgement.
 8. When the compact status or newest target turn explicitly reports `completed`,
@@ -2572,6 +2596,34 @@ the gate's exact action, attempt, deadline, priority-notification fields, and
 `must_continue_safe_frontier` result. Attempt 1 starts before any human-input
 notice. Its unresolved record opens the user deadline and may simultaneously
 make attempt 2 and the complete priority decision brief eligible.
+
+When later canonical direct authority resolves the exact acknowledged safe-
+deferral premise, append its history-preserving correction:
+
+```bash
+python3 <LOG_HELPER> decision-record --target-thread <TARGET> \
+  --decision-id <DECISION_ID> --classification <missing-fact|reserved-authority> \
+  --phase corrected --safe-frontier <ORIGINAL_FRONTIER> \
+  --attempt <FINAL_ATTEMPT> --outcome safe-deferred \
+  --decision-packet-hash <ORIGINAL_HASH> \
+  --blocked-scope-hash <ORIGINAL_HASH> \
+  --safe-frontier-hash <ORIGINAL_HASH> \
+  --state-fingerprint <CURRENT_FINGERPRINT> \
+  --evidence <CURRENT_CORRECTION_RECORD> \
+  --mission-root <ORIGINAL_MISSION_ROOT> \
+  --authority-source-class <ORIGINAL_CLASS> \
+  --authority-source-record <ORIGINAL_SOURCE> \
+  --impact-class <ORIGINAL_IMPACT> --affected-width <ORIGINAL_WIDTH> \
+  --duration <ORIGINAL_DURATION> --reversibility <ORIGINAL_POSTURE> \
+  --ordinary-means-disabled <yes|no> \
+  --independent-mission-review <yes|no> \
+  --prior-record <EXACT_CURRENT_DECISION_RECORD> \
+  --disposition-reason <CURRENT_REASON> \
+  --correction-authority-source-class <CLASS> \
+  --correction-authority-source-record <SOURCE> \
+  --correction-authority-source-sha256 <SHA256> \
+  --governing-outcome-effect continue-governing-outcome
+```
 
 After a successful self-email reply, record its delivery:
 
