@@ -1042,7 +1042,12 @@
 .report-data-table tbody th > code,
 .report-data-table td > span,
 .report-data-table td > small { display: block; margin-top: 0.1rem; }
-.report-data-table a { color: var(--primary); text-decoration: none; }
+.report-data-table a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.16em;
+}
 .report-data-table code,
 .report-data-table small,
 .report-data-table th > span { color: var(--text-faint); font-size: 0.55rem; }
