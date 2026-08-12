@@ -8347,6 +8347,36 @@ and stop at denial, partial, or unverified state without retrying or widening.
     commit is pushed at exact remote divergence `0 0`. No broad or browser
     matrix was replayed, and no live preview, automation pause, receipt append,
     or shutdown occurred. Fresh exact-revision review is pending.
+- Independent exact-revision review rejected evidence
+  `f4ad7ec9a29f2c1a5e1559f129519fbd948a8e35`, tree
+  `4a2f4969697f78e9fb3bf2986778e821e848baf1`, because the corrected maintained
+  contract promised an under-lock automation-owner read while
+  `cmd_terminal_shutdown` still captured that state before acquiring the receipt
+  lock. The reviewer forced one named owner from `PAUSED` to `ACTIVE` between
+  that read and lock acquisition and reproduced a verified receipt against the
+  stale snapshot. The prior assertion and maintained-command rows were accepted;
+  all other proof remains reusable and Block 31 stays closed.
+- Under-lock owner-currentness successor candidate — product/test commit
+  `5734fadedc041bf5d53ddfbbd0e79a18493cabd7`, tree
+  `27a0f6e0a6aae86d5a4e27057771edaca4c087a2`, two-file binary diff from
+  rejected evidence `f4ad7ec9a29f2c1a5e1559f129519fbd948a8e35`
+  SHA-256 `809c4ad1f0a26acc3194a4c85b6999c9afb86bcee5e46f18fdad2e0351277f8a`:
+  - The receipt owner now resolves the exact automation ID set from the current
+    under-lock policy and reads every named owner only after current policy,
+    incident, decision, successor, activation, and event-head checks pass. The
+    same under-lock owner snapshot is the sole input to duplicate verification,
+    new receipt material, and persisted canonical verification.
+  - A forced interleaving changes one disposable named owner to `ACTIVE` exactly
+    as the receipt lock is acquired. The operation fails with zero shutdown
+    receipts; after restoring the owner, the existing exact success and duplicate
+    paths still pass. The focused interleaving passes 1/1 and the maintained
+    terminal owner suite passes 12/12 with `ResourceWarning` fatal.
+  - Ruff, Python compilation, diff check, full-profile verification for all 32
+    Blocks, and all 30 verifier tests pass. The product commit is pushed with
+    exact remote divergence `0 0`. Prior focused dashboard 4/4, one-broad, and
+    responsive proof are reused without replay. No live preview, automation
+    pause, receipt append, or shutdown occurred. Fresh exact-revision review is
+    pending.
 
 ### Stop
 
