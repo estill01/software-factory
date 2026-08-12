@@ -85,36 +85,40 @@ failure tied to this tracker's objective.
 
 1. Execute Blocks 0–{{TERMINAL_BLOCK}} in dependency order.
 2. Re-read the selected Block and inspect the live repository before editing.
-3. Preserve unrelated and in-flight work.
-4. Implement through the narrowest existing owner and stop at the Block's
+3. Change both the status table and Block status from `not-started` to
+   `in-progress` when the first candidate edit, generated artifact, render,
+   evidence-producing validation, review handoff, or implementation checkpoint
+   begins. Reconcile status on resume and before every progress report.
+4. Preserve unrelated and in-flight work.
+5. Implement through the narrowest existing owner and stop at the Block's
    boundary.
-5. A global safeguard, inspected source, existing owner, or exclusion constrains
+6. A global safeguard, inspected source, existing owner, or exclusion constrains
    work only when the Block crosses that boundary; it does not authorize new
    machinery, fields, tests, or a separate audit dimension.
-6. Optional hardening requires a reproduced supported failure tied to the
+7. Optional hardening requires a reproduced supported failure tied to the
    Block's objective. Otherwise omit it.
-7. Run focused validation, mapped validation, and required independent review.
-8. Before expensive final validation, finish all known in-scope work and any
+8. Run focused validation, mapped validation, and required independent review.
+9. Before expensive final validation, finish all known in-scope work and any
    review permitted to change the candidate. Freeze the candidate revision;
    later changes stale only the affected validation and review evidence.
-9. Reuse exact current artifacts and cheap currentness checks before deep scans;
+10. Reuse exact current artifacts and cheap currentness checks before deep scans;
    batch coherent work and widen only on a declared trigger.
-10. Record only exact current evidence. Label aborted, pre-correction, or
+11. Record only exact current evidence. Label aborted, pre-correction, or
     changed-during-validation runs diagnostic.
-11. Audit and accept one Block before advancing, then stop rather than search
+12. Audit and accept one Block before advancing, then stop rather than search
     for optional hardening.
-12. A genuine input dependency blocks only its exact subjects and descendant
+13. A genuine input dependency blocks only its exact subjects and descendant
     closure. Record its decision packet, blocked-scope root, safe-frontier root,
     permitted provisional/common work, prohibited authority effects, and revisit
     trigger; continue every dependency-independent slice. Do not mark a Block or
     run blocked while the safe frontier is nonempty.
-13. For supervised input gates, run one bounded 20-minute Sol Max resolution
+14. For supervised input gates, run one bounded 20-minute Sol Max resolution
     attempt before requesting user guidance. If it remains unresolved, send the
     complete decision brief, open a 20-minute response window, and continue safe
     work plus the remaining bounded attempts during that window. Select and
     proceed only within delegated authority; otherwise use a bounded safe
     deferral with the missing fact or reserved action explicit.
-14. An operation-specific hold states its exact operation or Block scope,
+15. An operation-specific hold states its exact operation or Block scope,
     content-minimized identity, expiry event, successor posture, and
     `carry-forward: false`. On expiry it remains history only and does not bind
     a later operation or successor Block without a new exact controlling source.

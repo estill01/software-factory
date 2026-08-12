@@ -527,6 +527,20 @@ suite.
 
 ## Implement one block
 
+Before the first implementation-producing action for a Block, change both the
+tracker status table and the Block's own status line from `not-started` to
+`in-progress`. A read-only orientation pass alone does not start a Block, but
+the first candidate edit, generated artifact, render, evidence-producing test,
+review handoff, or implementation checkpoint does. Make the status transition
+before that action when practical, or in the same first coherent checkpoint;
+never leave a Block `not-started` after work or review evidence exists. On
+resume and before every status report, reconcile the table and Block line with
+live work. Keep unaccepted remediation, review, dependency waits, and bounded
+safe-frontier continuation `in-progress`; use `completed-with-open-items` only
+when the Block's implementation is coherent but declared acceptance work or
+retained items remain. Use `blocked` only under the exceptional empty-safe-
+frontier rule below.
+
 1. Inspect the live tree before planning. Reconcile the tracker against current
    code, configuration, tests, generated artifacts, and Git state.
 2. Preserve completed, staged, untracked, and in-flight user work. Keep the
