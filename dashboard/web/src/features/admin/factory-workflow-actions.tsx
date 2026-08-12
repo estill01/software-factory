@@ -608,7 +608,10 @@ export function RunSupervisionActions({
   const resumeComplete = lifecycleStatus === "resumed"
     && pauseAutomationRows.length >= 2
     && pauseAutomationRows.every((row) => (
-      Boolean(row.automation_id) && row.owner_status === "ACTIVE"
+      Boolean(row.automation_id)
+      && row.owner_status === "ACTIVE"
+      && row.state === "reconciled"
+      && row.duplicate_coverage === "exact"
     ))
   const launchBindingRepair = () => {
     if (!projectId || !missionBindingMissing) return
@@ -743,6 +746,8 @@ export function RunSupervisionActions({
           title={
             resumeComplete
               ? "Every exact automation and the canonical resume lifecycle are current."
+              : lifecycleStatus === "resumed"
+                ? "Canonical resume exists, but exact active automation-owner coverage is unavailable or incomplete."
               : lifecycleStatus !== "paused"
                 ? "Resume is available only for a canonical paused lifecycle."
                 : !resumeSourceAvailable
@@ -753,6 +758,8 @@ export function RunSupervisionActions({
         >
           {resumeComplete
             ? "Running"
+            : lifecycleStatus === "resumed"
+              ? "Resume incomplete"
             : resumeSourceAvailable && activeAutomationCount > 0
               ? "Finish resume"
               : lifecycleStatus === "paused" && !resumeSourceAvailable

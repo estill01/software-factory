@@ -1519,6 +1519,26 @@ test("semantic resume previews exact owners without resuming the implementation 
   }))
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
   await preview.getByRole("button", { name: "Close operation preview" }).click()
+
+  runEnvelope.data.run.lifecycle.status = "resumed"
+  runEnvelope.data.run.lifecycle.record.status = "resumed"
+  runEnvelope.data.run.lifecycle.record.category = "supervision-resume"
+  represented.forEach((row: { owner_status: string; state: string; duplicate_coverage: string }) => {
+    row.owner_status = "ACTIVE"
+    row.state = "reconciled"
+    row.duplicate_coverage = "exact"
+  })
+  represented[0].state = "unavailable"
+  represented[0].duplicate_coverage = "unavailable"
+  await page.reload()
+  await expect(page.getByRole("button", { name: "Running" })).toHaveCount(0)
+  const incomplete = page.getByRole("button", { name: "Resume incomplete" })
+  await expect(incomplete).toBeDisabled()
+  await expect(incomplete).toHaveAttribute(
+    "title",
+    "Canonical resume exists, but exact active automation-owner coverage is unavailable or incomplete.",
+  )
+
   await page.goto(`/runs/${target}?mission=${predecessor}`)
   await expect(page.getByRole("button", { name: "Finish resume" })).toHaveCount(0)
   await expect(page.getByText("RESUME SUPERVISION", { exact: true })).toHaveCount(0)

@@ -584,6 +584,36 @@ describe("Factory workflow action strips", () => {
       "title",
       "Resume requires complete current automation-owner coverage.",
     )
+
+    const resumedUnavailablePolicy = {
+      ...policy,
+      automation_reconciliation: policy.automation_reconciliation.map((row, index) => ({
+        ...row,
+        owner_status: "ACTIVE",
+        state: index === 0 ? "unavailable" : "reconciled",
+        duplicate_coverage: index === 0 ? "unavailable" : "exact",
+        reason: index === 0
+          ? "Target-specific owner coverage is unavailable."
+          : row.reason,
+      })),
+    } as NonNullable<RunDetail["policy"]>
+    rerender(
+      <QueryClientProvider client={client}>
+        <RunSupervisionActions
+          targetId="task-demo"
+          projectId="demo"
+          openIncidentIds={[]}
+          policy={resumedUnavailablePolicy}
+          lifecycleStatus="resumed"
+        />
+      </QueryClientProvider>,
+    )
+    expect(screen.queryByRole("button", { name: "Running" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Resume incomplete" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Resume incomplete" })).toHaveAttribute(
+      "title",
+      "Canonical resume exists, but exact active automation-owner coverage is unavailable or incomplete.",
+    )
   })
 
   it("previews one exact policy diff and keeps unbound Gmail cadence unavailable", async () => {
