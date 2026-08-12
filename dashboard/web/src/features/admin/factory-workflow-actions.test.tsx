@@ -401,6 +401,48 @@ describe("Factory workflow action strips", () => {
     expect(screen.getByText(/Mission overwrite/)).toBeVisible()
   })
 
+  it("previews one same-target successor with direct-source review and no task claim", async () => {
+    const user = userEvent.setup()
+    renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+        currentMission={{ root: hash, source_record: "direct-user-item-1", policy_sha256: hash }}
+      />,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Successor mission" }))
+    expect(screen.getByRole("dialog", { name: "Successor mission" })).toBeVisible()
+    await user.type(
+      screen.getByLabelText("Direct mission source record"),
+      "codex:task-demo:turn-source-002:item-source-002",
+    )
+    await user.selectOptions(screen.getByLabelText("Predecessor disposition"), "superseded")
+    await user.type(screen.getByLabelText("First eligible work"), "Block 0 capability review")
+    await user.type(
+      screen.getByLabelText("Reason"),
+      "The direct user requested a materially different mission.",
+    )
+    await user.click(screen.getByRole("button", { name: "Preview" }))
+
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.supervision-mission-successor",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: {
+        mission_source_record: "codex:task-demo:turn-source-002:item-source-002",
+        predecessor_disposition: "superseded",
+        first_eligible_work: "Block 0 capability review",
+        reason: "The direct user requested a materially different mission.",
+      },
+    })
+    expect(await screen.findByText(/exact bytes and direct authority require independent review/)).toBeVisible()
+    expect(screen.getByText(/pending activation, not proof of work-start/)).toBeVisible()
+    expect(screen.getByText(/Bind overwrite · successor task/)).toBeVisible()
+  })
+
   it("offers only projected missing owner-backed roles and submits one exact role", async () => {
     const user = userEvent.setup()
     renderActions(

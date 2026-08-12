@@ -386,6 +386,20 @@ export function OperationTruthFacts({ operation }: { operation: OperationRecord 
     if (evidence?.direct_policy_write === false) facts.push("Dashboard direct policy writes excluded")
     if (evidence?.direct_automation_write === false) facts.push("Dashboard direct automation writes excluded")
   }
+  if (operation.type === "factory.supervision-mission-successor") {
+    if (operation.request_evidence?.mission_successor_requested === true) facts.push("Independent successor review requested")
+    if (operation.request_evidence?.source_authority_status === "unverified-reviewer-verification-required") facts.push("Direct authority and material difference unverified")
+    if (evidence?.reviewer_authority_verified === true) facts.push("Independent direct-source review verified")
+    if (evidence?.policy_postcondition_current === true) facts.push("Successor policy version current")
+    if (evidence?.predecessor_history_preserved === true) facts.push("Predecessor history preserved")
+    if (evidence?.successor_current_state_isolated === true) facts.push("Successor current state isolated")
+    if (evidence?.mission_activation_pending === true) facts.push("First-work activation pending")
+    if (evidence?.successor_task_created === false) facts.push("No successor task created")
+    if (evidence?.mission_activation_started === false) facts.push("Work-start not claimed")
+    if (evidence?.mission_successor_applied !== true && operation.request_evidence?.mission_successor_requested === true) facts.push("Successor owner postcondition pending")
+    if (evidence?.direct_policy_write === false) facts.push("Dashboard direct policy writes excluded")
+    if (evidence?.direct_ledger_write === false) facts.push("Dashboard direct ledger writes excluded")
+  }
   if (!evidence && facts.length === 0) return null
   if (typeof evidence?.task_turn_started === "boolean") {
     facts.push(evidence.task_turn_started ? "Task/turn started" : "Task/turn not verified")

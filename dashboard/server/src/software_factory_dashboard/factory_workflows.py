@@ -61,6 +61,11 @@ BINDING_AUTHORITY_REVIEW_MARKER = (
     "SOFTWARE_FACTORY_DASHBOARD_BINDING_AUTHORITY_REVIEW "
 )
 BINDING_REPAIR_ROUTE_PURPOSE = "semantic-escalation"
+MISSION_SUCCESSOR_MARKER = "SOFTWARE_FACTORY_DASHBOARD_MISSION_SUCCESSOR "
+MISSION_SUCCESSOR_AUTHORITY_REVIEW_MARKER = (
+    "SOFTWARE_FACTORY_DASHBOARD_MISSION_SUCCESSOR_AUTHORITY_REVIEW "
+)
+MISSION_SUCCESSOR_ROUTE_PURPOSE = "semantic-escalation"
 ROLE_BINDING_REPAIR_ROLES = {
     "base_reviewer": {
         "label": "Base reviewer",
@@ -478,6 +483,7 @@ class FactoryWorkflowOwner:
         self._automation_binding_repair_dispatch_lock = RLock()
         self._supervision_pause_dispatch_lock = RLock()
         self._supervision_resume_dispatch_lock = RLock()
+        self._mission_successor_dispatch_lock = RLock()
 
     @staticmethod
     def _semantic_exact(value: str | int | float | bool) -> OperationSemanticValue:
@@ -609,6 +615,7 @@ class FactoryWorkflowOwner:
         tracker_link = (
             OperationLink("Tracker", f"/trackers/{evidence['tracker_id']}"),
         )
+
         return (
             cls._semantic_change(
                 change_id="mission-binding",
@@ -669,6 +676,93 @@ class FactoryWorkflowOwner:
                 owner="maintained supervision project-binding projection",
                 source_identity=f"run-project-binding:{target.id}",
                 source_revision=str(evidence["run_project_binding_fingerprint"]),
+                currentness=currentness,
+                links=run_link,
+            ),
+        )
+
+    @classmethod
+    def _mission_successor_semantic_changes(
+        cls,
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> tuple[OperationSemanticChange, ...]:
+        evidence = source.evidence
+        currentness = source.fingerprint
+        policy_identity = f"supervision-policy:{target.id}"
+        policy_revision = str(evidence["prior_policy_sha256"])
+        run_link = (OperationLink("Run", f"/runs/{target.id}"),)
+        task_link = (OperationLink("Target task", f"/tasks/{target.id}"),)
+        return (
+            cls._semantic_change(
+                change_id="mission-successor-binding",
+                subject="Active mission binding",
+                kind="changed",
+                before=cls._semantic_exact(str(evidence["predecessor_mission_root"])),
+                after=cls._semantic_exact(str(evidence["successor_mission_root"])),
+                owner="maintained supervision mission-successor owner",
+                source_identity=policy_identity,
+                source_revision=policy_revision,
+                currentness=currentness,
+                links=run_link,
+            ),
+            cls._semantic_change(
+                change_id="mission-successor-policy-version",
+                subject="Policy version",
+                kind="changed",
+                before=cls._semantic_exact(int(evidence["prior_policy_version"])),
+                after=cls._semantic_exact(int(evidence["expected_policy_version"])),
+                owner="maintained supervision mission-successor owner",
+                source_identity=policy_identity,
+                source_revision=policy_revision,
+                currentness=currentness,
+                links=run_link,
+            ),
+            cls._semantic_change(
+                change_id="mission-successor-predecessor-history",
+                subject="Predecessor mission segment",
+                kind="preserved",
+                before=cls._semantic_exact(str(evidence["predecessor_mission_root"])),
+                after=cls._semantic_exact(str(evidence["predecessor_mission_root"])),
+                owner="maintained policy-history and mission-scoped event projection",
+                source_identity=f"supervision-mission:{evidence['predecessor_mission_root']}",
+                source_revision=str(evidence["prior_history_fingerprint"]),
+                currentness=currentness,
+                links=run_link,
+            ),
+            cls._semantic_change(
+                change_id="mission-successor-first-work",
+                subject="Successor first eligible work",
+                kind="added",
+                before=cls._semantic_unavailable(),
+                after=cls._semantic_exact(str(evidence["first_eligible_work"])),
+                owner="maintained same-target mission-activation owner",
+                source_identity=f"supervision-source:{evidence['mission_source_record']}",
+                source_revision=str(evidence["mission_source_sha256"]),
+                currentness=currentness,
+                links=run_link,
+            ),
+            cls._semantic_change(
+                change_id="mission-successor-target-task",
+                subject="Target task identity",
+                kind="preserved",
+                before=cls._semantic_exact(target.id),
+                after=cls._semantic_exact(target.id),
+                owner="maintained Codex task reader",
+                source_identity=f"codex-task:{target.id}",
+                source_revision=str(evidence["target_task_identity_sha256"]),
+                currentness=currentness,
+                links=task_link,
+            ),
+            cls._semantic_change(
+                change_id="mission-successor-roles-automations",
+                subject="Role and automation bindings",
+                kind="preserved",
+                before=cls._semantic_exact(str(evidence["owner_bindings_sha256"])),
+                after=cls._semantic_exact(str(evidence["owner_bindings_sha256"])),
+                owner="maintained supervision policy and Codex automation owners",
+                source_identity=policy_identity,
+                source_revision=policy_revision,
                 currentness=currentness,
                 links=run_link,
             ),
@@ -1040,6 +1134,7 @@ class FactoryWorkflowOwner:
                 self._automation_binding_repair_definition(),
                 self._supervision_pause_definition(),
                 self._supervision_resume_definition(),
+                self._mission_successor_definition(),
                 self._unavailable_authoring_supervision_definition(),
             )
         )
@@ -10112,6 +10207,1141 @@ class FactoryWorkflowOwner:
                 ),
             ),
             route_gate_request=self._supervision_resume_route_request,
+            route_gate=self.route_gate,
+            dispatch=dispatch,
+            verify=verify,
+        )
+
+    @staticmethod
+    def _mission_successor_marker(
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> dict[str, Any]:
+        return {
+            "kind": "same-target-mission-successor-review",
+            "target_thread_id": target.id,
+            "project_id": source.evidence["project_id"],
+            "predecessor_mission_root": source.evidence[
+                "predecessor_mission_root"
+            ],
+            "successor_mission_root": source.evidence["successor_mission_root"],
+            "mission_source_record": source.evidence["mission_source_record"],
+            "mission_source_sha256": source.evidence["mission_source_sha256"],
+            "mission_source_envelope_sha256": source.evidence[
+                "mission_source_envelope_sha256"
+            ],
+            "mission_source_client_id": source.evidence[
+                "mission_source_client_id"
+            ],
+            "predecessor_disposition": source.evidence[
+                "predecessor_disposition"
+            ],
+            "first_eligible_work": source.evidence["first_eligible_work"],
+            "reason_sha256": source.evidence["reason_sha256"],
+            "prior_policy_sha256": source.evidence["prior_policy_sha256"],
+            "prior_policy_version": source.evidence["prior_policy_version"],
+            "expected_policy_version": source.evidence["expected_policy_version"],
+            "expected_normalized_policy_sha256": source.evidence[
+                "expected_normalized_policy_sha256"
+            ],
+            "reviewer_task_id": source.evidence["reviewer_task_id"],
+            "fix_executor_task_id": source.evidence["fix_executor_task_id"],
+            "preview_fingerprint": source.fingerprint,
+            "route_purpose": MISSION_SUCCESSOR_ROUTE_PURPOSE,
+        }
+
+    @staticmethod
+    def _mission_successor_authority_marker(
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> dict[str, Any]:
+        return {
+            "kind": "same-target-mission-successor-authority-review",
+            "status": "verified",
+            "target_thread_id": target.id,
+            "predecessor_mission_root": source.evidence[
+                "predecessor_mission_root"
+            ],
+            "successor_mission_root": source.evidence["successor_mission_root"],
+            "mission_source_record": source.evidence["mission_source_record"],
+            "mission_source_sha256": source.evidence["mission_source_sha256"],
+            "mission_source_envelope_sha256": source.evidence[
+                "mission_source_envelope_sha256"
+            ],
+            "mission_source_client_id": source.evidence[
+                "mission_source_client_id"
+            ],
+            "verified_source_class": "direct-user",
+            "verified_intent": "materially-different-successor-mission",
+            "verified_predecessor_disposition": source.evidence[
+                "predecessor_disposition"
+            ],
+            "first_eligible_work": source.evidence["first_eligible_work"],
+            "preview_fingerprint": source.fingerprint,
+            "reviewer_task_id": source.evidence["reviewer_task_id"],
+        }
+
+    @staticmethod
+    def _mission_successor_request_current(
+        task: Mapping[str, Any],
+        *,
+        turn_id: str,
+        expected: Mapping[str, Any],
+    ) -> bool:
+        if task.get("turns_truncated") is True:
+            return False
+        turns = [turn for turn in task.get("turns", []) if turn.get("id") == turn_id]
+        if len(turns) != 1 or turns[0].get("items_truncated") is True:
+            return False
+        markers: list[Mapping[str, Any]] = []
+        for item in turns[0].get("items", []):
+            summary = item.get("summary")
+            if (
+                item.get("type") != "userMessage"
+                or not isinstance(summary, str)
+                or not summary.startswith(MISSION_SUCCESSOR_MARKER)
+            ):
+                continue
+            try:
+                marker = json.loads(
+                    summary.splitlines()[0].removeprefix(MISSION_SUCCESSOR_MARKER)
+                )
+            except json.JSONDecodeError:
+                return False
+            if isinstance(marker, Mapping):
+                markers.append(marker)
+        return len(markers) == 1 and markers[0] == expected
+
+    @staticmethod
+    def _mission_successor_authority_verified(
+        task: Mapping[str, Any],
+        *,
+        turn_id: str,
+        expected: Mapping[str, Any],
+    ) -> bool:
+        try:
+            FactoryWorkflowOwner._require_exact_binding_task_history(task)
+        except OperationError:
+            return False
+        turns = [turn for turn in task.get("turns", []) if turn.get("id") == turn_id]
+        if len(turns) != 1 or turns[0].get("status") != "completed":
+            return False
+        markers: list[Mapping[str, Any]] = []
+        for item in turns[0].get("items", []):
+            summary = item.get("summary")
+            if (
+                item.get("type") != "agentMessage"
+                or not isinstance(summary, str)
+                or item.get("summary_truncated") is not False
+                or item.get("summary_sha256")
+                != sha256(summary.encode("utf-8")).hexdigest()
+                or not summary.startswith(MISSION_SUCCESSOR_AUTHORITY_REVIEW_MARKER)
+            ):
+                continue
+            try:
+                marker = json.loads(
+                    summary.splitlines()[0].removeprefix(
+                        MISSION_SUCCESSOR_AUTHORITY_REVIEW_MARKER
+                    )
+                )
+            except json.JSONDecodeError:
+                return False
+            if isinstance(marker, Mapping):
+                markers.append(marker)
+        return len(markers) == 1 and markers[0] == expected
+
+    def _mission_successor_source(
+        self,
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+    ) -> SourceSnapshot:
+        source_record = str(inputs["mission_source_record"])
+        disposition = str(inputs["predecessor_disposition"])
+        first_work = str(inputs["first_eligible_work"])
+        reason = str(inputs["reason"])
+        projects, catalog_fingerprint = self._active_projects()
+        project = self._project_from(projects, target)
+        self._require_capabilities("task_read", "task_resume", "turn_start")
+        try:
+            detail = self.app_server_client.read_task(
+                projects,
+                target.id,
+                include_turns=True,
+            )
+        except AppServerError as error:
+            raise _operation_error(
+                error,
+                fallback="mission_successor_target_unavailable",
+            ) from error
+        task = detail.get("task")
+        if not isinstance(task, Mapping):
+            raise OperationError(
+                "mission_successor_target_unavailable",
+                "The exact target task projection is unavailable.",
+                status=409,
+            )
+        try:
+            target_cwd, target_identity, target_status = (
+                self._validated_automation_project_task(
+                    task,
+                    task_id=target.id,
+                    role="mission-successor target",
+                    project=project,
+                    allow_active=True,
+                )
+            )
+            source_item = self._binding_source_item(
+                task,
+                source_record=source_record,
+                target_thread_id=target.id,
+            )
+        except OperationError as error:
+            raise OperationError(
+                "mission_successor_source_unavailable",
+                str(error),
+                status=409,
+            ) from error
+        source_sha256 = str(source_item["content_sha256"])
+        try:
+            plan = self.operations_service.mission_successor_plan_snapshot(
+                target.id,
+                source_record=source_record,
+                source_sha256=source_sha256,
+                predecessor_disposition=disposition,
+                first_eligible_work=first_work,
+                reason=reason,
+            )
+            run_project = self.operations_service.project_binding_snapshot(
+                projects,
+                target.id,
+            )
+            group_ids = self.operations_service.binding_group_ids(target.id)
+        except OperationsProjectionError as error:
+            raise _operation_error(
+                error,
+                fallback="mission_successor_source_unavailable",
+            ) from error
+        control = plan.get("control")
+        policy = control.get("policy") if isinstance(control, Mapping) else None
+        runtime = control.get("runtime") if isinstance(control, Mapping) else None
+        current_project = run_project.get("project_binding")
+        if (
+            not isinstance(control, Mapping)
+            or not isinstance(policy, Mapping)
+            or not isinstance(runtime, Mapping)
+            or group_ids != [target.id]
+            or not isinstance(current_project, Mapping)
+            or current_project.get("status") != "bound"
+            or current_project.get("project_id") != project.id
+            or policy.get("project_root") != str(Path(project.root).resolve())
+        ):
+            raise OperationError(
+                "mission_successor_group_unavailable",
+                "The target, group, policy, and registered project do not form one exact current claim.",
+                status=409,
+            )
+        reviewer_task_id = runtime.get("reviewer_thread_id")
+        fix_executor_task_id = runtime.get("fix_executor_thread_id")
+        if (
+            not isinstance(reviewer_task_id, str)
+            or not reviewer_task_id
+            or not isinstance(fix_executor_task_id, str)
+            or not fix_executor_task_id
+            or len({target.id, reviewer_task_id, fix_executor_task_id}) != 3
+        ):
+            raise OperationError(
+                "mission_successor_owner_unavailable",
+                "The target, independent reviewer, and fix executor must be three distinct exact tasks.",
+                status=409,
+            )
+        role_facts: dict[str, tuple[str, tuple[int, int], str]] = {}
+        for role, task_id in (
+            ("reviewer", reviewer_task_id),
+            ("fix executor", fix_executor_task_id),
+        ):
+            try:
+                role_detail = self.app_server_client.read_task(
+                    projects,
+                    task_id,
+                    include_turns=True,
+                )
+            except AppServerError as error:
+                raise _operation_error(
+                    error,
+                    fallback="mission_successor_owner_unavailable",
+                ) from error
+            role_task = role_detail.get("task")
+            if not isinstance(role_task, Mapping):
+                raise OperationError(
+                    "mission_successor_owner_unavailable",
+                    f"The exact {role} task projection is unavailable.",
+                    status=409,
+                )
+            role_facts[role] = self._validated_role_task(
+                role_task,
+                task_id=task_id,
+                role=role,
+                unavailable_code="mission_successor_owner_unavailable",
+                active_code="mission_successor_owner_active",
+            )
+        automations_by_role = control.get("automations_by_role")
+        if not isinstance(automations_by_role, Mapping):
+            raise OperationError(
+                "mission_successor_automation_unavailable",
+                "The exact bound automation projection is unavailable.",
+                status=409,
+            )
+        automations: list[dict[str, Any]] = []
+        seen_required: set[str] = set()
+        for role, contract in AUTOMATION_BINDING_CONTRACTS.items():
+            automation_id = runtime.get(contract["automation_key"])
+            if not automation_id:
+                continue
+            current = automations_by_role.get(role)
+            if (
+                not isinstance(automation_id, str)
+                or not isinstance(current, Mapping)
+                or current.get("status") != "available"
+                or current.get("id") != automation_id
+                or current.get("kind") != "heartbeat"
+                or not isinstance(current.get("owner_status"), str)
+                or not isinstance(current.get("target_thread_id"), str)
+                or not isinstance(current.get("rrule"), str)
+                or not isinstance(current.get("manifest_sha256"), str)
+                or not SHA256_PATTERN.fullmatch(str(current["manifest_sha256"]))
+                or not isinstance(current.get("protected_sha256"), str)
+                or not SHA256_PATTERN.fullmatch(str(current["protected_sha256"]))
+            ):
+                raise OperationError(
+                    "mission_successor_automation_unavailable",
+                    "Every configured automation must have one exact readable owner before succession.",
+                    status=409,
+                )
+            automations.append(
+                {
+                    "role": role,
+                    "id": automation_id,
+                    "owner_status": current["owner_status"],
+                    "target_thread_id": current["target_thread_id"],
+                    "rrule": current["rrule"],
+                    "manifest_sha256": current["manifest_sha256"],
+                    "protected_sha256": current["protected_sha256"],
+                    "updated_at": current.get("updated_at"),
+                }
+            )
+            if role in {"watcher", "reviewer"}:
+                seen_required.add(role)
+        if seen_required != {"watcher", "reviewer"}:
+            raise OperationError(
+                "mission_successor_automation_unavailable",
+                "Watcher and reviewer automation owners must both be exact before succession.",
+                status=409,
+            )
+        reviewer_cwd, reviewer_identity, reviewer_status = role_facts["reviewer"]
+        fix_cwd, fix_identity, fix_status = role_facts["fix executor"]
+        target_material = {
+            "id": target.id,
+            "cwd": target_cwd,
+            "cwd_identity": target_identity,
+            "project_binding": current_project,
+        }
+        owner_bindings = {
+            "runtime": runtime,
+            "automations": automations,
+        }
+        policy_history_records = control.get("policy_history_records")
+        if (
+            not isinstance(policy_history_records, list)
+            or len(policy_history_records) != plan["policy_history_count"]
+            or any(
+                not isinstance(item, Mapping)
+                or not isinstance(item.get("record_sha256"), str)
+                or not SHA256_PATTERN.fullmatch(str(item["record_sha256"]))
+                for item in policy_history_records
+            )
+        ):
+            raise OperationError(
+                "mission_successor_policy_history_unavailable",
+                "The exact predecessor policy-history prefix is unavailable.",
+                status=409,
+            )
+        policy_history_roots = [
+            str(item["record_sha256"]) for item in policy_history_records
+        ]
+        evidence = {
+            "catalog_fingerprint": catalog_fingerprint,
+            "project_id": project.id,
+            "target_thread_id": target.id,
+            "target_task_cwd": target_cwd,
+            "target_cwd_device": target_identity[0],
+            "target_cwd_inode": target_identity[1],
+            "target_task_status": target_status,
+            "target_task_identity_sha256": fingerprint(target_material),
+            "run_project_binding": dict(current_project),
+            "run_project_binding_fingerprint": run_project["fingerprint"],
+            "mission_source_record": source_record,
+            "mission_source_turn_id": source_item["turn_id"],
+            "mission_source_item_id": source_item["item_id"],
+            "mission_source_sha256": source_sha256,
+            "mission_source_envelope_sha256": source_item["envelope_sha256"],
+            "mission_source_part_types": source_item["part_types"],
+            "mission_source_client_id": source_item["client_id"],
+            "mission_source_classification": source_item["classification"],
+            "mission_source_authority_status": source_item["authority_status"],
+            "predecessor_mission_root": plan["predecessor"]["mission_root"],
+            "predecessor_mission_source_record": plan["predecessor"][
+                "mission_source_record"
+            ],
+            "successor_mission_binding": plan["successor"],
+            "successor_mission_root": plan["successor"]["mission_root"],
+            "predecessor_disposition": disposition,
+            "predecessor_terminal_record": plan[
+                "predecessor_terminal_record"
+            ],
+            "first_eligible_work": first_work,
+            "reason": reason,
+            "reason_sha256": sha256(reason.encode("utf-8")).hexdigest(),
+            "expected_history_evidence": plan["expected_evidence"],
+            "expected_history_kind": plan["expected_history_kind"],
+            "expected_history_reason": plan["expected_history_reason"],
+            "prior_policy_sha256": plan["policy_sha256"],
+            "prior_policy_version": plan["policy_version"],
+            "prior_policy_history_head": plan["policy_history_head"],
+            "prior_policy_history_count": plan["policy_history_count"],
+            "prior_policy_history_roots": policy_history_roots,
+            "expected_policy_version": plan["expected_policy_version"],
+            "expected_normalized_policy_sha256": plan[
+                "expected_normalized_policy_sha256"
+            ],
+            "owner_sha256": plan["owner_sha256"],
+            "source_record": control["source_record"],
+            "prior_history": json.loads(json.dumps(plan["history"])),
+            "prior_history_fingerprint": plan["history_fingerprint"],
+            "predecessor_segment": json.loads(
+                json.dumps(plan["predecessor_segment"])
+            ),
+            "runtime": json.loads(json.dumps(runtime)),
+            "automations": automations,
+            "owner_bindings_sha256": fingerprint(owner_bindings),
+            "reviewer_task_id": reviewer_task_id,
+            "reviewer_task_status": reviewer_status,
+            "reviewer_task_cwd": reviewer_cwd,
+            "reviewer_cwd_device": reviewer_identity[0],
+            "reviewer_cwd_inode": reviewer_identity[1],
+            "fix_executor_task_id": fix_executor_task_id,
+            "fix_executor_task_status": fix_status,
+            "fix_executor_task_cwd": fix_cwd,
+            "fix_executor_cwd_device": fix_identity[0],
+            "fix_executor_cwd_inode": fix_identity[1],
+            "open_heads": {
+                "incidents": plan["open_incident_ids"],
+                "decisions": plan["open_decision_ids"],
+                "successor_transitions": plan[
+                    "open_successor_transition_ids"
+                ],
+                "mission_activations": plan["open_mission_activation_ids"],
+            },
+            "source_authority_status": (
+                "unverified-reviewer-verification-required"
+            ),
+            "material_difference_status": (
+                "unverified-reviewer-verification-required"
+            ),
+            "compensation_posture": (
+                "No automatic retry or rollback. Preserve the predecessor and any exact policy/activation result, re-read current history, and request only a still-missing owner postcondition through a fresh preview."
+            ),
+        }
+        material = {
+            "catalog": catalog_fingerprint,
+            "project": project.id,
+            "target": target_material,
+            "source": {
+                "record": source_record,
+                "sha256": source_sha256,
+                "envelope_sha256": source_item["envelope_sha256"],
+                "client_id": source_item["client_id"],
+                "classification": source_item["classification"],
+            },
+            "plan": plan["fingerprint"],
+            "policy_history_roots": policy_history_roots,
+            "owners": owner_bindings,
+            "reviewer": {
+                "id": reviewer_task_id,
+                "cwd": reviewer_cwd,
+                "cwd_identity": reviewer_identity,
+            },
+            "fix_executor": {
+                "id": fix_executor_task_id,
+                "cwd": fix_cwd,
+                "cwd_identity": fix_identity,
+            },
+        }
+        return SourceSnapshot(fingerprint=fingerprint(material), evidence=evidence)
+
+    @staticmethod
+    def _mission_successor_prompt(
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> str:
+        request_marker = FactoryWorkflowOwner._mission_successor_marker(
+            target,
+            source,
+        )
+        authority_marker = (
+            FactoryWorkflowOwner._mission_successor_authority_marker(
+                target,
+                source,
+            )
+        )
+        facts = {
+            "target_thread_id": target.id,
+            "project_id": source.evidence["project_id"],
+            "predecessor_mission_root": source.evidence[
+                "predecessor_mission_root"
+            ],
+            "successor_mission_root": source.evidence["successor_mission_root"],
+            "mission_source_record": source.evidence["mission_source_record"],
+            "mission_source_sha256": source.evidence["mission_source_sha256"],
+            "mission_source_envelope_sha256": source.evidence[
+                "mission_source_envelope_sha256"
+            ],
+            "mission_source_client_id": source.evidence[
+                "mission_source_client_id"
+            ],
+            "predecessor_disposition": source.evidence[
+                "predecessor_disposition"
+            ],
+            "predecessor_terminal_record": source.evidence[
+                "predecessor_terminal_record"
+            ],
+            "first_eligible_work": source.evidence["first_eligible_work"],
+            "reason": source.evidence["reason"],
+            "evidence": source.evidence["expected_history_evidence"],
+            "prior_policy_sha256": source.evidence["prior_policy_sha256"],
+            "prior_policy_version": source.evidence["prior_policy_version"],
+            "expected_policy_version": source.evidence["expected_policy_version"],
+            "expected_normalized_policy_sha256": source.evidence[
+                "expected_normalized_policy_sha256"
+            ],
+            "fix_executor_task_id": source.evidence["fix_executor_task_id"],
+            "automation_ids": [
+                item["id"] for item in source.evidence["automations"]
+            ],
+        }
+        return FactoryWorkflowOwner._bounded_prompt(
+            (
+                MISSION_SUCCESSOR_MARKER + _canonical(request_marker),
+                "Review only this one same-target mission-succession candidate.",
+                "The operator confirmation requests review; it is not provenance, direct-user authority, material-difference proof, or permission to mutate policy.",
+                "Use $supervise-tracker-runs. Independently inspect the exact complete source item bytes, content/envelope hashes, client identity, transport classification, predecessor mission segment, disposition evidence, closed heads, policy head, target/project claim, roles, and automations.",
+                "Routed, generated, truncated, partial, unverifiable, old, unchanged, or merely procedural intent must yield no authority marker and no mission succession.",
+                "Verify that the source is a materially different direct-user mission and that it expressly supports the completed or superseded predecessor disposition. The selected first eligible work is an activation obligation, not proof that work began.",
+                "Only after independent verification may you route the exact configured fix executor through the maintained fix-execution gate. When and only when verification succeeds, begin your final response with this exact reviewer-owned marker:",
+                MISSION_SUCCESSOR_AUTHORITY_REVIEW_MARKER
+                + _canonical(authority_marker),
+                "The fix executor must invoke supervision_log.py mission-successor exactly once with the supplied target, predecessor root, direct-user source record/hash, disposition, first eligible work, reason, and evidence. It must not use bind, create a task/group, or write policy/history/events directly.",
+                "After owner success, route the same current target to the exact first eligible work through the maintained target-action gate. Do not create a successor task, call mission-activation-start, infer work-start, execute the new mission, generate a report, or change lifecycle.",
+                "Verify one next policy-mission-successor history record, one pending same-target activation, preserved target/group/roles/automations, and separately inspectable predecessor history. Never import predecessor-only issues, conclusions, lifecycle, or metrics into successor current state.",
+                "The canonical records do not expose fix-executor actor attribution; preserve that limitation. Do not retry or roll back automatically.",
+                "",
+                *FactoryWorkflowOwner._prompt_facts(facts),
+            )
+        )
+
+    def _mission_successor_route_request(
+        self,
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+        source: SourceSnapshot,
+    ) -> RouteGateRequest:
+        del inputs
+        return RouteGateRequest(
+            target_thread=target.id,
+            recipient=str(source.evidence["reviewer_task_id"]),
+            purpose=MISSION_SUCCESSOR_ROUTE_PURPOSE,
+            source_record=str(source.evidence["source_record"]),
+            required_action=(
+                f"Review one same-target mission successor for {target.id[:80]}; "
+                f"preview {source.fingerprint}."
+            ),
+        )
+
+    @staticmethod
+    def _matching_mission_successor_record(
+        control: Mapping[str, Any],
+        *,
+        source: SourceSnapshot,
+    ) -> Mapping[str, Any] | None:
+        matches: list[Mapping[str, Any]] = []
+        for record in control.get("policy_history_records", []):
+            policy = record.get("policy") if isinstance(record, Mapping) else None
+            timestamp = record.get("timestamp") if isinstance(record, Mapping) else None
+            if (
+                not isinstance(record, Mapping)
+                or not isinstance(policy, Mapping)
+                or record.get("record_id")
+                != f"POLICY-{source.evidence['expected_policy_version']}"
+                or record.get("kind") != source.evidence["expected_history_kind"]
+                or record.get("reason") != source.evidence["expected_history_reason"]
+                or record.get("evidence")
+                != source.evidence["expected_history_evidence"]
+                or policy.get("policy_version")
+                != source.evidence["expected_policy_version"]
+                or policy.get("mission_binding")
+                != source.evidence["successor_mission_binding"]
+                or _normalized_policy_root(policy)
+                != source.evidence["expected_normalized_policy_sha256"]
+                or not isinstance(timestamp, str)
+            ):
+                continue
+            try:
+                observed = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if observed.tzinfo is not None:
+                matches.append(record)
+        return matches[0] if len(matches) == 1 else None
+
+    def _mission_successor_definition(self) -> OperationDefinition:
+        schema = _object_schema(
+            {
+                "mission_source_record": _text_schema(
+                    128,
+                    pattern=MISSION_SOURCE_PATTERN,
+                ),
+                "predecessor_disposition": {
+                    "type": "string",
+                    "enum": ["completed", "superseded"],
+                },
+                "first_eligible_work": _text_schema(160),
+                "reason": _text_schema(480),
+            }
+        )
+
+        def dispatch(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+        ) -> DispatchResult:
+            with self._mission_successor_dispatch_lock:
+                current = self._mission_successor_source(target, inputs)
+                if current.fingerprint != source.fingerprint:
+                    raise OperationOwnerError(
+                        "mission_successor_source_changed",
+                        "The target, source, mission, policy, history, owner, or open-head state changed before dispatch.",
+                    )
+                projects, _ = self._active_projects()
+                reviewer_task_id = str(source.evidence["reviewer_task_id"])
+                prompt = self._mission_successor_prompt(target, source)
+                try:
+                    result = self.app_server_client.start_configured_role_turn(
+                        projects,
+                        reviewer_task_id,
+                        prompt,
+                        expected_cwd=str(source.evidence["reviewer_task_cwd"]),
+                        expected_cwd_identity=(
+                            int(source.evidence["reviewer_cwd_device"]),
+                            int(source.evidence["reviewer_cwd_inode"]),
+                        ),
+                    )
+                except AppServerError as error:
+                    raise OperationOwnerError(_owner_code(error), str(error)) from error
+                return DispatchResult(
+                    evidence={
+                        "target_thread_id": target.id,
+                        "mission_successor_requested": True,
+                        "mission_successor_applied": False,
+                        "reviewer_task_id": reviewer_task_id,
+                        "reviewer_turn_id": result["turn"]["id"],
+                        "reviewer_task_resumed": result["task_resumed"],
+                        "fix_executor_task_id": source.evidence[
+                            "fix_executor_task_id"
+                        ],
+                        "source_authority_status": (
+                            "unverified-reviewer-verification-required"
+                        ),
+                        "material_difference_status": (
+                            "unverified-reviewer-verification-required"
+                        ),
+                        "predecessor_mission_root": source.evidence[
+                            "predecessor_mission_root"
+                        ],
+                        "successor_mission_root": source.evidence[
+                            "successor_mission_root"
+                        ],
+                        "first_eligible_work": source.evidence[
+                            "first_eligible_work"
+                        ],
+                        "preview_fingerprint": source.fingerprint,
+                    },
+                    links=(
+                        OperationLink("Run", f"/runs/{target.id}"),
+                        OperationLink("Target task", f"/tasks/{target.id}"),
+                        OperationLink(
+                            "Reviewer task",
+                            f"/tasks/{reviewer_task_id}",
+                        ),
+                        OperationLink(
+                            "Fix executor task",
+                            f"/tasks/{source.evidence['fix_executor_task_id']}",
+                        ),
+                    ),
+                )
+
+        def verify(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+            result: DispatchResult,
+        ) -> VerificationResult:
+            del inputs
+            try:
+                control = self.operations_service.policy_control_snapshot(target.id)
+                history = self.operations_service.mission_history_snapshot(target.id)
+                group_ids = self.operations_service.binding_group_ids(target.id)
+            except OperationsProjectionError as error:
+                return VerificationResult(
+                    "pending",
+                    {
+                        **result.evidence,
+                        "owner_error_code": error.code,
+                        "partial_posture": "source-unavailable",
+                        "recovery": source.evidence["compensation_posture"],
+                    },
+                    result.links,
+                )
+            projects, catalog_fingerprint = self._active_projects()
+            reviewer_task_id = str(source.evidence["reviewer_task_id"])
+            reviewer_request_current = False
+            reviewer_authority_verified = False
+            try:
+                reviewer_detail = self.app_server_client.read_task(
+                    projects,
+                    reviewer_task_id,
+                    include_turns=True,
+                )
+                reviewer_task = reviewer_detail.get("task")
+                reviewer_turn_id = result.evidence.get("reviewer_turn_id")
+                reviewer_request_current = bool(
+                    isinstance(reviewer_task, Mapping)
+                    and reviewer_task.get("id") == reviewer_task_id
+                    and isinstance(reviewer_turn_id, str)
+                    and self._mission_successor_request_current(
+                        reviewer_task,
+                        turn_id=reviewer_turn_id,
+                        expected=self._mission_successor_marker(target, source),
+                    )
+                )
+                reviewer_authority_verified = bool(
+                    reviewer_request_current
+                    and self._mission_successor_authority_verified(
+                        reviewer_task,
+                        turn_id=str(reviewer_turn_id),
+                        expected=self._mission_successor_authority_marker(
+                            target,
+                            source,
+                        ),
+                    )
+                )
+            except (AppServerError, OperationError):
+                reviewer_request_current = False
+                reviewer_authority_verified = False
+            record = self._matching_mission_successor_record(
+                control,
+                source=source,
+            )
+            if record is None:
+                if control.get("policy_version") == source.evidence[
+                    "prior_policy_version"
+                ]:
+                    return VerificationResult(
+                        "pending",
+                        {
+                            **result.evidence,
+                            "mission_successor_applied": False,
+                            "reviewer_request_current": reviewer_request_current,
+                            "reviewer_authority_verified": (
+                                reviewer_authority_verified
+                            ),
+                            "source_authority_status": (
+                                "reviewer-verified"
+                                if reviewer_authority_verified
+                                else "unverified-reviewer-verification-required"
+                            ),
+                            "material_difference_status": (
+                                "reviewer-verified-materially-different"
+                                if reviewer_authority_verified
+                                else "unverified-reviewer-verification-required"
+                            ),
+                            "partial_posture": "review-or-owner-pending",
+                            "recovery": source.evidence["compensation_posture"],
+                        },
+                        result.links,
+                    )
+                return VerificationResult(
+                    "failed",
+                    {
+                        **result.evidence,
+                        "mission_successor_applied": False,
+                        "reviewer_request_current": reviewer_request_current,
+                        "reviewer_authority_verified": reviewer_authority_verified,
+                        "partial_posture": "unexpected-policy-history",
+                        "recovery": (
+                            "Inspect the changed policy and history. Never overwrite it with bind or retry succession automatically."
+                        ),
+                    },
+                    result.links,
+                )
+            policy = control.get("policy")
+            runtime_current = (
+                policy.get("runtime") if isinstance(policy, Mapping) else None
+            )
+            policy_current = bool(
+                isinstance(policy, Mapping)
+                and control.get("owner_sha256") == source.evidence["owner_sha256"]
+                and control.get("policy_version")
+                == source.evidence["expected_policy_version"]
+                and control.get("policy_sha256") == policy.get("policy_sha256")
+                and control.get("policy_history_head") == record.get("record_sha256")
+                and policy.get("mission_binding")
+                == source.evidence["successor_mission_binding"]
+                and _normalized_policy_root(policy)
+                == source.evidence["expected_normalized_policy_sha256"]
+                and runtime_current == source.evidence["runtime"]
+            )
+            history_records = control.get("policy_history_records")
+            prior_history_preserved = bool(
+                isinstance(history_records, list)
+                and len(history_records)
+                == source.evidence["prior_policy_history_count"] + 1
+                and [
+                    item.get("record_sha256")
+                    if isinstance(item, Mapping)
+                    else None
+                    for item in history_records[:-1]
+                ]
+                == source.evidence["prior_policy_history_roots"]
+                and isinstance(history_records[-1], Mapping)
+                and history_records[-1].get("record_sha256")
+                == record.get("record_sha256")
+            )
+            current_automations = control.get("automations_by_role")
+            automation_results: list[dict[str, Any]] = []
+            for expected in source.evidence["automations"]:
+                current = (
+                    current_automations.get(expected["role"])
+                    if isinstance(current_automations, Mapping)
+                    else None
+                )
+                preserved = bool(
+                    isinstance(current, Mapping)
+                    and current.get("status") == "available"
+                    and current.get("id") == expected["id"]
+                    and current.get("owner_status") == expected["owner_status"]
+                    and current.get("target_thread_id")
+                    == expected["target_thread_id"]
+                    and current.get("rrule") == expected["rrule"]
+                    and current.get("manifest_sha256")
+                    == expected["manifest_sha256"]
+                    and current.get("protected_sha256")
+                    == expected["protected_sha256"]
+                    and current.get("updated_at") == expected["updated_at"]
+                )
+                automation_results.append(
+                    {
+                        "role": expected["role"],
+                        "automation_id": expected["id"],
+                        "preserved": preserved,
+                    }
+                )
+            automations_preserved = bool(
+                len(automation_results) == len(source.evidence["automations"])
+                and all(item["preserved"] for item in automation_results)
+            )
+            target_current = False
+            source_current = False
+            run_project_current = False
+            try:
+                target_detail = self.app_server_client.read_task(
+                    projects,
+                    target.id,
+                    include_turns=True,
+                )
+                target_task = target_detail.get("task")
+                target_cwd, target_identity, _target_status = (
+                    self._validated_automation_project_task(
+                        target_task if isinstance(target_task, Mapping) else {},
+                        task_id=target.id,
+                        role="mission-successor target",
+                        project=self._project_from(projects, target),
+                        allow_active=True,
+                    )
+                )
+                current_source = self._binding_source_item(
+                    target_task if isinstance(target_task, Mapping) else {},
+                    source_record=str(source.evidence["mission_source_record"]),
+                    target_thread_id=target.id,
+                )
+                source_current = bool(
+                    current_source.get("turn_id")
+                    == source.evidence["mission_source_turn_id"]
+                    and current_source.get("item_id")
+                    == source.evidence["mission_source_item_id"]
+                    and current_source.get("content_sha256")
+                    == source.evidence["mission_source_sha256"]
+                    and current_source.get("envelope_sha256")
+                    == source.evidence["mission_source_envelope_sha256"]
+                    and current_source.get("part_types")
+                    == source.evidence["mission_source_part_types"]
+                    and current_source.get("client_id")
+                    == source.evidence["mission_source_client_id"]
+                    and current_source.get("classification")
+                    == source.evidence["mission_source_classification"]
+                )
+                target_current = bool(
+                    catalog_fingerprint == source.evidence["catalog_fingerprint"]
+                    and target_cwd == source.evidence["target_task_cwd"]
+                    and target_identity
+                    == (
+                        source.evidence["target_cwd_device"],
+                        source.evidence["target_cwd_inode"],
+                    )
+                    and source_current
+                )
+                current_project = self.operations_service.project_binding_snapshot(
+                    projects,
+                    target.id,
+                )
+                run_project_current = bool(
+                    current_project.get("fingerprint")
+                    == source.evidence["run_project_binding_fingerprint"]
+                    and current_project.get("project_binding")
+                    == source.evidence["run_project_binding"]
+                )
+            except (AppServerError, OperationError, OperationsProjectionError):
+                target_current = False
+                source_current = False
+                run_project_current = False
+            segments = history.get("segments")
+            prior_segments = source.evidence["prior_history"].get("segments")
+            historical_segments_preserved = False
+            successor_segment: Mapping[str, Any] | None = None
+            if isinstance(segments, list) and isinstance(prior_segments, list):
+                current_by_root = {
+                    item.get("mission_root"): item
+                    for item in segments
+                    if isinstance(item, Mapping)
+                }
+                preserved = []
+                for prior in prior_segments:
+                    if not isinstance(prior, Mapping):
+                        preserved.append(False)
+                        continue
+                    current = current_by_root.get(prior.get("mission_root"))
+                    was_current = prior.get("posture") == "current"
+                    compared_keys = {
+                        key
+                        for key in prior
+                        if key not in {"posture", "superseded_by"}
+                    }
+                    preserved.append(
+                        isinstance(current, Mapping)
+                        and all(current.get(key) == prior.get(key) for key in compared_keys)
+                        and current.get("posture")
+                        == (
+                            "predecessor" if was_current else prior.get("posture")
+                        )
+                        and current.get("superseded_by")
+                        == (
+                            source.evidence["successor_mission_root"]
+                            if was_current
+                            else prior.get("superseded_by")
+                        )
+                    )
+                successor_segment = current_by_root.get(
+                    source.evidence["successor_mission_root"]
+                )
+                historical_segments_preserved = bool(
+                    len(segments) == len(prior_segments) + 1
+                    and all(preserved)
+                )
+            activation_heads = control.get("open_mission_activations")
+            activation = None
+            if isinstance(activation_heads, Mapping) and len(activation_heads) == 1:
+                candidate = next(iter(activation_heads.values()))
+                if isinstance(candidate, Mapping):
+                    activation = candidate
+            activation_pending = bool(
+                isinstance(activation, Mapping)
+                and activation.get("phase") == "pending"
+                and activation.get("target_thread_id") == target.id
+                and activation.get("mission_root")
+                == source.evidence["successor_mission_root"]
+                and activation.get("mission_source_record")
+                == source.evidence["mission_source_record"]
+                and activation.get("activation_policy_sha256")
+                == control.get("policy_sha256")
+                and activation.get("policy_sha256") == control.get("policy_sha256")
+                and activation.get("first_eligible_work")
+                == source.evidence["first_eligible_work"]
+                and activation.get("evidence")
+                == source.evidence["expected_history_evidence"]
+                and not activation.get("source_record")
+            )
+            successor_isolated = False
+            if isinstance(activation, Mapping):
+                successor_isolated = bool(
+                    isinstance(successor_segment, Mapping)
+                    and successor_segment.get("posture") == "current"
+                    and successor_segment.get("superseded_by") is None
+                    and successor_segment.get("mission_source_record")
+                    == source.evidence["mission_source_record"]
+                    and history.get("active_mission_root")
+                    == source.evidence["successor_mission_root"]
+                    and history.get("policy_sha256") == control.get("policy_sha256")
+                    and successor_segment.get("policy_sha256s")
+                    == [control.get("policy_sha256")]
+                    and successor_segment.get("event_count") == 1
+                    and successor_segment.get("incident_count") == 0
+                    and successor_segment.get("open_incident_count") == 0
+                    and successor_segment.get("conclusion_count") == 0
+                    and successor_segment.get("terminal_record") is None
+                    and history.get("active_record_ids")
+                    == [activation.get("record_id")]
+                )
+            applied = bool(
+                policy_current
+                and prior_history_preserved
+                and reviewer_request_current
+                and reviewer_authority_verified
+                and group_ids == [target.id]
+                and automations_preserved
+                and target_current
+                and source_current
+                and run_project_current
+                and historical_segments_preserved
+                and activation_pending
+                and successor_isolated
+            )
+            evidence = {
+                **result.evidence,
+                "mission_successor_applied": applied,
+                "policy_postcondition_current": policy_current,
+                "prior_policy_history_preserved": prior_history_preserved,
+                "reviewer_request_current": reviewer_request_current,
+                "reviewer_authority_verified": reviewer_authority_verified,
+                "source_authority_status": (
+                    "reviewer-verified"
+                    if reviewer_authority_verified
+                    else "unverified-reviewer-verification-required"
+                ),
+                "material_difference_status": (
+                    "reviewer-verified-materially-different"
+                    if reviewer_authority_verified
+                    else "unverified-reviewer-verification-required"
+                ),
+                "single_group_current": group_ids == [target.id],
+                "group_ids": group_ids,
+                "target_task_current": target_current,
+                "mission_source_current": source_current,
+                "run_project_binding_current": run_project_current,
+                "role_bindings_preserved": runtime_current
+                == source.evidence["runtime"],
+                "automations_preserved": automations_preserved,
+                "automation_results": automation_results,
+                "predecessor_history_preserved": historical_segments_preserved,
+                "successor_current_state_isolated": successor_isolated,
+                "mission_activation_pending": activation_pending,
+                "activation_id": (
+                    activation.get("activation_id")
+                    if isinstance(activation, Mapping)
+                    else None
+                ),
+                "activation_record_id": (
+                    activation.get("record_id")
+                    if isinstance(activation, Mapping)
+                    else None
+                ),
+                "task_created": False,
+                "successor_task_created": False,
+                "mission_activation_started": False,
+                "new_mission_implementation_completed": False,
+                "direct_policy_write": False,
+                "direct_ledger_write": False,
+                "direct_automation_write": False,
+                "fix_executor_actor_attribution": "unavailable",
+                "automatic_retry": False,
+                "automatic_rollback": False,
+                "partial_posture": (
+                    "successor-active-activation-pending"
+                    if applied
+                    else "owner-postcondition-unverified"
+                    if policy_current
+                    else "review-or-owner-pending"
+                ),
+                "recovery": (
+                    None if applied else source.evidence["compensation_posture"]
+                ),
+            }
+            return VerificationResult(
+                "applied" if applied else "unverified" if policy_current else "pending",
+                evidence,
+                result.links,
+            )
+
+        return OperationDefinition(
+            operation_type="factory.supervision-mission-successor",
+            target_kind="run",
+            input_schema=schema,
+            owner=(
+                "independent reviewer + maintained fix executor + supervision mission-successor/policy/activation owner"
+            ),
+            authority=(
+                "explicit operator confirmation to request one bounded review, not mission authority",
+                "one exact complete ordinary user-message item on the current target",
+                "independent reviewer verification of direct authority, material difference, and predecessor disposition",
+                "closed incident, decision, successor-transition, and current activation heads",
+                "maintained semantic-escalation and fix-execution route gates",
+                "maintained mission-successor policy/history and same-target activation owner",
+            ),
+            ordinary_consequences=(
+                "Starts one bounded independent reviewer turn for one exact successor candidate.",
+                "The routed fix executor may append one next policy-mission-successor record and one pending same-target activation through the maintained owner.",
+                "The same target may be routed to the exact first eligible work, but work-start remains unverified and pending.",
+            ),
+            failure_consequences=(
+                "Routed, partial, stale, unchanged, unsupported, wrong-target, or open-head evidence sends no request.",
+                "A changed or partial owner postcondition remains pending/unverified without bind overwrite, retry, rollback, or task creation.",
+            ),
+            confirmation=ConfirmationContract(
+                "supervision-mission-successor",
+                "Type BEGIN SUCCESSOR MISSION to request independent review of this exact candidate. This does not attest authority.",
+                "BEGIN SUCCESSOR MISSION",
+            ),
+            idempotency=(
+                "One consumed preview starts at most one reviewer turn; a changed/current successor or policy head is rejected and no owner action is retried."
+            ),
+            expected_postcondition=(
+                "One independently verified materially different direct mission is the sole active binding on the same target/group; one exact next policy-history record and one pending first-work activation exist, every predecessor segment remains separate, roles and automations are unchanged, and no successor task or work-start claim is created."
+            ),
+            timeout_seconds=30,
+            limitations=(
+                "The operator request and App Server transport do not prove mission authority; the exact reviewer marker is required.",
+                "The applied postcondition ends at a pending same-target activation. It does not prove first work began or implement the new mission.",
+                "The dashboard never uses bind, writes policy/history/events directly, creates a task/group, or imports predecessor-only state into the successor.",
+                "Fix-executor actor attribution is unavailable in canonical policy history.",
+            ),
+            resolve_source=self._mission_successor_source,
+            describe_effect=lambda target, inputs, source: PreviewEffect(
+                f"Request independent review of one same-target successor mission for run {target.id}.",
+                "Only the maintained owner may replace the active binding, preserve predecessor history, and create the pending first-work activation after independent authority review.",
+                recipient=str(source.evidence["reviewer_task_id"]),
+                semantic_changes=self._mission_successor_semantic_changes(
+                    target,
+                    source,
+                ),
+            ),
+            route_gate_request=self._mission_successor_route_request,
             route_gate=self.route_gate,
             dispatch=dispatch,
             verify=verify,

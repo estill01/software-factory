@@ -1470,6 +1470,288 @@ class OperationsProjectionService:
             "automation_timezone": automation_timezone,
         }
 
+    def mission_history_snapshot(self, target_thread_id: str) -> dict[str, Any]:
+        """Return exact mission segmentation without promoting historical state."""
+
+        if not SAFE_ID.fullmatch(target_thread_id):
+            raise OperationsProjectionError("invalid_run_id", "Run target ID is invalid.")
+        unresolved = self.supervision_root / target_thread_id
+        if unresolved.is_symlink():
+            raise OperationsProjectionError(
+                "supervision_target_symlink_rejected",
+                "Supervision target must not be a symlink.",
+                status=422,
+            )
+        try:
+            directory = unresolved.resolve(strict=True)
+        except OSError as error:
+            raise OperationsProjectionError(
+                "run_not_found",
+                "Supervision target is not discoverable.",
+                status=404,
+            ) from error
+        if directory.parent != self.supervision_root or not directory.is_dir():
+            raise OperationsProjectionError(
+                "supervision_target_invalid",
+                "Supervision target escaped its canonical owner root.",
+                status=422,
+            )
+        evidence, cache_status = self._load_target(directory)
+        owner = self._module("supervision")
+        binding = owner.bound_mission(evidence.policy)
+        active_root = (
+            binding.get("mission_root") if isinstance(binding, Mapping) else None
+        )
+        segments = self._mission_segments(evidence)
+        active_record_ids = [
+            item.get("record_id")
+            for item in evidence.active_events
+            if isinstance(item.get("record_id"), str)
+        ]
+        active_record_sha256s = [
+            item.get("record_sha256")
+            for item in evidence.active_events
+            if isinstance(item.get("record_sha256"), str)
+            and SHA256.fullmatch(str(item["record_sha256"]))
+        ]
+        material = {
+            "target_thread_id": target_thread_id,
+            "active_mission_root": active_root,
+            "policy_sha256": evidence.policy.get("policy_sha256"),
+            "segments": segments,
+            "active_record_ids": active_record_ids,
+            "active_record_sha256s": active_record_sha256s,
+        }
+        return {
+            **material,
+            "fingerprint": _digest(material),
+            "cache_status": cache_status,
+        }
+
+    def mission_successor_plan_snapshot(
+        self,
+        target_thread_id: str,
+        *,
+        source_record: str,
+        source_sha256: str,
+        predecessor_disposition: str,
+        first_eligible_work: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        """Plan one same-target mission succession through the maintained owner."""
+
+        if (
+            not SAFE_ID.fullmatch(target_thread_id)
+            or not SAFE_ID.fullmatch(source_record)
+            or not SHA256.fullmatch(source_sha256)
+            or predecessor_disposition not in {"completed", "superseded"}
+            or not isinstance(first_eligible_work, str)
+            or not first_eligible_work
+            or len(first_eligible_work) > 160
+            or "\n" in first_eligible_work
+            or "\r" in first_eligible_work
+            or not isinstance(reason, str)
+            or not reason
+            or len(reason) > 480
+            or "\n" in reason
+            or "\r" in reason
+            or any(
+                marker in value
+                for value in (first_eligible_work, reason)
+                for marker in ("/Users/", "file://", "\\Users\\")
+            )
+        ):
+            raise OperationsProjectionError(
+                "mission_successor_input_invalid",
+                "Mission succession requires exact bounded source, disposition, first-work, and reason fields.",
+                status=422,
+            )
+        before = self.policy_control_snapshot(target_thread_id)
+        history_before = self.mission_history_snapshot(target_thread_id)
+        policy = before.get("policy")
+        if not isinstance(policy, Mapping):
+            raise OperationsProjectionError(
+                "mission_successor_policy_unavailable",
+                "The current supervision policy is unavailable.",
+                status=409,
+            )
+        owner = self._module("supervision")
+        current = owner.bound_mission(dict(policy))
+        if (
+            not isinstance(current, Mapping)
+            or not owner.mission_binding_is_supported(
+                current,
+                target_thread=target_thread_id,
+            )
+        ):
+            raise OperationsProjectionError(
+                "mission_successor_predecessor_unavailable",
+                "Mission succession requires one supported current predecessor binding.",
+                status=409,
+            )
+        try:
+            successor = owner.derive_mission_binding(
+                target_thread=target_thread_id,
+                source_class="direct-user",
+                source_record=source_record,
+                source_sha256=source_sha256,
+            )
+        except Exception as error:
+            raise OperationsProjectionError(
+                "mission_successor_source_invalid",
+                "The maintained owner rejected the exact direct-user successor source.",
+                status=422,
+            ) from error
+        if (
+            current.get("mission_source_record") == source_record
+            or owner.mission_binding_identity(current)
+            == owner.mission_binding_identity(successor)
+        ):
+            raise OperationsProjectionError(
+                "mission_successor_unchanged",
+                "The candidate source derives the already-current mission binding.",
+                status=409,
+            )
+
+        directory = (self.supervision_root / target_thread_id).resolve(strict=True)
+        evidence, _cache_status = self._load_target(directory)
+        if evidence.policy.get("policy_sha256") != before.get("policy_sha256"):
+            raise OperationsProjectionError(
+                "mission_successor_source_changed",
+                "The policy changed while the succession plan was being composed.",
+                status=409,
+                retryable=True,
+            )
+        all_events = list(evidence.events)
+        incident_heads: dict[str, Mapping[str, Any]] = {}
+        decision_heads: dict[str, Mapping[str, Any]] = {}
+        for item in all_events:
+            incident_id = item.get("incident_id")
+            if incident_id and owner.is_substantive_incident_record(
+                item,
+                str(incident_id),
+            ):
+                incident_heads[str(incident_id)] = item
+            if item.get("kind") == "decision" and item.get("decision_id"):
+                decision_heads[str(item["decision_id"])] = item
+        open_incidents = sorted(
+            incident_id
+            for incident_id, item in incident_heads.items()
+            if not owner.is_terminal_incident_record(item, incident_id)
+        )
+        open_decisions = sorted(
+            decision_id
+            for decision_id, item in decision_heads.items()
+            if item.get("phase") != "target-acknowledged"
+        )
+        open_transitions = owner.successor_transition_heads(
+            all_events,
+            open_only=True,
+        )
+        scoped_events = owner.mission_scoped_events(
+            directory,
+            dict(policy),
+            all_events,
+        )
+        open_activations = owner.mission_activation_heads(
+            scoped_events,
+            open_only=True,
+        )
+        if open_incidents or open_decisions or open_transitions or open_activations:
+            raise OperationsProjectionError(
+                "mission_successor_open_heads",
+                "Mission succession requires closed incidents, decisions, successor transitions, and current mission activation.",
+                status=409,
+            )
+        lifecycle = [item for item in scoped_events if item.get("kind") == "lifecycle"]
+        predecessor_terminal = lifecycle[-1] if lifecycle else None
+        if predecessor_disposition == "completed" and (
+            not isinstance(predecessor_terminal, Mapping)
+            or predecessor_terminal.get("status") != "completed"
+            or not isinstance(predecessor_terminal.get("record_id"), str)
+        ):
+            raise OperationsProjectionError(
+                "mission_successor_completion_unavailable",
+                "Completed succession requires one exact current predecessor completion lifecycle.",
+                status=409,
+            )
+        expected_evidence = [source_record]
+        if predecessor_disposition == "completed":
+            expected_evidence.append(str(predecessor_terminal["record_id"]))
+        expected_policy = json.loads(json.dumps(policy))
+        expected_policy["mission_binding"] = successor
+        expected_policy["policy_version"] = int(policy.get("policy_version", 0)) + 1
+        expected_policy.pop("policy_sha256", None)
+        expected_policy.pop("updated_at", None)
+        expected_normalized_policy_sha256 = _digest(expected_policy)
+        current_segment = next(
+            (
+                item
+                for item in history_before["segments"]
+                if item.get("posture") == "current"
+            ),
+            None,
+        )
+        if (
+            not isinstance(current_segment, Mapping)
+            or current_segment.get("mission_root") != current.get("mission_root")
+        ):
+            raise OperationsProjectionError(
+                "mission_successor_history_unavailable",
+                "The exact predecessor mission segment is unavailable.",
+                status=409,
+            )
+        after = self.policy_control_snapshot(target_thread_id)
+        history_after = self.mission_history_snapshot(target_thread_id)
+        if (
+            before.get("fingerprint") != after.get("fingerprint")
+            or history_before.get("fingerprint") != history_after.get("fingerprint")
+        ):
+            raise OperationsProjectionError(
+                "mission_successor_source_changed",
+                "Mission, policy, history, or open-head evidence changed during planning.",
+                status=409,
+                retryable=True,
+            )
+        material = {
+            "target_thread_id": target_thread_id,
+            "control_fingerprint": before.get("fingerprint"),
+            "history_fingerprint": history_before.get("fingerprint"),
+            "predecessor": current,
+            "successor": successor,
+            "predecessor_disposition": predecessor_disposition,
+            "predecessor_terminal_record": (
+                predecessor_terminal.get("record_id")
+                if isinstance(predecessor_terminal, Mapping)
+                else None
+            ),
+            "source_record": source_record,
+            "source_sha256": source_sha256,
+            "first_eligible_work": first_eligible_work,
+            "reason": reason,
+            "expected_evidence": expected_evidence,
+            "expected_policy_version": expected_policy["policy_version"],
+            "expected_normalized_policy_sha256": expected_normalized_policy_sha256,
+            "policy_history_head": before.get("policy_history_head"),
+            "policy_history_count": len(before.get("policy_history_records", [])),
+            "predecessor_segment": current_segment,
+        }
+        return {
+            **material,
+            "fingerprint": _digest(material),
+            "owner_sha256": before.get("owner_sha256"),
+            "policy_sha256": before.get("policy_sha256"),
+            "policy_version": before.get("policy_version"),
+            "expected_history_kind": "policy-mission-successor",
+            "expected_history_reason": f"{predecessor_disposition}: {reason}",
+            "open_incident_ids": open_incidents,
+            "open_decision_ids": open_decisions,
+            "open_successor_transition_ids": sorted(open_transitions),
+            "open_mission_activation_ids": sorted(open_activations),
+            "control": before,
+            "history": history_before,
+        }
+
     def lifecycle_gate_snapshot(
         self,
         target_thread_id: str,

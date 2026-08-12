@@ -152,6 +152,72 @@ class OperationsProjectionTests(unittest.TestCase):
             "unavailable",
         )
 
+    def test_mission_successor_plan_binds_exact_source_and_fails_on_open_heads(self) -> None:
+        target = "successor-target-0001"
+        source_record = f"codex:{target}:turn-001:item-001"
+        self._init_target(target, OLD_MISSION, "predecessor-source-001")
+
+        planned = self.service.mission_successor_plan_snapshot(
+            target,
+            source_record=source_record,
+            source_sha256="c" * 64,
+            predecessor_disposition="superseded",
+            first_eligible_work="Block 0 — successor contract",
+            reason="The exact direct user source materially replaces the predecessor.",
+        )
+        self.assertEqual(planned["predecessor"]["mission_root"], OLD_MISSION)
+        self.assertNotEqual(planned["successor"]["mission_root"], OLD_MISSION)
+        self.assertEqual(
+            planned["successor"]["mission_source_record"],
+            source_record,
+        )
+        self.assertEqual(planned["expected_policy_version"], 2)
+        self.assertEqual(planned["expected_evidence"], [source_record])
+        self.assertEqual(planned["expected_history_kind"], "policy-mission-successor")
+        self.assertEqual(planned["open_incident_ids"], [])
+        self.assertEqual(planned["open_decision_ids"], [])
+
+        with self.assertRaises(OperationsProjectionError) as completed:
+            self.service.mission_successor_plan_snapshot(
+                target,
+                source_record=source_record,
+                source_sha256="c" * 64,
+                predecessor_disposition="completed",
+                first_eligible_work="Block 0 — successor contract",
+                reason="The exact predecessor is complete.",
+            )
+        self.assertEqual(
+            completed.exception.code,
+            "mission_successor_completion_unavailable",
+        )
+
+        directory = self.supervision_root / target
+        policy = self.owner.read_json(directory / "policy.json")
+        self.owner.append_raw(
+            directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": "EVT-DECISION-OPEN",
+                "timestamp": "2026-08-09T10:20:00+00:00",
+                "target_thread_id": target,
+                "kind": "decision",
+                "decision_id": "DECISION-OPEN-001",
+                "phase": "decision-ready",
+                "policy_sha256": policy["policy_sha256"],
+                "evidence": [source_record],
+            },
+        )
+        with self.assertRaises(OperationsProjectionError) as open_head:
+            self.service.mission_successor_plan_snapshot(
+                target,
+                source_record=source_record,
+                source_sha256="c" * 64,
+                predecessor_disposition="superseded",
+                first_eligible_work="Block 0 — successor contract",
+                reason="The exact direct user source materially replaces the predecessor.",
+            )
+        self.assertEqual(open_head.exception.code, "mission_successor_open_heads")
+
     def _command(self, *arguments: str) -> dict[str, object]:
         result = subprocess.run(
             [

@@ -34,6 +34,7 @@ type InputQuestion = Extract<PendingRequest, { family: "user_input" }>["details"
 type ListedRun = { target_thread_id: string } | undefined
 type TrackerBlock = TrackerDetail["blocks"][number]
 type RunPolicy = NonNullable<RunDetail["policy"]>
+type CurrentMission = NonNullable<RunDetail["current_mission"]>
 type PolicyField = keyof RunPolicy["adjustable"]
 type AutomationRepairRow = RunPolicy["automation_reconciliation"][number]
 const roleRepairLabels = {
@@ -452,6 +453,7 @@ export function RunSupervisionActions({
   lifecycleStatus = null,
   missionBindingMissing = false,
   roleRepairRoles = [],
+  currentMission = null,
 }: {
   targetId: string
   projectId: string | null
@@ -460,6 +462,7 @@ export function RunSupervisionActions({
   lifecycleStatus?: string | null
   missionBindingMissing?: boolean
   roleRepairRoles?: string[]
+  currentMission?: CurrentMission | null
 }) {
   const runner = useOperationRunner()
   const [selectedIncident, setSelectedIncident] = useState("")
@@ -467,6 +470,11 @@ export function RunSupervisionActions({
   const [adjustReason, setAdjustReason] = useState("")
   const [adjustEnabled, setAdjustEnabled] = useState<Partial<Record<PolicyField, boolean>>>({})
   const [adjustValues, setAdjustValues] = useState<Partial<Record<PolicyField, string>>>({})
+  const [successorOpen, setSuccessorOpen] = useState(false)
+  const [successorSource, setSuccessorSource] = useState("")
+  const [successorDisposition, setSuccessorDisposition] = useState<"completed" | "superseded">("superseded")
+  const [successorFirstWork, setSuccessorFirstWork] = useState("")
+  const [successorReason, setSuccessorReason] = useState("")
   const repairableRoles = roleRepairRoles.filter(
     (role): role is RepairableRole => role in roleRepairLabels,
   )
@@ -702,6 +710,43 @@ export function RunSupervisionActions({
       ],
     })
   }
+  const successorValid = Boolean(
+    projectId
+    && currentMission?.root
+    && missionSourcePattern.test(successorSource)
+    && successorFirstWork.trim() === successorFirstWork
+    && successorFirstWork.length > 0
+    && successorFirstWork.length <= 160
+    && successorReason.trim() === successorReason
+    && successorReason.length > 0
+    && successorReason.length <= 480
+  )
+  const submitSuccessor = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!projectId || !currentMission?.root || !successorValid) return
+    runner.launch({
+      request: {
+        operation_type: "factory.supervision-mission-successor",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: {
+          mission_source_record: successorSource,
+          predecessor_disposition: successorDisposition,
+          first_eligible_work: successorFirstWork,
+          reason: successorReason,
+        },
+      },
+      suppliedFacts: [
+        ["Target / group", targetId],
+        ["Predecessor", `${currentMission.root} · ${successorDisposition}`],
+        ["Candidate source", `${successorSource} · exact bytes and direct authority require independent review`],
+        ["First eligible work", `${successorFirstWork} · pending activation, not proof of work-start`],
+        ["Preserved", "Target · supervision group · roles · automations · predecessor history"],
+        ["Excluded", "Bind overwrite · successor task · direct policy or ledger write · completion claim"],
+        ["Reason", successorReason],
+      ],
+    })
+    setSuccessorOpen(false)
+  }
   return (
     <>
       <ActionStrip feedback={runner.feedback}>
@@ -729,6 +774,14 @@ export function RunSupervisionActions({
           )}
         >
           Issue follow-up
+        </Button>
+        <Button
+          size="compact"
+          variant="outline"
+          disabled={unavailable || !policy || !currentMission?.root}
+          onClick={() => setSuccessorOpen(true)}
+        >
+          Successor mission
         </Button>
         <Button size="compact" disabled={unavailable || !policy} onClick={openAdjustment}>Adjust supervision</Button>
         <Button
@@ -861,6 +914,27 @@ export function RunSupervisionActions({
             })}
           </div>
           <TextField label="Reason" value={adjustReason} onChange={setAdjustReason} />
+        </InputDialog>
+      )}
+      {successorOpen && currentMission?.root && (
+        <InputDialog
+          title="Successor mission"
+          submitDisabled={!successorValid}
+          onClose={() => setSuccessorOpen(false)}
+          onSubmit={submitSuccessor}
+        >
+          <div className="workflow-exact-fact"><span>Predecessor</span><Identity value={currentMission.root} /></div>
+          <TextField label="Direct mission source record" value={successorSource} onChange={setSuccessorSource} placeholder={`codex:${targetId}:turn-id:item-id`} />
+          <label className="workflow-input-field">
+            <span>Predecessor disposition</span>
+            <select value={successorDisposition} onChange={(event) => setSuccessorDisposition(event.target.value as typeof successorDisposition)}>
+              <option value="superseded">Superseded</option>
+              <option value="completed">Completed</option>
+            </select>
+          </label>
+          <TextField label="First eligible work" value={successorFirstWork} onChange={setSuccessorFirstWork} />
+          <TextField label="Reason" value={successorReason} onChange={setSuccessorReason} />
+          <div className="workflow-exact-fact"><span>Authority</span><strong>Independent direct-source review required</strong></div>
         </InputDialog>
       )}
       {runner.confirmation}

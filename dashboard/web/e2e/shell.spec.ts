@@ -1543,3 +1543,199 @@ test("semantic resume previews exact owners without resuming the implementation 
   await expect(page.getByRole("button", { name: "Finish resume" })).toHaveCount(0)
   await expect(page.getByText("RESUME SUPERVISION", { exact: true })).toHaveCount(0)
 })
+
+test("same-target succession preserves history and stops at pending first-work activation", async ({ page, request }) => {
+  const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  runEnvelope.data.run.project_binding = {
+    status: "bound",
+    project_id: "software-factory",
+    evidence: [{ source_record: "policy", field: "project_root", value: "/fixture/software_factory" }],
+    limitations: [],
+  }
+  const predecessor = runEnvelope.data.run.current_mission?.root ?? "a".repeat(64)
+  runEnvelope.data.run.current_mission = {
+    root: predecessor,
+    source_record: "direct-user-predecessor",
+    policy_sha256: "b".repeat(64),
+  }
+  const historicalRoot = runEnvelope.data.run.mission_segments.find(
+    (segment: { posture: string }) => segment.posture === "predecessor",
+  )?.mission_root
+  expect(historicalRoot).toBeTruthy()
+  const successor = "c".repeat(64)
+  const sourceRecord = `codex:${target}:turn-source-002:item-source-002`
+  const operation = {
+    id: "op_e2e_mission_successor_preview",
+    type: "factory.supervision-mission-successor",
+    target: { kind: "run", id: target, project_id: "software-factory" },
+    state: "previewed",
+    owner: "independent reviewer + maintained fix executor + supervision mission-successor/policy/activation owner",
+    authority: [
+      "explicit operator confirmation to request one bounded review, not mission authority",
+      "independent reviewer verification of direct authority and material difference",
+    ],
+    preview: {
+      effect: `Request independent review of one same-target successor mission for run ${target}.`,
+      risk: "Only the maintained owner may replace the active binding and preserve predecessor history.",
+      recipient: "reviewer-task",
+      semantic_changes: {
+        status: "available",
+        complete: true,
+        rows: [
+          {
+            id: "mission-successor-binding",
+            subject: "Active mission binding",
+            kind: "changed",
+            before: { posture: "exact", value: predecessor },
+            after: { posture: "exact", value: successor },
+            owner: "maintained supervision mission-successor owner",
+            source_identity: `supervision-policy:${target}`,
+            source_revision: "b".repeat(64),
+            currentness_fingerprint: "d".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "mission-successor-predecessor-history",
+            subject: "Predecessor mission segment",
+            kind: "preserved",
+            before: { posture: "exact", value: predecessor },
+            after: { posture: "exact", value: predecessor },
+            owner: "maintained policy-history and mission-scoped event projection",
+            source_identity: `supervision-mission:${predecessor}`,
+            source_revision: "e".repeat(64),
+            currentness_fingerprint: "d".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "mission-successor-first-work",
+            subject: "Successor first eligible work",
+            kind: "added",
+            before: { posture: "unavailable", value: null },
+            after: { posture: "exact", value: "Block 0 capability review" },
+            owner: "maintained same-target mission-activation owner",
+            source_identity: `supervision-source:${sourceRecord}`,
+            source_revision: "f".repeat(64),
+            currentness_fingerprint: "d".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "mission-successor-target-task",
+            subject: "Target task identity",
+            kind: "preserved",
+            before: { posture: "exact", value: target },
+            after: { posture: "exact", value: target },
+            owner: "maintained Codex task reader",
+            source_identity: `codex-task:${target}`,
+            source_revision: "1".repeat(64),
+            currentness_fingerprint: "d".repeat(64),
+            links: [{ label: "Target task", href: `/tasks/${target}` }],
+          },
+        ],
+        limitations: ["Rows are source-backed and read-only."],
+      },
+      source_fingerprint: "d".repeat(64),
+      source_evidence: {
+        predecessor_mission_root: predecessor,
+        successor_mission_root: successor,
+        mission_source_record: sourceRecord,
+        source_authority_status: "unverified-reviewer-verification-required",
+        material_difference_status: "unverified-reviewer-verification-required",
+        first_eligible_work: "Block 0 capability review",
+      },
+      route_gate: {
+        status: "allowed",
+        target_thread: target,
+        recipient: "reviewer-task",
+        purpose: "semantic-escalation",
+        source_record: "EVT-CURRENT-SOURCE",
+        required_action: "Review one same-target successor mission.",
+        action_hash: "2".repeat(64),
+        policy_fingerprint: "3".repeat(64),
+        binding_fingerprint: "4".repeat(64),
+      },
+      consequences: {
+        ordinary: ["One independent review may lead to one successor policy version and pending activation."],
+        failure: ["No bind overwrite, retry, rollback, or task creation."],
+      },
+      confirmation: {
+        class: "supervision-mission-successor",
+        prompt: "Type BEGIN SUCCESSOR MISSION to request independent review of this exact candidate. This does not attest authority.",
+        expected_value: "BEGIN SUCCESSOR MISSION",
+      },
+      expected_postcondition: "One reviewed direct mission is active on the same target; predecessor history is preserved and first-work activation remains pending.",
+      idempotency: "One consumed preview starts at most one reviewer turn.",
+      limitations: [
+        "Operator confirmation does not prove direct mission authority.",
+        "The applied boundary does not create a task or claim first work began.",
+      ],
+      expires_at: "2099-08-12T09:30:00.000Z",
+    },
+    history: [{ state: "previewed", observed_at: "2026-08-12T09:25:00.000Z" }],
+    request_evidence: null,
+    verification_evidence: null,
+    links: [],
+    failure: null,
+  }
+  await page.route(`**/api/v1/runs/${target}`, (route) => route.fulfill({ json: runEnvelope }))
+  await page.route("**/api/v1/operations/preview", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      operation_type: "factory.supervision-mission-successor",
+      target: { kind: "run", id: target, project_id: "software-factory" },
+      input: {
+        mission_source_record: sourceRecord,
+        predecessor_disposition: "superseded",
+        first_eligible_work: "Block 0 capability review",
+        reason: "The direct user requested a materially different mission.",
+      },
+    })
+    await route.fulfill({
+      json: {
+        data: { operation, preview_token: "m".repeat(32) },
+        source: { kind: "administrative-operation", identity: operation.id, revision: "d".repeat(64) },
+        observed_at: "2026-08-12T09:25:00.000Z",
+        fingerprint: "d".repeat(64),
+        coverage: { status: "partial", observed: ["operation-preview"], missing: ["owner-postcondition"] },
+        limitations: ["Fixture stops before mutation."],
+        error: null,
+      },
+    })
+  })
+
+  await page.goto(`/runs/${target}`)
+  await expect(page.getByRole("button", { name: "Successor mission" })).toBeEnabled()
+  await page.getByRole("button", { name: "Successor mission" }).click()
+  const inputDialog = page.getByRole("dialog", { name: "Successor mission" })
+  await inputDialog.getByLabel("Direct mission source record").fill(sourceRecord)
+  await inputDialog.getByLabel("Predecessor disposition").selectOption("superseded")
+  await inputDialog.getByLabel("First eligible work").fill("Block 0 capability review")
+  await inputDialog.getByLabel("Reason").fill("The direct user requested a materially different mission.")
+  await inputDialog.getByRole("button", { name: "Preview" }).click()
+
+  const preview = page.getByRole("dialog")
+  await expect(preview).toContainText("exact bytes and direct authority require independent review")
+  await expect(preview).toContainText("pending activation, not proof of work-start")
+  await expect(preview).toContainText("Bind overwrite · successor task")
+  await expect(preview).toContainText("BEGIN SUCCESSOR MISSION")
+  const semanticChanges = preview.getByLabel("Owner supplied operation changes")
+  await expect(semanticChanges.getByRole("row", { name: /Active mission binding/ })).toContainText(predecessor.slice(0, 12))
+  await expect(semanticChanges).toContainText("Predecessor mission segment")
+  await expect(semanticChanges).toContainText("Block 0 capability review")
+  await expect(semanticChanges).toContainText("maintained same-target mission-activation owner")
+  await expect(preview.getByRole("button", { name: "Request operation" })).toBeDisabled()
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(
+    accessibility.violations.filter(({ impact }) => impact === "serious" || impact === "critical"),
+  ).toEqual([])
+  await expect(page.locator("h1")).toHaveCount(1)
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+  await preview.getByRole("button", { name: "Close operation preview" }).click()
+  await page.goto(`/runs/${target}?mission=${historicalRoot}`)
+  await expect(page.getByRole("button", { name: "Successor mission" })).toHaveCount(0)
+})

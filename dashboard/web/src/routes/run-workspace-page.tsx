@@ -392,6 +392,7 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
           roleRepairRoles={(run.topology?.roles ?? [])
             .filter((role) => role.binding_status === "missing-thread")
             .map((role) => role.role)}
+          currentMission={run.current_mission}
         />
       )}
 

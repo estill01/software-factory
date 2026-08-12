@@ -276,7 +276,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(duplicate_status, 409)
         self.assertEqual(duplicate["error"]["code"], "authoring_owner_conflict")
         self.assertEqual(executed["data"]["operation"]["state"], "applied")
-        self.assertEqual(len(supported), 19)
+        self.assertEqual(len(supported), 20)
         self.assertIn("factory.blocks-implement", supported)
         self.assertIn("factory.supervision-check-now", supported)
         self.assertIn("factory.supervision-adjust", supported)
@@ -284,6 +284,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertIn("factory.supervision-repair-role-task-binding", supported)
         self.assertIn("factory.supervision-pause", supported)
         self.assertIn("factory.supervision-resume", supported)
+        self.assertIn("factory.supervision-mission-successor", supported)
         automation_repair = next(
             item
             for item in unavailable
@@ -1173,6 +1174,525 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         with self.assertRaises(OperationError) as already:
             definition.resolve_source(target, {})
         self.assertEqual(already.exception.code, "supervision_already_running")
+
+    def test_mission_successor_preserves_history_and_ends_at_pending_activation(self) -> None:
+        project_root = self.root / "successor-project"
+        target_root = project_root / "target"
+        reviewer_root = self.root / "successor-reviewer"
+        fix_root = self.root / "successor-fix"
+        for path in (target_root, reviewer_root, fix_root):
+            path.mkdir(parents=True)
+        project = ProjectRecord(
+            id="successor-project",
+            label="Successor project",
+            root=str(project_root),
+        )
+        target_id = "target-successor-001"
+        reviewer_id = "reviewer-successor-001"
+        fix_id = "fix-successor-001"
+        source_turn_id = "turn-successor-source-001"
+        source_item_id = "item-successor-source-001"
+        source_record = f"codex:{target_id}:{source_turn_id}:{source_item_id}"
+        source_text = "Begin the materially different dashboard reliability mission."
+        source_sha = sha256(source_text.encode("utf-8")).hexdigest()
+        source_envelope_sha = sha256(
+            json.dumps(
+                [{"type": "text", "text": source_text}],
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        source_item = {
+            "id": source_item_id,
+            "type": "userMessage",
+            "summary": source_text,
+            "client_id": "client-successor-001",
+            "user_content_sha256": source_sha,
+            "user_content_truncated": False,
+            "user_content_envelope_sha256": source_envelope_sha,
+            "user_content_part_types": ["text"],
+            "user_input_classification": "ordinary-user-message",
+            "user_authority_status": "unverified",
+        }
+        tasks = {
+            target_id: {
+                "id": target_id,
+                "cwd": str(target_root),
+                "status": {"type": "idle"},
+                "project_binding": {
+                    "status": "bound",
+                    "project_id": project.id,
+                },
+                "turns_truncated": False,
+                "turns": [
+                    {
+                        "id": source_turn_id,
+                        "status": "completed",
+                        "items_truncated": False,
+                        "items": [source_item],
+                    }
+                ],
+            },
+            reviewer_id: {
+                "id": reviewer_id,
+                "cwd": str(reviewer_root),
+                "status": {"type": "idle"},
+                "turns_truncated": False,
+                "turns": [],
+            },
+            fix_id: {
+                "id": fix_id,
+                "cwd": str(fix_root),
+                "status": {"type": "idle"},
+                "turns_truncated": False,
+                "turns": [],
+            },
+        }
+        predecessor_root = "a" * 64
+        older_root = "b" * 64
+        successor_root = "c" * 64
+        predecessor_binding = {
+            "contract_version": 3,
+            "mission_root": predecessor_root,
+            "mission_source_record": "direct-user-predecessor",
+        }
+        successor_binding = {
+            "contract_version": 3,
+            "mission_root": successor_root,
+            "mission_source_record": source_record,
+            "mission_derivation": {
+                "controlling_source": {
+                    "class": "direct-user",
+                    "record": source_record,
+                    "sha256": source_sha,
+                }
+            },
+        }
+        runtime = {
+            "watcher_thread_id": "watcher-successor-001",
+            "base_reviewer_thread_id": None,
+            "reviewer_thread_id": reviewer_id,
+            "notice_reviewer_thread_id": None,
+            "fix_executor_thread_id": fix_id,
+            "gmail_gate_thread_id": None,
+            "gmail_processor_thread_id": None,
+            "roundup_thread_id": None,
+            "routine_automation_id": "watcher-automation-successor",
+            "meta_automation_id": "reviewer-automation-successor",
+            "gmail_poll_automation_id": None,
+            "roundup_automation_id": None,
+            "automation_id": None,
+        }
+        policy = {
+            "schema_version": 1,
+            "policy_version": 4,
+            "policy_sha256": "d" * 64,
+            "target_thread_id": target_id,
+            "project_root": str(project_root),
+            "mission_binding": predecessor_binding,
+            "runtime": runtime,
+        }
+        next_policy = {
+            **json.loads(json.dumps(policy)),
+            "policy_version": 5,
+            "policy_sha256": "e" * 64,
+            "updated_at": "2026-08-12T01:00:00+00:00",
+            "mission_binding": successor_binding,
+        }
+        prior_policy_record = {
+            "record_id": "POLICY-4",
+            "record_sha256": "f" * 64,
+            "timestamp": "2026-08-11T23:00:00+00:00",
+            "kind": "policy-bind",
+            "reason": "Existing mission binding.",
+            "evidence": [],
+            "policy": policy,
+        }
+        automations = {
+            "watcher": {
+                "status": "available",
+                "id": "watcher-automation-successor",
+                "name": "Successor watcher",
+                "kind": "heartbeat",
+                "owner_status": "ACTIVE",
+                "target_thread_id": runtime["watcher_thread_id"],
+                "rrule": "RRULE:FREQ=MINUTELY;INTERVAL=20",
+                "manifest_sha256": "1" * 64,
+                "protected_sha256": "2" * 64,
+                "updated_at": "2026-08-11T23:30:00Z",
+            },
+            "reviewer": {
+                "status": "available",
+                "id": "reviewer-automation-successor",
+                "name": "Successor reviewer",
+                "kind": "heartbeat",
+                "owner_status": "ACTIVE",
+                "target_thread_id": reviewer_id,
+                "rrule": "RRULE:FREQ=HOURLY;INTERVAL=4",
+                "manifest_sha256": "3" * 64,
+                "protected_sha256": "4" * 64,
+                "updated_at": "2026-08-11T23:31:00Z",
+            },
+            "gmail_gate": None,
+            "roundup_writer": None,
+            "weekly_report": None,
+        }
+        control = {
+            "fingerprint": "5" * 64,
+            "target_thread_id": target_id,
+            "owner_sha256": "6" * 64,
+            "policy": policy,
+            "runtime": runtime,
+            "policy_sha256": policy["policy_sha256"],
+            "policy_version": policy["policy_version"],
+            "policy_history_head": prior_policy_record["record_sha256"],
+            "policy_history_records": [prior_policy_record],
+            "source_record": "EVT-SUCCESSOR-SOURCE-001",
+            "open_mission_activations": {},
+            "automations_by_role": automations,
+        }
+        older_segment = {
+            "mission_root": older_root,
+            "mission_source_record": "direct-user-older",
+            "posture": "predecessor",
+            "superseded_by": predecessor_root,
+            "event_count": 2,
+            "incident_count": 0,
+            "open_incident_count": 0,
+            "conclusion_count": 1,
+            "terminal_record": "EVT-OLDER-COMPLETE",
+        }
+        predecessor_segment = {
+            "mission_root": predecessor_root,
+            "mission_source_record": "direct-user-predecessor",
+            "posture": "current",
+            "superseded_by": None,
+            "event_count": 3,
+            "incident_count": 0,
+            "open_incident_count": 0,
+            "conclusion_count": 0,
+            "terminal_record": None,
+        }
+        history = {
+            "target_thread_id": target_id,
+            "active_mission_root": predecessor_root,
+            "policy_sha256": policy["policy_sha256"],
+            "segments": [older_segment, predecessor_segment],
+            "active_record_ids": ["EVT-PREDECESSOR-001"],
+            "active_record_sha256s": ["7" * 64],
+            "fingerprint": "8" * 64,
+        }
+        plan = {
+            "fingerprint": "9" * 64,
+            "owner_sha256": control["owner_sha256"],
+            "policy_sha256": policy["policy_sha256"],
+            "policy_version": 4,
+            "policy_history_head": prior_policy_record["record_sha256"],
+            "policy_history_count": 1,
+            "predecessor": predecessor_binding,
+            "successor": successor_binding,
+            "predecessor_disposition": "superseded",
+            "predecessor_terminal_record": None,
+            "source_record": source_record,
+            "source_sha256": source_sha,
+            "first_eligible_work": "Block 0 capability review",
+            "reason": "The direct user requested a materially different mission.",
+            "expected_evidence": [source_record],
+            "expected_policy_version": 5,
+            "expected_normalized_policy_sha256": _normalized_policy_root(next_policy),
+            "expected_history_kind": "policy-mission-successor",
+            "expected_history_reason": (
+                "superseded: The direct user requested a materially different mission."
+            ),
+            "open_incident_ids": [],
+            "open_decision_ids": [],
+            "open_successor_transition_ids": [],
+            "open_mission_activation_ids": [],
+            "control": control,
+            "history": history,
+            "history_fingerprint": history["fingerprint"],
+            "predecessor_segment": predecessor_segment,
+        }
+        run_project = {
+            "fingerprint": "0" * 64,
+            "project_binding": {
+                "status": "bound",
+                "project_id": project.id,
+            },
+        }
+
+        class OperationsStub:
+            @staticmethod
+            def mission_successor_plan_snapshot(
+                selected_target,
+                *,
+                source_record,
+                source_sha256,
+                predecessor_disposition,
+                first_eligible_work,
+                reason,
+            ):
+                if (
+                    selected_target != target_id
+                    or source_record != plan["source_record"]
+                    or source_sha256 != plan["source_sha256"]
+                    or predecessor_disposition != plan["predecessor_disposition"]
+                    or first_eligible_work != plan["first_eligible_work"]
+                    or reason != plan["reason"]
+                ):
+                    raise AssertionError("wrong mission-successor plan source")
+                return plan
+
+            @staticmethod
+            def policy_control_snapshot(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong mission-successor target")
+                return control
+
+            @staticmethod
+            def mission_history_snapshot(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong mission-history target")
+                return history
+
+            @staticmethod
+            def project_binding_snapshot(_projects, selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong mission-project target")
+                return run_project
+
+            @staticmethod
+            def binding_group_ids(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong mission-group target")
+                return [target_id]
+
+        class AppServerStub:
+            prompt = None
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": name, "status": "supported"}
+                        for name in ("task_read", "task_resume", "turn_start")
+                    ]
+                }
+
+            @staticmethod
+            def read_task(_projects, task_id, *, include_turns):
+                if task_id not in tasks or not include_turns:
+                    raise AssertionError("wrong mission-successor task read")
+                return {"task": tasks[task_id]}
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                metadata = reviewer_root.stat()
+                if (
+                    task_id != reviewer_id
+                    or expected_cwd != str(reviewer_root)
+                    or expected_cwd_identity != (metadata.st_dev, metadata.st_ino)
+                ):
+                    raise AssertionError("wrong mission reviewer dispatch")
+                self.prompt = text
+                tasks[reviewer_id]["turns"] = [
+                    {
+                        "id": "turn-successor-review-001",
+                        "status": "inProgress",
+                        "items_truncated": False,
+                        "items": [{"type": "userMessage", "summary": text}],
+                    }
+                ]
+                return {
+                    "turn": {"id": "turn-successor-review-001"},
+                    "task_resumed": False,
+                }
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = AppServerStub()
+        owner.route_gate = lambda request: RouteGateResult(
+            True,
+            route_action_fingerprint(request.required_action),
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint=policy["policy_sha256"],
+            target_thread=request.target_thread,
+        )
+        owner._mission_successor_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), "a" * 64)
+        definition = owner._mission_successor_definition()
+        target = OperationTarget(kind="run", id=target_id, project_id=project.id)
+        inputs = {
+            "mission_source_record": source_record,
+            "predecessor_disposition": "superseded",
+            "first_eligible_work": plan["first_eligible_work"],
+            "reason": plan["reason"],
+        }
+
+        source = definition.resolve_source(target, inputs)
+        self.assertEqual(
+            source.evidence["source_authority_status"],
+            "unverified-reviewer-verification-required",
+        )
+        self.assertEqual(
+            source.evidence["prior_policy_history_roots"],
+            [prior_policy_record["record_sha256"]],
+        )
+        semantic = {
+            item.id: item
+            for item in definition.describe_effect(
+                target, inputs, source
+            ).semantic_changes
+        }
+        self.assertEqual(semantic["mission-successor-binding"].kind, "changed")
+        self.assertEqual(
+            semantic["mission-successor-target-task"].kind,
+            "preserved",
+        )
+        original_summary = source_item["summary"]
+        original_sha = source_item["user_content_sha256"]
+        original_envelope = source_item["user_content_envelope_sha256"]
+        source_item["summary"] = "<codex_delegation>routed</codex_delegation>"
+        source_item["user_content_sha256"] = sha256(
+            source_item["summary"].encode("utf-8")
+        ).hexdigest()
+        source_item["user_content_envelope_sha256"] = sha256(
+            json.dumps(
+                [{"type": "text", "text": source_item["summary"]}],
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ).hexdigest()
+        with self.assertRaises(OperationError) as routed:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(routed.exception.code, "mission_successor_source_unavailable")
+        source_item["summary"] = original_summary
+        source_item["user_content_sha256"] = original_sha
+        source_item["user_content_envelope_sha256"] = original_envelope
+
+        dispatched = definition.dispatch(target, inputs, source)
+        self.assertIn("$supervise-tracker-runs", owner.app_server_client.prompt)
+        self.assertIn("must not use bind", owner.app_server_client.prompt)
+        self.assertIn("Do not create a successor task", owner.app_server_client.prompt)
+        self.assertIn("mission-activation-start", owner.app_server_client.prompt)
+        pending = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(pending.state, "pending")
+        self.assertFalse(pending.evidence["mission_successor_applied"])
+
+        authority_summary = (
+            "SOFTWARE_FACTORY_DASHBOARD_MISSION_SUCCESSOR_AUTHORITY_REVIEW "
+            + json.dumps(
+                owner._mission_successor_authority_marker(target, source),
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            + "\nIndependent direct-source and material-difference review passed."
+        )
+        reviewer_turn = tasks[reviewer_id]["turns"][0]
+        reviewer_turn["status"] = "completed"
+        reviewer_turn["items"].append(
+            {
+                "type": "agentMessage",
+                "summary": authority_summary,
+                "summary_truncated": False,
+                "summary_sha256": sha256(
+                    authority_summary.encode("utf-8")
+                ).hexdigest(),
+            }
+        )
+        successor_record = {
+            "record_id": "POLICY-5",
+            "record_sha256": "a" * 64,
+            "timestamp": "2026-08-12T01:00:01+00:00",
+            "kind": plan["expected_history_kind"],
+            "reason": plan["expected_history_reason"],
+            "evidence": plan["expected_evidence"],
+            "policy": next_policy,
+        }
+        activation = {
+            "activation_id": "ACTIVATION-SUCCESSOR-001",
+            "record_id": "EVT-SUCCESSOR-ACTIVATION-001",
+            "phase": "pending",
+            "target_thread_id": target_id,
+            "mission_root": successor_root,
+            "mission_source_record": source_record,
+            "activation_policy_sha256": next_policy["policy_sha256"],
+            "policy_sha256": next_policy["policy_sha256"],
+            "first_eligible_work": plan["first_eligible_work"],
+            "evidence": plan["expected_evidence"],
+        }
+        control.update(
+            {
+                "policy": next_policy,
+                "runtime": next_policy["runtime"],
+                "policy_sha256": next_policy["policy_sha256"],
+                "policy_version": 5,
+                "policy_history_head": successor_record["record_sha256"],
+                "policy_history_records": [prior_policy_record, successor_record],
+                "open_mission_activations": {
+                    activation["activation_id"]: activation
+                },
+            }
+        )
+        history.update(
+            {
+                "active_mission_root": successor_root,
+                "policy_sha256": next_policy["policy_sha256"],
+                "segments": [
+                    dict(older_segment),
+                    {
+                        **predecessor_segment,
+                        "posture": "predecessor",
+                        "superseded_by": successor_root,
+                    },
+                    {
+                        "mission_root": successor_root,
+                        "mission_source_record": source_record,
+                        "posture": "current",
+                        "superseded_by": None,
+                        "policy_sha256s": [next_policy["policy_sha256"]],
+                        "event_count": 1,
+                        "incident_count": 0,
+                        "open_incident_count": 0,
+                        "conclusion_count": 0,
+                        "terminal_record": None,
+                    },
+                ],
+                "active_record_ids": [activation["record_id"]],
+                "active_record_sha256s": ["b" * 64],
+                "fingerprint": "c" * 64,
+            }
+        )
+        applied = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(applied.state, "applied", applied.evidence)
+        self.assertTrue(applied.evidence["mission_successor_applied"])
+        self.assertTrue(applied.evidence["predecessor_history_preserved"])
+        self.assertTrue(applied.evidence["successor_current_state_isolated"])
+        self.assertTrue(applied.evidence["mission_activation_pending"])
+        self.assertFalse(applied.evidence["successor_task_created"])
+        self.assertFalse(applied.evidence["mission_activation_started"])
+        self.assertEqual(len(tasks), 3)
+        self.assertEqual(
+            history["segments"][0]["superseded_by"],
+            predecessor_root,
+        )
+
+        history["segments"][-1]["conclusion_count"] = 1
+        leaked = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(leaked.state, "unverified")
+        self.assertFalse(leaked.evidence["successor_current_state_isolated"])
 
     def test_http_role_binding_repair_uses_disposable_policy_and_existing_task(self) -> None:
         target_id = "target-role-repair-001"
