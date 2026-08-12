@@ -1766,6 +1766,269 @@ def run_dogfood(*, workspace: Path, live_skills: Path) -> dict[str, object]:
     return result
 
 
+def _validated_rooted_object(
+    value: object, *, root_field: str, label: str
+) -> dict[str, object]:
+    if not isinstance(value, dict) or type(value.get(root_field)) is not str:
+        raise DogfoodError(f"{label} root is unavailable")
+    material = {key: item for key, item in value.items() if key != root_field}
+    if value[root_field] != digest(material):
+        raise DogfoodError(f"{label} root differs")
+    return dict(value)
+
+
+def reproducible_result_projection(
+    raw_result: Mapping[str, object],
+) -> dict[str, object]:
+    raw = _validated_rooted_object(
+        dict(raw_result), root_field="result_root", label="integrated dogfood"
+    )
+    expected = {
+        "schema_version",
+        "kind",
+        "source_revision",
+        "eligible_adopted",
+        "unchanged_no_op",
+        "losing_candidate",
+        "within_run_compatibility",
+        "live_skill_invocation",
+        "operator_projection",
+        "human_report_projection",
+        "external_effects_performed",
+        "live_release_mutated",
+        "live_policy_mutated",
+        "live_mission_mutated",
+        "live_lifecycle_mutated",
+        "gmail_action_performed",
+        "deployment_performed",
+        "temporary_target_effects_performed",
+        "temporary_release_effects_performed",
+        "result_root",
+    }
+    if set(raw) != expected:
+        raise DogfoodError("integrated dogfood raw schema differs")
+    winner = _validated_rooted_object(
+        raw["eligible_adopted"], root_field="cycle_root", label="winning cycle"
+    )
+    no_op = _validated_rooted_object(
+        raw["unchanged_no_op"], root_field="no_op_root", label="consumed no-op"
+    )
+    loser = _validated_rooted_object(
+        raw["losing_candidate"], root_field="cycle_root", label="losing cycle"
+    )
+    live = _validated_rooted_object(
+        raw["live_skill_invocation"],
+        root_field="live_skill_root",
+        label="live skill identity",
+    )
+    compatibility = _validated_rooted_object(
+        raw["within_run_compatibility"],
+        root_field="compatibility_root",
+        label="within-run compatibility",
+    )
+    operator = _validated_rooted_object(
+        raw["operator_projection"],
+        root_field="operator_projection_root",
+        label="operator projection",
+    )
+    report = _validated_rooted_object(
+        raw["human_report_projection"],
+        root_field="report_projection_root",
+        label="human report projection",
+    )
+    cycle_schema = {
+        "cycle",
+        "evolution_id",
+        "admission_result_root",
+        "packet_root",
+        "review_root",
+        "review_handoff_root",
+        "owner_handoff_root",
+        "normal_owner",
+        "candidate_revision",
+        "baseline_revision",
+        "candidate_currentness_root",
+        "candidate_validation_root",
+        "baseline_validation_root",
+        "evaluation_handoff_root",
+        "evaluation_root",
+        "evaluation_disposition",
+        "adoption_stage",
+        "outcome_posture",
+        "outcome_root",
+        "outcome_retry_duplicate",
+        "candidate_authoritative",
+        "incumbent_authoritative",
+        "human_request_count",
+        "release_activation_delta",
+        "installed_effect",
+        "selected_path",
+        "rejected_paths",
+        "structural_contract_changed",
+        "tracker_authoring_invoked",
+        "artifact_names",
+        "operator_status",
+        "cycle_root",
+    }
+    if set(winner) != cycle_schema or set(loser) != cycle_schema:
+        raise DogfoodError("integrated dogfood cycle schema differs")
+    if set(no_op) != {
+        "disposition",
+        "eligible",
+        "admission_authorized",
+        "reused",
+        "packet_builds",
+        "model_calls",
+        "reviewer_calls",
+        "human_request_count",
+        "event_delta",
+        "artifact_directory_delta",
+        "inventory_unchanged",
+        "candidate_created",
+        "authoring_handoff_created",
+        "no_op_root",
+    }:
+        raise DogfoodError("integrated dogfood no-op schema differs")
+    if (
+        type(raw["source_revision"]) is not str
+        or re.fullmatch(r"[0-9a-f]{40}", str(raw["source_revision"])) is None
+        or type(live.get("skills")) is not list
+        or len(live["skills"]) != 3
+        or compatibility.get("authority_modes")
+        != ["fixed", "full-autonomous", "recommend", "reviewed-autonomous"]
+        or compatibility.get("human_request_count") != 0
+        or winner.get("outcome_posture") != "adopted-effective"
+        or winner.get("evaluation_disposition") != "promote"
+        or winner.get("candidate_authoritative") is not True
+        or winner.get("release_activation_delta") != 1
+        or no_op.get("disposition") != "already-consumed-canonical-coverage"
+        or no_op.get("event_delta") != 0
+        or no_op.get("artifact_directory_delta") != 0
+        or no_op.get("model_calls") != 0
+        or no_op.get("reviewer_calls") != 0
+        or no_op.get("human_request_count") != 0
+        or loser.get("evaluation_disposition") != "reject"
+        or loser.get("outcome_posture") != "candidate-retired"
+        or loser.get("incumbent_authoritative") is not True
+        or loser.get("release_activation_delta") != 0
+        or operator.get("target_status") != ""
+    ):
+        raise DogfoodError("integrated dogfood semantic evidence differs")
+    installed = winner.get("installed_effect")
+    if installed is not None:
+        _validated_rooted_object(
+            installed,
+            root_field="observed_effect_root",
+            label="temporary installed effect",
+        )
+
+    cycle_fields = (
+        "cycle",
+        "normal_owner",
+        "evaluation_disposition",
+        "adoption_stage",
+        "outcome_posture",
+        "outcome_retry_duplicate",
+        "candidate_authoritative",
+        "incumbent_authoritative",
+        "human_request_count",
+        "release_activation_delta",
+        "selected_path",
+        "rejected_paths",
+        "structural_contract_changed",
+        "tracker_authoring_invoked",
+        "artifact_names",
+    )
+    winner_projection = {field: winner[field] for field in cycle_fields}
+    winner_projection.update(
+        {
+            "baseline_revision": winner["baseline_revision"],
+            "candidate_revision": winner["candidate_revision"],
+            "installed_effect": installed,
+            "high_precision_evidence_present": all(
+                type(winner.get(field)) is str
+                and re.fullmatch(r"[0-9a-f]{64}", str(winner.get(field)))
+                for field in (
+                    "admission_result_root",
+                    "packet_root",
+                    "review_root",
+                    "candidate_validation_root",
+                    "baseline_validation_root",
+                    "evaluation_handoff_root",
+                    "evaluation_root",
+                    "outcome_root",
+                )
+            ),
+        }
+    )
+    loser_projection = {field: loser[field] for field in cycle_fields}
+    loser_projection.update(
+        {
+            "baseline_revision": loser["baseline_revision"],
+            "candidate_created": type(loser.get("candidate_revision")) is str,
+            "high_precision_evidence_present": all(
+                type(loser.get(field)) is str
+                and re.fullmatch(r"[0-9a-f]{64}", str(loser.get(field)))
+                for field in (
+                    "admission_result_root",
+                    "packet_root",
+                    "review_root",
+                    "candidate_validation_root",
+                    "baseline_validation_root",
+                    "evaluation_handoff_root",
+                    "evaluation_root",
+                    "outcome_root",
+                )
+            ),
+        }
+    )
+    report_projection = {
+        "terminal_cycle_count": report["terminal_cycle_count"],
+        "current_outcomes": [
+            {
+                key: item[key]
+                for key in (
+                    "outcome_posture",
+                    "next_action",
+                    "candidate_authoritative",
+                    "incumbent_authoritative",
+                )
+            }
+            for item in report["current_outcomes"]
+        ],
+        "human_summary": report["human_summary"],
+    }
+    material: dict[str, object] = {
+        "schema_version": 1,
+        "kind": "software-factory-integrated-dogfood-semantic-projection",
+        "source_revision": raw["source_revision"],
+        "authorizing": False,
+        "raw_evidence_validated": True,
+        "live_skill_identity": live,
+        "eligible_adopted": winner_projection,
+        "unchanged_no_op": no_op,
+        "losing_candidate": loser_projection,
+        "within_run_compatibility": compatibility,
+        "operator_projection": operator,
+        "human_report_projection": report_projection,
+        "target_clean": operator["target_status"] == "",
+        "external_effects_performed": raw["external_effects_performed"],
+        "live_release_mutated": raw["live_release_mutated"],
+        "live_policy_mutated": raw["live_policy_mutated"],
+        "live_mission_mutated": raw["live_mission_mutated"],
+        "live_lifecycle_mutated": raw["live_lifecycle_mutated"],
+        "gmail_action_performed": raw["gmail_action_performed"],
+        "deployment_performed": raw["deployment_performed"],
+        "temporary_target_effects_performed": raw[
+            "temporary_target_effects_performed"
+        ],
+        "temporary_release_effects_performed": raw[
+            "temporary_release_effects_performed"
+        ],
+    }
+    return {**material, "projection_root": digest(material)}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
@@ -1776,12 +2039,18 @@ def main() -> int:
     parser.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
     parser.add_argument("--live-skills-root", type=Path, default=DEFAULT_LIVE_SKILLS)
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--evidence-output",
+        type=Path,
+        help="retain the exact run-specific high-precision evidence JSON",
+    )
     parser.add_argument("--pretty", action="store_true")
     args = parser.parse_args()
-    result = run_dogfood(
+    raw_result = run_dogfood(
         workspace=args.workspace,
         live_skills=args.live_skills_root,
     )
+    result = reproducible_result_projection(raw_result)
     payload = json.dumps(
         result,
         ensure_ascii=False,
@@ -1791,6 +2060,18 @@ def main() -> int:
     ) + "\n"
     if args.output is not None:
         args.output.write_text(payload, encoding="utf-8")
+    if args.evidence_output is not None:
+        args.evidence_output.write_text(
+            json.dumps(
+                raw_result,
+                ensure_ascii=False,
+                sort_keys=True,
+                indent=2 if args.pretty else None,
+                separators=None if args.pretty else (",", ":"),
+            )
+            + "\n",
+            encoding="utf-8",
+        )
     sys.stdout.write(payload)
     return 0
 

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import copy
 import subprocess
 import sys
 import tempfile
@@ -135,6 +136,24 @@ class IntegratedFactoryEvolutionDogfoodTests(unittest.TestCase):
             value = self.result[field]
             nested = {key: item for key, item in value.items() if key != root_field}
             self.assertEqual(value[root_field], dogfood.digest(nested))
+
+    def test_semantic_projection_is_closed_rooted_and_nonauthorizing(self) -> None:
+        projection = dogfood.reproducible_result_projection(self.result)
+        material = {
+            key: value for key, value in projection.items() if key != "projection_root"
+        }
+        self.assertEqual(projection["projection_root"], dogfood.digest(material))
+        self.assertFalse(projection["authorizing"])
+        self.assertTrue(projection["raw_evidence_validated"])
+        self.assertTrue(projection["target_clean"])
+        self.assertEqual(
+            projection["live_skill_identity"]["live_skill_root"],
+            self.result["live_skill_invocation"]["live_skill_root"],
+        )
+        changed = copy.deepcopy(self.result)
+        changed["eligible_adopted"]["cycle_root"] = "0" * 64
+        with self.assertRaisesRegex(dogfood.DogfoodError, "winning cycle root differs"):
+            dogfood.reproducible_result_projection(changed)
 
     def test_gitless_source_fallback_is_exact(self) -> None:
         completed = mock.Mock(returncode=128, stdout="", stderr="not a repository")

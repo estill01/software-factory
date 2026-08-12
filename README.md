@@ -385,7 +385,8 @@ disposable Git target and one disposable release owner:
 uv run --python 3.14 python \
   supervise-tracker-runs/scripts/factory_evolution_dogfood.py \
   --pretty \
-  --output /tmp/software-factory-integrated-dogfood-result.json
+  --output /tmp/software-factory-integrated-dogfood-result.json \
+  --evidence-output /tmp/software-factory-integrated-dogfood-evidence.json
 ```
 
 It advances one supported signal through packet preparation, independent
@@ -397,6 +398,12 @@ without a second activation. It also invokes the three current stable skill
 entrypoints, reuses the smaller adaptive-protocol matrix for all four authority
 modes, and projects concise operator/report summaries separately from canonical
 rooted evidence.
+
+The default/stdout result is a closed, nonauthorizing semantic projection that
+is byte-reproducible for one exact source and installed three-skill identity.
+`--evidence-output` separately retains the exact high-precision run. Its
+currentness and provenance roots intentionally include the disposable Git ref
+and reflog filesystem identities and are therefore current and run-specific.
 
 The result is a bounded demonstration, not a live release. Every live release,
 policy, mission, lifecycle, Gmail, deployment, and external-effect flag remains

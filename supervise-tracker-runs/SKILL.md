@@ -822,6 +822,9 @@ identities, operator status, consumed-input no-op, rejected candidate, role
 separation, and false live-effect flags. Do not replace those observations with
 the test result, artifact count, evaluator disposition, changelog, or summary.
 The runner is not an alternate live release or supervision owner.
+Retain the run-specific raw JSON with `--evidence-output`; use the separately
+rooted default/stdout semantic projection only for deterministic replay. The
+projection is nonauthorizing and never substitutes for raw-currentness review.
 
 The evaluation disposition remains independent evidence. Before terminal
 completion, reconcile the resulting current Factory behavior against the

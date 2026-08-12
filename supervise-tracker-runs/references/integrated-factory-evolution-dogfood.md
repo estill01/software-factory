@@ -14,7 +14,8 @@ stable skill links available at `/Users/ethanstillman/.codex/skills`, run:
 uv run --python 3.14 python \
   supervise-tracker-runs/scripts/factory_evolution_dogfood.py \
   --pretty \
-  --output /tmp/software-factory-integrated-dogfood-result.json
+  --output /tmp/software-factory-integrated-dogfood-result.json \
+  --evidence-output /tmp/software-factory-integrated-dogfood-evidence.json
 ```
 
 The command obtains an exclusive lock and recreates only
@@ -48,10 +49,19 @@ evolution functions against one disposable Git target. It retains:
   full-profile tracker verification invoked through the installed author skill.
 
 The deterministic clock, temporary evaluator seed, temporary owner-root
-material, target commit chronology, and fixed workspace make the exact result
-reproducible at one source revision and one current installed three-skill
-release. The result changes when either source or installed skill identity
-changes.
+material, target commit chronology, and closed semantic schema make the default
+projection reproducible at one source revision and one current installed
+three-skill release. It changes when either source or installed skill identity
+changes and is explicitly nonauthorizing. Projection construction first
+revalidates the exact raw result and each retained nested root.
+
+The separate `--evidence-output` JSON is the one frozen high-precision run. Its
+Git target-owner currentness deliberately binds ref and reflog path/stat
+identity, including device, inode, modification time, and change time. Those
+exact provenance/currentness roots and their dependent event roots are
+run-specific and must never be normalized. The semantic projection excludes
+only the closed, enumerated run-instance fields; it never removes fields by a
+root-name wildcard and cannot replace independent inspection of the raw run.
 
 ## Ownership and effect boundary
 
@@ -73,11 +83,19 @@ matrix is not permission to apply any live release.
 
 ## Interpret the output
 
-High-precision evidence is the canonical JSON: packet, review, candidate,
+High-precision evidence is the `--evidence-output` canonical JSON: packet, review, candidate,
 comparison, evaluation, adoption, installed-effect, outcome, live-skill, and
 operator-projection roots remain separate. The `human_report_projection`
 contains only a concise derived summary and never becomes an adjudicating
 source.
+
+The default/stdout JSON is the deterministic semantic projection. It retains
+the exact source revision and installed three-skill identity; winner owner,
+disposition, one activation, installed proof, and adopted-effective posture;
+consumed no-op zero deltas and calls; rejected loser, incumbent authority, and
+zero activation; rejected lower-power/generalized paths and no structural
+authoring; all four modes and human counts; operator/report postures and
+counts; clean target state; and every false live/reserved effect flag.
 
 Terminal acceptance requires independent inspection of the raw source inputs,
 exact events and artifacts, temporary installed bytes and executed output,

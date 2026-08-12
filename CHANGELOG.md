@@ -53,8 +53,9 @@ the completed program materially changes Software Factory.
   four authority modes with zero ordinary human request. This is a
   temporary-target and temporary-release demonstration only: no live release,
   policy, mission, lifecycle, Gmail, deployment, or external effect is claimed.
-  Exact source, rooted result, validation, and independent-review identities
-  remain in the terminal tracker evidence.
+  Exact source, run-specific rooted evidence, reproducible nonauthorizing
+  semantic projection, validation, and independent-review identities remain in
+  the terminal tracker evidence.
 
 - **Reviewed three-skill releases with one-pointer activation.** Mutable
   repository work no longer changes installed Codex behavior by default. A
