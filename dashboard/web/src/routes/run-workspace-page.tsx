@@ -397,6 +397,7 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
           successorTransitions={missionTransitions}
           weeklyReportWorkflow={run.weekly_report_workflow}
           terminalReportWorkflow={run.terminal_report_workflow}
+          terminalShutdownWorkflow={run.terminal_shutdown_workflow}
           factoryEvolutionWorkflow={run.factory_evolution_workflow}
         />
       )}
@@ -572,6 +573,37 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
                   <div className="workspace-bound">Report readiness is separate from request-stop, automation pause, and shutdown.</div>
                   {run.terminal_report_workflow.limitations.map((item) => <div className="workspace-bound" key={item}>{item}</div>)}
                   {run.terminal_report_workflow.error ? <div className="workspace-bound">{run.terminal_report_workflow.error.message}</div> : null}
+                </article>
+                <article className="weekly-report-progress terminal-shutdown-progress" aria-label="Terminal supervision shutdown">
+                  <div>
+                    <strong>Terminal shutdown</strong>
+                    <StatusMark status={run.terminal_shutdown_workflow.stage} />
+                  </div>
+                  <div>
+                    <span>Source stop: {run.terminal_shutdown_workflow.gate.source_stop_permitted === true ? "permitted" : run.terminal_shutdown_workflow.gate.source_stop_permitted === false ? "denied" : "unavailable"}</span>
+                    <span>Outcome: {run.terminal_shutdown_workflow.gate.completion_permitted === true ? "reconciled" : run.terminal_shutdown_workflow.gate.completion_permitted === false ? "open" : "unavailable"}</span>
+                    <span>Delivery: {run.terminal_shutdown_workflow.gate.terminal_reports_delivered === true ? "verified" : run.terminal_shutdown_workflow.gate.terminal_reports_delivered === false ? "missing" : "unavailable"}</span>
+                  </div>
+                  <div>
+                    <span>Lifecycle <Identity value={run.terminal_shutdown_workflow.lifecycle_record_id} /></span>
+                    <span>Report <Identity value={run.terminal_shutdown_workflow.report_set_id} /></span>
+                    <span>Delivery <Identity value={run.terminal_shutdown_workflow.delivery_record_id} /></span>
+                  </div>
+                  <div className="weekly-report-stages">
+                    {run.terminal_shutdown_workflow.automations.map((automation) => (
+                      <span key={automation.automation_id} data-status={automation.post_delivery ? "complete" : "current"}>
+                        {automation.label}<small>{automation.owner_status}{automation.post_delivery ? " · after delivery" : " · pause required"}</small>
+                      </span>
+                    ))}
+                  </div>
+                  <div>
+                    <span>{run.terminal_shutdown_workflow.receipt.status} · {run.terminal_shutdown_workflow.receipt.reason}</span>
+                    <Identity value={run.terminal_shutdown_workflow.receipt.previous_record_sha256} />
+                    <Identity value={run.terminal_shutdown_workflow.receipt.record_sha256} />
+                  </div>
+                  <div className="workspace-bound">{run.terminal_shutdown_workflow.gate.reason}</div>
+                  <div className="workspace-bound">{run.terminal_shutdown_workflow.recovery.guidance}</div>
+                  {run.terminal_shutdown_workflow.error ? <div className="workspace-bound">{run.terminal_shutdown_workflow.error.message}</div> : null}
                 </article>
                 <article className="weekly-report-progress evolution-progress" aria-label="Current Factory evolution workflow">
                   <div><strong>{run.factory_evolution_workflow.evolution_id ?? "Factory evolution"}</strong><StatusMark status={run.factory_evolution_workflow.stage} /></div>

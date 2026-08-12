@@ -960,6 +960,85 @@ const terminalReportWorkflowSchema = z
   })
   .strict()
 
+const terminalShutdownWorkflowSchema = z
+  .object({
+    status: z.enum(["available", "unavailable"]),
+    stage: z.enum(["request-stop", "blocked", "shutdown", "unavailable"]),
+    next_action: z.literal("shutdown").nullable(),
+    actionable: z.boolean(),
+    fingerprint: fingerprintSchema.nullable(),
+    mission_root: fingerprintSchema.nullable(),
+    state_fingerprint: z.string().min(1).max(128).nullable(),
+    completion_record_id: nullableString,
+    lifecycle_record_id: nullableString,
+    report_set_id: nullableString,
+    manifest_root: fingerprintSchema.nullable(),
+    delivery_record_id: nullableString,
+    delivery_timestamp: nullableString,
+    source_record: nullableString,
+    gate: z
+      .object({
+        status: z.enum(["ready", "blocked", "unavailable"]),
+        completion_permitted: z.boolean().nullable(),
+        source_stop_permitted: z.boolean().nullable(),
+        supervision_pause_permitted: z.boolean().nullable(),
+        terminal_reports_delivered: z.boolean().nullable(),
+        reason: z.string().min(1),
+        currentness: fingerprintSchema.nullable(),
+      })
+      .strict(),
+    open_heads: z
+      .object({
+        incident_ids: z.array(z.string().min(1)),
+        decision_ids: z.array(z.string().min(1)),
+        successor_transition_ids: z.array(z.string().min(1)),
+        mission_activation_ids: z.array(z.string().min(1)),
+      })
+      .strict(),
+    automations: z.array(
+      z
+        .object({
+          role: z.string().min(1),
+          label: z.string().min(1),
+          automation_id: z.string().min(1),
+          target_thread_id: z.string().min(1),
+          owner_status: z.enum(["ACTIVE", "PAUSED"]),
+          updated_at: z.string().min(1),
+          manifest_sha256: fingerprintSchema,
+          protected_sha256: fingerprintSchema,
+          post_delivery: z.boolean(),
+          action: z.enum(["preserve", "pause-after-delivery"]),
+        })
+        .strict(),
+    ),
+    receipt: z
+      .object({
+        status: z.enum(["missing", "stale", "verified", "unavailable"]),
+        record_id: nullableString,
+        record_sha256: fingerprintSchema.nullable(),
+        previous_record_sha256: fingerprintSchema.nullable(),
+        automation_state_root: fingerprintSchema.nullable(),
+        reason: z.string().min(1),
+      })
+      .strict(),
+    recovery: z
+      .object({
+        posture: z.enum([
+          "ready",
+          "finish-shutdown",
+          "complete",
+          "owner-reconciliation-required",
+          "prerequisite-denied",
+          "unavailable",
+        ]),
+        guidance: z.string().min(1),
+      })
+      .strict(),
+    limitations: z.array(z.string()),
+    error: projectionErrorSchema.nullable(),
+  })
+  .strict()
+
 const factoryEvolutionCandidateSchema = z
   .object({
     candidate_id: z.string().min(1),
@@ -1200,6 +1279,7 @@ export const runDetailSchema = runSummarySchema
     reports: z.array(reportArtifactSchema),
     weekly_report_workflow: weeklyReportWorkflowSchema,
     terminal_report_workflow: terminalReportWorkflowSchema,
+    terminal_shutdown_workflow: terminalShutdownWorkflowSchema,
     factory_evolution_workflow: factoryEvolutionWorkflowSchema,
     metrics: metricsProjectionSchema,
   })

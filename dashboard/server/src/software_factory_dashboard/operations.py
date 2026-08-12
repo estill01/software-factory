@@ -1859,16 +1859,25 @@ class OperationsProjectionService:
         lifecycle_state: str,
         source_record: str,
         state_fingerprint: str,
+        terminal_report_set_id: str | None = None,
     ) -> dict[str, Any]:
         """Run the maintained lifecycle gate read-only against one exact record."""
 
-        if lifecycle_state not in {"completed", "paused", "blocked", "failed", "stopped"}:
+        if lifecycle_state not in {
+            "completed",
+            "paused",
+            "blocked",
+            "failed",
+            "stopped",
+        }:
             raise OperationsProjectionError(
                 "lifecycle_state_invalid",
                 "The requested lifecycle state is unsupported.",
                 status=422,
             )
-        if not SAFE_ID.fullmatch(target_thread_id) or not SAFE_ID.fullmatch(source_record):
+        if not SAFE_ID.fullmatch(target_thread_id) or not SAFE_ID.fullmatch(
+            source_record
+        ):
             raise OperationsProjectionError(
                 "lifecycle_source_invalid",
                 "The lifecycle target or source record identity is invalid.",
@@ -1878,6 +1887,15 @@ class OperationsProjectionService:
             raise OperationsProjectionError(
                 "lifecycle_source_invalid",
                 "The lifecycle state fingerprint is required.",
+                status=422,
+            )
+        if terminal_report_set_id is not None and (
+            lifecycle_state != "completed"
+            or not SAFE_ID.fullmatch(terminal_report_set_id)
+        ):
+            raise OperationsProjectionError(
+                "lifecycle_terminal_report_invalid",
+                "An exact terminal report set may be selected only for a completed lifecycle.",
                 status=422,
             )
         before = self.policy_control_snapshot(target_thread_id)
@@ -1894,19 +1912,20 @@ class OperationsProjectionService:
                 "The exact current lifecycle record does not match the requested gate source.",
                 status=409,
             )
-        payload = self._owner_command(
-            [
-                "lifecycle-gate",
-                "--target-thread",
-                target_thread_id,
-                "--lifecycle-state",
-                lifecycle_state,
-                "--source-record",
-                source_record,
-                "--state-fingerprint",
-                state_fingerprint,
-            ]
-        )
+        command = [
+            "lifecycle-gate",
+            "--target-thread",
+            target_thread_id,
+            "--lifecycle-state",
+            lifecycle_state,
+            "--source-record",
+            source_record,
+            "--state-fingerprint",
+            state_fingerprint,
+        ]
+        if terminal_report_set_id is not None:
+            command.extend(["--terminal-report-set-id", terminal_report_set_id])
+        payload = self._owner_command(command)
         after = self.policy_control_snapshot(target_thread_id)
         if before.get("fingerprint") != after.get("fingerprint"):
             raise OperationsProjectionError(
@@ -1923,12 +1942,16 @@ class OperationsProjectionService:
             "notification_dedup_key",
             "open_mission_activations",
             "open_successor_transitions",
+            "pause_automation_ids",
             "policy_sha256",
+            "reason",
             "send_now",
             "source_record",
             "source_stop_permitted",
             "state_fingerprint",
             "supervision_pause_permitted",
+            "terminal_report_set_id",
+            "terminal_reports_delivered",
         }
         if (
             not required.issubset(payload)
@@ -1936,12 +1959,26 @@ class OperationsProjectionService:
             or payload.get("source_record") != source_record
             or payload.get("state_fingerprint") != state_fingerprint
             or payload.get("policy_sha256") != before.get("policy_sha256")
+            or (
+                terminal_report_set_id is not None
+                and payload.get("terminal_report_set_id") != terminal_report_set_id
+            )
             or not isinstance(payload.get("notification_category"), str)
             or not payload["notification_category"]
             or not isinstance(payload.get("notification_dedup_key"), str)
             or not payload["notification_dedup_key"]
             or not isinstance(payload.get("open_mission_activations"), list)
             or not isinstance(payload.get("open_successor_transitions"), list)
+            or not isinstance(payload.get("pause_automation_ids"), list)
+            or not isinstance(payload.get("reason"), str)
+            or type(payload.get("terminal_reports_delivered")) is not bool
+            or (
+                payload.get("terminal_report_set_id") is not None
+                and (
+                    not isinstance(payload.get("terminal_report_set_id"), str)
+                    or not SAFE_ID.fullmatch(str(payload["terminal_report_set_id"]))
+                )
+            )
             or any(
                 type(payload.get(key)) is not bool
                 for key in (
@@ -1979,12 +2016,8 @@ class OperationsProjectionService:
                 len(matching_notifications) != 1
                 or not isinstance(matching_notifications[0].get("record_id"), str)
                 or not SAFE_ID.fullmatch(str(matching_notifications[0]["record_id"]))
-                or not isinstance(
-                    matching_notifications[0].get("record_sha256"), str
-                )
-                or not SHA256.fullmatch(
-                    str(matching_notifications[0]["record_sha256"])
-                )
+                or not isinstance(matching_notifications[0].get("record_sha256"), str)
+                or not SHA256.fullmatch(str(matching_notifications[0]["record_sha256"]))
                 or _event_time(matching_notifications[0]) is None
             ):
                 raise OperationsProjectionError(
@@ -5324,6 +5357,482 @@ class OperationsProjectionService:
         evidence, _cache = self._load_target(resolved)
         return self._terminal_report_workflow(evidence)
 
+    def _terminal_shutdown_workflow(
+        self,
+        evidence: TargetEvidence,
+        *,
+        terminal_report: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        owner = self._module("supervision")
+
+        def unavailable(
+            code: str, message: str, *, retryable: bool = False
+        ) -> dict[str, Any]:
+            return {
+                "status": "unavailable",
+                "stage": "unavailable",
+                "next_action": None,
+                "actionable": False,
+                "fingerprint": None,
+                "mission_root": None,
+                "state_fingerprint": None,
+                "completion_record_id": None,
+                "lifecycle_record_id": None,
+                "report_set_id": None,
+                "manifest_root": None,
+                "delivery_record_id": None,
+                "delivery_timestamp": None,
+                "source_record": None,
+                "gate": {
+                    "status": "unavailable",
+                    "completion_permitted": None,
+                    "source_stop_permitted": None,
+                    "supervision_pause_permitted": None,
+                    "terminal_reports_delivered": None,
+                    "reason": message,
+                    "currentness": None,
+                },
+                "open_heads": {
+                    "incident_ids": [],
+                    "decision_ids": [],
+                    "successor_transition_ids": [],
+                    "mission_activation_ids": [],
+                },
+                "automations": [],
+                "receipt": {
+                    "status": "unavailable",
+                    "record_id": None,
+                    "record_sha256": None,
+                    "previous_record_sha256": None,
+                    "automation_state_root": None,
+                    "reason": "Terminal shutdown evidence is unavailable.",
+                },
+                "recovery": {
+                    "posture": "unavailable",
+                    "guidance": "Repair the named unavailable prerequisite through its maintained owner before previewing shutdown.",
+                },
+                "limitations": [
+                    "Terminal shutdown never follows from task status, tracker status, a green floor light, or report file existence.",
+                    "The dashboard does not write lifecycle, automation, report, delivery, or shutdown records directly.",
+                ],
+                "error": {"code": code, "message": message, "retryable": retryable},
+            }
+
+        mission = owner.bound_mission(evidence.policy)
+        heads = self._active_heads(evidence)
+        lifecycle = heads["lifecycle"][-1] if heads["lifecycle"] else None
+        if (
+            not isinstance(mission, Mapping)
+            or not isinstance(mission.get("mission_root"), str)
+            or not isinstance(lifecycle, Mapping)
+            or lifecycle.get("status") != "completed"
+            or not isinstance(lifecycle.get("record_id"), str)
+            or not isinstance(lifecycle.get("record_sha256"), str)
+            or not SHA256.fullmatch(str(lifecycle["record_sha256"]))
+            or not isinstance(lifecycle.get("state_fingerprint"), str)
+            or not lifecycle["state_fingerprint"]
+        ):
+            return unavailable(
+                "terminal_shutdown_completion_unavailable",
+                "Terminal shutdown requires one exact current mission and completed lifecycle.",
+            )
+        terminal_report = (
+            terminal_report
+            if terminal_report is not None
+            else self._terminal_report_workflow(evidence)
+        )
+        delivery_projection = terminal_report.get("delivery")
+        completion_projection = terminal_report.get("completion")
+        if (
+            terminal_report.get("status") != "available"
+            or terminal_report.get("stage") != "delivered"
+            or not isinstance(delivery_projection, Mapping)
+            or delivery_projection.get("status") != "delivered"
+            or not isinstance(completion_projection, Mapping)
+            or completion_projection.get("reconciled") is not True
+            or completion_projection.get("lifecycle_record_id")
+            != lifecycle["record_id"]
+            or not isinstance(terminal_report.get("report_set_id"), str)
+            or not isinstance(terminal_report.get("manifest_root"), str)
+            or not SHA256.fullmatch(str(terminal_report["manifest_root"]))
+            or not isinstance(delivery_projection.get("record_id"), str)
+        ):
+            reason = (
+                terminal_report.get("error", {}).get("message")
+                if isinstance(terminal_report.get("error"), Mapping)
+                else "The exact current terminal report and delivery are not verified."
+            )
+            return unavailable(
+                "terminal_shutdown_report_unavailable",
+                str(reason),
+            )
+        report_set_id = str(terminal_report["report_set_id"])
+        delivery = owner.latest_terminal_delivery(
+            list(evidence.events),
+            lifecycle_record_id=str(lifecycle["record_id"]),
+            report_set_id=report_set_id,
+        )
+        delivery_at = _event_time(delivery) if isinstance(delivery, Mapping) else None
+        if (
+            not isinstance(delivery, Mapping)
+            or delivery.get("record_id") != delivery_projection.get("record_id")
+            or delivery.get("report_set_id") != report_set_id
+            or delivery.get("state_fingerprint") != lifecycle["state_fingerprint"]
+            or delivery_at is None
+        ):
+            return unavailable(
+                "terminal_shutdown_delivery_unavailable",
+                "The exact current terminal delivery receipt is missing, stale, or ambiguous.",
+            )
+        try:
+            verification = self._owner_command(
+                [
+                    "terminal-report",
+                    "--target-thread",
+                    evidence.target_thread_id,
+                    "--action",
+                    "verify",
+                    "--report-set-id",
+                    report_set_id,
+                ]
+            )
+            control = self.policy_control_snapshot(evidence.target_thread_id)
+            gate_snapshot = self.lifecycle_gate_snapshot(
+                evidence.target_thread_id,
+                lifecycle_state="completed",
+                source_record=str(lifecycle["record_id"]),
+                state_fingerprint=str(lifecycle["state_fingerprint"]),
+                terminal_report_set_id=report_set_id,
+            )
+        except OperationsProjectionError as error:
+            return unavailable(error.code, str(error), retryable=error.retryable)
+        if verification.get("valid") is not True:
+            return unavailable(
+                "terminal_shutdown_report_unavailable",
+                "The maintained terminal verifier did not accept the exact current report set.",
+            )
+        gate = gate_snapshot.get("gate")
+        policy = control.get("policy")
+        automations_by_role = control.get("automations_by_role")
+        current_lifecycle = control.get("lifecycle_record")
+        if (
+            not isinstance(gate, Mapping)
+            or not isinstance(policy, Mapping)
+            or policy.get("policy_sha256") != evidence.policy.get("policy_sha256")
+            or not isinstance(automations_by_role, Mapping)
+            or not isinstance(current_lifecycle, Mapping)
+            or current_lifecycle.get("record_sha256") != lifecycle.get("record_sha256")
+        ):
+            return unavailable(
+                "terminal_shutdown_gate_unavailable",
+                "The lifecycle gate, policy, or exact automation owner set changed during projection.",
+                retryable=True,
+            )
+
+        incident_ids = sorted(
+            incident_id
+            for incident_id, item in heads["incidents"].items()
+            if not owner.is_terminal_incident_record(item, incident_id)
+        )
+        decision_ids = sorted(
+            decision_id
+            for decision_id, item in heads["decisions"].items()
+            if item.get("phase") != "target-acknowledged"
+        )
+        transition_ids = sorted(
+            transition_id
+            for transition_id, item in heads["transitions"].items()
+            if item.get("phase") != "work-started"
+        )
+        activation_ids = sorted(
+            owner.mission_activation_heads(list(evidence.active_events), open_only=True)
+        )
+        open_heads = {
+            "incident_ids": incident_ids,
+            "decision_ids": decision_ids,
+            "successor_transition_ids": transition_ids,
+            "mission_activation_ids": activation_ids,
+        }
+        expected_ids = owner.expected_terminal_automation_ids(policy)
+        gate_ids = gate.get("pause_automation_ids")
+        if (
+            not expected_ids
+            or not isinstance(gate_ids, list)
+            or gate_ids != expected_ids
+            or len(expected_ids) != len(set(expected_ids))
+        ):
+            return unavailable(
+                "terminal_shutdown_automation_set_unavailable",
+                "The lifecycle gate and policy do not expose one exact nonempty terminal automation set.",
+            )
+        runtime = policy.get("runtime")
+        runtime = runtime if isinstance(runtime, Mapping) else {}
+        normalized_automations: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for role, contract in sorted(AUTOMATION_BINDING_CONTRACTS.items()):
+            automation_id = self._policy_automation_id(policy, role)
+            if automation_id is None:
+                continue
+            automation = automations_by_role.get(role)
+            target_thread_id = runtime.get(contract["thread_key"])
+            if (
+                automation_id not in expected_ids
+                or automation_id in seen_ids
+                or not isinstance(target_thread_id, str)
+                or not target_thread_id
+                or not isinstance(automation, Mapping)
+                or automation.get("status") != "available"
+                or automation.get("id") != automation_id
+                or automation.get("kind") != "heartbeat"
+                or automation.get("target_thread_id") != target_thread_id
+                or automation.get("owner_status") not in {"ACTIVE", "PAUSED"}
+                or not isinstance(automation.get("manifest_sha256"), str)
+                or not SHA256.fullmatch(str(automation["manifest_sha256"]))
+                or not isinstance(automation.get("protected_sha256"), str)
+                or not SHA256.fullmatch(str(automation["protected_sha256"]))
+                or _event_time({"timestamp": automation.get("updated_at")}) is None
+            ):
+                return unavailable(
+                    "terminal_shutdown_automation_owner_unavailable",
+                    f"The exact {contract['label']} automation owner is missing, ambiguous, or malformed.",
+                )
+            seen_ids.add(automation_id)
+            updated_at = _event_time({"timestamp": automation["updated_at"]})
+            post_delivery = bool(
+                automation.get("owner_status") == "PAUSED"
+                and updated_at is not None
+                and updated_at >= delivery_at
+            )
+            normalized_automations.append(
+                {
+                    "role": role,
+                    "label": contract["label"],
+                    "automation_id": automation_id,
+                    "target_thread_id": target_thread_id,
+                    "owner_status": automation["owner_status"],
+                    "updated_at": automation["updated_at"],
+                    "manifest_sha256": automation["manifest_sha256"],
+                    "protected_sha256": automation["protected_sha256"],
+                    "post_delivery": post_delivery,
+                    "action": "preserve" if post_delivery else "pause-after-delivery",
+                }
+            )
+        if seen_ids != set(expected_ids):
+            return unavailable(
+                "terminal_shutdown_automation_set_unavailable",
+                "The projected policy roles do not account for every exact terminal automation owner.",
+            )
+        exact_owner_states: Mapping[str, Mapping[str, Any]] | None = None
+        exact_owner_error: str | None = None
+        try:
+            exact_owner_states = owner.terminal_automation_owner_states(
+                expected_ids,
+                not_before=delivery_at,
+                automation_root=self.automations_root,
+            )
+        except Exception as error:
+            exact_owner_error = str(error)
+
+        shutdown_records = [
+            item
+            for item in evidence.active_events
+            if item.get("kind") == "check"
+            and item.get("category") == owner.TERMINAL_SHUTDOWN_CATEGORY
+            and item.get("report_set_id") == report_set_id
+        ]
+        if len(shutdown_records) > 1:
+            return unavailable(
+                "terminal_shutdown_receipt_ambiguous",
+                "More than one terminal shutdown receipt claims the exact report set.",
+            )
+        receipt = shutdown_records[0] if shutdown_records else None
+        receipt_current = bool(
+            isinstance(receipt, Mapping)
+            and isinstance(exact_owner_states, Mapping)
+            and owner.terminal_shutdown_record_is_canonical(
+                receipt,
+                policy=policy,
+                lifecycle=lifecycle,
+                delivery=delivery,
+                verified=verification,
+                automation_states=exact_owner_states,
+            )
+        )
+        if isinstance(receipt, Mapping):
+            receipt_status = "verified" if receipt_current else "stale"
+            receipt_reason = (
+                "The canonical shutdown receipt matches the exact report set and every current paused automation owner."
+                if receipt_current
+                else "A shutdown receipt exists but no longer matches the exact lifecycle, report, policy, or current automation owners."
+            )
+        else:
+            receipt_status = "missing"
+            receipt_reason = "No canonical terminal shutdown receipt has been recorded for this report set."
+
+        gate_ready = bool(
+            gate.get("completion_permitted") is True
+            and gate.get("source_stop_permitted") is True
+            and gate.get("supervision_pause_permitted") is True
+            and gate.get("terminal_reports_delivered") is True
+            and gate.get("terminal_report_set_id") == report_set_id
+            and gate.get("open_mission_activations") == []
+            and gate.get("open_successor_transitions") == []
+            and not any(open_heads.values())
+        )
+        if receipt_current:
+            stage = "shutdown"
+            next_action = None
+            actionable = False
+            workflow_error = None
+            recovery_posture = "complete"
+            recovery_guidance = (
+                "No further shutdown action is supported for this report set."
+            )
+        elif isinstance(receipt, Mapping):
+            stage = "blocked"
+            next_action = None
+            actionable = False
+            workflow_error = {
+                "code": "terminal_shutdown_receipt_stale",
+                "message": receipt_reason,
+                "retryable": False,
+            }
+            recovery_posture = "owner-reconciliation-required"
+            recovery_guidance = "Do not retry or overwrite the append-once receipt; reconcile the named owner divergence outside this operation."
+        elif gate_ready:
+            stage = "request-stop"
+            next_action = "shutdown"
+            actionable = True
+            workflow_error = None
+            recovery_posture = (
+                "finish-shutdown"
+                if any(item["post_delivery"] for item in normalized_automations)
+                else "ready"
+            )
+            recovery_guidance = "Pause only each still-active or pre-delivery named automation, then run the maintained terminal-shutdown owner once."
+        else:
+            stage = "blocked"
+            next_action = None
+            actionable = False
+            blocked_reason = str(
+                gate.get("reason")
+                or "One or more outcome, open-head, report, lifecycle, or source-stop gates remain closed."
+            )
+            workflow_error = {
+                "code": "terminal_shutdown_gate_denied",
+                "message": blocked_reason,
+                "retryable": False,
+            }
+            recovery_posture = "prerequisite-denied"
+            recovery_guidance = "Close only the named current prerequisite through its maintained owner, then preview again."
+        workflow_fingerprint = _digest(
+            {
+                "target_source": evidence.fingerprint,
+                "terminal_report": terminal_report.get("fingerprint"),
+                "gate": gate_snapshot.get("currentness"),
+                "open_heads": open_heads,
+                "automations": [
+                    {
+                        "id": item["automation_id"],
+                        "status": item["owner_status"],
+                        "updated_at": item["updated_at"],
+                        "manifest": item["manifest_sha256"],
+                    }
+                    for item in normalized_automations
+                ],
+                "receipt": receipt.get("record_sha256")
+                if isinstance(receipt, Mapping)
+                else None,
+            }
+        )
+        limitations = [
+            "Source-stop permission, automation pause, and the terminal shutdown receipt are separate postconditions.",
+            "The dashboard delegates the exact owner sequence to the configured fix executor and never edits automation TOML or the supervision ledger directly.",
+            "A partial owner transition is retained without automatic retry or rollback.",
+            "The implementation task is observed and preserved; task status is never accepted as shutdown authority.",
+        ]
+        if exact_owner_error and not receipt_current:
+            limitations.append(
+                f"Exact paused-owner postcondition is not yet satisfied: {_bounded(exact_owner_error, 300)}"
+            )
+        return {
+            "status": "available",
+            "stage": stage,
+            "next_action": next_action,
+            "actionable": actionable,
+            "fingerprint": workflow_fingerprint,
+            "mission_root": str(mission["mission_root"]),
+            "state_fingerprint": str(lifecycle["state_fingerprint"]),
+            "completion_record_id": completion_projection.get("record_id"),
+            "lifecycle_record_id": str(lifecycle["record_id"]),
+            "report_set_id": report_set_id,
+            "manifest_root": terminal_report["manifest_root"],
+            "delivery_record_id": str(delivery["record_id"]),
+            "delivery_timestamp": delivery_at.isoformat().replace("+00:00", "Z"),
+            "source_record": str(delivery["record_id"]),
+            "gate": {
+                "status": "ready" if gate_ready else "blocked",
+                "completion_permitted": gate.get("completion_permitted"),
+                "source_stop_permitted": gate.get("source_stop_permitted"),
+                "supervision_pause_permitted": gate.get("supervision_pause_permitted"),
+                "terminal_reports_delivered": gate.get("terminal_reports_delivered"),
+                "reason": str(gate.get("reason", "Unavailable")),
+                "currentness": gate_snapshot.get("currentness"),
+            },
+            "open_heads": open_heads,
+            "automations": normalized_automations,
+            "receipt": {
+                "status": receipt_status,
+                "record_id": receipt.get("record_id")
+                if isinstance(receipt, Mapping)
+                else None,
+                "record_sha256": receipt.get("record_sha256")
+                if isinstance(receipt, Mapping)
+                else None,
+                "previous_record_sha256": receipt.get("previous_record_sha256")
+                if isinstance(receipt, Mapping)
+                else None,
+                "automation_state_root": receipt.get("automation_state_root")
+                if isinstance(receipt, Mapping)
+                else None,
+                "reason": receipt_reason,
+            },
+            "recovery": {
+                "posture": recovery_posture,
+                "guidance": recovery_guidance,
+            },
+            "limitations": limitations,
+            "error": workflow_error,
+        }
+    def terminal_shutdown_workflow_snapshot(
+        self,
+        target_thread_id: str,
+    ) -> dict[str, Any]:
+        if not SAFE_ID.fullmatch(target_thread_id):
+            raise OperationsProjectionError(
+                "invalid_run_id", "Run target ID is invalid."
+            )
+        directory = self.supervision_root / target_thread_id
+        if directory.is_symlink():
+            raise OperationsProjectionError(
+                "supervision_target_symlink_rejected",
+                "Supervision target must not be a symlink.",
+                status=422,
+            )
+        try:
+            resolved = directory.resolve(strict=True)
+        except OSError as error:
+            raise OperationsProjectionError(
+                "run_not_found", "Supervision target is not discoverable.", status=404
+            ) from error
+        if resolved.parent != self.supervision_root or not resolved.is_dir():
+            raise OperationsProjectionError(
+                "supervision_target_invalid",
+                "Supervision target escaped its canonical owner root.",
+                status=422,
+            )
+        evidence, _cache = self._load_target(resolved)
+        return self._terminal_shutdown_workflow(evidence)
     def _factory_evolution_workflow(
         self,
         evidence: TargetEvidence,
@@ -6226,8 +6735,12 @@ class OperationsProjectionService:
         owner = self._module("supervision")
         binding = owner.bound_mission(evidence.policy)
         current_mission = {
-            "root": str(binding["mission_root"]) if isinstance(binding, Mapping) else None,
-            "source_record": str(binding["mission_source_record"]) if isinstance(binding, Mapping) else None,
+            "root": str(binding["mission_root"])
+            if isinstance(binding, Mapping)
+            else None,
+            "source_record": str(binding["mission_source_record"])
+            if isinstance(binding, Mapping)
+            else None,
             "policy_sha256": evidence.policy.get("policy_sha256"),
         }
         heads = self._active_heads(evidence)
@@ -6249,6 +6762,10 @@ class OperationsProjectionService:
         reports = self._reports(evidence, owners)
         weekly_report_workflow = self._weekly_report_workflow(evidence)
         terminal_report_workflow = self._terminal_report_workflow(evidence)
+        terminal_shutdown_workflow = self._terminal_shutdown_workflow(
+            evidence,
+            terminal_report=terminal_report_workflow,
+        )
         factory_evolution_workflow = self._factory_evolution_workflow(evidence)
         metrics = self._metrics(evidence)
         incidents = []
@@ -6261,7 +6778,13 @@ class OperationsProjectionService:
                 }
             )
         decisions = [
-            {"decision_id": decision_id, "open": item.get("phase") != "target-acknowledged", "head": _record_ref(item), "phase": _bounded(item.get("phase")), "safe_frontier": _bounded(item.get("safe_frontier"))}
+            {
+                "decision_id": decision_id,
+                "open": item.get("phase") != "target-acknowledged",
+                "head": _record_ref(item),
+                "phase": _bounded(item.get("phase")),
+                "safe_frontier": _bounded(item.get("safe_frontier")),
+            }
             for decision_id, item in sorted(heads["decisions"].items())
         ]
         transitions = [
@@ -6277,40 +6800,36 @@ class OperationsProjectionService:
                 "requested_block_range": _bounded(
                     item.get("requested_block_range"), 80
                 ),
-                "first_eligible_block": _bounded(
-                    item.get("first_eligible_block"), 40
-                ),
-                "source_mission_root": _bounded(
-                    item.get("source_mission_root"), 64
-                ),
+                "first_eligible_block": _bounded(item.get("first_eligible_block"), 40),
+                "source_mission_root": _bounded(item.get("source_mission_root"), 64),
                 "governing_authority_source_class": _bounded(
                     item.get("governing_authority_source_class"), 40
                 ),
                 "governing_authority_source_record": _bounded(
                     item.get("governing_authority_source_record"), 160
                 ),
-                "successor_thread_id": _bounded(
-                    item.get("successor_thread_id"), 128
-                ),
+                "successor_thread_id": _bounded(item.get("successor_thread_id"), 128),
                 "successor_mission_root": _bounded(
                     item.get("successor_mission_root"), 64
                 ),
-                "successor_group_id": _bounded(
-                    item.get("successor_group_id"), 128
-                ),
+                "successor_group_id": _bounded(item.get("successor_group_id"), 128),
                 "handoff_record": _bounded(item.get("handoff_record"), 128),
                 "acknowledgement_record": _bounded(
                     item.get("acknowledgement_record"), 128
                 ),
                 "started_block": _bounded(item.get("started_block"), 40),
-                "state_fingerprint": _bounded(
-                    item.get("state_fingerprint"), 128
-                ),
+                "state_fingerprint": _bounded(item.get("state_fingerprint"), 128),
             }
             for transition_id, item in sorted(heads["transitions"].items())
         ]
-        activity_records = [item for item in evidence.active_events if item.get("kind") in ACTIVITY_KINDS]
-        conclusion_records = [item for item in evidence.active_events if self._is_conclusion(item, owner)]
+        activity_records = [
+            item
+            for item in evidence.active_events
+            if item.get("kind") in ACTIVITY_KINDS
+        ]
+        conclusion_records = [
+            item for item in evidence.active_events if self._is_conclusion(item, owner)
+        ]
         activities = [
             _event_projection(
                 item,
@@ -6335,7 +6854,10 @@ class OperationsProjectionService:
         lifecycle = heads["lifecycle"][-1] if heads["lifecycle"] else None
         topology = {
             "supervisor_group_id": _digest(
-                {"target": evidence.target_thread_id, "mission": current_mission["root"]}
+                {
+                    "target": evidence.target_thread_id,
+                    "mission": current_mission["root"],
+                }
             ),
             "implementation": {
                 "thread_id": evidence.target_thread_id,
@@ -6356,26 +6878,41 @@ class OperationsProjectionService:
         return {
             "status": "available",
             "target_thread_id": evidence.target_thread_id,
-            "target_label": str(evidence.policy.get("target_label", evidence.target_thread_id[:12])),
+            "target_label": str(
+                evidence.policy.get("target_label", evidence.target_thread_id[:12])
+            ),
             "observed_at": _observed_at(),
             "fingerprint": evidence.fingerprint,
             "current_mission": current_mission,
             "project_binding": project_binding,
             "event_count": len(evidence.events),
             "current_event_count": len(evidence.active_events),
-            "predecessor_count": sum(1 for segment in self._mission_segments(evidence) if segment["posture"] != "current"),
-            "lifecycle": {"status": _bounded(lifecycle.get("status")) if lifecycle else None, "record": _record_ref(lifecycle)},
+            "predecessor_count": sum(
+                1
+                for segment in self._mission_segments(evidence)
+                if segment["posture"] != "current"
+            ),
+            "lifecycle": {
+                "status": _bounded(lifecycle.get("status")) if lifecycle else None,
+                "record": _record_ref(lifecycle),
+            },
             "counts": {
                 "open_incidents": sum(1 for item in incidents if item["open"]),
                 "open_decisions": sum(1 for item in decisions if item["open"]),
-                "open_successor_transitions": sum(1 for item in transitions if item["open"]),
+                "open_successor_transitions": sum(
+                    1 for item in transitions if item["open"]
+                ),
                 "activities": len(activity_records),
                 "conclusions": len(conclusion_records),
                 "reports": dict(sorted(report_counts.items())),
             },
             "last_check": _record_ref(heads["checks"][-1] if heads["checks"] else None),
-            "latest_activity": _record_ref(activity_records[-1] if activity_records else None),
-            "latest_conclusion": _record_ref(conclusion_records[-1] if conclusion_records else None),
+            "latest_activity": _record_ref(
+                activity_records[-1] if activity_records else None
+            ),
+            "latest_conclusion": _record_ref(
+                conclusion_records[-1] if conclusion_records else None
+            ),
             "light": light,
             "topology": topology,
             "policy": {
@@ -6407,9 +6944,18 @@ class OperationsProjectionService:
                     "record_id": record.get("record_id"),
                     "timestamp": record.get("timestamp"),
                     "kind": record.get("kind"),
-                    "policy_version": record.get("policy", {}).get("policy_version") if isinstance(record.get("policy"), Mapping) else None,
-                    "policy_sha256": record.get("policy", {}).get("policy_sha256") if isinstance(record.get("policy"), Mapping) else None,
-                    "mission_root": evidence.roots_by_policy.get(str(record.get("policy", {}).get("policy_sha256", "")), "unbound") if isinstance(record.get("policy"), Mapping) else "unbound",
+                    "policy_version": record.get("policy", {}).get("policy_version")
+                    if isinstance(record.get("policy"), Mapping)
+                    else None,
+                    "policy_sha256": record.get("policy", {}).get("policy_sha256")
+                    if isinstance(record.get("policy"), Mapping)
+                    else None,
+                    "mission_root": evidence.roots_by_policy.get(
+                        str(record.get("policy", {}).get("policy_sha256", "")),
+                        "unbound",
+                    )
+                    if isinstance(record.get("policy"), Mapping)
+                    else "unbound",
                 }
                 for record in evidence.policy_history
             ],
@@ -6427,20 +6973,35 @@ class OperationsProjectionService:
             "reports": reports,
             "weekly_report_workflow": weekly_report_workflow,
             "terminal_report_workflow": terminal_report_workflow,
+            "terminal_shutdown_workflow": terminal_shutdown_workflow,
             "factory_evolution_workflow": factory_evolution_workflow,
             "metrics": metrics,
             "source": {
                 "identity": "supervise-tracker-runs/scripts/supervision_log.py",
                 "root": str(evidence.directory),
                 "revision": owners["supervision"]["sha256"],
-                "event_head_sha256": evidence.events[-1].get("record_sha256") if evidence.events else None,
+                "event_head_sha256": evidence.events[-1].get("record_sha256")
+                if evidence.events
+                else None,
                 "policy_head_sha256": evidence.policy.get("policy_sha256"),
                 "cache_status": cache_status,
             },
             "coverage": {
                 "status": "partial",
-                "observed": ["policy", "policy-history", "event-ledger", "mission-scoped-state", "automations", "reports", "metrics"],
-                "missing": ["codex-app-server-task-state", "canonical-tracker-association", "automation-wake-receipts"],
+                "observed": [
+                    "policy",
+                    "policy-history",
+                    "event-ledger",
+                    "mission-scoped-state",
+                    "automations",
+                    "reports",
+                    "metrics",
+                ],
+                "missing": [
+                    "codex-app-server-task-state",
+                    "canonical-tracker-association",
+                    "automation-wake-receipts",
+                ],
             },
             "limitations": [
                 "Current state is scoped to the active mission root; predecessor records remain separate history.",
@@ -6448,12 +7009,21 @@ class OperationsProjectionService:
                 "Canonical supervision events do not identify an emitting task or role; actor attribution is unavailable rather than inferred from model or reasoning.",
                 "Traffic lights are transparent derived facts, never lifecycle or completion state.",
                 "API-equivalent cost is an estimate from the maintained report owner, not billing telemetry.",
-            ] + (["Timeline was bounded to its newest records; source line identities remain exact."] if timeline_truncated else []),
+            ]
+            + (
+                [
+                    "Timeline was bounded to its newest records; source line identities remain exact."
+                ]
+                if timeline_truncated
+                else []
+            ),
             "error": None,
         }
 
     @staticmethod
-    def _unavailable_run(target: str, error: OperationsProjectionError) -> dict[str, Any]:
+    def _unavailable_run(
+        target: str, error: OperationsProjectionError
+    ) -> dict[str, Any]:
         observed = _observed_at()
         return {
             "status": "unavailable",
@@ -6462,7 +7032,12 @@ class OperationsProjectionService:
             "observed_at": observed,
             "fingerprint": None,
             "current_mission": None,
-            "project_binding": {"status": "unassigned", "project_id": None, "evidence": [], "limitations": []},
+            "project_binding": {
+                "status": "unassigned",
+                "project_id": None,
+                "evidence": [],
+                "limitations": [],
+            },
             "event_count": None,
             "current_event_count": None,
             "predecessor_count": None,
@@ -6474,16 +7049,18 @@ class OperationsProjectionService:
             "light": {
                 "posture": "red",
                 "label": "Action required",
-                "facts": [{
-                    "rule": "source-integrity-failure",
-                    "severity": "red",
-                    "record_id": None,
-                    "observed_at": observed,
-                    "detail": str(error),
-                    "source_identity": "supervise-tracker-runs/source-validation",
-                    "source_path": None,
-                    "source_line": None,
-                }],
+                "facts": [
+                    {
+                        "rule": "source-integrity-failure",
+                        "severity": "red",
+                        "record_id": None,
+                        "observed_at": observed,
+                        "detail": str(error),
+                        "source_identity": "supervise-tracker-runs/source-validation",
+                        "source_path": None,
+                        "source_line": None,
+                    }
+                ],
                 "derived": True,
                 "completion_claim": False,
             },
@@ -6582,6 +7159,56 @@ class OperationsProjectionService:
                     "retryable": error.retryable,
                 },
             },
+            "terminal_shutdown_workflow": {
+                "status": "unavailable",
+                "stage": "unavailable",
+                "next_action": None,
+                "actionable": False,
+                "fingerprint": None,
+                "mission_root": None,
+                "state_fingerprint": None,
+                "completion_record_id": None,
+                "lifecycle_record_id": None,
+                "report_set_id": None,
+                "manifest_root": None,
+                "delivery_record_id": None,
+                "delivery_timestamp": None,
+                "source_record": None,
+                "gate": {
+                    "status": "unavailable",
+                    "completion_permitted": None,
+                    "source_stop_permitted": None,
+                    "supervision_pause_permitted": None,
+                    "terminal_reports_delivered": None,
+                    "reason": "Run source is unavailable.",
+                    "currentness": None,
+                },
+                "open_heads": {
+                    "incident_ids": [],
+                    "decision_ids": [],
+                    "successor_transition_ids": [],
+                    "mission_activation_ids": [],
+                },
+                "automations": [],
+                "receipt": {
+                    "status": "unavailable",
+                    "record_id": None,
+                    "record_sha256": None,
+                    "previous_record_sha256": None,
+                    "automation_state_root": None,
+                    "reason": "Terminal shutdown evidence is unavailable.",
+                },
+                "recovery": {
+                    "posture": "unavailable",
+                    "guidance": "Repair the run source before previewing shutdown.",
+                },
+                "limitations": [],
+                "error": {
+                    "code": error.code,
+                    "message": str(error),
+                    "retryable": error.retryable,
+                },
+            },
             "factory_evolution_workflow": {
                 "status": "unavailable",
                 "stage": "unavailable",
@@ -6618,11 +7245,30 @@ class OperationsProjectionService:
                     "retryable": error.retryable,
                 },
             },
-            "metrics": {"status": "unavailable", "definition_owner": "supervise-tracker-runs/scripts/weekly_report.py", "metrics": None, "error": {"code": error.code, "message": str(error), "retryable": error.retryable}},
+            "metrics": {
+                "status": "unavailable",
+                "definition_owner": "supervise-tracker-runs/scripts/weekly_report.py",
+                "metrics": None,
+                "error": {
+                    "code": error.code,
+                    "message": str(error),
+                    "retryable": error.retryable,
+                },
+            },
             "source": None,
-            "coverage": {"status": "unavailable", "observed": [], "missing": ["supervision-integrity"]},
-            "limitations": ["This source-local failure does not suppress independent targets."],
-            "error": {"code": error.code, "message": str(error), "retryable": error.retryable},
+            "coverage": {
+                "status": "unavailable",
+                "observed": [],
+                "missing": ["supervision-integrity"],
+            },
+            "limitations": [
+                "This source-local failure does not suppress independent targets."
+            ],
+            "error": {
+                "code": error.code,
+                "message": str(error),
+                "retryable": error.retryable,
+            },
         }
 
     @staticmethod

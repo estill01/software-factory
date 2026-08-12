@@ -37,6 +37,7 @@ type RunPolicy = NonNullable<RunDetail["policy"]>
 type CurrentMission = NonNullable<RunDetail["current_mission"]>
 type WeeklyReportWorkflow = RunDetail["weekly_report_workflow"]
 type TerminalReportWorkflow = RunDetail["terminal_report_workflow"]
+type TerminalShutdownWorkflow = RunDetail["terminal_shutdown_workflow"]
 type FactoryEvolutionWorkflow = RunDetail["factory_evolution_workflow"]
 type PolicyField = keyof RunPolicy["adjustable"]
 type AutomationRepairRow = RunPolicy["automation_reconciliation"][number]
@@ -118,6 +119,56 @@ const unavailableTerminalReportWorkflow: TerminalReportWorkflow = {
   error: {
     code: "terminal_report_workflow_unavailable",
     message: "Terminal report workflow projection is unavailable.",
+    retryable: true,
+  },
+}
+const unavailableTerminalShutdownWorkflow: TerminalShutdownWorkflow = {
+  status: "unavailable",
+  stage: "unavailable",
+  next_action: null,
+  actionable: false,
+  fingerprint: null,
+  mission_root: null,
+  state_fingerprint: null,
+  completion_record_id: null,
+  lifecycle_record_id: null,
+  report_set_id: null,
+  manifest_root: null,
+  delivery_record_id: null,
+  delivery_timestamp: null,
+  source_record: null,
+  gate: {
+    status: "unavailable",
+    completion_permitted: null,
+    source_stop_permitted: null,
+    supervision_pause_permitted: null,
+    terminal_reports_delivered: null,
+    reason: "Terminal shutdown projection is unavailable.",
+    currentness: null,
+  },
+  open_heads: {
+    incident_ids: [],
+    decision_ids: [],
+    successor_transition_ids: [],
+    mission_activation_ids: [],
+  },
+  automations: [],
+  receipt: {
+    status: "unavailable",
+    record_id: null,
+    record_sha256: null,
+    previous_record_sha256: null,
+    automation_state_root: null,
+    reason: "Terminal shutdown evidence is unavailable.",
+  },
+  recovery: {
+    posture: "unavailable",
+    guidance: "Repair the exact named prerequisite before previewing shutdown.",
+  },
+  limitations: ["Terminal shutdown projection is unavailable."],
+  error: {
+    code: "terminal_shutdown_workflow_unavailable",
+    message: "Terminal shutdown projection is unavailable.",
     retryable: true,
   },
 }
@@ -584,6 +635,7 @@ export function RunSupervisionActions({
   successorTransitions = [],
   weeklyReportWorkflow = unavailableWeeklyReportWorkflow,
   terminalReportWorkflow = unavailableTerminalReportWorkflow,
+  terminalShutdownWorkflow = unavailableTerminalShutdownWorkflow,
   factoryEvolutionWorkflow = unavailableFactoryEvolutionWorkflow,
 }: {
   targetId: string
@@ -597,6 +649,7 @@ export function RunSupervisionActions({
   successorTransitions?: SuccessorTransition[]
   weeklyReportWorkflow?: WeeklyReportWorkflow
   terminalReportWorkflow?: TerminalReportWorkflow
+  terminalShutdownWorkflow?: TerminalShutdownWorkflow
   factoryEvolutionWorkflow?: FactoryEvolutionWorkflow
 }) {
   const runner = useOperationRunner()
@@ -982,6 +1035,43 @@ export function RunSupervisionActions({
       ],
     })
   }
+  const terminalShutdownActionLabel = terminalShutdownWorkflow.stage === "shutdown"
+    ? "Supervision shut down"
+    : terminalShutdownWorkflow.stage === "request-stop"
+      ? "Request stop & shut down"
+      : terminalShutdownWorkflow.stage === "blocked"
+        ? "Shutdown blocked"
+        : "Shutdown unavailable"
+  const launchTerminalShutdown = () => {
+    if (!projectId || !terminalShutdownWorkflow.actionable) return
+    const openHeads = [
+      ...terminalShutdownWorkflow.open_heads.incident_ids,
+      ...terminalShutdownWorkflow.open_heads.decision_ids,
+      ...terminalShutdownWorkflow.open_heads.successor_transition_ids,
+      ...terminalShutdownWorkflow.open_heads.mission_activation_ids,
+    ]
+    runner.launch({
+      request: {
+        operation_type: "factory.terminal-supervision-shutdown",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: {},
+      },
+      suppliedFacts: [
+        ["Mission", terminalShutdownWorkflow.mission_root ?? "Unavailable"],
+        ["Outcome", terminalShutdownWorkflow.completion_record_id ?? "Unavailable"],
+        ["Lifecycle", terminalShutdownWorkflow.lifecycle_record_id ?? "Unavailable"],
+        ["Terminal report", `${terminalShutdownWorkflow.report_set_id ?? "Unavailable"} · ${terminalShutdownWorkflow.delivery_record_id ?? "delivery unavailable"}`],
+        ["Gmail delivery", terminalShutdownWorkflow.delivery_record_id ?? "Unavailable"],
+        ["Source-stop gate", `${terminalShutdownWorkflow.gate.status} · ${terminalShutdownWorkflow.gate.reason}`],
+        ["Open heads", openHeads.length ? openHeads.join(" · ") : "None"],
+        ["Automations", terminalShutdownWorkflow.automations.map((item) => `${item.label}: ${item.owner_status}${item.post_delivery ? " after delivery" : " → PAUSED after delivery"}`).join(" · ") || "Unavailable"],
+        ["Receipt", `${terminalShutdownWorkflow.receipt.status} · ${terminalShutdownWorkflow.receipt.reason}`],
+        ["Recovery", `${terminalShutdownWorkflow.recovery.posture} · ${terminalShutdownWorkflow.recovery.guidance}`],
+        ["Implementation task", `${targetId} · observed and preserved`],
+        ["Boundary", "One exact supervision group · no task stop or turn interrupt · no ordinary pause/resume · no automatic retry"],
+      ],
+    })
+  }
   const evolutionActionLabel = factoryEvolutionWorkflow.next_action === "prepare"
     ? "Prepare evolution"
     : factoryEvolutionWorkflow.next_action === "finalize"
@@ -1081,6 +1171,15 @@ export function RunSupervisionActions({
           onClick={launchTerminalReport}
         >
           {terminalReportActionLabel}
+        </Button>
+        <Button
+          size="compact"
+          variant="outline"
+          disabled={unavailable || !terminalShutdownWorkflow.actionable}
+          title={terminalShutdownWorkflow.error?.message ?? terminalShutdownWorkflow.gate.reason}
+          onClick={launchTerminalShutdown}
+        >
+          {terminalShutdownActionLabel}
         </Button>
         <Button
           size="compact"

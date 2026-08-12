@@ -164,7 +164,7 @@ def gmail_readback(
 
 
 def write_automation_owners(root: Path, automation_ids: list[str]) -> None:
-    updated_at = int((dt.datetime.now(dt.timezone.utc).timestamp() + 60) * 1000)
+    updated_at = int(dt.datetime.now(dt.timezone.utc).timestamp() * 1000)
     for automation_id in automation_ids:
         directory = root / automation_id
         directory.mkdir(parents=True)
@@ -461,6 +461,12 @@ class TerminalReportIntegrationTests(unittest.TestCase):
             )
             with redirect_stdout(io.StringIO()):
                 supervision_log.cmd_terminal_report_delivery(delivery_args)
+            current_delivery = supervision_log.latest_terminal_delivery(
+                supervision_log.events(root / TARGET / "events.jsonl"),
+                lifecycle_record_id="EVT-000002",
+                report_set_id=prepared["report_set_id"],
+            )
+            self.assertIsNotNone(current_delivery)
             after_output = io.StringIO()
             with redirect_stdout(after_output):
                 supervision_log.cmd_lifecycle_gate(gate_args)
@@ -468,6 +474,29 @@ class TerminalReportIntegrationTests(unittest.TestCase):
             self.assertTrue(after["terminal_reports_delivered"])
             self.assertTrue(after["supervision_pause_permitted"])
             self.assertEqual(len(after["pause_automation_ids"]), 4)
+
+            supervision_log.append_raw(
+                root / TARGET / "events.jsonl",
+                {
+                    "schema_version": 1,
+                    "record_id": "EVT-DIFFERENT-TERMINAL-DELIVERY",
+                    "timestamp": "2026-08-01T01:30:00+00:00",
+                    "target_thread_id": TARGET,
+                    "kind": "notification",
+                    "model": "gpt-5.6-sol",
+                    "reasoning": "xhigh",
+                    "state_fingerprint": FINGERPRINT,
+                    "status": "sent",
+                    "severity": "info",
+                    "category": supervision_log.TERMINAL_REPORT_DELIVERY_CATEGORY,
+                    "summary": "Historical different report set.",
+                    "evidence": ["EVT-000002", "OLD-REPORT-SET"],
+                    "report_set_id": "OLD-REPORT-SET",
+                    "policy_sha256": supervision_log.read_json(
+                        root / TARGET / "policy.json"
+                    )["policy_sha256"],
+                },
+            )
 
             shutdown = argparse.Namespace(
                 root=str(root),
@@ -482,16 +511,60 @@ class TerminalReportIntegrationTests(unittest.TestCase):
                 supervision_log.cmd_terminal_shutdown(shutdown)
 
             automation_root = root / "automations"
-            write_automation_owners(
-                automation_root, after["pause_automation_ids"]
-            )
+            write_automation_owners(automation_root, after["pause_automation_ids"])
             shutdown_output = io.StringIO()
             with mock.patch.object(
                 supervision_log, "CODEX_AUTOMATIONS_ROOT", automation_root
             ):
                 with redirect_stdout(shutdown_output):
                     supervision_log.cmd_terminal_shutdown(shutdown)
-            self.assertFalse(json.loads(shutdown_output.getvalue())["duplicate"])
+            shutdown_result = json.loads(shutdown_output.getvalue())
+            self.assertFalse(shutdown_result["duplicate"])
+            shutdown_record = shutdown_result["record"]
+            policy = supervision_log.read_json(root / TARGET / "policy.json")
+            lifecycle = next(
+                item
+                for item in supervision_log.events(root / TARGET / "events.jsonl")
+                if item.get("record_id") == "EVT-000002"
+            )
+            with mock.patch.object(
+                supervision_log, "CODEX_AUTOMATIONS_ROOT", automation_root
+            ):
+                owner_states = supervision_log.terminal_automation_owner_states(
+                    after["pause_automation_ids"],
+                    not_before=supervision_log.parse_time(
+                        str(current_delivery["timestamp"])
+                    ),
+                )
+            self.assertTrue(
+                supervision_log.terminal_shutdown_record_is_canonical(
+                    shutdown_record,
+                    policy=policy,
+                    lifecycle=lifecycle,
+                    delivery=current_delivery,
+                    verified=verified,
+                    automation_states=owner_states,
+                )
+            )
+            changed = dict(shutdown_record)
+            changed["report_set_id"] = "OLD-REPORT-SET"
+            self.assertFalse(
+                supervision_log.terminal_shutdown_record_is_canonical(
+                    changed,
+                    policy=policy,
+                    lifecycle=lifecycle,
+                    delivery=current_delivery,
+                    verified=verified,
+                    automation_states=owner_states,
+                )
+            )
+            duplicate_output = io.StringIO()
+            with mock.patch.object(
+                supervision_log, "CODEX_AUTOMATIONS_ROOT", automation_root
+            ):
+                with redirect_stdout(duplicate_output):
+                    supervision_log.cmd_terminal_shutdown(shutdown)
+            self.assertTrue(json.loads(duplicate_output.getvalue())["duplicate"])
 
     def test_delivery_rejects_claim_without_gmail_readback(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

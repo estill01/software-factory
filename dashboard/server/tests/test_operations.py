@@ -24,6 +24,7 @@ from software_factory_dashboard.operations import (
     DEFAULT_WEEKLY_OWNER,
     OperationsProjectionError,
     OperationsProjectionService,
+    TargetEvidence,
     _expected_automation_rrule,
     _expected_automation_timezone,
     _factory_evolution_comparison,
@@ -1907,6 +1908,317 @@ class OperationsProjectionTests(unittest.TestCase):
         self.assertEqual(delivered["delivery"]["record_id"], "EVT-TERMINAL-DELIVERY")
         self.assertEqual(delivered["delivery"]["readback_root"], "e" * 64)
         self.assertFalse(delivered["shutdown"]["permitted"])
+
+    def test_terminal_shutdown_projection_separates_gates_automations_and_receipt(
+        self,
+    ) -> None:
+        directory = self.supervision_root / TARGET
+        mission_root = "8" * 64
+        policy = self.owner.read_json(directory / "policy.json")
+        policy["mission_binding"] = self.owner.mission_binding_contract(
+            mission_root,
+            "direct-user-item-44",
+        )
+        policy["runtime"]["routine_automation_id"] = "terminal-watcher-001"
+        policy["runtime"]["meta_automation_id"] = "terminal-reviewer-001"
+        policy["runtime"]["watcher_thread_id"] = "terminal-watcher-task"
+        policy["runtime"]["reviewer_thread_id"] = "terminal-reviewer-task"
+        policy["policy_sha256"] = self.owner.digest(self.owner.policy_material(policy))
+        lifecycle = {
+            "record_id": "EVT-TERMINAL-LIFECYCLE",
+            "record_sha256": "1" * 64,
+            "status": "completed",
+            "state_fingerprint": "terminal-state-001",
+        }
+        delivery = {
+            "record_id": "EVT-TERMINAL-DELIVERY",
+            "timestamp": "2026-08-12T08:00:00+00:00",
+            "target_thread_id": TARGET,
+            "kind": "notification",
+            "category": self.owner.TERMINAL_REPORT_DELIVERY_CATEGORY,
+            "status": "sent",
+            "state_fingerprint": lifecycle["state_fingerprint"],
+            "report_set_id": "terminal-set-001",
+            "evidence": [lifecycle["record_id"]],
+        }
+        verification = {
+            "valid": True,
+            "report_set_id": delivery["report_set_id"],
+            "manifest_root": "2" * 64,
+        }
+        terminal_report = {
+            "status": "available",
+            "stage": "delivered",
+            "fingerprint": "3" * 64,
+            "report_set_id": delivery["report_set_id"],
+            "manifest_root": verification["manifest_root"],
+            "completion": {
+                "status": "reconciled",
+                "record_id": "EVT-TERMINAL-COMPLETION",
+                "lifecycle_record_id": lifecycle["record_id"],
+                "reconciled": True,
+            },
+            "delivery": {
+                "status": "delivered",
+                "record_id": delivery["record_id"],
+            },
+            "error": None,
+        }
+
+        def write_automation(
+            automation_id: str,
+            target_thread_id: str,
+            *,
+            status: str,
+            updated_at: int,
+        ) -> dict[str, object]:
+            path = self.automations_root / automation_id / "automation.toml"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                textwrap.dedent(
+                    f'''\
+                    version = 1
+                    id = "{automation_id}"
+                    kind = "heartbeat"
+                    name = "{automation_id}"
+                    prompt = "PRIVATE TERMINAL PROMPT"
+                    status = "{status}"
+                    rrule = "RRULE:FREQ=MINUTELY;INTERVAL=20"
+                    target_thread_id = "{target_thread_id}"
+                    created_at = 1786521000000
+                    updated_at = {updated_at}
+                    '''
+                ),
+                encoding="utf-8",
+            )
+            return self.service._load_automation(automation_id)
+
+        automations_by_role = {
+            "watcher": write_automation(
+                "terminal-watcher-001",
+                "terminal-watcher-task",
+                status="ACTIVE",
+                updated_at=1786521540000,
+            ),
+            "reviewer": write_automation(
+                "terminal-reviewer-001",
+                "terminal-reviewer-task",
+                status="PAUSED",
+                updated_at=1786521660000,
+            ),
+        }
+        control = {
+            "policy": policy,
+            "policy_sha256": policy["policy_sha256"],
+            "lifecycle_record": lifecycle,
+            "automations_by_role": automations_by_role,
+        }
+        gate_payload = {
+            "completion_permitted": True,
+            "source_stop_permitted": True,
+            "supervision_pause_permitted": True,
+            "terminal_reports_delivered": True,
+            "terminal_report_set_id": delivery["report_set_id"],
+            "open_mission_activations": [],
+            "open_successor_transitions": [],
+            "pause_automation_ids": [
+                "terminal-reviewer-001",
+                "terminal-watcher-001",
+            ],
+            "reason": "Every exact terminal gate is satisfied.",
+        }
+        gate_snapshot = {"gate": gate_payload, "currentness": "4" * 64}
+        heads = {
+            "lifecycle": [lifecycle],
+            "incidents": {"INC-OPEN": {"status": "detected"}},
+            "decisions": {},
+            "transitions": {},
+        }
+
+        def evidence_with(*events: dict[str, object]) -> TargetEvidence:
+            return TargetEvidence(
+                target_thread_id=TARGET,
+                directory=directory,
+                policy=policy,
+                policy_history=(),
+                events=tuple(events),
+                active_events=tuple(events),
+                roots_by_policy={policy["policy_sha256"]: mission_root},
+                fingerprint=self.owner.digest(list(events)),
+                cache_key=(),
+            )
+
+        with (
+            patch.object(
+                self.service,
+                "_terminal_report_workflow",
+                return_value=terminal_report,
+            ),
+            patch.object(
+                self.service,
+                "policy_control_snapshot",
+                return_value=control,
+            ),
+            patch.object(
+                self.service,
+                "lifecycle_gate_snapshot",
+                return_value=gate_snapshot,
+            ),
+            patch.object(
+                self.service,
+                "_owner_command",
+                return_value=verification,
+            ),
+            patch.object(self.service, "_active_heads", return_value=heads),
+        ):
+            blocked = self.service._terminal_shutdown_workflow(evidence_with(delivery))
+            self.assertEqual(blocked["stage"], "blocked")
+            self.assertIn("INC-OPEN", blocked["open_heads"]["incident_ids"])
+            self.assertFalse(blocked["actionable"])
+
+            heads["incidents"] = {}
+            for gate_name in (
+                "completion_permitted",
+                "source_stop_permitted",
+                "supervision_pause_permitted",
+                "terminal_reports_delivered",
+            ):
+                with self.subTest(gate_name=gate_name):
+                    gate_payload[gate_name] = False
+                    denied = self.service._terminal_shutdown_workflow(
+                        evidence_with(delivery)
+                    )
+                    self.assertEqual(denied["stage"], "blocked")
+                    self.assertFalse(denied["actionable"])
+                    gate_payload[gate_name] = True
+
+            for head_name, head_value in (
+                ("decisions", {"DEC-OPEN": {"phase": "awaiting-decision"}}),
+                ("transitions", {"TRANSITION-OPEN": {"phase": "source-stop"}}),
+            ):
+                with self.subTest(open_head=head_name):
+                    heads[head_name] = head_value
+                    denied = self.service._terminal_shutdown_workflow(
+                        evidence_with(delivery)
+                    )
+                    self.assertEqual(denied["stage"], "blocked")
+                    self.assertFalse(denied["actionable"])
+                    heads[head_name] = {}
+
+            for gate_head in (
+                "open_mission_activations",
+                "open_successor_transitions",
+            ):
+                with self.subTest(gate_head=gate_head):
+                    gate_payload[gate_head] = ["OPEN-HEAD"]
+                    denied = self.service._terminal_shutdown_workflow(
+                        evidence_with(delivery)
+                    )
+                    self.assertEqual(denied["stage"], "blocked")
+                    self.assertFalse(denied["actionable"])
+                    gate_payload[gate_head] = []
+
+            gate_payload["completion_permitted"] = False
+            gate_payload["terminal_reports_delivered"] = False
+            combined = self.service._terminal_shutdown_workflow(
+                evidence_with(delivery)
+            )
+            self.assertEqual(combined["stage"], "blocked")
+            self.assertFalse(combined["actionable"])
+            gate_payload["completion_permitted"] = True
+            gate_payload["terminal_reports_delivered"] = True
+
+            saved_reviewer = automations_by_role.pop("reviewer")
+            partial_owner = self.service._terminal_shutdown_workflow(
+                evidence_with(delivery)
+            )
+            self.assertEqual(partial_owner["status"], "unavailable")
+            self.assertEqual(
+                partial_owner["error"]["code"],
+                "terminal_shutdown_automation_owner_unavailable",
+            )
+            automations_by_role["reviewer"] = saved_reviewer
+
+            terminal_report["stage"] = "verified"
+            missing_delivery = self.service._terminal_shutdown_workflow(
+                evidence_with(delivery)
+            )
+            self.assertEqual(missing_delivery["status"], "unavailable")
+            self.assertEqual(
+                missing_delivery["error"]["code"],
+                "terminal_shutdown_report_unavailable",
+            )
+            terminal_report["stage"] = "delivered"
+
+            ready = self.service._terminal_shutdown_workflow(evidence_with(delivery))
+            self.assertEqual(ready["stage"], "request-stop", ready)
+            self.assertTrue(ready["actionable"])
+            by_role = {item["role"]: item for item in ready["automations"]}
+            self.assertFalse(by_role["watcher"]["post_delivery"])
+            self.assertTrue(by_role["reviewer"]["post_delivery"])
+            self.assertEqual(ready["receipt"]["status"], "missing")
+
+            automations_by_role["watcher"] = write_automation(
+                "terminal-watcher-001",
+                "terminal-watcher-task",
+                status="PAUSED",
+                updated_at=1786521720000,
+            )
+            states = self.owner.terminal_automation_owner_states(
+                gate_payload["pause_automation_ids"],
+                not_before=datetime(2026, 8, 12, 8, 0, tzinfo=UTC),
+                automation_root=self.automations_root,
+            )
+            receipt = {
+                "schema_version": 1,
+                "record_id": "EVT-TERMINAL-SHUTDOWN",
+                "timestamp": "2026-08-12T08:03:00+00:00",
+                "target_thread_id": TARGET,
+                "kind": "check",
+                "model": "gpt-5.6-sol",
+                "reasoning": "xhigh",
+                "state_fingerprint": lifecycle["state_fingerprint"],
+                "status": "verified",
+                "severity": "info",
+                "category": self.owner.TERMINAL_SHUTDOWN_CATEGORY,
+                "summary": "Viewed every bound supervision automation in paused state after terminal report delivery.",
+                "evidence": [
+                    lifecycle["record_id"],
+                    delivery["report_set_id"],
+                    delivery["record_id"],
+                ],
+                "report_set_id": delivery["report_set_id"],
+                "manifest_root": verification["manifest_root"],
+                "automation_states": states,
+                "automation_state_root": self.owner.digest(states),
+                "policy_sha256": policy["policy_sha256"],
+                "previous_record_sha256": "6" * 64,
+            }
+            receipt["record_sha256"] = self.owner.digest(receipt)
+            complete = self.service._terminal_shutdown_workflow(
+                evidence_with(delivery, receipt)
+            )
+            self.assertEqual(complete["stage"], "shutdown", complete)
+            self.assertFalse(complete["actionable"])
+            self.assertEqual(complete["receipt"]["status"], "verified")
+            self.assertTrue(
+                all(item["post_delivery"] for item in complete["automations"])
+            )
+
+            stale_receipt = {**receipt, "manifest_root": "5" * 64}
+            stale_receipt["record_sha256"] = self.owner.digest(
+                {
+                    key: value
+                    for key, value in stale_receipt.items()
+                    if key != "record_sha256"
+                }
+            )
+            stale = self.service._terminal_shutdown_workflow(
+                evidence_with(delivery, stale_receipt)
+            )
+            self.assertEqual(stale["stage"], "blocked")
+            self.assertEqual(stale["receipt"]["status"], "stale")
+            self.assertFalse(stale["error"]["retryable"])
 
     def test_incompatible_metric_contracts_never_produce_cross_run_totals(self) -> None:
         second_target = "target-thread-0003"

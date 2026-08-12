@@ -8102,6 +8102,132 @@ and stop at denial, partial, or unverified state without retrying or widening.
   current real target is not an authorized disposable shutdown target; no live
   request-stop, lifecycle, automation, task, report, Gmail, or shutdown action
   will be executed for implementation proof.
+- Pre-broad execution brief — `2026-08-12T13:22:57Z`, focused proof complete,
+  broad validation not started. The bounded 13-file product/test worktree has
+  binary-diff SHA-256
+  `bc523c965133418ce715f2de02f5b617697e06fdcb33237651af138c5b61d2e2`.
+  Before the one broad matrix, every likely-mutating owner, authority,
+  currentness, recovery, and Stop boundary was classified and checked:
+  - **Complete — authority and range:** direct-user item 44 and mission root
+    `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`
+    remain the implementation authority. Only Block 30 is active; Block 31 is
+    closed, and no routed correction is treated as user authority.
+  - **Complete — exact target, project, group, and mission:** source resolution
+    requires one registered canonical project, one exact current supervision
+    group for the selected target, its current mission and policy binding, and
+    one complete current target-task projection. Project, target, group,
+    mission, policy, task, cwd, catalog, and source fingerprints enter preview
+    currentness and are re-read after dispatch; disagreement or truncation is
+    unavailable rather than coalesced.
+  - **Complete — outcome, retained-work, and continuity gates:** the workflow
+    consumes the maintained lifecycle/source-stop gate for the exact completed
+    lifecycle and terminal report set. Observable-outcome completion,
+    notification, retained open work, same-target successor, successor-task,
+    and activation postures remain independent booleans. Every false gate,
+    open incident or decision, pending successor transition, or pending
+    activation blocks source stop; focused proof varies each gate separately
+    and exercises combined denial.
+  - **Complete — terminal report and Gmail delivery:** only the accepted Block
+    29 maintained terminal-report packet, verified report root, exact current
+    report-set delivery/read-back receipt, and configured Gmail-owner evidence
+    are consumed. Missing, different-set, stale, or unverified delivery is
+    unavailable. Dashboard code neither generates the report nor reads/sends
+    Gmail, and the shutdown action cannot substitute for report delivery.
+  - **Complete — lifecycle and source-stop ownership:** the ordinary completed
+    lifecycle remains immutable. The operation reruns the maintained
+    `lifecycle-gate` with the exact lifecycle and terminal report-set identity;
+    only its current `source_stop_permitted` result can authorize the terminal
+    owner. Task terminality, tracker status, a green light, or local UI state is
+    never accepted as source-stop authority.
+  - **Complete — exact named automation ownership:** the policy/gate-selected
+    automation IDs must be safe, nonempty, unique, and cover every configured
+    role. The workflow reads and verifies only those exact manifests; it does
+    not enumerate, index, pause, or reconcile unrelated automations. Every
+    initially ACTIVE owner must become PAUSED after the delivery boundary;
+    already-PAUSED post-delivery owners must remain byte- and time-identical.
+    Missing, malformed, wrong-target, partial, or duplicate-role coverage is
+    unavailable or unverified.
+  - **Complete — maintained writer and target-task separation:** the configured
+    fix executor is distinct from the selected target and validated through the
+    maintained role-task contract, including the supported projectless Codex
+    workspace case. Its task, complete turn history, cwd, model/reasoning, role,
+    and current status are bound. The selected target task/turn/cwd/status must
+    remain unchanged through verification; no task Stop, turn interrupt, or
+    target steer is dispatched.
+  - **Complete — route authority and dispatch currentness:** one
+    `fix-execution` route gate binds the exact recipient, purpose, source, policy
+    and action. The gate is checked before dispatch and again before acceptance.
+    One typed phrase consumes one preview and can start at most one exact fix-
+    executor turn. Replay, stale preview, route denial/drift, task drift, or
+    duplicate execute produces no second dispatch and no automatic retry.
+  - **Complete — append-once receipt and event-head currentness:** verification
+    requires one canonical `terminal-shutdown` receipt for the exact target,
+    mission, lifecycle, report set, policy, delivery, gate currentness, and
+    automation state map. Its `previous_record_sha256` must equal the exact
+    preview event head, so an intervening canonical event prevents acceptance.
+    Receipt time must follow delivery and each newly paused automation owner
+    must update strictly after that boundary.
+  - **Complete — partial state and bounded recovery:** denial, unavailable
+    source, partial automation state, missing receipt, route failure, or
+    unverifiable postcondition is retained as a structured non-applied result.
+    The UI exposes the exact limitation and only the separately authorized
+    re-preview path; the coordinator performs no rollback, retry, broad scan,
+    fallback write, or generalized shutdown.
+  - **Source-backed not-applicable — live terminal mutation:** the current real
+    target is not a disposable validation run and has no direct authorization
+    for terminal shutdown. A live request-stop, lifecycle write, automation
+    pause, task action, report/Gmail action, or receipt append is therefore
+    outside this proof. Maintained owner tests provide disposable filesystem
+    coverage, while browser proof intercepts before preview dispatch.
+  - **Complete — UI and mission-history boundary:** only the current run renders
+    the compact terminal-shutdown control and its outcome, continuity, report,
+    delivery, lifecycle, automation, task-preservation, receipt, limitation,
+    and recovery facts. A predecessor mission renders none of the current
+    operation. Typed confirmation remains disabled in read-only browser proof;
+    there is no generic red Stop, bulk target control, marketing banner, second
+    editor, or direct-write path.
+  - **Complete — Block 30 Stop:** semantic changes explicitly separate this
+    workflow from turn interrupt, ordinary pause/resume, terminal-report
+    production/delivery, issue or decision resolution, successor work, and
+    Block 31 release acceptance. No later owner or final-ready claim is present.
+  - **Complete — focused proof:** current backend projection/registry/workflow
+    passed 3/3 with `ResourceWarning` fatal; the maintained terminal-report and
+    shutdown owner suite passed 11/11; focused frontend schema/action/Run proof
+    passed 29/29; Ruff, Python compilation, TypeScript, production build, and
+    diff check passed. The exact loopback build on port 8787 reports healthy,
+    and focused Playwright passed 3/3 at desktop/tablet/mobile with exact gate/
+    owner facts, predecessor suppression, Axe serious/critical checks, and no
+    horizontal overflow. No live mutation occurred.
+  - **Complete — validation envelope correction:** an earlier combined focused
+    unittest command used incorrect module/class addressing and executed three
+    loader errors, not product tests. The repository-root command with
+    `PYTHONPATH=dashboard/server/tests` then ran the exact three named tests and
+    passed. An earlier combined lint/build invocation from `dashboard/web` also
+    resolved neither repository-root Ruff nor Python paths; the corrected
+    repository-root Python/lint commands and web-root npm commands passed. Both
+    are command-envelope diagnostics, not product failures, and neither broad
+    suite started.
+- Product-capability decision — `2026-08-12T13:22:57Z`, consequential frame
+  from this tracker, 3,511 bytes, SHA-256
+  `736124301d439cf6f143bb8013d53f085e9f3f4748df35451ef1bce5df0d8857`:
+  - Rejected a local dashboard/registry Stop implementation because it would
+    duplicate or bypass lifecycle, automation, ledger, report, and continuity
+    owners and could mistake a process or UI state for outcome authority.
+  - Rejected a generalized shutdown framework because no maintained generic
+    orchestration owner exists and it would widen one exact terminal action
+    into bulk target, retry, task-stop, or lower-power fallback behavior.
+  - Selected the existing maintained lifecycle/source-stop gate, exact policy-
+    named Codex automation owner, and append-once terminal-shutdown receipt owner
+    behind the current typed preview, route gate, and configured fix-executor
+    operation. The dashboard remains a bounded coordinator and read model.
+  - Protected effects are observable-outcome completion, open incident/decision
+    and successor gates, exact report/Gmail delivery, lifecycle history, exact
+    named automations, selected target-task preservation, append-only event-head
+    currentness, and the absence of retry or bulk stop. The selected path costs
+    an explicit task-mediated owner round trip and more unavailable/partial
+    states, but preserves authority and truthful recovery.
+- Single broad mapped validation is the next step. It has not started at this
+  checkpoint; no second broad replay will be used for unrelated diagnostics.
 
 ### Stop
 

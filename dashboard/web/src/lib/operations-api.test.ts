@@ -531,6 +531,64 @@ const terminalReportWorkflow = {
   error: null,
 } as const
 
+const terminalShutdownWorkflow = {
+  status: "available",
+  stage: "request-stop",
+  next_action: "shutdown",
+  actionable: true,
+  fingerprint: hash("d"),
+  mission_root: hash("1"),
+  state_fingerprint: "terminal-state-1",
+  completion_record_id: "EVT-TERMINAL-COMPLETION",
+  lifecycle_record_id: "EVT-TERMINAL-LIFECYCLE",
+  report_set_id: "terminal-target-threa-0011223344556677",
+  manifest_root: hash("2"),
+  delivery_record_id: "EVT-TERMINAL-DELIVERY",
+  delivery_timestamp: "2026-08-09T12:00:00Z",
+  source_record: "EVT-TERMINAL-DELIVERY",
+  gate: {
+    status: "ready",
+    completion_permitted: true,
+    source_stop_permitted: true,
+    supervision_pause_permitted: true,
+    terminal_reports_delivered: true,
+    reason: "Every exact terminal gate is satisfied.",
+    currentness: hash("e"),
+  },
+  open_heads: {
+    incident_ids: [],
+    decision_ids: [],
+    successor_transition_ids: [],
+    mission_activation_ids: [],
+  },
+  automations: [{
+    role: "watcher",
+    label: "Watcher",
+    automation_id: "watcher-automation",
+    target_thread_id: "watcher-task",
+    owner_status: "ACTIVE",
+    updated_at: "2026-08-09T11:59:00.000Z",
+    manifest_sha256: hash("3"),
+    protected_sha256: hash("4"),
+    post_delivery: false,
+    action: "pause-after-delivery",
+  }],
+  receipt: {
+    status: "missing",
+    record_id: null,
+    record_sha256: null,
+    previous_record_sha256: null,
+    automation_state_root: null,
+    reason: "No canonical terminal shutdown receipt exists.",
+  },
+  recovery: {
+    posture: "ready",
+    guidance: "Pause the named automation and invoke the maintained owner once.",
+  },
+  limitations: ["The implementation task is preserved."],
+  error: null,
+} as const
+
 const factoryEvolutionWorkflow = {
   status: "available",
   stage: "verified",
@@ -743,6 +801,7 @@ const detail = {
   reports: [report],
   weekly_report_workflow: weeklyReportWorkflow,
   terminal_report_workflow: terminalReportWorkflow,
+  terminal_shutdown_workflow: terminalShutdownWorkflow,
   factory_evolution_workflow: factoryEvolutionWorkflow,
   metrics: {
     status: "available",

@@ -736,6 +736,240 @@ test("terminal reporting advances one delivery stage and remains separate from s
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
 })
 
+test("terminal shutdown previews exact gates and owners without stopping the implementation task", async ({ page, request }) => {
+  const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  runEnvelope.data.run.project_binding = {
+    status: "bound",
+    project_id: "software-factory",
+    evidence: [{ source_record: "policy", field: "project_root", value: "/fixture/software_factory" }],
+    limitations: [],
+  }
+  runEnvelope.data.run.terminal_shutdown_workflow = {
+    status: "available",
+    stage: "request-stop",
+    next_action: "shutdown",
+    actionable: true,
+    fingerprint: "7".repeat(64),
+    mission_root: "4".repeat(64),
+    state_fingerprint: "terminal-browser-state",
+    completion_record_id: "EVT-BROWSER-COMPLETION",
+    lifecycle_record_id: "EVT-BROWSER-LIFECYCLE",
+    report_set_id: "terminal-browser-0011223344556677",
+    manifest_root: "2".repeat(64),
+    delivery_record_id: "EVT-BROWSER-DELIVERY",
+    delivery_timestamp: "2026-08-12T08:00:00.000Z",
+    source_record: "EVT-BROWSER-DELIVERY",
+    gate: {
+      status: "ready",
+      completion_permitted: true,
+      source_stop_permitted: true,
+      supervision_pause_permitted: true,
+      terminal_reports_delivered: true,
+      reason: "Every exact terminal gate is satisfied.",
+      currentness: "8".repeat(64),
+    },
+    open_heads: {
+      incident_ids: [],
+      decision_ids: [],
+      successor_transition_ids: [],
+      mission_activation_ids: [],
+    },
+    automations: [
+      {
+        role: "reviewer",
+        label: "Meta reviewer",
+        automation_id: "reviewer-automation",
+        target_thread_id: "reviewer-task",
+        owner_status: "PAUSED",
+        updated_at: "2026-08-12T08:01:00.000Z",
+        manifest_sha256: "9".repeat(64),
+        protected_sha256: "a".repeat(64),
+        post_delivery: true,
+        action: "preserve",
+      },
+      {
+        role: "watcher",
+        label: "Routine watcher",
+        automation_id: "watcher-automation",
+        target_thread_id: "watcher-task",
+        owner_status: "ACTIVE",
+        updated_at: "2026-08-12T07:59:00.000Z",
+        manifest_sha256: "b".repeat(64),
+        protected_sha256: "c".repeat(64),
+        post_delivery: false,
+        action: "pause-after-delivery",
+      },
+    ],
+    receipt: {
+      status: "missing",
+      record_id: null,
+      record_sha256: null,
+      previous_record_sha256: null,
+      automation_state_root: null,
+      reason: "No canonical terminal shutdown receipt exists.",
+    },
+    recovery: {
+      posture: "finish-shutdown",
+      guidance: "Preserve the reconciled reviewer and pause only the named watcher.",
+    },
+    limitations: ["The implementation task is observed and preserved."],
+    error: null,
+  }
+  const predecessor = runEnvelope.data.run.mission_segments.find(
+    (segment: { posture: string }) => segment.posture === "predecessor",
+  )?.mission_root
+  expect(predecessor).toBeTruthy()
+  const operation = {
+    id: "op_e2e_terminal_shutdown_preview",
+    type: "factory.terminal-supervision-shutdown",
+    target: { kind: "run", id: target, project_id: "software-factory" },
+    state: "previewed",
+    owner: "maintained lifecycle/source-stop gate + exact Codex automation owner + maintained terminal-shutdown receipt owner",
+    authority: ["one exact completed supervision group"],
+    preview: {
+      effect: `Request terminal supervision shutdown for ${target}.`,
+      risk: "Monitoring ends only after every exact owner postcondition agrees.",
+      recipient: "fix-executor-task",
+      semantic_changes: {
+        status: "available",
+        complete: true,
+        rows: [
+          {
+            id: "terminal-shutdown-lifecycle",
+            subject: "Completed lifecycle",
+            kind: "preserved",
+            before: { posture: "exact", value: "EVT-BROWSER-LIFECYCLE" },
+            after: { posture: "exact", value: "EVT-BROWSER-LIFECYCLE" },
+            owner: "maintained lifecycle record and source-stop gate owner",
+            source_identity: `supervision-lifecycle:${target}`,
+            source_revision: "d".repeat(64),
+            currentness_fingerprint: "7".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "terminal-shutdown-automation-watcher",
+            subject: "Routine watcher automation",
+            kind: "changed",
+            before: { posture: "exact", value: "ACTIVE" },
+            after: { posture: "exact", value: "PAUSED after terminal delivery" },
+            owner: "maintained Codex automation owner",
+            source_identity: "automation:watcher-automation",
+            source_revision: "b".repeat(64),
+            currentness_fingerprint: "7".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "terminal-shutdown-receipt",
+            subject: "Terminal shutdown receipt",
+            kind: "added",
+            before: { posture: "unavailable", value: null },
+            after: { posture: "exact", value: "verified" },
+            owner: "maintained terminal-shutdown receipt owner",
+            source_identity: `terminal-shutdown:${target}`,
+            source_revision: "e".repeat(64),
+            currentness_fingerprint: "7".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "terminal-shutdown-target-task",
+            subject: "Implementation task state",
+            kind: "preserved",
+            before: { posture: "exact", value: "idle" },
+            after: { posture: "exact", value: "idle" },
+            owner: "maintained Codex task reader",
+            source_identity: `codex-task:${target}`,
+            source_revision: "f".repeat(64),
+            currentness_fingerprint: "7".repeat(64),
+            links: [{ label: "Target task", href: `/tasks/${target}` }],
+          },
+        ],
+        limitations: ["Rows are source-backed and read-only."],
+      },
+      source_fingerprint: "7".repeat(64),
+      source_evidence: { report_set_id: "terminal-browser-0011223344556677" },
+      route_gate: {
+        status: "allowed",
+        target_thread: target,
+        recipient: "fix-executor-task",
+        purpose: "fix-execution",
+        source_record: "EVT-BROWSER-DELIVERY",
+        required_action: "Request one exact terminal supervision shutdown.",
+        action_hash: "1".repeat(64),
+        policy_fingerprint: "2".repeat(64),
+        binding_fingerprint: "3".repeat(64),
+      },
+      consequences: {
+        ordinary: ["Only the named automation owners and append-once shutdown receipt may change."],
+        failure: ["Partial owner state remains visible without retry or rollback."],
+      },
+      confirmation: {
+        class: "terminal-supervision-shutdown",
+        prompt: "Type REQUEST TERMINAL SHUTDOWN to route this exact owner sequence.",
+        expected_value: "REQUEST TERMINAL SHUTDOWN",
+      },
+      expected_postcondition: "Every named automation is paused after delivery and one canonical receipt exists; the implementation task is unchanged.",
+      idempotency: "One consumed preview starts at most one fix-executor turn.",
+      limitations: ["Task stop, turn interrupt, ordinary pause/resume, and automatic retry remain separate."],
+      expires_at: "2099-08-12T09:30:00.000Z",
+    },
+    history: [{ state: "previewed", observed_at: "2026-08-12T09:25:00.000Z" }],
+    request_evidence: null,
+    verification_evidence: null,
+    links: [],
+    failure: null,
+  }
+  await page.route(`**/api/v1/runs/${target}`, (route) => route.fulfill({ json: runEnvelope }))
+  await page.route("**/api/v1/operations/preview", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      operation_type: "factory.terminal-supervision-shutdown",
+      target: { kind: "run", id: target, project_id: "software-factory" },
+      input: {},
+    })
+    await route.fulfill({
+      json: {
+        data: { operation, preview_token: "t".repeat(32) },
+        source: { kind: "administrative-operation", identity: operation.id, revision: "7".repeat(64) },
+        observed_at: "2026-08-12T09:25:00.000Z",
+        fingerprint: "7".repeat(64),
+        coverage: { status: "partial", observed: ["operation-preview"], missing: ["owner-postcondition"] },
+        limitations: ["Fixture stops before mutation."],
+        error: null,
+      },
+    })
+  })
+
+  await page.goto(`/runs/${target}`)
+  const workflow = page.getByRole("article", { name: "Terminal supervision shutdown" })
+  await expect(workflow).toContainText("Source stop: permitted")
+  await expect(workflow).toContainText("Meta reviewerPAUSED · after delivery")
+  await expect(workflow).toContainText("Routine watcherACTIVE · pause required")
+  await page.getByRole("button", { name: "Request stop & shut down" }).click()
+  const preview = page.getByRole("dialog")
+  await expect(preview).toContainText("One exact supervision group · no task stop or turn interrupt")
+  const changes = preview.getByLabel("Owner supplied operation changes")
+  await expect(changes).toContainText("Completed lifecycle")
+  await expect(changes).toContainText("Routine watcher automation")
+  await expect(changes).toContainText("Terminal shutdown receipt")
+  await expect(changes).toContainText("Implementation task state")
+  await expect(preview.getByRole("button", { name: "Request operation" })).toBeDisabled()
+  const axe = await new AxeBuilder({ page }).analyze()
+  expect(axe.violations.filter(({ impact }) => impact === "serious" || impact === "critical"))
+    .toEqual([])
+  await expect(page.locator("h1")).toHaveCount(1)
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+  await preview.getByRole("button", { name: "Close operation preview" }).click()
+  await page.goto(`/runs/${target}?mission=${predecessor}`)
+  await expect(page.getByRole("article", { name: "Terminal supervision shutdown" })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Request stop & shut down" })).toHaveCount(0)
+})
+
 test("Factory evolution exposes one current stage without adoption authority", async ({ page, request }) => {
   const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
   const runResponse = await request.get(`/api/v1/runs/${target}`)

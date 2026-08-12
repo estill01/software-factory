@@ -252,16 +252,27 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             self.register(origin)
             framework = json.loads(response(f"{origin}/api/v1/operations").body)
             descriptors = framework["data"]["framework"]["registered_operations"]
-            supported = [item["type"] for item in descriptors if item["status"] == "supported"]
-            unavailable = [item for item in descriptors if item["status"] == "unavailable"]
+            supported = [
+                item["type"] for item in descriptors if item["status"] == "supported"
+            ]
+            unavailable = [
+                item for item in descriptors if item["status"] == "unavailable"
+            ]
             request_payload = {
                 "operation_type": "factory.tracker-author",
-                "target": {"kind": "project", "id": "workflow", "project_id": "workflow"},
+                "target": {
+                    "kind": "project",
+                    "id": "workflow",
+                    "project_id": "workflow",
+                },
                 "input": {
                     "repository_head": self.head(),
                     "objective": "Build the smallest exact demo tracker; preserve this wording.",
                     "sources": ["README.md", "direct-user-item-1"],
-                    "non_goals": ["Do not implement code", "Do not add a second task system"],
+                    "non_goals": [
+                        "Do not implement code",
+                        "Do not add a second task system",
+                    ],
                 },
             }
             status, previewed = preview(origin, request_payload)
@@ -276,7 +287,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(duplicate_status, 409)
         self.assertEqual(duplicate["error"]["code"], "authoring_owner_conflict")
         self.assertEqual(executed["data"]["operation"]["state"], "applied")
-        self.assertEqual(len(supported), 24)
+        self.assertEqual(len(supported), 25)
         self.assertIn("factory.blocks-implement", supported)
         self.assertIn("factory.supervision-check-now", supported)
         self.assertIn("factory.supervision-adjust", supported)
@@ -288,6 +299,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertIn("factory.successor-task-transition", supported)
         self.assertIn("factory.weekly-supervision-report", supported)
         self.assertIn("factory.terminal-supervision-report", supported)
+        self.assertIn("factory.terminal-supervision-shutdown", supported)
         self.assertIn("factory.evolution-evaluate", supported)
         automation_repair = next(
             item
@@ -309,10 +321,16 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         prompt = task["turns"][0]["items"][0]["summary"]
         self.assertTrue(prompt.startswith("SOFTWARE_FACTORY_DASHBOARD_MISSION "))
         self.assertIn("$author-implementation-trackers", prompt)
-        self.assertIn("Build the smallest exact demo tracker; preserve this wording.", prompt)
+        self.assertIn(
+            "Build the smallest exact demo tracker; preserve this wording.", prompt
+        )
         self.assertIn("Do not implement it.", prompt)
-        self.assertFalse(executed["data"]["operation"]["verification_evidence"]["block_accepted"])
-        self.assertNotIn("smallest exact demo", json.dumps(executed["data"]["operation"]))
+        self.assertFalse(
+            executed["data"]["operation"]["verification_evidence"]["block_accepted"]
+        )
+        self.assertNotIn(
+            "smallest exact demo", json.dumps(executed["data"]["operation"])
+        )
 
     def test_weekly_report_advances_one_exact_owner_stage_and_rechecks_writer(self) -> None:
         project_root = self.root / "weekly-project"
@@ -860,6 +878,320 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertIn("Do not produce, regenerate, edit, or reinterpret it", owner.app_server_client.prompt)
         self.assertNotIn("Produce one bounded Sol XHigh cognitive review", owner.app_server_client.prompt)
 
+    def test_terminal_shutdown_requires_every_gate_and_preserves_target_task(
+        self,
+    ) -> None:
+        project_root = self.root / "shutdown-project"
+        fix_root = self.root / "shutdown-fix"
+        project_root.mkdir()
+        fix_root.mkdir()
+        project = ProjectRecord(
+            id="shutdown-project",
+            label="Shutdown project",
+            root=str(project_root),
+        )
+        target_id = "shutdown-target-001"
+        fix_id = "shutdown-fix-001"
+        policy_sha = "a" * 64
+        catalog_fingerprint = "b" * 64
+        binding_fingerprint = "c" * 64
+        mission_root = "d" * 64
+        lifecycle_sha = "e" * 64
+        gate_currentness = "f" * 64
+        manifest_root = "1" * 64
+        tasks = {
+            target_id: {
+                "id": target_id,
+                "cwd": str(project_root),
+                "status": {"type": "idle"},
+                "project_binding": {"status": "bound", "project_id": project.id},
+                "turns_truncated": False,
+                "turns": [
+                    {
+                        "id": "turn-target-complete",
+                        "status": "completed",
+                        "items_truncated": False,
+                        "items": [],
+                    }
+                ],
+            },
+            fix_id: {
+                "id": fix_id,
+                "cwd": str(fix_root),
+                "status": {"type": "idle"},
+                "turns_truncated": False,
+                "turns": [],
+            },
+        }
+        project_claim = {
+            "fingerprint": binding_fingerprint,
+            "project_binding": {"status": "bound", "project_id": project.id},
+        }
+        lifecycle = {
+            "record_id": "EVT-SHUTDOWN-LIFECYCLE",
+            "record_sha256": lifecycle_sha,
+            "status": "completed",
+            "state_fingerprint": "shutdown-state-001",
+        }
+        control = {
+            "policy_sha256": policy_sha,
+            "event_head": "2" * 64,
+            "policy": {
+                "policy_sha256": policy_sha,
+                "mission_binding": {"mission_root": mission_root},
+            },
+            "runtime": {"fix_executor_thread_id": fix_id},
+            "lifecycle_record": lifecycle,
+        }
+        workflow = {
+            "status": "available",
+            "stage": "request-stop",
+            "next_action": "shutdown",
+            "actionable": True,
+            "fingerprint": "3" * 64,
+            "mission_root": mission_root,
+            "state_fingerprint": lifecycle["state_fingerprint"],
+            "completion_record_id": "EVT-SHUTDOWN-COMPLETION",
+            "lifecycle_record_id": lifecycle["record_id"],
+            "report_set_id": "terminal-shutdown-report-001",
+            "manifest_root": manifest_root,
+            "delivery_record_id": "EVT-SHUTDOWN-DELIVERY",
+            "delivery_timestamp": "2026-08-12T08:00:00Z",
+            "source_record": "EVT-SHUTDOWN-DELIVERY",
+            "gate": {
+                "status": "ready",
+                "completion_permitted": True,
+                "source_stop_permitted": True,
+                "supervision_pause_permitted": True,
+                "terminal_reports_delivered": True,
+                "reason": "Every exact terminal gate is satisfied.",
+                "currentness": gate_currentness,
+            },
+            "open_heads": {
+                "incident_ids": [],
+                "decision_ids": [],
+                "successor_transition_ids": [],
+                "mission_activation_ids": [],
+            },
+            "automations": [
+                {
+                    "role": "reviewer",
+                    "label": "Reviewer",
+                    "automation_id": "shutdown-reviewer-automation",
+                    "target_thread_id": "shutdown-reviewer-task",
+                    "owner_status": "PAUSED",
+                    "updated_at": "2026-08-12T08:01:00.000Z",
+                    "manifest_sha256": "4" * 64,
+                    "protected_sha256": "5" * 64,
+                    "post_delivery": True,
+                    "action": "preserve",
+                },
+                {
+                    "role": "watcher",
+                    "label": "Watcher",
+                    "automation_id": "shutdown-watcher-automation",
+                    "target_thread_id": "shutdown-watcher-task",
+                    "owner_status": "ACTIVE",
+                    "updated_at": "2026-08-12T07:59:00.000Z",
+                    "manifest_sha256": "6" * 64,
+                    "protected_sha256": "7" * 64,
+                    "post_delivery": False,
+                    "action": "pause-after-delivery",
+                },
+            ],
+            "receipt": {
+                "status": "missing",
+                "record_id": None,
+                "record_sha256": None,
+                "previous_record_sha256": None,
+                "automation_state_root": None,
+                "reason": "No shutdown receipt exists.",
+            },
+            "recovery": {
+                "posture": "ready",
+                "guidance": "Pause the named watcher and record the exact receipt.",
+            },
+            "limitations": [],
+            "error": None,
+        }
+        group = {"ids": [target_id]}
+
+        class OperationsStub:
+            supervision_root = self.supervision_root
+            supervision_owner = (
+                Path(__file__).resolve().parents[3]
+                / "supervise-tracker-runs"
+                / "scripts"
+                / "supervision_log.py"
+            )
+
+            @staticmethod
+            def project_binding_snapshot(_projects, selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong shutdown project target")
+                return project_claim
+
+            @staticmethod
+            def policy_control_snapshot(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong shutdown control target")
+                return control
+
+            @staticmethod
+            def terminal_shutdown_workflow_snapshot(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong shutdown workflow target")
+                return workflow
+
+            @staticmethod
+            def binding_group_ids(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong shutdown group target")
+                return list(group["ids"])
+
+        class AppServerStub:
+            prompt = None
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": name, "status": "supported"}
+                        for name in ("task_read", "task_resume", "turn_start")
+                    ]
+                }
+
+            @staticmethod
+            def read_task(_projects, task_id, *, include_turns):
+                if not include_turns or task_id not in tasks:
+                    raise AssertionError("wrong shutdown task read")
+                return {"task": tasks[task_id]}
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                metadata = fix_root.stat()
+                if (
+                    task_id != fix_id
+                    or expected_cwd != str(fix_root)
+                    or expected_cwd_identity != (metadata.st_dev, metadata.st_ino)
+                ):
+                    raise AssertionError("wrong shutdown dispatch")
+                self.prompt = text
+                tasks[fix_id]["status"] = {"type": "active"}
+                tasks[fix_id]["turns"] = [
+                    {
+                        "id": "turn-shutdown-001",
+                        "status": "inProgress",
+                        "items_truncated": False,
+                        "items": [{"type": "userMessage", "summary": text}],
+                    }
+                ]
+                return {
+                    "turn": {"id": "turn-shutdown-001"},
+                    "task_resumed": False,
+                }
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = AppServerStub()
+        owner.route_gate = lambda request: RouteGateResult(
+            True,
+            route_action_fingerprint(request.required_action),
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint=policy_sha,
+            target_thread=request.target_thread,
+        )
+        owner._terminal_shutdown_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), catalog_fingerprint)
+        definition = owner._terminal_shutdown_definition()
+        target = OperationTarget(kind="run", id=target_id, project_id=project.id)
+        inputs: dict[str, object] = {}
+
+        workflow["open_heads"]["incident_ids"] = ["INC-SHUTDOWN-OPEN"]
+        with self.assertRaisesRegex(OperationError, "gates deny shutdown"):
+            definition.resolve_source(target, inputs)
+        workflow["open_heads"]["incident_ids"] = []
+
+        source = definition.resolve_source(target, inputs)
+        route_request = definition.route_gate_request(target, inputs, source)
+        self.assertEqual(route_request.purpose, "fix-execution")
+        self.assertEqual(route_request.source_record, "EVT-SHUTDOWN-DELIVERY")
+        changes = {
+            item.id: item
+            for item in definition.describe_effect(
+                target, inputs, source
+            ).semantic_changes
+        }
+        self.assertEqual(changes["terminal-shutdown-receipt"].kind, "added")
+        self.assertEqual(
+            changes["terminal-shutdown-automation-watcher"].after.value,
+            "PAUSED after terminal delivery",
+        )
+        dispatched = definition.dispatch(target, inputs, source)
+        self.assertIn("--terminal-report-set-id", owner.app_server_client.prompt)
+        self.assertIn(
+            "Do not stop, interrupt, continue, resume, archive",
+            owner.app_server_client.prompt,
+        )
+        self.assertFalse(dispatched.evidence["target_task_stopped"])
+        self.assertFalse(dispatched.evidence["target_turn_interrupted"])
+
+        tasks[fix_id]["status"] = {"type": "idle"}
+        tasks[fix_id]["turns"][0]["status"] = "completed"
+        workflow["stage"] = "shutdown"
+        workflow["next_action"] = None
+        workflow["actionable"] = False
+        workflow["automations"][1].update(
+            {
+                "owner_status": "PAUSED",
+                "updated_at": "2026-08-12T08:02:00.000Z",
+                "manifest_sha256": "8" * 64,
+                "post_delivery": True,
+                "action": "preserve",
+            }
+        )
+        workflow["receipt"] = {
+            "status": "verified",
+            "record_id": "EVT-SHUTDOWN-RECEIPT",
+            "record_sha256": "9" * 64,
+            "previous_record_sha256": control["event_head"],
+            "automation_state_root": "0" * 64,
+            "reason": "Every exact terminal owner is current.",
+        }
+        workflow["recovery"] = {
+            "posture": "complete",
+            "guidance": "No further shutdown action is supported.",
+        }
+        applied = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(applied.state, "applied", applied.evidence)
+        self.assertTrue(applied.evidence["terminal_shutdown_applied"])
+        self.assertTrue(applied.evidence["target_task_preserved"])
+        self.assertTrue(applied.evidence["automation_postcondition_current"])
+        self.assertTrue(applied.evidence["shutdown_receipt_postcondition_current"])
+        self.assertFalse(applied.evidence["automatic_retry"])
+
+        workflow["receipt"]["previous_record_sha256"] = "1" * 64
+        intervening_event = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(intervening_event.state, "pending")
+        self.assertFalse(intervening_event.evidence["terminal_shutdown_applied"])
+        workflow["receipt"]["previous_record_sha256"] = control["event_head"]
+
+        workflow["automations"][1]["owner_status"] = "ACTIVE"
+        workflow["automations"][1]["post_delivery"] = False
+        workflow["automations"][1]["action"] = "pause-after-delivery"
+        partial = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(partial.state, "pending")
+        self.assertFalse(partial.evidence["automation_postcondition_current"])
+        self.assertFalse(partial.evidence["terminal_shutdown_applied"])
     def test_factory_evolution_advances_one_maintained_stage_without_candidate_or_adoption(self) -> None:
         project_root = self.root / "evolution-project"
         proposer_root = self.root / "evolution-proposer"

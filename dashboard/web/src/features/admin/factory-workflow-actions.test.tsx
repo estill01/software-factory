@@ -234,6 +234,64 @@ const terminalReportWorkflow = {
   error: null,
 } satisfies RunDetail["terminal_report_workflow"]
 
+const terminalShutdownWorkflow = {
+  status: "available",
+  stage: "request-stop",
+  next_action: "shutdown",
+  actionable: true,
+  fingerprint: hash,
+  mission_root: hash,
+  state_fingerprint: "terminal-state-001",
+  completion_record_id: "EVT-TERMINAL-COMPLETION",
+  lifecycle_record_id: "EVT-TERMINAL-LIFECYCLE",
+  report_set_id: "terminal-task-demo-0011223344556677",
+  manifest_root: hash,
+  delivery_record_id: "EVT-TERMINAL-DELIVERY",
+  delivery_timestamp: "2026-08-10T10:00:00.000Z",
+  source_record: "EVT-TERMINAL-DELIVERY",
+  gate: {
+    status: "ready",
+    completion_permitted: true,
+    source_stop_permitted: true,
+    supervision_pause_permitted: true,
+    terminal_reports_delivered: true,
+    reason: "Every exact terminal gate is satisfied.",
+    currentness: hash,
+  },
+  open_heads: {
+    incident_ids: [],
+    decision_ids: [],
+    successor_transition_ids: [],
+    mission_activation_ids: [],
+  },
+  automations: [{
+    role: "watcher",
+    label: "Watcher",
+    automation_id: "watcher-automation",
+    target_thread_id: "watcher-task",
+    owner_status: "ACTIVE",
+    updated_at: "2026-08-10T09:59:00.000Z",
+    manifest_sha256: hash,
+    protected_sha256: hash,
+    post_delivery: false,
+    action: "pause-after-delivery",
+  }],
+  receipt: {
+    status: "missing",
+    record_id: null,
+    record_sha256: null,
+    previous_record_sha256: null,
+    automation_state_root: null,
+    reason: "No canonical terminal shutdown receipt exists.",
+  },
+  recovery: {
+    posture: "ready",
+    guidance: "Pause the named automation and invoke the maintained owner once.",
+  },
+  limitations: ["The implementation task remains observed and unchanged."],
+  error: null,
+} satisfies RunDetail["terminal_shutdown_workflow"]
+
 const factoryEvolutionWorkflow = {
   status: "available",
   stage: "awaiting-implementation",
@@ -540,6 +598,31 @@ describe("Factory workflow action strips", () => {
     expect(await screen.findByText("terminal-task-demo-0011223344556677")).toBeVisible()
     expect(screen.getByText("reconciled · EVT-TERMINAL-COMPLETION · EVT-TERMINAL-LIFECYCLE")).toBeVisible()
     expect(screen.getByText(/Request-stop · automation pause · terminal shutdown/)).toHaveTextContent("separate and not performed")
+  })
+
+  it("previews terminal shutdown as a distinct bounded owner sequence", async () => {
+    const user = userEvent.setup()
+    renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+        terminalShutdownWorkflow={terminalShutdownWorkflow}
+      />,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Request stop & shut down" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.terminal-supervision-shutdown",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: {},
+    })
+    expect(await screen.findByText("EVT-TERMINAL-COMPLETION")).toBeVisible()
+    expect(screen.getByText("ready · Every exact terminal gate is satisfied.")).toBeVisible()
+    expect(screen.getByText("Watcher: ACTIVE → PAUSED after delivery")).toBeVisible()
+    expect(screen.getByText(/no task stop or turn interrupt/)).toBeVisible()
   })
 
   it("keeps a stale append-once terminal delivery unavailable and non-retryable", () => {

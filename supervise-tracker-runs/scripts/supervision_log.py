@@ -3373,20 +3373,20 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
     if source is None:
         raise SupervisionLogError("Lifecycle source record does not exist")
     if source.get("kind") != "lifecycle" or source.get("status") != lifecycle_state:
-        raise SupervisionLogError("Lifecycle source record does not match requested state")
+        raise SupervisionLogError(
+            "Lifecycle source record does not match requested state"
+        )
     if state_fingerprint and source.get("state_fingerprint") != state_fingerprint:
         raise SupervisionLogError("Lifecycle source record fingerprint differs")
 
     open_transitions = successor_transition_heads(all_events, open_only=True)
     transition_stop_conflict = bool(
-        open_transitions
-        and lifecycle_state in {"completed", "paused", "stopped"}
+        open_transitions and lifecycle_state in {"completed", "paused", "stopped"}
     )
     active_events = mission_scoped_events(directory, policy, all_events)
     open_activations = mission_activation_heads(active_events, open_only=True)
     activation_stop_conflict = bool(
-        open_activations
-        and lifecycle_state in {"completed", "paused", "stopped"}
+        open_activations and lifecycle_state in {"completed", "paused", "stopped"}
     )
 
     completion_permitted = True
@@ -3434,13 +3434,19 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
     terminal_report_reason = "The lifecycle state does not require terminal reports."
     terminal_report_set_id: str | None = None
     if terminal_reporting and completion_permitted:
+        requested_terminal_report_set = getattr(args, "terminal_report_set_id", None)
+        if requested_terminal_report_set:
+            requested_terminal_report_set = safe_id(
+                requested_terminal_report_set,
+                label="terminal report set ID",
+            )
         terminal_delivery = latest_terminal_delivery(
-            all_events, lifecycle_record_id=source_record
+            all_events,
+            lifecycle_record_id=source_record,
+            report_set_id=requested_terminal_report_set,
         )
         if terminal_delivery is None:
-            terminal_report_reason = (
-                "Generate, verify, and email both terminal PDF reports before pausing supervision."
-            )
+            terminal_report_reason = "Generate, verify, and email both terminal PDF reports before pausing supervision."
         else:
             terminal_report_set_id = str(terminal_delivery.get("report_set_id", ""))
             try:
@@ -3448,9 +3454,7 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                     directory, terminal_report_set_id
                 )
                 terminal_reports_delivered = bool(
-                    terminal_delivery_is_current(
-                        terminal_delivery, verified_terminal
-                    )
+                    terminal_delivery_is_current(terminal_delivery, verified_terminal)
                     and terminal_delivery.get("state_fingerprint")
                     == source.get("state_fingerprint")
                 )
@@ -3496,10 +3500,7 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
         and notification_config.get("decision_context_enabled")
     )
     send_now = (
-        enabled
-        and not duplicate
-        and completion_permitted
-        and not terminal_reporting
+        enabled and not duplicate and completion_permitted and not terminal_reporting
     )
     supervision_pause_permitted = bool(
         lifecycle_state == "completed"
@@ -3530,7 +3531,9 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                 "channel": (
                     "priority-lifecycle"
                     if send_now and priority_lifecycle
-                    else "primary-status" if send_now else "none"
+                    else "primary-status"
+                    if send_now
+                    else "none"
                 ),
                 "completion_action": (
                     MISSION_ACTIVATION_START_ACTION
@@ -6526,7 +6529,10 @@ def cmd_terminal_report_delivery(args: argparse.Namespace) -> None:
 
 
 def latest_terminal_delivery(
-    all_events: Sequence[Mapping[str, Any]], *, lifecycle_record_id: str
+    all_events: Sequence[Mapping[str, Any]],
+    *,
+    lifecycle_record_id: str,
+    report_set_id: str | None = None,
 ) -> Mapping[str, Any] | None:
     return next(
         (
@@ -6536,6 +6542,7 @@ def latest_terminal_delivery(
             and item.get("category") == TERMINAL_REPORT_DELIVERY_CATEGORY
             and item.get("status") == "sent"
             and lifecycle_record_id in item.get("evidence", [])
+            and (report_set_id is None or item.get("report_set_id") == report_set_id)
         ),
         None,
     )
@@ -7535,13 +7542,23 @@ def expected_terminal_automation_ids(policy: Mapping[str, Any]) -> list[str]:
         runtime.get("roundup_automation_id"),
         policy.get("reports", {}).get("weekly", {}).get("automation_id"),
     ]
-    return sorted({str(item) for item in values if item})
+    automation_ids = [
+        safe_id(str(item), label="terminal automation ID") for item in values if item
+    ]
+    if len(automation_ids) != len(set(automation_ids)):
+        raise SupervisionLogError(
+            "Terminal supervision roles must bind distinct automations"
+        )
+    return sorted(automation_ids)
 
 
 def terminal_automation_owner_states(
-    automation_ids: list[str], *, not_before: dt.datetime
+    automation_ids: list[str],
+    *,
+    not_before: dt.datetime,
+    automation_root: Path | None = None,
 ) -> dict[str, dict[str, Any]]:
-    owner_root = CODEX_AUTOMATIONS_ROOT.resolve()
+    owner_root = (automation_root or CODEX_AUTOMATIONS_ROOT).resolve()
     states: dict[str, dict[str, Any]] = {}
     for automation_id in automation_ids:
         safe_id(automation_id, label="automation ID")
@@ -7571,9 +7588,7 @@ def terminal_automation_owner_states(
         updated_at = config.get("updated_at")
         if not isinstance(updated_at, int):
             raise SupervisionLogError("Terminal automation owner lacks update time")
-        updated = dt.datetime.fromtimestamp(
-            updated_at / 1000, tz=dt.timezone.utc
-        )
+        updated = dt.datetime.fromtimestamp(updated_at / 1000, tz=dt.timezone.utc)
         if updated < not_before:
             raise SupervisionLogError(
                 "Terminal automation pause predates report delivery"
@@ -7588,6 +7603,77 @@ def terminal_automation_owner_states(
     return states
 
 
+def terminal_shutdown_record_is_canonical(
+    record: Mapping[str, Any],
+    *,
+    policy: Mapping[str, Any],
+    lifecycle: Mapping[str, Any],
+    delivery: Mapping[str, Any],
+    verified: Mapping[str, Any],
+    automation_states: Mapping[str, Mapping[str, Any]],
+) -> bool:
+    try:
+        record_id = record.get("record_id")
+        timestamp = record.get("timestamp")
+        record_sha256 = record.get("record_sha256")
+        previous_record_sha256 = record.get("previous_record_sha256")
+        recorded_at = dt.datetime.fromisoformat(
+            str(timestamp).strip().replace("Z", "+00:00")
+        )
+        if recorded_at.tzinfo is None:
+            return False
+        recorded_at = recorded_at.astimezone(dt.timezone.utc)
+        delivered_at = parse_time(str(delivery.get("timestamp", "")))
+        owner_updates = [
+            dt.datetime.fromtimestamp(
+                int(state["updated_at"]) / 1000,
+                tz=dt.timezone.utc,
+            )
+            for state in automation_states.values()
+            if isinstance(state, Mapping) and type(state.get("updated_at")) is int
+        ]
+        material = {
+            key: value for key, value in record.items() if key != "record_sha256"
+        }
+        return bool(
+            record.get("schema_version") == 1
+            and isinstance(record_id, str)
+            and SAFE_ID.fullmatch(record_id)
+            and isinstance(timestamp, str)
+            and len(owner_updates) == len(automation_states)
+            and recorded_at >= delivered_at
+            and all(recorded_at >= updated for updated in owner_updates)
+            and isinstance(record_sha256, str)
+            and SHA256.fullmatch(record_sha256)
+            and isinstance(previous_record_sha256, str)
+            and SHA256.fullmatch(previous_record_sha256)
+            and digest(material) == record_sha256
+            and record.get("target_thread_id") == policy.get("target_thread_id")
+            and record.get("kind") == "check"
+            and record.get("model") == "gpt-5.6-sol"
+            and record.get("reasoning") == "xhigh"
+            and record.get("state_fingerprint") == lifecycle.get("state_fingerprint")
+            and record.get("status") == "verified"
+            and record.get("severity") == "info"
+            and record.get("category") == TERMINAL_SHUTDOWN_CATEGORY
+            and record.get("summary")
+            == "Viewed every bound supervision automation in paused state after terminal report delivery."
+            and record.get("evidence")
+            == [
+                lifecycle.get("record_id"),
+                verified.get("report_set_id"),
+                delivery.get("record_id"),
+            ]
+            and record.get("report_set_id") == verified.get("report_set_id")
+            and record.get("manifest_root") == verified.get("manifest_root")
+            and sorted(automation_states) == expected_terminal_automation_ids(policy)
+            and record.get("automation_states") == automation_states
+            and record.get("automation_state_root") == digest(automation_states)
+            and record.get("policy_sha256") == policy.get("policy_sha256")
+        )
+    except (SupervisionLogError, TypeError, ValueError):
+        return False
+
 def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     all_events = events(directory / "events.jsonl")
@@ -7598,10 +7684,14 @@ def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
     if lifecycle is None or lifecycle.get("status") != "completed":
         raise SupervisionLogError("Terminal shutdown requires the completed lifecycle")
     delivery = latest_terminal_delivery(
-        all_events, lifecycle_record_id=args.lifecycle_record
+        all_events,
+        lifecycle_record_id=args.lifecycle_record,
+        report_set_id=args.report_set_id,
     )
-    if delivery is None or delivery.get("report_set_id") != args.report_set_id:
-        raise SupervisionLogError("Terminal shutdown requires delivered report attachments")
+    if delivery is None:
+        raise SupervisionLogError(
+            "Terminal shutdown requires delivered report attachments"
+        )
     verified = verify_terminal_report_set(directory, args.report_set_id)
     if not terminal_delivery_is_current(delivery, verified):
         raise SupervisionLogError("Terminal shutdown report delivery is stale")
@@ -7625,14 +7715,23 @@ def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
             None,
         )
         if prior is not None:
-            if prior.get("automation_states") != states:
+            if not terminal_shutdown_record_is_canonical(
+                prior,
+                policy=policy,
+                lifecycle=lifecycle,
+                delivery=delivery,
+                verified=verified,
+                automation_states=states,
+            ):
                 raise SupervisionLogError("Terminal shutdown receipt already differs")
             print(json.dumps({"duplicate": True, "record": prior}, sort_keys=True))
             return
         record = {
             "schema_version": 1,
             "record_id": f"EVT-{len(current_events) + 1:06d}",
-            "timestamp": utc_now(),
+            "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(
+                timespec="milliseconds"
+            ),
             "target_thread_id": args.target_thread,
             "kind": "check",
             "model": "gpt-5.6-sol",
@@ -7642,7 +7741,11 @@ def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
             "severity": "info",
             "category": TERMINAL_SHUTDOWN_CATEGORY,
             "summary": "Viewed every bound supervision automation in paused state after terminal report delivery.",
-            "evidence": [args.lifecycle_record, args.report_set_id, str(delivery.get("record_id"))],
+            "evidence": [
+                args.lifecycle_record,
+                args.report_set_id,
+                str(delivery.get("record_id")),
+            ],
             "report_set_id": args.report_set_id,
             "manifest_root": verified["manifest_root"],
             "automation_states": states,
@@ -7650,7 +7753,19 @@ def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
             "policy_sha256": policy["policy_sha256"],
         }
         append_event_locked(args, directory, record)
-    print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
+        persisted = events(directory / "events.jsonl")[-1]
+        if not terminal_shutdown_record_is_canonical(
+            persisted,
+            policy=policy,
+            lifecycle=lifecycle,
+            delivery=delivery,
+            verified=verified,
+            automation_states=states,
+        ):
+            raise SupervisionLogError(
+                "Persisted terminal shutdown receipt failed verification"
+            )
+    print(json.dumps({"duplicate": False, "record": persisted}, sort_keys=True))
 
 
 def cmd_terminal_report(args: argparse.Namespace) -> None:
@@ -7965,7 +8080,9 @@ def cmd_status(args: argparse.Namespace) -> None:
 
 
 def parser() -> argparse.ArgumentParser:
-    result = argparse.ArgumentParser(description="Maintain bounded tracker supervision records")
+    result = argparse.ArgumentParser(
+        description="Maintain bounded tracker supervision records"
+    )
     result.add_argument("--root", help="Override the supervision root for testing")
     subparsers = result.add_subparsers(dest="command", required=True)
 
@@ -8049,14 +8166,10 @@ def parser() -> argparse.ArgumentParser:
     mission_activation_start = subparsers.add_parser("mission-activation-start")
     mission_activation_start.add_argument("--target-thread", required=True)
     mission_activation_start.add_argument("--mission-root", required=True)
-    mission_activation_start.add_argument(
-        "--activation-policy-sha256", required=True
-    )
+    mission_activation_start.add_argument("--activation-policy-sha256", required=True)
     mission_activation_start.add_argument("--first-eligible-work", required=True)
     mission_activation_start.add_argument("--source-record", required=True)
-    mission_activation_start.add_argument(
-        "--evidence", action="append", required=True
-    )
+    mission_activation_start.add_argument("--evidence", action="append", required=True)
     mission_activation_start.set_defaults(func=cmd_mission_activation_start)
 
     gate = subparsers.add_parser("gate")
@@ -8091,9 +8204,7 @@ def parser() -> argparse.ArgumentParser:
     thread_route_gate.add_argument(
         "--reversibility", choices=sorted(REVERSIBILITY_POSTURES)
     )
-    thread_route_gate.add_argument(
-        "--ordinary-means-disabled", choices=["yes", "no"]
-    )
+    thread_route_gate.add_argument("--ordinary-means-disabled", choices=["yes", "no"])
     thread_route_gate.add_argument(
         "--independent-mission-review", choices=["yes", "no"]
     )
@@ -8130,8 +8241,12 @@ def parser() -> argparse.ArgumentParser:
     record.add_argument("--dedup-key", default="")
     record.add_argument("--incident-id")
     record.add_argument("--review-id")
-    record.add_argument("--notice-disposition", choices=["", *sorted(NOTICE_DISPOSITIONS)], default="")
-    record.add_argument("--resolution-owner", choices=["", *sorted(RESOLUTION_OWNERS)], default="")
+    record.add_argument(
+        "--notice-disposition", choices=["", *sorted(NOTICE_DISPOSITIONS)], default=""
+    )
+    record.add_argument(
+        "--resolution-owner", choices=["", *sorted(RESOLUTION_OWNERS)], default=""
+    )
     record.add_argument("--user-action-required", choices=["", "yes", "no"], default="")
     record.add_argument("--containment", action="store_true")
     record.add_argument("--mission-root")
@@ -8153,18 +8268,14 @@ def parser() -> argparse.ArgumentParser:
     record.add_argument("--successor-effects", choices=["allowed", "blocked"])
     record.add_argument("--failure-mode", action="store_true")
     record.add_argument("--failure-mode-id")
-    record.add_argument(
-        "--failure-layer", choices=sorted(FAILURE_MODE_LAYERS)
-    )
+    record.add_argument("--failure-layer", choices=sorted(FAILURE_MODE_LAYERS))
     record.add_argument("--failure-mechanism")
     record.add_argument("--failure-trigger")
     record.add_argument("--failure-effect")
     record.add_argument("--failure-detection")
     record.add_argument("--failure-correction")
     record.add_argument("--failure-recurrence-invariant")
-    record.add_argument(
-        "--failure-human-scheduling-leak", choices=["yes", "no"]
-    )
+    record.add_argument("--failure-human-scheduling-leak", choices=["yes", "no"])
     record.add_argument(
         "--reusable-lane-disposition",
         choices=list(REUSABLE_LANE_DISPOSITIONS),
@@ -8189,13 +8300,9 @@ def parser() -> argparse.ArgumentParser:
     completion_record.add_argument("--outcome-manifest-sha256", required=True)
     completion_record.add_argument("--artifact-currentness-sha256", required=True)
     completion_record.add_argument("--effect-reconciliation-sha256", required=True)
-    completion_record.add_argument(
-        "--open-item-compatibility-sha256", required=True
-    )
+    completion_record.add_argument("--open-item-compatibility-sha256", required=True)
     completion_record.add_argument("--independent-challenge-sha256", required=True)
-    completion_record.add_argument(
-        "--capability-reconciliation-json", required=True
-    )
+    completion_record.add_argument("--capability-reconciliation-json", required=True)
     completion_record.add_argument("--active-block", default="")
     completion_record.add_argument("--checkpoint", default="")
     completion_record.add_argument("--summary", required=True)
@@ -8206,10 +8313,18 @@ def parser() -> argparse.ArgumentParser:
     notice_gate.add_argument("--target-thread", required=True)
     notice_gate.add_argument("--incident-id", required=True)
     notice_gate.add_argument("--source-record", required=True)
-    notice_gate.add_argument("--notice-disposition", choices=sorted(NOTICE_DISPOSITIONS), required=True)
-    notice_gate.add_argument("--resolution-owner", choices=sorted(RESOLUTION_OWNERS), required=True)
-    notice_gate.add_argument("--user-action-required", choices=["yes", "no"], required=True)
-    notice_gate.add_argument("--severity", choices=sorted(SEVERITIES), default="warning")
+    notice_gate.add_argument(
+        "--notice-disposition", choices=sorted(NOTICE_DISPOSITIONS), required=True
+    )
+    notice_gate.add_argument(
+        "--resolution-owner", choices=sorted(RESOLUTION_OWNERS), required=True
+    )
+    notice_gate.add_argument(
+        "--user-action-required", choices=["yes", "no"], required=True
+    )
+    notice_gate.add_argument(
+        "--severity", choices=sorted(SEVERITIES), default="warning"
+    )
     notice_gate.set_defaults(func=cmd_notice_gate)
 
     lifecycle_gate = subparsers.add_parser("lifecycle-gate")
@@ -8219,6 +8334,7 @@ def parser() -> argparse.ArgumentParser:
     )
     lifecycle_gate.add_argument("--source-record", required=True)
     lifecycle_gate.add_argument("--state-fingerprint", default="")
+    lifecycle_gate.add_argument("--terminal-report-set-id")
     lifecycle_gate.set_defaults(func=cmd_lifecycle_gate)
 
     resume_gate = subparsers.add_parser("resume-gate")
@@ -8242,12 +8358,16 @@ def parser() -> argparse.ArgumentParser:
     decision_record.add_argument(
         "--classification", choices=sorted(DECISION_CLASSIFICATIONS), required=True
     )
-    decision_record.add_argument("--phase", choices=sorted(DECISION_PHASES), required=True)
+    decision_record.add_argument(
+        "--phase", choices=sorted(DECISION_PHASES), required=True
+    )
     decision_record.add_argument(
         "--safe-frontier", choices=sorted(SAFE_FRONTIER_POSTURES), required=True
     )
     decision_record.add_argument("--attempt", type=int, default=0)
-    decision_record.add_argument("--outcome", choices=sorted(DECISION_OUTCOMES), default="")
+    decision_record.add_argument(
+        "--outcome", choices=sorted(DECISION_OUTCOMES), default=""
+    )
     decision_record.add_argument("--decision-packet-hash", required=True)
     decision_record.add_argument("--blocked-scope-hash", required=True)
     decision_record.add_argument("--safe-frontier-hash", required=True)
@@ -8299,9 +8419,7 @@ def parser() -> argparse.ArgumentParser:
         choices=sorted(AUTHORITY_SOURCE_CLASSES),
         required=True,
     )
-    successor_record.add_argument(
-        "--governing-authority-source-record", required=True
-    )
+    successor_record.add_argument("--governing-authority-source-record", required=True)
     successor_record.add_argument("--successor-thread", default="")
     successor_record.add_argument("--successor-mission-root", default="")
     successor_record.add_argument("--successor-group-id", default="")

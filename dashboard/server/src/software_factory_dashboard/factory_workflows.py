@@ -96,6 +96,10 @@ WEEKLY_REPORT_MARKER = "SOFTWARE_FACTORY_DASHBOARD_WEEKLY_REPORT "
 WEEKLY_REPORT_ROUTE_PURPOSE = "roundup-action"
 TERMINAL_REPORT_MARKER = "SOFTWARE_FACTORY_DASHBOARD_TERMINAL_REPORT "
 TERMINAL_REPORT_ROUTE_PURPOSE = "changed-state-review"
+TERMINAL_SHUTDOWN_MARKER = "SOFTWARE_FACTORY_DASHBOARD_TERMINAL_SHUTDOWN "
+
+TERMINAL_SHUTDOWN_ROUTE_PURPOSE = "fix-execution"
+
 FACTORY_EVOLUTION_MARKER = "SOFTWARE_FACTORY_DASHBOARD_FACTORY_EVOLUTION "
 ROLE_BINDING_REPAIR_ROLES = {
     "base_reviewer": {
@@ -518,6 +522,7 @@ class FactoryWorkflowOwner:
         self._successor_transition_dispatch_lock = RLock()
         self._weekly_report_dispatch_lock = RLock()
         self._terminal_report_dispatch_lock = RLock()
+        self._terminal_shutdown_dispatch_lock = RLock()
         self._factory_evolution_dispatch_lock = RLock()
 
     @staticmethod
@@ -1146,6 +1151,110 @@ class FactoryWorkflowOwner:
         return tuple(rows)
 
     @classmethod
+    def _terminal_shutdown_semantic_changes(
+        cls,
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> tuple[OperationSemanticChange, ...]:
+        evidence = source.evidence
+        currentness = source.fingerprint
+        run_link = (OperationLink("Run", f"/runs/{target.id}"),)
+        policy_revision = str(evidence["policy_sha256"])
+        rows: list[OperationSemanticChange] = [
+            cls._semantic_change(
+                change_id="terminal-shutdown-lifecycle",
+                subject="Completed lifecycle",
+                kind="preserved",
+                before=cls._semantic_exact(str(evidence["lifecycle_record_id"])),
+                after=cls._semantic_exact(str(evidence["lifecycle_record_id"])),
+                owner="maintained lifecycle record and source-stop gate owner",
+                source_identity=f"supervision-lifecycle:{target.id}",
+                source_revision=str(evidence["lifecycle_record_sha256"]),
+                currentness=currentness,
+                links=run_link,
+            ),
+            cls._semantic_change(
+                change_id="terminal-shutdown-report-delivery",
+                subject="Verified terminal report delivery",
+                kind="preserved",
+                before=cls._semantic_exact(str(evidence["delivery_record_id"])),
+                after=cls._semantic_exact(str(evidence["delivery_record_id"])),
+                owner="maintained terminal-report and Gmail delivery owners",
+                source_identity=f"terminal-report:{evidence['report_set_id']}",
+                source_revision=str(evidence["manifest_root"]),
+                currentness=currentness,
+                links=(
+                    OperationLink("Reports", "/reports?view=reports&family=terminal"),
+                ),
+            ),
+            cls._semantic_change(
+                change_id="terminal-shutdown-receipt",
+                subject="Terminal shutdown receipt",
+                kind="added",
+                before=cls._semantic_unavailable(),
+                after=cls._semantic_exact("verified"),
+                owner="maintained terminal-shutdown receipt owner",
+                source_identity=f"terminal-shutdown:{target.id}",
+                source_revision=str(evidence["event_head"]),
+                currentness=currentness,
+                links=run_link,
+            ),
+        ]
+        for automation in evidence["automations"]:
+            already_paused_after_delivery = bool(
+                automation["owner_status"] == "PAUSED"
+                and automation["post_delivery"] is True
+            )
+            rows.append(
+                cls._semantic_change(
+                    change_id=f"terminal-shutdown-automation-{automation['role']}",
+                    subject=f"{automation['label']} automation",
+                    kind="preserved" if already_paused_after_delivery else "changed",
+                    before=cls._semantic_exact(
+                        "PAUSED after terminal delivery"
+                        if already_paused_after_delivery
+                        else str(automation["owner_status"])
+                    ),
+                    after=cls._semantic_exact("PAUSED after terminal delivery"),
+                    owner="maintained Codex automation owner",
+                    source_identity=f"automation:{automation['automation_id']}",
+                    source_revision=str(automation["manifest_sha256"]),
+                    currentness=currentness,
+                    links=run_link,
+                )
+            )
+        target_state = cls._semantic_exact(str(evidence["target_task_status"]))
+        policy_state = cls._semantic_exact(policy_revision)
+        rows.extend(
+            (
+                cls._semantic_change(
+                    change_id="terminal-shutdown-target-task",
+                    subject="Implementation task state",
+                    kind="preserved",
+                    before=target_state,
+                    after=target_state,
+                    owner="maintained Codex task reader",
+                    source_identity=f"codex-task:{target.id}",
+                    source_revision=str(evidence["target_task_fingerprint"]),
+                    currentness=currentness,
+                    links=(OperationLink("Target task", f"/tasks/{target.id}"),),
+                ),
+                cls._semantic_change(
+                    change_id="terminal-shutdown-policy",
+                    subject="Supervision policy and bindings",
+                    kind="preserved",
+                    before=policy_state,
+                    after=policy_state,
+                    owner="maintained supervision policy owner",
+                    source_identity=f"supervision-policy:{target.id}",
+                    source_revision=policy_revision,
+                    currentness=currentness,
+                    links=run_link,
+                ),
+            )
+        )
+        return tuple(rows)
+    @classmethod
     def _supervision_resume_semantic_changes(
         cls,
         target: OperationTarget,
@@ -1261,6 +1370,7 @@ class FactoryWorkflowOwner:
                 self._successor_transition_definition(),
                 self._weekly_report_definition(),
                 self._terminal_report_definition(),
+                self._terminal_shutdown_definition(),
                 self._factory_evolution_definition(),
                 self._unavailable_authoring_supervision_definition(),
             )
@@ -14183,6 +14293,902 @@ class FactoryWorkflowOwner:
             verify=verify,
         )
 
+    @staticmethod
+    def _terminal_shutdown_marker(
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> dict[str, Any]:
+        return {
+            "kind": "terminal-supervision-shutdown",
+            "target_thread_id": target.id,
+            "project_id": source.evidence["project_id"],
+            "group_id": source.evidence["group_id"],
+            "mission_root": source.evidence["mission_root"],
+            "policy_sha256": source.evidence["policy_sha256"],
+            "event_head": source.evidence["event_head"],
+            "completion_record_id": source.evidence["completion_record_id"],
+            "lifecycle_record_id": source.evidence["lifecycle_record_id"],
+            "lifecycle_record_sha256": source.evidence["lifecycle_record_sha256"],
+            "state_fingerprint": source.evidence["state_fingerprint"],
+            "report_set_id": source.evidence["report_set_id"],
+            "manifest_root": source.evidence["manifest_root"],
+            "delivery_record_id": source.evidence["delivery_record_id"],
+            "delivery_timestamp": source.evidence["delivery_timestamp"],
+            "gate_currentness": source.evidence["gate_currentness"],
+            "automation_set_sha256": source.evidence["automation_set_sha256"],
+            "target_task_fingerprint": source.evidence["target_task_fingerprint"],
+            "fix_executor_task_id": source.evidence["fix_executor_task_id"],
+            "preview_fingerprint": source.fingerprint,
+            "route_purpose": TERMINAL_SHUTDOWN_ROUTE_PURPOSE,
+        }
+    @staticmethod
+    def _terminal_shutdown_turn_has_marker(
+        task: Mapping[str, Any],
+        *,
+        turn_id: str,
+        expected: Mapping[str, Any],
+    ) -> bool:
+        if task.get("turns_truncated") is True:
+            return False
+        turns = [
+            turn
+            for turn in task.get("turns", [])
+            if isinstance(turn, Mapping) and turn.get("id") == turn_id
+        ]
+        if len(turns) != 1 or turns[0].get("items_truncated") is True:
+            return False
+        markers: list[Mapping[str, Any]] = []
+        for item in turns[0].get("items", []):
+            summary = item.get("summary")
+            if item.get("type") != "userMessage" or not isinstance(summary, str):
+                continue
+            first_line = summary.splitlines()[0] if summary else ""
+            if not first_line.startswith(TERMINAL_SHUTDOWN_MARKER):
+                continue
+            try:
+                marker = json.loads(first_line.removeprefix(TERMINAL_SHUTDOWN_MARKER))
+            except json.JSONDecodeError:
+                return False
+            if isinstance(marker, Mapping):
+                markers.append(marker)
+        return len(markers) == 1 and markers[0] == expected
+    def _terminal_shutdown_source(
+        self,
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+    ) -> SourceSnapshot:
+        if inputs:
+            raise OperationError(
+                "terminal_shutdown_input_invalid",
+                "Terminal shutdown accepts no operator-supplied owner identity.",
+            )
+        projects, catalog_fingerprint = self._active_projects()
+        project = self._project_from(projects, target)
+        self._require_capabilities("task_read", "task_resume", "turn_start")
+        try:
+            target_detail = self.app_server_client.read_task(
+                projects,
+                target.id,
+                include_turns=True,
+            )
+            project_claim = self.operations_service.project_binding_snapshot(
+                projects,
+                target.id,
+            )
+            control = self.operations_service.policy_control_snapshot(target.id)
+            workflow = self.operations_service.terminal_shutdown_workflow_snapshot(
+                target.id
+            )
+        except (AppServerError, OperationsProjectionError) as error:
+            raise _operation_error(
+                error,
+                fallback="terminal_shutdown_source_unavailable",
+            ) from error
+        target_task = target_detail.get("task")
+        if not isinstance(target_task, Mapping):
+            raise OperationError(
+                "terminal_shutdown_target_unavailable",
+                "The exact implementation task projection is unavailable.",
+                status=409,
+            )
+        target_cwd, target_identity, target_status = (
+            self._validated_automation_project_task(
+                target_task,
+                task_id=target.id,
+                role="implementation target",
+                project=project,
+                allow_active=False,
+            )
+        )
+        target_turn_state = self._supervision_pause_turn_state(target_task)
+        binding = project_claim.get("project_binding")
+        if (
+            not isinstance(binding, Mapping)
+            or binding.get("status") != "bound"
+            or binding.get("project_id") != project.id
+            or self.operations_service.binding_group_ids(target.id) != [target.id]
+        ):
+            raise OperationError(
+                "terminal_shutdown_project_mismatch",
+                "The run does not resolve to one exact registered project and supervision group.",
+                status=409,
+            )
+        if workflow.get("status") != "available":
+            error = workflow.get("error")
+            raise OperationError(
+                str(error.get("code", "terminal_shutdown_source_unavailable"))
+                if isinstance(error, Mapping)
+                else "terminal_shutdown_source_unavailable",
+                str(error.get("message", "Terminal shutdown is unavailable."))
+                if isinstance(error, Mapping)
+                else "Terminal shutdown is unavailable.",
+                status=409,
+                retryable=bool(error.get("retryable"))
+                if isinstance(error, Mapping)
+                else False,
+            )
+        gate = workflow.get("gate")
+        open_heads = workflow.get("open_heads")
+        receipt = workflow.get("receipt")
+        automations = workflow.get("automations")
+        policy = control.get("policy")
+        runtime = control.get("runtime")
+        lifecycle = control.get("lifecycle_record")
+        mission = policy.get("mission_binding") if isinstance(policy, Mapping) else None
+        if (
+            workflow.get("stage") != "request-stop"
+            or workflow.get("next_action") != "shutdown"
+            or workflow.get("actionable") is not True
+            or not isinstance(gate, Mapping)
+            or gate.get("status") != "ready"
+            or any(
+                gate.get(key) is not True
+                for key in (
+                    "completion_permitted",
+                    "source_stop_permitted",
+                    "supervision_pause_permitted",
+                    "terminal_reports_delivered",
+                )
+            )
+            or not isinstance(open_heads, Mapping)
+            or set(open_heads)
+            != {
+                "incident_ids",
+                "decision_ids",
+                "successor_transition_ids",
+                "mission_activation_ids",
+            }
+            or any(open_heads.get(key) != [] for key in open_heads)
+            or not isinstance(receipt, Mapping)
+            or receipt.get("status") != "missing"
+            or not isinstance(automations, list)
+            or not automations
+            or not isinstance(policy, Mapping)
+            or not isinstance(runtime, Mapping)
+            or not isinstance(lifecycle, Mapping)
+            or not isinstance(mission, Mapping)
+            or lifecycle.get("status") != "completed"
+        ):
+            raise OperationError(
+                "terminal_shutdown_gate_denied",
+                "One or more exact outcome, open-head, lifecycle, delivery, automation, or receipt gates deny shutdown.",
+                status=409,
+            )
+        required_string_fields = (
+            "fingerprint",
+            "mission_root",
+            "state_fingerprint",
+            "completion_record_id",
+            "lifecycle_record_id",
+            "report_set_id",
+            "manifest_root",
+            "delivery_record_id",
+            "delivery_timestamp",
+            "source_record",
+        )
+        if any(
+            not isinstance(workflow.get(field), str) or not workflow[field]
+            for field in required_string_fields
+        ):
+            raise OperationError(
+                "terminal_shutdown_source_unavailable",
+                "The terminal workflow identity or currentness packet is incomplete.",
+                status=409,
+            )
+        if (
+            not SHA256_PATTERN.fullmatch(str(workflow["fingerprint"]))
+            or not SHA256_PATTERN.fullmatch(str(workflow["mission_root"]))
+            or not SHA256_PATTERN.fullmatch(str(workflow["manifest_root"]))
+            or mission.get("mission_root") != workflow["mission_root"]
+            or lifecycle.get("record_id") != workflow["lifecycle_record_id"]
+            or lifecycle.get("state_fingerprint") != workflow["state_fingerprint"]
+            or not isinstance(lifecycle.get("record_sha256"), str)
+            or not SHA256_PATTERN.fullmatch(str(lifecycle["record_sha256"]))
+            or not isinstance(control.get("policy_sha256"), str)
+            or not SHA256_PATTERN.fullmatch(str(control["policy_sha256"]))
+            or policy.get("policy_sha256") != control["policy_sha256"]
+            or not isinstance(control.get("event_head"), str)
+            or not SHA256_PATTERN.fullmatch(str(control["event_head"]))
+            or not isinstance(gate.get("currentness"), str)
+            or not SHA256_PATTERN.fullmatch(str(gate["currentness"]))
+        ):
+            raise OperationError(
+                "terminal_shutdown_source_unavailable",
+                "The exact mission, lifecycle, policy, event, or gate identity is inconsistent.",
+                status=409,
+            )
+        normalized_automations: list[dict[str, Any]] = []
+        automation_ids: set[str] = set()
+        automation_targets: set[str] = set()
+        for item in automations:
+            if (
+                not isinstance(item, Mapping)
+                or not isinstance(item.get("role"), str)
+                or not item["role"]
+                or not isinstance(item.get("label"), str)
+                or not item["label"]
+                or not isinstance(item.get("automation_id"), str)
+                or not item["automation_id"]
+                or item["automation_id"] in automation_ids
+                or not isinstance(item.get("target_thread_id"), str)
+                or not item["target_thread_id"]
+                or item["target_thread_id"] == target.id
+                or item.get("owner_status") not in {"ACTIVE", "PAUSED"}
+                or not isinstance(item.get("updated_at"), str)
+                or not item["updated_at"]
+                or not isinstance(item.get("manifest_sha256"), str)
+                or not SHA256_PATTERN.fullmatch(str(item["manifest_sha256"]))
+                or not isinstance(item.get("protected_sha256"), str)
+                or not SHA256_PATTERN.fullmatch(str(item["protected_sha256"]))
+                or type(item.get("post_delivery")) is not bool
+                or item.get("action") not in {"preserve", "pause-after-delivery"}
+            ):
+                raise OperationError(
+                    "terminal_shutdown_automation_unavailable",
+                    "The exact terminal automation set is incomplete, duplicated, or malformed.",
+                    status=409,
+                )
+            normalized = dict(item)
+            normalized_automations.append(normalized)
+            automation_ids.add(str(item["automation_id"]))
+            automation_targets.add(str(item["target_thread_id"]))
+        fix_executor_task_id = runtime.get("fix_executor_thread_id")
+        if (
+            not isinstance(fix_executor_task_id, str)
+            or not fix_executor_task_id
+            or fix_executor_task_id == target.id
+            or fix_executor_task_id in automation_targets
+        ):
+            raise OperationError(
+                "terminal_shutdown_owner_unavailable",
+                "The policy lacks one distinct exact fix-executor task.",
+                status=409,
+            )
+        try:
+            fix_detail = self.app_server_client.read_task(
+                projects,
+                fix_executor_task_id,
+                include_turns=True,
+            )
+        except AppServerError as error:
+            raise _operation_error(
+                error,
+                fallback="terminal_shutdown_owner_unavailable",
+            ) from error
+        fix_task = fix_detail.get("task")
+        if not isinstance(fix_task, Mapping):
+            raise OperationError(
+                "terminal_shutdown_owner_unavailable",
+                "The exact fix-executor projection is unavailable.",
+                status=409,
+            )
+        fix_cwd, fix_identity, fix_status = self._validated_role_task(
+            fix_task,
+            task_id=fix_executor_task_id,
+            role="fix executor",
+            unavailable_code="terminal_shutdown_owner_unavailable",
+            active_code="terminal_shutdown_owner_active",
+        )
+        target_task_material = {
+            "id": target.id,
+            "status": target_status,
+            "cwd": target_cwd,
+            "cwd_identity": target_identity,
+            "turns": target_turn_state,
+        }
+        normalized_automations.sort(key=lambda item: str(item["role"]))
+        automation_set_sha256 = fingerprint(normalized_automations)
+        evidence = {
+            "catalog_fingerprint": catalog_fingerprint,
+            "supervision_root": str(self.operations_service.supervision_root),
+            "supervision_owner": str(self.operations_service.supervision_owner),
+            "project_id": project.id,
+            "project_binding_fingerprint": project_claim.get("fingerprint"),
+            "target_thread_id": target.id,
+            "group_id": target.id,
+            "mission_root": workflow["mission_root"],
+            "policy_sha256": control["policy_sha256"],
+            "event_head": control["event_head"],
+            "completion_record_id": workflow["completion_record_id"],
+            "lifecycle_record_id": workflow["lifecycle_record_id"],
+            "lifecycle_record_sha256": lifecycle["record_sha256"],
+            "state_fingerprint": workflow["state_fingerprint"],
+            "report_set_id": workflow["report_set_id"],
+            "manifest_root": workflow["manifest_root"],
+            "delivery_record_id": workflow["delivery_record_id"],
+            "delivery_timestamp": workflow["delivery_timestamp"],
+            "source_record": workflow["source_record"],
+            "gate_currentness": gate["currentness"],
+            "gate_reason": gate["reason"],
+            "automations": normalized_automations,
+            "automation_set_sha256": automation_set_sha256,
+            "target_task_status": target_status,
+            "target_task_cwd": target_cwd,
+            "target_cwd_device": target_identity[0],
+            "target_cwd_inode": target_identity[1],
+            "target_turn_state": target_turn_state,
+            "target_task_fingerprint": fingerprint(target_task_material),
+            "fix_executor_task_id": fix_executor_task_id,
+            "fix_executor_task_status": fix_status,
+            "fix_executor_task_cwd": fix_cwd,
+            "fix_executor_cwd_device": fix_identity[0],
+            "fix_executor_cwd_inode": fix_identity[1],
+            "compensation_posture": workflow.get("recovery"),
+        }
+        material = {
+            "catalog": catalog_fingerprint,
+            "project": project.id,
+            "project_binding": project_claim.get("fingerprint"),
+            "workflow": workflow["fingerprint"],
+            "policy": control["policy_sha256"],
+            "event_head": control["event_head"],
+            "gate": gate["currentness"],
+            "automations": automation_set_sha256,
+            "target_task": target_task_material,
+            "fix_executor": {
+                "task_id": fix_executor_task_id,
+                "status": fix_status,
+                "cwd": fix_cwd,
+                "cwd_identity": fix_identity,
+            },
+        }
+        return SourceSnapshot(fingerprint=fingerprint(material), evidence=evidence)
+    @staticmethod
+    def _terminal_shutdown_prompt(
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> str:
+        marker = FactoryWorkflowOwner._terminal_shutdown_marker(target, source)
+        helper = str(source.evidence["supervision_owner"])
+        owner_root = str(source.evidence["supervision_root"])
+        facts = {
+            "target_thread_id": target.id,
+            "group_id": source.evidence["group_id"],
+            "mission_root": source.evidence["mission_root"],
+            "completion_record_id": source.evidence["completion_record_id"],
+            "lifecycle_record_id": source.evidence["lifecycle_record_id"],
+            "state_fingerprint": source.evidence["state_fingerprint"],
+            "report_set_id": source.evidence["report_set_id"],
+            "delivery_record_id": source.evidence["delivery_record_id"],
+            "delivery_timestamp": source.evidence["delivery_timestamp"],
+            "automations": [
+                {
+                    "role": item["role"],
+                    "id": item["automation_id"],
+                    "status": item["owner_status"],
+                    "target_thread_id": item["target_thread_id"],
+                    "post_delivery": item["post_delivery"],
+                }
+                for item in source.evidence["automations"]
+            ],
+            "preview_fingerprint": source.fingerprint,
+        }
+        prompt = (
+            f"{TERMINAL_SHUTDOWN_MARKER}{_canonical(marker)}\n"
+            "Use $supervise-tracker-runs and the maintained Codex automation owner for one bounded terminal supervision shutdown.\n"
+            f"Exact source facts: {_canonical(facts)}\n"
+            "Re-read the exact completed lifecycle and run lifecycle-gate with the named lifecycle record, state fingerprint, and --terminal-report-set-id. Stop with no owner action unless completion, source-stop, supervision-pause, terminal-delivery, open-transition, and open-activation results remain exact and permissive. "
+            "Do not append or change lifecycle, completion, incident, decision, successor, activation, report, delivery, Gmail, policy, or task records. Do not stop, interrupt, continue, resume, archive, or otherwise mutate the implementation task. "
+            "Through the Codex automation owner, pause each and only the named automation whose status is ACTIVE or whose PAUSED update predates delivery. Preserve every ID, kind, name, prompt, schedule, target, created timestamp, and unrelated automation. Leave an already-PAUSED post-delivery named automation byte-identical. "
+            f"View every named automation, then invoke python3 {helper} --root {owner_root} terminal-shutdown --target-thread {target.id} --lifecycle-record {source.evidence['lifecycle_record_id']} --report-set-id {source.evidence['report_set_id']} exactly once through the maintained owner. "
+            "Re-read the lifecycle gate, every named automation, and the shutdown receipt. Report exact partial state without retry, rollback, direct file writes, broad enumeration, or any action on another target."
+        )
+        if len(prompt) > MAX_WORKFLOW_PROMPT:
+            raise OperationError(
+                "terminal_shutdown_prompt_too_large",
+                "The bounded terminal-shutdown request exceeds the prompt limit.",
+            )
+        return prompt
+    @staticmethod
+    def _terminal_shutdown_route_request(
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+        source: SourceSnapshot,
+    ) -> RouteGateRequest:
+        del inputs
+        return RouteGateRequest(
+            recipient=str(source.evidence["fix_executor_task_id"]),
+            purpose=TERMINAL_SHUTDOWN_ROUTE_PURPOSE,
+            source_record=str(source.evidence["source_record"]),
+            target_thread=target.id,
+            required_action=(
+                f"Terminal shutdown {target.id[:40]}; "
+                f"report {str(source.evidence['report_set_id'])[:40]}; "
+                f"preview {source.fingerprint}. Verify lifecycle, automations, "
+                "receipt, and target preserved."
+            ),
+        )
+    def _terminal_shutdown_definition(self) -> OperationDefinition:
+        schema = _object_schema({}, required=())
+
+        def dispatch(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+        ) -> DispatchResult:
+            with self._terminal_shutdown_dispatch_lock:
+                current = self._terminal_shutdown_source(target, inputs)
+                if current.fingerprint != source.fingerprint:
+                    raise OperationOwnerError(
+                        "terminal_shutdown_source_changed",
+                        "The exact outcome, open-head, lifecycle, report, automation, task, policy, or route source changed before dispatch.",
+                    )
+                projects, _ = self._active_projects()
+                fix_executor_task_id = str(source.evidence["fix_executor_task_id"])
+                prompt = self._terminal_shutdown_prompt(target, source)
+                try:
+                    started = self.app_server_client.start_configured_role_turn(
+                        projects,
+                        fix_executor_task_id,
+                        prompt,
+                        expected_cwd=str(source.evidence["fix_executor_task_cwd"]),
+                        expected_cwd_identity=(
+                            int(source.evidence["fix_executor_cwd_device"]),
+                            int(source.evidence["fix_executor_cwd_inode"]),
+                        ),
+                    )
+                except AppServerError as error:
+                    raise OperationOwnerError(
+                        _owner_code(error), str(error), state="failed"
+                    ) from error
+                turn = started.get("turn")
+                turn_id = turn.get("id") if isinstance(turn, Mapping) else None
+                if not isinstance(turn_id, str) or not turn_id:
+                    raise OperationOwnerError(
+                        "terminal_shutdown_owner_response_invalid",
+                        "The fix executor returned no exact turn identity.",
+                        state="unverified",
+                    )
+                return DispatchResult(
+                    evidence={
+                        "fix_executor_task_id": fix_executor_task_id,
+                        "fix_executor_turn_id": turn_id,
+                        "task_resumed": started.get("task_resumed") is True,
+                        "report_set_id": source.evidence["report_set_id"],
+                        "terminal_shutdown_requested": True,
+                        "terminal_shutdown_applied": False,
+                        "target_task_stopped": False,
+                        "target_turn_interrupted": False,
+                        "direct_lifecycle_write": False,
+                        "direct_automation_write": False,
+                        "direct_shutdown_receipt_write": False,
+                        "direct_gmail_action": False,
+                        "automatic_retry": False,
+                    },
+                    links=(
+                        OperationLink("Run", f"/runs/{target.id}"),
+                        OperationLink(
+                            "Fix executor task",
+                            f"/tasks/{fix_executor_task_id}",
+                        ),
+                        OperationLink(
+                            "Terminal reports",
+                            "/reports?view=reports&family=terminal",
+                        ),
+                    ),
+                )
+
+        def verify(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+            result: DispatchResult,
+        ) -> VerificationResult:
+            try:
+                projects, catalog_fingerprint = self._active_projects()
+                project = self._project_from(projects, target)
+                project_claim = self.operations_service.project_binding_snapshot(
+                    projects,
+                    target.id,
+                )
+                control = self.operations_service.policy_control_snapshot(target.id)
+                workflow = self.operations_service.terminal_shutdown_workflow_snapshot(
+                    target.id
+                )
+                target_detail = self.app_server_client.read_task(
+                    projects,
+                    target.id,
+                    include_turns=True,
+                )
+                fix_detail = self.app_server_client.read_task(
+                    projects,
+                    str(source.evidence["fix_executor_task_id"]),
+                    include_turns=True,
+                )
+            except (
+                AppServerError,
+                OperationError,
+                OperationsProjectionError,
+            ) as error:
+                return VerificationResult(
+                    "pending",
+                    {
+                        **result.evidence,
+                        "terminal_shutdown_applied": False,
+                        "owner_error_code": getattr(
+                            error, "code", "terminal_shutdown_owner_unavailable"
+                        ),
+                        "recovery": source.evidence["compensation_posture"],
+                    },
+                    result.links,
+                )
+            target_task = target_detail.get("task")
+            try:
+                target_cwd, target_identity, target_status = (
+                    self._validated_automation_project_task(
+                        target_task if isinstance(target_task, Mapping) else {},
+                        task_id=target.id,
+                        role="implementation target",
+                        project=project,
+                        allow_active=False,
+                    )
+                )
+                target_turn_state = self._supervision_pause_turn_state(
+                    target_task if isinstance(target_task, Mapping) else {}
+                )
+            except OperationError:
+                target_preserved = False
+            else:
+                target_preserved = bool(
+                    target_cwd == source.evidence["target_task_cwd"]
+                    and target_identity
+                    == (
+                        source.evidence["target_cwd_device"],
+                        source.evidence["target_cwd_inode"],
+                    )
+                    and target_status == source.evidence["target_task_status"]
+                    and target_turn_state == source.evidence["target_turn_state"]
+                )
+            fix_task = fix_detail.get("task")
+            try:
+                fix_cwd, fix_identity, _fix_status = self._validated_role_task(
+                    fix_task if isinstance(fix_task, Mapping) else {},
+                    task_id=str(source.evidence["fix_executor_task_id"]),
+                    role="fix executor",
+                    unavailable_code="terminal_shutdown_owner_unavailable",
+                    active_code="terminal_shutdown_owner_active",
+                    allow_active=True,
+                )
+            except OperationError:
+                fix_executor_current = False
+            else:
+                fix_executor_current = bool(
+                    fix_cwd == source.evidence["fix_executor_task_cwd"]
+                    and fix_identity
+                    == (
+                        source.evidence["fix_executor_cwd_device"],
+                        source.evidence["fix_executor_cwd_inode"],
+                    )
+                )
+            marker = self._terminal_shutdown_marker(target, source)
+            request_current = bool(
+                fix_executor_current
+                and isinstance(fix_task, Mapping)
+                and self._terminal_shutdown_turn_has_marker(
+                    fix_task,
+                    turn_id=str(result.evidence["fix_executor_turn_id"]),
+                    expected=marker,
+                )
+            )
+            fix_turns = (
+                [
+                    turn
+                    for turn in fix_task.get("turns", [])
+                    if isinstance(turn, Mapping)
+                    and turn.get("id") == result.evidence["fix_executor_turn_id"]
+                ]
+                if isinstance(fix_task, Mapping)
+                else []
+            )
+            fix_turn_completed = bool(
+                len(fix_turns) == 1 and fix_turns[0].get("status") == "completed"
+            )
+            binding = project_claim.get("project_binding")
+            group_current = self.operations_service.binding_group_ids(target.id) == [
+                target.id
+            ]
+            current_lifecycle = control.get("lifecycle_record")
+            source_current = bool(
+                catalog_fingerprint == source.evidence["catalog_fingerprint"]
+                and project_claim.get("fingerprint")
+                == source.evidence["project_binding_fingerprint"]
+                and isinstance(binding, Mapping)
+                and binding.get("status") == "bound"
+                and binding.get("project_id") == source.evidence["project_id"]
+                and group_current
+                and control.get("policy_sha256") == source.evidence["policy_sha256"]
+                and isinstance(current_lifecycle, Mapping)
+                and current_lifecycle.get("record_id")
+                == source.evidence["lifecycle_record_id"]
+                and current_lifecycle.get("record_sha256")
+                == source.evidence["lifecycle_record_sha256"]
+                and workflow.get("status") == "available"
+                and workflow.get("stage") == "shutdown"
+                and workflow.get("next_action") is None
+                and workflow.get("actionable") is False
+                and workflow.get("mission_root") == source.evidence["mission_root"]
+                and workflow.get("state_fingerprint")
+                == source.evidence["state_fingerprint"]
+                and workflow.get("completion_record_id")
+                == source.evidence["completion_record_id"]
+                and workflow.get("lifecycle_record_id")
+                == source.evidence["lifecycle_record_id"]
+                and workflow.get("report_set_id") == source.evidence["report_set_id"]
+                and workflow.get("manifest_root") == source.evidence["manifest_root"]
+                and workflow.get("delivery_record_id")
+                == source.evidence["delivery_record_id"]
+                and workflow.get("delivery_timestamp")
+                == source.evidence["delivery_timestamp"]
+            )
+            current_automations = workflow.get("automations")
+            current_by_role = (
+                {
+                    item.get("role"): item
+                    for item in current_automations
+                    if isinstance(item, Mapping) and isinstance(item.get("role"), str)
+                }
+                if isinstance(current_automations, list)
+                else {}
+            )
+            automation_results: list[dict[str, Any]] = []
+            for prior in source.evidence["automations"]:
+                current = current_by_role.get(prior["role"])
+                preserved_when_already_terminal = bool(
+                    prior["owner_status"] != "PAUSED"
+                    or prior["post_delivery"] is not True
+                    or (
+                        isinstance(current, Mapping)
+                        and current.get("manifest_sha256") == prior["manifest_sha256"]
+                        and current.get("updated_at") == prior["updated_at"]
+                    )
+                )
+                current_ok = bool(
+                    isinstance(current, Mapping)
+                    and current.get("automation_id") == prior["automation_id"]
+                    and current.get("target_thread_id") == prior["target_thread_id"]
+                    and current.get("owner_status") == "PAUSED"
+                    and current.get("post_delivery") is True
+                    and current.get("action") == "preserve"
+                    and current.get("protected_sha256") == prior["protected_sha256"]
+                    and preserved_when_already_terminal
+                )
+                automation_results.append(
+                    {
+                        "role": prior["role"],
+                        "automation_id": prior["automation_id"],
+                        "prior_owner_status": prior["owner_status"],
+                        "prior_post_delivery": prior["post_delivery"],
+                        "current_owner_status": current.get("owner_status")
+                        if isinstance(current, Mapping)
+                        else None,
+                        "current_post_delivery": current.get("post_delivery")
+                        if isinstance(current, Mapping)
+                        else None,
+                        "protected_fields_preserved": bool(
+                            isinstance(current, Mapping)
+                            and current.get("protected_sha256")
+                            == prior["protected_sha256"]
+                        ),
+                        "already_terminal_owner_unchanged": preserved_when_already_terminal,
+                        "current": current_ok,
+                    }
+                )
+            automation_current = bool(
+                len(current_by_role) == len(source.evidence["automations"])
+                and len(automation_results) == len(source.evidence["automations"])
+                and all(item["current"] for item in automation_results)
+            )
+            gate = workflow.get("gate")
+            receipt = workflow.get("receipt")
+            heads = workflow.get("open_heads")
+            exact_postcondition = bool(
+                isinstance(gate, Mapping)
+                and gate.get("status") == "ready"
+                and all(
+                    gate.get(key) is True
+                    for key in (
+                        "completion_permitted",
+                        "source_stop_permitted",
+                        "supervision_pause_permitted",
+                        "terminal_reports_delivered",
+                    )
+                )
+                and isinstance(heads, Mapping)
+                and set(heads)
+                == {
+                    "incident_ids",
+                    "decision_ids",
+                    "successor_transition_ids",
+                    "mission_activation_ids",
+                }
+                and all(heads.get(key) == [] for key in heads)
+                and isinstance(receipt, Mapping)
+                and receipt.get("status") == "verified"
+                and isinstance(receipt.get("record_id"), str)
+                and isinstance(receipt.get("record_sha256"), str)
+                and SHA256_PATTERN.fullmatch(str(receipt["record_sha256"]))
+                and receipt.get("previous_record_sha256")
+                == source.evidence["event_head"]
+                and isinstance(receipt.get("automation_state_root"), str)
+                and SHA256_PATTERN.fullmatch(str(receipt["automation_state_root"]))
+                and automation_current
+            )
+            route_current = False
+            route_result = None
+            if source_current and request_current and fix_turn_completed:
+                request = self._terminal_shutdown_route_request(target, inputs, source)
+                try:
+                    route_result = self.route_gate(request)
+                except Exception:
+                    route_result = None
+                route_current = bool(
+                    isinstance(route_result, RouteGateResult)
+                    and route_result.allowed
+                    and route_result.recipient == request.recipient
+                    and route_result.purpose == request.purpose
+                    and route_result.source_record == request.source_record
+                    and route_result.target_thread == request.target_thread
+                    and route_result.action_hash
+                    == route_action_fingerprint(request.required_action)
+                    and route_result.policy_fingerprint
+                    == source.evidence["policy_sha256"]
+                )
+            applied = bool(
+                source_current
+                and target_preserved
+                and fix_executor_current
+                and request_current
+                and fix_turn_completed
+                and route_current
+                and exact_postcondition
+            )
+            partial_posture = (
+                "shutdown"
+                if applied
+                else "automations-paused-receipt-pending"
+                if automation_current
+                and isinstance(receipt, Mapping)
+                and receipt.get("status") != "verified"
+                else "receipt-current-automation-pending"
+                if isinstance(receipt, Mapping)
+                and receipt.get("status") == "verified"
+                and not automation_current
+                else "unverified"
+            )
+            evidence = {
+                **result.evidence,
+                "terminal_shutdown_applied": applied,
+                "source_current": source_current,
+                "target_task_preserved": target_preserved,
+                "target_task_stopped": False,
+                "target_turn_interrupted": False,
+                "fix_executor_postcondition_current": fix_executor_current,
+                "fix_executor_request_current": request_current,
+                "fix_executor_turn_completed": fix_turn_completed,
+                "route_gate_current": route_current,
+                "lifecycle_postcondition_current": bool(
+                    isinstance(gate, Mapping)
+                    and gate.get("completion_permitted") is True
+                    and gate.get("source_stop_permitted") is True
+                    and isinstance(current_lifecycle, Mapping)
+                    and current_lifecycle.get("record_id")
+                    == source.evidence["lifecycle_record_id"]
+                ),
+                "report_delivery_postcondition_current": bool(
+                    workflow.get("report_set_id") == source.evidence["report_set_id"]
+                    and workflow.get("manifest_root")
+                    == source.evidence["manifest_root"]
+                    and workflow.get("delivery_record_id")
+                    == source.evidence["delivery_record_id"]
+                ),
+                "automation_postcondition_current": automation_current,
+                "shutdown_receipt_postcondition_current": bool(
+                    isinstance(receipt, Mapping) and receipt.get("status") == "verified"
+                ),
+                "automation_results": automation_results,
+                "receipt": receipt,
+                "open_heads": heads,
+                "partial_posture": partial_posture,
+                "direct_lifecycle_write": False,
+                "direct_automation_write": False,
+                "direct_shutdown_receipt_write": False,
+                "direct_gmail_action": False,
+                "automatic_retry": False,
+                "automatic_rollback": False,
+                "recovery": None
+                if applied
+                else workflow.get("recovery")
+                or source.evidence["compensation_posture"],
+            }
+            return VerificationResult(
+                "applied" if applied else "pending",
+                evidence,
+                result.links,
+            )
+
+        return OperationDefinition(
+            operation_type="factory.terminal-supervision-shutdown",
+            target_kind="run",
+            input_schema=schema,
+            owner=(
+                "maintained lifecycle/source-stop gate + exact Codex automation owner + maintained terminal-shutdown receipt owner"
+            ),
+            authority=(
+                "explicit typed operator confirmation for one exact current run and supervision group",
+                "one reconciled observable outcome, completed lifecycle, current mission, and no prohibited open head",
+                "one verified terminal report set and exact Gmail delivery receipt",
+                "every exact policy-bound supervision automation and one distinct configured fix executor",
+                "maintained fix-execution route gate over the exact delivery source record",
+            ),
+            ordinary_consequences=(
+                "Starts one bounded fix-executor turn for the selected supervision group.",
+                "The Codex automation owner may pause only the exact named bound automations that are not already paused after delivery.",
+                "The maintained terminal-shutdown owner may append one exact verified shutdown receipt after rechecking the lifecycle, delivery, and automation owners.",
+            ),
+            failure_consequences=(
+                "Any stale, missing, conflicting, partial, wrong-target, or denied gate sends no owner request.",
+                "A partial automation or receipt result remains visible and is never retried, rolled back, or overwritten automatically.",
+                "The implementation task and its turns are observed and preserved; task terminality never substitutes for outcome or shutdown authority.",
+            ),
+            confirmation=ConfirmationContract(
+                "terminal-supervision-shutdown",
+                "Type REQUEST TERMINAL SHUTDOWN to pause the exact named supervision automations and record this terminal shutdown.",
+                "REQUEST TERMINAL SHUTDOWN",
+            ),
+            idempotency=(
+                "One consumed preview starts at most one fix-executor turn; a verified receipt, changed source, or denied gate rejects another request and no owner action is retried."
+            ),
+            expected_postcondition=(
+                "The same completed lifecycle and terminal delivery remain current, every exact bound automation is PAUSED after delivery with protected fields preserved, one canonical shutdown receipt verifies those states, and the implementation task remains unchanged."
+            ),
+            timeout_seconds=30,
+            limitations=(
+                "This is terminal supervision shutdown, not App Server turn interrupt, ordinary pause/resume, report generation, or a generic Stop.",
+                "The dashboard never writes lifecycle, completion, report, delivery, Gmail, shutdown-ledger, policy, or automation files directly.",
+                "Missing issue, decision, transition, activation, outcome, report, delivery, lifecycle, automation, owner, or receipt proof keeps shutdown unavailable or partial.",
+                "The operation addresses one exact group only and never enumerates, stops, archives, or mutates another task, run, project, or automation.",
+            ),
+            resolve_source=self._terminal_shutdown_source,
+            describe_effect=lambda target, inputs, source: PreviewEffect(
+                (
+                    f"Request terminal shutdown for supervision group {target.id} after "
+                    f"report set {source.evidence['report_set_id']}."
+                ),
+                (
+                    f"Exactly {len(source.evidence['automations'])} named automations may be paused; "
+                    "the completed lifecycle, delivered reports, policy, and implementation task remain unchanged, and one canonical receipt is added only after owner verification."
+                ),
+                recipient=str(source.evidence["fix_executor_task_id"]),
+                semantic_changes=self._terminal_shutdown_semantic_changes(
+                    target,
+                    source,
+                ),
+            ),
+            route_gate_request=self._terminal_shutdown_route_request,
+            route_gate=self.route_gate,
+            dispatch=dispatch,
+            verify=verify,
+        )
     @staticmethod
     def _factory_evolution_marker(
         target: OperationTarget,
