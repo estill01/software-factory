@@ -15,6 +15,8 @@ from unittest.mock import patch
 
 from software_factory_dashboard.catalog import ProjectRecord
 from software_factory_dashboard.operations import (
+    AUTOMATION_TARGET_QUERY_VERSION,
+    AutomationTargetQueryResult,
     DEFAULT_EVOLUTION_OWNER,
     DEFAULT_SUPERVISION_OWNER,
     DEFAULT_TERMINAL_OWNER,
@@ -64,6 +66,9 @@ class OperationsProjectionTests(unittest.TestCase):
         self._append_records()
         self._corrupt_second_target()
         self._make_incomplete_report()
+        self.automation_target_ids: dict[str, tuple[str, ...]] = {
+            WATCHER + TARGET[-1]: ("watcher-automation-demo",),
+        }
         self.service = OperationsProjectionService(
             supervision_root=self.supervision_root,
             automations_root=self.automations_root,
@@ -73,6 +78,7 @@ class OperationsProjectionTests(unittest.TestCase):
             evolution_owner=DEFAULT_EVOLUTION_OWNER,
             now=lambda: datetime(2026, 8, 9, 10, 35, tzinfo=UTC),
             automation_timezone=lambda: "America/Los_Angeles",
+            automation_target_query=self._automation_target_query,
         )
         self.projects = (
             ProjectRecord(id="demo", label="Demo", root=str(self.project_root)),
@@ -85,6 +91,24 @@ class OperationsProjectionTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
+
+    def _automation_target_query(self, target_thread_id: str) -> AutomationTargetQueryResult:
+        automation_ids = self.automation_target_ids.get(target_thread_id, ())
+        return AutomationTargetQueryResult(
+            version=AUTOMATION_TARGET_QUERY_VERSION,
+            target_thread_id=target_thread_id,
+            automation_ids=automation_ids,
+            source_identity="fixture-target-query",
+            source_revision="d" * 64,
+            observed_at=datetime(2026, 8, 9, 10, 34, tzinfo=UTC),
+            expires_at=datetime(2026, 8, 9, 10, 36, tzinfo=UTC),
+            currentness=sha256(
+                json.dumps(
+                    [target_thread_id, list(automation_ids)],
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest(),
+        )
 
     def test_roundup_and_weekly_schedule_expectations_preserve_timezone(self) -> None:
         policy = {
@@ -1451,17 +1475,7 @@ class OperationsProjectionTests(unittest.TestCase):
 
         unrelated = self.automations_root / "unrelated-broken-automation"
         unrelated.mkdir()
-        (unrelated / "automation.toml").write_text(
-            textwrap.dedent(
-                '''\
-                id = "unrelated-broken-automation"
-                status = "ACTIVE"
-                target_thread_id = "unrelated-task-0001"
-                malformed = [
-                '''
-            ),
-            encoding="utf-8",
-        )
+        (unrelated / "automation.toml").write_bytes(b"\xffunrelated owner bytes")
         loaded_automation_ids.clear()
         unrelated_broken = self.service.automation_binding_snapshot(
             TARGET,
@@ -1500,6 +1514,10 @@ class OperationsProjectionTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        self.automation_target_ids[WATCHER + TARGET[-1]] = (
+            "related-broken-automation",
+            "watcher-automation-demo",
+        )
         related_broken = self.service.automation_binding_snapshot(TARGET, "watcher")
         self.assertFalse(related_broken["repairable"])
         self.assertEqual(
@@ -1512,6 +1530,9 @@ class OperationsProjectionTests(unittest.TestCase):
                 "unrelated-task-0002",
             ),
             encoding="utf-8",
+        )
+        self.automation_target_ids[WATCHER + TARGET[-1]] = (
+            "watcher-automation-demo",
         )
 
         second_owner = self.automations_root / "second-watcher-owner"
@@ -1533,6 +1554,10 @@ class OperationsProjectionTests(unittest.TestCase):
                 '''
             ),
             encoding="utf-8",
+        )
+        self.automation_target_ids[WATCHER + TARGET[-1]] = (
+            "second-watcher-owner",
+            "watcher-automation-demo",
         )
         second_active = self.service.automation_binding_snapshot(TARGET, "watcher")
         self.assertFalse(second_active["repairable"])
@@ -1579,6 +1604,79 @@ class OperationsProjectionTests(unittest.TestCase):
         self.assertIn(
             "duplicate or conflicting canonical role claim",
             duplicated["mismatches"],
+        )
+
+    def test_automation_target_query_boundary_fails_closed(self) -> None:
+        manifest = self.automations_root / "watcher-automation-demo" / "automation.toml"
+        manifest.write_text(
+            manifest.read_text(encoding="utf-8").replace(
+                'status = "ACTIVE"', 'status = "PAUSED"'
+            ),
+            encoding="utf-8",
+        )
+        service_kwargs = {
+            "supervision_root": self.supervision_root,
+            "automations_root": self.automations_root,
+            "supervision_owner": DEFAULT_SUPERVISION_OWNER,
+            "weekly_owner": DEFAULT_WEEKLY_OWNER,
+            "terminal_owner": DEFAULT_TERMINAL_OWNER,
+            "evolution_owner": DEFAULT_EVOLUTION_OWNER,
+            "now": lambda: datetime(2026, 8, 9, 10, 35, tzinfo=UTC),
+            "automation_timezone": lambda: "America/Los_Angeles",
+        }
+
+        absent = OperationsProjectionService(**service_kwargs)
+        absent._target_directories = lambda: (self.supervision_root / TARGET,)
+        absent_snapshot = absent.automation_binding_snapshot(TARGET, "watcher")
+        self.assertFalse(absent_snapshot["repairable"])
+        self.assertEqual(
+            absent_snapshot["active_target_owners"]["target_query"]["error"]["code"],
+            "automation_target_query_unavailable",
+        )
+        self.assertEqual(absent.automation_target_query_posture()["status"], "unavailable")
+
+        fresh = self._automation_target_query(WATCHER + TARGET[-1])
+        stale = OperationsProjectionService(
+            **service_kwargs,
+            automation_target_query=lambda _target: replace(
+                fresh,
+                expires_at=datetime(2026, 8, 9, 10, 35, tzinfo=UTC),
+            ),
+        )
+        stale._target_directories = lambda: (self.supervision_root / TARGET,)
+        stale_snapshot = stale.automation_binding_snapshot(TARGET, "watcher")
+        self.assertFalse(stale_snapshot["repairable"])
+        self.assertEqual(
+            stale_snapshot["active_target_owners"]["target_query"]["error"]["code"],
+            "automation_target_query_stale",
+        )
+
+        ambiguous = OperationsProjectionService(
+            **service_kwargs,
+            automation_target_query=lambda _target: replace(
+                fresh,
+                automation_ids=("watcher-automation-demo", "watcher-automation-demo"),
+            ),
+        )
+        ambiguous._target_directories = lambda: (self.supervision_root / TARGET,)
+        ambiguous_snapshot = ambiguous.automation_binding_snapshot(TARGET, "watcher")
+        self.assertFalse(ambiguous_snapshot["repairable"])
+        self.assertEqual(
+            ambiguous_snapshot["active_target_owners"]["target_query"]["error"]["code"],
+            "automation_target_query_invalid",
+        )
+
+        results = iter((fresh, replace(fresh, currentness="e" * 64)))
+        changing = OperationsProjectionService(
+            **service_kwargs,
+            automation_target_query=lambda _target: next(results),
+        )
+        changing._target_directories = lambda: (self.supervision_root / TARGET,)
+        changing_snapshot = changing.automation_binding_snapshot(TARGET, "watcher")
+        self.assertFalse(changing_snapshot["repairable"])
+        self.assertEqual(
+            changing_snapshot["active_target_owners"]["target_query"]["error"]["code"],
+            "automation_target_query_changed",
         )
 
     def test_duplicate_automation_binding_is_explicit(self) -> None:
@@ -1653,6 +1751,9 @@ class OperationsProjectionTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        self.automation_target_ids["roundup-writer-task-001"] = (
+            "roundup-automation-001",
+        )
 
         exact = self.service.automation_binding_snapshot(TARGET, "roundup_writer")
         self.assertTrue(exact["repairable"])
@@ -1710,6 +1811,10 @@ class OperationsProjectionTests(unittest.TestCase):
                 '''
             ),
             encoding="utf-8",
+        )
+        self.automation_target_ids["roundup-writer-task-001"] = (
+            "roundup-automation-001",
+            "weekly-report-automation-001",
         )
         distinct_sibling = self.service.automation_binding_snapshot(
             TARGET,

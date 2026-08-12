@@ -49,6 +49,11 @@ MAX_CACHE_ENTRIES = 256
 MAX_METRIC_HISTORY_ROWS = 1_000
 OWNER_TIMEOUT_SECONDS = 30
 AUTOMATION_CALENDAR_TIMEZONE = "America/Los_Angeles"
+AUTOMATION_TARGET_QUERY_VERSION = 1
+AUTOMATION_TARGET_QUERY_UNAVAILABLE_REASON = (
+    "No maintained versioned automation target-query provider is configured; "
+    "the dashboard will not scan unrelated manifests to infer duplicate owners."
+)
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{3,127}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 
@@ -261,6 +266,23 @@ class TargetEvidence:
     cache_key: tuple[Any, ...]
 
 
+@dataclass(frozen=True)
+class AutomationTargetQueryResult:
+    """One exact, expiring candidate set from a read-only automation owner."""
+
+    version: int
+    target_thread_id: str
+    automation_ids: tuple[str, ...]
+    source_identity: str
+    source_revision: str
+    observed_at: datetime
+    expires_at: datetime
+    currentness: str
+
+
+AutomationTargetQuery = Callable[[str], AutomationTargetQueryResult]
+
+
 def _canonical(value: Any) -> bytes:
     return json.dumps(
         value,
@@ -440,6 +462,7 @@ def policy_automation_reconciliation(
     gmail_cadence: Mapping[str, Any] | None = None,
     automations: Mapping[str, Mapping[str, Any]] | None = None,
     automation_timezone: str | None = None,
+    automation_target_query_available: bool = False,
 ) -> list[dict[str, Any]]:
     """Compare cadence policy to the actual bound automation owner projection."""
 
@@ -593,9 +616,14 @@ def policy_automation_reconciliation(
             reason = "Policy cadence and actual active automation agree."
         else:
             state = "partial"
-            reason = "Policy cadence and actual automation state do not fully agree."
+            reason = (
+                "Policy cadence and actual automation state do not fully agree."
+                if automation_target_query_available
+                else AUTOMATION_TARGET_QUERY_UNAVAILABLE_REASON
+            )
         repairable = bool(
             state == "partial"
+            and automation_target_query_available
             and isinstance(automation, Mapping)
             and automation.get("id") == automation_id
             and automation.get("kind") == "heartbeat"
@@ -916,6 +944,7 @@ class OperationsProjectionService:
         evolution_owner: Path = DEFAULT_EVOLUTION_OWNER,
         now: Callable[[], datetime] | None = None,
         automation_timezone: Callable[[], str | None] | None = None,
+        automation_target_query: AutomationTargetQuery | None = None,
     ) -> None:
         self.supervision_root = supervision_root.expanduser().resolve()
         self.automations_root = automations_root.expanduser().resolve()
@@ -925,11 +954,114 @@ class OperationsProjectionService:
         self.evolution_owner = evolution_owner.resolve()
         self._now = now or (lambda: datetime.now(UTC))
         self._automation_timezone = automation_timezone or _system_timezone_name
+        self._automation_target_query = automation_target_query
         self._lock = RLock()
         self._modules: dict[str, tuple[tuple[Any, ...], ModuleType]] = {}
         self._target_cache: OrderedDict[str, TargetEvidence] = OrderedDict()
         self._automation_cache: OrderedDict[tuple[Any, ...], dict[str, Any]] = OrderedDict()
         self._report_cache: OrderedDict[tuple[Any, ...], dict[str, Any]] = OrderedDict()
+
+    def automation_target_query_posture(self) -> dict[str, Any]:
+        """Describe whether the read-only duplicate-owner dependency is configured."""
+
+        available = self._automation_target_query is not None
+        return {
+            "status": "available" if available else "unavailable",
+            "version": AUTOMATION_TARGET_QUERY_VERSION,
+            "reason": None if available else AUTOMATION_TARGET_QUERY_UNAVAILABLE_REASON,
+        }
+
+    def _automation_target_candidates(
+        self,
+        target_thread_id: str,
+    ) -> AutomationTargetQueryResult:
+        provider = self._automation_target_query
+        if provider is None:
+            raise OperationsProjectionError(
+                "automation_target_query_unavailable",
+                AUTOMATION_TARGET_QUERY_UNAVAILABLE_REASON,
+                status=503,
+                retryable=True,
+            )
+        try:
+            result = provider(target_thread_id)
+        except OperationsProjectionError:
+            raise
+        except Exception as error:
+            raise OperationsProjectionError(
+                "automation_target_query_failed",
+                "The maintained automation target-query provider failed closed.",
+                status=503,
+                retryable=True,
+            ) from error
+        if not isinstance(result, AutomationTargetQueryResult):
+            raise OperationsProjectionError(
+                "automation_target_query_invalid",
+                "The automation target-query provider returned an invalid envelope.",
+                status=503,
+            )
+        now = self._now()
+        if now.tzinfo is None:
+            raise OperationsProjectionError(
+                "automation_target_query_clock_invalid",
+                "The automation target-query currentness clock is invalid.",
+                status=503,
+            )
+        now = now.astimezone(UTC)
+        observed_at = result.observed_at
+        expires_at = result.expires_at
+        identities_valid = bool(
+            isinstance(result.source_identity, str)
+            and 1 <= len(result.source_identity) <= 240
+            and SAFE_ID.fullmatch(result.source_identity)
+            and isinstance(result.source_revision, str)
+            and SHA256.fullmatch(result.source_revision)
+            and isinstance(result.currentness, str)
+            and SHA256.fullmatch(result.currentness)
+        )
+        automation_ids_valid = bool(
+            isinstance(result.automation_ids, tuple)
+            and len(result.automation_ids) <= MAX_AUTOMATIONS
+            and result.automation_ids == tuple(sorted(set(result.automation_ids)))
+            and all(
+                isinstance(automation_id, str) and SAFE_ID.fullmatch(automation_id)
+                for automation_id in result.automation_ids
+            )
+        )
+        timestamps_valid = bool(
+            isinstance(observed_at, datetime)
+            and isinstance(expires_at, datetime)
+            and observed_at.tzinfo is not None
+            and expires_at.tzinfo is not None
+        )
+        if not (
+            result.version == AUTOMATION_TARGET_QUERY_VERSION
+            and result.target_thread_id == target_thread_id
+            and identities_valid
+            and automation_ids_valid
+            and timestamps_valid
+        ):
+            raise OperationsProjectionError(
+                "automation_target_query_invalid",
+                "The automation target-query provider returned an ambiguous or incompatible result.",
+                status=503,
+            )
+        observed_utc = observed_at.astimezone(UTC)
+        expires_utc = expires_at.astimezone(UTC)
+        if observed_utc > now + timedelta(seconds=5) or expires_utc <= observed_utc:
+            raise OperationsProjectionError(
+                "automation_target_query_invalid",
+                "The automation target-query freshness interval is invalid.",
+                status=503,
+            )
+        if expires_utc <= now:
+            raise OperationsProjectionError(
+                "automation_target_query_stale",
+                "The automation target-query candidate set is stale.",
+                status=409,
+                retryable=True,
+            )
+        return result
 
     def owner_revisions(self) -> dict[str, dict[str, Any]]:
         return {
@@ -1332,12 +1464,49 @@ class OperationsProjectionService:
                 "The duplicate-role owner check received an invalid exact identity.",
                 status=422,
             )
-        candidate_ids = set(self._automation_ids_for_target(target_thread_id))
+        def unavailable_result(error: OperationsProjectionError) -> dict[str, Any]:
+            material = {
+                "status": "unavailable",
+                "target_thread_id": target_thread_id,
+                "selected_automation_id": selected_automation_id,
+                "unavailable_automation_ids": [],
+                "owners": [],
+                "conflicting_owner_ids": [],
+                "target_query": {
+                    "status": "unavailable",
+                    "version": AUTOMATION_TARGET_QUERY_VERSION,
+                    "error": {
+                        "code": error.code,
+                        "message": str(error),
+                        "retryable": error.retryable,
+                    },
+                },
+            }
+            return {**material, "fingerprint": _digest(material)}
+
+        try:
+            target_query = self._automation_target_candidates(target_thread_id)
+        except OperationsProjectionError as error:
+            return unavailable_result(error)
+        candidate_ids = set(target_query.automation_ids)
         candidate_ids.add(selected_automation_id)
         inventory = {
             automation_id: self._load_automation(automation_id)
             for automation_id in sorted(candidate_ids)
         }
+        try:
+            current_target_query = self._automation_target_candidates(target_thread_id)
+        except OperationsProjectionError as error:
+            return unavailable_result(error)
+        if current_target_query != target_query:
+            return unavailable_result(
+                OperationsProjectionError(
+                    "automation_target_query_changed",
+                    "The exact automation target-query result changed during the read; retry.",
+                    status=409,
+                    retryable=True,
+                )
+            )
         unavailable = sorted(
             automation_id
             for automation_id, item in inventory.items()
@@ -1353,6 +1522,16 @@ class OperationsProjectionService:
                 "unavailable_automation_ids": sorted(set(unavailable)),
                 "owners": [],
                 "conflicting_owner_ids": [],
+                "target_query": {
+                    "status": "available",
+                    "version": target_query.version,
+                    "source_identity": target_query.source_identity,
+                    "source_revision": target_query.source_revision,
+                    "currentness": target_query.currentness,
+                    "observed_at": target_query.observed_at.isoformat(),
+                    "expires_at": target_query.expires_at.isoformat(),
+                    "automation_ids": list(target_query.automation_ids),
+                },
             }
             return {**material, "fingerprint": _digest(material)}
 
@@ -1397,77 +1576,18 @@ class OperationsProjectionService:
             "unavailable_automation_ids": [],
             "owners": owners,
             "conflicting_owner_ids": conflicting_owner_ids,
+            "target_query": {
+                "status": "available",
+                "version": target_query.version,
+                "source_identity": target_query.source_identity,
+                "source_revision": target_query.source_revision,
+                "currentness": target_query.currentness,
+                "observed_at": target_query.observed_at.isoformat(),
+                "expires_at": target_query.expires_at.isoformat(),
+                "automation_ids": list(target_query.automation_ids),
+            },
         }
         return {**material, "fingerprint": _digest(material)}
-
-    def _automation_ids_for_target(self, target_thread_id: str) -> tuple[str, ...]:
-        """Index only the target field needed by the duplicate-owner check."""
-
-        if not SAFE_ID.fullmatch(target_thread_id):
-            raise OperationsProjectionError(
-                "automation_target_lookup_invalid",
-                "The automation target lookup received an invalid task identity.",
-                status=422,
-            )
-        if not self.automations_root.is_dir() or self.automations_root.is_symlink():
-            raise OperationsProjectionError(
-                "automation_target_lookup_unavailable",
-                "The automation owner root is unavailable for a target-specific lookup.",
-                status=422,
-            )
-
-        def query() -> tuple[str, ...]:
-            try:
-                directories = sorted(
-                    item
-                    for item in self.automations_root.iterdir()
-                    if item.is_dir()
-                    and not item.is_symlink()
-                    and SAFE_ID.fullmatch(item.name)
-                )
-            except OSError as error:
-                raise OperationsProjectionError(
-                    "automation_target_lookup_unavailable",
-                    "The target-specific automation owner lookup is unavailable.",
-                    status=503,
-                    retryable=True,
-                ) from error
-            if len(directories) > MAX_AUTOMATIONS:
-                raise OperationsProjectionError(
-                    "automation_target_lookup_limit",
-                    "The automation owner root exceeds its bounded target-index limit.",
-                    status=413,
-                )
-            automation_ids: set[str] = set()
-            for directory in directories:
-                path = directory / "automation.toml"
-                try:
-                    raw = _read_bounded(path, MAX_AUTOMATION_BYTES)
-                    text = raw.decode("utf-8")
-                except (OperationsProjectionError, OSError, UnicodeError) as error:
-                    raise OperationsProjectionError(
-                        "automation_target_lookup_unavailable",
-                        "A canonical automation target field could not be read safely.",
-                        status=503,
-                        retryable=True,
-                    ) from error
-                # Do not fully parse, project, or reconcile nonmatching families.
-                if target_thread_id in _automation_target_values(text):
-                    automation_ids.add(directory.name)
-            return tuple(sorted(automation_ids))
-
-        root_before = _stat_key(self.automations_root)
-        first = query()
-        second = query()
-        root_after = _stat_key(self.automations_root)
-        if root_before != root_after or first != second:
-            raise OperationsProjectionError(
-                "automation_target_lookup_changed",
-                "The target-specific automation owner lookup changed during the read; retry.",
-                status=409,
-                retryable=True,
-            )
-        return second
 
     def automation_binding_snapshot(
         self,
@@ -3577,6 +3697,7 @@ class OperationsProjectionService:
                     gmail_cadence,
                     automations,
                     automation_timezone,
+                    self._automation_target_query is not None,
                 ),
                 "source_path": str(evidence.directory / "policy.json"),
                 "read_only": True,

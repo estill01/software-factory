@@ -276,18 +276,29 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(duplicate_status, 409)
         self.assertEqual(duplicate["error"]["code"], "authoring_owner_conflict")
         self.assertEqual(executed["data"]["operation"]["state"], "applied")
-        self.assertEqual(len(supported), 18)
+        self.assertEqual(len(supported), 17)
         self.assertIn("factory.blocks-implement", supported)
         self.assertIn("factory.supervision-check-now", supported)
         self.assertIn("factory.supervision-adjust", supported)
         self.assertIn("factory.supervision-repair-mission-binding", supported)
         self.assertIn("factory.supervision-repair-role-task-binding", supported)
-        self.assertIn("factory.supervision-repair-automation-binding", supported)
+        automation_repair = next(
+            item
+            for item in unavailable
+            if item["type"] == "factory.supervision-repair-automation-binding"
+        )
+        self.assertIn("target-query provider", automation_repair["reason"])
         self.assertIn("factory.supervision-review-checkpoint", supported)
         self.assertIn("factory.supervision-review-meta", supported)
         self.assertIn("factory.supervision-review-issue", supported)
         self.assertIn("task.input-respond", supported)
-        self.assertEqual(unavailable[0]["type"], "factory.tracker-authoring-supervision")
+        self.assertEqual(
+            {item["type"] for item in unavailable},
+            {
+                "factory.supervision-repair-automation-binding",
+                "factory.tracker-authoring-supervision",
+            },
+        )
         prompt = task["turns"][0]["items"][0]["summary"]
         self.assertTrue(prompt.startswith("SOFTWARE_FACTORY_DASHBOARD_MISSION "))
         self.assertIn("$author-implementation-trackers", prompt)
@@ -1873,6 +1884,14 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         }
 
         class OperationsStub:
+            @staticmethod
+            def automation_target_query_posture():
+                return {
+                    "status": "available",
+                    "version": 1,
+                    "reason": None,
+                }
+
             @staticmethod
             def automation_binding_snapshot(target_thread_id, role):
                 if target_thread_id != target_task["id"] or role != "watcher":

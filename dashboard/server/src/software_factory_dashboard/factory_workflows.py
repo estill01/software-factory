@@ -7171,6 +7171,7 @@ class FactoryWorkflowOwner:
         )
 
     def _automation_binding_repair_definition(self) -> OperationDefinition:
+        target_query_posture = self.operations_service.automation_target_query_posture()
         schema = _object_schema(
             {
                 "role": {
@@ -7476,11 +7477,15 @@ class FactoryWorkflowOwner:
             operation_type="factory.supervision-repair-automation-binding",
             target_kind="run",
             input_schema=schema,
-            owner="Codex automation owner + maintained supervision policy/bind and route-gate owners",
+            owner=(
+                "versioned automation target-query provider + Codex automation owner + "
+                "maintained supervision policy/bind and route-gate owners"
+            ),
             authority=(
                 "explicit operator confirmation for one exact named automation repair",
                 "one current canonical supervision group-role-purpose binding",
                 "one existing automation owner manifest with protected identity",
+                "one exact fresh candidate set from the versioned read-only target-query provider",
                 "one exact current fix-executor task and maintained fix-execution route gate",
             ),
             ordinary_consequences=(
@@ -7509,6 +7514,7 @@ class FactoryWorkflowOwner:
                 "The dashboard never writes automation TOML, policy JSON, or policy history directly.",
                 "A missing or differing automation ID cannot be selected, invented, replaced, or broadly rebound through this operation.",
                 "Only watcher, reviewer, Gmail gate, roundup writer, and enabled weekly-report schedules with exact maintained policy expectations are supported.",
+                "Without a fresh conforming target-query provider, repair stays unavailable rather than scanning unrelated automation manifests.",
                 "Cadence tuning, purpose changes, task repair, pause/resume, reports, continuity, and later lifecycle controls remain outside this operation.",
             ),
             resolve_source=self._automation_binding_repair_source,
@@ -7527,6 +7533,12 @@ class FactoryWorkflowOwner:
             route_gate=self.route_gate,
             dispatch=dispatch,
             verify=verify,
+            supported=target_query_posture["status"] == "available",
+            unavailable_reason=(
+                None
+                if target_query_posture["status"] == "available"
+                else str(target_query_posture["reason"])
+            ),
         )
 
     @staticmethod
