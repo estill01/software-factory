@@ -7,6 +7,7 @@ import json
 from typing import Any, Mapping, Sequence
 
 from .factory_workflows import task_workflow_marker
+from .tracker import tracker_block_is_complete
 
 
 MAX_FLOOR_ROWS = 80
@@ -1160,7 +1161,9 @@ def _outcomes(trackers: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
             continue
         blocks = tracker.get("blocks")
         for block in blocks if isinstance(blocks, list) else []:
-            if not isinstance(block, Mapping) or block.get("status") != "accepted":
+            if not isinstance(block, Mapping) or not tracker_block_is_complete(
+                block.get("status")
+            ):
                 continue
             completion = block.get("completion_evidence")
             git = tracker.get("git") if isinstance(tracker.get("git"), Mapping) else {}

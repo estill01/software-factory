@@ -536,6 +536,7 @@ class FactoryFloorCompositionTests(unittest.TestCase):
         self.assertEqual(source_item["owner"], "tasks")
 
     def test_conclusions_and_acceptance_come_only_from_their_owners(self) -> None:
+        self.trackers[0]["blocks"][0]["status"] = "completed"  # type: ignore[index]
         floor = self.compose()
         conclusions = floor["conclusions"]  # type: ignore[index]
         outcomes = floor["accepted_outcomes"]  # type: ignore[index]

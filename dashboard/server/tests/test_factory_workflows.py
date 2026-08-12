@@ -3387,6 +3387,20 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
 
     def test_review_is_read_only_and_implement_enforces_range_conflict_and_tracker_truth(self) -> None:
         tracker_path = self.add_tracker()
+        tracker_path.write_text(
+            tracker_path.read_text(encoding="utf-8")
+            .replace(
+                "| 0 | Accepted base | — | `accepted` |",
+                "| 0 | Accepted base | — | `completed` |",
+            )
+            .replace("Status: `accepted`", "Status: `completed`", 1),
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "-C", str(self.repository), "add", "docs"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.repository), "commit", "-qm", "complete base"],
+            check=True,
+        )
         with self.server() as origin:
             self.register(origin)
             listed = json.loads(response(f"{origin}/api/v1/trackers").body)

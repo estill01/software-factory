@@ -2628,6 +2628,57 @@ class OperationsProjectionTests(unittest.TestCase):
             [item["rule"] for item in projected["light"]["facts"]],
         )
 
+    def test_later_state_fingerprint_retires_terminal_lifecycle_from_current_projection(self) -> None:
+        self._record(
+            "EVT-000005",
+            "2026-08-09T10:14:00+00:00",
+            "resolution",
+            incident_id="INC-TEST-0001",
+            status="corrected",
+            severity="info",
+            category="integrity",
+            summary="Incident was corrected.",
+            resolution="Verified correction.",
+        )
+        self._record(
+            "EVT-000006",
+            "2026-08-09T10:15:00+00:00",
+            "lifecycle",
+            status="failed",
+            severity="high",
+            category="target-lifecycle",
+            summary="Implementation failed at the recorded state.",
+            state_fingerprint="1" * 64,
+            active_block="10",
+        )
+        self._record(
+            "EVT-000007",
+            "2026-08-09T10:16:00+00:00",
+            "check",
+            status="no-intervention",
+            severity="info",
+            category="changed-state-review",
+            summary="The current implementation advanced after the failed state.",
+            state_fingerprint="2" * 64,
+            active_block="31",
+        )
+
+        projected = self.service.run(self.projects, TARGET)["selected_run"]
+
+        self.assertEqual(projected["lifecycle"], {"status": None, "record": None})
+        self.assertNotIn(
+            "lifecycle-failed",
+            [item["rule"] for item in projected["light"]["facts"]],
+        )
+        self.assertIn(
+            "EVT-000006",
+            [item["record_id"] for item in projected["timeline"]],
+        )
+        self.assertIn(
+            "lifecycle-failed",
+            [item["trigger"] for item in projected["operating_history"]],
+        )
+
     def test_hash_valid_but_unverified_completed_lifecycle_is_red(self) -> None:
         self._record(
             "EVT-000005",

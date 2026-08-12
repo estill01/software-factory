@@ -36,6 +36,13 @@ VERIFIER_TIMEOUT_SECONDS = 15
 GIT_TIMEOUT_SECONDS = 5
 FINGERPRINT_RE = re.compile(r"^[0-9a-f]{64}$")
 GIT_OBJECT_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
+COMPLETE_BLOCK_STATUSES = frozenset({"accepted", "completed"})
+
+
+def tracker_block_is_complete(value: Any) -> bool:
+    """Return whether the maintained tracker records a terminal Block state."""
+
+    return isinstance(value, str) and value in COMPLETE_BLOCK_STATUSES
 
 DASHBOARD_REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_VERIFIER_PATH = (
@@ -1612,9 +1619,9 @@ def _document_analysis(
         )
         evidence_posture = (
             "recorded"
-            if status == "accepted" and evidence_present
+            if tracker_block_is_complete(status) and evidence_present
             else "missing"
-            if status == "accepted"
+            if tracker_block_is_complete(status)
             else "open"
         )
         capability = by_name.get("target-product capability delta")
@@ -1699,13 +1706,20 @@ def _document_analysis(
         block["eligible"] = bool(
             verifier_result["valid"]
             and block["status"] == "not-started"
-            and all(item["status"] == "accepted" for item in dependency_statuses)
+            and all(
+                tracker_block_is_complete(item["status"])
+                for item in dependency_statuses
+            )
         )
 
     exact_counts = dict(
         sorted(Counter(block["status"] or "unknown" for block in raw_blocks).items())
     )
-    accepted_count = exact_counts.get("accepted", 0)
+    accepted_count = sum(
+        count
+        for status, count in exact_counts.items()
+        if tracker_block_is_complete(status)
+    )
     all_accepted = bool(raw_blocks) and accepted_count == len(raw_blocks)
     tracker_status_value = metadata.get("tracker status")
     tracker_status = (

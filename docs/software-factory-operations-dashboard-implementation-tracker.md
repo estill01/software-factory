@@ -1,6 +1,6 @@
 # Software Factory Operations Dashboard Implementation Tracker
 
-- Tracker status: `completed`
+- Tracker status: `in-progress`
 - Tracker sequence: Blocks 0–31
 - Repository: `https://github.com/estill01/software-factory.git`
 - Governing objective: direct-user item
@@ -551,7 +551,7 @@ the relevant authority and evidence contract.
 | 28 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `completed` |
 | 29 | Terminal report workflow | 9, 10, 11, 13, 27 | `completed` |
 | 30 | Request-stop and terminal shutdown | 7, 9, 10, 11, 29 | `completed` |
-| 31 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 | `completed` |
+| 31 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 | `in-progress` |
 
 Required order:
 
@@ -8430,7 +8430,7 @@ that the dashboard is ready.
 
 ## Block 31 — Integrated outcome validation and operator handoff
 
-Status: `completed`
+Status: `in-progress`
 
 ### Objective
 
@@ -8647,6 +8647,17 @@ work solely to inflate coverage.
   interrupted optional browser rerun was not counted, and no live
   consequential action or external source mutation occurred. All Blocks 0–31
   are now accepted under their exact recorded evidence.
+- Observable-outcome correction activation — `2026-08-12T18:40:22Z`:
+  independent observable-outcome review `EVT-000382` rejected the prior
+  completion claim at exact revision
+  `4df05b3fa83105d098e2d24cd7fb299e72cf23a7`; `EVT-000386` and
+  `EVT-000387` bounded the supported correction to three current projections.
+  Block 31 was reopened in place while Blocks 0–30 and every reusable prior
+  proof remained accepted. The target correction uses the centralized tracker
+  status semantics, strict task-item schema, and run-head currentness reducer;
+  it does not alter a primary owner, add a surface, replay the broad matrix,
+  execute a live operation, start terminal reporting, request stop, or shut
+  down the live service. Fresh exact candidate and outcome review remain open.
 
 ### Stop
 

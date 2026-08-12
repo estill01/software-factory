@@ -120,6 +120,64 @@ describe("task API contracts", () => {
     expect(taskListEnvelopeSchema.parse(listing).data.tasks[0]?.project_binding.project_id).toBe(
       "demo",
     )
+    const currentProvenance = {
+      ...listing,
+      data: {
+        ...listing.data,
+        tasks: [
+          {
+            ...task,
+            turns: [
+              {
+                ...task.turns[0],
+                items: [
+                  {
+                    ...task.turns[0].items[0],
+                    summary_sha256: fingerprint("d"),
+                    summary_truncated: false,
+                    client_id: "codex-app",
+                    user_content_sha256: null,
+                    user_content_truncated: null,
+                    user_content_envelope_sha256: null,
+                    user_content_part_types: null,
+                    user_input_classification: null,
+                    user_authority_status: null,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    }
+    expect(
+      taskListEnvelopeSchema.parse(currentProvenance).data.tasks[0]?.turns[0]?.items[0]
+        ?.summary_sha256,
+    ).toBe(fingerprint("d"))
+    expect(() =>
+      taskListEnvelopeSchema.parse({
+        ...currentProvenance,
+        data: {
+          ...currentProvenance.data,
+          tasks: [
+            {
+              ...currentProvenance.data.tasks[0],
+              turns: [
+                {
+                  ...currentProvenance.data.tasks[0].turns[0],
+                  items: [
+                    {
+                      ...currentProvenance.data.tasks[0].turns[0].items[0],
+                      unowned_provenance: "rejected",
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      }),
+    ).toThrow()
     expect(() =>
       taskListEnvelopeSchema.parse({
         ...listing,

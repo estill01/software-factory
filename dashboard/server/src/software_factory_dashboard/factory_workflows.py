@@ -41,7 +41,12 @@ from .operations import (
     OperationsProjectionError,
     OperationsProjectionService,
 )
-from .tracker import TrackerProjectionError, TrackerProjectionService, tracker_identity
+from .tracker import (
+    TrackerProjectionError,
+    TrackerProjectionService,
+    tracker_block_is_complete,
+    tracker_identity,
+)
 
 
 SHA256_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
@@ -1646,7 +1651,9 @@ class FactoryWorkflowOwner:
                 status=409,
             )
         virtually_available = {
-            block["number"] for block in detail["blocks"] if block["status"] == "accepted"
+            block["number"]
+            for block in detail["blocks"]
+            if tracker_block_is_complete(block["status"])
         }
         for index, number in enumerate(numbers):
             block = by_number[number]

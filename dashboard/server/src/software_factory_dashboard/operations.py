@@ -3923,6 +3923,40 @@ class OperationsProjectionService:
                 checks.append(item)
             if self._is_conclusion(item, owner):
                 conclusions.append(item)
+
+        # Lifecycle records describe the exact state fingerprint at which they
+        # were written.  Keep a terminal record in history, but do not project
+        # it as the current run lifecycle after a later current-mission record
+        # proves that the supervised state changed.  A new lifecycle record is
+        # already the list tail and therefore remains authoritative.
+        if lifecycle and lifecycle[-1].get("status") in {
+            "blocked",
+            "completed",
+            "failed",
+            "stopped",
+        }:
+            terminal = lifecycle[-1]
+            terminal_fingerprint = terminal.get("state_fingerprint")
+            terminal_index = next(
+                (
+                    index
+                    for index in range(len(evidence.active_events) - 1, -1, -1)
+                    if evidence.active_events[index] is terminal
+                ),
+                None,
+            )
+            if (
+                isinstance(terminal_fingerprint, str)
+                and terminal_fingerprint
+                and terminal_index is not None
+                and any(
+                    isinstance(item.get("state_fingerprint"), str)
+                    and bool(item["state_fingerprint"])
+                    and item["state_fingerprint"] != terminal_fingerprint
+                    for item in evidence.active_events[terminal_index + 1 :]
+                )
+            ):
+                lifecycle = []
         return {
             "incidents": incidents,
             "decisions": decisions,
