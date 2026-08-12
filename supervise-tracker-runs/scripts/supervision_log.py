@@ -72,6 +72,16 @@ TERMINAL_INCIDENT_STATUSES = {
 NON_COMPLETION_CHECK_CATEGORIES = {"max-sample", "meta-sample"}
 OUTCOME_COMPLETION_CATEGORY = "observable-outcome-completion"
 OUTCOME_COMPLETION_STATUSES = {"verified", "failed"}
+WATCHER_UNAVAILABLE_CATEGORY = "watcher-status-read-unavailable"
+WATCHER_VERIFIED_CATEGORY = "watcher-status-read-verified"
+WATCHER_AVAILABILITY_INCIDENT_CATEGORY = "persistent-watcher-read-unavailability"
+WATCHER_AVAILABILITY_THRESHOLD = 3
+WATCHER_AVAILABILITY_TERMINAL_STATUSES = {
+    "effectiveness-verified",
+    "resolved",
+    "closed",
+    "corrected",
+}
 OUTCOME_COMPLETION_HASH_FIELDS = (
     "outcome_manifest_sha256",
     "artifact_currentness_sha256",
@@ -4352,6 +4362,359 @@ def cmd_gate(args: argparse.Namespace) -> None:
                 "sample_denominator": denominator,
                 "prior_state_fingerprint": prior.get("state_fingerprint") if prior else None,
                 "policy_sha256": policy["policy_sha256"],
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def watcher_availability_incident_head(
+    all_events: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Return the one current watcher-availability incident head, if any."""
+
+    heads: dict[str, dict[str, Any]] = {}
+    for item in all_events:
+        incident_value = item.get("incident_id")
+        if (
+            item.get("category") != WATCHER_AVAILABILITY_INCIDENT_CATEGORY
+            or not isinstance(incident_value, str)
+            or not incident_value
+        ):
+            continue
+        incident = safe_id(incident_value, label="watcher availability incident ID")
+        heads[incident] = item
+    open_heads = [
+        item
+        for item in heads.values()
+        if item.get("status") not in WATCHER_AVAILABILITY_TERMINAL_STATUSES
+    ]
+    if len(open_heads) > 1:
+        raise SupervisionLogError(
+            "Watcher availability has multiple open canonical incidents"
+        )
+    return open_heads[0] if open_heads else None
+
+
+def watcher_unavailable_run_length(
+    all_events: list[dict[str, Any]], availability_fingerprint: str
+) -> int:
+    """Count the latest exact unavailable run without crossing a real read."""
+
+    count = 0
+    for item in reversed(all_events):
+        category = item.get("category")
+        if category == WATCHER_VERIFIED_CATEGORY:
+            break
+        item_fingerprint = item.get("watcher_availability_fingerprint")
+        if category not in {
+            WATCHER_UNAVAILABLE_CATEGORY,
+            WATCHER_AVAILABILITY_INCIDENT_CATEGORY,
+        }:
+            continue
+        if item_fingerprint != availability_fingerprint:
+            break
+        if item.get("watcher_read_status") != "unavailable":
+            break
+        count += 1
+    return count
+
+
+def watcher_availability_record_base(
+    *,
+    args: argparse.Namespace,
+    policy: Mapping[str, Any],
+    state_fingerprint: str,
+    kind: str,
+    status: str,
+    category: str,
+    severity: str,
+    summary: str,
+    evidence: list[str],
+    dedup_key: str,
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "record_id": "",
+        "timestamp": parse_time(args.now).isoformat(),
+        "target_thread_id": args.target_thread,
+        "kind": kind,
+        "model": "gpt-5.6-terra",
+        "reasoning": "max",
+        "state_fingerprint": state_fingerprint,
+        "status": status,
+        "severity": severity,
+        "category": category,
+        "active_block": "Supervision transport",
+        "checkpoint": "Watcher availability currentness",
+        "summary": summary,
+        "evidence": evidence,
+        "estimated_risk": "",
+        "action": "",
+        "resolution": "",
+        "notice_disposition": "",
+        "resolution_owner": "",
+        "user_action_required": "no",
+        "dedup_key": dedup_key,
+        "policy_sha256": policy["policy_sha256"],
+    }
+
+
+def cmd_watcher_availability(args: argparse.Namespace) -> None:
+    """Record bounded watcher read availability and route only real coverage gaps."""
+
+    directory, policy = load_policy(args)
+    state_fingerprint = safe_id(
+        args.state_fingerprint, label="watcher state fingerprint"
+    )
+    mission_events = mission_scoped_events(
+        directory, policy, events(directory / "events.jsonl")
+    )
+    incident_head = watcher_availability_incident_head(mission_events)
+    if args.read_status == "unavailable":
+        trigger = clean(
+            args.read_trigger, label="watcher read trigger", maximum=160
+        )
+        if not trigger:
+            raise SupervisionLogError(
+                "Unavailable watcher read requires an exact retry trigger"
+            )
+        availability_fingerprint = digest(
+            {
+                "target_thread_id": args.target_thread,
+                "state_fingerprint": state_fingerprint,
+                "read_trigger": trigger,
+            }
+        )
+        run_length = watcher_unavailable_run_length(
+            mission_events, availability_fingerprint
+        )
+        if (
+            incident_head is not None
+            and incident_head.get("watcher_availability_fingerprint")
+            == availability_fingerprint
+        ):
+            print(
+                json.dumps(
+                    {
+                        "duplicate": True,
+                        "incident_id": incident_head.get("incident_id"),
+                        "record_required": False,
+                        "route_required": False,
+                        "unavailable_read_count": max(
+                            run_length, WATCHER_AVAILABILITY_THRESHOLD
+                        ),
+                        "next_action": "retry-without-duplicate-ledger-write",
+                    },
+                    sort_keys=True,
+                )
+            )
+            return
+        next_count = run_length + 1
+        threshold_reached = next_count >= WATCHER_AVAILABILITY_THRESHOLD
+        existing_incident_id = (
+            str(incident_head.get("incident_id"))
+            if incident_head is not None
+            else ""
+        )
+        incident_id_value = existing_incident_id or (
+            f"INC-WATCHER-{availability_fingerprint[:16].upper()}"
+        )
+        category = (
+            WATCHER_AVAILABILITY_INCIDENT_CATEGORY
+            if threshold_reached
+            else WATCHER_UNAVAILABLE_CATEGORY
+        )
+        kind = (
+            "resolution"
+            if threshold_reached and incident_head is not None
+            else "incident"
+            if threshold_reached
+            else "check"
+        )
+        status = (
+            "recurrence-current"
+            if threshold_reached and incident_head is not None
+            else "open"
+            if threshold_reached
+            else "unavailable"
+        )
+        record = watcher_availability_record_base(
+            args=args,
+            policy=policy,
+            state_fingerprint=state_fingerprint,
+            kind=kind,
+            status=status,
+            category=category,
+            severity="high" if threshold_reached else "info",
+            summary=(
+                "Persistent watcher status-read unavailability requires one autonomous retry and independent review route."
+                if threshold_reached
+                else "Watcher status read was unavailable; bounded retry remains active."
+            ),
+            evidence=[f"read-trigger:{trigger}"],
+            dedup_key=f"watcher-availability:{availability_fingerprint}",
+        )
+        record.update(
+            {
+                "watcher_read_status": "unavailable",
+                "watcher_availability_fingerprint": availability_fingerprint,
+                "watcher_unavailable_read_count": next_count,
+                "watcher_unavailable_threshold": WATCHER_AVAILABILITY_THRESHOLD,
+                "read_trigger": trigger,
+            }
+        )
+        if threshold_reached:
+            record.update(
+                {
+                    "incident_id": incident_id_value,
+                    "notice_disposition": "operational-warning",
+                    "resolution_owner": "supervisor",
+                    "action": "Retry the exact compact read autonomously and route the current incident to the bound Max reviewer; suppress identical unavailable records until availability or trigger changes.",
+                    "resolution": "One current incident owns the repeated availability gap until a real read and a distinct next-state verification are independently reviewed.",
+                }
+            )
+        with append_lock(directory):
+            current_events = events(directory / "events.jsonl")
+            record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
+            append_event_locked(args, directory, record)
+        runtime = policy.get("runtime", {})
+        print(
+            json.dumps(
+                {
+                    "duplicate": False,
+                    "record": record,
+                    "record_required": True,
+                    "route_required": threshold_reached,
+                    "route_recipient_thread_id": (
+                        runtime.get("reviewer_thread_id")
+                        if threshold_reached
+                        else None
+                    ),
+                    "next_action": (
+                        "retry-and-route-current-incident"
+                        if threshold_reached
+                        else "retry-compact-read"
+                    ),
+                },
+                sort_keys=True,
+            )
+        )
+        return
+
+    incident_id_value = safe_id(
+        args.incident_id, label="watcher availability incident ID"
+    )
+    if (
+        incident_head is None
+        or incident_head.get("incident_id") != incident_id_value
+    ):
+        raise SupervisionLogError(
+            "Verified watcher read does not cite the one current availability incident"
+        )
+    read_source = safe_id(
+        args.read_source_record, label="watcher read source record"
+    )
+    verification_source = safe_id(
+        args.verification_source_record,
+        label="watcher verification source record",
+    )
+    if read_source == verification_source:
+        raise SupervisionLogError(
+            "Watcher availability closure requires a distinct next-state verification"
+        )
+    observed_state = safe_id(
+        args.observed_state_fingerprint,
+        label="watcher observed state fingerprint",
+    )
+    verification_state = safe_id(
+        args.verification_state_fingerprint,
+        label="watcher verification state fingerprint",
+    )
+    observed_status = clean(
+        args.observed_thread_status,
+        label="watcher observed thread status",
+        maximum=40,
+    )
+    verification_status = clean(
+        args.verification_thread_status,
+        label="watcher verification thread status",
+        maximum=40,
+    )
+    availability_fingerprint = digest(
+        {
+            "target_thread_id": args.target_thread,
+            "incident_id": incident_id_value,
+            "read_source_record": read_source,
+            "verification_source_record": verification_source,
+            "observed_state_fingerprint": observed_state,
+            "verification_state_fingerprint": verification_state,
+            "observed_thread_status": observed_status,
+            "verification_thread_status": verification_status,
+        }
+    )
+    prior = next(
+        (
+            item
+            for item in reversed(mission_events)
+            if item.get("category") == WATCHER_VERIFIED_CATEGORY
+            and item.get("watcher_availability_fingerprint")
+            == availability_fingerprint
+        ),
+        None,
+    )
+    if prior is not None:
+        print(
+            json.dumps(
+                {
+                    "duplicate": True,
+                    "record_id": prior.get("record_id"),
+                    "review_required": True,
+                    "next_action": "route-effectiveness-review",
+                },
+                sort_keys=True,
+            )
+        )
+        return
+    record = watcher_availability_record_base(
+        args=args,
+        policy=policy,
+        state_fingerprint=state_fingerprint,
+        kind="check",
+        status="verified",
+        category=WATCHER_VERIFIED_CATEGORY,
+        severity="info",
+        summary="A real watcher status read and distinct next-state verification restored bounded observation coverage.",
+        evidence=[read_source, verification_source, incident_id_value],
+        dedup_key=f"watcher-availability-verified:{availability_fingerprint}",
+    )
+    record.update(
+        {
+            "incident_id": incident_id_value,
+            "watcher_read_status": "available-verified",
+            "watcher_availability_fingerprint": availability_fingerprint,
+            "read_source_record": read_source,
+            "verification_source_record": verification_source,
+            "observed_state_fingerprint": observed_state,
+            "verification_state_fingerprint": verification_state,
+            "observed_thread_status": observed_status,
+            "verification_thread_status": verification_status,
+            "next_state_verified": True,
+        }
+    )
+    with append_lock(directory):
+        current_events = events(directory / "events.jsonl")
+        record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
+        append_event_locked(args, directory, record)
+    runtime = policy.get("runtime", {})
+    print(
+        json.dumps(
+            {
+                "duplicate": False,
+                "record": record,
+                "review_required": True,
+                "route_recipient_thread_id": runtime.get("reviewer_thread_id"),
+                "next_action": "route-effectiveness-review",
             },
             sort_keys=True,
         )
@@ -15497,6 +15860,23 @@ def parser() -> argparse.ArgumentParser:
     gate.add_argument("--latest-item", default="")
     gate.add_argument("--checkpoint", default="")
     gate.set_defaults(func=cmd_gate)
+
+    watcher_availability = subparsers.add_parser("watcher-availability")
+    watcher_availability.add_argument("--target-thread", required=True)
+    watcher_availability.add_argument(
+        "--read-status", choices=("unavailable", "available-verified"), required=True
+    )
+    watcher_availability.add_argument("--state-fingerprint", required=True)
+    watcher_availability.add_argument("--read-trigger", default="")
+    watcher_availability.add_argument("--incident-id", default="")
+    watcher_availability.add_argument("--read-source-record", default="")
+    watcher_availability.add_argument("--verification-source-record", default="")
+    watcher_availability.add_argument("--observed-state-fingerprint", default="")
+    watcher_availability.add_argument("--verification-state-fingerprint", default="")
+    watcher_availability.add_argument("--observed-thread-status", default="")
+    watcher_availability.add_argument("--verification-thread-status", default="")
+    watcher_availability.add_argument("--now")
+    watcher_availability.set_defaults(func=cmd_watcher_availability)
 
     thread_route_gate = subparsers.add_parser("thread-route-gate")
     thread_route_gate.add_argument("--target-thread", required=True)

@@ -1650,6 +1650,24 @@ supervision; retain a retryable delivery posture.
 
 ## Watcher role prompt
 
+### Watcher read-availability contract
+
+An unavailable compact target read is coverage state, not semantic no-change
+evidence. Call `watcher-availability --read-status unavailable` with the exact
+state fingerprint and retry trigger. At three consecutive same-target,
+same-fingerprint unavailable reads, the helper appends or reuses one current
+incident, returns an autonomous retry plus bound Max route, and must suppress identical
+unavailable checks until availability or the trigger changes. One
+incident owns later trigger-specific recurrences until effectiveness is proven.
+
+Recovery requires two distinct retained reads: the real compact read and a
+distinct next-state verification. Call `watcher-availability --read-status
+available-verified` with both source records, both observed fingerprints, and
+both thread postures. The helper appends one idempotent verified-read record and
+routes it to the bound Max reviewer. It does not close the incident. Only a
+later independent effectiveness review may record the terminal incident
+resolution.
+
 Replace every angle-bracket placeholder before use.
 
 ```text
@@ -1685,7 +1703,14 @@ prefer the narrowest correction that gets the intended implementation outcome.
 
 At each scheduled wake:
 1. Read only the target's compact listing/status markers and call the helper's
-   gate command. Read helper status for an open same-target mission activation.
+   gate command. If the compact read is unavailable, call
+   `watcher-availability`; never emit an ordinary no-intervention conclusion.
+   Let the helper enforce the three consecutive read threshold, suppress
+   identical unavailable records, and return any autonomous retry/Max route.
+   After availability returns, retain the real read plus a distinct next-state
+   verification through the same helper and route that record for independent
+   effectiveness review before closing its incident. Read helper status for an
+   open same-target mission activation.
    When one is pending, gate `target-action` and route the current target to its
    exact `first_eligible_work` immediately, keeping posture `in-progress`.
    Record `mission-activation-start` only after an exact later current-mission
@@ -2391,6 +2416,28 @@ Derive the current Gmail gate cadence from recorded conversation activity:
 
 ```bash
 python3 <LOG_HELPER> gmail-cadence --target-thread <TARGET>
+```
+
+Record an unavailable compact read without manufacturing no-change evidence:
+
+```bash
+python3 <LOG_HELPER> watcher-availability --target-thread <TARGET> \
+  --read-status unavailable --state-fingerprint <HASH> \
+  --read-trigger <EXACT_RETRY_TRIGGER>
+```
+
+Retain the real read and distinct next-state verification before Max
+effectiveness review:
+
+```bash
+python3 <LOG_HELPER> watcher-availability --target-thread <TARGET> \
+  --read-status available-verified --state-fingerprint <CURRENT_HASH> \
+  --incident-id <CURRENT_INCIDENT> \
+  --read-source-record <REAL_READ_RECORD> \
+  --verification-source-record <NEXT_READ_RECORD> \
+  --observed-state-fingerprint <OBSERVED_HASH> \
+  --verification-state-fingerprint <VERIFIED_HASH> \
+  --observed-thread-status <STATUS> --verification-thread-status <STATUS>
 ```
 
 Record a completed semantic base check:

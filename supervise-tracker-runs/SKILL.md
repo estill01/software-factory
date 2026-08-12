@@ -159,6 +159,18 @@ Repeat independently for additional targets.
 
 - Use the watcher for proactive 20-minute checks. Tighten to 15 minutes only
   during a concrete high-risk/expensive phase and restore 20 minutes afterward.
+- If the compact target read is unavailable, call `watcher-availability`
+  instead of writing an ordinary no-intervention record. At three consecutive
+  same-target, same-fingerprint unavailable reads, the helper opens or reuses
+  one supervision-owned incident and returns the exact autonomous retry and Max
+  route. It must suppress identical unavailable checks until availability or
+  the read trigger changes. Do not interpret an unavailable read as unchanged
+  target state.
+- Close that incident only after `watcher-availability --read-status
+  available-verified` retains one real compact read and one distinct next-state verification,
+  and the bound Max reviewer accepts the effectiveness evidence.
+  The helper's verified-read record is review-ready evidence, not self-closing
+  authority.
 - Use Terra only for the compact change gate, mechanical triage, and obvious
   emergency-stop conditions. Route every materially changed state to the Sol
   XHigh base reviewer; Terra must not be the semantic no-intervention authority.
