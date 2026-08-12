@@ -93,6 +93,9 @@ AUTOMATION_BINDING_REPAIR_MARKER = (
 )
 AUTOMATION_BINDING_REPAIR_ROUTE_PURPOSE = "fix-execution"
 AUTOMATION_BINDING_REPAIR_ROLES = tuple(AUTOMATION_BINDING_CONTRACTS)
+SUPERVISION_PAUSE_MARKER = "SOFTWARE_FACTORY_DASHBOARD_SUPERVISION_PAUSE "
+SUPERVISION_PAUSE_ROUTE_PURPOSE = "fix-execution"
+SUPERVISION_PAUSE_CATEGORY = "supervision-pause"
 
 
 def parse_dashboard_workflow_marker(value: str) -> Mapping[str, Any] | None:
@@ -463,6 +466,7 @@ class FactoryWorkflowOwner:
         self._binding_repair_dispatch_lock = RLock()
         self._role_binding_repair_dispatch_lock = RLock()
         self._automation_binding_repair_dispatch_lock = RLock()
+        self._supervision_pause_dispatch_lock = RLock()
 
     @staticmethod
     def _semantic_exact(value: str | int | float | bool) -> OperationSemanticValue:
@@ -832,6 +836,87 @@ class FactoryWorkflowOwner:
         )
         return tuple(rows)
 
+    @classmethod
+    def _supervision_pause_semantic_changes(
+        cls,
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> tuple[OperationSemanticChange, ...]:
+        evidence = source.evidence
+        currentness = source.fingerprint
+        run_link = (OperationLink("Run", f"/runs/{target.id}"),)
+        policy_revision = str(evidence["policy_sha256"])
+        prior_lifecycle = evidence.get("prior_lifecycle")
+        rows: list[OperationSemanticChange] = [
+            cls._semantic_change(
+                change_id="supervision-lifecycle",
+                subject="Supervision lifecycle",
+                kind="preserved" if isinstance(prior_lifecycle, Mapping) else "added",
+                before=(
+                    cls._semantic_exact("paused")
+                    if isinstance(prior_lifecycle, Mapping)
+                    else cls._semantic_unavailable()
+                ),
+                after=cls._semantic_exact("paused"),
+                owner="maintained supervision lifecycle record and gate owner",
+                source_identity=f"supervision-lifecycle:{target.id}",
+                source_revision=str(evidence["event_head"]),
+                currentness=currentness,
+                links=run_link,
+            )
+        ]
+        for automation in evidence["automations"]:
+            before = cls._semantic_exact(str(automation["owner_status"]))
+            after = cls._semantic_exact("PAUSED")
+            rows.append(
+                cls._semantic_change(
+                    change_id=f"supervision-automation-{automation['role']}",
+                    subject=f"{automation['label']} automation",
+                    kind=(
+                        "preserved"
+                        if automation["owner_status"] == "PAUSED"
+                        else "changed"
+                    ),
+                    before=before,
+                    after=after,
+                    owner="maintained Codex automation owner",
+                    source_identity=f"automation:{automation['id']}",
+                    source_revision=str(automation["manifest_sha256"]),
+                    currentness=currentness,
+                    links=run_link,
+                )
+            )
+        target_state = cls._semantic_exact(str(evidence["target_task_status"]))
+        rows.extend(
+            (
+                cls._semantic_change(
+                    change_id="supervision-target-task-state",
+                    subject="Implementation task state",
+                    kind="preserved",
+                    before=target_state,
+                    after=target_state,
+                    owner="maintained Codex task reader",
+                    source_identity=f"codex-task:{target.id}",
+                    source_revision=str(evidence["target_task_fingerprint"]),
+                    currentness=currentness,
+                    links=(OperationLink("Target task", f"/tasks/{target.id}"),),
+                ),
+                cls._semantic_change(
+                    change_id="supervision-policy",
+                    subject="Supervision policy and bindings",
+                    kind="preserved",
+                    before=cls._semantic_exact(policy_revision),
+                    after=cls._semantic_exact(policy_revision),
+                    owner="maintained supervision policy owner",
+                    source_identity=f"supervision-policy:{target.id}",
+                    source_revision=policy_revision,
+                    currentness=currentness,
+                    links=run_link,
+                ),
+            )
+        )
+        return tuple(rows)
+
     def registry(self) -> OperationRegistry:
         return OperationRegistry(
             (
@@ -853,6 +938,8 @@ class FactoryWorkflowOwner:
                 self._mission_binding_repair_definition(),
                 self._role_binding_repair_definition(),
                 self._automation_binding_repair_definition(),
+                self._supervision_pause_definition(),
+                self._unavailable_supervision_resume_definition(),
                 self._unavailable_authoring_supervision_definition(),
             )
         )
@@ -7924,6 +8011,969 @@ class FactoryWorkflowOwner:
                 None
                 if target_query_posture["status"] == "available"
                 else str(target_query_posture["reason"])
+            ),
+        )
+
+    @staticmethod
+    def _supervision_pause_turn_state(task: Mapping[str, Any]) -> list[dict[str, str]]:
+        turns = task.get("turns")
+        if task.get("turns_truncated") is True or not isinstance(turns, list):
+            raise OperationError(
+                "supervision_pause_task_history_partial",
+                "The target task turn state is partial; pause cannot prove that implementation state is preserved.",
+                status=409,
+            )
+        projected: list[dict[str, str]] = []
+        for turn in turns:
+            if (
+                not isinstance(turn, Mapping)
+                or not isinstance(turn.get("id"), str)
+                or not turn["id"]
+                or not isinstance(turn.get("status"), str)
+                or not turn["status"]
+            ):
+                raise OperationError(
+                    "supervision_pause_task_history_partial",
+                    "The target task turn identity is incomplete.",
+                    status=409,
+                )
+            projected.append({"id": str(turn["id"]), "status": str(turn["status"])})
+        return projected
+
+    @staticmethod
+    def _supervision_pause_marker(
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> dict[str, Any]:
+        prior_lifecycle = source.evidence.get("prior_lifecycle")
+        return {
+            "kind": "supervision-pause",
+            "target_thread_id": target.id,
+            "group_id": source.evidence["group_id"],
+            "project_id": source.evidence["project_id"],
+            "mission_root": source.evidence["mission_root"],
+            "policy_sha256": source.evidence["policy_sha256"],
+            "policy_version": source.evidence["policy_version"],
+            "policy_history_head": source.evidence["policy_history_head"],
+            "event_head": source.evidence["event_head"],
+            "source_record": source.evidence["source_record"],
+            "prior_lifecycle_record_id": (
+                prior_lifecycle.get("record_id")
+                if isinstance(prior_lifecycle, Mapping)
+                else None
+            ),
+            "prior_lifecycle_state_fingerprint": (
+                prior_lifecycle.get("state_fingerprint")
+                if isinstance(prior_lifecycle, Mapping)
+                else None
+            ),
+            "automation_set_sha256": source.evidence["automation_set_sha256"],
+            "automations": [
+                {
+                    key: automation[key]
+                    for key in (
+                        "role",
+                        "id",
+                        "target_thread_id",
+                        "owner_status",
+                        "manifest_sha256",
+                        "protected_sha256",
+                    )
+                }
+                for automation in source.evidence["automations"]
+            ],
+            "target_task_status": source.evidence["target_task_status"],
+            "target_turn_state_sha256": fingerprint(
+                source.evidence["target_turn_state"]
+            ),
+            "fix_executor_task_id": source.evidence["fix_executor_task_id"],
+            "preview_fingerprint": source.fingerprint,
+            "route_purpose": SUPERVISION_PAUSE_ROUTE_PURPOSE,
+        }
+
+    @staticmethod
+    def _supervision_pause_turn_has_marker(
+        task: Mapping[str, Any],
+        *,
+        turn_id: str,
+        expected: Mapping[str, Any],
+    ) -> bool:
+        if task.get("turns_truncated") is True:
+            return False
+        turns = [turn for turn in task.get("turns", []) if turn.get("id") == turn_id]
+        if len(turns) != 1 or turns[0].get("items_truncated") is True:
+            return False
+        markers: list[Mapping[str, Any]] = []
+        for item in turns[0].get("items", []):
+            summary = item.get("summary")
+            if (
+                item.get("type") != "userMessage"
+                or not isinstance(summary, str)
+                or not summary.startswith(SUPERVISION_PAUSE_MARKER)
+            ):
+                continue
+            first_line = summary.splitlines()[0]
+            try:
+                marker = json.loads(first_line.removeprefix(SUPERVISION_PAUSE_MARKER))
+            except json.JSONDecodeError:
+                return False
+            if isinstance(marker, Mapping):
+                markers.append(marker)
+        return len(markers) == 1 and markers[0] == expected
+
+    def _supervision_pause_source(
+        self,
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+    ) -> SourceSnapshot:
+        if inputs:
+            raise OperationError(
+                "supervision_pause_input_invalid",
+                "Pause supervision accepts no operator-supplied owner identity.",
+            )
+        projects, catalog_fingerprint = self._active_projects()
+        project = self._project_from(projects, target)
+        self._require_capabilities("task_read", "task_resume", "turn_start")
+        try:
+            target_detail = self.app_server_client.read_task(
+                projects,
+                target.id,
+                include_turns=True,
+            )
+        except AppServerError as error:
+            raise _operation_error(
+                error,
+                fallback="supervision_pause_target_unavailable",
+            ) from error
+        target_task = target_detail.get("task")
+        if not isinstance(target_task, Mapping):
+            raise OperationError(
+                "supervision_pause_target_unavailable",
+                "The exact implementation task projection is unavailable.",
+                status=409,
+            )
+        target_cwd, target_identity, target_status = (
+            self._validated_automation_project_task(
+                target_task,
+                task_id=target.id,
+                role="implementation target",
+                project=project,
+                allow_active=True,
+            )
+        )
+        target_turn_state = self._supervision_pause_turn_state(target_task)
+        try:
+            control = self.operations_service.policy_control_snapshot(target.id)
+            group_ids = self.operations_service.binding_group_ids(target.id)
+            project_binding = self.operations_service.project_binding_snapshot(
+                projects,
+                target.id,
+            )
+        except OperationsProjectionError as error:
+            raise _operation_error(
+                error,
+                fallback="supervision_pause_source_unavailable",
+            ) from error
+        policy = control.get("policy")
+        runtime = control.get("runtime")
+        automations_by_role = control.get("automations_by_role")
+        mission = policy.get("mission_binding") if isinstance(policy, Mapping) else None
+        projected_binding = project_binding.get("project_binding")
+        if (
+            group_ids != [target.id]
+            or not isinstance(policy, Mapping)
+            or not isinstance(runtime, Mapping)
+            or not isinstance(automations_by_role, Mapping)
+            or not isinstance(mission, Mapping)
+            or not isinstance(mission.get("mission_root"), str)
+            or not SHA256_PATTERN.fullmatch(str(mission["mission_root"]))
+            or not isinstance(projected_binding, Mapping)
+            or projected_binding.get("status") != "bound"
+            or projected_binding.get("project_id") != project.id
+        ):
+            raise OperationError(
+                "supervision_pause_group_unavailable",
+                "The selected run does not resolve to one exact current supervision group and project.",
+                status=409,
+            )
+        try:
+            policy_root = Path(str(policy.get("project_root"))).expanduser().resolve(
+                strict=True
+            )
+            project_root = Path(project.root).expanduser().resolve(strict=True)
+        except (OSError, RuntimeError) as error:
+            raise OperationError(
+                "supervision_pause_project_unavailable",
+                "The canonical policy project root is unavailable.",
+                status=409,
+            ) from error
+        if policy_root != project_root:
+            raise OperationError(
+                "supervision_pause_project_mismatch",
+                "The supervision policy and selected project disagree.",
+                status=409,
+            )
+        if control.get("open_successor_transitions") or control.get(
+            "open_mission_activations"
+        ):
+            raise OperationError(
+                "supervision_pause_transition_open",
+                "Pause is unavailable while successor or first-work activation state remains open.",
+                status=409,
+            )
+        lifecycle_status = control.get("lifecycle_status")
+        if lifecycle_status not in {None, "paused"}:
+            raise OperationError(
+                "supervision_pause_lifecycle_conflict",
+                "The current lifecycle is not eligible for the ordinary semantic-pause path.",
+                status=409,
+            )
+        source_record = control.get("source_record")
+        event_head = control.get("event_head")
+        policy_sha256 = control.get("policy_sha256")
+        policy_history_head = control.get("policy_history_head")
+        if (
+            not isinstance(source_record, str)
+            or not source_record
+            or not isinstance(event_head, str)
+            or not SHA256_PATTERN.fullmatch(event_head)
+            or not isinstance(policy_sha256, str)
+            or not SHA256_PATTERN.fullmatch(policy_sha256)
+            or type(control.get("policy_version")) is not int
+            or not isinstance(policy_history_head, str)
+            or not SHA256_PATTERN.fullmatch(policy_history_head)
+        ):
+            raise OperationError(
+                "supervision_pause_source_unavailable",
+                "The current supervision event or policy identity is incomplete.",
+                status=409,
+            )
+        prior_lifecycle = control.get("lifecycle_record")
+        if lifecycle_status == "paused" and (
+            not isinstance(prior_lifecycle, Mapping)
+            or prior_lifecycle.get("kind") != "lifecycle"
+            or prior_lifecycle.get("status") != "paused"
+            or not isinstance(prior_lifecycle.get("record_id"), str)
+            or not isinstance(prior_lifecycle.get("record_sha256"), str)
+            or not SHA256_PATTERN.fullmatch(str(prior_lifecycle["record_sha256"]))
+            or not isinstance(prior_lifecycle.get("state_fingerprint"), str)
+            or not prior_lifecycle["state_fingerprint"]
+            or prior_lifecycle.get("policy_sha256") != policy_sha256
+        ):
+            raise OperationError(
+                "supervision_pause_lifecycle_unavailable",
+                "The existing paused lifecycle record is incomplete or stale.",
+                status=409,
+            )
+        reports = policy.get("reports")
+        reports = reports if isinstance(reports, Mapping) else {}
+        weekly = reports.get("weekly")
+        weekly = weekly if isinstance(weekly, Mapping) else {}
+        notifications = policy.get("notifications")
+        notifications = notifications if isinstance(notifications, Mapping) else {}
+        gmail_notification = notifications.get("gmail")
+        if (
+            not isinstance(gmail_notification, Mapping)
+            or gmail_notification.get("enabled") is not True
+            or not isinstance(gmail_notification.get("reply_message_id"), str)
+            or not gmail_notification["reply_message_id"]
+        ):
+            raise OperationError(
+                "supervision_pause_notification_unavailable",
+                "The exact ordinary lifecycle-notification owner is not bound for this group.",
+                status=409,
+            )
+        normalized_automations: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        role_items = sorted(AUTOMATION_BINDING_CONTRACTS.items())
+        for role, contract in role_items:
+            if contract["policy_source"] == "weekly_report":
+                automation_id = weekly.get("automation_id")
+                configured = weekly.get("enabled") is True or bool(automation_id)
+            else:
+                automation_id = runtime.get(contract["automation_key"])
+                configured = role in {"watcher", "reviewer"} or bool(
+                    automation_id or runtime.get(contract["thread_key"])
+                )
+            if not configured:
+                continue
+            role_target = runtime.get(contract["thread_key"])
+            automation = automations_by_role.get(role)
+            if (
+                not isinstance(automation_id, str)
+                or not automation_id
+                or not isinstance(role_target, str)
+                or not role_target
+                or role_target == target.id
+                or not isinstance(automation, Mapping)
+                or automation.get("status") != "available"
+                or automation.get("id") != automation_id
+                or automation.get("kind") != "heartbeat"
+                or automation.get("target_thread_id") != role_target
+                or automation.get("owner_status") not in {"ACTIVE", "PAUSED"}
+                or not isinstance(automation.get("rrule"), str)
+                or not automation["rrule"]
+                or not isinstance(automation.get("manifest_sha256"), str)
+                or not SHA256_PATTERN.fullmatch(str(automation["manifest_sha256"]))
+                or not isinstance(automation.get("protected_sha256"), str)
+                or not SHA256_PATTERN.fullmatch(str(automation["protected_sha256"]))
+            ):
+                raise OperationError(
+                    "supervision_pause_automation_unavailable",
+                    f"The exact {contract['label']} automation binding is incomplete or inconsistent.",
+                    status=409,
+                )
+            if automation_id in seen_ids:
+                raise OperationError(
+                    "supervision_pause_automation_ambiguous",
+                    "One automation ID is claimed by multiple bound supervision roles.",
+                    status=409,
+                )
+            seen_ids.add(automation_id)
+            normalized_automations.append(
+                {
+                    "role": role,
+                    "label": contract["label"],
+                    "purpose": contract["purpose"],
+                    "id": automation_id,
+                    "target_thread_id": role_target,
+                    "owner_status": automation["owner_status"],
+                    "kind": automation["kind"],
+                    "name": automation.get("name"),
+                    "rrule": automation["rrule"],
+                    "manifest_sha256": automation["manifest_sha256"],
+                    "protected_sha256": automation["protected_sha256"],
+                }
+            )
+        if {item["role"] for item in normalized_automations}.issuperset(
+            {"watcher", "reviewer"}
+        ) is False:
+            raise OperationError(
+                "supervision_pause_automation_unavailable",
+                "Watcher and reviewer automations must both be exactly bound before pause.",
+                status=409,
+            )
+        if lifecycle_status == "paused" and all(
+            item["owner_status"] == "PAUSED" for item in normalized_automations
+        ):
+            raise OperationError(
+                "supervision_already_paused",
+                "The lifecycle and every exact bound automation are already paused.",
+                status=409,
+            )
+        fix_executor_task_id = runtime.get("fix_executor_thread_id")
+        automation_targets = {item["target_thread_id"] for item in normalized_automations}
+        if (
+            not isinstance(fix_executor_task_id, str)
+            or not fix_executor_task_id
+            or fix_executor_task_id == target.id
+            or fix_executor_task_id in automation_targets
+        ):
+            raise OperationError(
+                "supervision_pause_owner_unavailable",
+                "The policy lacks one distinct exact fix-executor task.",
+                status=409,
+            )
+        try:
+            fix_detail = self.app_server_client.read_task(
+                projects,
+                fix_executor_task_id,
+                include_turns=True,
+            )
+        except AppServerError as error:
+            raise _operation_error(
+                error,
+                fallback="supervision_pause_owner_unavailable",
+            ) from error
+        fix_task = fix_detail.get("task")
+        if not isinstance(fix_task, Mapping):
+            raise OperationError(
+                "supervision_pause_owner_unavailable",
+                "The exact fix-executor projection is unavailable.",
+                status=409,
+            )
+        fix_cwd, fix_identity, fix_status = self._validated_automation_project_task(
+            fix_task,
+            task_id=fix_executor_task_id,
+            role="fix executor",
+            project=project,
+            allow_active=False,
+        )
+        target_task_material = {
+            "id": target.id,
+            "status": target_status,
+            "cwd": target_cwd,
+            "cwd_identity": target_identity,
+            "turns": target_turn_state,
+        }
+        automation_set_sha256 = fingerprint(normalized_automations)
+        evidence = {
+            "catalog_fingerprint": catalog_fingerprint,
+            "project_id": project.id,
+            "target_thread_id": target.id,
+            "group_id": target.id,
+            "mission_root": mission["mission_root"],
+            "source_record": source_record,
+            "event_head": event_head,
+            "policy_sha256": policy_sha256,
+            "policy_version": control["policy_version"],
+            "policy_history_head": policy_history_head,
+            "prior_lifecycle": (
+                json.loads(json.dumps(prior_lifecycle))
+                if isinstance(prior_lifecycle, Mapping)
+                else None
+            ),
+            "automations": normalized_automations,
+            "automation_set_sha256": automation_set_sha256,
+            "target_task_status": target_status,
+            "target_task_cwd": target_cwd,
+            "target_cwd_device": target_identity[0],
+            "target_cwd_inode": target_identity[1],
+            "target_turn_state": target_turn_state,
+            "target_task_fingerprint": fingerprint(target_task_material),
+            "fix_executor_task_id": fix_executor_task_id,
+            "fix_executor_task_status": fix_status,
+            "fix_executor_task_cwd": fix_cwd,
+            "fix_executor_cwd_device": fix_identity[0],
+            "fix_executor_cwd_inode": fix_identity[1],
+            "compensation_posture": (
+                "No automatic retry or rollback. Preserve the canonical paused lifecycle or already-paused automations, re-read both owners, and issue a new bounded request only for the still-missing postcondition."
+            ),
+        }
+        material = {
+            "catalog": catalog_fingerprint,
+            "project": project.id,
+            "group": target.id,
+            "mission": mission["mission_root"],
+            "control": control.get("fingerprint"),
+            "project_binding": project_binding.get("fingerprint"),
+            "automations": automation_set_sha256,
+            "target_task": target_task_material,
+            "fix_executor": {
+                "task_id": fix_executor_task_id,
+                "status": fix_status,
+                "cwd": fix_cwd,
+                "cwd_identity": fix_identity,
+            },
+        }
+        return SourceSnapshot(fingerprint=fingerprint(material), evidence=evidence)
+
+    @staticmethod
+    def _supervision_pause_prompt(
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> str:
+        marker = FactoryWorkflowOwner._supervision_pause_marker(target, source)
+        prior_lifecycle = source.evidence.get("prior_lifecycle")
+        facts = {
+            "target_thread_id": target.id,
+            "group_id": source.evidence["group_id"],
+            "project_id": source.evidence["project_id"],
+            "mission_root": source.evidence["mission_root"],
+            "policy_sha256": source.evidence["policy_sha256"],
+            "source_record": source.evidence["source_record"],
+            "prior_lifecycle_record_id": (
+                prior_lifecycle.get("record_id")
+                if isinstance(prior_lifecycle, Mapping)
+                else None
+            ),
+            "prior_lifecycle_state_fingerprint": (
+                prior_lifecycle.get("state_fingerprint")
+                if isinstance(prior_lifecycle, Mapping)
+                else None
+            ),
+            "automations": [
+                {
+                    "role": item["role"],
+                    "id": item["id"],
+                    "status": item["owner_status"],
+                    "target_thread_id": item["target_thread_id"],
+                }
+                for item in source.evidence["automations"]
+            ],
+            "preview_fingerprint": source.fingerprint,
+        }
+        prompt = (
+            f"{SUPERVISION_PAUSE_MARKER}{_canonical(marker)}\n"
+            "Use $supervise-tracker-runs and the maintained Codex automation owner for one bounded semantic-pause request.\n"
+            f"Exact source facts: {_canonical(facts)}\n"
+            "Re-read every exact fact before writing. Do not interrupt, continue, stop, or resume the implementation task. "
+            "Do not edit policy JSON, policy history, events JSONL, or automation TOML directly. "
+            "If no prior paused lifecycle record is named, use the maintained supervision record command once to append kind lifecycle, status paused, severity info, category supervision-pause, the exact preview fingerprint as state fingerprint, "
+            f"dedup key dashboard-supervision-pause:{source.fingerprint}, and evidence dashboard-preview:{source.fingerprint}. "
+            "Call lifecycle-gate against that exact canonical paused record. If its source-stop gate is false, stop without pausing any automation. If it requires the ordinary lifecycle notification, use only the maintained bound Gmail owner, record its exact notification evidence, and call lifecycle-gate again. "
+            "Only after the gate no longer requires a send, pause each and only the named ACTIVE automation through the Codex automation owner; leave already-PAUSED named automations unchanged. Preserve every automation ID, kind, name, prompt, RRULE, target, and created timestamp. "
+            "View each named automation after the owner action and report exact lifecycle record, gate, and automation postconditions. Do not retry, roll back, enable Resume, or touch any unlisted group or automation."
+        )
+        if len(prompt) > MAX_WORKFLOW_PROMPT:
+            raise OperationError(
+                "supervision_pause_prompt_too_large",
+                "The bounded supervision-pause request exceeds the prompt limit.",
+            )
+        return prompt
+
+    @staticmethod
+    def _supervision_pause_route_request(
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+        source: SourceSnapshot,
+    ) -> RouteGateRequest:
+        del inputs
+        return RouteGateRequest(
+            recipient=str(source.evidence["fix_executor_task_id"]),
+            purpose=SUPERVISION_PAUSE_ROUTE_PURPOSE,
+            source_record=str(source.evidence["source_record"]),
+            target_thread=target.id,
+            required_action=(
+                f"Request one maintained semantic pause for group {target.id} at preview "
+                f"{source.fingerprint}; verify its paused lifecycle and exact named automations."
+            ),
+        )
+
+    def _supervision_pause_definition(self) -> OperationDefinition:
+        schema = _object_schema({}, required=())
+
+        def dispatch(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+        ) -> DispatchResult:
+            with self._supervision_pause_dispatch_lock:
+                current = self._supervision_pause_source(target, inputs)
+                if current.fingerprint != source.fingerprint:
+                    raise OperationOwnerError(
+                        "supervision_pause_source_changed",
+                        "The exact group, lifecycle, task, policy, or automation set changed before dispatch.",
+                    )
+                projects, _ = self._active_projects()
+                fix_executor_task_id = str(source.evidence["fix_executor_task_id"])
+                prompt = self._supervision_pause_prompt(target, source)
+                try:
+                    result = self.app_server_client.start_configured_role_turn(
+                        projects,
+                        fix_executor_task_id,
+                        prompt,
+                        expected_cwd=str(source.evidence["fix_executor_task_cwd"]),
+                        expected_cwd_identity=(
+                            int(source.evidence["fix_executor_cwd_device"]),
+                            int(source.evidence["fix_executor_cwd_inode"]),
+                        ),
+                    )
+                except AppServerError as error:
+                    raise OperationOwnerError(_owner_code(error), str(error)) from error
+                return DispatchResult(
+                    evidence={
+                        "target_thread_id": target.id,
+                        "supervision_pause_requested": True,
+                        "supervision_pause_applied": False,
+                        "lifecycle_postcondition_current": False,
+                        "automation_postcondition_current": False,
+                        "target_task_preserved": False,
+                        "fix_executor_task_id": fix_executor_task_id,
+                        "fix_executor_turn_id": result["turn"]["id"],
+                        "fix_executor_task_resumed": result["task_resumed"],
+                        "preview_fingerprint": source.fingerprint,
+                        "automation_ids": [
+                            item["id"] for item in source.evidence["automations"]
+                        ],
+                    },
+                    links=(
+                        OperationLink("Run", f"/runs/{target.id}"),
+                        OperationLink(
+                            "Fix executor task",
+                            f"/tasks/{fix_executor_task_id}",
+                        ),
+                    ),
+                )
+
+        def verify(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+            result: DispatchResult,
+        ) -> VerificationResult:
+            del inputs
+            try:
+                control = self.operations_service.policy_control_snapshot(target.id)
+                group_ids = self.operations_service.binding_group_ids(target.id)
+            except OperationsProjectionError as error:
+                return VerificationResult(
+                    "pending",
+                    {
+                        **result.evidence,
+                        "owner_error_code": error.code,
+                        "partial_posture": "source-unavailable",
+                        "recovery": source.evidence["compensation_posture"],
+                    },
+                    result.links,
+                )
+            policy = control.get("policy")
+            mission = policy.get("mission_binding") if isinstance(policy, Mapping) else None
+            policy_current = bool(
+                group_ids == [target.id]
+                and control.get("policy_sha256") == source.evidence["policy_sha256"]
+                and control.get("policy_version") == source.evidence["policy_version"]
+                and control.get("policy_history_head")
+                == source.evidence["policy_history_head"]
+                and isinstance(mission, Mapping)
+                and mission.get("mission_root") == source.evidence["mission_root"]
+            )
+            current_by_role = control.get("automations_by_role")
+            current_by_role = current_by_role if isinstance(current_by_role, Mapping) else {}
+            automation_results: list[dict[str, Any]] = []
+            for expected in source.evidence["automations"]:
+                current = current_by_role.get(expected["role"])
+                exact = bool(
+                    isinstance(current, Mapping)
+                    and current.get("status") == "available"
+                    and current.get("id") == expected["id"]
+                    and current.get("owner_status") == "PAUSED"
+                    and current.get("kind") == expected["kind"]
+                    and current.get("target_thread_id")
+                    == expected["target_thread_id"]
+                    and current.get("rrule") == expected["rrule"]
+                    and current.get("protected_sha256")
+                    == expected["protected_sha256"]
+                    and isinstance(current.get("manifest_sha256"), str)
+                    and (
+                        expected["owner_status"] == "PAUSED"
+                        or current.get("manifest_sha256")
+                        != expected["manifest_sha256"]
+                    )
+                )
+                automation_results.append(
+                    {
+                        "role": expected["role"],
+                        "automation_id": expected["id"],
+                        "paused": exact,
+                        "manifest_sha256": (
+                            current.get("manifest_sha256")
+                            if isinstance(current, Mapping)
+                            else None
+                        ),
+                    }
+                )
+            automation_current = bool(
+                policy_current
+                and len(automation_results) == len(source.evidence["automations"])
+                and all(item["paused"] for item in automation_results)
+            )
+            lifecycle = control.get("lifecycle_record")
+            prior_lifecycle = source.evidence.get("prior_lifecycle")
+            lifecycle_shape_current = bool(
+                isinstance(lifecycle, Mapping)
+                and lifecycle.get("kind") == "lifecycle"
+                and lifecycle.get("status") == "paused"
+                and lifecycle.get("policy_sha256") == source.evidence["policy_sha256"]
+                and isinstance(lifecycle.get("record_id"), str)
+                and isinstance(lifecycle.get("record_sha256"), str)
+                and SHA256_PATTERN.fullmatch(str(lifecycle.get("record_sha256")))
+                and isinstance(lifecycle.get("state_fingerprint"), str)
+                and lifecycle.get("state_fingerprint")
+            )
+            if lifecycle_shape_current and isinstance(prior_lifecycle, Mapping):
+                lifecycle_shape_current = bool(
+                    lifecycle.get("record_id") == prior_lifecycle.get("record_id")
+                    and lifecycle.get("record_sha256")
+                    == prior_lifecycle.get("record_sha256")
+                    and lifecycle.get("state_fingerprint")
+                    == prior_lifecycle.get("state_fingerprint")
+                )
+            elif lifecycle_shape_current:
+                lifecycle_shape_current = bool(
+                    lifecycle.get("state_fingerprint") == source.fingerprint
+                    and lifecycle.get("category") == SUPERVISION_PAUSE_CATEGORY
+                    and lifecycle.get("dedup_key")
+                    == f"dashboard-supervision-pause:{source.fingerprint}"
+                    and f"dashboard-preview:{source.fingerprint}"
+                    in lifecycle.get("evidence", [])
+                )
+            gate_result: Mapping[str, Any] | None = None
+            gate_current = False
+            if lifecycle_shape_current and isinstance(lifecycle, Mapping):
+                try:
+                    gated = self.operations_service.lifecycle_gate_snapshot(
+                        target.id,
+                        lifecycle_state="paused",
+                        source_record=str(lifecycle["record_id"]),
+                        state_fingerprint=str(lifecycle["state_fingerprint"]),
+                    )
+                except OperationsProjectionError:
+                    gated = None
+                gate_result = (
+                    gated.get("gate") if isinstance(gated, Mapping) else None
+                )
+                gate_current = bool(
+                    isinstance(gate_result, Mapping)
+                    and gate_result.get("completion_permitted") is True
+                    and gate_result.get("source_stop_permitted") is True
+                    and gate_result.get("send_now") is False
+                    and gate_result.get("duplicate") is True
+                    and gate_result.get("open_mission_activations") == []
+                    and gate_result.get("open_successor_transitions") == []
+                )
+            projects, _ = self._active_projects()
+            project = self._project_from(projects, target)
+            try:
+                target_detail = self.app_server_client.read_task(
+                    projects,
+                    target.id,
+                    include_turns=True,
+                )
+                target_task = target_detail.get("task")
+                target_cwd, target_identity, target_status = (
+                    self._validated_automation_project_task(
+                        target_task if isinstance(target_task, Mapping) else {},
+                        task_id=target.id,
+                        role="implementation target",
+                        project=project,
+                        allow_active=True,
+                    )
+                )
+                target_turn_state = self._supervision_pause_turn_state(
+                    target_task if isinstance(target_task, Mapping) else {}
+                )
+            except (AppServerError, OperationError):
+                target_preserved = False
+            else:
+                target_preserved = bool(
+                    target_cwd == source.evidence["target_task_cwd"]
+                    and target_identity
+                    == (
+                        source.evidence["target_cwd_device"],
+                        source.evidence["target_cwd_inode"],
+                    )
+                    and target_status == source.evidence["target_task_status"]
+                    and target_turn_state == source.evidence["target_turn_state"]
+                )
+            try:
+                fix_detail = self.app_server_client.read_task(
+                    projects,
+                    str(source.evidence["fix_executor_task_id"]),
+                    include_turns=True,
+                )
+                fix_task = fix_detail.get("task")
+                fix_cwd, fix_identity, _fix_status = (
+                    self._validated_automation_project_task(
+                        fix_task if isinstance(fix_task, Mapping) else {},
+                        task_id=str(source.evidence["fix_executor_task_id"]),
+                        role="fix executor",
+                        project=project,
+                        allow_active=True,
+                    )
+                )
+            except (AppServerError, OperationError):
+                fix_executor_current = False
+                fix_task = {}
+            else:
+                fix_executor_current = bool(
+                    fix_cwd == source.evidence["fix_executor_task_cwd"]
+                    and fix_identity
+                    == (
+                        source.evidence["fix_executor_cwd_device"],
+                        source.evidence["fix_executor_cwd_inode"],
+                    )
+                )
+            marker = self._supervision_pause_marker(target, source)
+            request_current = bool(
+                fix_executor_current
+                and isinstance(fix_task, Mapping)
+                and self._supervision_pause_turn_has_marker(
+                    fix_task,
+                    turn_id=str(result.evidence["fix_executor_turn_id"]),
+                    expected=marker,
+                )
+            )
+            route_accepted = False
+            route_result = None
+            if policy_current and fix_executor_current:
+                try:
+                    request = self._supervision_pause_route_request(target, {}, source)
+                    route_result = self.route_gate(request)
+                    route_accepted = bool(
+                        route_result.allowed
+                        and route_result.recipient == request.recipient
+                        and route_result.purpose == request.purpose
+                        and route_result.source_record == request.source_record
+                        and route_result.target_thread == request.target_thread
+                        and route_result.action_hash
+                        == route_action_fingerprint(request.required_action)
+                        and route_result.policy_fingerprint
+                        == source.evidence["policy_sha256"]
+                    )
+                except Exception:
+                    route_accepted = False
+            lifecycle_current = bool(lifecycle_shape_current and gate_current)
+            applied = bool(
+                lifecycle_current
+                and automation_current
+                and target_preserved
+                and request_current
+                and route_accepted
+            )
+            partial_posture = (
+                "paused"
+                if applied
+                else "lifecycle-paused-automations-pending"
+                if lifecycle_current and not automation_current
+                else "automations-paused-lifecycle-pending"
+                if automation_current and not lifecycle_current
+                else "notification-pending"
+                if lifecycle_shape_current
+                and isinstance(gate_result, Mapping)
+                and (
+                    gate_result.get("send_now") is True
+                    or gate_result.get("duplicate") is not True
+                )
+                else "unverified"
+            )
+            evidence = {
+                **result.evidence,
+                "supervision_pause_applied": applied,
+                "lifecycle_postcondition_current": lifecycle_current,
+                "automation_postcondition_current": automation_current,
+                "target_task_preserved": target_preserved,
+                "fix_executor_postcondition_current": fix_executor_current,
+                "fix_executor_request_current": request_current,
+                "route_gate_accepted": route_accepted,
+                "policy_postcondition_current": policy_current,
+                "lifecycle_record_id": (
+                    lifecycle.get("record_id")
+                    if isinstance(lifecycle, Mapping)
+                    else None
+                ),
+                "lifecycle_record_sha256": (
+                    lifecycle.get("record_sha256")
+                    if isinstance(lifecycle, Mapping)
+                    else None
+                ),
+                "lifecycle_gate_source_stop_permitted": (
+                    gate_result.get("source_stop_permitted")
+                    if isinstance(gate_result, Mapping)
+                    else None
+                ),
+                "lifecycle_notification_pending": (
+                    gate_result.get("send_now")
+                    if isinstance(gate_result, Mapping)
+                    else None
+                ),
+                "terminal_only_pause_gate_ignored": True,
+                "automation_results": automation_results,
+                "partial_posture": partial_posture,
+                "turn_interrupted": False,
+                "semantic_resume_enabled": False,
+                "direct_policy_write": False,
+                "direct_lifecycle_write": False,
+                "direct_automation_write": False,
+                "automatic_retry": False,
+                "automatic_rollback": False,
+                "recovery": (
+                    None if applied else source.evidence["compensation_posture"]
+                ),
+            }
+            return VerificationResult(
+                "applied" if applied else "pending",
+                evidence,
+                result.links,
+            )
+
+        return OperationDefinition(
+            operation_type="factory.supervision-pause",
+            target_kind="run",
+            input_schema=schema,
+            owner=(
+                "maintained supervision lifecycle record/gate owner + exact Codex automation owner"
+            ),
+            authority=(
+                "explicit operator confirmation for one exact supervision group",
+                "one current mission, policy, project, implementation task, and lifecycle source record",
+                "every exact policy-bound watcher, reviewer, and configured auxiliary automation",
+                "one distinct current fix-executor task and maintained fix-execution route gate",
+            ),
+            ordinary_consequences=(
+                "Starts one bounded fix-executor turn for the selected supervision group.",
+                "The maintained supervision owner may append one deduplicated paused lifecycle and its required notification evidence.",
+                "The Codex automation owner may pause only the exact named bound automations.",
+            ),
+            failure_consequences=(
+                "Stale, ambiguous, partial, wrong-group, or owner-inconsistent source sends no request.",
+                "A one-owner-only transition remains pending with exact recovery and no automatic retry or rollback.",
+                "The implementation task is never interrupted, continued, stopped, or resumed by this operation.",
+            ),
+            confirmation=ConfirmationContract(
+                "supervision-pause",
+                "Type PAUSE SUPERVISION to request this exact group pause.",
+                "PAUSE SUPERVISION",
+            ),
+            idempotency=(
+                "One consumed preview starts at most one fix-executor turn; an already-paused or changed source is rejected and no owner action is retried."
+            ),
+            expected_postcondition=(
+                "The exact group has one current canonical paused lifecycle accepted by lifecycle-gate, every exact bound automation is PAUSED with protected fields preserved, and implementation task state is unchanged."
+            ),
+            timeout_seconds=30,
+            limitations=(
+                "This is semantic supervision pause, not App Server turn interrupt or terminal stop.",
+                "The dashboard never writes policy, lifecycle ledger, notification ledger, or automation TOML directly.",
+                "Missing notification, lifecycle, or automation postconditions remain partial and require a new preview.",
+                "Semantic resume remains unavailable until its separate lifecycle owner and dashboard operation are accepted.",
+            ),
+            resolve_source=self._supervision_pause_source,
+            describe_effect=lambda target, inputs, source: PreviewEffect(
+                f"Pause supervision group {target.id} and {len(source.evidence['automations'])} exact bound automations.",
+                "Monitoring stops only after the maintained lifecycle/notification gate and exact automation owners agree; partial state is preserved without automatic retry.",
+                recipient=str(source.evidence["fix_executor_task_id"]),
+                semantic_changes=self._supervision_pause_semantic_changes(
+                    target,
+                    source,
+                ),
+            ),
+            route_gate_request=self._supervision_pause_route_request,
+            route_gate=self.route_gate,
+            dispatch=dispatch,
+            verify=verify,
+        )
+
+    @staticmethod
+    def _unavailable_supervision_resume_definition() -> OperationDefinition:
+        source = SourceSnapshot(
+            fingerprint=fingerprint({"capability": "supervision-resume-owner-missing"})
+        )
+        return OperationDefinition(
+            operation_type="factory.supervision-resume",
+            target_kind="run",
+            input_schema=_object_schema({}, required=()),
+            owner="missing canonical supervision-resume lifecycle owner",
+            authority=("accepted Blocks 23 and 24 required",),
+            ordinary_consequences=(),
+            failure_consequences=(
+                "No task, automation, policy, or lifecycle owner is invoked.",
+            ),
+            confirmation=ConfirmationContract(
+                "unavailable",
+                "Resume unavailable",
+                "UNAVAILABLE",
+            ),
+            idempotency="Unavailable.",
+            expected_postcondition=(
+                "A separately accepted resumed lifecycle owner and dashboard operation exist."
+            ),
+            timeout_seconds=0,
+            limitations=(
+                "Automation re-enable and App Server task resume are not semantic supervision resume.",
+            ),
+            resolve_source=lambda target, inputs: source,
+            describe_effect=lambda target, inputs, resolved: PreviewEffect(
+                "Resume unavailable",
+                "No canonical resumed lifecycle owner exists yet.",
+            ),
+            dispatch=lambda target, inputs, resolved: DispatchResult(),
+            verify=lambda target, inputs, resolved, result: VerificationResult(
+                "unverified"
+            ),
+            supported=False,
+            unavailable_reason=(
+                "Semantic resume requires the separately accepted canonical lifecycle owner in Block 23 and dashboard operation in Block 24."
             ),
         )
 

@@ -483,6 +483,61 @@ describe("Factory workflow action strips", () => {
     expect(screen.getByText(/No automatic retry or rollback/)).toBeVisible()
   })
 
+  it("requests semantic pause separately from turn interruption and keeps resume unavailable", async () => {
+    const user = userEvent.setup()
+    const { rerender } = renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+        lifecycleStatus={null}
+      />,
+    )
+
+    const resume = screen.getByRole("button", {
+      name: "Resume supervision unavailable until the canonical lifecycle owner is accepted",
+    })
+    expect(resume).toBeDisabled()
+    expect(resume).toHaveAttribute(
+      "title",
+      "Semantic resume requires the canonical resumed lifecycle owner in Block 23.",
+    )
+    await user.click(screen.getByRole("button", { name: "Pause" }))
+
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.supervision-pause",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: {},
+    })
+    expect(await screen.findByText("Canonical paused lifecycle + every exact bound automation PAUSED")).toBeVisible()
+    expect(screen.getByText(/Implementation task and turn state/)).toBeVisible()
+    expect(screen.getByText(/Partial owner state stays visible/)).toBeVisible()
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const pausedPolicy = {
+      ...policy,
+      automation_reconciliation: policy.automation_reconciliation.map((row) => ({
+        ...row,
+        owner_status: "PAUSED",
+      })),
+    } as NonNullable<RunDetail["policy"]>
+    rerender(
+      <QueryClientProvider client={client}>
+        <RunSupervisionActions
+          targetId="task-demo"
+          projectId="demo"
+          openIncidentIds={[]}
+          policy={pausedPolicy}
+          lifecycleStatus="paused"
+        />
+      </QueryClientProvider>,
+    )
+    expect(screen.getByRole("button", { name: "Paused" })).toBeDisabled()
+    expect(screen.queryByRole("button", { name: "Finish pause" })).not.toBeInTheDocument()
+  })
+
   it("previews one exact policy diff and keeps unbound Gmail cadence unavailable", async () => {
     const user = userEvent.setup()
     renderActions(

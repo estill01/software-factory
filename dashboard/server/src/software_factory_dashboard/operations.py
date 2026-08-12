@@ -1291,6 +1291,7 @@ class OperationsProjectionService:
                 retryable=True,
             )
         owner = self.owner_revisions()["supervision"]
+        owner_module = self._module("supervision")
         source_record = next(
             (
                 item.get("record_id")
@@ -1299,14 +1300,30 @@ class OperationsProjectionService:
             ),
             None,
         )
-        lifecycle_status = next(
+        lifecycle_record = next(
             (
-                item.get("status")
+                item
                 for item in reversed(evidence.active_events)
                 if item.get("kind") == "lifecycle"
                 and isinstance(item.get("status"), str)
             ),
             None,
+        )
+        lifecycle_status = (
+            lifecycle_record.get("status")
+            if isinstance(lifecycle_record, Mapping)
+            else None
+        )
+        open_successor_transitions = owner_module.successor_transition_heads(
+            list(evidence.events),
+            open_only=True,
+        )
+        open_mission_activations = owner_module.mission_activation_heads(
+            list(evidence.active_events),
+            open_only=True,
+        )
+        event_head = (
+            evidence.events[-1].get("record_sha256") if evidence.events else None
         )
         policy_copy = json.loads(json.dumps(evidence.policy))
         history_copy = json.loads(json.dumps(history_head))
@@ -1320,7 +1337,17 @@ class OperationsProjectionService:
             "policy_history_count": len(evidence.policy_history),
             "policy_history_head": history_head.get("record_sha256"),
             "source_record": source_record,
+            "event_head": event_head,
             "event_count": len(evidence.events),
+            "active_event_count": len(evidence.active_events),
+            "lifecycle_record_sha256": (
+                lifecycle_record.get("record_sha256")
+                if isinstance(lifecycle_record, Mapping)
+                else None
+            ),
+            "lifecycle_status": lifecycle_status,
+            "open_successor_transition_ids": sorted(open_successor_transitions),
+            "open_mission_activation_ids": sorted(open_mission_activations),
             "automations": {
                 role: automation.get("manifest_sha256") if automation else None
                 for role, automation in automations.items()
@@ -1350,6 +1377,17 @@ class OperationsProjectionService:
             "fingerprint": _digest(material),
             "cache_status": cache_status,
             "lifecycle_status": lifecycle_status,
+            "lifecycle_record": (
+                json.loads(json.dumps(lifecycle_record))
+                if isinstance(lifecycle_record, Mapping)
+                else None
+            ),
+            "open_successor_transitions": json.loads(
+                json.dumps(open_successor_transitions)
+            ),
+            "open_mission_activations": json.loads(
+                json.dumps(open_mission_activations)
+            ),
             "policy": policy_copy,
             "adjustable": policy_adjustable_values(policy_copy),
             "policy_history_head_record": history_copy,
@@ -1373,6 +1411,123 @@ class OperationsProjectionService:
             "automations_by_role": automations,
             "gmail_cadence": gmail_cadence,
             "automation_timezone": automation_timezone,
+        }
+
+    def lifecycle_gate_snapshot(
+        self,
+        target_thread_id: str,
+        *,
+        lifecycle_state: str,
+        source_record: str,
+        state_fingerprint: str,
+    ) -> dict[str, Any]:
+        """Run the maintained lifecycle gate read-only against one exact record."""
+
+        if lifecycle_state not in {"completed", "paused", "blocked", "failed", "stopped"}:
+            raise OperationsProjectionError(
+                "lifecycle_state_invalid",
+                "The requested lifecycle state is unsupported.",
+                status=422,
+            )
+        if not SAFE_ID.fullmatch(target_thread_id) or not SAFE_ID.fullmatch(source_record):
+            raise OperationsProjectionError(
+                "lifecycle_source_invalid",
+                "The lifecycle target or source record identity is invalid.",
+                status=422,
+            )
+        if not isinstance(state_fingerprint, str) or not state_fingerprint:
+            raise OperationsProjectionError(
+                "lifecycle_source_invalid",
+                "The lifecycle state fingerprint is required.",
+                status=422,
+            )
+        before = self.policy_control_snapshot(target_thread_id)
+        record = before.get("lifecycle_record")
+        if (
+            not isinstance(record, Mapping)
+            or record.get("record_id") != source_record
+            or record.get("kind") != "lifecycle"
+            or record.get("status") != lifecycle_state
+            or record.get("state_fingerprint") != state_fingerprint
+        ):
+            raise OperationsProjectionError(
+                "lifecycle_source_mismatch",
+                "The exact current lifecycle record does not match the requested gate source.",
+                status=409,
+            )
+        payload = self._owner_command(
+            [
+                "lifecycle-gate",
+                "--target-thread",
+                target_thread_id,
+                "--lifecycle-state",
+                lifecycle_state,
+                "--source-record",
+                source_record,
+                "--state-fingerprint",
+                state_fingerprint,
+            ]
+        )
+        after = self.policy_control_snapshot(target_thread_id)
+        if before.get("fingerprint") != after.get("fingerprint"):
+            raise OperationsProjectionError(
+                "lifecycle_source_changed",
+                "The lifecycle source changed while the maintained gate was evaluated.",
+                status=409,
+                retryable=True,
+            )
+        required = {
+            "completion_permitted",
+            "duplicate",
+            "lifecycle_state",
+            "open_mission_activations",
+            "open_successor_transitions",
+            "policy_sha256",
+            "send_now",
+            "source_record",
+            "source_stop_permitted",
+            "state_fingerprint",
+            "supervision_pause_permitted",
+        }
+        if (
+            not required.issubset(payload)
+            or payload.get("lifecycle_state") != lifecycle_state
+            or payload.get("source_record") != source_record
+            or payload.get("state_fingerprint") != state_fingerprint
+            or payload.get("policy_sha256") != before.get("policy_sha256")
+            or not isinstance(payload.get("open_mission_activations"), list)
+            or not isinstance(payload.get("open_successor_transitions"), list)
+            or any(
+                type(payload.get(key)) is not bool
+                for key in (
+                    "completion_permitted",
+                    "duplicate",
+                    "send_now",
+                    "source_stop_permitted",
+                    "supervision_pause_permitted",
+                )
+            )
+        ):
+            raise OperationsProjectionError(
+                "lifecycle_gate_output_invalid",
+                "The maintained lifecycle gate returned an invalid contract.",
+                status=503,
+            )
+        currentness = _digest(
+            {
+                "control": before.get("fingerprint"),
+                "owner": before.get("owner_sha256"),
+                "record": record.get("record_sha256"),
+                "gate": payload,
+            }
+        )
+        return {
+            "target_thread_id": target_thread_id,
+            "owner_sha256": before.get("owner_sha256"),
+            "source_record_sha256": record.get("record_sha256"),
+            "control_fingerprint": before.get("fingerprint"),
+            "currentness": currentness,
+            "gate": json.loads(json.dumps(payload)),
         }
 
     @staticmethod

@@ -1158,3 +1158,177 @@ test("automation mismatch exposes one bounded dual-owner repair preview", async 
   await page.goto(`/runs/${target}?mission=${predecessor}`)
   await expect(page.getByRole("button", { name: "Repair automation" })).toHaveCount(0)
 })
+
+test("semantic pause previews both owners and leaves resume unavailable", async ({ page, request }) => {
+  const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  runEnvelope.data.run.project_binding = {
+    status: "bound",
+    project_id: "software-factory",
+    evidence: [{ source_record: "policy", field: "project_root", value: "/fixture/software_factory" }],
+    limitations: [],
+  }
+  runEnvelope.data.run.lifecycle = { status: null, record: null }
+  const represented = runEnvelope.data.run.policy.automation_reconciliation.filter(
+    (row: { role: string }) => row.role === "watcher" || row.role === "reviewer",
+  )
+  expect(represented).toHaveLength(2)
+  for (const row of represented) {
+    row.owner_status = "ACTIVE"
+    row.state = "reconciled"
+  }
+  const predecessor = runEnvelope.data.run.mission_segments.find(
+    (segment: { posture: string }) => segment.posture === "predecessor",
+  )?.mission_root
+  expect(predecessor).toBeTruthy()
+  const operation = {
+    id: "op_e2e_supervision_pause_preview",
+    type: "factory.supervision-pause",
+    target: { kind: "run", id: target, project_id: "software-factory" },
+    state: "previewed",
+    owner: "maintained supervision lifecycle record/gate owner + exact Codex automation owner",
+    authority: ["one exact selected supervision group"],
+    preview: {
+      effect: `Pause supervision group ${target} and 2 exact bound automations.`,
+      risk: "Monitoring stops only after both maintained owners agree; partial state remains visible.",
+      recipient: "fix-executor-task",
+      semantic_changes: {
+        status: "available",
+        complete: true,
+        rows: [
+          {
+            id: "supervision-lifecycle",
+            subject: "Supervision lifecycle",
+            kind: "added",
+            before: { posture: "unavailable", value: null },
+            after: { posture: "exact", value: "paused" },
+            owner: "maintained supervision lifecycle record and gate owner",
+            source_identity: `supervision-lifecycle:${target}`,
+            source_revision: "a".repeat(64),
+            currentness_fingerprint: "b".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "supervision-automation-watcher",
+            subject: "Routine watcher automation",
+            kind: "changed",
+            before: { posture: "exact", value: "ACTIVE" },
+            after: { posture: "exact", value: "PAUSED" },
+            owner: "maintained Codex automation owner",
+            source_identity: "automation:watcher-automation",
+            source_revision: "c".repeat(64),
+            currentness_fingerprint: "b".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "supervision-target-task-state",
+            subject: "Implementation task state",
+            kind: "preserved",
+            before: { posture: "exact", value: "active" },
+            after: { posture: "exact", value: "active" },
+            owner: "maintained Codex task reader",
+            source_identity: `codex-task:${target}`,
+            source_revision: "d".repeat(64),
+            currentness_fingerprint: "b".repeat(64),
+            links: [{ label: "Target task", href: `/tasks/${target}` }],
+          },
+        ],
+        limitations: ["Rows are source-backed and read-only."],
+      },
+      source_fingerprint: "b".repeat(64),
+      source_evidence: {
+        group_id: target,
+        prior_lifecycle: null,
+        automation_ids: ["watcher-automation", "reviewer-automation"],
+      },
+      route_gate: {
+        status: "allowed",
+        target_thread: target,
+        recipient: "fix-executor-task",
+        purpose: "fix-execution",
+        source_record: "EVT-000021",
+        required_action: "Request one exact semantic supervision pause.",
+        action_hash: "e".repeat(64),
+        policy_fingerprint: "f".repeat(64),
+        binding_fingerprint: "1".repeat(64),
+      },
+      consequences: {
+        ordinary: ["The lifecycle and exact automation owners may record and pause this group."],
+        failure: ["Partial owner state remains visible without automatic retry."],
+      },
+      confirmation: {
+        class: "supervision-pause",
+        prompt: "Type PAUSE SUPERVISION to request this exact group pause.",
+        expected_value: "PAUSE SUPERVISION",
+      },
+      expected_postcondition: "The canonical paused lifecycle and every exact bound automation agree.",
+      idempotency: "One consumed preview starts at most one fix-executor turn.",
+      limitations: ["Turn interrupt and semantic resume remain separate."],
+      expires_at: "2099-08-11T09:30:00.000Z",
+    },
+    history: [{ state: "previewed", observed_at: "2026-08-11T09:25:00.000Z" }],
+    request_evidence: null,
+    verification_evidence: null,
+    links: [],
+    failure: null,
+  }
+  await page.route(`**/api/v1/runs/${target}`, (route) => route.fulfill({ json: runEnvelope }))
+  await page.route("**/api/v1/operations/preview", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      operation_type: "factory.supervision-pause",
+      target: { kind: "run", id: target, project_id: "software-factory" },
+      input: {},
+    })
+    await route.fulfill({
+      json: {
+        data: { operation, preview_token: "s".repeat(32) },
+        source: { kind: "administrative-operation", identity: operation.id, revision: "b".repeat(64) },
+        observed_at: "2026-08-11T09:25:00.000Z",
+        fingerprint: "b".repeat(64),
+        coverage: { status: "partial", observed: ["operation-preview"], missing: ["owner-postcondition"] },
+        limitations: ["Fixture stops before mutation."],
+        error: null,
+      },
+    })
+  })
+
+  await page.goto(`/runs/${target}`)
+  await expect(page.getByRole("button", { name: "Pause" })).toBeEnabled()
+  const resume = page.getByRole("button", {
+    name: "Resume supervision unavailable until the canonical lifecycle owner is accepted",
+  })
+  await expect(resume).toBeDisabled()
+  await expect(resume).toHaveAttribute(
+    "title",
+    "Semantic resume requires the canonical resumed lifecycle owner in Block 23.",
+  )
+  await page.getByRole("button", { name: "Pause" }).click()
+  const preview = page.getByRole("dialog")
+  await expect(preview).toContainText("Canonical paused lifecycle + every exact bound automation PAUSED")
+  await expect(preview).toContainText("Implementation task and turn state")
+  await expect(preview).toContainText("Partial owner state stays visible")
+  await expect(preview).toContainText("PAUSE SUPERVISION")
+  const semanticChanges = preview.getByLabel("Owner supplied operation changes")
+  await expect(semanticChanges).toContainText("Supervision lifecycle")
+  await expect(semanticChanges).toContainText("Routine watcher automation")
+  await expect(semanticChanges).toContainText("Implementation task state")
+  await expect(preview.getByRole("button", { name: "Request operation" })).toBeDisabled()
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(
+    accessibility.violations.filter(({ impact }) => (
+      impact === "serious" || impact === "critical"
+    )),
+  ).toEqual([])
+  await expect(page.locator("h1")).toHaveCount(1)
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+  await preview.getByRole("button", { name: "Close operation preview" }).click()
+  await page.goto(`/runs/${target}?mission=${predecessor}`)
+  await expect(page.getByRole("button", { name: "Pause" })).toHaveCount(0)
+  await expect(page.getByText("Resume unavailable", { exact: true })).toHaveCount(0)
+})

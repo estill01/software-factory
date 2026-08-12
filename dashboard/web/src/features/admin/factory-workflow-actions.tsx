@@ -449,6 +449,7 @@ export function RunSupervisionActions({
   projectId,
   openIncidentIds,
   policy,
+  lifecycleStatus = null,
   missionBindingMissing = false,
   roleRepairRoles = [],
 }: {
@@ -456,6 +457,7 @@ export function RunSupervisionActions({
   projectId: string | null
   openIncidentIds: string[]
   policy: RunPolicy | null
+  lifecycleStatus?: string | null
   missionBindingMissing?: boolean
   roleRepairRoles?: string[]
 }) {
@@ -586,6 +588,12 @@ export function RunSupervisionActions({
   const gmailBound = policy?.automation_reconciliation.some((row) => (
     row.role === "gmail_gate" && row.state !== "unavailable"
   )) ?? false
+  const boundAutomationRows = policy?.automation_reconciliation.filter((row) => (
+    Boolean(row.automation_id)
+  )) ?? []
+  const pauseComplete = lifecycleStatus === "paused"
+    && boundAutomationRows.length >= 2
+    && boundAutomationRows.every((row) => row.owner_status === "PAUSED")
   const launchBindingRepair = () => {
     if (!projectId || !missionBindingMissing) return
     runner.launch({
@@ -639,6 +647,24 @@ export function RunSupervisionActions({
       ],
     })
   }
+  const launchPause = () => {
+    if (!projectId || pauseComplete) return
+    runner.launch({
+      request: {
+        operation_type: "factory.supervision-pause",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: {},
+      },
+      suppliedFacts: [
+        ["Group", targetId],
+        ["Lifecycle", lifecycleStatus ?? "No current lifecycle record"],
+        ["Automation owners", `${boundAutomationRows.length} exact policy-bound automation${boundAutomationRows.length === 1 ? "" : "s"}`],
+        ["Preserved", "Implementation task and turn state · policy · mission · bindings"],
+        ["Completion", "Canonical paused lifecycle + every exact bound automation PAUSED"],
+        ["Recovery", "Partial owner state stays visible · no automatic retry or rollback"],
+      ],
+    })
+  }
   return (
     <>
       <ActionStrip feedback={runner.feedback}>
@@ -668,6 +694,23 @@ export function RunSupervisionActions({
           Issue follow-up
         </Button>
         <Button size="compact" disabled={unavailable || !policy} onClick={openAdjustment}>Adjust supervision</Button>
+        <Button
+          size="compact"
+          variant="outline"
+          disabled={unavailable || !policy || pauseComplete}
+          onClick={launchPause}
+        >
+          {pauseComplete ? "Paused" : lifecycleStatus === "paused" ? "Finish pause" : "Pause"}
+        </Button>
+        <Button
+          size="compact"
+          variant="outline"
+          disabled
+          title="Semantic resume requires the canonical resumed lifecycle owner in Block 23."
+          aria-label="Resume supervision unavailable until the canonical lifecycle owner is accepted"
+        >
+          Resume unavailable
+        </Button>
         {missionBindingMissing && (
           <Button size="compact" disabled={unavailable} onClick={launchBindingRepair}>Repair binding</Button>
         )}

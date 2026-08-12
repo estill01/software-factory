@@ -135,7 +135,6 @@ describe("administrative operation UI", () => {
   it("renders owner-supplied semantic changes as a compact read-only source table", () => {
     const semanticOperation = {
       ...operation,
-      type: "factory.supervision-adjust",
       preview: {
         ...operation.preview,
         semantic_changes: {

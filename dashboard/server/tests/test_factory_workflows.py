@@ -276,12 +276,13 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(duplicate_status, 409)
         self.assertEqual(duplicate["error"]["code"], "authoring_owner_conflict")
         self.assertEqual(executed["data"]["operation"]["state"], "applied")
-        self.assertEqual(len(supported), 17)
+        self.assertEqual(len(supported), 18)
         self.assertIn("factory.blocks-implement", supported)
         self.assertIn("factory.supervision-check-now", supported)
         self.assertIn("factory.supervision-adjust", supported)
         self.assertIn("factory.supervision-repair-mission-binding", supported)
         self.assertIn("factory.supervision-repair-role-task-binding", supported)
+        self.assertIn("factory.supervision-pause", supported)
         automation_repair = next(
             item
             for item in unavailable
@@ -296,6 +297,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             {item["type"] for item in unavailable},
             {
                 "factory.supervision-repair-automation-binding",
+                "factory.supervision-resume",
                 "factory.tracker-authoring-supervision",
             },
         )
@@ -306,6 +308,374 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertIn("Do not implement it.", prompt)
         self.assertFalse(executed["data"]["operation"]["verification_evidence"]["block_accepted"])
         self.assertNotIn("smallest exact demo", json.dumps(executed["data"]["operation"]))
+
+    def test_supervision_pause_requires_both_owners_and_preserves_target_state(self) -> None:
+        project_root = self.root / "pause-project"
+        target_root = project_root / "target"
+        fix_root = project_root / "fix"
+        target_root.mkdir(parents=True)
+        fix_root.mkdir(parents=True)
+        project = ProjectRecord(
+            id="pause-project",
+            label="Pause project",
+            root=str(project_root),
+        )
+        target_id = "target-pause-0001"
+        fix_id = "fix-pause-0001"
+        policy_sha = "b" * 64
+        mission_root = "c" * 64
+        tasks = {
+            target_id: {
+                "id": target_id,
+                "cwd": str(target_root),
+                "status": {"type": "active"},
+                "project_binding": {
+                    "status": "bound",
+                    "project_id": project.id,
+                },
+                "turns_truncated": False,
+                "turns": [
+                    {
+                        "id": "target-turn-001",
+                        "status": "inProgress",
+                        "items": [],
+                    }
+                ],
+            },
+            fix_id: {
+                "id": fix_id,
+                "cwd": str(fix_root),
+                "status": {"type": "idle"},
+                "project_binding": {
+                    "status": "bound",
+                    "project_id": project.id,
+                },
+                "turns_truncated": False,
+                "turns": [],
+            },
+        }
+        policy = {
+            "project_root": str(project_root),
+            "policy_version": 7,
+            "policy_sha256": policy_sha,
+            "mission_binding": {"mission_root": mission_root},
+            "runtime": {
+                "watcher_thread_id": "watcher-pause-0001",
+                "reviewer_thread_id": "reviewer-pause-0001",
+                "fix_executor_thread_id": fix_id,
+                "routine_automation_id": "watcher-automation-pause",
+                "meta_automation_id": "reviewer-automation-pause",
+                "gmail_gate_thread_id": None,
+                "gmail_poll_automation_id": None,
+                "roundup_thread_id": None,
+                "roundup_automation_id": None,
+            },
+            "reports": {"weekly": {"enabled": False}},
+            "notifications": {
+                "gmail": {
+                    "enabled": True,
+                    "reply_message_id": "gmail-message-pause-0001",
+                }
+            },
+        }
+        control = {
+            "fingerprint": "1" * 64,
+            "target_thread_id": target_id,
+            "policy": policy,
+            "runtime": policy["runtime"],
+            "policy_sha256": policy_sha,
+            "policy_version": 7,
+            "policy_history_head": "2" * 64,
+            "source_record": "EVT-000004",
+            "event_head": "3" * 64,
+            "lifecycle_status": None,
+            "lifecycle_record": None,
+            "open_successor_transitions": {},
+            "open_mission_activations": {},
+            "automations_by_role": {
+                "watcher": {
+                    "status": "available",
+                    "id": "watcher-automation-pause",
+                    "name": "Pause watcher",
+                    "kind": "heartbeat",
+                    "owner_status": "ACTIVE",
+                    "rrule": "RRULE:FREQ=MINUTELY;INTERVAL=20",
+                    "target_thread_id": "watcher-pause-0001",
+                    "manifest_sha256": "4" * 64,
+                    "protected_sha256": "5" * 64,
+                },
+                "reviewer": {
+                    "status": "available",
+                    "id": "reviewer-automation-pause",
+                    "name": "Pause reviewer",
+                    "kind": "heartbeat",
+                    "owner_status": "ACTIVE",
+                    "rrule": "RRULE:FREQ=HOURLY;INTERVAL=4",
+                    "target_thread_id": "reviewer-pause-0001",
+                    "manifest_sha256": "6" * 64,
+                    "protected_sha256": "7" * 64,
+                },
+                "gmail_gate": None,
+                "roundup_writer": None,
+                "weekly_report": None,
+            },
+        }
+
+        class OperationsStub:
+            group_ids = [target_id]
+
+            @staticmethod
+            def policy_control_snapshot(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong pause target")
+                return control
+
+            @classmethod
+            def binding_group_ids(cls, selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong pause group target")
+                return list(cls.group_ids)
+
+            @staticmethod
+            def project_binding_snapshot(_projects, selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong project-binding target")
+                return {
+                    "fingerprint": "8" * 64,
+                    "project_binding": {
+                        "status": "bound",
+                        "project_id": project.id,
+                    },
+                }
+
+            @staticmethod
+            def lifecycle_gate_snapshot(
+                selected_target,
+                *,
+                lifecycle_state,
+                source_record,
+                state_fingerprint,
+            ):
+                lifecycle = control["lifecycle_record"]
+                if (
+                    selected_target != target_id
+                    or lifecycle_state != "paused"
+                    or lifecycle["record_id"] != source_record
+                    or lifecycle["state_fingerprint"] != state_fingerprint
+                ):
+                    raise AssertionError("wrong lifecycle gate source")
+                return {
+                    "gate": {
+                        "completion_permitted": True,
+                        "duplicate": True,
+                        "source_stop_permitted": True,
+                        "send_now": False,
+                        "open_mission_activations": [],
+                        "open_successor_transitions": [],
+                        "supervision_pause_permitted": False,
+                    }
+                }
+
+        class AppServerStub:
+            prompt = None
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": capability, "status": "supported"}
+                        for capability in ("task_read", "task_resume", "turn_start")
+                    ]
+                }
+
+            @staticmethod
+            def read_task(_projects, task_id, *, include_turns):
+                if task_id not in tasks or not include_turns:
+                    raise AssertionError("wrong pause task read")
+                return {"task": tasks[task_id]}
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                metadata = fix_root.stat()
+                if (
+                    task_id != fix_id
+                    or expected_cwd != str(fix_root)
+                    or expected_cwd_identity
+                    != (metadata.st_dev, metadata.st_ino)
+                ):
+                    raise AssertionError("wrong pause owner dispatch")
+                self.prompt = text
+                tasks[fix_id]["turns"] = [
+                    {
+                        "id": "turn-pause-001",
+                        "status": "completed",
+                        "items_truncated": False,
+                        "items": [{"type": "userMessage", "summary": text}],
+                    }
+                ]
+                marker = json.loads(
+                    text.splitlines()[0].removeprefix(
+                        "SOFTWARE_FACTORY_DASHBOARD_SUPERVISION_PAUSE "
+                    )
+                )
+                control["lifecycle_status"] = "paused"
+                control["lifecycle_record"] = {
+                    "record_id": "EVT-PAUSE-001",
+                    "record_sha256": "9" * 64,
+                    "kind": "lifecycle",
+                    "status": "paused",
+                    "severity": "info",
+                    "category": "supervision-pause",
+                    "policy_sha256": policy_sha,
+                    "state_fingerprint": marker["preview_fingerprint"],
+                    "dedup_key": (
+                        "dashboard-supervision-pause:"
+                        + marker["preview_fingerprint"]
+                    ),
+                    "evidence": [
+                        "dashboard-preview:" + marker["preview_fingerprint"]
+                    ],
+                }
+                return {
+                    "turn": {"id": "turn-pause-001"},
+                    "task_resumed": False,
+                }
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = AppServerStub()
+        owner.route_gate = lambda request: RouteGateResult(
+            True,
+            route_action_fingerprint(request.required_action),
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint=policy_sha,
+            target_thread=request.target_thread,
+        )
+        owner._supervision_pause_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), "a" * 64)
+        definition = owner._supervision_pause_definition()
+        target = OperationTarget(
+            kind="run",
+            id=target_id,
+            project_id=project.id,
+        )
+
+        OperationsStub.group_ids = ["wrong-group"]
+        with self.assertRaises(OperationError) as wrong_group:
+            definition.resolve_source(target, {})
+        self.assertEqual(wrong_group.exception.code, "supervision_pause_group_unavailable")
+        OperationsStub.group_ids = [target_id]
+
+        policy["notifications"]["gmail"]["enabled"] = False
+        with self.assertRaises(OperationError) as notification_unavailable:
+            definition.resolve_source(target, {})
+        self.assertEqual(
+            notification_unavailable.exception.code,
+            "supervision_pause_notification_unavailable",
+        )
+        policy["notifications"]["gmail"]["enabled"] = True
+
+        control["open_successor_transitions"] = {"transition-001": {"phase": "required"}}
+        with self.assertRaises(OperationError) as transition_open:
+            definition.resolve_source(target, {})
+        self.assertEqual(
+            transition_open.exception.code,
+            "supervision_pause_transition_open",
+        )
+        control["open_successor_transitions"] = {}
+
+        reviewer_automation = control["automations_by_role"]["reviewer"]
+        control["automations_by_role"]["reviewer"] = {
+            **reviewer_automation,
+            "status": "unavailable",
+        }
+        with self.assertRaises(OperationError) as missing_automation:
+            definition.resolve_source(target, {})
+        self.assertEqual(
+            missing_automation.exception.code,
+            "supervision_pause_automation_unavailable",
+        )
+        control["automations_by_role"]["reviewer"] = reviewer_automation
+
+        source = definition.resolve_source(target, {})
+        changes = {
+            item.id: item
+            for item in definition.describe_effect(target, {}, source).semantic_changes
+        }
+        self.assertEqual(changes["supervision-lifecycle"].kind, "added")
+        self.assertEqual(
+            changes["supervision-automation-watcher"].after.value,
+            "PAUSED",
+        )
+        self.assertEqual(changes["supervision-target-task-state"].kind, "preserved")
+        request = definition.route_gate_request(target, {}, source)
+        self.assertEqual(request.recipient, fix_id)
+        self.assertEqual(request.purpose, "fix-execution")
+        self.assertEqual(request.source_record, "EVT-000004")
+
+        dispatched = definition.dispatch(target, {}, source)
+        self.assertIn("$supervise-tracker-runs", owner.app_server_client.prompt)
+        self.assertIn(
+            "Do not interrupt, continue, stop, or resume",
+            owner.app_server_client.prompt,
+        )
+        self.assertIn("Do not edit policy JSON", owner.app_server_client.prompt)
+
+        lifecycle_only = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(lifecycle_only.state, "pending")
+        self.assertEqual(
+            lifecycle_only.evidence["partial_posture"],
+            "lifecycle-paused-automations-pending",
+        )
+        self.assertTrue(lifecycle_only.evidence["lifecycle_postcondition_current"])
+        self.assertFalse(lifecycle_only.evidence["automation_postcondition_current"])
+        self.assertTrue(lifecycle_only.evidence["terminal_only_pause_gate_ignored"])
+
+        recovery_source = definition.resolve_source(target, {})
+        recovery_changes = {
+            item.id: item
+            for item in definition.describe_effect(
+                target,
+                {},
+                recovery_source,
+            ).semantic_changes
+        }
+        self.assertEqual(recovery_changes["supervision-lifecycle"].kind, "preserved")
+        self.assertEqual(
+            recovery_changes["supervision-automation-watcher"].kind,
+            "changed",
+        )
+
+        for index, role in enumerate(("watcher", "reviewer")):
+            control["automations_by_role"][role]["owner_status"] = "PAUSED"
+            control["automations_by_role"][role]["manifest_sha256"] = (
+                f"{index + 10:x}" * 64
+            )[:64]
+        applied = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(applied.state, "applied")
+        self.assertTrue(applied.evidence["supervision_pause_applied"])
+        self.assertTrue(applied.evidence["target_task_preserved"])
+        self.assertFalse(applied.evidence["turn_interrupted"])
+        self.assertFalse(applied.evidence["semantic_resume_enabled"])
+
+        tasks[target_id]["turns"][0]["status"] = "interrupted"
+        interrupted = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(interrupted.state, "pending")
+        self.assertFalse(interrupted.evidence["target_task_preserved"])
+
+        tasks[target_id]["turns"][0]["status"] = "inProgress"
+        with self.assertRaises(OperationError) as already:
+            definition.resolve_source(target, {})
+        self.assertEqual(already.exception.code, "supervision_already_paused")
 
     def test_http_role_binding_repair_uses_disposable_policy_and_existing_task(self) -> None:
         target_id = "target-role-repair-001"

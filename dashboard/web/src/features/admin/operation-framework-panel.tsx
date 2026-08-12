@@ -64,12 +64,9 @@ export function OperationConfirmationDialog({
     : null
   const isBindingRepair = operation.type === "factory.supervision-repair-mission-binding"
   const isRoleBindingRepair = operation.type === "factory.supervision-repair-role-task-binding"
-  const hasSemanticPreview = [
-    "factory.supervision-adjust",
-    "factory.supervision-repair-mission-binding",
-    "factory.supervision-repair-role-task-binding",
-    "factory.supervision-repair-automation-binding",
-  ].includes(operation.type)
+  const hasSemanticPreview = operation.preview.semantic_changes.status === "available"
+    && operation.preview.semantic_changes.complete
+    && operation.preview.semantic_changes.rows.length > 0
   const bindingSourceRecord = isBindingRepair
     && typeof sourceEvidence.mission_source_record === "string"
     ? sourceEvidence.mission_source_record

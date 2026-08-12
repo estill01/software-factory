@@ -446,6 +446,61 @@ class OperationsProjectionTests(unittest.TestCase):
         self.assertNotIn("PRIVATE PROMPT", serialized)
         self.assertNotIn('"prompt"', serialized)
 
+    def test_paused_lifecycle_projection_and_gate_keep_terminal_permission_separate(self) -> None:
+        paused = self._command(
+            "record",
+            "--target-thread",
+            TARGET,
+            "--kind",
+            "lifecycle",
+            "--status",
+            "paused",
+            "--severity",
+            "info",
+            "--category",
+            "supervision-pause",
+            "--state-fingerprint",
+            "pause-state-001",
+            "--dedup-key",
+            "dashboard-supervision-pause:pause-state-001",
+            "--evidence",
+            "dashboard-preview:pause-state-001",
+            "--summary",
+            "Pause the exact disposable supervision group.",
+        )
+        record = paused["record"]
+
+        control = self.service.policy_control_snapshot(TARGET)
+        self.assertEqual(control["lifecycle_status"], "paused")
+        self.assertEqual(control["lifecycle_record"]["record_id"], record["record_id"])
+        record_sha256 = control["lifecycle_record"]["record_sha256"]
+        self.assertEqual(control["lifecycle_record_sha256"], record_sha256)
+        self.assertEqual(control["event_head"], record_sha256)
+        self.assertEqual(control["active_event_count"], len(control["policy_history_records"]) + 1)
+        self.assertEqual(control["open_successor_transitions"], {})
+        self.assertEqual(control["open_mission_activations"], {})
+
+        gated = self.service.lifecycle_gate_snapshot(
+            TARGET,
+            lifecycle_state="paused",
+            source_record=record["record_id"],
+            state_fingerprint="pause-state-001",
+        )
+        self.assertEqual(gated["source_record_sha256"], record_sha256)
+        self.assertTrue(gated["gate"]["completion_permitted"])
+        self.assertTrue(gated["gate"]["source_stop_permitted"])
+        self.assertFalse(gated["gate"]["send_now"])
+        self.assertFalse(gated["gate"]["supervision_pause_permitted"])
+
+        with self.assertRaises(OperationsProjectionError) as stale:
+            self.service.lifecycle_gate_snapshot(
+                TARGET,
+                lifecycle_state="paused",
+                source_record=record["record_id"],
+                state_fingerprint="wrong-pause-state",
+            )
+        self.assertEqual(stale.exception.code, "lifecycle_source_mismatch")
+
     def test_mission_bind_preview_uses_ephemeral_owner_and_never_mutates_canonical_policy(self) -> None:
         missing_target = "missing-target-0003"
         source_record = f"codex:{missing_target}:turn-source-001:item-source-001"

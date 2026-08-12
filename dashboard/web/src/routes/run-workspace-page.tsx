@@ -387,6 +387,7 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
           projectId={projectBindingConflict ? null : breadcrumbProjectId}
           openIncidentIds={missionIncidents.filter((incident) => incident.open).map((incident) => incident.incident_id)}
           policy={run.policy}
+          lifecycleStatus={run.lifecycle.status}
           missionBindingMissing={!run.current_mission}
           roleRepairRoles={(run.topology?.roles ?? [])
             .filter((role) => role.binding_status === "missing-thread")
