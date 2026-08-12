@@ -8658,6 +8658,32 @@ work solely to inflate coverage.
   it does not alter a primary owner, add a surface, replay the broad matrix,
   execute a live operation, start terminal reporting, request stop, or shut
   down the live service. Fresh exact candidate and outcome review remain open.
+- Three-boundary outcome successor candidate — `2026-08-12T18:50:27Z`:
+  product commit `c49ca6368f608e51cb3fa001c005a5617f566b47`, tree
+  `622ccc24927814b3e885a533fc4f01b0041e639a`, was pushed at divergence
+  `0/0`. The maintained tracker projection now treats both `accepted` and
+  canonical `completed` as terminal without collapsing the raw status counts;
+  the live candidate projects 32 total Blocks, 31 completed, one open, and
+  exact current Block 31 while this correction is reviewed. The strict task
+  item contract now admits only the current typed App Server provenance fields
+  and still rejects unowned extras; the live task workspace loads all retained
+  turns without a detail-schema error. The centralized active-head reducer
+  retires a terminal lifecycle from current state only after a later nonempty,
+  different current-mission state fingerprint; live EVT-000123 remains in the
+  event timeline and operating history while current lifecycle is unset and
+  `lifecycle-failed` is absent from current attention. The separate open
+  incident remains visible, so current risk is not painted green.
+  Proportional proof passed: affected backend tracker/Floor/run projection
+  65/65 plus the completed-dependency workflow 1/1 with `ResourceWarning`
+  fatal; affected frontend task/Floor/tracker/run 33/33; Ruff, Python
+  compilation, and production build; full-profile verification for all 32
+  Blocks with zero errors/warnings; verifier tests 30/30; and the exact current
+  tracker/task/run Playwright case 3/3 at desktop, tablet, and mobile with
+  serious/critical Axe zero and no horizontal overflow. The candidate was
+  served on isolated loopback port 8798; the existing live 8787 service stayed
+  running, the broad matrix was not replayed, and no consequential owner action
+  or terminal workflow was invoked. Fresh independent outcome review remains
+  required before Block 31 can close.
 
 ### Stop
 
