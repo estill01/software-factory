@@ -9,6 +9,8 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -8238,6 +8240,37 @@ class WatcherAvailabilityContractTests(unittest.TestCase):
             trigger or self.trigger,
         )
 
+    def concurrent_cli(self, arguments: list[str]) -> list[dict[str, object]]:
+        command = [
+            sys.executable,
+            str(HELPER_PATH),
+            "--root",
+            str(self.root),
+            "watcher-availability",
+            "--target-thread",
+            self.target,
+            "--state-fingerprint",
+            self.state,
+            "--now",
+            "2026-08-12T12:00:00+00:00",
+            *arguments,
+        ]
+        processes = [
+            subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for _ in range(2)
+        ]
+        result: list[dict[str, object]] = []
+        for process in processes:
+            stdout, stderr = process.communicate(timeout=15)
+            self.assertEqual(process.returncode, 0, stderr)
+            result.append(json.loads(stdout))
+        return result
+
     def open_incident(self) -> str:
         first = self.unavailable()
         second = self.unavailable("compact-thread-read-retry-2-1234")
@@ -8312,6 +8345,62 @@ class WatcherAvailabilityContractTests(unittest.TestCase):
             ),
             3,
         )
+
+    def test_concurrent_threshold_and_verified_recovery_append_once(self) -> None:
+        self.unavailable("compact-concurrent-trigger-a-1234")
+        self.unavailable("compact-concurrent-trigger-b-1234")
+        threshold_results = self.concurrent_cli(
+            [
+                "--read-status",
+                "unavailable",
+                "--read-trigger",
+                "compact-concurrent-trigger-c-1234",
+            ]
+        )
+        self.assertEqual(
+            sorted(bool(item["duplicate"]) for item in threshold_results),
+            [False, True],
+        )
+        incident_records = [
+            item
+            for item in supervision_log.events(self.directory / "events.jsonl")
+            if item.get("kind") == "incident"
+            and item.get("category")
+            == supervision_log.WATCHER_AVAILABILITY_INCIDENT_CATEGORY
+        ]
+        self.assertEqual(len(incident_records), 1)
+        incident_id = str(incident_records[0]["incident_id"])
+
+        verified_results = self.concurrent_cli(
+            [
+                "--read-status",
+                "available-verified",
+                "--incident-id",
+                incident_id,
+                "--read-source-record",
+                "concurrent-read-before-1234",
+                "--verification-source-record",
+                "concurrent-read-after-1234",
+                "--observed-state-fingerprint",
+                "concurrent-observed-state-1234",
+                "--verification-state-fingerprint",
+                "concurrent-verified-state-1234",
+                "--observed-thread-status",
+                "active",
+                "--verification-thread-status",
+                "active",
+            ]
+        )
+        self.assertEqual(
+            sorted(bool(item["duplicate"]) for item in verified_results),
+            [False, True],
+        )
+        verified_records = [
+            item
+            for item in supervision_log.events(self.directory / "events.jsonl")
+            if item.get("category") == supervision_log.WATCHER_VERIFIED_CATEGORY
+        ]
+        self.assertEqual(len(verified_records), 1)
 
     def test_verified_read_requires_distinct_next_state_and_routes_review(self) -> None:
         incident_id = self.open_incident()

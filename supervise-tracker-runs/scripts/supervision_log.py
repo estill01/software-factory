@@ -4460,10 +4460,13 @@ def watcher_availability_record_base(
     }
 
 
-def cmd_watcher_availability(args: argparse.Namespace) -> None:
+def _cmd_watcher_availability_locked(
+    args: argparse.Namespace,
+    directory: Path,
+    policy: Mapping[str, Any],
+) -> None:
     """Record bounded watcher read availability and route only real coverage gaps."""
 
-    directory, policy = load_policy(args)
     state_fingerprint = safe_id(
         args.state_fingerprint, label="watcher state fingerprint"
     )
@@ -4600,10 +4603,9 @@ def cmd_watcher_availability(args: argparse.Namespace) -> None:
                     "resolution": "One current incident owns the repeated availability gap until a real read and a distinct next-state verification are independently reviewed.",
                 }
             )
-        with append_lock(directory):
-            current_events = events(directory / "events.jsonl")
-            record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
-            append_event_locked(args, directory, record)
+        current_events = events(directory / "events.jsonl")
+        record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
+        append_event_locked(args, directory, record)
         runtime = policy.get("runtime", {})
         print(
             json.dumps(
@@ -4734,10 +4736,9 @@ def cmd_watcher_availability(args: argparse.Namespace) -> None:
             "next_state_verified": True,
         }
     )
-    with append_lock(directory):
-        current_events = events(directory / "events.jsonl")
-        record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
-        append_event_locked(args, directory, record)
+    current_events = events(directory / "events.jsonl")
+    record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
+    append_event_locked(args, directory, record)
     runtime = policy.get("runtime", {})
     print(
         json.dumps(
@@ -4751,6 +4752,23 @@ def cmd_watcher_availability(args: argparse.Namespace) -> None:
             sort_keys=True,
         )
     )
+
+
+def cmd_watcher_availability(args: argparse.Namespace) -> None:
+    """Serialize watcher availability state, duplicate decisions, and append."""
+
+    directory, policy = load_policy(args)
+    with append_lock(directory):
+        current_directory, current_policy = load_policy(args)
+        if current_directory.resolve() != directory.resolve():
+            raise SupervisionLogError(
+                "Watcher availability resolved a different supervision root"
+            )
+        if current_policy.get("policy_sha256") != policy.get("policy_sha256"):
+            raise SupervisionLogError(
+                "Supervision policy changed concurrently; retry watcher availability"
+            )
+        _cmd_watcher_availability_locked(args, directory, policy)
 
 
 def incident_id(args: argparse.Namespace, record: dict[str, Any]) -> str:
