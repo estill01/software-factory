@@ -400,6 +400,15 @@ creates temporary canonical state only. It does not authorize a tracker edit,
 candidate cutover, Software Factory adoption, release, policy or mission
 change, lifecycle transition, or external action.
 
+When the terminal tracker Block requires the complete cross-run adoption and
+outcome path, the smaller matrix is compatibility input only. Read the current
+supervision skill plus its
+`references/integrated-factory-evolution-dogfood.md`, then invoke that maintained
+production-CLI runner. Its adopted and rejected candidates live only in the
+disposable target/release owner. Independently inspect the exact installed
+temporary behavior and stable live-skill identities before accepting the
+terminal Block; never infer terminal success from this within-run matrix alone.
+
 Preserve authority provenance exactly. A `codex_delegation` packet routes a
 source instruction; it is not direct user speech and must never be relabeled as
 such. Before classifying `reserved-authority`, cite the exact current controlling

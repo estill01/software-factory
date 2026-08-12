@@ -375,6 +375,36 @@ autonomous authority. See
 [`adaptive-protocol-dogfood.md`](implement-tracker-blocks/references/adaptive-protocol-dogfood.md)
 for the evidence and review boundary.
 
+### Integrated Factory-evolution dogfood
+
+The terminal paired matrix exercises the coupled within-run and cross-run loops
+through the production supervision CLI while keeping every effect inside one
+disposable Git target and one disposable release owner:
+
+```bash
+uv run --python 3.14 python \
+  supervise-tracker-runs/scripts/factory_evolution_dogfood.py \
+  --pretty \
+  --output /tmp/software-factory-integrated-dogfood-result.json
+```
+
+It advances one supported signal through packet preparation, independent
+candidate review, the normal implementation owner, executed candidate and
+incumbent proofs, sealed evaluation, temporary adoption, installed-behavior
+observation, effective outcome, and consumed-input recurrence suppression. In
+the same disposable target it retires one independently rejected candidate
+without a second activation. It also invokes the three current stable skill
+entrypoints, reuses the smaller adaptive-protocol matrix for all four authority
+modes, and projects concise operator/report summaries separately from canonical
+rooted evidence.
+
+The result is a bounded demonstration, not a live release. Every live release,
+policy, mission, lifecycle, Gmail, deployment, and external-effect flag remains
+false. `promote` becomes authoritative only inside the temporary normal release
+owner; the command cannot install to the live skill store. See
+[`integrated-factory-evolution-dogfood.md`](supervise-tracker-runs/references/integrated-factory-evolution-dogfood.md)
+for exact evidence, reproducibility, and independent-review requirements.
+
 ### Factory-evolution evidence admission
 
 The supervision owner can admit one evidence-bound Factory-improvement

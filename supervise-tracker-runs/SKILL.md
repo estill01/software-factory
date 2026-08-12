@@ -18,6 +18,9 @@ schedules, bounds, escalation rules, logging commands, and stop conditions.
 Before preparing or reviewing Factory capability-evolution artifacts, also read
 `references/factory-evolution-contract.md` completely, including its exact
 submission wire-shape section.
+Before running or accepting the terminal integrated dogfood, also read
+`references/integrated-factory-evolution-dogfood.md` completely. Keep its
+temporary target/release boundary and independent exact-revision review intact.
 Before recording terminal outcome completion, also read
 `references/terminal-capability-reconciliation.md` completely and validate its
 exact reconciliation object through the helper; never substitute a caller-
@@ -810,6 +813,15 @@ Keep the roles and authority sequence exact:
 8. Run `verify` against the stored set. Verification reopens the immutable
    packet, review, evaluation, report, and manifests and recomputes their hashes
    and schemas without rerunning a producer.
+
+For terminal integrated evidence only, run
+`scripts/factory_evolution_dogfood.py` exactly as documented in
+`references/integrated-factory-evolution-dogfood.md`. Inspect its raw rooted
+inputs, temporary installed bytes and executed output, current stable-skill
+identities, operator status, consumed-input no-op, rejected candidate, role
+separation, and false live-effect flags. Do not replace those observations with
+the test result, artifact count, evaluator disposition, changelog, or summary.
+The runner is not an alternate live release or supervision owner.
 
 The evaluation disposition remains independent evidence. Before terminal
 completion, reconcile the resulting current Factory behavior against the

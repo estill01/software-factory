@@ -39,6 +39,23 @@ the completed program materially changes Software Factory.
 
 ### Implemented
 
+- **Autonomous Factory evolution with current outcome closure.** Canonical
+  weekly/report nominations now admit only supported exact evidence; one
+  bounded cycle routes through an independent cognitive review, the existing
+  implementation owner, executed candidate and incumbent proofs, a sealed
+  evaluator, policy-gated normal release ownership, current installed behavior,
+  and an intrinsic terminal outcome. Unchanged or consumed evidence remains a
+  deterministic no-op, lower dispositions cannot adopt, later regression can
+  restore the frozen baseline through the same release owner, and corrected
+  source evidence cannot remain productive or coverage-consuming. The paired
+  Block 17 dogfood demonstrates one effective temporary adoption and one
+  rejected candidate while invoking all three current stable skills and all
+  four authority modes with zero ordinary human request. This is a
+  temporary-target and temporary-release demonstration only: no live release,
+  policy, mission, lifecycle, Gmail, deployment, or external effect is claimed.
+  Exact source, rooted result, validation, and independent-review identities
+  remain in the terminal tracker evidence.
+
 - **Reviewed three-skill releases with one-pointer activation.** Mutable
   repository work no longer changes installed Codex behavior by default. A
   bounded local release owner rebuilds exactly three skills from a clean Git

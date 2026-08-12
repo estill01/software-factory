@@ -1,1 +1,2 @@
 implement-tracker-blocks/scripts/adaptive_protocol_dogfood.py export-subst
+supervise-tracker-runs/scripts/factory_evolution_dogfood.py export-subst
