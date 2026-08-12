@@ -155,6 +155,51 @@ class IntegratedFactoryEvolutionDogfoodTests(unittest.TestCase):
         with self.assertRaisesRegex(dogfood.DogfoodError, "winning cycle root differs"):
             dogfood.reproducible_result_projection(changed)
 
+    def test_root_consistent_synthetic_semantics_do_not_validate(self) -> None:
+        cases = (
+            ("external-effect", lambda value: value.update(external_effects_performed=True)),
+            (
+                "missing-installed-effect",
+                lambda value: value["eligible_adopted"].update(installed_effect=None),
+            ),
+            (
+                "no-op-candidate",
+                lambda value: value["unchanged_no_op"].update(candidate_created=True),
+            ),
+            (
+                "lower-power-selected",
+                lambda value: value["eligible_adopted"].update(
+                    selected_path="lower-power-shortcut"
+                ),
+            ),
+        )
+        for case_id, mutate in cases:
+            with self.subTest(case_id=case_id):
+                changed = copy.deepcopy(self.result)
+                mutate(changed)
+                if case_id in {"missing-installed-effect", "lower-power-selected"}:
+                    cycle = changed["eligible_adopted"]
+                    cycle["cycle_root"] = dogfood.digest(
+                        {key: value for key, value in cycle.items() if key != "cycle_root"}
+                    )
+                elif case_id == "no-op-candidate":
+                    no_op = changed["unchanged_no_op"]
+                    no_op["no_op_root"] = dogfood.digest(
+                        {key: value for key, value in no_op.items() if key != "no_op_root"}
+                    )
+                changed["result_root"] = dogfood.digest(
+                    {
+                        key: value
+                        for key, value in changed.items()
+                        if key != "result_root"
+                    }
+                )
+                with self.assertRaisesRegex(
+                    dogfood.DogfoodError,
+                    "integrated dogfood semantic evidence differs",
+                ):
+                    dogfood.reproducible_result_projection(changed)
+
     def test_gitless_source_fallback_is_exact(self) -> None:
         completed = mock.Mock(returncode=128, stdout="", stderr="not a repository")
         with (

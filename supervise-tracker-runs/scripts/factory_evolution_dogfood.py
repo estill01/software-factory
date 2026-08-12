@@ -1897,30 +1897,105 @@ def reproducible_result_projection(
         or compatibility.get("authority_modes")
         != ["fixed", "full-autonomous", "recommend", "reviewed-autonomous"]
         or compatibility.get("human_request_count") != 0
+        or compatibility.get("external_effects_performed") is not False
+        or compatibility.get("release_mutated") is not False
+        or compatibility.get("policy_mutated") is not False
+        or compatibility.get("mission_mutated") is not False
+        or compatibility.get("lifecycle_mutated") is not False
+        or compatibility.get("temporary_target_effects_performed") is not True
         or winner.get("outcome_posture") != "adopted-effective"
         or winner.get("evaluation_disposition") != "promote"
+        or winner.get("normal_owner") != "implement-tracker-blocks"
+        or winner.get("adoption_stage") != "adopted"
         or winner.get("candidate_authoritative") is not True
+        or winner.get("incumbent_authoritative") is not False
+        or winner.get("human_request_count") != 0
         or winner.get("release_activation_delta") != 1
+        or winner.get("selected_path") != "bounded-existing-skill-owner"
+        or winner.get("rejected_paths")
+        != ["lower-power-shortcut", "generalized-detector"]
+        or winner.get("structural_contract_changed") is not False
+        or winner.get("tracker_authoring_invoked") is not False
+        or winner.get("outcome_retry_duplicate") is not True
+        or not isinstance(winner.get("installed_effect"), Mapping)
         or no_op.get("disposition") != "already-consumed-canonical-coverage"
+        or no_op.get("eligible") is not False
+        or no_op.get("admission_authorized") is not False
+        or no_op.get("reused") is not True
+        or no_op.get("packet_builds") != 1
         or no_op.get("event_delta") != 0
         or no_op.get("artifact_directory_delta") != 0
+        or no_op.get("inventory_unchanged") is not True
+        or no_op.get("candidate_created") is not False
+        or no_op.get("authoring_handoff_created") is not False
         or no_op.get("model_calls") != 0
         or no_op.get("reviewer_calls") != 0
         or no_op.get("human_request_count") != 0
         or loser.get("evaluation_disposition") != "reject"
         or loser.get("outcome_posture") != "candidate-retired"
+        or loser.get("normal_owner") != "implement-tracker-blocks"
+        or loser.get("adoption_stage") != "candidate-retired"
+        or loser.get("candidate_authoritative") is not False
         or loser.get("incumbent_authoritative") is not True
+        or loser.get("human_request_count") != 0
         or loser.get("release_activation_delta") != 0
+        or loser.get("selected_path") != "bounded-existing-skill-owner"
+        or loser.get("rejected_paths")
+        != ["lower-power-shortcut", "generalized-detector"]
+        or loser.get("structural_contract_changed") is not False
+        or loser.get("tracker_authoring_invoked") is not False
+        or loser.get("outcome_retry_duplicate") is not True
+        or loser.get("installed_effect") is not None
         or operator.get("target_status") != ""
+        or operator.get("release_activation_count") != 1
+        or operator.get("release_rollback_count") != 0
+        or operator.get("active_release_id") != "candidate-release-1234"
+        or report.get("terminal_cycle_count") != 2
+        or [item.get("outcome_posture") for item in report.get("current_outcomes", [])]
+        != ["adopted-effective", "candidate-retired"]
+        or raw["external_effects_performed"] is not False
+        or raw["live_release_mutated"] is not False
+        or raw["live_policy_mutated"] is not False
+        or raw["live_mission_mutated"] is not False
+        or raw["live_lifecycle_mutated"] is not False
+        or raw["gmail_action_performed"] is not False
+        or raw["deployment_performed"] is not False
+        or raw["temporary_target_effects_performed"] is not True
+        or raw["temporary_release_effects_performed"] is not True
     ):
         raise DogfoodError("integrated dogfood semantic evidence differs")
     installed = winner.get("installed_effect")
-    if installed is not None:
-        _validated_rooted_object(
-            installed,
-            root_field="observed_effect_root",
-            label="temporary installed effect",
+    installed = _validated_rooted_object(
+        installed,
+        root_field="observed_effect_root",
+        label="temporary installed effect",
+    )
+    if (
+        set(installed)
+        != {
+            "installed_release_id",
+            "installed_source_revision",
+            "skill_sha256",
+            "proof_exit_code",
+            "proof_stdout_sha256",
+            "proof_stderr_sha256",
+            "guidance_observed",
+            "observed_effect_root",
+        }
+        or installed["installed_release_id"] != "candidate-release-1234"
+        or installed["installed_source_revision"] != winner["candidate_revision"]
+        or installed["proof_exit_code"] != 0
+        or installed["guidance_observed"] is not True
+        or any(
+            re.fullmatch(r"[0-9a-f]{64}", str(installed[field])) is None
+            for field in (
+                "skill_sha256",
+                "proof_stdout_sha256",
+                "proof_stderr_sha256",
+            )
         )
+    ):
+        raise DogfoodError("temporary installed effect semantics differ")
 
     cycle_fields = (
         "cycle",
