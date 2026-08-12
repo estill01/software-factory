@@ -1,9 +1,10 @@
 # Software Factory operations dashboard validation
 
-Status: Block 31 product candidate frozen at
-`5a83a46b498ab636ac79c5c0c79c1003308b3b04`; independent exact-revision
-review is pending. This record is updated only from reproducible current-source
-checks; it is not completion authority.
+Status: accepted local handoff. Block 31 product commit
+`5a83a46b498ab636ac79c5c0c79c1003308b3b04` and evidence commit
+`4e1fbdd037729e94f3ed0fd1948e083e30b5cf31` received independent exact-
+revision acceptance with no material findings. This record remains evidence;
+the tracker is completion authority.
 
 ## Runtime and lock identity
 
@@ -251,5 +252,17 @@ Final currentness smoke after correction: loopback health was `ok`; every
 health integration was `available`; `/admin` returned HTTP 200; Codex App
 Server remained `available` and `compatible` at 273 schemas and semantic root
 `757aa191b6d452c6e6d05f6c1f1cb093b9f673da2d185a29ee8d5d96feae67a8`.
-No live consequential operation was previewed or executed. Independent exact-
-revision product/UI/authority review remains the only open release gate.
+No live consequential operation was previewed or executed.
+
+The independent implement-tracker-blocks audit ACCEPTED evidence commit
+`4e1fbdd037729e94f3ed0fd1948e083e30b5cf31`, tree
+`6a8fbc30329051e1753caaa7be32503c06d0a068`, and product commit
+`5a83a46b498ab636ac79c5c0c79c1003308b3b04`, tree
+`1891ac53e3905a77be7f83aea3de7dace1228e19`, with no material findings. The
+review independently confirmed the ordered evidence chain, clean install and
+build, all named local routes and APIs, three registered projects, three active
+implementations, six supervisor groups, 18 attention items, current Block 31,
+explicit partial/missing-binding truth, sparse UI, Beautiful UI provenance,
+maintained-owner boundaries, predecessor isolation, bounds, documentation,
+remote `0/0`, and the terminal Stop. Its interrupted optional browser rerun was
+not counted. No live consequential action or primary-source mutation occurred.

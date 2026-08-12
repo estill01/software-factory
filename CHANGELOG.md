@@ -62,7 +62,9 @@ the completed program materially changes Software Factory.
   semantics. Block-by-Block evidence and compatibility roots are in the
   [32-Block implementation tracker](docs/software-factory-operations-dashboard-implementation-tracker.md);
   operating and recovery boundaries are in
-  [`dashboard/RUNBOOK.md`](dashboard/RUNBOOK.md).
+  [`dashboard/RUNBOOK.md`](dashboard/RUNBOOK.md). Final independently accepted
+  product: `5a83a46b498ab636ac79c5c0c79c1003308b3b04`; acceptance evidence:
+  `4e1fbdd037729e94f3ed0fd1948e083e30b5cf31`.
 - **Loopback operations-dashboard foundation.** Added an installable Python
   runtime and a responsive React/TypeScript/Vite shell for the planned Factory
   Floor, Projects, Trackers, Reports, and Admin workspaces. The service binds

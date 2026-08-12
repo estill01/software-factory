@@ -1,6 +1,6 @@
 # Software Factory Operations Dashboard Implementation Tracker
 
-- Tracker status: `in-progress`
+- Tracker status: `accepted`
 - Tracker sequence: Blocks 0–31
 - Repository: `https://github.com/estill01/software-factory.git`
 - Governing objective: direct-user item
@@ -551,7 +551,7 @@ the relevant authority and evidence contract.
 | 28 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `accepted` |
 | 29 | Terminal report workflow | 9, 10, 11, 13, 27 | `accepted` |
 | 30 | Request-stop and terminal shutdown | 7, 9, 10, 11, 29 | `accepted` |
-| 31 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 | `in-progress` |
+| 31 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 | `accepted` |
 
 Required order:
 
@@ -8398,7 +8398,7 @@ that the dashboard is ready.
 
 ## Block 31 — Integrated outcome validation and operator handoff
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -8600,6 +8600,21 @@ work solely to inflate coverage.
   `1891ac53e3905a77be7f83aea3de7dace1228e19`, pushed at divergence `0/0`.
   Independent exact-revision review remains open; no live consequential
   operation was previewed or executed.
+- Independent exact-revision acceptance — `2026-08-12T15:28:09Z`: an
+  independent implement-tracker-blocks audit ACCEPTED evidence commit
+  `4e1fbdd037729e94f3ed0fd1948e083e30b5cf31`, tree
+  `6a8fbc30329051e1753caaa7be32503c06d0a068`, and product commit
+  `5a83a46b498ab636ac79c5c0c79c1003308b3b04`, tree
+  `1891ac53e3905a77be7f83aea3de7dace1228e19`, with no material findings.
+  The reviewer independently confirmed the pre-broad checkpoint, single broad
+  run and affected-only correction, clean dependency install and production
+  build, three-project live source truth, Factory Floor/count/tracker/report/
+  Admin/task/run behavior, Beautiful UI provenance, primary-owner controls,
+  predecessor separation, partial/unavailable truth, performance bounds,
+  documentation, exact remote divergence `0/0`, and the Block 31 Stop. The
+  interrupted optional browser rerun was not counted, and no live
+  consequential action or external source mutation occurred. All Blocks 0–31
+  are now accepted under their exact recorded evidence.
 
 ### Stop
 
