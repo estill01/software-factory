@@ -25,6 +25,27 @@ Completion means:
 - Material goal alteration or reversal: {{changes that require renewed direct
   authority rather than a process inference}}.
 
+### Target-product capability frame
+
+- Applicability: `{{consequential|routine|not-applicable}}`.
+- Applicability rationale: {{why this tracker does or does not change feature
+  behavior, canonical representation, architecture strategy, operating model,
+  or a protected capability}}.
+- Direct product sources: {{exact mission/repository paths and revisions that
+  support asserted doctrine, or `Not applicable: <reason no doctrine is
+  asserted>`}}.
+- Product thesis and intended effect: {{the supported product capability and
+  operator/user effect, not merely literal feature wording}}.
+- Protected capabilities: {{behaviors or authority boundaries that must not
+  regress}}.
+- Architecture strategy: {{the source-backed structural approach; do not infer
+  a generalized platform}}.
+- Requested capability: {{the capability being added, preserved, or changed}}.
+- Proportionality: {{why this is neither a lower-power local substitute nor
+  unsupported generalized infrastructure}}.
+- Tradeoffs: {{supported gains, losses, and alternatives}}.
+- Uncertainty: {{what direct sources do not establish}}.
+
 ## 2. Target architecture and authority boundaries
 
 {{Describe the target flow, authoritative owners, derived views, and the
@@ -139,6 +160,16 @@ Status: `not-started`
 
 {{One primary outcome.}}
 
+### Target-product capability delta
+
+- Posture: `{{consequential|routine|not-applicable}}`.
+
+For a consequential Block, replace this instruction with all five exact fields:
+`Intended capability gain`, `Potential capability loss or regression`,
+`Protected-capability effect`, `Architecture and operating-model effect`, and
+`Tradeoff and source evidence`. For a routine or not-applicable Block, replace
+it with `- Routine or not-applicable justification: {{concrete reason}}`.
+
 ### Inputs and dependencies
 
 - {{Exact inputs; use none for the initial Block when appropriate.}}
@@ -194,6 +225,16 @@ Status: `not-started`
 ### Objective
 
 {{One primary outcome.}}
+
+### Target-product capability delta
+
+- Posture: `{{consequential|routine|not-applicable}}`.
+
+For a consequential Block, replace this instruction with all five exact fields:
+`Intended capability gain`, `Potential capability loss or regression`,
+`Protected-capability effect`, `Architecture and operating-model effect`, and
+`Tradeoff and source evidence`. For a routine or not-applicable Block, replace
+it with `- Routine or not-applicable justification: {{concrete reason}}`.
 
 ### Inputs and dependencies
 

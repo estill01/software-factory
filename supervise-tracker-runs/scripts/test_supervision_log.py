@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import io
 import json
@@ -17,6 +18,287 @@ SPEC = importlib.util.spec_from_file_location("supervision_log", HELPER_PATH)
 assert SPEC is not None and SPEC.loader is not None
 supervision_log = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(supervision_log)
+
+FACTORY_TEST_SUPPORT_PATH = Path(__file__).with_name("test_factory_evolution.py")
+FACTORY_TEST_SUPPORT_SPEC = importlib.util.spec_from_file_location(
+    "factory_evolution_test_support", FACTORY_TEST_SUPPORT_PATH
+)
+assert (
+    FACTORY_TEST_SUPPORT_SPEC is not None
+    and FACTORY_TEST_SUPPORT_SPEC.loader is not None
+)
+factory_test_support = importlib.util.module_from_spec(FACTORY_TEST_SUPPORT_SPEC)
+FACTORY_TEST_SUPPORT_SPEC.loader.exec_module(factory_test_support)
+
+
+class FactoryEvolutionContractTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.contract = HELPER_PATH.parent.parent.joinpath(
+            "references", "factory-evolution-contract.md"
+        ).read_text(encoding="utf-8")
+
+    def test_reports_nominate_hypotheses_but_canonical_evidence_adjudicates(self) -> None:
+        normalized = " ".join(self.contract.split()).lower()
+
+        self.assertIn("canonical event records", normalized)
+        self.assertIn("directly observed outcomes", normalized)
+        self.assertIn("reports nominate hypotheses", normalized)
+        self.assertIn("do not become authority", normalized)
+        self.assertIn("not sufficient promotion evidence", normalized)
+
+    def test_contract_preserves_positive_and_negative_pattern_learning(self) -> None:
+        normalized = " ".join(self.contract.split()).lower()
+
+        self.assertIn("productive patterns", normalized)
+        self.assertIn("harmful patterns", normalized)
+        self.assertIn("avoided regressions", normalized)
+        self.assertIn("conflicting observations remain visible", normalized)
+        self.assertIn("a lesson is not a control", normalized)
+        self.assertIn("not itself a capability", normalized)
+
+    def test_candidate_space_is_broader_than_detectors_and_controls(self) -> None:
+        for candidate_type in (
+            "authoring guidance",
+            "architecture, interface, or ownership-boundary change",
+            "removal, simplification, or lower-power substitution",
+            "experiment or evaluation capability",
+            "detector, control, or enforcement mechanism",
+        ):
+            self.assertIn(candidate_type, self.contract)
+
+    def test_candidate_admission_has_evidence_and_counterexample_floor(self) -> None:
+        normalized = " ".join(self.contract.split()).lower()
+
+        self.assertIn("at least one exact, hash-bound supporting source", normalized)
+        self.assertIn("known counterexamples or a documented counterexample search", normalized)
+        self.assertIn("single instance may nominate a candidate", normalized)
+        self.assertIn("cannot by itself establish broad applicability", normalized)
+
+    def test_candidate_cannot_self_promote(self) -> None:
+        normalized = " ".join(self.contract.split()).lower()
+
+        self.assertIn("cannot promote itself", normalized)
+        self.assertIn("evaluator must be independent", normalized)
+        for disposition in ("`promote`", "`advisory`", "`revise`", "`reject`"):
+            self.assertIn(disposition, self.contract)
+        self.assertIn("not permission for autonomous edits", normalized)
+
+    def test_target_product_alignment_is_seeded_not_preapproved(self) -> None:
+        normalized = " ".join(self.contract.split()).lower()
+
+        self.assertIn("first seeded capability candidate", normalized)
+        self.assertIn("does not pre-approve promotion", normalized)
+        self.assertIn("independent-evaluation gates", normalized)
+
+    def test_skill_and_policy_separate_evolution_roles_and_authority(self) -> None:
+        skill = HELPER_PATH.parent.parent.joinpath("SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        policy = HELPER_PATH.parent.parent.joinpath(
+            "references", "supervision-policy.md"
+        ).read_text(encoding="utf-8")
+
+        for text in (skill, policy):
+            normalized = " ".join(text.split()).lower()
+            self.assertIn("reports nominate hypotheses", normalized)
+            self.assertIn("observed outcomes adjudicate", normalized)
+            self.assertIn("gpt-5.6-sol", normalized)
+            self.assertIn("existing", normalized)
+            self.assertIn("independent", normalized)
+            self.assertIn("not automatic", normalized)
+            self.assertIn("target", normalized)
+        self.assertIn("prepare → finalize → evaluate → verify", policy)
+        self.assertIn("scripts/supervision_log.py", skill)
+        self.assertIn("immutable-or-identical", skill)
+        self.assertIn("uv run --python 3.14 python", skill)
+        self.assertIn("Python 3.11+", skill)
+        self.assertIn("gpt-5.6-sol", skill)
+        self.assertIn(
+            "no implementation or target-write action", " ".join(policy.split())
+        )
+        self.assertIn("## Exact submission wire shapes", self.contract)
+        self.assertIn("result_without_root", self.contract)
+        self.assertIn("`schema_version` is the JSON integer `1`", self.contract)
+        self.assertIn("`skill-method`", self.contract)
+        self.assertIn("`non-inferiority`", self.contract)
+        self.assertIn("`observed`, `shadow`, or `synthetic`", self.contract)
+
+
+class FactoryEvolutionCliTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.fixture = factory_test_support.EvolutionReviewTests(
+            methodName="test_review_can_identify_a_broad_capability_gap"
+        )
+        self.fixture.setUp()
+        self.addCleanup(self.fixture.tearDown)
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.target_thread = "target-test"
+        self.evolution_id = "evolution-test"
+
+    def args(self, action: str, **overrides: object) -> argparse.Namespace:
+        values: dict[str, object] = {
+            "root": str(self.root),
+            "target_thread": self.target_thread,
+            "evolution_id": self.evolution_id,
+            "action": action,
+            "report_paths": [],
+            "event_paths": [],
+            "review_json": None,
+            "evaluation_json": None,
+        }
+        values.update(overrides)
+        return argparse.Namespace(**values)
+
+    def run_action(self, action: str, **overrides: object) -> dict[str, object]:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            supervision_log.cmd_factory_evolution(self.args(action, **overrides))
+        return json.loads(output.getvalue())
+
+    @property
+    def artifact_directory(self) -> Path:
+        return (
+            self.root
+            / self.target_thread
+            / "learning"
+            / "factory-evolution"
+            / self.evolution_id
+        )
+
+    def prepare(self) -> dict[str, object]:
+        return self.run_action(
+            "prepare",
+            report_paths=[str(self.fixture.root / "report.json")],
+            event_paths=[str(self.fixture.root / "events.jsonl")],
+        )
+
+    def finalize(self) -> tuple[dict[str, object], Path]:
+        review_path = self.root / "review-submission.json"
+        review_path.write_text(
+            json.dumps(self.fixture.review_submission(), sort_keys=True),
+            encoding="utf-8",
+        )
+        return self.run_action("finalize", review_json=str(review_path)), review_path
+
+    def evaluate(self) -> tuple[dict[str, object], Path]:
+        review = json.loads(
+            (self.artifact_directory / "review.json").read_text(encoding="utf-8")
+        )
+        evaluation_path = self.root / "evaluation-submission.json"
+        evaluation_path.write_text(
+            json.dumps(self.fixture.evaluation_submission(review), sort_keys=True),
+            encoding="utf-8",
+        )
+        return (
+            self.run_action("evaluate", evaluation_json=str(evaluation_path)),
+            evaluation_path,
+        )
+
+    def test_full_workflow_is_ordered_verifiable_and_idempotent(self) -> None:
+        prepared = self.prepare()
+        finalized, review_path = self.finalize()
+        evaluated, evaluation_path = self.evaluate()
+        verified = self.run_action("verify")
+
+        self.assertEqual(prepared["stage"], "prepared")
+        self.assertEqual(finalized["stage"], "finalized")
+        self.assertEqual(evaluated["stage"], "evaluated")
+        self.assertEqual(evaluated["disposition"], "promote")
+        self.assertEqual(verified["stage"], "evaluated")
+        self.assertEqual(
+            set(item.name for item in self.artifact_directory.glob("*.json")),
+            {
+                "learning-packet.json",
+                "prepare-manifest.json",
+                "review.json",
+                "finalize-manifest.json",
+                "evaluation.json",
+                "machine-report.json",
+                "manifest.json",
+            },
+        )
+        self.assertFalse((self.root / self.target_thread / "events.jsonl").exists())
+        self.assertFalse((self.root / self.target_thread / "policy.json").exists())
+
+        reused_prepare = self.prepare()
+        reused_finalize = self.run_action(
+            "finalize", review_json=str(review_path)
+        )
+        reused_evaluate = self.run_action(
+            "evaluate", evaluation_json=str(evaluation_path)
+        )
+        self.assertEqual(reused_prepare["written"], [])
+        self.assertEqual(reused_finalize["written"], [])
+        self.assertEqual(reused_evaluate["written"], [])
+
+    def test_finalize_before_prepare_is_rejected(self) -> None:
+        review_path = self.root / "review.json"
+        review_path.write_text("{}\n", encoding="utf-8")
+
+        with self.assertRaisesRegex(supervision_log.SupervisionLogError, "out of order"):
+            self.run_action("finalize", review_json=str(review_path))
+
+    def test_changed_content_under_existing_id_is_rejected(self) -> None:
+        self.prepare()
+        changed = json.loads(
+            (self.fixture.root / "report.json").read_text(encoding="utf-8")
+        )
+        changed["cognitive_review"]["headline"] = "Changed derivative hypothesis."
+        changed_path = self.root / "changed-report.json"
+        changed_path.write_text(json.dumps(changed, sort_keys=True), encoding="utf-8")
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "Existing factory evolution artifact differs",
+        ):
+            self.run_action(
+                "prepare",
+                report_paths=[str(changed_path)],
+                event_paths=[str(self.fixture.root / "events.jsonl")],
+            )
+
+    def test_command_rejects_unsafe_identity_and_has_no_promotion_action(self) -> None:
+        with self.assertRaisesRegex(supervision_log.SupervisionLogError, "Invalid"):
+            supervision_log.factory_evolution_directory(
+                self.root, "../escape"
+            )
+
+        action = next(
+            item
+            for item in supervision_log.parser()._actions
+            if isinstance(item, argparse._SubParsersAction)
+        ).choices["factory-evolution"]._option_string_actions["--action"].choices
+        self.assertEqual(tuple(action), ("prepare", "finalize", "evaluate", "verify"))
+
+    def test_nested_owner_symlink_escape_is_rejected(self) -> None:
+        target = self.root / self.target_thread
+        learning = target / "learning"
+        outside = self.root / "outside-owner"
+        learning.mkdir(parents=True)
+        outside.mkdir()
+        (learning / "factory-evolution").symlink_to(outside, target_is_directory=True)
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "escaped the target directory"
+        ):
+            self.prepare()
+        self.assertFalse((outside / self.evolution_id / "learning-packet.json").exists())
+
+    def test_verify_rejects_unexpected_artifacts_in_the_set(self) -> None:
+        self.prepare()
+        self.finalize()
+        self.evaluate()
+        (self.artifact_directory / "promotion.json").write_text(
+            "{}\n", encoding="utf-8"
+        )
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "unexpected artifacts"
+        ):
+            self.run_action("verify")
 
 
 class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
@@ -92,6 +374,706 @@ class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
         self.assertIn("terminal-report prepare", policy)
         self.assertIn("report of\nreports", policy)
         self.assertIn("both verified PDFs attached", policy)
+
+    def test_terminal_capability_reconciliation_is_documented_end_to_end(
+        self,
+    ) -> None:
+        supervision_skill = HELPER_PATH.parent.parent.joinpath("SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        policy = HELPER_PATH.parent.parent.joinpath(
+            "references", "supervision-policy.md"
+        ).read_text(encoding="utf-8")
+        readme = HELPER_PATH.parent.parent.parent.joinpath("README.md").read_text(
+            encoding="utf-8"
+        )
+        reconciliation_contract = HELPER_PATH.parent.parent.joinpath(
+            "references", "terminal-capability-reconciliation.md"
+        ).read_text(encoding="utf-8")
+
+        required_concepts = (
+            "requested capability",
+            "protected capabilities",
+            "selected architecture level",
+            "accepted tradeoffs",
+            "current behavior",
+            "operator-visible effects",
+        )
+        for text in (supervision_skill, policy):
+            for concept in required_concepts:
+                self.assertIn(concept, text)
+            self.assertIn("reopen only the narrow", text)
+        self.assertIn("evolution disposition", supervision_skill)
+        self.assertIn("populated artifacts", policy)
+        self.assertIn("reopen only the narrow owner", readme)
+        self.assertIn("--capability-reconciliation-json", supervision_skill)
+        self.assertIn("--capability-reconciliation-json", policy)
+        for evidence_class in (
+            "direct-authority",
+            "current-repository",
+            "observed-outcome",
+        ):
+            self.assertIn(evidence_class, reconciliation_contract)
+        self.assertIn('"owner_class"', reconciliation_contract)
+        self.assertIn("source JSON remains caller-owned", policy)
+
+
+class SuccessorTransitionContractTests(unittest.TestCase):
+    target = "target-1234"
+    transition_id = "TRANSITION-1234"
+    tracker_sha256 = "a" * 64
+    source_mission_root = "b" * 64
+    successor_mission_root = "c" * 64
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.directory = Path(self.temporary.name)
+        self.policy = {"policy_sha256": "d" * 64}
+
+    def transition_args(self, phase: str, *extra: str) -> argparse.Namespace:
+        return supervision_log.parser().parse_args(
+            [
+                "successor-transition-record",
+                "--target-thread",
+                self.target,
+                "--transition-id",
+                self.transition_id,
+                "--phase",
+                phase,
+                "--tracker-sha256",
+                self.tracker_sha256,
+                "--tracker-source-record",
+                "commit-94c8118-blob-9e6b6d1",
+                "--requested-block-range",
+                "Blocks 0-13",
+                "--first-eligible-block",
+                "Block 0",
+                "--source-mission-root",
+                self.source_mission_root,
+                "--governing-authority-source-class",
+                "direct-user",
+                "--governing-authority-source-record",
+                "item-340",
+                "--state-fingerprint",
+                f"state-{phase}",
+                "--evidence",
+                f"evidence-{phase}",
+                *extra,
+            ]
+        )
+
+    def record(self, phase: str, *extra: str) -> dict[str, object]:
+        output = io.StringIO()
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(self.directory, self.policy),
+            ),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_successor_transition_record(
+                self.transition_args(phase, *extra)
+            )
+        return json.loads(output.getvalue())
+
+    def gate(self, authority: str = "unavailable") -> dict[str, object]:
+        args = supervision_log.parser().parse_args(
+            [
+                "successor-transition-gate",
+                "--target-thread",
+                self.target,
+                "--transition-id",
+                self.transition_id,
+                "--task-creation-authority",
+                authority,
+            ]
+        )
+        output = io.StringIO()
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(self.directory, self.policy),
+            ),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_successor_transition_gate(args)
+        return json.loads(output.getvalue())
+
+    def test_transition_remains_open_until_successor_work_actually_starts(self) -> None:
+        self.record("required")
+
+        unavailable = self.gate()
+        available = self.gate("available")
+        self.assertFalse(unavailable["source_stop_permitted"])
+        self.assertTrue(unavailable["direct_task_creation_authority_required"])
+        self.assertEqual(
+            unavailable["next_action"],
+            "keep-open-await-direct-task-creation-authority",
+        )
+        self.assertEqual(available["next_action"], "create-successor-task")
+
+        successor = ["--successor-thread", "successor-1234"]
+        bound = [
+            *successor,
+            "--successor-mission-root",
+            self.successor_mission_root,
+            "--successor-group-id",
+            "group-1234",
+        ]
+        handed_off = [*bound, "--handoff-record", "HANDOFF-1234"]
+        acknowledged = [
+            *handed_off,
+            "--acknowledgement-record",
+            "ACK-1234",
+        ]
+        self.record("successor-created", *successor)
+        self.record("successor-bound", *bound)
+        self.record("handoff-sent", *handed_off)
+        self.record("target-acknowledged", *acknowledged)
+
+        before_start = self.gate()
+        self.assertFalse(before_start["source_stop_permitted"])
+        self.assertEqual(before_start["next_action"], "start-first-eligible-block")
+
+        self.record("work-started", *acknowledged, "--started-block", "Block 0")
+        started = self.gate()
+        self.assertTrue(started["source_stop_permitted"])
+        self.assertFalse(started["transition_open"])
+
+    def test_transition_rejects_skips_identity_drift_and_early_claims(self) -> None:
+        self.record("required")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "is not allowed"
+        ):
+            self.record(
+                "successor-bound",
+                "--successor-thread",
+                "successor-1234",
+                "--successor-mission-root",
+                self.successor_mission_root,
+                "--successor-group-id",
+                "group-1234",
+            )
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "cannot claim later"
+        ):
+            self.record(
+                "successor-created",
+                "--successor-thread",
+                "successor-1234",
+                "--handoff-record",
+                "HANDOFF-1234",
+            )
+
+        created = self.transition_args(
+            "successor-created", "--successor-thread", "successor-1234"
+        )
+        created.tracker_sha256 = "e" * 64
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "preserve tracker sha256"
+        ):
+            output = io.StringIO()
+            with (
+                mock.patch.object(
+                    supervision_log,
+                    "load_policy",
+                    return_value=(self.directory, self.policy),
+                ),
+                redirect_stdout(output),
+            ):
+                supervision_log.cmd_successor_transition_record(created)
+
+    def test_routed_provenance_cannot_create_governing_transition_authority(self) -> None:
+        args = self.transition_args("required")
+        args.governing_authority_source_class = "codex_delegation"
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "governing direct authority"
+        ):
+            output = io.StringIO()
+            with (
+                mock.patch.object(
+                    supervision_log,
+                    "load_policy",
+                    return_value=(self.directory, self.policy),
+                ),
+                redirect_stdout(output),
+            ):
+                supervision_log.cmd_successor_transition_record(args)
+
+    def test_completed_lifecycle_is_rejected_while_transition_is_open(self) -> None:
+        self.record("required")
+        args = supervision_log.parser().parse_args(
+            [
+                "record",
+                "--target-thread",
+                self.target,
+                "--kind",
+                "lifecycle",
+                "--status",
+                "completed",
+                "--state-fingerprint",
+                "state-required",
+                "--summary",
+                "Incorrectly claimed completion after handoff.",
+            ]
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "open successor transition"
+        ):
+            output = io.StringIO()
+            with (
+                mock.patch.object(
+                    supervision_log,
+                    "load_policy",
+                    return_value=(self.directory, self.policy),
+                ),
+                redirect_stdout(output),
+            ):
+                supervision_log.cmd_record(args)
+
+    def test_lifecycle_and_status_expose_the_open_transition(self) -> None:
+        self.record("required")
+        supervision_log.append_raw(
+            self.directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": "EVT-000002",
+                "timestamp": "2026-08-08T18:00:00+00:00",
+                "target_thread_id": self.target,
+                "kind": "lifecycle",
+                "status": "paused",
+                "state_fingerprint": "state-required",
+                "user_action_required": "no",
+            },
+        )
+        lifecycle_args = supervision_log.parser().parse_args(
+            [
+                "lifecycle-gate",
+                "--target-thread",
+                self.target,
+                "--lifecycle-state",
+                "paused",
+                "--source-record",
+                "EVT-000002",
+            ]
+        )
+        status_args = supervision_log.parser().parse_args(
+            ["status", "--target-thread", self.target]
+        )
+        with mock.patch.object(
+            supervision_log,
+            "load_policy",
+            return_value=(self.directory, self.policy),
+        ):
+            lifecycle_output = io.StringIO()
+            with redirect_stdout(lifecycle_output):
+                supervision_log.cmd_lifecycle_gate(lifecycle_args)
+            status_output = io.StringIO()
+            with redirect_stdout(status_output):
+                supervision_log.cmd_status(status_args)
+        lifecycle = json.loads(lifecycle_output.getvalue())
+        status = json.loads(status_output.getvalue())
+
+        self.assertFalse(lifecycle["source_stop_permitted"])
+        self.assertEqual(lifecycle["completion_action"], "resume-successor-transition")
+        self.assertEqual(status["successor_transition_count"], 1)
+        self.assertEqual(len(status["open_successor_transitions"]), 1)
+
+    def test_incident_can_store_a_structured_failure_mode_taxonomy(self) -> None:
+        args = supervision_log.parser().parse_args(
+            [
+                "record",
+                "--target-thread",
+                self.target,
+                "--kind",
+                "incident",
+                "--category",
+                "goal-preventing-procedural-stop",
+                "--summary",
+                "A task boundary was mistaken for outcome completion.",
+                "--failure-mode",
+                "--failure-mode-id",
+                "FM-HANDOFF-WITHOUT-CONTINUATION",
+                "--failure-layer",
+                "control-plane",
+                "--failure-mechanism",
+                "Boundary conflation",
+                "--failure-trigger",
+                "Execution required a successor task.",
+                "--failure-effect",
+                "The requested implementation did not start.",
+                "--failure-detection",
+                "Source stopped while successor transition gate was false.",
+                "--failure-correction",
+                "Keep source active through successor work-started evidence.",
+                "--failure-recurrence-invariant",
+                "Handoff is not completion.",
+                "--failure-human-scheduling-leak",
+                "yes",
+            ]
+        )
+        output = io.StringIO()
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(self.directory, self.policy),
+            ),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_record(args)
+        record = json.loads(output.getvalue())["record"]
+        self.assertEqual(record["failure_mode"]["layer"], "control-plane")
+        self.assertTrue(record["failure_mode"]["human_scheduling_leak"])
+        incident = next((self.directory / "incidents").glob("*.md"))
+        self.assertIn("Failure Mode", incident.read_text(encoding="utf-8"))
+
+    def test_transition_and_failure_mode_contracts_are_documented_end_to_end(self) -> None:
+        supervision_skill = HELPER_PATH.parent.parent.joinpath("SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        implementation_skill = HELPER_PATH.parent.parent.parent.joinpath(
+            "implement-tracker-blocks", "SKILL.md"
+        ).read_text(encoding="utf-8")
+        policy = HELPER_PATH.parent.parent.joinpath(
+            "references", "supervision-policy.md"
+        ).read_text(encoding="utf-8")
+        readme = HELPER_PATH.parent.parent.parent.joinpath("README.md").read_text(
+            encoding="utf-8"
+        )
+
+        for text in (supervision_skill, implementation_skill, policy):
+            self.assertIn("successor-transition-gate", text)
+            self.assertIn("source_stop_permitted", text)
+            self.assertIn("work-started", text)
+            self.assertIn("handoff", text.lower())
+        self.assertIn("--failure-mode", supervision_skill)
+        self.assertIn("FM-HANDOFF-WITHOUT-CONTINUATION", policy)
+        self.assertIn("handoff is not completion", policy.lower())
+        self.assertIn("human-scheduling leak", readme)
+
+
+class ReusableLaneDispositionTests(unittest.TestCase):
+    target = "target-economy-1234"
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.directory = Path(self.temporary.name)
+        self.policy = {
+            "policy_sha256": "e" * 64,
+            "execution_economy": supervision_log.execution_economy_contract(),
+        }
+        self.sequence = 0
+
+    def run_record(self, arguments: list[str]) -> dict[str, object]:
+        args = supervision_log.parser().parse_args(
+            ["record", "--target-thread", self.target, *arguments]
+        )
+        output = io.StringIO()
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(self.directory, self.policy),
+            ),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_record(args)
+        return json.loads(output.getvalue())
+
+    def open_failure_mode(
+        self,
+        *,
+        category: str = "execution-economy-invocation",
+        layer: str = "execution",
+        failure_mode_id: str = "FM-INVOCATION-ENVELOPE-MAINTENANCE-OMISSION",
+    ) -> str:
+        self.sequence += 1
+        result = self.run_record(
+            [
+                "--kind",
+                "incident",
+                "--category",
+                category,
+                "--summary",
+                "A maintained invocation envelope was incomplete.",
+                "--dedup-key",
+                f"economy-episode-{self.sequence}",
+                "--failure-mode",
+                "--failure-mode-id",
+                failure_mode_id,
+                "--failure-layer",
+                layer,
+                "--failure-mechanism",
+                "The outer launcher was omitted from setup proof.",
+                "--failure-trigger",
+                "A repository-owned focused command was first invoked.",
+                "--failure-effect",
+                "The first proof invocation failed before test collection.",
+                "--failure-detection",
+                "The exact maintained command chain was incomplete.",
+                "--failure-correction",
+                "Resolve and reuse the complete repository-owned envelope.",
+                "--failure-recurrence-invariant",
+                "Every invoked launcher belongs to the frozen envelope.",
+                "--failure-human-scheduling-leak",
+                "no",
+            ]
+        )
+        return str(result["record"]["incident_id"])
+
+    def closure_arguments(self, incident_id: str, *extra: str) -> list[str]:
+        return [
+            "--kind",
+            "resolution",
+            "--incident-id",
+            incident_id,
+            "--status",
+            "corrected",
+            "--notice-disposition",
+            "terminal",
+            "--summary",
+            "The current-run correction was effective.",
+            *extra,
+        ]
+
+    def test_execution_economy_closure_requires_an_explicit_disposition(self) -> None:
+        incident_id = self.open_failure_mode(category="runtime-invocation")
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "requires an explicit reusable lane disposition",
+        ):
+            self.run_record(self.closure_arguments(incident_id))
+
+    def test_observing_resolution_defers_reusable_lane_until_effectiveness(self) -> None:
+        incident_id = self.open_failure_mode(category="runtime-invocation")
+        observing = self.run_record(
+            [
+                "--kind",
+                "resolution",
+                "--incident-id",
+                incident_id,
+                "--status",
+                "observing",
+                "--notice-disposition",
+                "correction-issued",
+                "--summary",
+                "The current-run correction awaits effectiveness evidence.",
+            ]
+        )
+
+        self.assertEqual(observing["record"]["status"], "observing")
+        self.assertNotIn("reusable_lane", observing["record"])
+
+        effective_arguments = [
+            "--kind",
+            "resolution",
+            "--incident-id",
+            incident_id,
+            "--status",
+            "effective",
+            "--notice-disposition",
+            "correction-issued",
+            "--summary",
+            "The current-run correction is now effective.",
+        ]
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "requires an explicit reusable lane disposition",
+        ):
+            self.run_record(effective_arguments)
+
+        effective = self.run_record(
+            [
+                *effective_arguments,
+                "--reusable-lane-disposition",
+                "existing-owner-sufficient",
+                "--reusable-lane-owner",
+                "implement-tracker-blocks",
+                "--reusable-lane-evidence",
+                "EVT-001182",
+            ]
+        )
+        self.assertEqual(effective["record"]["status"], "effective")
+        self.assertEqual(
+            effective["record"]["reusable_lane"]["disposition"],
+            "existing-owner-sufficient",
+        )
+
+    def test_effectiveness_finding_also_requires_the_disposition(self) -> None:
+        incident_id = self.open_failure_mode(failure_mode_id="FM-OTHER-EXECUTION")
+        arguments = [
+            "--kind",
+            "meta-review",
+            "--incident-id",
+            incident_id,
+            "--status",
+            "effective",
+            "--summary",
+            "The correction stopped the current waste.",
+        ]
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "requires an explicit reusable lane disposition",
+        ):
+            self.run_record(arguments)
+
+        arguments[arguments.index("effective")] = "observing"
+        result = self.run_record(arguments)
+        self.assertEqual(result["record"]["status"], "observing")
+
+    def test_candidate_and_existing_owner_require_exact_owner_evidence(self) -> None:
+        for disposition in ("candidate-opened", "existing-owner-sufficient"):
+            with self.subTest(disposition=disposition):
+                incident_id = self.open_failure_mode()
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "requires an owner and evidence",
+                ):
+                    self.run_record(
+                        self.closure_arguments(
+                            incident_id,
+                            "--reusable-lane-disposition",
+                            disposition,
+                            "--reusable-lane-owner",
+                            "implement-tracker-blocks",
+                        )
+                    )
+
+                result = self.run_record(
+                    self.closure_arguments(
+                        incident_id,
+                        "--reusable-lane-disposition",
+                        disposition,
+                        "--reusable-lane-owner",
+                        "implement-tracker-blocks",
+                        "--reusable-lane-evidence",
+                        "EVT-001171",
+                    )
+                )
+                lane = result["record"]["reusable_lane"]
+                self.assertEqual(lane["disposition"], disposition)
+                self.assertEqual(lane["owner"], "implement-tracker-blocks")
+                self.assertEqual(lane["evidence"], ["EVT-001171"])
+
+    def test_not_applicable_and_pending_require_bounded_explanations(self) -> None:
+        incident_id = self.open_failure_mode()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "requires rationale",
+        ):
+            self.run_record(
+                self.closure_arguments(
+                    incident_id,
+                    "--reusable-lane-disposition",
+                    "repository-specific-not-applicable",
+                )
+            )
+        result = self.run_record(
+            self.closure_arguments(
+                incident_id,
+                "--reusable-lane-disposition",
+                "repository-specific-not-applicable",
+                "--reusable-lane-rationale",
+                "The defect is confined to a repository-owned launcher.",
+            )
+        )
+        self.assertEqual(
+            result["record"]["reusable_lane"]["disposition"],
+            "repository-specific-not-applicable",
+        )
+
+        pending_id = self.open_failure_mode()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "requires rationale and a next evidence trigger",
+        ):
+            self.run_record(
+                self.closure_arguments(
+                    pending_id,
+                    "--reusable-lane-disposition",
+                    "evidence-pending",
+                    "--reusable-lane-rationale",
+                    "A second supported episode has not been adjudicated.",
+                )
+            )
+        pending = self.run_record(
+            self.closure_arguments(
+                pending_id,
+                "--reusable-lane-disposition",
+                "evidence-pending",
+                "--reusable-lane-rationale",
+                "A second supported episode has not been adjudicated.",
+                "--reusable-lane-evidence",
+                "next-trigger:second-adjudicated-episode",
+            )
+        )
+        self.assertEqual(
+            pending["record"]["reusable_lane"]["evidence"],
+            ["next-trigger:second-adjudicated-episode"],
+        )
+
+    def test_non_economy_failure_mode_preserves_existing_closure_behavior(self) -> None:
+        incident_id = self.open_failure_mode(
+            category="goal-preventing-procedural-stop",
+            layer="control-plane",
+            failure_mode_id="FM-HANDOFF-WITHOUT-CONTINUATION",
+        )
+
+        result = self.run_record(self.closure_arguments(incident_id))
+
+        self.assertEqual(result["record"]["status"], "corrected")
+        self.assertNotIn("reusable_lane", result["record"])
+
+    def test_exact_legacy_policy_defers_enforcement_until_bind_upgrade(self) -> None:
+        self.policy["execution_economy"] = (
+            supervision_log.legacy_execution_economy_contract_without_reusable_lane()
+        )
+        incident_id = self.open_failure_mode()
+
+        result = self.run_record(self.closure_arguments(incident_id))
+
+        self.assertEqual(result["record"]["status"], "corrected")
+        self.assertNotIn("reusable_lane", result["record"])
+
+    def test_contract_is_documented_in_skill_policy_and_cli(self) -> None:
+        skill = HELPER_PATH.parent.parent.joinpath("SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        policy = HELPER_PATH.parent.parent.joinpath(
+            "references", "supervision-policy.md"
+        ).read_text(encoding="utf-8")
+        for text in (skill, policy):
+            for disposition in supervision_log.REUSABLE_LANE_DISPOSITIONS:
+                self.assertIn(disposition, text)
+            self.assertIn("reusable lane", text.lower())
+        parsed = supervision_log.parser().parse_args(
+            [
+                "record",
+                "--target-thread",
+                self.target,
+                "--kind",
+                "resolution",
+                "--incident-id",
+                "INC-TEST-1234",
+                "--summary",
+                "CLI schema probe.",
+                "--reusable-lane-disposition",
+                "candidate-opened",
+                "--reusable-lane-owner",
+                "implement-tracker-blocks",
+                "--reusable-lane-evidence",
+                "EVT-001171",
+            ]
+        )
+        self.assertEqual(parsed.reusable_lane_disposition, "candidate-opened")
 
 
 class NoticeGateCorrelationTests(unittest.TestCase):
@@ -714,6 +1696,15 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
         policy = supervision_log.default_policy(self.init_args())
 
         self.assertTrue(policy["execution_economy"]["enabled"])
+        self.assertTrue(
+            policy["execution_economy"][
+                "effectiveness_or_closure_requires_reusable_lane_disposition"
+            ]
+        )
+        self.assertEqual(
+            policy["execution_economy"]["reusable_lane_dispositions"],
+            list(supervision_log.REUSABLE_LANE_DISPOSITIONS),
+        )
         self.assertEqual(
             policy["outcome_completion"],
             supervision_log.outcome_completion_contract(),
@@ -758,13 +1749,17 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
                 reason="Operator authorized reviewed allowlisted skill maintenance.",
                 evidence=["user-directive"],
             )
+            current_policy = json.loads(json.dumps(policy))
             output = io.StringIO()
             with (
                 mock.patch.object(
                     supervision_log, "load_policy", return_value=(directory, policy)
                 ),
+                mock.patch.object(
+                    supervision_log, "read_json", return_value=current_policy
+                ),
                 mock.patch.object(supervision_log, "atomic_json"),
-                mock.patch.object(supervision_log, "append_raw"),
+                mock.patch.object(supervision_log, "append_raw_locked"),
                 redirect_stdout(output),
             ):
                 supervision_log.cmd_adjust(args)
@@ -826,6 +1821,66 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
         self.assertNotIn("mission_binding", policy)
         write.assert_called_once()
 
+    def test_bind_upgrades_exact_predecessor_completion_contract(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        policy["outcome_completion"] = (
+            supervision_log.legacy_outcome_completion_contract_without_capability()
+        )
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+        supervision_log.validate_policy(policy)
+        args = supervision_log.parser().parse_args(
+            ["bind", "--target-thread", "target-1234"]
+        )
+
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(Path("/tmp/supervision-test"), policy),
+            ),
+            mock.patch.object(supervision_log, "write_policy_version") as write,
+            redirect_stdout(io.StringIO()),
+        ):
+            supervision_log.cmd_bind(args)
+
+        self.assertEqual(
+            policy["outcome_completion"],
+            supervision_log.outcome_completion_contract(),
+        )
+        write.assert_called_once()
+
+    def test_bind_upgrades_intermediate_capability_completion_contract(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        policy["outcome_completion"] = (
+            supervision_log.legacy_outcome_completion_contract_with_unvalidated_capability()
+        )
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+        supervision_log.validate_policy(policy)
+        args = supervision_log.parser().parse_args(
+            ["bind", "--target-thread", "target-1234"]
+        )
+
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(Path("/tmp/supervision-test"), policy),
+            ),
+            mock.patch.object(supervision_log, "write_policy_version") as write,
+            redirect_stdout(io.StringIO()),
+        ):
+            supervision_log.cmd_bind(args)
+
+        self.assertEqual(
+            policy["outcome_completion"],
+            supervision_log.outcome_completion_contract(),
+        )
+        write.assert_called_once()
+
     def test_skill_maintenance_mode_change_requires_evidence(self) -> None:
         cases = (
             ("propose-only", "apply-allowlisted-skill-maintenance-with-review", []),
@@ -882,6 +1937,24 @@ class ExecutionEconomyPolicyTests(unittest.TestCase):
             "Execution-economy contract differs",
         ):
             supervision_log.validate_policy(policy)
+
+    def test_bind_upgrades_only_the_exact_predecessor_economy_contract(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        policy["execution_economy"] = (
+            supervision_log.legacy_execution_economy_contract_without_reusable_lane()
+        )
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+
+        supervision_log.validate_policy(policy)
+        changed = supervision_log.ensure_execution_economy_policy(policy)
+
+        self.assertTrue(changed)
+        self.assertEqual(
+            policy["execution_economy"],
+            supervision_log.execution_economy_contract(),
+        )
 
     def test_policy_validation_rejects_outcome_completion_drift(self) -> None:
         policy = supervision_log.default_policy(self.init_args())
@@ -1260,6 +2333,20 @@ class MissionContainmentContractTests(unittest.TestCase):
             ]
         )
 
+        app_authored_source = (
+            "[$implement-tracker-blocks]"
+            "(/Users/example/.codex/releases/current/implement-tracker-blocks/SKILL.md)"
+        ).encode("utf-8")
+        source_sha256 = hashlib.sha256(app_authored_source).hexdigest()
+        exact = plan(source_sha256)
+        self.assertEqual(exact["mission_source_sha256"], source_sha256)
+        self.assertEqual(
+            exact["mission_binding"]["mission_derivation"]["controlling_source"][
+                "sha256"
+            ],
+            source_sha256,
+        )
+
     def test_init_derives_binding_without_manual_mission_root(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             args = supervision_log.parser().parse_args(
@@ -1375,7 +2462,7 @@ class MissionContainmentContractTests(unittest.TestCase):
             supervision_log,
             "load_policy",
             return_value=(Path("/tmp/supervision-test"), policy),
-        ):
+        ), mock.patch.object(supervision_log, "read_json", return_value=policy):
             with self.assertRaisesRegex(
                 supervision_log.SupervisionLogError, "requires both"
             ):
@@ -1404,6 +2491,476 @@ class MissionContainmentContractTests(unittest.TestCase):
             supervision_log.cmd_bind(complete)
         self.assertEqual(policy["mission_binding"]["mission_root"], self.mission_root)
         write.assert_called_once()
+
+    def test_mission_successor_preserves_history_and_rebinds_exact_source(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            init = supervision_log.parser().parse_args(
+                [
+                    "--root",
+                    temporary,
+                    "init",
+                    "--target-thread",
+                    self.target,
+                    "--target-label",
+                    "target",
+                    "--watcher-thread",
+                    "watcher-1234",
+                    "--reviewer-thread",
+                    "reviewer-1234",
+                    "--mission-source-class",
+                    "tracker",
+                    "--mission-source-record",
+                    "TRACKER-MISSION-1234",
+                    "--mission-source-sha256",
+                    "a" * 64,
+                ]
+            )
+            with redirect_stdout(io.StringIO()):
+                supervision_log.cmd_init(init)
+            initial_policy = json.loads(
+                Path(temporary, self.target, "policy.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            old_root = initial_policy["mission_binding"]["mission_root"]
+            supervision_log.append_raw(
+                Path(temporary, self.target, "events.jsonl"),
+                {
+                    "record_id": "EVT-LIFECYCLE-A",
+                    "kind": "lifecycle",
+                    "status": "completed",
+                    "policy_sha256": initial_policy["policy_sha256"],
+                },
+            )
+            history_path = Path(temporary, self.target, "policy-history.jsonl")
+            predecessor_history = history_path.read_bytes()
+            successor = supervision_log.parser().parse_args(
+                [
+                    "--root",
+                    temporary,
+                    "mission-successor",
+                    "--target-thread",
+                    self.target,
+                    "--from-mission-root",
+                    old_root,
+                    "--mission-source-class",
+                    "direct-user",
+                    "--mission-source-record",
+                    "item-827",
+                    "--mission-source-sha256",
+                    "b" * 64,
+                    "--predecessor-disposition",
+                    "completed",
+                    "--first-eligible-work",
+                    "Block 0",
+                    "--reason",
+                    "The prior mission ended and the user supplied a new mission.",
+                    "--evidence",
+                    "item-827",
+                ]
+            )
+            output = io.StringIO()
+            with redirect_stdout(output):
+                supervision_log.cmd_mission_successor(successor)
+
+            result = json.loads(output.getvalue())
+            self.assertEqual(result["predecessor"]["mission_root"], old_root)
+            self.assertNotEqual(result["successor"]["mission_root"], old_root)
+            self.assertEqual(result["successor"]["mission_source_record"], "item-827")
+            self.assertEqual(result["mission_activation"]["phase"], "pending")
+            self.assertEqual(
+                result["mission_activation"]["first_eligible_work"], "Block 0"
+            )
+            self.assertEqual(
+                result["mission_activation"]["policy_sha256"],
+                result["policy"]["policy_sha256"],
+            )
+            history = [
+                json.loads(line)
+                for line in history_path.read_text(encoding="utf-8").splitlines()
+            ]
+            self.assertTrue(history_path.read_bytes().startswith(predecessor_history))
+            self.assertEqual(history[-1]["kind"], "policy-mission-successor")
+            self.assertIn("EVT-LIFECYCLE-A", history[-1]["evidence"])
+            self.assertEqual(
+                history[-2]["policy"]["mission_binding"]["mission_root"], old_root
+            )
+            supervision_log.validate_policy(result["policy"])
+
+    def test_mission_successor_rejects_stale_predecessor_and_open_state(self) -> None:
+        policy = self.policy()
+        stale = supervision_log.parser().parse_args(
+            [
+                "mission-successor",
+                "--target-thread",
+                self.target,
+                "--from-mission-root",
+                "c" * 64,
+                "--mission-source-class",
+                "direct-user",
+                "--mission-source-record",
+                "item-827",
+                "--mission-source-sha256",
+                "b" * 64,
+                "--predecessor-disposition",
+                "superseded",
+                "--first-eligible-work",
+                "first-work-1234",
+                "--reason",
+                "New direct mission.",
+                "--evidence",
+                "item-827",
+            ]
+        )
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(Path("/tmp/supervision-test"), policy),
+            ),
+            mock.patch.object(supervision_log, "read_json", return_value=policy),
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "Predecessor mission root differs",
+            ):
+                supervision_log.cmd_mission_successor(stale)
+
+        current = supervision_log.parser().parse_args(
+            [
+                "mission-successor",
+                "--target-thread",
+                self.target,
+                "--from-mission-root",
+                self.mission_root,
+                "--mission-source-class",
+                "direct-user",
+                "--mission-source-record",
+                "item-827",
+                "--mission-source-sha256",
+                "b" * 64,
+                "--predecessor-disposition",
+                "superseded",
+                "--first-eligible-work",
+                "first-work-1234",
+                "--reason",
+                "New direct mission.",
+                "--evidence",
+                "item-827",
+            ]
+        )
+        open_decision = {
+            "kind": "decision",
+            "decision_id": "DECISION-1234",
+            "phase": "decision-ready",
+        }
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(Path("/tmp/supervision-test"), policy),
+            ),
+            mock.patch.object(supervision_log, "read_json", return_value=policy),
+            mock.patch.object(supervision_log, "events", return_value=[open_decision]),
+            self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "requires closed incidents, decisions, successor transitions, and current mission activation",
+            ),
+        ):
+            supervision_log.cmd_mission_successor(current)
+
+    def test_completed_succession_cannot_reuse_an_older_mission_lifecycle(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            init = supervision_log.parser().parse_args(
+                [
+                    "--root",
+                    temporary,
+                    "init",
+                    "--target-thread",
+                    self.target,
+                    "--target-label",
+                    "target",
+                    "--watcher-thread",
+                    "watcher-1234",
+                    "--reviewer-thread",
+                    "reviewer-1234",
+                    "--mission-source-class",
+                    "tracker",
+                    "--mission-source-record",
+                    "MISSION-A",
+                    "--mission-source-sha256",
+                    "a" * 64,
+                ]
+            )
+            with redirect_stdout(io.StringIO()):
+                supervision_log.cmd_init(init)
+            policy_a = json.loads(
+                Path(temporary, self.target, "policy.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            supervision_log.append_raw(
+                Path(temporary, self.target, "events.jsonl"),
+                {
+                    "record_id": "EVT-LIFECYCLE-A",
+                    "kind": "lifecycle",
+                    "status": "completed",
+                    "policy_sha256": policy_a["policy_sha256"],
+                },
+            )
+            to_b = supervision_log.parser().parse_args(
+                [
+                    "--root",
+                    temporary,
+                    "mission-successor",
+                    "--target-thread",
+                    self.target,
+                    "--from-mission-root",
+                    policy_a["mission_binding"]["mission_root"],
+                    "--mission-source-class",
+                    "direct-user",
+                    "--mission-source-record",
+                    "MISSION-B",
+                    "--mission-source-sha256",
+                    "b" * 64,
+                    "--predecessor-disposition",
+                    "superseded",
+                    "--first-eligible-work",
+                    "Block 0",
+                    "--reason",
+                    "Mission B replaced mission A.",
+                    "--evidence",
+                    "item-b",
+                ]
+            )
+            with redirect_stdout(io.StringIO()):
+                supervision_log.cmd_mission_successor(to_b)
+            policy_b = json.loads(
+                Path(temporary, self.target, "policy.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            activation = supervision_log.mission_activation_heads(
+                supervision_log.events(
+                    Path(temporary, self.target, "events.jsonl")
+                )
+            )
+            activation_head = list(activation.values())[-1]
+            supervision_log.append_raw(
+                Path(temporary, self.target, "events.jsonl"),
+                {
+                    "record_id": "EVT-WORK-B",
+                    "target_thread_id": self.target,
+                    "kind": "escalation",
+                    "status": "changed-state-review",
+                    "evidence": ["item-work-b"],
+                    "policy_sha256": policy_b["policy_sha256"],
+                },
+            )
+            start = supervision_log.parser().parse_args(
+                [
+                    "--root",
+                    temporary,
+                    "mission-activation-start",
+                    "--target-thread",
+                    self.target,
+                    "--mission-root",
+                    policy_b["mission_binding"]["mission_root"],
+                    "--activation-policy-sha256",
+                    activation_head["activation_policy_sha256"],
+                    "--first-eligible-work",
+                    "Block 0",
+                    "--source-record",
+                    "EVT-WORK-B",
+                    "--evidence",
+                    "item-work-b",
+                ]
+            )
+            with redirect_stdout(io.StringIO()):
+                supervision_log.cmd_mission_activation_start(start)
+            to_c = supervision_log.parser().parse_args(
+                [
+                    "--root",
+                    temporary,
+                    "mission-successor",
+                    "--target-thread",
+                    self.target,
+                    "--from-mission-root",
+                    policy_b["mission_binding"]["mission_root"],
+                    "--mission-source-class",
+                    "direct-user",
+                    "--mission-source-record",
+                    "MISSION-C",
+                    "--mission-source-sha256",
+                    "c" * 64,
+                    "--predecessor-disposition",
+                    "completed",
+                    "--first-eligible-work",
+                    "Block 0",
+                    "--reason",
+                    "Mission C follows mission B.",
+                    "--evidence",
+                    "item-c",
+                ]
+            )
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "exact predecessor lifecycle",
+            ):
+                supervision_log.cmd_mission_successor(to_c)
+
+    def test_gate_ignores_predecessor_mission_watermark(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            init = supervision_log.parser().parse_args(
+                [
+                    "--root",
+                    temporary,
+                    "init",
+                    "--target-thread",
+                    self.target,
+                    "--target-label",
+                    "target",
+                    "--watcher-thread",
+                    "watcher-1234",
+                    "--reviewer-thread",
+                    "reviewer-1234",
+                    "--mission-source-class",
+                    "tracker",
+                    "--mission-source-record",
+                    "MISSION-A",
+                    "--mission-source-sha256",
+                    "a" * 64,
+                ]
+            )
+            with redirect_stdout(io.StringIO()):
+                supervision_log.cmd_init(init)
+            policy_a = json.loads(
+                Path(temporary, self.target, "policy.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            supervision_log.append_raw(
+                Path(temporary, self.target, "events.jsonl"),
+                {
+                    "record_id": "EVT-CHECK-A",
+                    "kind": "check",
+                    "category": "semantic-review",
+                    "model": "gpt-5.6-sol",
+                    "reasoning": "xhigh",
+                    "state_fingerprint": "same-fingerprint",
+                    "policy_sha256": policy_a["policy_sha256"],
+                },
+            )
+            successor = supervision_log.parser().parse_args(
+                [
+                    "--root",
+                    temporary,
+                    "mission-successor",
+                    "--target-thread",
+                    self.target,
+                    "--from-mission-root",
+                    policy_a["mission_binding"]["mission_root"],
+                    "--mission-source-class",
+                    "direct-user",
+                    "--mission-source-record",
+                    "MISSION-B",
+                    "--mission-source-sha256",
+                    "b" * 64,
+                    "--predecessor-disposition",
+                    "superseded",
+                    "--first-eligible-work",
+                    "Block 0",
+                    "--reason",
+                    "Mission B replaced mission A.",
+                    "--evidence",
+                    "item-b",
+                ]
+            )
+            with redirect_stdout(io.StringIO()):
+                supervision_log.cmd_mission_successor(successor)
+            gate = supervision_log.parser().parse_args(
+                [
+                    "--root",
+                    temporary,
+                    "gate",
+                    "--target-thread",
+                    self.target,
+                    "--state-fingerprint",
+                    "same-fingerprint",
+                ]
+            )
+            output = io.StringIO()
+            with redirect_stdout(output):
+                supervision_log.cmd_gate(gate)
+            result = json.loads(output.getvalue())
+            self.assertTrue(result["changed"])
+            self.assertIsNone(result["prior_state_fingerprint"])
+
+    def test_policy_writer_rejects_a_stale_predecessor_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            init = supervision_log.parser().parse_args(
+                [
+                    "--root",
+                    temporary,
+                    "init",
+                    "--target-thread",
+                    self.target,
+                    "--target-label",
+                    "target",
+                    "--watcher-thread",
+                    "watcher-1234",
+                    "--reviewer-thread",
+                    "reviewer-1234",
+                    "--mission-source-class",
+                    "tracker",
+                    "--mission-source-record",
+                    "MISSION-A",
+                    "--mission-source-sha256",
+                    "a" * 64,
+                ]
+            )
+            with redirect_stdout(io.StringIO()):
+                supervision_log.cmd_init(init)
+            directory = Path(temporary, self.target)
+            first = json.loads(
+                directory.joinpath("policy.json").read_text(encoding="utf-8")
+            )
+            stale = json.loads(json.dumps(first))
+            supervision_log.write_policy_version(
+                directory,
+                first,
+                kind="policy-test",
+                reason="First writer won.",
+                evidence_values=["test-first"],
+            )
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "changed concurrently",
+            ):
+                supervision_log.write_policy_version(
+                    directory,
+                    stale,
+                    kind="policy-test",
+                    reason="Stale writer must fail.",
+                    evidence_values=["test-stale"],
+                )
+            stale_event = {
+                "record_id": "EVT-STALE",
+                "kind": "check",
+                "policy_sha256": stale["policy_sha256"],
+            }
+            with (
+                supervision_log.append_lock(directory),
+                self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "rebuild the event",
+                ),
+            ):
+                supervision_log.append_event_locked(
+                    argparse.Namespace(root=temporary, target_thread=self.target),
+                    directory,
+                    stale_event,
+                )
 
     def test_accepted_legacy_binding_remains_readable_and_bind_upgrades_it(self) -> None:
         policy = self.policy()
@@ -1650,8 +3207,484 @@ class MissionContainmentContractTests(unittest.TestCase):
             self.assertFalse(record["containment"]["carry_forward"])
 
 
+class MissionActivationContractTests(unittest.TestCase):
+    target = "target-1234"
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.directory = self.root / self.target
+        init = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "init",
+                "--target-thread",
+                self.target,
+                "--target-label",
+                "target",
+                "--watcher-thread",
+                "watcher-1234",
+                "--reviewer-thread",
+                "reviewer-1234",
+                "--base-reviewer-thread",
+                "base-1234",
+                "--fix-executor-thread",
+                "fixer-1234",
+                "--mission-source-class",
+                "direct-user",
+                "--mission-source-record",
+                "MISSION-A",
+                "--mission-source-sha256",
+                "a" * 64,
+            ]
+        )
+        with redirect_stdout(io.StringIO()):
+            supervision_log.cmd_init(init)
+
+    def policy(self) -> dict[str, object]:
+        return json.loads(
+            (self.directory / "policy.json").read_text(encoding="utf-8")
+        )
+
+    def successor(self, *, first_work: str = "Block 0") -> dict[str, object]:
+        policy = self.policy()
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "mission-successor",
+                "--target-thread",
+                self.target,
+                "--from-mission-root",
+                policy["mission_binding"]["mission_root"],
+                "--mission-source-class",
+                "direct-user",
+                "--mission-source-record",
+                "MISSION-B",
+                "--mission-source-sha256",
+                "b" * 64,
+                "--predecessor-disposition",
+                "superseded",
+                "--first-eligible-work",
+                first_work,
+                "--reason",
+                "Mission B replaced mission A.",
+                "--evidence",
+                "item-mission-b",
+            ]
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            supervision_log.cmd_mission_successor(args)
+        return json.loads(output.getvalue())
+
+    def append_source(
+        self, record_id: str, evidence: str, *, policy: dict[str, object] | None = None
+    ) -> None:
+        current = policy or self.policy()
+        supervision_log.append_raw(
+            self.directory / "events.jsonl",
+            {
+                "record_id": record_id,
+                "target_thread_id": self.target,
+                "kind": "escalation",
+                "status": "changed-state-review",
+                "evidence": [evidence],
+                "policy_sha256": current["policy_sha256"],
+            },
+        )
+
+    def start_args(
+        self,
+        activation: dict[str, object],
+        *,
+        mission_root: str | None = None,
+        activation_policy_sha256: str | None = None,
+        first_work: str | None = None,
+        source_record: str = "EVT-WORK-B",
+        evidence: str = "item-work-b",
+    ) -> argparse.Namespace:
+        return supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "mission-activation-start",
+                "--target-thread",
+                self.target,
+                "--mission-root",
+                mission_root or str(activation["mission_root"]),
+                "--activation-policy-sha256",
+                activation_policy_sha256
+                or str(activation["activation_policy_sha256"]),
+                "--first-eligible-work",
+                first_work or str(activation["first_eligible_work"]),
+                "--source-record",
+                source_record,
+                "--evidence",
+                evidence,
+            ]
+        )
+
+    def start(
+        self, activation: dict[str, object], **overrides: object
+    ) -> dict[str, object]:
+        output = io.StringIO()
+        with redirect_stdout(output):
+            supervision_log.cmd_mission_activation_start(
+                self.start_args(activation, **overrides)
+            )
+        return json.loads(output.getvalue())
+
+    def status(self) -> dict[str, object]:
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "status",
+                "--target-thread",
+                self.target,
+            ]
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            supervision_log.cmd_status(args)
+        return json.loads(output.getvalue())
+
+    def test_successor_creates_pending_activation_and_terminal_gate_fails_closed(
+        self,
+    ) -> None:
+        result = self.successor()
+        activation = result["mission_activation"]
+        status = self.status()
+
+        self.assertEqual(activation["phase"], "pending")
+        self.assertEqual(status["mission_activation_count"], 1)
+        self.assertEqual(len(status["open_mission_activations"]), 1)
+        self.assertEqual(
+            status["mission_activation_action"],
+            supervision_log.MISSION_ACTIVATION_START_ACTION,
+        )
+        self.assertEqual(
+            status["mission_activation_required_target_posture"], "in-progress"
+        )
+
+        for state in ("completed", "paused", "stopped"):
+            with self.subTest(state=state):
+                record_id = f"EVT-{state.upper()}-B"
+                supervision_log.append_raw(
+                    self.directory / "events.jsonl",
+                    {
+                        "record_id": record_id,
+                        "target_thread_id": self.target,
+                        "kind": "lifecycle",
+                        "status": state,
+                        "state_fingerprint": f"state-{state}-b",
+                        "user_action_required": "no",
+                        "policy_sha256": result["policy"]["policy_sha256"],
+                    },
+                )
+                gate = supervision_log.parser().parse_args(
+                    [
+                        "--root",
+                        str(self.root),
+                        "lifecycle-gate",
+                        "--target-thread",
+                        self.target,
+                        "--lifecycle-state",
+                        state,
+                        "--source-record",
+                        record_id,
+                    ]
+                )
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    supervision_log.cmd_lifecycle_gate(gate)
+                lifecycle = json.loads(output.getvalue())
+                self.assertFalse(lifecycle["source_stop_permitted"])
+                self.assertEqual(
+                    lifecycle["completion_action"],
+                    supervision_log.MISSION_ACTIVATION_START_ACTION,
+                )
+                self.assertEqual(len(lifecycle["open_mission_activations"]), 1)
+
+        completed = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "record",
+                "--target-thread",
+                self.target,
+                "--kind",
+                "lifecycle",
+                "--status",
+                "completed",
+                "--state-fingerprint",
+                "state-completed-b",
+                "--summary",
+                "Incorrectly claimed completion before first work.",
+            ]
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "current mission first work has not started",
+        ):
+            supervision_log.cmd_record(completed)
+
+    def test_pending_activation_does_not_change_failed_or_blocked_handling(
+        self,
+    ) -> None:
+        result = self.successor()
+        for state in ("failed", "blocked"):
+            with self.subTest(state=state):
+                record_id = f"EVT-{state.upper()}-B"
+                supervision_log.append_raw(
+                    self.directory / "events.jsonl",
+                    {
+                        "record_id": record_id,
+                        "target_thread_id": self.target,
+                        "kind": "lifecycle",
+                        "status": state,
+                        "state_fingerprint": f"state-{state}-b",
+                        "user_action_required": "no",
+                        "policy_sha256": result["policy"]["policy_sha256"],
+                    },
+                )
+                args = supervision_log.parser().parse_args(
+                    [
+                        "--root",
+                        str(self.root),
+                        "lifecycle-gate",
+                        "--target-thread",
+                        self.target,
+                        "--lifecycle-state",
+                        state,
+                        "--source-record",
+                        record_id,
+                    ]
+                )
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    supervision_log.cmd_lifecycle_gate(args)
+                lifecycle = json.loads(output.getvalue())
+                self.assertTrue(lifecycle["source_stop_permitted"])
+                self.assertNotEqual(
+                    lifecycle["completion_action"],
+                    supervision_log.MISSION_ACTIVATION_START_ACTION,
+                )
+
+    def test_exact_later_work_start_closes_activation_idempotently(self) -> None:
+        activation = self.successor()["mission_activation"]
+        self.append_source("EVT-WORK-B", "item-work-b")
+
+        result = self.start(activation)
+        duplicate = self.start(activation)
+        status = self.status()
+
+        self.assertEqual(result["record"]["phase"], "work-started")
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(status["open_mission_activations"], [])
+        self.assertEqual(status["mission_activation_action"], "none")
+        self.assertIsNone(status["mission_activation_required_target_posture"])
+
+    def test_start_rejects_stale_identity_prebinding_and_divergent_evidence(
+        self,
+    ) -> None:
+        policy_a = self.policy()
+        self.append_source("EVT-PRE-BIND", "item-pre-bind", policy=policy_a)
+        activation = self.successor()["mission_activation"]
+
+        for overrides, message in (
+            ({"mission_root": "f" * 64}, "different mission root"),
+            ({"activation_policy_sha256": "e" * 64}, "policy identity differs"),
+            ({"first_work": "Block 1"}, "first work identity differs"),
+            (
+                {
+                    "source_record": "EVT-PRE-BIND",
+                    "evidence": "item-pre-bind",
+                },
+                "pre-binding evidence",
+            ),
+        ):
+            with self.subTest(message=message), self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, message
+            ):
+                supervision_log.cmd_mission_activation_start(
+                    self.start_args(activation, **overrides)
+                )
+
+        self.append_source("EVT-WORK-B", "item-work-b")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "not bound to its source record",
+        ):
+            supervision_log.cmd_mission_activation_start(
+                self.start_args(activation, evidence="item-not-in-source")
+            )
+
+        self.start(activation)
+        self.append_source("EVT-WORK-B-2", "item-work-b-2")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "already closed with different evidence",
+        ):
+            supervision_log.cmd_mission_activation_start(
+                self.start_args(
+                    activation,
+                    source_record="EVT-WORK-B-2",
+                    evidence="item-work-b-2",
+                )
+            )
+
+    def test_initial_and_existing_current_missions_are_not_retroactively_blocked(
+        self,
+    ) -> None:
+        policy = self.policy()
+        status = self.status()
+        self.assertEqual(status["mission_activation_count"], 0)
+        self.assertEqual(status["open_mission_activations"], [])
+
+        supervision_log.append_raw(
+            self.directory / "events.jsonl",
+            {
+                "record_id": "EVT-COMPLETED-A",
+                "target_thread_id": self.target,
+                "kind": "lifecycle",
+                "status": "completed",
+                "state_fingerprint": "state-completed-a",
+                "user_action_required": "no",
+                "policy_sha256": policy["policy_sha256"],
+            },
+        )
+        gate = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "lifecycle-gate",
+                "--target-thread",
+                self.target,
+                "--lifecycle-state",
+                "completed",
+                "--source-record",
+                "EVT-COMPLETED-A",
+            ]
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            supervision_log.cmd_lifecycle_gate(gate)
+        lifecycle = json.loads(output.getvalue())
+        self.assertTrue(lifecycle["source_stop_permitted"])
+        self.assertEqual(lifecycle["open_mission_activations"], [])
+        self.assertNotEqual(
+            lifecycle["completion_action"],
+            supervision_log.MISSION_ACTIVATION_START_ACTION,
+        )
+
+    def test_same_target_activation_is_documented_without_task_or_resume_expansion(
+        self,
+    ) -> None:
+        skill = HELPER_PATH.parent.parent.joinpath("SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        policy = HELPER_PATH.parent.parent.joinpath(
+            "references", "supervision-policy.md"
+        ).read_text(encoding="utf-8")
+
+        for text in (skill, policy):
+            self.assertIn("mission-activation-start", text)
+            self.assertIn("first eligible work", text)
+            self.assertIn("in-progress", text)
+            self.assertIn("manual Resume", text)
+            self.assertIn("successor-task transition", text)
+        self.assertIn(
+            supervision_log.MISSION_ACTIVATION_START_ACTION,
+            policy,
+        )
+
+
 class OutcomeCompletionRecordTests(unittest.TestCase):
     mission_root = "a" * 64
+
+    def setUp(self) -> None:
+        self.reconciliation_temporary = tempfile.TemporaryDirectory()
+        self.reconciliation_path = Path(
+            self.reconciliation_temporary.name, "capability-reconciliation.json"
+        )
+        self.write_reconciliation()
+
+    def tearDown(self) -> None:
+        self.reconciliation_temporary.cleanup()
+
+    def write_reconciliation(self, **overrides: object) -> Path:
+        authority_id = "authority-1234"
+        repository_id = "repository-1234"
+        outcome_id = "outcome-1234"
+        value: dict[str, object] = {
+            "schema_version": 1,
+            "kind": supervision_log.CAPABILITY_RECONCILIATION_KIND,
+            "target_thread_id": "target-1234",
+            "mission_root": self.mission_root,
+            "state_fingerprint": "state-1234",
+            "current_revision": "2" * 40,
+            "implementation_owner_id": "target-1234",
+            "reviewer_id": "base-1234",
+            "requested_capability": {
+                "statement": "Deliver the requested visible capability.",
+                "evidence_ids": [authority_id],
+            },
+            "protected_capabilities": [
+                {
+                    "statement": "Preserve the existing supported path.",
+                    "evidence_ids": [repository_id],
+                }
+            ],
+            "selected_architecture_level": {
+                "level": "existing-owner",
+                "owner_ref": "supervise-tracker-runs",
+                "evidence_ids": [repository_id],
+            },
+            "accepted_tradeoffs": [
+                {
+                    "statement": "Keep the change bounded to the current owner.",
+                    "evidence_ids": [authority_id, repository_id],
+                }
+            ],
+            "current_behavior": {
+                "statement": "The frozen candidate supplies the requested behavior.",
+                "evidence_ids": [outcome_id],
+            },
+            "operator_visible_effects": [
+                {
+                    "statement": "The operator can use the result as requested.",
+                    "evidence_ids": [outcome_id],
+                }
+            ],
+            "supported_gaps": [],
+            "completion_posture": "verified",
+            "evidence": [
+                {
+                    "evidence_id": authority_id,
+                    "evidence_class": "direct-authority",
+                    "source_root": "3" * 64,
+                },
+                {
+                    "evidence_id": repository_id,
+                    "evidence_class": "current-repository",
+                    "source_root": "4" * 64,
+                },
+                {
+                    "evidence_id": outcome_id,
+                    "evidence_class": "observed-outcome",
+                    "source_root": "5" * 64,
+                },
+            ],
+        }
+        value.update(overrides)
+        self.reconciliation_path.write_text(
+            json.dumps(value, sort_keys=True), encoding="utf-8"
+        )
+        return self.reconciliation_path
 
     def policy(self) -> dict[str, object]:
         policy = supervision_log.default_policy(
@@ -1673,10 +3706,11 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
         )
         return policy
 
-    def completion_args(self, **overrides: str) -> argparse.Namespace:
+    def completion_args(self, **overrides: object) -> argparse.Namespace:
         values = {
             "target_thread": "target-1234",
             "state_fingerprint": "state-1234",
+            "current_revision": "2" * 40,
             "mission_root": self.mission_root,
             "status": "verified",
             "model": "gpt-5.6-sol",
@@ -1686,6 +3720,7 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
             "effect_reconciliation_sha256": "d" * 64,
             "open_item_compatibility_sha256": "e" * 64,
             "independent_challenge_sha256": "f" * 64,
+            "capability_reconciliation_json": str(self.reconciliation_path),
             "active_block": "Block-64",
             "checkpoint": "checkpoint-1234",
             "summary": "Current operator-visible outcome verified.",
@@ -1709,6 +3744,16 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
             record = json.loads(output.getvalue())["record"]
             self.assertEqual(
                 record["category"], supervision_log.OUTCOME_COMPLETION_CATEGORY
+            )
+            reconciliation = json.loads(
+                self.reconciliation_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                record["capability_reconciliation_sha256"],
+                supervision_log.digest(reconciliation),
+            )
+            self.assertEqual(
+                record["capability_reconciliation_reviewer_id"], "base-1234"
             )
 
             output = io.StringIO()
@@ -1777,6 +3822,111 @@ class OutcomeCompletionRecordTests(unittest.TestCase):
                     supervision_log.cmd_completion_record(
                         self.completion_args(artifact_currentness_sha256="missing")
                     )
+                self.write_reconciliation(state_fingerprint="state-old")
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, "stale state fingerprint"
+                ):
+                    supervision_log.cmd_completion_record(self.completion_args())
+                self.write_reconciliation(current_revision="9" * 40)
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, "stale current revision"
+                ):
+                    supervision_log.cmd_completion_record(self.completion_args())
+
+    def test_verified_completion_rejects_gap_or_self_review(self) -> None:
+        policy = self.policy()
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            with mock.patch.object(
+                supervision_log, "load_policy", return_value=(directory, policy)
+            ):
+                self.write_reconciliation(
+                    supported_gaps=[
+                        {
+                            "gap_id": "gap-1234",
+                            "statement": "The requested effect is not current.",
+                            "owner_class": "supervision",
+                            "owner_ref": "supervise-tracker-runs",
+                            "evidence_ids": ["outcome-1234"],
+                        }
+                    ],
+                    completion_posture="reopen-narrow-owner",
+                )
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, "supported capability gap"
+                ):
+                    supervision_log.cmd_completion_record(self.completion_args())
+
+                self.write_reconciliation(reviewer_id="target-1234")
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, "not independent"
+                ):
+                    supervision_log.cmd_completion_record(self.completion_args())
+
+                self.write_reconciliation(reviewer_id="watcher-1234")
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, "not an eligible bound"
+                ):
+                    supervision_log.cmd_completion_record(self.completion_args())
+
+                self.write_reconciliation()
+                process_only = json.loads(
+                    self.reconciliation_path.read_text(encoding="utf-8")
+                )
+                process_only["evidence"][2]["evidence_class"] = "validation"
+                self.reconciliation_path.write_text(
+                    json.dumps(process_only, sort_keys=True), encoding="utf-8"
+                )
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, "required evidence class"
+                ):
+                    supervision_log.cmd_completion_record(self.completion_args())
+
+    def test_oversized_reconciliation_rejects_before_json_parsing(self) -> None:
+        with self.reconciliation_path.open("wb") as handle:
+            handle.truncate(supervision_log.MAX_CAPABILITY_RECONCILIATION_BYTES + 1)
+        policy = self.policy()
+
+        with (
+            mock.patch.object(supervision_log.json, "loads") as loads,
+            self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "exceeds its byte bound"
+            ),
+        ):
+            supervision_log.load_capability_reconciliation(
+                str(self.reconciliation_path),
+                target_thread="target-1234",
+                mission_root=self.mission_root,
+                state_fingerprint="state-1234",
+                current_revision="2" * 40,
+                policy=policy,
+            )
+        loads.assert_not_called()
+
+    def test_completion_contract_requires_product_capability_reconciliation(
+        self,
+    ) -> None:
+        contract = supervision_log.outcome_completion_contract()
+
+        self.assertIn(
+            "capability_reconciliation_sha256", contract["required_bindings"]
+        )
+        self.assertEqual(
+            contract["capability_reconciliation_required_fields"],
+            [
+                "requested_capability",
+                "protected_capabilities",
+                "selected_architecture_level",
+                "accepted_tradeoffs",
+                "current_behavior",
+                "operator_visible_effects",
+                "supported_gaps",
+            ],
+        )
+        self.assertEqual(
+            contract["supported_gap_posture"],
+            "reject-completed-and-reopen-narrow-owner",
+        )
 
     def test_completed_lifecycle_cannot_enter_ledger_without_proof(self) -> None:
         policy = self.policy()
@@ -1894,6 +4044,11 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
                         field: "b" * 64
                         for field in supervision_log.OUTCOME_COMPLETION_HASH_FIELDS
                     },
+                    "capability_reconciliation_reviewer_id": "base-1234",
+                    "capability_reconciliation_implementation_owner_id": "target-1234",
+                    "capability_reconciliation_revision": "c" * 40,
+                    "capability_reconciliation_posture": "verified",
+                    "capability_reconciliation_gap_count": 0,
                 },
             )
         elif state == "completed":
@@ -2053,6 +4208,11 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
                 field: "b" * 64
                 for field in supervision_log.OUTCOME_COMPLETION_HASH_FIELDS
             },
+            "capability_reconciliation_reviewer_id": "base-1234",
+            "capability_reconciliation_implementation_owner_id": "target-1234",
+            "capability_reconciliation_revision": "c" * 40,
+            "capability_reconciliation_posture": "verified",
+            "capability_reconciliation_gap_count": 0,
         }
 
         failed = self.run_lifecycle_gate(
@@ -2086,6 +4246,11 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
                 field: "b" * 64
                 for field in supervision_log.OUTCOME_COMPLETION_HASH_FIELDS
             },
+            "capability_reconciliation_reviewer_id": "base-1234",
+            "capability_reconciliation_implementation_owner_id": "target-1234",
+            "capability_reconciliation_revision": "c" * 40,
+            "capability_reconciliation_posture": "verified",
+            "capability_reconciliation_gap_count": 0,
         }
 
         wrong_mission = self.run_lifecycle_gate(

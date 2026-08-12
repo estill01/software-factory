@@ -38,6 +38,30 @@ rather than recreating the document shape from memory.
    direct authority or safety boundaries, and changes that would materially
    alter or reverse the goal. Keep the semantic frame in the tracker rather
    than duplicating it in every Block.
+   For every new full-profile tracker, also reconstruct one concise
+   `Target-product capability frame` from direct mission and repository sources.
+   Classify its applicability as `consequential`, `routine`, or
+   `not-applicable`, and state the rationale, exact sources, product thesis and
+   intended effect, protected capabilities, architecture strategy, requested
+   capability, proportionality, tradeoffs, and uncertainty. A routine or
+   not-applicable frame may cite no product source only when its rationale says
+   why no product doctrine is asserted.
+   Treat work as consequential when it changes feature behavior, canonical
+   representation, architecture strategy, operating model, or a protected
+   capability. For each consequential Block, add only its local
+   `Target-product capability delta`: intended gain, potential loss or
+   regression, protected-capability effect, architecture/operating-model
+   effect, and tradeoff with source evidence. Routine and not-applicable Blocks
+   need only a posture and concrete justification. Do not repeat the global
+   frame in each Block.
+   Reconstruct the supported capability before decomposing requested feature
+   wording: a literal button, endpoint, command, or file is not the whole
+   capability when direct sources establish a broader user effect. Conversely,
+   do not invent product ethos, platform doctrine, generalized infrastructure,
+   or future operating modes that direct sources and the immediate or evident
+   adjacent need do not support. Prefer neither the lower-power local path nor
+   a platform automatically; record the supported proportional tradeoff and
+   remaining uncertainty.
 2. Describe the target architecture and existing owners narrowly enough to
    prevent duplicate authority.
 3. Map predecessor work and source adaptations when they affect implementation;
@@ -142,6 +166,15 @@ Before finalizing each Block, apply this feature-creep test:
 - Does the tracker-level mission frame keep subordinate process controls from
   changing the primary outcome, and does every temporary hold expire without
   inferred carry-forward?
+- Does the target-product frame cite direct support for asserted product
+  doctrine, distinguish the requested mechanism from the supported capability,
+  and expose tradeoffs and uncertainty?
+- For a consequential Block, does its local capability delta show the intended
+  gain, possible loss, protected-capability effect, and architecture or
+  operating-model effect without copying the global frame?
+- Would the plan underreach by treating literal feature wording as the whole
+  capability, or overreach by inventing a generalized platform or unsupported
+  ethos? Either failure requires a narrower, source-backed rewrite.
 
 If any answer is no, narrow the Block, reuse the owner, defer the adjacent work,
 or create a later single-focused Block when that work is genuinely required.
@@ -171,9 +204,14 @@ python3 "${CODEX_HOME:-$HOME/.codex}/skills/author-implementation-trackers/scrip
   path/to/tracker.md --profile full
 ```
 
-Use `--profile core` only for an inherited tracker whose established house
-style intentionally omits the full per-block sections. Use `--json` when
-machine-readable diagnostics are useful.
+Use `--profile core` only as the documented compatibility path for an inherited
+tracker whose established house style predates the current full sections,
+including the target-product frame and per-Block capability-delta posture. It
+checks the minimal inherited contract; it does not certify current full-profile
+structure or product reasoning. Use `--json` when machine-readable diagnostics
+are useful. The verifier checks structure and declared values mechanically;
+substantive review must still test source support, underreach, tradeoffs, and
+speculative over-architecture.
 
 Also run the repository's documentation checks, changed-test plan, formatting
 checks, and link checks when applicable. Inspect the final diff for stale block

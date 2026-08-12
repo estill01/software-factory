@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "software-factory-dashboard"
+version = "0.1.0"
+description = "Loopback runtime for the Software Factory operations dashboard"
+requires-python = ">=3.11"
+dependencies = [
+    "jsonschema>=4.25,<5",
+    "pypdf>=6.14,<7",
+    "reportlab>=5,<6",
+]
+
+[project.scripts]
+software-factory-dashboard = "software_factory_dashboard.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/software_factory_dashboard"]
+
+[tool.uv]
+package = true

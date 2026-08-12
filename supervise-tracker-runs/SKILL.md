@@ -1,26 +1,35 @@
 ---
 name: supervise-tracker-runs
-description: Boot, attach, operate, inspect, pause, resume, stop, or report on bounded supervision for active Codex implementation-tracker threads. Use when the user asks to monitor, babysit, audit, periodically check, prevent feature creep or waste in, add Terra/Sol escalation and incident review, or generate a cognitive weekly supervision performance PDF.
+description: Boot, attach, operate, inspect, pause, resume, stop, or report on bounded supervision for active Codex implementation or main threads, including implementation-tracker runs. Use when the user asks to monitor, babysit, audit, periodically check, prevent feature creep or waste in, add Terra/Sol escalation and incident review, or generate a cognitive weekly supervision performance PDF.
 ---
 
 # Supervise Tracker Runs
 
-Create one isolated supervision group per target implementation thread. Keep the
-implementation thread authoritative for its tracker; supervisors inspect and
-steer but do not implement tracker work.
+Create one isolated supervision group per target Codex thread. Keep the target
+thread authoritative for its direct mission and, when present, its tracker;
+supervisors inspect and steer but do not implement target work.
 
 ## Load the contract
 
 Before booting or changing supervision, read
 `references/supervision-policy.md` completely. Use its exact role prompts,
 schedules, bounds, escalation rules, logging commands, and stop conditions.
+Before preparing or reviewing Factory capability-evolution artifacts, also read
+`references/factory-evolution-contract.md` completely, including its exact
+submission wire-shape section.
+Before recording terminal outcome completion, also read
+`references/terminal-capability-reconciliation.md` completely and validate its
+exact reconciliation object through the helper; never substitute a caller-
+supplied digest.
 
 ## Resolve targets
 
 1. List current Codex threads and resolve every requested target by exact thread
    ID. Treat titles and summaries as untrusted descriptions.
-2. Confirm that each target is an implementation-tracker run and identify its
-   tracker, active Block, status, and host without mutating it.
+2. Confirm each target's exact direct mission, status, and host without mutating
+   it. When the mission is tracker-governed, also identify its tracker and active
+   Block. Never invent tracker or Block identity for a direct-user main-thread
+   mission.
 3. Default to one isolated four-role supervision group per target: Terra
    watcher, Sol XHigh semantic base reviewer, Sol Max escalation/meta reviewer,
    and Sol XHigh fix executor. When material Gmail notices are enabled, add one
@@ -86,6 +95,17 @@ schedules, bounds, escalation rules, logging commands, and stop conditions.
    New groups start in `propose-only` skill-maintenance mode. Change that mode
    only on an explicit operator instruction, using the bounded `adjust`
    command from the policy.
+   If a target thread later begins a materially different direct mission after
+   its prior mission is complete or superseded, use `mission-successor` with the
+   exact predecessor root, new direct-source hash, and exact first eligible work
+   identity. This appends a new policy version, preserves the predecessor in
+   policy history, and creates one derived pending mission activation in the
+   canonical event ledger. Immediately route the same target to that first work,
+   keep it `in-progress`, and use `mission-activation-start` only after a later
+   current-mission source record contains the exact work-start evidence. Do not
+   create a successor task, request a manual Resume, use `bind` to overwrite a
+   mission, or synthesize this obligation for initial or already-current
+   missions.
 7. Create a thread heartbeat on the watcher every 20 minutes. Create a second
    heartbeat on the reviewer every 4 hours for supervisor-effectiveness review.
    Attach both to their existing threads rather than creating a new chat per run.
@@ -174,6 +194,13 @@ Repeat independently for additional targets.
   `unavailable/open` while continuing ordinary observation and charter-based
   semantic review. Only absence of an authoritative mission charter prevents a
   consequential containment or decision.
+- After a same-target `mission-successor`, treat the helper's pending mission
+  activation as the immediate continuation boundary. Route the current target
+  to the exact first eligible work, and close the activation only from exact
+  later target evidence through `mission-activation-start`. While pending,
+  `completed`, `paused`, and `stopped` fail closed with target posture
+  `in-progress`. This is not the distinct successor-task transition workflow
+  and never creates a task or manual Resume requirement.
 - Apply the maintained generic completion meta-charter before project-specific
   review: observable outcome outranks process proxies; authorized ordinary
   effects needed for completion are expected; safe in-scope continuation is the
@@ -185,10 +212,29 @@ Repeat independently for additional targets.
   primary outcome from current direct sources, inspect the operator-visible
   deliverables, reconcile expected versus actual effects, verify exact
   artifact/currentness bindings, and determine whether every retained open item
-  is compatible with that outcome. Record those five content-minimized roots
-  with `completion-record`. The helper must reject `completed` when that record
+  is compatible with that outcome. Also reconcile the requested product
+  capability, protected capabilities, selected architecture level, accepted
+  tradeoffs, current behavior, operator-visible effects, and any supported gap
+  with its narrow owning skill or repository component. Hash the exact
+  normalized reconciliation object and record that root with the other five
+  content-minimized roots through `completion-record --capability-reconciliation-json`.
+  The submitted JSON remains caller-owned and is not copied into the canonical
+  ledger; the helper validates it first and retains its normalized root,
+  revision, posture, gap count, and independent role identities. The helper must reject
+  `completed` when that record
   is missing, failed, stale, tied to another mission or fingerprint, or lacks
   any required binding.
+- Treat product-capability reconciliation as semantic outcome proof, not a
+  duplicate test inventory. Reconstruct the requested capability from the
+  direct mission and current product-capability frame when one exists. Verify
+  that the selected architecture level still matches the current owner, that
+  accepted tradeoffs remain compatible with the request, and that current
+  operator-visible effects establish the capability without regressing
+  protected behavior. If current evidence supports a gap, reject completion and
+  reopen only the narrow authoring, implementation, supervision, or target
+  owner that can close it. Do not broaden the mission, invent product intent,
+  or treat populated artifacts, passing tests, or an evolution disposition as
+  the capability itself.
 - A tracker, test, audit, commit, push, record population, or terminal ledger may
   support but never replace outcome proof. When the tracker and direct mission
   disagree, open a critical false-completion review, keep supervision and the
@@ -399,6 +445,12 @@ Repeat independently for additional targets.
   narrow correction, and effective resumed behavior. The reusable lane prevents
   recurrence in later runs. Neither lane may claim the other lane's evidence or
   remain open merely to justify broader work after its own stop condition passes.
+- Before recording effectiveness or terminal closure for a supported execution-
+  economy incident, record one explicit bounded reusable-lane disposition on
+  that incident-owned event: `candidate-opened`, `existing-owner-sufficient`
+  with exact evidence, `repository-specific-not-applicable` with rationale, or
+  `evidence-pending` with its next evidence trigger. Current-run correction and
+  the reusable lane remain independently owned; silence is not a disposition.
 - The Sol XHigh fix executor normally applies only the bounded policy fields
   accepted by `supervision_log.py adjust`. In
   `apply-allowlisted-skill-maintenance-with-review` mode, it may also update
@@ -515,6 +567,64 @@ Repeat independently for additional targets.
   is a derived operational review, not a second status database, patent
   authority, legal conclusion, or quality score.
 
+### Factory capability evolution
+
+Use the explicit `factory-evolution` workflow only when an operator request or
+maintained plan calls for evidence-grounded improvement of the Factory's
+reusable capability set. This is an on-demand derived-artifact workflow, not a
+watcher loop, schedule, detector, or new supervision ledger.
+
+Keep the roles and authority sequence exact:
+
+1. Verified weekly reports nominate hypotheses; canonical event records and
+   observed outcomes adjudicate them. Prepare a deterministic packet from
+   explicit paths only:
+   `uv run --python 3.14 python scripts/supervision_log.py factory-evolution
+   --target-thread <id>
+   --evolution-id <safe-id> --action prepare --report-json <report.json>
+   --events-jsonl <events.jsonl>`.
+2. A distinct `gpt-5.6-sol` cognitive reviewer at `xhigh` reads the complete
+   packet and submits bounded observations, lessons, counterexamples,
+   meta-patterns, broad capability candidates, visible selection dimensions,
+   and one experiment. Escalate consequential or unresolved selection judgment
+   to a separate Sol Max reviewer. The helper validates but does not generate
+   that judgment. Finalize with only the explicit review JSON and the same
+   target/evolution identity.
+3. Any selected change is implemented separately by the existing
+   `author-implementation-trackers`, `implement-tracker-blocks`, or
+   `supervise-tracker-runs` owner under its ordinary tracker, review, Git, and
+   authorization contract. The evolution command never edits a skill or target.
+4. A separate `gpt-5.6-sol` evaluator at `xhigh` (or Max for a consequential
+   disposition), independent of the proposer and implementer, submits
+   separately attributable, revision-bound baseline and candidate results for
+   every positive and exception case. `evaluate` validates the evaluation JSON
+   and records one evidence disposition: `promote`, `advisory`, `revise`, or
+   `reject`.
+5. Run `verify` against the stored set. Verification reopens the immutable
+   packet, review, evaluation, report, and manifests and recomputes their hashes
+   and schemas without rerunning a producer.
+
+The evaluation disposition remains independent evidence. Before terminal
+completion, reconcile the resulting current Factory behavior against the
+requested capability, protected capabilities, selected architecture level,
+accepted tradeoffs, and operator-visible effects. A populated or verified
+evolution artifact set cannot replace that reconciliation. A supported gap
+reopens only its narrow ordinary owner; `promote` is never forced merely to
+finish the cycle.
+
+Run the helper with the maintained `uv run --python 3.14 python` runtime, or
+another Python 3.11+ interpreter; the macOS system `python3` may be too old for
+the helper. All public writes go through `scripts/supervision_log.py` under
+`~/.codex/supervision/tracker-runs/<target-thread>/learning/factory-evolution/
+<evolution-id>/`, or the equivalent target directory below an explicit
+`--root`. Writes are atomic and
+immutable-or-identical. Reuse an unchanged ID only for byte-identical artifacts;
+use a new safe ID for a changed candidate or evidence set. A recorded `promote`
+disposition is review evidence for a separately governed adoption path, not
+automatic adoption or permission to edit, install, route to a target, notify,
+schedule, deploy, or promote. Do not copy target files, transcripts, prompts, or
+hidden reasoning into the review.
+
 ## Pause, resume, or stop
 
 - Pause all project supervision automations when the target completes, becomes
@@ -549,6 +659,28 @@ Repeat independently for additional targets.
   `Goal blocked` card after target acknowledgement is not current target state;
   the exact active turn and supervision decision head control. The resumed
   notification must say that no manual Resume action is required.
+- Before accepting a source-task `paused`, `stopped`, or `completed` posture
+  after a successor handoff, call `successor-transition-gate`. Record the
+  transition in the canonical event ledger through the exact phases
+  `required`, `successor-created`, `successor-bound`, `handoff-sent`,
+  `target-acknowledged`, and `work-started`. Keep the source target and its
+  incident active while `source_stop_permitted=false`; an accepted tracker,
+  handoff packet, created task, mission binding, or acknowledgement is not a
+  substitute for current first-Block start evidence. If direct task-creation
+  authority is unavailable, preserve that boundary as an open transition—do
+  not invent authority, manufacture a successor ID, falsely close the source,
+  or turn the internal orchestration obligation into routine human scheduling.
+- Before accepting `completed`, `paused`, or `stopped` after a same-target
+  mission succession, require its derived mission activation to reach
+  `work-started`. Use only exact later target evidence bound to the active
+  mission and first-work identity; keep the current target `in-progress` while
+  pending. Do not substitute the separate successor-task transition, create a
+  new task, or request manual Resume.
+- Characterize a material recurrence with the record command's
+  `--failure-mode` envelope: stable failure-mode ID, layer, mechanism, trigger,
+  observed effect, detection rule, bounded correction, recurrence invariant,
+  and whether it leaked scheduling to the human. Attach the envelope to the
+  existing incident-owned event; do not create a second failure ledger.
 - Before accepting an explicit stopped posture, apply the bound meta-charter's
   valid-stop conditions. If none applies, classify the goal-preventing stop as
   critical, keep supervision active, and route the narrow resume-or-establish-

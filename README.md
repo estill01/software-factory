@@ -14,7 +14,7 @@ _"Everything I've been doing to get Codex to do production-worthy work, but now 
 
 A single requested scope covered the complete tracker without turn-by-turn Block scheduling or re-prompting. Projected API-equivalent cost for the included **71.42-hour** supervision window was **$32.80**.
 
-[**Watch the walkthrough**](https://www.youtube.com/watch?v=gRJ-hgbBcTo) · [**Open the generated supervision report**](examples/reports/software_factory_report.pdf) · [**Quick start**](#quick-start) · [**Architecture**](#architecture) · [**Full evidence and limitations**](#full-demonstrated-operation)
+[**Watch the walkthrough**](https://www.youtube.com/watch?v=gRJ-hgbBcTo) · [**Open the generated supervision report**](examples/reports/software_factory_report.pdf) · [**Quick start**](#quick-start) · [**Architecture**](#architecture) · [**Changelog**](CHANGELOG.md) · [**Full evidence and limitations**](#full-demonstrated-operation)
 
 ## System at a glance
 
@@ -25,10 +25,25 @@ Software Factory combines three composable Codex skills with deterministic track
 | **Specification** | [`author-implementation-trackers`](author-implementation-trackers/) | Derive an implementation program from the live repository and its authoritative owners; define outcome, scope, dependencies, non-goals, acceptance, evidence, resource posture, decision boundaries, and terminal criteria. |
 | **Autonomous execution** | [`implement-tracker-blocks`](implement-tracker-blocks/) | Execute one Block, a dependency-safe range, or the entire remaining tracker; validate, review, checkpoint, audit, and advance automatically through dependency order. |
 | **Independent supervision** | [`supervise-tracker-runs`](supervise-tracker-runs/) | Perform mechanical change gating, independent semantic review, escalation, sampling, incident adjudication, bounded steering, and correction-effectiveness review. |
-| **Outcome closure** | Executor and supervisor terminal controls | Reconcile current deliverables against the original objective and reopen the narrow owner when a green process record and the actual outcome disagree. |
+| **Outcome closure** | Executor and supervisor terminal controls | Reconcile the requested capability, protected behavior, architecture level, accepted tradeoffs, current behavior, and operator-visible effects; reopen only the narrow owner when a green process record and the actual outcome disagree. |
 | **Human governance** | Reports, lifecycle state, notices, decision packets, and optional Gmail | Present status, cost, response time, recurrence, blind spots, risks, and outcome evidence without requiring a human to read the full agent transcript. |
 
 The skills remain independently useful: author a tracker without implementing it, execute a constrained Block range, run an entire compatible tracker without independent supervision, or attach supervision to a multi-day implementation program.
+
+## Project history and changelog
+
+[`CHANGELOG.md`](CHANGELOG.md) is the maintained human-consumable history of
+significant planned, implemented, demonstrated, corrected, and removed Software
+Factory capabilities. Update it when a coherent change materially affects a
+reusable capability, public workflow, authority boundary, compatibility
+posture, or major implementation program. It need not repeat every test,
+fixture, review, or evidence-only checkpoint.
+
+Git history, tracker completion evidence, canonical supervision events, and
+verified machine-readable reports remain the high-precision underlying data.
+The changelog summarizes those sources and cites exact revisions where useful;
+it never upgrades a plan, experiment, or process record into implemented or
+operator-visible behavior.
 
 ## Quick start
 
@@ -112,6 +127,32 @@ Run in a dedicated Task:
 $supervise-tracker-runs {session ID}
 ```
 
+### 5. Preview the local operations dashboard
+
+The operations dashboard currently provides its loopback runtime, responsive
+application shell, bounded multi-project catalog, and read-only tracker, Git,
+supervision, report, and owner-metrics APIs. Register exact local Git roots in
+Admin to expose per-project discovery health and source-local tracker
+projections. The adapters invoke maintained tracker and supervision owners,
+keep current missions separate from predecessor history, retain exact
+role/task/automation bindings and source-local failures, verify report bundles,
+and never edit operational truth or invent progress percentages. The
+operator-facing workspaces and task or lifecycle controls remain unavailable
+until their owning implementation Blocks are accepted.
+
+```bash
+npm --prefix dashboard/web ci
+npm --prefix dashboard/web run build
+uv sync --project dashboard/server
+uv run --project dashboard/server software-factory-dashboard --port 8787
+```
+
+Open `http://127.0.0.1:8787`. The port is selectable and the runtime refuses a
+non-loopback bind. Archiving a catalog record only hides it from normal views;
+it never deletes files or stops work. See the
+[dashboard developer guide](dashboard/README.md) for catalog storage, API,
+development, validation, and browser-test details.
+
 ## Architecture
 
 ```mermaid
@@ -171,7 +212,7 @@ flowchart TB
 | **1. Author** | Inspect the repository and convert the objective into dependency-ordered Blocks with owned scope, non-goals, deliverables, acceptance criteria, evidence, economy posture, decision boundaries, and stop conditions. | A maintained verifier confirms the tracker's structural invariants; implementation has not begun. |
 | **2. Execute** | Reconstruct each eligible Block from live state, implement the smallest missing delta, validate and review the exact candidate, record evidence, checkpoint the slice, audit it, and advance automatically. | The current Block is accepted at its boundary; the executor activates the next eligible Block or begins terminal outcome verification. |
 | **3. Supervise** | Route materially changed states through mechanical gating, independent semantic review, escalation and sampling, incident adjudication, bounded correction, and later effectiveness review. | A no-intervention state is supported, or the incident reaches a later evidence-backed terminal outcome. |
-| **4. Close and report** | Return to the original objective, inspect or rehydrate current deliverables, compare expected effects with actual effects, challenge open items and artifact currentness, and project canonical evidence into reports. | The operator-visible outcome exists as requested; otherwise the narrow owning work is reopened. |
+| **4. Close and report** | Return to the original objective, inspect or rehydrate current deliverables, reconcile requested and protected capabilities with the selected architecture level, accepted tradeoffs, current behavior, and visible effects, challenge open items and artifact currentness, and project canonical evidence into reports. | The operator-visible capability exists as requested; otherwise only the narrow owning work is reopened. |
 
 ### Full-tracker execution loop
 
@@ -208,13 +249,16 @@ When a narrow input is genuinely unresolved, the executor computes the affected 
 | Production failure mode | Control applied by Software Factory |
 |---|---|
 | **A Block boundary becomes a human scheduling gate.** | Requested scope and Block control scope are represented separately, so full-tracker runs advance automatically after each accepted Block. |
+| **A source task hands off to a successor and treats the handoff as completion.** | The append-only successor-transition state machine preserves tracker, mission, authority, task, binding, acknowledgement, and first-Block start identity; source stop remains prohibited until current `work-started` evidence exists. |
 | **The agent treats a task list as the architecture.** | Tracker authoring inspects the live repository, identifies authoritative owners, and splits work at real dependency, mutation, review, recovery, and stopping boundaries. |
 | **Scope expands into attractive but unnecessary infrastructure.** | Every Block has one primary outcome, explicit non-goals, a feature-creep test, and a stop clause. |
 | **Tests pass, so the project is declared complete.** | Tests, commits, hashes, audits, and ledgers remain process evidence; terminal closure separately inspects operator-visible deliverables and expected effects. |
+| **A learning experiment is populated, so its candidate is promoted.** | The derived packet is independently evaluated and dispositioned, but adoption remains separately governed and terminal closure still reconciles the actual product capability. |
 | **Producer and validator share the same blind spot.** | Mechanical checks are separated from semantic review that can reconstruct governing facts independently, with escalation and sampling. |
 | **The run repeatedly rescans or rebuilds unchanged work.** | Cheap currentness checks, accepted-evidence reuse, preflight, batching, and targeted invalidation precede expensive proof. |
 | **One unresolved decision stalls everything.** | A genuine decision becomes a bounded dependency cut and the safe-work frontier is computed around it. |
 | **A corrective action certifies itself.** | Incidents remain open until later target evidence shows whether the correction worked. |
+| **A failure is recorded but cannot be compared or prevented later.** | Incident-owned failure-mode envelopes preserve the causal layer, mechanism, trigger, effect, detection, correction, recurrence invariant, and human-scheduling leak without creating a second ledger. |
 | **The human must read thousands of agent turns to understand the run.** | Canonical event state is converted into deterministic metrics, evidence-bound synthesis, and verified human-readable reports. |
 
 The result is **human-in-the-loop without requiring a human in every loop**: people retain mission, judgment, reserved authority, and final oversight while the machinery handles routine decomposition, execution control, changed-state review, incident follow-through, and reporting.

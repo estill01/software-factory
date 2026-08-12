@@ -73,15 +73,45 @@ outcome, existing owner, exact missing delta, reusable accepted evidence,
 dependency/currentness check, expected focused and mapped proof, review order,
 resource/widening posture, and stop boundary. Do not create a new artifact for
 the brief unless the tracker requires it. For every focused or audit test
-command, freeze and reuse one repository-owned invocation envelope: working
-directory or project binding, configured runtime, any repository-required
-import or module binding, and exact selection. Prefer the maintained repository-
-native command or runner, and bind an import path only when that repository
-requires it. After correcting a setup failure, retain the complete corrected
-envelope in the active brief and exact audit handoff, then reuse it on the next
-applicable first invocation. After any other concrete path failure is corrected,
-retain the corrected command, owner, or writer path in the brief and first reuse
-it on the next applicable invocation.
+command, freeze and reuse one repository-owned invocation envelope. The envelope
+is not complete until repository-owned scripts, configuration, and instructions
+resolve the exact maintained runner command chain, every launcher and executable
+actually invoked, the repository-derived working directory and project or
+workspace binding, the configured runtime and any required import or module
+binding, the exact selection, and the intentional Git environment or its
+verified absence before first execution. Prefer the maintained repository-native
+command or runner, and bind an import path only when that repository requires it.
+A proxy check is not an envelope check: proving Vitest while omitting the `npm`
+launcher (or an analogous outer command), or guessing a workspace root instead
+of deriving it from repository ownership, fails preflight. After correcting a
+setup failure, retain the complete corrected command chain and envelope in the
+active brief and exact audit handoff, reuse it on the next applicable first
+invocation, and rerun only proof invalidated by the correction. After any other
+concrete path failure is corrected, retain the corrected command, owner, or
+writer path in the brief and first reuse it on the next applicable invocation.
+
+When the tracker declares a `Target-product capability delta`, inspect its
+posture before selecting the implementation path. Whether the tracker uses the
+current full profile or an inherited format, read
+[references/product-capability-review.md](references/product-capability-review.md)
+and run its bounded review only when the Block is `consequential` or live
+evidence exposes a concrete drift trigger: changed feature behavior, canonical
+representation, architecture strategy, operating model, protected capability,
+owner bypass, or a delta that conflicts with direct product sources. A
+`routine` or `not-applicable` Block with no such trigger keeps the economical
+normal path; do not repeat product-strategy analysis merely because the frame
+exists.
+
+For a triggered review, hash and read the tracker-level frame once for that
+Block and reuse it in the execution brief. Compare the smallest local path, the
+smallest bounded-general path supported by current or evident adjacent needs,
+and the available architectural owner. Select the lowest-complexity path that
+fully supplies the source-backed capability while preserving canonical owners
+and protected capabilities—not automatically the local path and never the most
+general architecture by default. Widen only for one named missing product fact
+or affected owner. Bind the selected capability gain or preservation,
+rejected alternatives, protected-capability effects, and accepted tradeoffs to
+completion evidence at the frozen candidate revision.
 
 For a materially expensive read-only proof or audit with a separate reporter or
 helper, cheaply preflight the maintained reporting interface and its invocation
@@ -164,6 +194,20 @@ no safe frontier. If a prior UI card still says `Goal blocked` after a handoff,
 state that the card is stale and continue; do not require or wait for a manual
 resume.
 
+When the requested implementation must move to a distinct successor task,
+treat that as an execution-topology transition, not as completion of the
+requested scope. Keep the source run `in-progress` and preserve one exact
+append-only `successor-transition-record` through `required`,
+`successor-created`, `successor-bound`, `handoff-sent`,
+`target-acknowledged`, and `work-started`. A handoff packet, accepted tracker,
+or bound successor is not enough: call `successor-transition-gate` and end the
+source run only when `source_stop_permitted=true`, which requires current
+evidence that the successor began the first eligible Block. If task creation
+requires direct authority unavailable to the current task, keep the transition
+open and expose that exact authority boundary; do not invent a task ID, treat a
+routed supervisor packet as direct user authority, claim completion, or turn
+the handoff into an ordinary user scheduling request.
+
 For a tracker run that spans skill maintenance, reread this skill at each Block
 transition when its live file hash has changed or a maintained skill-refresh
 notice was received. Do not continue from a cached turn-start copy across that
@@ -188,6 +232,11 @@ suite.
    not recreate working capability merely because it appears in a checklist.
 4. Implement every required delta through the narrowest authoritative layer.
    Do not absorb later blocks or invent adjacent infrastructure.
+   When product-capability review was triggered, implement the selected
+   architecture level and preserve its rejected alternatives and tradeoffs;
+   passing local tests never excuses a supported capability regression,
+   canonical-owner bypass, lower-power substitution, lost composability, or
+   speculative generalization.
 5. Run focused validation during the edit loop. Complete known in-scope changes
    and any review allowed to mutate the candidate before expensive final mapped
    validation when the workflow permits it.
@@ -235,6 +284,21 @@ attempt, response window, supported selection, pending handoff, or ordinary
 human-preference resolution keeps the Goal `in-progress` and may never be
 reported as terminally blocked.
 
+Immediately before any final response or terminal posture, independently reread
+the exact direct requested Block range and current tracker. Reconcile them
+against the current accepted Blocks, remaining requested Blocks,
+dependency-safe frontier, required producer transitions, and safe coordination
+frontier. A missing or unavailable optional supervision binding, helper, or gate
+does not relax this local evidence-bound reconciliation. While requested work, a
+required producer transition, or a safe coordination frontier remains, final
+return is forbidden: continue automatically within the existing authority and
+do not ask the user to press Resume.
+
+This local reconciliation never fabricates supervision authority, creates a
+parallel ledger, narrows the exact direct scope, or authorizes overlapping
+producer writes. When supervision is available, its maintained gates remain an
+additional constraint and its single-writer ownership remains controlling.
+
 ## Apply a live supervision correction
 
 When a current supervisor or the user identifies a supported execution-economy
@@ -277,6 +341,10 @@ After implementation, review the block against its original contract:
 - Does every completion claim resolve to live implementation and current proof?
 - Were negative cases, compatibility, migration, dirty-tree preservation,
   real-input proof, and independent review handled where required?
+- For a consequential Block or concrete drift trigger, does current evidence
+  show the capability added or preserved, the selected architecture level,
+  protected-capability effects, and accepted tradeoffs? For a routine Block,
+  was the bounded normal path retained without invented product analysis?
 - Did the implementation cross the stopping point or leave an unacknowledged
   acceptance gap?
 

@@ -43,6 +43,7 @@ KINDS = {
     "inbound-message",
     "roundup",
     "decision",
+    "successor-transition",
 }
 STANDARD_LIFECYCLE_STATES = {"completed", "paused"}
 PRIORITY_LIFECYCLE_STATES = {"blocked", "failed", "stopped"}
@@ -65,7 +66,22 @@ OUTCOME_COMPLETION_HASH_FIELDS = (
     "effect_reconciliation_sha256",
     "open_item_compatibility_sha256",
     "independent_challenge_sha256",
+    "capability_reconciliation_sha256",
 )
+CAPABILITY_RECONCILIATION_FIELDS = (
+    "requested_capability",
+    "protected_capabilities",
+    "selected_architecture_level",
+    "accepted_tradeoffs",
+    "current_behavior",
+    "operator_visible_effects",
+    "supported_gaps",
+)
+CAPABILITY_RECONCILIATION_KIND = (
+    "software-factory-terminal-capability-reconciliation"
+)
+CAPABILITY_RECONCILIATION_POSTURES = {"verified", "reopen-narrow-owner"}
+MAX_CAPABILITY_RECONCILIATION_BYTES = 64 * 1024
 TERMINAL_REPORT_DELIVERY_CATEGORY = "gmail-terminal-completion"
 TERMINAL_SHUTDOWN_CATEGORY = "terminal-supervision-shutdown"
 GMAIL_CONVERSATION_NOTIFICATION_CATEGORIES = {
@@ -92,6 +108,15 @@ SKILL_MAINTENANCE_MODES = {
     "propose-only",
     "apply-supervision-maintenance",
     "apply-allowlisted-skill-maintenance-with-review",
+}
+FACTORY_EVOLUTION_ARTIFACT_NAMES = {
+    "learning-packet.json",
+    "prepare-manifest.json",
+    "review.json",
+    "finalize-manifest.json",
+    "evaluation.json",
+    "machine-report.json",
+    "manifest.json",
 }
 ALLOWLISTED_MAINTENANCE_SKILLS = [
     "author-implementation-trackers",
@@ -128,6 +153,48 @@ DECISION_PHASES = {
 }
 SAFE_FRONTIER_POSTURES = {"empty", "nonempty"}
 DECISION_OUTCOMES = {"", "selected", "safe-deferred", "user-supplied"}
+SUCCESSOR_TRANSITION_PHASES = (
+    "required",
+    "successor-created",
+    "successor-bound",
+    "handoff-sent",
+    "target-acknowledged",
+    "work-started",
+)
+SUCCESSOR_TRANSITION_IDENTITY_FIELDS = (
+    "tracker_sha256",
+    "tracker_source_record",
+    "requested_block_range",
+    "first_eligible_block",
+    "source_mission_root",
+    "governing_authority_source_class",
+    "governing_authority_source_record",
+)
+MISSION_ACTIVATION_PHASES = ("pending", "work-started")
+MISSION_ACTIVATION_START_ACTION = "start-current-mission-first-eligible-work"
+FAILURE_MODE_LAYERS = {
+    "authority",
+    "control-plane",
+    "evidence",
+    "execution",
+    "lifecycle",
+    "reporting",
+    "resource",
+    "validation",
+}
+REUSABLE_LANE_REQUIRED_FAILURE_MODE_IDS = {
+    "FM-INVOCATION-ENVELOPE-MAINTENANCE-OMISSION",
+}
+REUSABLE_LANE_DISPOSITIONS = (
+    "candidate-opened",
+    "existing-owner-sufficient",
+    "repository-specific-not-applicable",
+    "evidence-pending",
+)
+REUSABLE_LANE_EFFECTIVENESS_STATUSES = TERMINAL_INCIDENT_STATUSES | {
+    "effective",
+    "verified",
+}
 AUTHORITY_SOURCE_CLASSES = {
     "direct-user",
     "system",
@@ -199,7 +266,18 @@ def execution_economy_contract() -> dict[str, Any]:
             "minimum_distinct_episodes": 2,
             "single_material_episode_allowed": True,
         },
+        "effectiveness_or_closure_requires_reusable_lane_disposition": True,
+        "reusable_lane_dispositions": list(REUSABLE_LANE_DISPOSITIONS),
     }
+
+
+def legacy_execution_economy_contract_without_reusable_lane() -> dict[str, Any]:
+    """Exact predecessor accepted only so `bind` can upgrade a live policy."""
+
+    contract = execution_economy_contract()
+    contract.pop("effectiveness_or_closure_requires_reusable_lane_disposition")
+    contract.pop("reusable_lane_dispositions")
+    return contract
 
 
 def outcome_completion_contract() -> dict[str, Any]:
@@ -208,11 +286,40 @@ def outcome_completion_contract() -> dict[str, Any]:
         "terminal_state": "completed",
         "record_category": OUTCOME_COMPLETION_CATEGORY,
         "required_bindings": list(OUTCOME_COMPLETION_HASH_FIELDS),
+        "capability_reconciliation_required_fields": list(
+            CAPABILITY_RECONCILIATION_FIELDS
+        ),
+        "supported_gap_posture": "reject-completed-and-reopen-narrow-owner",
         "reviewer_model": "gpt-5.6-sol",
         "reviewer_reasoning": ["xhigh", "max"],
         "missing_or_failed_posture": "reject-completed-and-open-critical-review",
         "process_proxies_sufficient": False,
     }
+
+
+def legacy_outcome_completion_contract_without_capability() -> dict[str, Any]:
+    """Exact predecessor accepted only so `bind` can upgrade a live policy."""
+
+    contract = outcome_completion_contract()
+    contract["required_bindings"] = [
+        field
+        for field in contract["required_bindings"]
+        if field != "capability_reconciliation_sha256"
+    ]
+    contract.pop("capability_reconciliation_required_fields")
+    contract.pop("supported_gap_posture")
+    return contract
+
+
+def legacy_outcome_completion_contract_with_unvalidated_capability() -> dict[str, Any]:
+    """Exact Block 6 predecessor accepted only so `bind` can upgrade it."""
+
+    contract = outcome_completion_contract()
+    contract["capability_reconciliation_required_fields"] = [
+        *contract["capability_reconciliation_required_fields"][:-1],
+        "supported_gaps_and_narrow_owner",
+    ]
+    return contract
 
 
 def skill_maintenance_contract(mode: str = "propose-only") -> dict[str, Any]:
@@ -546,6 +653,38 @@ def bound_mission(policy: dict[str, Any]) -> dict[str, Any] | None:
     if mission_binding_identity(binding) is None:
         return None
     return binding
+
+
+def policy_mission_roots(directory: Path) -> dict[str, str]:
+    """Resolve policy hashes to the mission that was active for that version."""
+
+    roots: dict[str, str] = {}
+    for record in events(directory / "policy-history.jsonl"):
+        snapshot = record.get("policy")
+        if not isinstance(snapshot, dict):
+            continue
+        policy_sha256 = snapshot.get("policy_sha256")
+        binding = bound_mission(snapshot)
+        if isinstance(policy_sha256, str) and binding is not None:
+            roots[policy_sha256] = str(binding["mission_root"])
+    return roots
+
+
+def mission_scoped_events(
+    directory: Path,
+    policy: dict[str, Any],
+    all_events: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    binding = bound_mission(policy)
+    if binding is None:
+        return all_events
+    active_root = str(binding["mission_root"])
+    roots = policy_mission_roots(directory)
+    return [
+        item
+        for item in all_events
+        if roots.get(str(item.get("policy_sha256", ""))) == active_root
+    ]
 
 
 def legacy_single_role_cross_thread_routing_contract() -> dict[str, Any]:
@@ -1017,10 +1156,17 @@ def validate_policy(policy: dict[str, Any]) -> None:
         if maintenance.get("allowlist") != ALLOWLISTED_MAINTENANCE_SKILLS:
             raise SupervisionLogError("Skill-maintenance allowlist differs")
     economy = policy.get("execution_economy")
-    if economy is not None and economy != execution_economy_contract():
+    if economy is not None and canonical(economy) not in {
+        canonical(execution_economy_contract()),
+        canonical(legacy_execution_economy_contract_without_reusable_lane()),
+    }:
         raise SupervisionLogError("Execution-economy contract differs")
     completion = policy.get("outcome_completion")
-    if completion is not None and completion != outcome_completion_contract():
+    if completion is not None and canonical(completion) not in {
+        canonical(outcome_completion_contract()),
+        canonical(legacy_outcome_completion_contract_without_capability()),
+        canonical(legacy_outcome_completion_contract_with_unvalidated_capability()),
+    }:
         raise SupervisionLogError("Outcome-completion contract differs")
     decisions = policy.get("decision_resolution")
     if decisions is not None and canonical(decisions) not in {
@@ -1143,6 +1289,21 @@ def append_raw(path: Path, value: dict[str, Any]) -> None:
         append_raw_locked(path, value)
 
 
+def append_event_locked(
+    args: argparse.Namespace, directory: Path, record: dict[str, Any]
+) -> None:
+    """Append only when the event still cites the current policy snapshot."""
+
+    current_directory, current = load_policy(args)
+    if current_directory.resolve() != directory.resolve():
+        raise SupervisionLogError("Event append resolved a different supervision root")
+    if record.get("policy_sha256") != current.get("policy_sha256"):
+        raise SupervisionLogError(
+            "Supervision policy changed concurrently; rebuild the event before appending"
+        )
+    append_raw_locked(directory / "events.jsonl", record)
+
+
 def events(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
@@ -1216,6 +1377,12 @@ def append_markdown(path: Path, record: dict[str, Any], *, create: bool) -> None
             rows.append(f"- {key.replace('_', ' ').title()}: `{value}`\n")
     if record.get("evidence"):
         rows.append("- Evidence: " + ", ".join(f"`{item}`" for item in record["evidence"]) + "\n")
+    for envelope_name in ("failure_mode", "containment", "reusable_lane"):
+        if record.get(envelope_name):
+            rows.append(
+                f"- {envelope_name.replace('_', ' ').title()}: "
+                f"`{canonical(record[envelope_name]).decode('utf-8')}`\n"
+            )
     with path.open(mode, encoding="utf-8") as handle:
         handle.writelines(rows)
     os.chmod(path, 0o600)
@@ -1304,7 +1471,7 @@ def load_policy(args: argparse.Namespace) -> tuple[Path, dict[str, Any]]:
     return directory, policy
 
 
-def write_policy_version(
+def write_policy_version_locked(
     directory: Path,
     policy: dict[str, Any],
     *,
@@ -1316,7 +1483,7 @@ def write_policy_version(
     policy["updated_at"] = utc_now()
     policy["policy_sha256"] = digest(policy_material(policy))
     atomic_json(directory / "policy.json", policy)
-    append_raw(
+    append_raw_locked(
         directory / "policy-history.jsonl",
         {
             "schema_version": 1,
@@ -1328,6 +1495,30 @@ def write_policy_version(
             "policy": policy,
         },
     )
+
+
+def write_policy_version(
+    directory: Path,
+    policy: dict[str, Any],
+    *,
+    kind: str,
+    reason: str,
+    evidence_values: list[str],
+) -> None:
+    with append_lock(directory):
+        current = read_json(directory / "policy.json")
+        validate_policy(current)
+        if current.get("policy_sha256") != policy.get("policy_sha256"):
+            raise SupervisionLogError(
+                "Supervision policy changed concurrently; reload before writing"
+            )
+        write_policy_version_locked(
+            directory,
+            policy,
+            kind=kind,
+            reason=reason,
+            evidence_values=evidence_values,
+        )
 
 
 def cmd_bind(args: argparse.Namespace) -> None:
@@ -1628,6 +1819,136 @@ def cmd_bind(args: argparse.Namespace) -> None:
     print(json.dumps({"changed": changed, "policy": policy}, sort_keys=True))
 
 
+def cmd_mission_successor(args: argparse.Namespace) -> None:
+    """Replace a completed or superseded mission without rewriting its history."""
+
+    directory, _ = load_policy(args)
+    from_root = clean(
+        args.from_mission_root, label="predecessor mission root", maximum=128
+    )
+    safe_id(from_root, label="predecessor mission root")
+    evidence_values = [
+        clean(value, label="mission succession evidence", maximum=256)
+        for value in args.evidence
+        if value.strip()
+    ]
+    if not evidence_values:
+        raise SupervisionLogError("Mission succession requires exact evidence")
+    if len(evidence_values) > 16:
+        raise SupervisionLogError("Too many mission succession evidence references")
+    requested = mission_binding_from_args(args, required=True)
+    assert requested is not None
+    disposition = str(args.predecessor_disposition)
+    reason = clean(args.reason, label="mission succession reason", maximum=480)
+    first_eligible_work = clean(
+        args.first_eligible_work,
+        label="successor first eligible work",
+        maximum=160,
+    )
+    if not first_eligible_work:
+        raise SupervisionLogError(
+            "Mission succession requires exact first eligible work"
+        )
+
+    with append_lock(directory):
+        policy = read_json(directory / "policy.json")
+        validate_policy(policy)
+        if policy.get("target_thread_id") != args.target_thread:
+            raise SupervisionLogError("Policy belongs to a different target")
+        current = bound_mission(policy)
+        if current is None:
+            raise SupervisionLogError(
+                "Mission succession requires an existing exact mission binding"
+            )
+        if current["mission_root"] != from_root:
+            raise SupervisionLogError("Predecessor mission root differs")
+        if mission_binding_identity(current) == mission_binding_identity(requested):
+            raise SupervisionLogError("Successor mission is unchanged")
+
+        all_events = events(directory / "events.jsonl")
+        incident_heads: dict[str, dict[str, Any]] = {}
+        decision_heads: dict[str, dict[str, Any]] = {}
+        for item in all_events:
+            incident_id = item.get("incident_id")
+            if incident_id and is_substantive_incident_record(
+                item, str(incident_id)
+            ):
+                incident_heads[str(incident_id)] = item
+            if item.get("kind") == "decision" and item.get("decision_id"):
+                decision_heads[str(item["decision_id"])] = item
+        open_incidents = [
+            item
+            for incident_id, item in incident_heads.items()
+            if not is_terminal_incident_record(item, incident_id)
+        ]
+        open_decisions = [
+            item
+            for item in decision_heads.values()
+            if item.get("phase") != "target-acknowledged"
+        ]
+        open_transitions = successor_transition_heads(all_events, open_only=True)
+        open_activations = mission_activation_heads(
+            mission_scoped_events(directory, policy, all_events), open_only=True
+        )
+        if open_incidents or open_decisions or open_transitions or open_activations:
+            raise SupervisionLogError(
+                "Mission succession requires closed incidents, decisions, successor "
+                "transitions, and current mission activation"
+            )
+        if disposition == "completed":
+            scoped = mission_scoped_events(directory, policy, all_events)
+            lifecycle = [item for item in scoped if item.get("kind") == "lifecycle"]
+            if not lifecycle or lifecycle[-1].get("status") != "completed":
+                raise SupervisionLogError(
+                    "Completed mission succession requires an exact predecessor lifecycle"
+                )
+            lifecycle_record = safe_id(
+                str(lifecycle[-1].get("record_id", "")),
+                label="completed lifecycle record ID",
+            )
+            evidence_values.append(lifecycle_record)
+        if len(evidence_values) > 16:
+            raise SupervisionLogError("Too many mission succession evidence references")
+
+        previous = {
+            "mission_root": current["mission_root"],
+            "mission_source_record": current["mission_source_record"],
+        }
+        policy["mission_binding"] = requested
+        write_policy_version_locked(
+            directory,
+            policy,
+            kind="policy-mission-successor",
+            reason=f"{disposition}: {reason}",
+            evidence_values=evidence_values,
+        )
+        activation = mission_activation_pending_record(
+            target_thread=args.target_thread,
+            mission_binding=requested,
+            activation_policy_sha256=str(policy["policy_sha256"]),
+            first_eligible_work=first_eligible_work,
+            evidence=evidence_values,
+        )
+        activation["record_id"] = f"EVT-{len(all_events) + 1:06d}"
+        append_event_locked(args, directory, activation)
+    print(
+        json.dumps(
+            {
+                "changed": True,
+                "predecessor_disposition": disposition,
+                "predecessor": previous,
+                "successor": {
+                    "mission_root": requested["mission_root"],
+                    "mission_source_record": requested["mission_source_record"],
+                },
+                "mission_activation": activation,
+                "policy": policy,
+            },
+            sort_keys=True,
+        )
+    )
+
+
 def yes_no_value(raw: str | None, *, label: str) -> bool:
     if raw not in {"yes", "no"}:
         raise SupervisionLogError(f"{label} requires yes or no")
@@ -1769,6 +2090,129 @@ def containment_envelope_from_args(
     }
 
 
+def failure_mode_envelope_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    failure_mode_id = safe_id(
+        str(getattr(args, "failure_mode_id", "")), label="failure mode ID"
+    )
+    layer = getattr(args, "failure_layer", None)
+    if layer not in FAILURE_MODE_LAYERS:
+        raise SupervisionLogError("Failure mode requires a maintained layer")
+    required_text = {
+        "mechanism": ("failure mechanism", 240),
+        "trigger": ("failure trigger", 300),
+        "effect": ("failure effect", 300),
+        "detection": ("failure detection", 300),
+        "correction": ("failure correction", 300),
+        "recurrence_invariant": ("failure recurrence invariant", 300),
+    }
+    result: dict[str, Any] = {
+        "failure_mode_id": failure_mode_id,
+        "layer": layer,
+    }
+    for field, (label, maximum) in required_text.items():
+        value = clean(
+            getattr(args, f"failure_{field}", None),
+            label=label,
+            maximum=maximum,
+        )
+        if not value:
+            raise SupervisionLogError(f"{label.title()} is required")
+        result[field] = value
+    result["human_scheduling_leak"] = yes_no_value(
+        getattr(args, "failure_human_scheduling_leak", None),
+        label="failure human scheduling leak",
+    )
+    return result
+
+
+def reusable_lane_envelope_from_args(args: argparse.Namespace) -> dict[str, Any]:
+    disposition = str(getattr(args, "reusable_lane_disposition", ""))
+    if disposition not in REUSABLE_LANE_DISPOSITIONS:
+        raise SupervisionLogError(
+            "Reusable lane requires one maintained bounded disposition"
+        )
+    owner = clean(
+        getattr(args, "reusable_lane_owner", ""),
+        label="reusable lane owner",
+        maximum=128,
+    )
+    if owner:
+        safe_id(owner, label="reusable lane owner")
+    rationale = clean(
+        getattr(args, "reusable_lane_rationale", ""),
+        label="reusable lane rationale",
+        maximum=300,
+    )
+    evidence = [
+        clean(item, label="reusable lane evidence", maximum=160)
+        for item in getattr(args, "reusable_lane_evidence", [])
+    ]
+    if len(evidence) > 8:
+        raise SupervisionLogError("Too many reusable lane evidence references")
+    if any(not item for item in evidence):
+        raise SupervisionLogError("Reusable lane evidence references must be exact")
+    if disposition in {"candidate-opened", "existing-owner-sufficient"}:
+        if not owner or not evidence:
+            raise SupervisionLogError(
+                f"Reusable lane disposition {disposition} requires an owner and evidence"
+            )
+    elif disposition == "repository-specific-not-applicable":
+        if not rationale:
+            raise SupervisionLogError(
+                "Repository-specific reusable lane disposition requires rationale"
+            )
+    elif disposition == "evidence-pending":
+        if not rationale or not evidence:
+            raise SupervisionLogError(
+                "Pending reusable lane disposition requires rationale and a next evidence trigger"
+            )
+    return {
+        "disposition": disposition,
+        "owner": owner,
+        "evidence": evidence,
+        "rationale": rationale,
+    }
+
+
+def is_supported_execution_economy_incident_record(
+    item: dict[str, Any], current_incident_id: str
+) -> bool:
+    if not is_substantive_incident_record(item, current_incident_id):
+        return False
+    category = item.get("category")
+    category_marks_economy = isinstance(category, str) and (
+        category == "execution-economy"
+        or category.startswith("execution-economy-")
+    )
+    failure_mode = item.get("failure_mode")
+    failure_mode_marks_economy = isinstance(failure_mode, Mapping) and (
+        failure_mode.get("failure_mode_id")
+        in REUSABLE_LANE_REQUIRED_FAILURE_MODE_IDS
+    )
+    return category_marks_economy or failure_mode_marks_economy
+
+
+def requires_reusable_lane_disposition(
+    current_events: list[dict[str, Any]], record: dict[str, Any]
+) -> bool:
+    incident_id_value = record.get("incident_id")
+    if not isinstance(incident_id_value, str) or not incident_id_value:
+        return False
+    if record.get("kind") in {"resolution", "meta-review"}:
+        effectiveness_or_closure = (
+            record.get("status") in REUSABLE_LANE_EFFECTIVENESS_STATUSES
+            or record.get("notice_disposition") == "terminal"
+        )
+    else:
+        return False
+    return effectiveness_or_closure and any(
+        is_supported_execution_economy_incident_record(
+            item, incident_id_value
+        )
+        for item in [*current_events, record]
+    )
+
+
 def cmd_thread_route_gate(args: argparse.Namespace) -> None:
     _, policy = load_policy(args)
     routing = policy.get("cross_thread_routing")
@@ -1874,7 +2318,8 @@ def gate_fingerprint(args: argparse.Namespace) -> str:
 def cmd_gate(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     fingerprint = gate_fingerprint(args)
-    prior = last_check(events(directory / "events.jsonl"))
+    all_events = events(directory / "events.jsonl")
+    prior = last_check(mission_scoped_events(directory, policy, all_events))
     changed = prior is None or prior.get("state_fingerprint") != fingerprint
     routing = policy["routing"]
     denominator = int(
@@ -1939,6 +2384,50 @@ def assess_outcome_completion_record(
         value = item.get(field)
         if not isinstance(value, str) or not SHA256.fullmatch(value):
             return False, f"The completion record lacks an exact {field} binding."
+    reviewer_id = item.get("capability_reconciliation_reviewer_id")
+    if not isinstance(reviewer_id, str) or not SAFE_ID.fullmatch(reviewer_id):
+        return False, "The completion record lacks the independent capability reviewer."
+    runtime = policy.get("runtime")
+    if not isinstance(runtime, Mapping):
+        return False, "The current policy lacks bound capability reviewer roles."
+    eligible_reviewers = {
+        value
+        for value in (
+            runtime.get("base_reviewer_thread_id"),
+            runtime.get("reviewer_thread_id"),
+        )
+        if isinstance(value, str) and value
+    }
+    disallowed_reviewers = {
+        value
+        for value in (
+            policy.get("target_thread_id"),
+            runtime.get("watcher_thread_id"),
+            runtime.get("fix_executor_thread_id"),
+        )
+        if isinstance(value, str) and value
+    }
+    if reviewer_id not in eligible_reviewers or reviewer_id in disallowed_reviewers:
+        return False, "The capability reviewer is not a bound independent role."
+    implementation_owner = item.get(
+        "capability_reconciliation_implementation_owner_id"
+    )
+    if (
+        not isinstance(implementation_owner, str)
+        or not SAFE_ID.fullmatch(implementation_owner)
+        or implementation_owner == reviewer_id
+    ):
+        return False, "The capability reconciliation is self-certified."
+    revision = item.get("capability_reconciliation_revision")
+    if not isinstance(revision, str) or not re.fullmatch(
+        r"(?:[0-9a-f]{40}|[0-9a-f]{64})", revision
+    ):
+        return False, "The completion record lacks the reconciled current revision."
+    if (
+        item.get("capability_reconciliation_posture") != "verified"
+        or item.get("capability_reconciliation_gap_count") != 0
+    ):
+        return False, "The capability reconciliation retains a supported outcome gap."
     evidence = item.get("evidence")
     if not isinstance(evidence, list) or not evidence or not all(
         isinstance(value, str) and value for value in evidence
@@ -1964,6 +2453,300 @@ def latest_outcome_completion_record(
     )
 
 
+def load_capability_reconciliation(
+    path_value: str,
+    *,
+    target_thread: str,
+    mission_root: str,
+    state_fingerprint: str,
+    current_revision: str,
+    policy: Mapping[str, Any],
+) -> tuple[dict[str, Any], str]:
+    source = Path(path_value).expanduser()
+    try:
+        if not source.is_file():
+            raise SupervisionLogError(
+                "Capability reconciliation source is not an explicit file"
+            )
+        if source.stat().st_size > MAX_CAPABILITY_RECONCILIATION_BYTES:
+            raise SupervisionLogError(
+                "Capability reconciliation exceeds its byte bound"
+            )
+        with source.open("rb") as handle:
+            raw = handle.read(MAX_CAPABILITY_RECONCILIATION_BYTES + 1)
+    except OSError as exc:
+        raise SupervisionLogError(
+            "Capability reconciliation source cannot be read"
+        ) from exc
+    if len(raw) > MAX_CAPABILITY_RECONCILIATION_BYTES:
+        raise SupervisionLogError("Capability reconciliation exceeds its byte bound")
+    try:
+        value = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SupervisionLogError("Capability reconciliation is not valid JSON") from exc
+    if not isinstance(value, dict):
+        raise SupervisionLogError("Capability reconciliation must be an object")
+    expected = {
+        "schema_version",
+        "kind",
+        "target_thread_id",
+        "mission_root",
+        "state_fingerprint",
+        "current_revision",
+        "implementation_owner_id",
+        "reviewer_id",
+        "requested_capability",
+        "protected_capabilities",
+        "selected_architecture_level",
+        "accepted_tradeoffs",
+        "current_behavior",
+        "operator_visible_effects",
+        "supported_gaps",
+        "completion_posture",
+        "evidence",
+    }
+    if set(value) != expected:
+        raise SupervisionLogError(
+            "Capability reconciliation has unexpected or missing fields"
+        )
+    if value.get("schema_version") != 1 or value.get("kind") != CAPABILITY_RECONCILIATION_KIND:
+        raise SupervisionLogError("Capability reconciliation kind or schema differs")
+    if value.get("target_thread_id") != target_thread:
+        raise SupervisionLogError("Capability reconciliation cites another target")
+    if value.get("mission_root") != mission_root:
+        raise SupervisionLogError("Capability reconciliation cites a stale mission")
+    if value.get("state_fingerprint") != state_fingerprint:
+        raise SupervisionLogError(
+            "Capability reconciliation cites a stale state fingerprint"
+        )
+    revision = value.get("current_revision")
+    if revision != current_revision:
+        raise SupervisionLogError(
+            "Capability reconciliation cites a stale current revision"
+        )
+    implementation_owner_value = value.get("implementation_owner_id")
+    reviewer_value = value.get("reviewer_id")
+    if not isinstance(implementation_owner_value, str) or not isinstance(
+        reviewer_value, str
+    ):
+        raise SupervisionLogError(
+            "Capability reconciliation owner identities must be strings"
+        )
+    implementation_owner = safe_id(
+        implementation_owner_value, label="capability implementation owner"
+    )
+    reviewer = safe_id(reviewer_value, label="capability reviewer")
+    if implementation_owner == reviewer:
+        raise SupervisionLogError(
+            "Capability reconciliation reviewer is not independent of implementation"
+        )
+    runtime = policy.get("runtime")
+    if not isinstance(runtime, Mapping):
+        raise SupervisionLogError("Capability reconciliation lacks bound reviewer roles")
+    eligible_reviewers = {
+        item
+        for item in (
+            runtime.get("base_reviewer_thread_id"),
+            runtime.get("reviewer_thread_id"),
+        )
+        if isinstance(item, str) and item
+    }
+    disallowed_reviewers = {
+        item
+        for item in (
+            policy.get("target_thread_id"),
+            runtime.get("watcher_thread_id"),
+            runtime.get("fix_executor_thread_id"),
+        )
+        if isinstance(item, str) and item
+    }
+    if reviewer not in eligible_reviewers or reviewer in disallowed_reviewers:
+        raise SupervisionLogError(
+            "Capability reconciliation reviewer is not an eligible bound independent role"
+        )
+
+    def exact_text(item: Any, *, label: str, maximum: int = 1200) -> str:
+        if (
+            not isinstance(item, str)
+            or not item
+            or item != item.strip()
+            or len(item) > maximum
+        ):
+            raise SupervisionLogError(
+                f"Capability reconciliation {label} is not exact and bounded"
+            )
+        return item
+
+    evidence = value.get("evidence")
+    if not isinstance(evidence, list) or not evidence or len(evidence) > 32:
+        raise SupervisionLogError(
+            "Capability reconciliation evidence is not a bounded array"
+        )
+    evidence_classes = {
+        "direct-authority",
+        "current-repository",
+        "observed-outcome",
+        "validation",
+        "independent-review",
+    }
+    evidence_by_id: dict[str, str] = {}
+    for item in evidence:
+        if not isinstance(item, dict) or set(item) != {
+            "evidence_id",
+            "evidence_class",
+            "source_root",
+        }:
+            raise SupervisionLogError("Capability reconciliation evidence shape differs")
+        evidence_id_value = item.get("evidence_id")
+        if not isinstance(evidence_id_value, str):
+            raise SupervisionLogError("Capability reconciliation evidence ID must be a string")
+        evidence_id = safe_id(evidence_id_value, label="capability evidence ID")
+        evidence_class = item.get("evidence_class")
+        if evidence_class not in evidence_classes:
+            raise SupervisionLogError(
+                "Capability reconciliation evidence class is unsupported"
+            )
+        exact_sha256(item.get("source_root"), label="capability evidence source root")
+        if evidence_id in evidence_by_id:
+            raise SupervisionLogError("Capability reconciliation repeats evidence")
+        evidence_by_id[evidence_id] = str(evidence_class)
+
+    def evidence_ids(item: Any, *, label: str) -> list[str]:
+        if not isinstance(item, list) or not item or len(item) > 16:
+            raise SupervisionLogError(
+                f"Capability reconciliation {label} evidence is not a bounded array"
+            )
+        result: list[str] = []
+        for evidence_id_value in item:
+            if not isinstance(evidence_id_value, str):
+                raise SupervisionLogError(
+                    f"Capability reconciliation {label} evidence ID must be a string"
+                )
+            evidence_id = safe_id(
+                evidence_id_value, label=f"capability {label} evidence ID"
+            )
+            if evidence_id not in evidence_by_id:
+                raise SupervisionLogError(
+                    f"Capability reconciliation {label} has dangling evidence"
+                )
+            result.append(evidence_id)
+        if len(result) != len(set(result)):
+            raise SupervisionLogError(
+                f"Capability reconciliation {label} repeats evidence"
+            )
+        return result
+
+    def claim(
+        item: Any,
+        *,
+        label: str,
+        required_classes: set[str],
+    ) -> None:
+        if not isinstance(item, dict) or set(item) != {"statement", "evidence_ids"}:
+            raise SupervisionLogError(f"Capability reconciliation {label} shape differs")
+        exact_text(item.get("statement"), label=f"{label} statement")
+        linked = evidence_ids(item.get("evidence_ids"), label=label)
+        if not ({evidence_by_id[evidence_id] for evidence_id in linked} & required_classes):
+            raise SupervisionLogError(
+                f"Capability reconciliation {label} lacks required evidence class"
+            )
+
+    claim(
+        value.get("requested_capability"),
+        label="requested capability",
+        required_classes={"direct-authority"},
+    )
+    for field, classes in (
+        ("protected_capabilities", {"direct-authority", "current-repository"}),
+        ("accepted_tradeoffs", {"direct-authority", "current-repository"}),
+        ("operator_visible_effects", {"observed-outcome"}),
+    ):
+        items = value.get(field)
+        if not isinstance(items, list) or not items or len(items) > 16:
+            raise SupervisionLogError(
+                f"Capability reconciliation {field} is not a bounded array"
+            )
+        for index, item in enumerate(items):
+            claim(
+                item,
+                label=f"{field} {index}",
+                required_classes=classes,
+            )
+    claim(
+        value.get("current_behavior"),
+        label="current behavior",
+        required_classes={"observed-outcome"},
+    )
+    architecture = value.get("selected_architecture_level")
+    if not isinstance(architecture, dict) or set(architecture) != {
+        "level",
+        "owner_ref",
+        "evidence_ids",
+    }:
+        raise SupervisionLogError(
+            "Capability reconciliation selected architecture level shape differs"
+        )
+    exact_text(architecture.get("level"), label="architecture level", maximum=160)
+    exact_text(architecture.get("owner_ref"), label="architecture owner", maximum=300)
+    architecture_evidence = evidence_ids(
+        architecture.get("evidence_ids"), label="selected architecture level"
+    )
+    if "current-repository" not in {
+        evidence_by_id[evidence_id] for evidence_id in architecture_evidence
+    }:
+        raise SupervisionLogError(
+            "Capability reconciliation architecture lacks current repository evidence"
+        )
+    gaps = value.get("supported_gaps")
+    if not isinstance(gaps, list) or len(gaps) > 16:
+        raise SupervisionLogError(
+            "Capability reconciliation supported_gaps is not a bounded array"
+        )
+    seen_gap_ids: set[str] = set()
+    for gap in gaps:
+        if not isinstance(gap, dict) or set(gap) != {
+            "gap_id",
+            "statement",
+            "owner_class",
+            "owner_ref",
+            "evidence_ids",
+        }:
+            raise SupervisionLogError("Capability reconciliation gap shape differs")
+        gap_id_value = gap.get("gap_id")
+        if not isinstance(gap_id_value, str):
+            raise SupervisionLogError("Capability reconciliation gap ID must be a string")
+        gap_id = safe_id(gap_id_value, label="capability gap ID")
+        if gap_id in seen_gap_ids:
+            raise SupervisionLogError("Capability reconciliation repeats a gap ID")
+        seen_gap_ids.add(gap_id)
+        exact_text(gap.get("statement"), label="gap statement", maximum=500)
+        if gap.get("owner_class") not in {
+            "authoring",
+            "implementation",
+            "supervision",
+            "target-repository",
+        }:
+            raise SupervisionLogError(
+                "Capability reconciliation gap owner class is unsupported"
+            )
+        exact_text(gap.get("owner_ref"), label="gap owner reference", maximum=300)
+        gap_evidence = evidence_ids(gap.get("evidence_ids"), label="supported gap")
+        if "observed-outcome" not in {
+            evidence_by_id[evidence_id] for evidence_id in gap_evidence
+        }:
+            raise SupervisionLogError(
+                "Capability reconciliation gap lacks observed outcome evidence"
+            )
+    posture = value.get("completion_posture")
+    if posture not in CAPABILITY_RECONCILIATION_POSTURES:
+        raise SupervisionLogError("Capability reconciliation posture is unsupported")
+    if (posture == "verified") != (not gaps):
+        raise SupervisionLogError(
+            "Capability reconciliation gap set contradicts its completion posture"
+        )
+    return value, digest(value)
+
+
 def cmd_completion_record(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     if policy.get("outcome_completion") != outcome_completion_contract():
@@ -1979,6 +2762,9 @@ def cmd_completion_record(args: argparse.Namespace) -> None:
     state_fingerprint = safe_id(
         args.state_fingerprint, label="state fingerprint"
     )
+    current_revision = str(args.current_revision)
+    if not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", current_revision):
+        raise SupervisionLogError("Outcome completion requires an exact current revision")
     if args.model != outcome_completion_contract()["reviewer_model"]:
         raise SupervisionLogError("Outcome completion requires the configured Sol reviewer")
     if args.reasoning not in outcome_completion_contract()["reviewer_reasoning"]:
@@ -1992,6 +2778,18 @@ def cmd_completion_record(args: argparse.Namespace) -> None:
         raise SupervisionLogError("Outcome completion requires exact source evidence")
     if len(evidence_values) > 16:
         raise SupervisionLogError("Too many outcome-completion evidence references")
+    reconciliation, reconciliation_root = load_capability_reconciliation(
+        args.capability_reconciliation_json,
+        target_thread=args.target_thread,
+        mission_root=mission_root,
+        state_fingerprint=state_fingerprint,
+        current_revision=current_revision,
+        policy=policy,
+    )
+    if args.status == "verified" and reconciliation["completion_posture"] != "verified":
+        raise SupervisionLogError(
+            "Verified completion cannot retain a supported capability gap"
+        )
     record: dict[str, Any] = {
         "schema_version": 1,
         "record_id": "",
@@ -2010,9 +2808,20 @@ def cmd_completion_record(args: argparse.Namespace) -> None:
         "evidence": evidence_values,
         "mission_root": mission_root,
         "policy_sha256": policy["policy_sha256"],
+        "capability_reconciliation_reviewer_id": reconciliation["reviewer_id"],
+        "capability_reconciliation_implementation_owner_id": reconciliation[
+            "implementation_owner_id"
+        ],
+        "capability_reconciliation_revision": reconciliation["current_revision"],
+        "capability_reconciliation_posture": reconciliation["completion_posture"],
+        "capability_reconciliation_gap_count": len(reconciliation["supported_gaps"]),
     }
     for field in OUTCOME_COMPLETION_HASH_FIELDS:
-        record[field] = exact_sha256(getattr(args, field), label=field)
+        record[field] = (
+            reconciliation_root
+            if field == "capability_reconciliation_sha256"
+            else exact_sha256(getattr(args, field), label=field)
+        )
     with append_lock(directory):
         current_events = events(directory / "events.jsonl")
         prior = latest_outcome_completion_record(
@@ -2037,7 +2846,7 @@ def cmd_completion_record(args: argparse.Namespace) -> None:
             )
             return
         record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
-        append_raw_locked(directory / "events.jsonl", record)
+        append_event_locked(args, directory, record)
     print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
 
 
@@ -2083,9 +2892,44 @@ def cmd_record(args: argparse.Namespace) -> None:
                 "Structured containment evidence requires an incident or steer record"
             )
         record["containment"] = containment_envelope_from_args(args, policy)
+    if getattr(args, "failure_mode", False):
+        if args.kind not in {"incident", "steer", "resolution", "meta-review"}:
+            raise SupervisionLogError(
+                "Structured failure-mode evidence requires an incident-owned record"
+            )
+        if args.kind != "incident" and not args.incident_id:
+            raise SupervisionLogError(
+                "A successor failure-mode record must reference its incident"
+            )
+        record["failure_mode"] = failure_mode_envelope_from_args(args)
+    reusable_lane_inputs = any(
+        (
+            getattr(args, "reusable_lane_disposition", ""),
+            getattr(args, "reusable_lane_owner", ""),
+            getattr(args, "reusable_lane_rationale", ""),
+            getattr(args, "reusable_lane_evidence", []),
+        )
+    )
+    if reusable_lane_inputs:
+        if args.kind not in {"resolution", "meta-review"} or not args.incident_id:
+            raise SupervisionLogError(
+                "Reusable lane disposition requires an incident-owned effectiveness or resolution record"
+            )
+        record["reusable_lane"] = reusable_lane_envelope_from_args(args)
     with append_lock(directory):
         current_events = events(directory / "events.jsonl")
         if args.kind == "lifecycle" and record["status"] == "completed":
+            if successor_transition_heads(current_events, open_only=True):
+                raise SupervisionLogError(
+                    "Completed lifecycle rejected: an open successor transition "
+                    "has not reached work-started"
+                )
+            active_events = mission_scoped_events(directory, policy, current_events)
+            if mission_activation_heads(active_events, open_only=True):
+                raise SupervisionLogError(
+                    "Completed lifecycle rejected: current mission first work "
+                    "has not started"
+                )
             completion_record = latest_outcome_completion_record(
                 current_events, state_fingerprint=record["state_fingerprint"]
             )
@@ -2131,6 +2975,14 @@ def cmd_record(args: argparse.Namespace) -> None:
                 return
         if args.kind == "incident" or args.incident_id:
             record["incident_id"] = incident_id(args, record)
+        if (
+            policy.get("execution_economy") == execution_economy_contract()
+            and requires_reusable_lane_disposition(current_events, record)
+            and "reusable_lane" not in record
+        ):
+            raise SupervisionLogError(
+                "Supported execution-economy incident effectiveness or closure requires an explicit reusable lane disposition"
+            )
         sequence = len(current_events) + 1
         record["record_id"] = f"EVT-{sequence:06d}"
 
@@ -2162,7 +3014,7 @@ def cmd_record(args: argparse.Namespace) -> None:
             review_record = dict(record)
             review_record["incident_id"] = review_id
 
-        append_raw_locked(directory / "events.jsonl", record)
+        append_event_locked(args, directory, record)
         if incident_path is not None:
             append_markdown(incident_path, record, create=args.kind == "incident")
         if review_path is not None and review_record is not None:
@@ -2514,6 +3366,18 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
     if state_fingerprint and source.get("state_fingerprint") != state_fingerprint:
         raise SupervisionLogError("Lifecycle source record fingerprint differs")
 
+    open_transitions = successor_transition_heads(all_events, open_only=True)
+    transition_stop_conflict = bool(
+        open_transitions
+        and lifecycle_state in {"completed", "paused", "stopped"}
+    )
+    active_events = mission_scoped_events(directory, policy, all_events)
+    open_activations = mission_activation_heads(active_events, open_only=True)
+    activation_stop_conflict = bool(
+        open_activations
+        and lifecycle_state in {"completed", "paused", "stopped"}
+    )
+
     completion_permitted = True
     completion_record_id: str | None = None
     completion_reason = "The lifecycle state does not require outcome completion proof."
@@ -2536,6 +3400,18 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
             completion_reason = (
                 "The completed lifecycle is not bound to the current "
                 "observable-outcome record."
+            )
+        if transition_stop_conflict:
+            completion_permitted = False
+            completion_reason = (
+                "An open successor transition has not reached work-started; "
+                "handoff is not completion of the governing requested scope."
+            )
+        elif activation_stop_conflict:
+            completion_permitted = False
+            completion_reason = (
+                "The current mission has not reached exact first-work-start "
+                "evidence after its binding."
             )
 
     terminal_reporting = bool(
@@ -2646,7 +3522,11 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                     else "primary-status" if send_now else "none"
                 ),
                 "completion_action": (
-                    "open-critical-false-completion-review"
+                    MISSION_ACTIVATION_START_ACTION
+                    if activation_stop_conflict
+                    else "resume-successor-transition"
+                    if transition_stop_conflict
+                    else "open-critical-false-completion-review"
                     if not completion_permitted
                     else "prepare-finalize-verify-email-and-record-terminal-reports"
                     if terminal_reporting and not terminal_reports_delivered
@@ -2678,7 +3558,12 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                 ),
                 "send_now": send_now,
                 "source_record": source_record,
+                "source_stop_permitted": not (
+                    transition_stop_conflict or activation_stop_conflict
+                ),
                 "state_fingerprint": source.get("state_fingerprint", ""),
+                "open_mission_activations": list(open_activations.values()),
+                "open_successor_transitions": list(open_transitions.values()),
                 "supervision_pause_permitted": supervision_pause_permitted,
                 "terminal_email_recipient": (
                     notification_config.get("recipient") if terminal_reporting else None
@@ -2702,6 +3587,566 @@ def decision_events(
         for item in all_events
         if item.get("kind") == "decision" and item.get("decision_id") == decision_id
     ]
+
+
+def mission_activation_identity(
+    *,
+    target_thread: str,
+    mission_root: str,
+    mission_source_record: str,
+    activation_policy_sha256: str,
+    first_eligible_work: str,
+) -> str:
+    material = {
+        "kind": "same-target-mission-activation",
+        "target_thread_id": target_thread,
+        "mission_root": mission_root,
+        "mission_source_record": mission_source_record,
+        "activation_policy_sha256": activation_policy_sha256,
+        "first_eligible_work": first_eligible_work,
+    }
+    return f"MACT-{digest(material)[:24].upper()}"
+
+
+def mission_activation_pending_record(
+    *,
+    target_thread: str,
+    mission_binding: Mapping[str, Any],
+    activation_policy_sha256: str,
+    first_eligible_work: str,
+    evidence: list[str],
+) -> dict[str, Any]:
+    mission_root = exact_sha256(
+        mission_binding.get("mission_root"), label="activation mission root"
+    )
+    mission_source_record = safe_id(
+        str(mission_binding.get("mission_source_record", "")),
+        label="activation mission source record",
+    )
+    policy_sha256 = exact_sha256(
+        activation_policy_sha256, label="activation policy SHA-256"
+    )
+    work_identity = clean(
+        first_eligible_work, label="first eligible work", maximum=160
+    )
+    if not work_identity:
+        raise SupervisionLogError("Mission activation requires first eligible work")
+    return {
+        "schema_version": 1,
+        "record_id": "",
+        "timestamp": utc_now(),
+        "target_thread_id": target_thread,
+        "kind": "mission-activation",
+        "activation_id": mission_activation_identity(
+            target_thread=target_thread,
+            mission_root=mission_root,
+            mission_source_record=mission_source_record,
+            activation_policy_sha256=policy_sha256,
+            first_eligible_work=work_identity,
+        ),
+        "phase": "pending",
+        "mission_root": mission_root,
+        "mission_source_record": mission_source_record,
+        "activation_policy_sha256": policy_sha256,
+        "first_eligible_work": work_identity,
+        "source_record": "",
+        "evidence": evidence,
+        "policy_sha256": policy_sha256,
+    }
+
+
+def mission_activation_events(
+    all_events: list[dict[str, Any]], activation_id: str
+) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in all_events
+        if item.get("kind") == "mission-activation"
+        and item.get("activation_id") == activation_id
+    ]
+
+
+def mission_activation_heads(
+    all_events: list[dict[str, Any]], *, open_only: bool = False
+) -> dict[str, dict[str, Any]]:
+    heads: dict[str, dict[str, Any]] = {}
+    for item in all_events:
+        activation_id = item.get("activation_id")
+        if item.get("kind") == "mission-activation" and isinstance(
+            activation_id, str
+        ):
+            heads[activation_id] = item
+    if not open_only:
+        return heads
+    return {
+        activation_id: item
+        for activation_id, item in heads.items()
+        if item.get("phase") != "work-started"
+    }
+
+
+def cmd_mission_activation_start(args: argparse.Namespace) -> None:
+    directory, _ = load_policy(args)
+    mission_root = exact_sha256(args.mission_root, label="activation mission root")
+    activation_policy_sha256 = exact_sha256(
+        args.activation_policy_sha256, label="activation policy SHA-256"
+    )
+    first_eligible_work = clean(
+        args.first_eligible_work, label="first eligible work", maximum=160
+    )
+    if not first_eligible_work:
+        raise SupervisionLogError("Mission activation requires first eligible work")
+    source_record = safe_id(
+        args.source_record, label="mission activation source record"
+    )
+    evidence_values = [
+        clean(item, label="mission activation evidence", maximum=160)
+        for item in args.evidence
+    ]
+    if not evidence_values or not all(evidence_values):
+        raise SupervisionLogError(
+            "Mission activation work-started requires exact nonempty evidence"
+        )
+    if len(evidence_values) > 16:
+        raise SupervisionLogError("Too many mission activation evidence references")
+
+    with append_lock(directory):
+        policy = read_json(directory / "policy.json")
+        validate_policy(policy)
+        if policy.get("target_thread_id") != args.target_thread:
+            raise SupervisionLogError("Policy belongs to a different target")
+        mission = bound_mission(policy)
+        if mission is None or mission.get("mission_root") != mission_root:
+            raise SupervisionLogError(
+                "Mission activation cites a stale or different mission root"
+            )
+        all_events = events(directory / "events.jsonl")
+        active_events = mission_scoped_events(directory, policy, all_events)
+        heads = mission_activation_heads(active_events)
+        candidates = [
+            item
+            for item in heads.values()
+            if item.get("mission_root") == mission_root
+            and item.get("mission_source_record")
+            == mission.get("mission_source_record")
+        ]
+        if len(candidates) != 1:
+            raise SupervisionLogError(
+                "Current mission has no unique activation obligation"
+            )
+        head = candidates[0]
+        if head.get("phase") not in MISSION_ACTIVATION_PHASES:
+            raise SupervisionLogError("Mission activation phase is invalid")
+        if head.get("activation_policy_sha256") != activation_policy_sha256:
+            raise SupervisionLogError("Mission activation policy identity differs")
+        if head.get("first_eligible_work") != first_eligible_work:
+            raise SupervisionLogError("Mission activation first work identity differs")
+
+        source_index = next(
+            (
+                index
+                for index, item in enumerate(all_events)
+                if item.get("record_id") == source_record
+            ),
+            None,
+        )
+        if source_index is None:
+            raise SupervisionLogError(
+                "Mission activation source record does not exist"
+            )
+        source = all_events[source_index]
+        records = mission_activation_events(
+            all_events, str(head["activation_id"])
+        )
+        pending = records[0] if records else None
+        if pending is None or pending.get("phase") != "pending":
+            raise SupervisionLogError("Mission activation lacks its pending binding")
+        pending_index = next(
+            index
+            for index, item in enumerate(all_events)
+            if item.get("record_id") == pending.get("record_id")
+        )
+        if source_index <= pending_index:
+            raise SupervisionLogError(
+                "Mission activation cannot use pre-binding evidence"
+            )
+        if source.get("target_thread_id") != args.target_thread:
+            raise SupervisionLogError(
+                "Mission activation source belongs to another target"
+            )
+        source_root = policy_mission_roots(directory).get(
+            str(source.get("policy_sha256", ""))
+        )
+        if source_root != mission_root:
+            raise SupervisionLogError(
+                "Mission activation source belongs to another mission"
+            )
+        source_evidence = source.get("evidence")
+        if (
+            not isinstance(source_evidence, list)
+            or not all(isinstance(item, str) for item in source_evidence)
+            or not set(evidence_values) <= set(source_evidence)
+        ):
+            raise SupervisionLogError(
+                "Mission activation evidence is not bound to its source record"
+            )
+
+        record = {
+            "schema_version": 1,
+            "record_id": "",
+            "timestamp": utc_now(),
+            "target_thread_id": args.target_thread,
+            "kind": "mission-activation",
+            "activation_id": head["activation_id"],
+            "phase": "work-started",
+            "mission_root": mission_root,
+            "mission_source_record": mission["mission_source_record"],
+            "activation_policy_sha256": activation_policy_sha256,
+            "first_eligible_work": first_eligible_work,
+            "source_record": source_record,
+            "evidence": evidence_values,
+            "policy_sha256": policy["policy_sha256"],
+        }
+        if head.get("phase") == "work-started":
+            if all(
+                head.get(field) == record.get(field)
+                for field in (
+                    "activation_id",
+                    "phase",
+                    "mission_root",
+                    "mission_source_record",
+                    "activation_policy_sha256",
+                    "first_eligible_work",
+                    "source_record",
+                    "evidence",
+                )
+            ):
+                print(
+                    json.dumps(
+                        {"duplicate": True, "record_id": head["record_id"]},
+                        sort_keys=True,
+                    )
+                )
+                return
+            raise SupervisionLogError(
+                "Mission activation already closed with different evidence"
+            )
+        record["record_id"] = f"EVT-{len(all_events) + 1:06d}"
+        append_event_locked(args, directory, record)
+    print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
+
+
+def successor_transition_events(
+    all_events: list[dict[str, Any]], transition_id: str
+) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in all_events
+        if item.get("kind") == "successor-transition"
+        and item.get("transition_id") == transition_id
+    ]
+
+
+def successor_transition_heads(
+    all_events: list[dict[str, Any]], *, open_only: bool = False
+) -> dict[str, dict[str, Any]]:
+    heads: dict[str, dict[str, Any]] = {}
+    for item in all_events:
+        transition_id = item.get("transition_id")
+        if item.get("kind") == "successor-transition" and isinstance(
+            transition_id, str
+        ):
+            heads[transition_id] = item
+    if not open_only:
+        return heads
+    return {
+        transition_id: item
+        for transition_id, item in heads.items()
+        if item.get("phase") != "work-started"
+    }
+
+
+def validate_successor_transition(
+    prior: dict[str, Any] | None,
+    record: dict[str, Any],
+) -> None:
+    phase = str(record["phase"])
+    phase_index = SUCCESSOR_TRANSITION_PHASES.index(phase)
+    if prior is None:
+        if phase != "required":
+            raise SupervisionLogError("A successor transition must begin required")
+    else:
+        prior_phase = str(prior.get("phase", ""))
+        if prior_phase not in SUCCESSOR_TRANSITION_PHASES:
+            raise SupervisionLogError("Prior successor transition phase is invalid")
+        prior_index = SUCCESSOR_TRANSITION_PHASES.index(prior_phase)
+        if phase_index != prior_index + 1:
+            raise SupervisionLogError(
+                f"Successor transition {prior_phase} -> {phase} is not allowed"
+            )
+        for field in SUCCESSOR_TRANSITION_IDENTITY_FIELDS:
+            if prior.get(field) != record.get(field):
+                raise SupervisionLogError(
+                    f"Successor transition must preserve {field.replace('_', ' ')}"
+                )
+
+    required_by_phase = {
+        "successor-created": ("successor_thread_id",),
+        "successor-bound": (
+            "successor_thread_id",
+            "successor_mission_root",
+            "successor_group_id",
+        ),
+        "handoff-sent": (
+            "successor_thread_id",
+            "successor_mission_root",
+            "successor_group_id",
+            "handoff_record",
+        ),
+        "target-acknowledged": (
+            "successor_thread_id",
+            "successor_mission_root",
+            "successor_group_id",
+            "handoff_record",
+            "acknowledgement_record",
+        ),
+        "work-started": (
+            "successor_thread_id",
+            "successor_mission_root",
+            "successor_group_id",
+            "handoff_record",
+            "acknowledgement_record",
+            "started_block",
+        ),
+    }
+    expected_fields = required_by_phase.get(phase, ())
+    for field in expected_fields:
+        if not record.get(field):
+            raise SupervisionLogError(
+                f"{phase} requires {field.replace('_', ' ')}"
+            )
+    all_successor_fields = {
+        field
+        for fields in required_by_phase.values()
+        for field in fields
+    }
+    allowed_successor_fields = set(expected_fields)
+    for field in all_successor_fields - allowed_successor_fields:
+        if record.get(field):
+            raise SupervisionLogError(
+                f"{phase} cannot claim later {field.replace('_', ' ')}"
+            )
+    if prior is not None:
+        for field in all_successor_fields:
+            prior_value = prior.get(field, "")
+            if prior_value and record.get(field) != prior_value:
+                raise SupervisionLogError(
+                    f"Successor transition cannot change {field.replace('_', ' ')}"
+                )
+    if phase == "work-started" and record.get("started_block") != record.get(
+        "first_eligible_block"
+    ):
+        raise SupervisionLogError(
+            "Work must start at the transition's first eligible Block"
+        )
+
+
+def cmd_successor_transition_record(args: argparse.Namespace) -> None:
+    directory, policy = load_policy(args)
+    transition_id = safe_id(args.transition_id, label="successor transition ID")
+    evidence_values = [
+        clean(item, label="successor transition evidence", maximum=160)
+        for item in args.evidence
+    ]
+    if not evidence_values or not all(evidence_values):
+        raise SupervisionLogError(
+            "Successor transition records require exact nonempty evidence"
+        )
+    if len(evidence_values) > 16:
+        raise SupervisionLogError("Too many successor transition evidence references")
+    authority_source_class = args.governing_authority_source_class
+    if authority_source_class not in DIRECT_AUTHORITY_SOURCE_CLASSES:
+        raise SupervisionLogError(
+            "A successor implementation transition requires governing direct authority"
+        )
+    authority_source_record = safe_id(
+        args.governing_authority_source_record,
+        label="governing authority source record",
+    )
+    tracker_source_record = clean(
+        args.tracker_source_record,
+        label="tracker source record",
+        maximum=160,
+    )
+    if not tracker_source_record:
+        raise SupervisionLogError("Tracker source record is required")
+    requested_block_range = clean(
+        args.requested_block_range,
+        label="requested Block range",
+        maximum=80,
+    )
+    first_eligible_block = clean(
+        args.first_eligible_block,
+        label="first eligible Block",
+        maximum=40,
+    )
+    if not requested_block_range or not first_eligible_block:
+        raise SupervisionLogError(
+            "Successor transition requires its Block range and first eligible Block"
+        )
+
+    successor_thread_id = clean(
+        args.successor_thread, label="successor thread ID", maximum=128
+    )
+    successor_group_id = clean(
+        args.successor_group_id, label="successor group ID", maximum=128
+    )
+    handoff_record = clean(
+        args.handoff_record, label="handoff record", maximum=128
+    )
+    acknowledgement_record = clean(
+        args.acknowledgement_record,
+        label="acknowledgement record",
+        maximum=128,
+    )
+    for label, value in (
+        ("successor thread ID", successor_thread_id),
+        ("successor group ID", successor_group_id),
+        ("handoff record", handoff_record),
+        ("acknowledgement record", acknowledgement_record),
+    ):
+        if value:
+            safe_id(value, label=label)
+    successor_mission_root = clean(
+        args.successor_mission_root,
+        label="successor mission root",
+        maximum=64,
+    )
+    if successor_mission_root:
+        successor_mission_root = exact_sha256(
+            successor_mission_root, label="successor mission root"
+        )
+    record: dict[str, Any] = {
+        "schema_version": 1,
+        "record_id": "",
+        "timestamp": parse_time(args.now).isoformat(),
+        "target_thread_id": args.target_thread,
+        "kind": "successor-transition",
+        "transition_id": transition_id,
+        "phase": args.phase,
+        "tracker_sha256": exact_sha256(
+            args.tracker_sha256, label="tracker SHA-256"
+        ),
+        "tracker_source_record": tracker_source_record,
+        "requested_block_range": requested_block_range,
+        "first_eligible_block": first_eligible_block,
+        "source_mission_root": exact_sha256(
+            args.source_mission_root, label="source mission root"
+        ),
+        "governing_authority_source_class": authority_source_class,
+        "governing_authority_source_record": authority_source_record,
+        "successor_thread_id": successor_thread_id,
+        "successor_mission_root": successor_mission_root,
+        "successor_group_id": successor_group_id,
+        "handoff_record": handoff_record,
+        "acknowledgement_record": acknowledgement_record,
+        "started_block": clean(
+            args.started_block, label="started Block", maximum=40
+        ),
+        "state_fingerprint": clean(
+            args.state_fingerprint,
+            label="state fingerprint",
+            maximum=128,
+        ),
+        "evidence": evidence_values,
+        "policy_sha256": policy["policy_sha256"],
+    }
+    with append_lock(directory):
+        all_events = events(directory / "events.jsonl")
+        records = successor_transition_events(all_events, transition_id)
+        prior = records[-1] if records else None
+        if prior is not None and all(
+            prior.get(field) == record.get(field)
+            for field in (
+                "phase",
+                *SUCCESSOR_TRANSITION_IDENTITY_FIELDS,
+                "successor_thread_id",
+                "successor_mission_root",
+                "successor_group_id",
+                "handoff_record",
+                "acknowledgement_record",
+                "started_block",
+                "state_fingerprint",
+                "evidence",
+            )
+        ):
+            print(
+                json.dumps(
+                    {"duplicate": True, "record_id": prior["record_id"]},
+                    sort_keys=True,
+                )
+            )
+            return
+        validate_successor_transition(prior, record)
+        record["record_id"] = f"EVT-{len(all_events) + 1:06d}"
+        append_event_locked(args, directory, record)
+    print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
+
+
+def cmd_successor_transition_gate(args: argparse.Namespace) -> None:
+    directory, policy = load_policy(args)
+    transition_id = safe_id(args.transition_id, label="successor transition ID")
+    records = successor_transition_events(
+        events(directory / "events.jsonl"), transition_id
+    )
+    if not records:
+        raise SupervisionLogError("Successor transition does not exist")
+    head = records[-1]
+    phase = str(head["phase"])
+    if phase == "required":
+        if args.task_creation_authority == "available":
+            next_action = "create-successor-task"
+            authority_required = False
+        else:
+            next_action = "keep-open-await-direct-task-creation-authority"
+            authority_required = True
+    else:
+        authority_required = False
+        next_action = {
+            "successor-created": "bind-successor-mission-and-isolated-supervision",
+            "successor-bound": "send-exact-handoff",
+            "handoff-sent": "obtain-target-acknowledgement",
+            "target-acknowledged": "start-first-eligible-block",
+            "work-started": "continue-successor-and-close-transition-incident",
+        }[phase]
+    source_stop_permitted = phase == "work-started"
+    print(
+        json.dumps(
+            {
+                "transition_id": transition_id,
+                "phase": phase,
+                "transition_open": not source_stop_permitted,
+                "source_stop_permitted": source_stop_permitted,
+                "required_source_posture": (
+                    "transition-satisfied" if source_stop_permitted else "in-progress"
+                ),
+                "next_action": next_action,
+                "direct_task_creation_authority_required": authority_required,
+                "human_input_required": authority_required,
+                "task_creation_authority": args.task_creation_authority,
+                "failure_mode_if_stopped": "handoff-without-continuation",
+                "tracker_sha256": head["tracker_sha256"],
+                "tracker_source_record": head["tracker_source_record"],
+                "successor_thread_id": head.get("successor_thread_id") or None,
+                "successor_mission_root": head.get("successor_mission_root") or None,
+                "successor_group_id": head.get("successor_group_id") or None,
+                "first_eligible_block": head["first_eligible_block"],
+                "policy_sha256": policy["policy_sha256"],
+                "record_id": head["record_id"],
+            },
+            sort_keys=True,
+        )
+    )
 
 
 def validate_decision_transition(
@@ -2995,7 +4440,7 @@ def cmd_decision_record(args: argparse.Namespace) -> None:
             "policy_sha256": policy["policy_sha256"],
             **mission_impact,
         }
-        append_raw_locked(directory / "events.jsonl", record)
+        append_event_locked(args, directory, record)
     print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
 
 
@@ -3321,6 +4766,354 @@ def cmd_adjust(args: argparse.Namespace) -> None:
         evidence_values=evidence_values,
     )
     print(json.dumps({"changed": True, "policy": policy}, sort_keys=True))
+
+
+def factory_evolution_module() -> Any:
+    try:
+        import factory_evolution
+    except ImportError as exc:
+        raise SupervisionLogError(
+            "Factory evolution implementation is unavailable"
+        ) from exc
+    return factory_evolution
+
+
+def factory_evolution_call(module: Any, name: str, *args: Any, **kwargs: Any) -> Any:
+    try:
+        return getattr(module, name)(*args, **kwargs)
+    except module.FactoryEvolutionError as exc:
+        raise SupervisionLogError(str(exc)) from exc
+
+
+def factory_evolution_directory(directory: Path, evolution_id: str) -> Path:
+    safe_id(evolution_id, label="factory evolution ID")
+    base = (directory / "learning" / "factory-evolution").resolve()
+    if directory.resolve() not in base.parents:
+        raise SupervisionLogError("Factory evolution owner escaped the target directory")
+    result = (base / evolution_id).resolve()
+    if result.parent != base:
+        raise SupervisionLogError("Factory evolution directory escaped its owner")
+    return result
+
+
+def factory_evolution_json_bytes(value: Mapping[str, Any]) -> bytes:
+    return json.dumps(
+        value, ensure_ascii=False, sort_keys=True, indent=2
+    ).encode("utf-8") + b"\n"
+
+
+def write_factory_evolution_set(
+    directory: Path, artifacts: Mapping[str, Mapping[str, Any]]
+) -> dict[str, list[str]]:
+    if not artifacts or not set(artifacts) <= FACTORY_EVOLUTION_ARTIFACT_NAMES:
+        raise SupervisionLogError("Factory evolution artifact set is invalid")
+    expected = {
+        name: factory_evolution_json_bytes(value)
+        for name, value in artifacts.items()
+    }
+    reused: list[str] = []
+    missing: list[str] = []
+    with factory_evolution_lock(directory):
+        verify_factory_evolution_inventory(directory)
+        for name in sorted(expected):
+            path = directory / name
+            if path.parent != directory:
+                raise SupervisionLogError("Factory evolution artifact escaped its set")
+            if path.exists():
+                if path.read_bytes() != expected[name]:
+                    raise SupervisionLogError(
+                        f"Existing factory evolution artifact differs: {name}"
+                    )
+                reused.append(name)
+            else:
+                missing.append(name)
+        for name in missing:
+            atomic_json(directory / name, dict(artifacts[name]))
+    return {"written": missing, "reused": reused}
+
+
+@contextmanager
+def factory_evolution_lock(directory: Path) -> Iterator[None]:
+    directory.mkdir(parents=True, exist_ok=True)
+    lock_path = directory / ".append.lock"
+    flags = os.O_RDWR | os.O_CREAT
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(lock_path, flags, 0o600)
+    except OSError as exc:
+        raise SupervisionLogError("Cannot open Factory evolution lock safely") from exc
+    try:
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+def verify_factory_evolution_inventory(directory: Path) -> None:
+    if not directory.exists():
+        return
+    allowed = FACTORY_EVOLUTION_ARTIFACT_NAMES | {".append.lock"}
+    unexpected = sorted(item.name for item in directory.iterdir() if item.name not in allowed)
+    if unexpected:
+        raise SupervisionLogError(
+            "Factory evolution set contains unexpected artifacts: "
+            + ", ".join(unexpected)
+        )
+
+
+def require_factory_evolution_artifacts(
+    directory: Path, names: tuple[str, ...]
+) -> dict[str, dict[str, Any]]:
+    missing = [name for name in names if not (directory / name).is_file()]
+    if missing:
+        raise SupervisionLogError(
+            "Factory evolution action is out of order; missing " + ", ".join(missing)
+        )
+    return {name: read_json(directory / name) for name in names}
+
+
+def verify_factory_evolution_prepare(
+    module: Any, directory: Path
+) -> dict[str, Any]:
+    artifacts = require_factory_evolution_artifacts(
+        directory, ("learning-packet.json", "prepare-manifest.json")
+    )
+    packet = factory_evolution_call(
+        module, "verify_learning_packet", artifacts["learning-packet.json"]
+    )
+    factory_evolution_call(
+        module,
+        "verify_evolution_manifest",
+        artifacts["prepare-manifest.json"],
+        {"learning-packet.json": packet},
+    )
+    return packet
+
+
+def verify_factory_evolution_finalize(
+    module: Any, directory: Path
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    packet = verify_factory_evolution_prepare(module, directory)
+    artifacts = require_factory_evolution_artifacts(
+        directory, ("review.json", "finalize-manifest.json")
+    )
+    review = factory_evolution_call(
+        module, "verify_evolution_review", packet, artifacts["review.json"]
+    )
+    factory_evolution_call(
+        module,
+        "verify_evolution_manifest",
+        artifacts["finalize-manifest.json"],
+        {"learning-packet.json": packet, "review.json": review},
+    )
+    return packet, review
+
+
+def cmd_factory_evolution_prepare(args: argparse.Namespace) -> None:
+    if not args.report_paths or not args.event_paths:
+        raise SupervisionLogError(
+            "Factory evolution prepare requires explicit report and event paths"
+        )
+    if args.review_json or args.evaluation_json:
+        raise SupervisionLogError("Factory evolution prepare received a later-stage input")
+    module = factory_evolution_module()
+    directory = factory_evolution_directory(
+        target_dir(args), safe_id(args.evolution_id, label="factory evolution ID")
+    )
+    packet = factory_evolution_call(
+        module,
+        "build_learning_packet",
+        report_paths=args.report_paths,
+        event_paths=args.event_paths,
+    )
+    prepare_manifest = factory_evolution_call(
+        module,
+        "build_evolution_manifest",
+        {"learning-packet.json": packet},
+    )
+    write_result = write_factory_evolution_set(
+        directory,
+        {
+            "learning-packet.json": packet,
+            "prepare-manifest.json": prepare_manifest,
+        },
+    )
+    print(
+        json.dumps(
+            {
+                "action": "prepare",
+                "evolution_id": args.evolution_id,
+                "stage": "prepared",
+                "packet_id": packet["packet_id"],
+                "packet_root": packet["packet_root"],
+                **write_result,
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def cmd_factory_evolution_finalize(args: argparse.Namespace) -> None:
+    if not args.review_json or args.report_paths or args.event_paths or args.evaluation_json:
+        raise SupervisionLogError(
+            "Factory evolution finalize requires only an explicit review JSON"
+        )
+    module = factory_evolution_module()
+    directory = factory_evolution_directory(
+        target_dir(args), safe_id(args.evolution_id, label="factory evolution ID")
+    )
+    packet = verify_factory_evolution_prepare(module, directory)
+    review_submission = read_json(Path(args.review_json).expanduser())
+    review = factory_evolution_call(
+        module, "build_evolution_review", packet, review_submission
+    )
+    finalize_manifest = factory_evolution_call(
+        module,
+        "build_evolution_manifest",
+        {"learning-packet.json": packet, "review.json": review},
+    )
+    write_result = write_factory_evolution_set(
+        directory,
+        {
+            "learning-packet.json": packet,
+            "review.json": review,
+            "finalize-manifest.json": finalize_manifest,
+        },
+    )
+    print(
+        json.dumps(
+            {
+                "action": "finalize",
+                "evolution_id": args.evolution_id,
+                "stage": "finalized",
+                "review_id": review["review_id"],
+                "review_root": review["review_root"],
+                **write_result,
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def cmd_factory_evolution_evaluate(args: argparse.Namespace) -> None:
+    if (
+        not args.evaluation_json
+        or args.report_paths
+        or args.event_paths
+        or args.review_json
+    ):
+        raise SupervisionLogError(
+            "Factory evolution evaluate requires only an explicit evaluation JSON"
+        )
+    module = factory_evolution_module()
+    directory = factory_evolution_directory(
+        target_dir(args), safe_id(args.evolution_id, label="factory evolution ID")
+    )
+    packet, review = verify_factory_evolution_finalize(module, directory)
+    evaluation_submission = read_json(Path(args.evaluation_json).expanduser())
+    evaluation = factory_evolution_call(
+        module,
+        "build_candidate_evaluation",
+        packet,
+        review,
+        evaluation_submission,
+    )
+    bundle = factory_evolution_call(
+        module, "build_evolution_bundle", packet, review, evaluation
+    )
+    write_result = write_factory_evolution_set(directory, bundle)
+    print(
+        json.dumps(
+            {
+                "action": "evaluate",
+                "evolution_id": args.evolution_id,
+                "stage": "evaluated",
+                "evaluation_id": evaluation["evaluation_id"],
+                "evaluation_root": evaluation["evaluation_root"],
+                "disposition": evaluation["disposition"],
+                **write_result,
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def cmd_factory_evolution_verify(args: argparse.Namespace) -> None:
+    if args.report_paths or args.event_paths or args.review_json or args.evaluation_json:
+        raise SupervisionLogError("Factory evolution verify does not accept producer inputs")
+    module = factory_evolution_module()
+    directory = factory_evolution_directory(
+        target_dir(args), safe_id(args.evolution_id, label="factory evolution ID")
+    )
+    verify_factory_evolution_inventory(directory)
+    packet = verify_factory_evolution_prepare(module, directory)
+    stage = "prepared"
+    result: dict[str, Any] = {
+        "packet_id": packet["packet_id"],
+        "packet_root": packet["packet_root"],
+    }
+    if (directory / "review.json").exists() or (directory / "finalize-manifest.json").exists():
+        packet, review = verify_factory_evolution_finalize(module, directory)
+        stage = "finalized"
+        result.update(
+            {"review_id": review["review_id"], "review_root": review["review_root"]}
+        )
+    final_names = (
+        "evaluation.json",
+        "machine-report.json",
+        "manifest.json",
+    )
+    if any((directory / name).exists() for name in final_names):
+        require_factory_evolution_artifacts(directory, final_names)
+        bundle = {
+            name: read_json(directory / name)
+            for name in (
+                "learning-packet.json",
+                "review.json",
+                "evaluation.json",
+                "machine-report.json",
+                "manifest.json",
+            )
+        }
+        factory_evolution_call(module, "verify_evolution_bundle", bundle)
+        stage = "evaluated"
+        result.update(
+            {
+                "evaluation_id": bundle["evaluation.json"]["evaluation_id"],
+                "evaluation_root": bundle["evaluation.json"]["evaluation_root"],
+                "disposition": bundle["evaluation.json"]["disposition"],
+            }
+        )
+    print(
+        json.dumps(
+            {
+                "action": "verify",
+                "evolution_id": args.evolution_id,
+                "stage": stage,
+                **result,
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def cmd_factory_evolution(args: argparse.Namespace) -> None:
+    if args.action == "prepare":
+        cmd_factory_evolution_prepare(args)
+        return
+    if args.action == "finalize":
+        cmd_factory_evolution_finalize(args)
+        return
+    if args.action == "evaluate":
+        cmd_factory_evolution_evaluate(args)
+        return
+    if args.action == "verify":
+        cmd_factory_evolution_verify(args)
+        return
+    raise SupervisionLogError("Unsupported factory evolution action")
 
 
 def weekly_report_module() -> Any:
@@ -4262,6 +6055,7 @@ def validate_terminal_gmail_readback(
 
 def append_terminal_delivery(
     *,
+    args: argparse.Namespace,
     directory: Path,
     policy: Mapping[str, Any],
     verified: Mapping[str, Any],
@@ -4325,7 +6119,7 @@ def append_terminal_delivery(
             "gmail_readback": dict(readback),
             "policy_sha256": policy["policy_sha256"],
         }
-        append_raw_locked(directory / "events.jsonl", record)
+        append_event_locked(args, directory, record)
     return record
 
 
@@ -4338,6 +6132,7 @@ def cmd_terminal_report_delivery(args: argparse.Namespace) -> None:
         verified=verified,
     )
     record = append_terminal_delivery(
+        args=args,
         directory=directory,
         policy=policy,
         verified=verified,
@@ -4517,7 +6312,7 @@ def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
             "automation_state_root": digest(states),
             "policy_sha256": policy["policy_sha256"],
         }
-        append_raw_locked(directory / "events.jsonl", record)
+        append_event_locked(args, directory, record)
     print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
 
 
@@ -4675,9 +6470,10 @@ def cmd_gmail_cadence(args: argparse.Namespace) -> None:
 def cmd_status(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     all_events = events(directory / "events.jsonl")
-    incident_events = [item for item in all_events if item.get("kind") == "incident"]
+    active_events = mission_scoped_events(directory, policy, all_events)
+    incident_events = [item for item in active_events if item.get("kind") == "incident"]
     incident_heads: dict[str, dict[str, Any]] = {}
-    for item in all_events:
+    for item in active_events:
         current_incident_id = item.get("incident_id")
         # Delivery receipts are projections of an incident outcome, not a
         # lifecycle transition. Keep the latest substantive incident record as
@@ -4693,38 +6489,38 @@ def cmd_status(args: argparse.Namespace) -> None:
         if not is_terminal_incident_record(item, str(item["incident_id"]))
     ]
     open_incident_ids = [item["incident_id"] for item in open_incidents]
-    last = last_check(all_events)
-    meta_reviews = [item for item in all_events if item.get("kind") == "meta-review"]
+    last = last_check(active_events)
+    meta_reviews = [item for item in active_events if item.get("kind") == "meta-review"]
     notification_events = [
-        item for item in all_events if item.get("kind") == "notification"
+        item for item in active_events if item.get("kind") == "notification"
     ]
     inbound_events = [
-        item for item in all_events if item.get("kind") == "inbound-message"
+        item for item in active_events if item.get("kind") == "inbound-message"
     ]
-    roundup_events = [item for item in all_events if item.get("kind") == "roundup"]
+    roundup_events = [item for item in active_events if item.get("kind") == "roundup"]
     lifecycle_events = [
-        item for item in all_events if item.get("kind") == "lifecycle"
+        item for item in active_events if item.get("kind") == "lifecycle"
     ]
     outcome_completion_events = [
         item
-        for item in all_events
+        for item in active_events
         if item.get("kind") == "check"
         and item.get("category") == OUTCOME_COMPLETION_CATEGORY
     ]
     terminal_report_deliveries = [
         item
-        for item in all_events
+        for item in active_events
         if item.get("kind") == "notification"
         and item.get("category") == TERMINAL_REPORT_DELIVERY_CATEGORY
     ]
     terminal_shutdown_events = [
         item
-        for item in all_events
+        for item in active_events
         if item.get("kind") == "check"
         and item.get("category") == TERMINAL_SHUTDOWN_CATEGORY
     ]
     decision_heads: dict[str, dict[str, Any]] = {}
-    for item in all_events:
+    for item in active_events:
         if item.get("kind") == "decision" and item.get("decision_id"):
             decision_heads[str(item["decision_id"])] = item
     open_decisions = [
@@ -4732,6 +6528,13 @@ def cmd_status(args: argparse.Namespace) -> None:
         for item in decision_heads.values()
         if item.get("phase") != "target-acknowledged"
     ]
+    activation_heads = mission_activation_heads(active_events)
+    open_activations = mission_activation_heads(active_events, open_only=True)
+    current_activation = (
+        list(activation_heads.values())[-1] if activation_heads else None
+    )
+    transition_heads = successor_transition_heads(active_events)
+    open_transitions = successor_transition_heads(active_events, open_only=True)
     print(
         json.dumps(
             {
@@ -4775,6 +6578,19 @@ def cmd_status(args: argparse.Namespace) -> None:
                 ),
                 "decision_count": len(decision_heads),
                 "open_decisions": open_decisions,
+                "mission_activation_count": len(activation_heads),
+                "current_mission_activation": current_activation,
+                "open_mission_activations": list(open_activations.values()),
+                "mission_activation_action": (
+                    MISSION_ACTIVATION_START_ACTION
+                    if open_activations
+                    else "none"
+                ),
+                "mission_activation_required_target_posture": (
+                    "in-progress" if open_activations else None
+                ),
+                "successor_transition_count": len(transition_heads),
+                "open_successor_transitions": list(open_transitions.values()),
             },
             sort_keys=True,
         )
@@ -4842,6 +6658,39 @@ def parser() -> argparse.ArgumentParser:
     )
     bind.add_argument("--mission-source-sha256")
     bind.set_defaults(func=cmd_bind)
+
+    mission_successor = subparsers.add_parser("mission-successor")
+    mission_successor.add_argument("--target-thread", required=True)
+    mission_successor.add_argument("--from-mission-root", required=True)
+    mission_successor.add_argument(
+        "--mission-source-class",
+        choices=sorted(DIRECT_AUTHORITY_SOURCE_CLASSES),
+        required=True,
+    )
+    mission_successor.add_argument("--mission-source-record", required=True)
+    mission_successor.add_argument("--mission-source-sha256", required=True)
+    mission_successor.add_argument(
+        "--predecessor-disposition",
+        choices=("completed", "superseded"),
+        required=True,
+    )
+    mission_successor.add_argument("--first-eligible-work", required=True)
+    mission_successor.add_argument("--reason", required=True)
+    mission_successor.add_argument("--evidence", action="append", default=[])
+    mission_successor.set_defaults(func=cmd_mission_successor)
+
+    mission_activation_start = subparsers.add_parser("mission-activation-start")
+    mission_activation_start.add_argument("--target-thread", required=True)
+    mission_activation_start.add_argument("--mission-root", required=True)
+    mission_activation_start.add_argument(
+        "--activation-policy-sha256", required=True
+    )
+    mission_activation_start.add_argument("--first-eligible-work", required=True)
+    mission_activation_start.add_argument("--source-record", required=True)
+    mission_activation_start.add_argument(
+        "--evidence", action="append", required=True
+    )
+    mission_activation_start.set_defaults(func=cmd_mission_activation_start)
 
     gate = subparsers.add_parser("gate")
     gate.add_argument("--target-thread", required=True)
@@ -4935,11 +6784,33 @@ def parser() -> argparse.ArgumentParser:
     record.add_argument("--expiry-event")
     record.add_argument("--carry-forward", choices=["true", "false"])
     record.add_argument("--successor-effects", choices=["allowed", "blocked"])
+    record.add_argument("--failure-mode", action="store_true")
+    record.add_argument("--failure-mode-id")
+    record.add_argument(
+        "--failure-layer", choices=sorted(FAILURE_MODE_LAYERS)
+    )
+    record.add_argument("--failure-mechanism")
+    record.add_argument("--failure-trigger")
+    record.add_argument("--failure-effect")
+    record.add_argument("--failure-detection")
+    record.add_argument("--failure-correction")
+    record.add_argument("--failure-recurrence-invariant")
+    record.add_argument(
+        "--failure-human-scheduling-leak", choices=["yes", "no"]
+    )
+    record.add_argument(
+        "--reusable-lane-disposition",
+        choices=list(REUSABLE_LANE_DISPOSITIONS),
+    )
+    record.add_argument("--reusable-lane-owner", default="")
+    record.add_argument("--reusable-lane-evidence", action="append", default=[])
+    record.add_argument("--reusable-lane-rationale", default="")
     record.set_defaults(func=cmd_record)
 
     completion_record = subparsers.add_parser("completion-record")
     completion_record.add_argument("--target-thread", required=True)
     completion_record.add_argument("--state-fingerprint", required=True)
+    completion_record.add_argument("--current-revision", required=True)
     completion_record.add_argument("--mission-root", required=True)
     completion_record.add_argument(
         "--status", choices=sorted(OUTCOME_COMPLETION_STATUSES), required=True
@@ -4955,6 +6826,9 @@ def parser() -> argparse.ArgumentParser:
         "--open-item-compatibility-sha256", required=True
     )
     completion_record.add_argument("--independent-challenge-sha256", required=True)
+    completion_record.add_argument(
+        "--capability-reconciliation-json", required=True
+    )
     completion_record.add_argument("--active-block", default="")
     completion_record.add_argument("--checkpoint", default="")
     completion_record.add_argument("--summary", required=True)
@@ -5027,6 +6901,46 @@ def parser() -> argparse.ArgumentParser:
     decision_gate.add_argument("--now")
     decision_gate.set_defaults(func=cmd_decision_gate)
 
+    successor_record = subparsers.add_parser("successor-transition-record")
+    successor_record.add_argument("--target-thread", required=True)
+    successor_record.add_argument("--transition-id", required=True)
+    successor_record.add_argument(
+        "--phase", choices=SUCCESSOR_TRANSITION_PHASES, required=True
+    )
+    successor_record.add_argument("--tracker-sha256", required=True)
+    successor_record.add_argument("--tracker-source-record", required=True)
+    successor_record.add_argument("--requested-block-range", required=True)
+    successor_record.add_argument("--first-eligible-block", required=True)
+    successor_record.add_argument("--source-mission-root", required=True)
+    successor_record.add_argument(
+        "--governing-authority-source-class",
+        choices=sorted(AUTHORITY_SOURCE_CLASSES),
+        required=True,
+    )
+    successor_record.add_argument(
+        "--governing-authority-source-record", required=True
+    )
+    successor_record.add_argument("--successor-thread", default="")
+    successor_record.add_argument("--successor-mission-root", default="")
+    successor_record.add_argument("--successor-group-id", default="")
+    successor_record.add_argument("--handoff-record", default="")
+    successor_record.add_argument("--acknowledgement-record", default="")
+    successor_record.add_argument("--started-block", default="")
+    successor_record.add_argument("--state-fingerprint", default="")
+    successor_record.add_argument("--evidence", action="append", required=True)
+    successor_record.add_argument("--now")
+    successor_record.set_defaults(func=cmd_successor_transition_record)
+
+    successor_gate = subparsers.add_parser("successor-transition-gate")
+    successor_gate.add_argument("--target-thread", required=True)
+    successor_gate.add_argument("--transition-id", required=True)
+    successor_gate.add_argument(
+        "--task-creation-authority",
+        choices=("available", "unavailable"),
+        default="unavailable",
+    )
+    successor_gate.set_defaults(func=cmd_successor_transition_gate)
+
     gmail_gate = subparsers.add_parser("gmail-gate")
     gmail_gate.add_argument("--target-thread", required=True)
     gmail_gate.add_argument("--message-id", action="append", required=True)
@@ -5083,6 +6997,24 @@ def parser() -> argparse.ArgumentParser:
     )
     weekly_report.add_argument("--local-time", default="08:00")
     weekly_report.set_defaults(func=cmd_weekly_report)
+
+    factory_evolution = subparsers.add_parser("factory-evolution")
+    factory_evolution.add_argument("--target-thread", required=True)
+    factory_evolution.add_argument("--evolution-id", required=True)
+    factory_evolution.add_argument(
+        "--action",
+        choices=("prepare", "finalize", "evaluate", "verify"),
+        required=True,
+    )
+    factory_evolution.add_argument(
+        "--report-json", dest="report_paths", action="append", default=[]
+    )
+    factory_evolution.add_argument(
+        "--events-jsonl", dest="event_paths", action="append", default=[]
+    )
+    factory_evolution.add_argument("--review-json")
+    factory_evolution.add_argument("--evaluation-json")
+    factory_evolution.set_defaults(func=cmd_factory_evolution)
 
     terminal_report = subparsers.add_parser("terminal-report")
     terminal_report.add_argument("--target-thread", required=True)
