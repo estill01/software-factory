@@ -114,7 +114,7 @@ for current discovery behavior.
 
 | Capability | Requirements |
 |---|---|
-| **Tracker authoring and execution** | Codex with local Skills support; Git; Python 3; OpenSSL for signed local skill-release evidence; a repository Codex can inspect and modify |
+| **Tracker authoring and execution** | Codex with local Skills support; Git; Python 3; `uv` for the fixed automated release checks; a repository Codex can inspect and modify. OpenSSL is needed only for the optional signed release mode. |
 | **Independent supervision and reporting** | Python 3.11+ in a POSIX environment; independent Codex-thread access; scheduled automation or heartbeat support; access to the roles named by the supervision policy; `reportlab` for PDF generation |
 | **Optional communication** | Gmail for project-scoped alerts, decision packets, roundups, replies, and report delivery; email is not required for authoring, execution, local incident state, or report generation |
 

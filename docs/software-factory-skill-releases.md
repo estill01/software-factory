@@ -94,7 +94,7 @@ deliberately requires an independently signed boundary.
 
 `rollback` may select only a release that appears as a prior active release in
 the HMAC-authenticated, schema- and transition-validated activation history and
-whose external acceptance, manifest, and skill roots still validate. It uses
+whose canonical acceptance, manifest, and skill roots still validate. It uses
 the same one-pointer cutover and fresh-process verification as activation.
 `status` reports the source commit, manifest roots, exact discovery targets,
 current resolved roots, and history length without scanning unrelated skills

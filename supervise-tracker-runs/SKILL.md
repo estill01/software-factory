@@ -580,8 +580,8 @@ reserved deferrals, safe frontier, and application posture.
   coherent validated candidate before exact-change review. A rejected candidate
   remains immutable; remediation is a successor commit. After Sol Max accepts
   the exact commit, normally attempt a non-force push to the existing unambiguous
-  upstream. Remote publication and the independently signed, rollback-safe local
-  release are separate lanes. An unavailable or failed publication becomes
+  upstream. Remote publication and the rollback-safe local release are separate
+  lanes. An unavailable or failed publication becomes
   `durability-pending`, requires an autonomous retry trigger, and blocks only a
   remote-durability claim; it never changes final-response permission, required
   target posture, local promotion eligibility, post-activation role-refresh
