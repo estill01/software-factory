@@ -8369,6 +8369,16 @@ class WatcherAvailabilityContractTests(unittest.TestCase):
             )
         )
 
+        recurrence = self.unavailable("compact-thread-read-retry-3-1234")
+        repeated_recurrence = self.unavailable(
+            "compact-thread-read-retry-3-1234"
+        )
+        self.assertFalse(recurrence["duplicate"])
+        self.assertTrue(recurrence["route_required"])
+        self.assertEqual(recurrence["record"]["incident_id"], incident_id)
+        self.assertEqual(recurrence["record"]["status"], "recurrence-current")
+        self.assertTrue(repeated_recurrence["duplicate"])
+
     def test_verified_read_rejects_unknown_or_closed_incident(self) -> None:
         with self.assertRaisesRegex(
             supervision_log.SupervisionLogError, "one current availability incident"

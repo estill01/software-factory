@@ -4495,8 +4495,22 @@ def cmd_watcher_availability(args: argparse.Namespace) -> None:
         run_length = watcher_unavailable_run_length(
             mission_events, availability_state_fingerprint
         )
+        incident_position = (
+            mission_events.index(incident_head)
+            if incident_head is not None
+            else -1
+        )
+        availability_restored_since_head = bool(
+            incident_head is not None
+            and any(
+                item.get("category") == WATCHER_VERIFIED_CATEGORY
+                and item.get("incident_id") == incident_head.get("incident_id")
+                for item in mission_events[incident_position + 1 :]
+            )
+        )
         if (
             incident_head is not None
+            and not availability_restored_since_head
             and incident_head.get("watcher_availability_state_fingerprint")
             == availability_state_fingerprint
             and incident_head.get("watcher_availability_attempt_fingerprint")
