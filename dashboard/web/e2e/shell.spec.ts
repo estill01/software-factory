@@ -513,6 +513,12 @@ test("retained weekly review requests only finalize and verify", async ({ page, 
   const runResponse = await request.get(`/api/v1/runs/${target}`)
   expect(runResponse.ok()).toBeTruthy()
   const runEnvelope = await runResponse.json()
+  runEnvelope.data.run.project_binding = {
+    status: "bound",
+    project_id: "software-factory",
+    evidence: [{ source_record: "policy", field: "project_root", value: "/fixture/software_factory" }],
+    limitations: [],
+  }
   runEnvelope.data.run.weekly_report_workflow = {
     status: "available",
     stage: "finalize-verify",
