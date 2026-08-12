@@ -550,8 +550,8 @@ the relevant authority and evidence contract.
 | 27 | Weekly supervision report workflow | 9, 10, 11, 13 | `accepted` |
 | 28 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `accepted` |
 | 29 | Terminal report workflow | 9, 10, 11, 13, 27 | `accepted` |
-| 30 | Request-stop and terminal shutdown | 7, 9, 10, 11, 29 | `in-progress` |
-| 31 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 | `not-started` |
+| 30 | Request-stop and terminal shutdown | 7, 9, 10, 11, 29 | `accepted` |
+| 31 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 | `in-progress` |
 
 Required order:
 
@@ -7985,7 +7985,7 @@ cross-project acceptance.
 
 ## Block 30 — Request-stop and terminal shutdown
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -8377,6 +8377,17 @@ and stop at denial, partial, or unverified state without retrying or widening.
     responsive proof are reused without replay. No live preview, automation
     pause, receipt append, or shutdown occurred. Fresh exact-revision review is
     pending.
+- Independent exact-revision review accepted evidence
+  `e31b222ff33d293b537eb0d174c1bedba6a874b4`, tree
+  `8fcbfe501d33dcb99b33a531c59d218905273e98`, product
+  `5734fadedc041bf5d53ddfbbd0e79a18493cabd7`, tree
+  `27a0f6e0a6aae86d5a4e27057771edaca4c087a2`, with no material findings. The
+  reviewer reproduced the forced owner drift as zero-receipt failure, verified
+  all helper-owned state reads occur under the append lock, preserved normal and
+  duplicate behavior, passed the focused race 1/1 and owner suite 12/12, and
+  confirmed Ruff, compilation, 32-Block full-profile verification, verifier
+  30/30, diff/fsck/remote/clean identity, and the Block 31 Stop. No broad/browser
+  replay or live shutdown occurred.
 
 ### Stop
 
@@ -8387,7 +8398,7 @@ that the dashboard is ready.
 
 ## Block 31 — Integrated outcome validation and operator handoff
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -8544,7 +8555,12 @@ work solely to inflate coverage.
 
 ### Completion evidence
 
-Pending.
+- Block 31 work start — `2026-08-12T14:32:00Z`: Block 30 exact acceptance was
+  reconciled against the standing full-range request, all accepted Blocks 0–30
+  remain preserved, and the only dependency-safe frontier is the final
+  integrated validation and operator-handoff outcome. Work began by freezing
+  this status transition before any new broad validation or mapped correction;
+  no live terminal shutdown or external project mutation was performed.
 
 ### Stop
 
