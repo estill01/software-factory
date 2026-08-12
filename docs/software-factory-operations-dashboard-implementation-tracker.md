@@ -549,8 +549,8 @@ the relevant authority and evidence contract.
 | 26 | Successor-task continuity | 7, 10, 11 | `accepted` |
 | 27 | Weekly supervision report workflow | 9, 10, 11, 13 | `accepted` |
 | 28 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `accepted` |
-| 29 | Terminal report workflow | 9, 10, 11, 13, 27 | `in-progress` |
-| 30 | Request-stop and terminal shutdown | 7, 9, 10, 11, 29 | `not-started` |
+| 29 | Terminal report workflow | 9, 10, 11, 13, 27 | `accepted` |
+| 30 | Request-stop and terminal shutdown | 7, 9, 10, 11, 29 | `in-progress` |
 | 31 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 | `not-started` |
 
 Required order:
@@ -7702,7 +7702,7 @@ acceptance.
 
 ## Block 29 — Terminal report workflow
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -7961,6 +7961,20 @@ unverified output.
   and same-set stale remains closed; it passed 1/1 with `ResourceWarning` fatal,
   Ruff, Python compilation, and diff check. No broad or browser matrix was
   replayed and no live owner action occurred; fresh exact review is pending.
+- Independent exact-set acceptance: evidence
+  `81b5891980691a2e3e773dd1dfcb8cc3bd9ba85c`, tree
+  `c2a2698033380e30cb9562d5b06df97f6fdb5f15`; product
+  `f180e60411c27f8314de83a96e1789a3b91a5a1f`, tree
+  `aabf4faad8da84c573880df5761f57d999d8b3ce`. The reviewer found no material
+  issue and independently reproduced different-set history as ignored/current
+  delivery as actionable, mixed history as exact-current selection, no receipt
+  as pending, and same-set stale as non-actionable/non-retryable. Focused
+  backend 1/1 with `ResourceWarning` fatal, Ruff, Python compilation,
+  full-profile 32-Block verification with 0 diagnostics, verifier tests 30/30,
+  diff/fsck/clean/remote `0/0`, and the Block 30 Stop passed. The accepted
+  capability decision and all unaffected owner/UI/broad proof remain reusable;
+  no broad/browser replay or live report, Gmail, lifecycle, automation, stop,
+  or shutdown action occurred.
 
 ### Stop
 
@@ -7971,7 +7985,7 @@ cross-project acceptance.
 
 ## Block 30 — Request-stop and terminal shutdown
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -8078,7 +8092,16 @@ and stop at denial, partial, or unverified state without retrying or widening.
 
 ### Completion evidence
 
-Pending.
+- Activation: Block 30 started automatically after independent acceptance of
+  Block 29 evidence `81b5891980691a2e3e773dd1dfcb8cc3bd9ba85c` and product
+  `f180e60411c27f8314de83a96e1789a3b91a5a1f`. Governing implementation
+  authority remains direct-user item 44 under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+  Work is limited to the existing maintained request-stop, terminal lifecycle,
+  exact automation, and shutdown-receipt owners. Block 31 remains closed. The
+  current real target is not an authorized disposable shutdown target; no live
+  request-stop, lifecycle, automation, task, report, Gmail, or shutdown action
+  will be executed for implementation proof.
 
 ### Stop
 
