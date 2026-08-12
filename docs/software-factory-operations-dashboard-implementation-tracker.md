@@ -545,8 +545,8 @@ the relevant authority and evidence contract.
 | 22 | Supervision pause | 7, 10, 11 | `accepted` |
 | 23 | Canonical supervision-resume lifecycle owner | 22 | `accepted` |
 | 24 | Supervision resume | 7, 10, 11, 22, 23 | `accepted` |
-| 25 | Same-target mission succession | 7, 10, 11 | `in-progress` |
-| 26 | Successor-task continuity | 7, 10, 11 | `not-started` |
+| 25 | Same-target mission succession | 7, 10, 11 | `accepted` |
+| 26 | Successor-task continuity | 7, 10, 11 | `in-progress` |
 | 27 | Weekly supervision report workflow | 9, 10, 11, 13 | `not-started` |
 | 28 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `not-started` |
 | 29 | Terminal report workflow | 9, 10, 11, 13, 27 | `not-started` |
@@ -6808,7 +6808,7 @@ reporting, evolution, request-stop, or terminal shutdown.
 
 ## Block 25 — Same-target mission succession
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -6972,6 +6972,16 @@ segment. Do not scan unrelated groups or retry automatically.
   verifier tests 30/30, and diff checks passed. Unaffected frontend, build,
   responsive/browser, and full backend evidence was reused; no live mutation
   occurred.
+- Fresh exact-revision review: independently `ACCEPTED` evidence successor
+  `ea004caf0b71e099fcda75663a72d78dc69df6e0`, tree
+  `ad70858ce5df457c92208c28a9ff6f53bbfd6de3`, over product successor
+  `50fcc42a606ea439d27e0e9f7a6a713669dc342d`. The reviewer reproduced the
+  weekly-report policy-source lookup, exact protected-set inclusion, and
+  manifest/currentness invalidation; focused backend 2/2, Ruff, the full
+  32-Block verifier with 0 diagnostics, verifier tests 30/30, diff, object,
+  clean-checkout, and remote `0 0` gates all passed. No live mission succession
+  or canonical mutation occurred. Block 25 is accepted only at this exact
+  revision.
 
 ### Stop
 
@@ -6982,7 +6992,7 @@ evolution, or changing terminal lifecycle.
 
 ## Block 26 — Successor-task continuity
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -7082,7 +7092,14 @@ widening.
 
 ### Completion evidence
 
-Pending.
+- Activation: Block 26 started automatically after independent acceptance of
+  Block 25 evidence `ea004caf0b71e099fcda75663a72d78dc69df6e0` and product
+  `50fcc42a606ea439d27e0e9f7a6a713669dc342d`. Governing implementation
+  authority remains direct-user item 44 under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+  Work is limited to the accepted successor-task continuity contract; Block 27
+  and later operations remain closed, and no live successor transition or task
+  creation has been attempted.
 
 ### Stop
 
