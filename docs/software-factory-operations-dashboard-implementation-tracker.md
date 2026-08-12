@@ -1,7 +1,7 @@
 # Software Factory Operations Dashboard Implementation Tracker
 
 - Tracker status: `in-progress`
-- Tracker sequence: Blocks 0–29
+- Tracker sequence: Blocks 0–31
 - Repository: `https://github.com/estill01/software-factory.git`
 - Governing objective: direct-user item
   `codex:019fe547-e054-7ca0-9940-ec4aa146df78:019fe572-0536-7692-8505-c8624eefa7ab:item-44`
@@ -392,7 +392,7 @@ an explicit compatibility change in Block 1:
 | Beautiful UI Filter Table | `components/FilterTable.tsx`; copied source SHA-256 `4a48c51cd6e5c0aa3bab91aab9975005518fd82dd294d059e402c2bb4ce681f4` | adapt | 17, 18 | retain count-chip/filter interaction; add exact/partial/unavailable coverage semantics |
 | Beautiful UI Diff Table | `components/DiffTable.tsx`; copied source SHA-256 `aef76b9473debb1abf8cb3b8fe9cf71cfacd4b13ba03916932b1dd41f3007ab2` | adapt | 19, 21 | retain compact semantic row grammar; remove demo stages/data and bind Git/operation owners |
 | Beautiful UI Sidebar/Chat/Prompt/Recommendation and other gallery components | gallery inspected 2026-08-10 | not adopted | 17–19, 21 | current sparse shell and maintained controls are a better product fit; do not add cosmetic breadth |
-| Adaptive decision/evolution tracker | plan current at implementation time | not-adopted as live capability | 0, 26 | show planned/unavailable until independently accepted implementation exists |
+| Adaptive decision/evolution tracker | plan current at implementation time | not-adopted as live capability | 0, 28 | show planned/unavailable until independently accepted implementation exists |
 | Tracker-authoring supervision tracker | plan current at implementation time | not-adopted as live capability | 0, 11 | do not expose a working control until implementation is proven |
 
 ## 5. Scope, non-goals, and proportionality
@@ -451,7 +451,7 @@ the relevant authority and evidence contract.
 
 ## 6. Block execution contract
 
-1. Execute Blocks 0–29 in dependency order. Parallel work is allowed only
+1. Execute Blocks 0–31 in dependency order. Parallel work is allowed only
    where the status table has no unmet dependency and each worker has disjoint
    files and one declared integration owner.
 2. Re-read the selected Block and inspect the live repository, external
@@ -542,14 +542,16 @@ the relevant authority and evidence contract.
 | 19 | Tracker semantic source diffs | 3, 8 | `accepted` |
 | 20 | Automation binding repair | 7, 10, 11 | `accepted` |
 | 21 | Owner-backed operation semantic diffs | 10, 14, 15, 16, 19, 20 | `accepted` |
-| 22 | Supervision pause and resume | 7, 10, 11 | `in-progress` |
-| 23 | Same-target mission succession | 7, 10, 11 | `not-started` |
-| 24 | Successor-task continuity | 7, 10, 11 | `not-started` |
-| 25 | Weekly supervision report workflow | 9, 10, 11, 13 | `not-started` |
-| 26 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `not-started` |
-| 27 | Terminal report workflow | 9, 10, 11, 13, 25 | `not-started` |
-| 28 | Request-stop and terminal shutdown | 7, 9, 10, 11, 27 | `not-started` |
-| 29 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28 | `not-started` |
+| 22 | Supervision pause | 7, 10, 11 | `in-progress` |
+| 23 | Canonical supervision-resume lifecycle owner | 22 | `not-started` |
+| 24 | Supervision resume | 7, 10, 11, 22, 23 | `not-started` |
+| 25 | Same-target mission succession | 7, 10, 11 | `not-started` |
+| 26 | Successor-task continuity | 7, 10, 11 | `not-started` |
+| 27 | Weekly supervision report workflow | 9, 10, 11, 13 | `not-started` |
+| 28 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `not-started` |
+| 29 | Terminal report workflow | 9, 10, 11, 13, 27 | `not-started` |
+| 30 | Request-stop and terminal shutdown | 7, 9, 10, 11, 29 | `not-started` |
+| 31 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 | `not-started` |
 
 Required order:
 
@@ -563,12 +565,14 @@ Required order:
 {8, 10} → 11
 {6, 7} → 17
 {3, 8} → {18, 19}
-{7, 10, 11} → {12, 13, 14, 15, 16, 20, 22, 23, 24}
+{7, 10, 11} → {12, 13, 14, 15, 16, 20, 22, 25, 26}
 {10, 14, 15, 16, 19, 20} → 21
-{9, 10, 11, 13} → {25, 26}
-{9, 10, 11, 13, 25} → 27
-{7, 9, 10, 11, 27} → 28
-{6–28} → 29
+22 → 23
+{7, 10, 11, 22, 23} → 24
+{9, 10, 11, 13} → {27, 28}
+{9, 10, 11, 13, 27} → 29
+{7, 9, 10, 11, 29} → 30
+{6–30} → 31
 ```
 
 Blocks with satisfied direct dependencies may proceed concurrently; exact order
@@ -577,15 +581,15 @@ is governed by the dependency table, not diagram layout.
 Renumbering note: commit `0fe280cc1deac763b906755265c7d0e53307ff0c`
 is preserved as the rejected predecessor for incident
 `INC-20260809-073305-B81DCB`. Its old Block 12 was split into current Blocks
-12–16, 20, and 22–28 at independent owner, acceptance, recovery, and Stop
-boundaries; its old Block 13 moved mechanically to Block 29. Blocks 0–11 remain substantively
-unchanged. Exact-review-rejected successor commit
+12–16, 20, and 22–30 at independent owner, acceptance, recovery, and Stop
+boundaries; its old Block 13 moved mechanically to current Block 31. Blocks
+0–11 remain substantively unchanged. Exact-review-rejected successor commit
 `cbe7c55cc2eae20d3c2bd70704cf5a5fc93546e4` is also preserved: its Block 15
-was split into current Blocks 15, 16, and 20, its Blocks 16–19 moved to current
-Blocks 22–25, its Block 20 was narrowed to current Block 26's derived
-evaluation/disposition owner, and its Blocks 21–23 moved to current Blocks
-27–29. Prior structural verification/review remains diagnostic rather than
-current completion proof.
+was split into current Blocks 15, 16, and 20, its Block 16 split into current
+Blocks 22–24, its Blocks 17–19 moved to current Blocks 25–27, its Block 20 was
+narrowed to current Block 28's derived evaluation/disposition owner, and its
+Blocks 21–23 moved to current Blocks 29–31. Prior structural verification and
+review remain diagnostic rather than current completion proof.
 
 Beautiful UI source-baseline amendment note: the 2026-08-10 direct design
 steer first produced rejected authoring commit `8fb09cc9dfe2d5207f9cc3992e7a90924bee0689`,
@@ -596,9 +600,10 @@ its diagnostic exact review rejected the routed side-task/action SHA as an
 authority basis. The corrected revision keeps the Factory Floor surface in
 current Block 17, splits tracker queue/count review and tracker source diffs into
 current Blocks 18 and 19, and keeps owner-backed operation diffs in current
-Block 21. The former Block 17 moved to current Block 20, former Blocks 18–25
-moved to current Blocks 22–29, and accepted Blocks 0–16 remain substantively
-unchanged except mechanically affected forward references and range language.
+Block 21. The former Block 17 moved to current Block 20, former Block 18 split
+into current Blocks 22–24, former Blocks 19–25 moved to current Blocks 25–31,
+and accepted Blocks 0–16 remain substantively unchanged except mechanically
+affected forward references and range language.
 Exact-total and plural active-claim presentation is a narrow
 refinement of accepted Block 6's current Block/checkpoint, exact status-count,
 source-disagreement, and source-drill-down requirements and accepted Block 8's
@@ -608,6 +613,16 @@ truth requirements. Its authority remains direct-user item 44 and mission root
 routed side-task provenance supplies no authority. Historical evidence that
 names a then-current range or old Block numbers remains evidence for that exact
 revision, not current numbering.
+
+Lifecycle-owner amendment note: the Block 22 capability review reproduced the
+accepted Block 0 split between supported semantic pause and unavailable resume.
+The former combined Block 22 is therefore narrowed to current Block 22 pause;
+current Block 23 implements and independently accepts the missing canonical
+resume lifecycle owner; and current Block 24 exposes resume only after that
+owner exists. Former Blocks 23–29 move mechanically to current Blocks 25–31.
+Accepted Blocks 0–21 remain substantively unchanged except mechanically affected
+forward references and sequence/count language; historical evidence keeps the
+numbers current at its own revision.
 
 Data-backing clarification: the direct 2026-08-09 operator request to ensure
 that the application is backed by primary Software Factory functionality and
@@ -3004,7 +3019,7 @@ proves the resulting canonical postcondition.
 ### Scope and non-goals
 
 - In scope: generic safety/lifecycle infrastructure strictly needed by the
-  explicit operations in Blocks 11–24.
+  explicit operations in Blocks 11–30.
 - Not in scope: arbitrary operations, generic workflow DSL, durable job queue,
   user/role authorization system, shell console, implicit retry of mutations,
   or the domain workflows themselves.
@@ -4390,7 +4405,7 @@ mission or creating a parallel supervision root.
   reset, or creation of another group.
 - Verify the next canonical policy/history record, exact active tuple, unchanged
   mission semantics, and absence of another active group for that tuple.
-- Treat materially different mission intent as Block 23 mission succession,
+- Treat materially different mission intent as Block 25 mission succession,
   never a repair or `bind` overwrite.
 
 ### Scope and non-goals
@@ -6253,33 +6268,34 @@ request-stop, or terminal lifecycle operations.
 
 ---
 
-## Block 22 — Supervision pause and resume
+## Block 22 — Supervision pause
 
 Status: `in-progress`
 
 ### Objective
 
-Pause or resume one supervision group through its automation and lifecycle
-owners while preserving exact target state and keeping turn interruption
-semantically separate.
+Pause one supervision group through its existing automation and lifecycle
+owners while preserving exact target state and keeping turn interruption and
+the currently unsupported semantic-resume path separate.
 
 ### Target-product capability delta
 
 - Posture: `consequential`.
-- Intended capability gain: provide reversible operator control over scheduled
-  supervision without leaving automation and lifecycle state inconsistent.
+- Intended capability gain: let the operator semantically pause one selected
+  supervision group without leaving automation and lifecycle state inconsistent.
 - Potential capability loss or regression: confusing turn interrupt with pause,
-  changing only automation, or broad pausing could silently remove monitoring
-  or misstate lifecycle.
+  changing only automation, broad pausing, or implying that automation re-enable
+  is already semantic resume could silently remove monitoring or misstate
+  lifecycle.
 - Protected-capability effect: preserves automation single writers, lifecycle
   gates, target/group scope, resume/recovery state, role bindings, and distinct
   App Server turn semantics.
-- Architecture and operating-model effect: adds two specific lifecycle
-  operations with dual automation/lifecycle postconditions; it adds no generic
-  kill switch.
-- Tradeoff and source evidence: the dual-state transition is more deliberate
-  than toggling a schedule but is required by the maintained pause/resume and
-  lifecycle contracts.
+- Architecture and operating-model effect: adds one specific pause operation
+  with dual automation/lifecycle postconditions; it adds no generic kill switch
+  and does not invent the missing resume owner.
+- Tradeoff and source evidence: the dual-owner pause is more deliberate than
+  toggling a schedule, but it is the only supported semantic transition in the
+  accepted Block 0 contract; resume remains unavailable until Blocks 23–24.
 
 ### Inputs and dependencies
 
@@ -6289,30 +6305,33 @@ semantically separate.
 
 ### Required work
 
-- Register `Pause supervision` and `Resume supervision` as separate operations
-  through the exact automation/supervision owners and lifecycle gate.
+- Register `Pause supervision` through the exact automation/supervision owners
+  and lifecycle gate. Keep `Resume supervision` disabled with the exact missing-
+  owner prerequisite until Blocks 23–24 are accepted.
 - Preview target/group, current lifecycle, affected automations, pending owner
   work, preserved target/task state, expected postconditions, and recovery.
-- Verify both actual automation enabled/schedule state and the matching canonical
+- Verify both actual paused automation state and the matching canonical paused
   lifecycle record; expose partial transition and safe recovery without auto-
   retry.
 - Keep task/turn `interrupt` and `continue` visibly separate in labels,
   confirmation, history, and postconditions.
-- Scope pause/resume to the selected group; preserve Gmail/report ownership and
-  target implementation state unless the maintained owner explicitly changes
-  them.
+- Scope pause to the selected group; preserve Gmail/report ownership and target
+  implementation state unless the maintained owner explicitly changes them.
 
 ### Scope and non-goals
 
-- In scope: semantic pause and resume for one supervision group.
+- In scope: semantic pause for one supervision group and truthful unavailable
+  posture for resume.
 - Not in scope: interrupting/continuing a turn, request-stop, terminal shutdown,
-  policy tuning, report generation, or mission/successor transition.
+  semantic-resume owner creation or dashboard execution, policy tuning, report
+  generation, or mission/successor transition.
 - Do not expose a generic red Stop control or multi-group bulk toggle.
 
 ### Deliverables and recorded state
 
-- Pause/resume operation contracts, lifecycle/automation previews and
-  postcondition verifiers, run controls, partial/recovery states, and tests.
+- Pause operation contract, lifecycle/automation preview and postcondition
+  verifier, run control, partial/recovery states, explicit disabled-resume
+  prerequisite, and tests.
 
 ### Resource and economy contract
 
@@ -6323,26 +6342,27 @@ never repeat or widen automatically.
 ### QA and independent review
 
 - Test turn-interrupt confusion, stale lifecycle, gate denial, missing/partial
-  automation bindings, already paused/running, one owner changed only, wrong
-  group, restart, and recovery.
-- Exercise full pause/resume only on the disposable group unless exact current
+  automation bindings, already paused, one owner changed only, wrong group,
+  restart, recovery, and attempted automation-only resume.
+- Exercise full pause only on the disposable group unless exact current
   authority names a real target.
 - Independent authority review verifies dual postconditions and preserved
   target/group state.
 
 ### Acceptance
 
-- The selected group reaches matching paused or resumed automation and lifecycle
-  state, with exact current records visible in the run/floor history.
+- The selected group reaches matching paused automation and lifecycle state,
+  with exact current records visible in the run/floor history.
 - Partial, denied, stale, already-satisfied, and failed transitions remain
   truthful and recoverable.
-- A turn interruption can never render or verify semantic supervision pause.
+- A turn interruption can never render or verify semantic supervision pause,
+  and automation re-enable can never render or verify semantic resume.
 
 ### Negative tests
 
-- Reject `paused` or `resumed` when only a turn or only one canonical owner
-  changed.
-- Reject bulk, wrong-group, stale-preview, or gate-bypassing pause/resume.
+- Reject `paused` when only a turn or only one canonical owner changed.
+- Reject bulk, wrong-group, stale-preview, or gate-bypassing pause, and reject
+  any enabled resume path before Blocks 23–24 establish its owner/postcondition.
 
 ### Completion evidence
 
@@ -6356,8 +6376,257 @@ never repeat or widen automatically.
   capability review by inspecting the maintained supervision pause/resume,
   lifecycle-gate, automation-owner, and existing operation/task boundaries.
   Work remains limited to one selected supervision group and its exact bound
-  automations; Blocks 23-29 remain unopened and no live pause/resume or other
+  automations; Blocks 23-31 remain unopened and no live pause/resume or other
   consequential operation has been requested.
+- Capability-review correction: the accepted Block 0 contract and exact helper
+  surface confirm semantic pause has lifecycle plus automation postconditions,
+  while resume has no canonical resumed lifecycle state, gate, or postcondition.
+  The authored successor preserves full scope by narrowing this active Block to
+  pause and adding separate owner and dashboard-resume Blocks 23 and 24. No
+  implementation or live owner action occurred before this plan correction.
+
+### Stop
+
+Stop before implementing the resume lifecycle owner, enabling semantic resume,
+same-target mission succession, successor-task continuity, reporting,
+evolution, request-stop, or terminal shutdown.
+
+---
+
+## Block 23 — Canonical supervision-resume lifecycle owner
+
+Status: `not-started`
+
+### Objective
+
+Establish one maintained, evidence-tight semantic-resume lifecycle owner so a
+paused supervision group can later return to active monitoring without treating
+automation or task state as the canonical lifecycle record.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: close the exact Block 0 owner gap with one canonical
+  resumed lifecycle record and gate bound to the paused group, current policy,
+  and exact automation-owner state.
+- Potential capability loss or regression: a permissive recorder, task-resume
+  alias, or automation-only inference could erase pause history, accept partial
+  monitoring, or authorize the wrong group.
+- Protected-capability effect: preserves the hash-chained supervision ledger,
+  exact mission/policy/group identity, automation single writers, explicit
+  pause intervals, turn-state separation, replay/currentness, and fail-closed
+  partial recovery.
+- Architecture and operating-model effect: extends the existing maintained
+  supervision helper and policy contract with one narrow resume lifecycle owner;
+  it adds no dashboard endpoint, scheduler, second ledger, or generic state
+  transition engine.
+- Tradeoff and source evidence: adding a maintained owner costs a separate
+  implementation/review slice, but the accepted Block 0 capability matrix
+  explicitly requires it before resume can become supported and the weekly
+  report owner already distinguishes canonical `supervision-resume` records.
+
+### Inputs and dependencies
+
+- Accepted Block 22 semantic-pause operation and its exact lifecycle/automation
+  contract.
+- Accepted Block 0 capability matrix, current `supervision_log.py` lifecycle
+  and status owners, supervision policy, and explicit pause-interval report
+  contract.
+
+### Required work
+
+- Add one dedicated maintained resume eligibility/currentness gate and one
+  append-only resume finalizer/record path. Bind them to the exact target,
+  active mission, policy version/hash, current paused lifecycle record, source
+  record/fingerprint, and exact bound automation IDs.
+- Require every exact bound supervision automation to be current, enabled, and
+  configured for its owner-derived schedule before appending the resumed
+  lifecycle record. Missing, extra, stale, unreadable, mismatched, or partially
+  active automation state remains unavailable or pending.
+- Emit a stable hash-chain-valid `supervision-resume` lifecycle record with its
+  pause predecessor, group/mission/policy identity, automation-owner evidence,
+  currentness root, and preserved target/task state. Make replay/idempotency
+  explicit and keep prior pause history intact.
+- Update the maintained status projection and weekly availability owner so the
+  exact record ends the corresponding explicit pause interval without treating
+  a task turn, task resume, automation update, or caller assertion as semantic
+  resume.
+- Update the maintained skill/policy guidance, helper CLI contract, tests, and
+  dashboard capability contract. Change the contract posture to `supported`
+  only after the exact owner implementation is independently accepted.
+
+### Scope and non-goals
+
+- In scope: the canonical resume eligibility, record, validation, projection,
+  and report-interval owner inside `supervise-tracker-runs`.
+- Not in scope: dashboard operation/UI, direct automation mutation, task/turn
+  resume, policy tuning, mission succession, request-stop, terminal shutdown,
+  or a generalized lifecycle workflow.
+- Do not synthesize resume from manifest state, mutate automation files, or
+  rewrite/remove the paused lifecycle record.
+
+### Deliverables and recorded state
+
+- Maintained helper command/schema, policy/skill contract, hash-chain record and
+  status projection, weekly-report compatibility, exact fixtures/tests, and the
+  narrowly refreshed dashboard capability matrix.
+
+### Resource and economy contract
+
+Read one target's validated policy/history and only its exact bound supervision
+automation owners. Reuse the pause/currentness roots, perform one append at most,
+and re-read only the new lifecycle head and named automations. Never scan or
+reconcile unrelated groups and never retry an append automatically.
+
+### QA and independent review
+
+- Test missing or noncurrent pause, already resumed, wrong target/mission/policy,
+  stale source, no bound automations, one-owner-only activation, extra/missing
+  automation, unreadable/malformed owner, schedule mismatch, replay, restart,
+  hash-chain integrity, and explicit pause-interval closure.
+- Test that task `thread/resume`, turn start/continue/interrupt, caller-supplied
+  `resumed`, and automation enablement alone cannot create or satisfy the
+  canonical lifecycle postcondition.
+- Independent supervision-owner review verifies the exact state machine,
+  currentness, append-only history, owner read set, and absence of dashboard or
+  automation writes.
+
+### Acceptance
+
+- The maintained owner can determine one exact paused group's resume eligibility
+  and append one canonical current `supervision-resume` lifecycle record only
+  after every exact bound automation is active at its maintained configuration.
+- Status/history and weekly availability close the exact pause interval from
+  that record, while partial, stale, replayed, and already-satisfied attempts
+  retain exact truth and recovery.
+- No task/turn state, raw manifest edit, dashboard assertion, or automation-only
+  state can establish semantic resume.
+
+### Negative tests
+
+- Reject a resumed lifecycle record without its exact pause predecessor,
+  current mission/policy/source identity, and complete current automation-owner
+  evidence.
+- Reject direct ledger/TOML mutation, unrelated automation enumeration, task-
+  resume equivalence, duplicate append, or an owner/gate that accepts only one
+  side of the postcondition.
+
+### Completion evidence
+
+Pending.
+
+### Stop
+
+Stop before registering or executing dashboard resume, mission/task continuity,
+report generation, Factory evolution, request-stop, or terminal shutdown.
+
+---
+
+## Block 24 — Supervision resume
+
+Status: `not-started`
+
+### Objective
+
+Resume one paused supervision group through its exact automation owners and the
+accepted canonical resume lifecycle owner while preserving target/task state and
+keeping task/turn continuation semantically separate.
+
+### Target-product capability delta
+
+- Posture: `consequential`.
+- Intended capability gain: provide reversible operator control that returns
+  one paused group to current scheduled supervision with both canonical owner
+  postconditions proven.
+- Potential capability loss or regression: broad enabling, task-resume
+  confusion, stale pause state, or accepting only automation/lifecycle success
+  could misstate monitoring and recovery.
+- Protected-capability effect: preserves exact group/mission/policy identity,
+  named automation single writers, resumed lifecycle evidence, partial-state
+  recovery, role bindings, and distinct App Server turn semantics.
+- Architecture and operating-model effect: registers one resume operation in
+  the existing dashboard coordinator over the accepted automation and Block 23
+  lifecycle owners; it adds no generic toggle, scheduler, or direct writer.
+- Tradeoff and source evidence: the two-owner sequence is slower than enabling
+  schedules alone but is the smallest end-to-end path that satisfies the Block
+  0 revisit trigger and prevents false semantic resume.
+
+### Inputs and dependencies
+
+- Accepted Block 22 pause operation and accepted Block 23 canonical resume
+  lifecycle owner.
+- Accepted Block 7 run/automation/lifecycle workspace and Blocks 10 and 11
+  operation/task owners.
+
+### Required work
+
+- Register `Resume supervision` only for one exact canonically paused group
+  whose Block 23 gate, current policy, role/task bindings, and complete bound
+  automation set are available.
+- Preview target/group, pause predecessor, current lifecycle, each affected
+  automation and owner-derived active schedule, pending owner work, preserved
+  target/task/role/Gmail/report state, expected dual postconditions, and bounded
+  recovery.
+- Request each named automation owner action at most once, then invoke the
+  canonical resume finalizer only when every exact bound automation is current
+  and active. Recheck source/currentness and route gates at execution.
+- Verify actual automation enabled/schedule state and the matching canonical
+  `supervision-resume` lifecycle record separately; preserve automation-active/
+  lifecycle-pending, lifecycle-missing, denied, stale, already-running, failed,
+  and unverified states without automatic retry.
+- Add the compact run control/history/currentness UI while keeping `Continue
+  task` and task `thread/resume` labels, confirmations, history, and
+  postconditions visibly separate.
+
+### Scope and non-goals
+
+- In scope: semantic resume for one exact paused supervision group.
+- Not in scope: semantic pause implementation, turn/task continue or interrupt,
+  policy tuning, mission/successor transition, request-stop, terminal shutdown,
+  report generation, or bulk/multi-group activation.
+- Do not expose a generic toggle or write lifecycle/automation files directly.
+
+### Deliverables and recorded state
+
+- Resume operation contract, automation/lifecycle preview and dual
+  postcondition verifier, run control/history state, partial recovery, and
+  focused API/component/browser tests.
+
+### Resource and economy contract
+
+Touch one group and only its exact bound automations. Request each owner once,
+poll the two named postconditions to bounded timeout, preserve partial state,
+and stop without retrying or widening.
+
+### QA and independent review
+
+- Test turn/task-resume confusion, stale or absent pause, gate denial, missing/
+  partial/extra automation bindings, already running, one owner changed only,
+  wrong group, replay, restart, and recovery.
+- Exercise full resume only on the disposable group unless exact current
+  authority names a real target.
+- Independent authority review verifies both postconditions, the pause-to-
+  resume lineage, preserved target/group state, and no direct writes.
+
+### Acceptance
+
+- The selected group reaches matching active automation and canonical resumed
+  lifecycle state, with exact current records visible in run/floor history.
+- Partial, denied, stale, already-satisfied, and failed transitions remain
+  truthful and recoverable without affecting another group or target work.
+- Task/turn continue, resume, or interrupt can never render or verify semantic
+  supervision resume.
+
+### Negative tests
+
+- Reject `resumed` when only a task/turn, only automations, or only a lifecycle
+  record changed.
+- Reject bulk, wrong-group, stale-preview, replayed, gate-bypassing, or direct-
+  write resume.
+
+### Completion evidence
+
+Pending.
 
 ### Stop
 
@@ -6366,7 +6635,7 @@ reporting, evolution, request-stop, or terminal shutdown.
 
 ---
 
-## Block 23 — Same-target mission succession
+## Block 25 — Same-target mission succession
 
 Status: `not-started`
 
@@ -6478,7 +6747,7 @@ evolution, or changing terminal lifecycle.
 
 ---
 
-## Block 24 — Successor-task continuity
+## Block 26 — Successor-task continuity
 
 Status: `not-started`
 
@@ -6526,7 +6795,7 @@ bound successor without allowing the source mission to stop prematurely.
   as direct authority.
 - Call the maintained successor transition gate and keep the source active until
   `source_stop_permitted=true` from current `work-started` evidence.
-- Label successor-task continuity separately from Block 23 same-target mission
+- Label successor-task continuity separately from Block 25 same-target mission
   succession in controls, history, metrics, and attention.
 
 ### Scope and non-goals
@@ -6589,7 +6858,7 @@ or terminal shutdown.
 
 ---
 
-## Block 25 — Weekly supervision report workflow
+## Block 27 — Weekly supervision report workflow
 
 Status: `not-started`
 
@@ -6701,7 +6970,7 @@ Stop before terminal reporting, Factory evolution, request-stop, or shutdown.
 
 ---
 
-## Block 26 — Factory evolution evaluation and disposition
+## Block 28 — Factory evolution evaluation and disposition
 
 Status: `not-started`
 
@@ -6832,7 +7101,7 @@ acceptance.
 
 ---
 
-## Block 27 — Terminal report workflow
+## Block 29 — Terminal report workflow
 
 Status: `not-started`
 
@@ -6855,7 +7124,7 @@ terminal supervision report without stopping or pausing the run.
   and shutdown separation.
 - Architecture and operating-model effect: exposes the maintained terminal-
   report owner as one staged operation dependent on report history; shutdown
-  remains Block 28.
+  remains Block 30.
 - Tradeoff and source evidence: required currentness, cognitive review,
   verification, and delivery add latency but are mandated by the terminal report
   and supervision lifecycle contracts.
@@ -6864,7 +7133,7 @@ terminal supervision report without stopping or pausing the run.
 
 - Accepted Block 9 report/history workspace.
 - Accepted Blocks 10 and 11 operation/task owners.
-- Accepted Block 13 semantic-review handling and Block 25 verified prior-report
+- Accepted Block 13 semantic-review handling and Block 27 verified prior-report
   workflow.
 - Current terminal-report/outcome/delivery contract from Block 0.
 
@@ -6945,7 +7214,7 @@ cross-project acceptance.
 
 ---
 
-## Block 28 — Request-stop and terminal shutdown
+## Block 30 — Request-stop and terminal shutdown
 
 Status: `not-started`
 
@@ -6979,7 +7248,7 @@ owner gate permits source stop.
 
 - Accepted Block 7 run/lifecycle/continuity workspace and Block 9 report view.
 - Accepted Blocks 10 and 11 operation/task owners.
-- Accepted Block 27 verified terminal report workflow.
+- Accepted Block 29 verified terminal report workflow.
 - Current outcome, incident, decision, successor-transition, lifecycle,
   automation, report/delivery, and stop-gate contracts from Blocks 0 and 4.
 
@@ -7001,7 +7270,7 @@ owner gate permits source stop.
   automation state separately.
 - Preserve partial/failure state without automatic retry; expose only the exact
   supported recovery or separately authorized compensating operation.
-- Keep turn interruption, Block 22 pause/resume, Block 27 terminal report, and
+- Keep turn interruption, Blocks 22 and 24 pause/resume, Block 29 terminal report, and
   this terminal workflow visibly distinct in UI and history.
 
 ### Scope and non-goals
@@ -7063,7 +7332,7 @@ that the dashboard is ready.
 
 ---
 
-## Block 29 — Integrated outcome validation and operator handoff
+## Block 31 — Integrated outcome validation and operator handoff
 
 Status: `not-started`
 
@@ -7077,12 +7346,12 @@ off a reproducible local operating workflow.
 
 - Posture: `routine`.
 - Routine or not-applicable justification: this Block validates, documents, and
-  hands off the capability selected and implemented in Blocks 0–28; it may fix
+  hands off the capability selected and implemented in Blocks 0–30; it may fix
   mapped defects but must not add a new product surface or operating model.
 
 ### Inputs and dependencies
 
-- Accepted Blocks 6–28 and all inherited accepted dependencies.
+- Accepted Blocks 6–30 and all inherited accepted dependencies.
 - One frozen release candidate commit, exact runtime/dependency lock, generated
   App Server compatibility root, and current source fixtures.
 - At least three authorized registered local projects with collectively: an

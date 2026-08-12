@@ -321,7 +321,7 @@ all dashboard surfaces remain planned until their Blocks are accepted.
 | Role-task binding repair | `supported` | Task and policy owners can establish both the live eligible task and canonical role binding. | No exact eligible role/task or one owner unavailable. |
 | Automation binding repair | `supported` | Automation and policy owners can establish both actual schedule state and canonical group-role binding. | No exact automation/group-role mismatch or one owner unavailable. |
 | Pause supervision | `supported` | `paused` lifecycle gating plus actual bound-automation pause provide two current postconditions. | Missing lifecycle/automation gate or unsatisfied terminal/report prerequisites. |
-| Resume supervision | `unavailable` | Automations can be re-enabled, but the maintained helper exposes no canonical `resumed` lifecycle state or resume gate/postcondition. | A maintained resume lifecycle owner is implemented, then Block 18 is narrowly amended before execution. |
+| Resume supervision | `unavailable` | Automations can be re-enabled, but the maintained helper exposes no canonical `resumed` lifecycle state or resume gate/postcondition. | Tracker Block 23 implements and accepts that maintained owner; Block 24 remains closed until then. |
 | Create same-target successor mission binding | `supported` | `mission-successor` accepts materially different direct authority and exact first eligible work, then creates the new policy binding and one pending activation. | Open head/activation, unchanged intent, absent direct authority, or missing exact first eligible work. |
 | Close or verify successor first-work activation | `unavailable` | Current `mission-activation-start` accepts an arbitrary later same-target/current-mission record and repeated caller evidence; it does not prove that the named first work began. | The maintained owner must bind an eligible canonical work-start source and postcondition to the exact first-work identity. |
 | Successor-task continuity | `supported` | Transition helper and App Server task owner exist; source stop waits for current `work-started`. | Missing direct task-creation authority or incomplete phase. |
@@ -356,7 +356,7 @@ message delivery, generated file, or stopped task never proves application.
 | Repair role task | Task + policy owner | One exact role/task eligibility and route; consequential confirmation | Live eligible task and canonical role binding both match. | Task-only or policy-only result remains partial. |
 | Repair automation binding | Automation + policy owner | One exact automation/group-role mismatch; consequential confirmation | Actual automation and canonical policy binding both match with no duplicate role. | No direct TOML fallback. |
 | Pause supervision | Automation + lifecycle owners | Exact group and consequence preview; typed lifecycle confirmation | Canonical `paused` lifecycle plus actual paused state for every bound automation. | Turn state or one-owner-only change is insufficient. |
-| Resume supervision | No complete current owner | Disabled; explain missing canonical resumed lifecycle/gate | None; automation re-enable alone cannot establish semantic resume. | Amend Block 18 only after a maintained lifecycle owner exists. |
+| Resume supervision | No complete current owner | Disabled; explain missing canonical resumed lifecycle/gate | None; automation re-enable alone cannot establish semantic resume. | Keep disabled until tracker Block 23 accepts the maintained owner, then execute Block 24. |
 | Begin successor mission binding | `mission-successor` policy owner | Direct new-mission authority, predecessor/closed-head proof, and exact first eligible work; typed confirmation | New policy history has the sole active root, predecessor history is preserved, and one matching activation is `pending`. | Do not use `bind`, create a parallel root, or render pending activation as completed continuation. |
 | Close or verify successor first work | No evidence-tight current owner | Disabled; explain the weak source/evidence check | None; a structural `work-started` record from the current helper cannot establish that the named work began. | Do not invoke or trust closure until the maintained owner binds an eligible canonical source to the exact first-work identity. |
 | Advance successor-task transition | Transition helper + App Server/task owners | Direct task authority and exact phase; confirmation per phase | Exact next canonical phase; source stop only after gate proves `work-started`. | Missing authority/phase stays open; no invented ID. |
@@ -413,10 +413,10 @@ message delivery, generated file, or stopped task never proves application.
    product scope, but amend that future Block at its owner/acceptance boundary
    before executing or accepting it; earlier dependency-safe Blocks remain
    available.
-9. Planned Block 18 currently combines supported pause with unavailable resume.
-   Preserve the requested resume scope as an explicit gap, but amend that
-   future Block before execution unless a maintained resume lifecycle owner and
-   postcondition exist; earlier dependency-safe Blocks remain available.
+9. The baseline's former combined pause/resume Block mixed supported pause with
+   unavailable resume. Current Block 22 is pause-only, Block 23 owns the missing
+   maintained resume lifecycle/postcondition, and Block 24 exposes dashboard
+   resume only after that owner is independently accepted.
 10. Planned Block 19 predates the durable first-work activation obligation in
     source revision `08b4f98`, whose current closure is not evidence-tight.
     Before executing that future Block, amend its preview, acceptance,
@@ -435,8 +435,8 @@ Re-run only the affected baseline slice when:
 - verifier output/profile behavior changes;
 - supervision policy/helper schema or mission root changes;
 - a maintained tracker-association or resumed-lifecycle owner becomes
-  available, or execution reaches the required Block 15/18/19 plan-amendment
-  gate;
+  available, or execution reaches a required binding, pause/resume, or
+  succession plan-amendment gate;
 - an automation projection schema or callable owner changes;
 - a report/evolution/terminal helper or manifest schema changes;
 - a planned capability gains accepted implementation evidence; or

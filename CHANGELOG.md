@@ -157,7 +157,7 @@ the completed program materially changes Software Factory.
 ### Planned
 
 - **Local Software Factory operations dashboard and factory floor.** A
-  thirty-Block implementation program plans a local React/TypeScript/Vite
+  thirty-two-Block implementation program plans a local React/TypeScript/Vite
   command center that monitors current and historical work across registered
   projects; pairs every discoverable implementation with its supervisor group,
   target, roles, automations, current active-Block claims/checkpoints, issues,
