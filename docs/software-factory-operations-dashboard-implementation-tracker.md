@@ -540,8 +540,8 @@ the relevant authority and evidence contract.
 | 17 | Factory Floor operational rows and exact count filters | 6, 7 | `accepted` |
 | 18 | Tracker review queue and exact count filters | 3, 8 | `accepted` |
 | 19 | Tracker semantic source diffs | 3, 8 | `accepted` |
-| 20 | Automation binding repair | 7, 10, 11 | `in-progress` |
-| 21 | Owner-backed operation semantic diffs | 10, 14, 15, 16, 19, 20 | `not-started` |
+| 20 | Automation binding repair | 7, 10, 11 | `accepted` |
+| 21 | Owner-backed operation semantic diffs | 10, 14, 15, 16, 19, 20 | `in-progress` |
 | 22 | Supervision pause and resume | 7, 10, 11 | `not-started` |
 | 23 | Same-target mission succession | 7, 10, 11 | `not-started` |
 | 24 | Successor-task continuity | 7, 10, 11 | `not-started` |
@@ -5684,7 +5684,7 @@ continuity, reporting, evolution, or lifecycle operations.
 
 ## Block 20 — Automation binding repair
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -6013,10 +6013,18 @@ check. Never enumerate or reconcile unrelated automation families.
   the complete read set. The one affected adversarial case passed 1/1 with
   `ResourceWarning` fatal, Ruff and `git diff --check` pass, and the prior exact
   49/49 unaffected provider/owner proof is preserved rather than replayed.
-- Candidate review posture: Block 20 remains `in-progress` and Blocks 21-29
-  remain unopened until a fresh independent exact-revision product, owner,
-  recovery, resource-bound, provider-currentness, and Stop review accepts this
-  corrected evidence successor.
+- Independent acceptance: a fresh isolated exact-revision review ACCEPTED
+  evidence commit `bfdcb84a9f734c37dd32e596d44bee594d20683a`, tree
+  `d8d1f56c2b784919425e55b6774aabaf10646ccc`, and product
+  `f875faadce057e6c0c9be0504ab1d54e302b5ee8` with no material findings. The
+  reviewer independently reproduced selected wrong-target/provider-empty as a
+  selected-only repairable read and a provider-returned wrong-target manifest
+  as `automation_target_query_inconsistent` with repair unavailable. Focused
+  regression passed 1/1 with `ResourceWarning` fatal, Ruff passed, the full
+  verifier returned Blocks 0-29 with 0 errors/warnings, verifier tests passed
+  30/30, frame hash and remote identity were exact, and the checkout, diff,
+  fsck, resource, and Stop gates were clean. Block 20 is accepted at that exact
+  revision; no live owner mutation established acceptance.
 
 ### Stop
 
@@ -6028,7 +6036,7 @@ lifecycle operations.
 
 ## Block 21 — Owner-backed operation semantic diffs
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -6139,7 +6147,19 @@ affected operation family plus shared schema/component proof.
 
 ### Completion evidence
 
-Pending.
+- Activation and authority: started automatically after independently accepted
+  Block 20 evidence `bfdcb84a9f734c37dd32e596d44bee594d20683a`; all direct
+  dependencies Blocks 10, 14, 15, 16, 19, and 20 are accepted. Governing
+  implementation authority remains direct-user item 44 under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+- Work-start boundary: re-read Block 21 and inspected the existing
+  `PreviewEffect`/operation coordinator envelope, the Admin preview panel and
+  typed client contract, and accepted Block 19's provenance-noted
+  `TrackerSemanticDiffTable`. First work is limited to owner-supplied bounded
+  semantic preview rows for the four named existing operation families and a
+  read-only adaptation of that component. Blocks 22-29 remain unopened; no
+  pause/resume, continuity, reporting, evolution, lifecycle, new operation,
+  owner dispatch, or mutation is started.
 
 ### Stop
 
