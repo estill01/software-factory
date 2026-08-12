@@ -828,6 +828,45 @@ Initial binding and contraction also hash the exact request text bytes and
 require equality with the accepted direct source SHA-256; authentic authority
 metadata cannot be paired with fabricated scope text.
 
+A pre-contract successor transition whose direct-user authority source was
+independently verified but never canonically ingested uses the legacy-only
+owner operation below. The caller supplies exact canonical JSON as canonical
+base64; the object binds the target/task, source turn and item, original UTF-8
+text and byte count, original SHA-256, current policy version/SHA, eligible
+base-or-Max verifier, prior reviewer-authorization record, and the single open
+legacy transition record/ID. The reviewer record must already be an accepted
+Sol XHigh-or-Max checkpoint/meta review with category
+`legacy-direct-authority-ingestion`, supervisor ownership, no user action, the
+current policy SHA, and exact source/transition evidence. Validation, duplicate
+and replay checks, policy/event currentness, and the legacy transition check all
+precede the locked event append:
+
+```bash
+python3 <LOG_HELPER> legacy-direct-authority-ingest \
+  --target-thread <TARGET> \
+  --provenance-base64 <CANONICAL_PROVENANCE_JSON_BASE64>
+```
+
+The operation appends only the existing `direct-user-authority-source` event
+shape through the canonical owner/event-anchor path. An exact duplicate is
+idempotent. Routed or fabricated review, wrong target/task/turn/item, changed
+bytes/hash, stale policy, review replay, a nonlegacy or non-open transition, or
+an ineligible verifier rejects without mutation. It does not issue the
+authority receipt, bind a range, reconcile the transition, or act on the
+target.
+
+Generic implementation-request classification continues to reject local paths.
+Only a receipt for an event produced by the legacy owner above may use the
+internal nonauthorizing classification seam: after canonical event, receipt,
+current-policy, reviewer, raw-byte/hash, and exact legacy-transition validation,
+the seam removes only the exact Markdown destinations of the allowlisted
+`author-implementation-trackers` then `implement-tracker-blocks` skill links.
+The exact clause ending in an unbounded `for that tracker` invocation classifies
+as `full-tracker`. The original source bytes and SHA remain the authority and
+`request_text_sha256`; caller-normalized replacement text, altered link labels,
+destinations, order, or clauses, generic local-path text, and generic unbounded
+requests cannot use this seam.
+
 Ordinary tracker status and completion-evidence updates preserve the
 owner-pinned tracker path, exact Block-number set, and canonical structural
 root. Changing the path, Block set, dependencies, scope, acceptance, Stop, or

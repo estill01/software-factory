@@ -2360,6 +2360,418 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.assertIn("019fb18f-3d03-7ca0-9fe9-68353f0405ce", changelog)
 
 
+class LegacyDirectAuthorityIngestTests(unittest.TestCase):
+    target = "019fdfe4-dabe-7130-ac93-f8fa8e3bce12"
+    source_turn = "019fe245-6c79-7f82-94d5-9ec6a4b684cc"
+    source_item = "item-340"
+    transition_record = "EVT-000069"
+    transition_id = "TRANSITION-94c8118-BLOCKS-0-13"
+    reviewer = "legacy-max-reviewer-1234"
+    watcher = "legacy-watcher-1234"
+    fix_executor = "legacy-fix-executor-1234"
+    source_text = (
+        "[$author-implementation-trackers]"
+        "(/Users/ethanstillman/code/software_factory/"
+        "author-implementation-trackers/SKILL.md) for this all / make sure "
+        "the tracker is up to date with what we've discussed. then "
+        "[$implement-tracker-blocks]"
+        "(/Users/ethanstillman/code/software_factory/"
+        "implement-tracker-blocks/SKILL.md) for that tracker\n"
+    )
+    source_sha256 = (
+        "897a606e4602b95c875bb1563b331026bc09eead35beb7eb78ebcf8fa65b6b74"
+    )
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.tracker = self.root / "tracker.md"
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "init",
+                "--target-thread",
+                self.target,
+                "--target-label",
+                "Legacy authority target",
+                "--watcher-thread",
+                self.watcher,
+                "--reviewer-thread",
+                self.reviewer,
+                "--fix-executor-thread",
+                self.fix_executor,
+                "--mission-source-class",
+                "direct-user",
+                "--mission-source-record",
+                "initial-item-1234",
+                "--mission-source-sha256",
+                "a" * 64,
+            ]
+        )
+        with redirect_stdout(io.StringIO()):
+            args.func(args)
+        self.assertEqual(len(self.source_text.encode("utf-8")), 324)
+        self.assertEqual(
+            hashlib.sha256(self.source_text.encode("utf-8")).hexdigest(),
+            self.source_sha256,
+        )
+        self.write_tracker()
+        self.append_legacy_transition()
+
+    @property
+    def directory(self) -> Path:
+        return self.root / self.target
+
+    def write_tracker(self) -> None:
+        rows = []
+        headings = []
+        for number in range(18):
+            status = "completed" if number < 9 else "not-started"
+            dependency = "—" if number == 0 else str(number - 1)
+            rows.append(
+                f"| {number} | Scope {number} | {dependency} | `{status}` |"
+            )
+            headings.append(
+                f"## Block {number} — Scope {number}\n\n"
+                f"Status: `{status}`\n\n"
+                "### Completion evidence\n\nPending.\n\n"
+                "### Stop\n\nStop at this Block boundary.\n"
+            )
+        self.tracker.write_text(
+            "| Block | Scope | Depends on | Status |\n"
+            "|---:|---|---:|---|\n"
+            + "\n".join(rows)
+            + "\n\n"
+            + "\n".join(headings),
+            encoding="utf-8",
+        )
+
+    def append_event(self, record: dict[str, object]) -> dict[str, object]:
+        current = supervision_log.events(self.directory / "events.jsonl")
+        value = {
+            "schema_version": 1,
+            "record_id": f"EVT-{len(current) + 1:06d}",
+            "timestamp": supervision_log.utc_now(),
+            "target_thread_id": self.target,
+            **record,
+        }
+        supervision_log.append_raw(self.directory / "events.jsonl", value)
+        return supervision_log.events(self.directory / "events.jsonl")[-1]
+
+    def append_legacy_transition(
+        self,
+        *,
+        transition_id: str | None = None,
+        modern: bool = False,
+    ) -> dict[str, object]:
+        policy = supervision_log.read_json(self.directory / "policy.json")
+        current = supervision_log.events(self.directory / "events.jsonl")
+        value: dict[str, object] = {
+            "schema_version": 1,
+            "record_id": (
+                self.transition_record
+                if not current
+                else f"EVT-{len(current) + 1:06d}"
+            ),
+            "timestamp": supervision_log.utc_now(),
+            "target_thread_id": self.target,
+            "kind": "successor-transition",
+            "transition_id": transition_id or self.transition_id,
+            "phase": "required",
+            "tracker_sha256": "b" * 64,
+            "tracker_source_record": self.source_item,
+            "requested_block_range": "Blocks 0-17",
+            "first_eligible_block": "Block 9",
+            "source_mission_root": "a" * 64,
+            "governing_authority_source_class": "direct-user",
+            "governing_authority_source_record": self.source_item,
+            "policy_sha256": policy["policy_sha256"],
+            "evidence": ["legacy-direct-authority-migration"],
+        }
+        if modern:
+            value.update(
+                {
+                    "governing_authority_source_sha256": self.source_sha256,
+                    "topology_posture": "same-task-new-run",
+                    "topology_basis": "same-task-default",
+                }
+            )
+        supervision_log.append_raw(self.directory / "events.jsonl", value)
+        return supervision_log.events(self.directory / "events.jsonl")[-1]
+
+    def provenance(
+        self,
+        *,
+        source_text: str | None = None,
+        transition_record: str | None = None,
+        transition_id: str | None = None,
+        verifier: str | None = None,
+    ) -> dict[str, object]:
+        policy = supervision_log.read_json(self.directory / "policy.json")
+        text = self.source_text if source_text is None else source_text
+        return {
+            "schema_version": 1,
+            "kind": supervision_log.LEGACY_DIRECT_AUTHORITY_PROVENANCE_KIND,
+            "target_thread_id": self.target,
+            "source_task_id": self.target,
+            "source_turn_id": self.source_turn,
+            "source_item_id": self.source_item,
+            "source_text": text,
+            "source_byte_count": len(text.encode("utf-8")),
+            "source_sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            "policy_version": policy["policy_version"],
+            "policy_sha256": policy["policy_sha256"],
+            "verifier_id": verifier or self.reviewer,
+            "authorization_record_id": "pending-review-1234",
+            "legacy_transition_record_id": (
+                transition_record or self.transition_record
+            ),
+            "legacy_transition_id": transition_id or self.transition_id,
+        }
+
+    def append_review(
+        self,
+        provenance: dict[str, object],
+        *,
+        kind: str = "meta-review",
+        status: str = "accepted",
+    ) -> dict[str, object]:
+        event = self.append_event(
+            {
+                "kind": kind,
+                "model": "gpt-5.6-sol",
+                "reasoning": "max",
+                "status": status,
+                "category": (
+                    supervision_log.LEGACY_DIRECT_AUTHORITY_REVIEW_CATEGORY
+                ),
+                "resolution_owner": "supervisor",
+                "user_action_required": "no",
+                "policy_sha256": provenance["policy_sha256"],
+                "evidence": (
+                    supervision_log.legacy_direct_authority_review_evidence(
+                        provenance
+                    )
+                ),
+            }
+        )
+        provenance["authorization_record_id"] = event["record_id"]
+        return event
+
+    def encode(self, provenance: dict[str, object]) -> str:
+        return base64.b64encode(supervision_log.canonical(provenance)).decode(
+            "ascii"
+        )
+
+    def call(self, *arguments: str) -> dict[str, object]:
+        args = supervision_log.parser().parse_args(
+            ["--root", str(self.root), *arguments]
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            args.func(args)
+        return json.loads(output.getvalue())
+
+    def ingest(self, provenance: dict[str, object]) -> dict[str, object]:
+        return self.call(
+            "legacy-direct-authority-ingest",
+            "--target-thread",
+            self.target,
+            "--provenance-base64",
+            self.encode(provenance),
+        )
+
+    def state(self) -> dict[str, bytes]:
+        return {
+            str(path.relative_to(self.root)): path.read_bytes()
+            for path in sorted(self.root.rglob("*"))
+            if path.is_file() and path.name != ".append.lock"
+        }
+
+    def assert_rejected_without_mutation(
+        self,
+        provenance: dict[str, object],
+        message: str,
+    ) -> None:
+        before = self.state()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, message
+        ):
+            self.ingest(provenance)
+        self.assertEqual(self.state(), before)
+
+    def test_exact_item_340_ingests_idempotently_and_binds_full_blocks_0_17(self) -> None:
+        provenance = self.provenance()
+        self.append_review(provenance)
+
+        result = self.ingest(provenance)
+        duplicate = self.ingest(provenance)
+
+        self.assertFalse(result["duplicate"])
+        self.assertEqual(result["source_record"], self.source_item)
+        self.assertEqual(result["source_sha256"], self.source_sha256)
+        self.assertEqual(
+            result["classification"],
+            supervision_log.LEGACY_DIRECT_AUTHORITY_CLASSIFICATION,
+        )
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(duplicate["record_id"], result["record_id"])
+        receipt = self.call(
+            "implementation-range-authority-receipt",
+            "--target-thread",
+            self.target,
+            "--authority-event-record",
+            str(result["record_id"]),
+        )
+        self.assertFalse(receipt["duplicate"])
+        self.assertTrue(self.ingest(provenance)["duplicate"])
+        binding = self.call(
+            "implementation-range-bind",
+            "--target-thread",
+            self.target,
+            "--range-id",
+            "RANGE-ITEM-340",
+            "--tracker",
+            str(self.tracker),
+            "--request-text",
+            self.source_text,
+            "--authority-source-record",
+            self.source_item,
+            "--authority-source-sha256",
+            self.source_sha256,
+        )["binding"]
+        self.assertEqual(binding["range_intent"], "full-tracker")
+        self.assertEqual(binding["tracker_blocks"], list(range(18)))
+        self.assertEqual(binding["explicit_blocks"], [])
+        self.assertEqual(
+            binding["history"][0]["request_text_sha256"],
+            self.source_sha256,
+        )
+
+    def test_generic_classifier_still_rejects_local_paths(self) -> None:
+        self.assertEqual(
+            supervision_log.classify_implementation_request(
+                "implement this tracker", set(range(18))
+            ),
+            ("full-tracker", list(range(18))),
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "must not contain a local path",
+        ):
+            supervision_log.classify_implementation_request(
+                self.source_text, set(range(18))
+            )
+
+    def test_wrong_identity_hash_policy_and_ineligible_verifier_reject_without_mutation(self) -> None:
+        provenance = self.provenance()
+        self.append_review(provenance)
+        variants = []
+        for field, value in (
+            ("target_thread_id", "wrong-target-1234"),
+            ("source_task_id", "wrong-task-1234"),
+            ("source_turn_id", "wrong-turn-1234"),
+            ("source_item_id", "wrong-item-1234"),
+            ("source_byte_count", 323),
+            ("source_sha256", "f" * 64),
+            ("policy_version", 999),
+            ("policy_sha256", "e" * 64),
+            ("verifier_id", self.watcher),
+            ("authorization_record_id", "fabricated-review-1234"),
+            ("legacy_transition_record_id", "EVT-999999"),
+            ("legacy_transition_id", "TRANSITION-WRONG-1234"),
+        ):
+            changed = copy.deepcopy(provenance)
+            changed[field] = value
+            variants.append((field, changed))
+        for field, changed in variants:
+            with self.subTest(field=field):
+                self.assert_rejected_without_mutation(changed, ".+")
+
+    def test_normalized_and_altered_skill_link_forms_reject_without_mutation(self) -> None:
+        variants = {
+            "normalized": "implement this tracker\n",
+            "label": self.source_text.replace(
+                "$author-implementation-trackers",
+                "$author-implementation-tracker",
+            ),
+            "destination": self.source_text.replace(
+                "author-implementation-trackers/SKILL.md",
+                "other-skill/SKILL.md",
+            ),
+            "order": self.source_text.replace(
+                "[$author-implementation-trackers]",
+                "[$temporary-link]",
+            ),
+            "clause": self.source_text.replace(
+                "for that tracker", "for Blocks 0-17"
+            ),
+            "other-local-path": (
+                "[$author-implementation-trackers](/Users/example/other/SKILL.md) "
+                "for this all / make sure the tracker is up to date with what we've "
+                "discussed. then [$implement-tracker-blocks]"
+                "(/Users/example/implement-tracker-blocks/SKILL.md) for that tracker\n"
+            ),
+        }
+        for label, text in variants.items():
+            with self.subTest(label=label):
+                provenance = self.provenance(source_text=text)
+                self.append_review(provenance)
+                self.assert_rejected_without_mutation(
+                    provenance, "allowlisted skill-link form|destinations differ"
+                )
+
+    def test_routed_fabricated_nonlegacy_and_replayed_authority_reject_without_mutation(self) -> None:
+        routed = self.provenance()
+        self.append_review(routed, kind="escalation")
+        self.assert_rejected_without_mutation(routed, "independent exact provenance")
+
+        modern = self.append_legacy_transition(
+            transition_id="TRANSITION-MODERN-1234", modern=True
+        )
+        nonlegacy = self.provenance(
+            transition_record=str(modern["record_id"]),
+            transition_id="TRANSITION-MODERN-1234",
+        )
+        self.append_review(nonlegacy)
+        self.assert_rejected_without_mutation(nonlegacy, "not the exact unbound legacy")
+
+        accepted = self.provenance()
+        authorization = self.append_review(accepted)
+        self.ingest(accepted)
+        replay = copy.deepcopy(accepted)
+        replay["source_text"] = self.source_text.replace("this all", "all this")
+        replay["source_byte_count"] = len(
+            str(replay["source_text"]).encode("utf-8")
+        )
+        replay["source_sha256"] = hashlib.sha256(
+            str(replay["source_text"]).encode("utf-8")
+        ).hexdigest()
+        replay["authorization_record_id"] = authorization["record_id"]
+        self.assert_rejected_without_mutation(replay, ".+")
+
+    def test_closed_legacy_transition_rejects_without_mutation(self) -> None:
+        provenance = self.provenance()
+        self.append_review(provenance)
+        policy = supervision_log.read_json(self.directory / "policy.json")
+        self.append_event(
+            {
+                "kind": "successor-transition",
+                "transition_id": self.transition_id,
+                "phase": "cancelled",
+                "governing_authority_source_class": "direct-user",
+                "governing_authority_source_record": self.source_item,
+                "policy_sha256": policy["policy_sha256"],
+                "evidence": ["legacy-transition-cancelled-before-ingestion"],
+            }
+        )
+        self.assert_rejected_without_mutation(
+            provenance, "not the exact unbound legacy|no longer the open"
+        )
+
+
 class ControlPostureReducerTests(unittest.TestCase):
     owner = "owner-1234"
     child = "child-1234"

@@ -341,12 +341,22 @@ SKILL_RELEASE_PUBLICATION_STATUSES = (
     "failed",
 )
 DIRECT_AUTHORITY_EVENT_KIND = "direct-user-authority-source"
+LEGACY_DIRECT_AUTHORITY_PROVENANCE_KIND = (
+    "legacy-direct-user-authority-provenance"
+)
+LEGACY_DIRECT_AUTHORITY_REVIEW_CATEGORY = (
+    "legacy-direct-authority-ingestion"
+)
+LEGACY_DIRECT_AUTHORITY_CLASSIFICATION = (
+    "author-then-implement-full-tracker"
+)
 TRACKER_AMENDMENT_EVENT_KIND = "implementation-tracker-amendment"
 SUCCESSOR_TOPOLOGY_EVENT_KIND = "successor-topology-decision"
 EVENT_LEDGER_ANCHOR_NAME = "events-head.json"
 OWNER_ROOT_HISTORY_NAME = "owner-root-history.jsonl"
 OWNER_ROOT_KEY_DIRECTORY = ".owner-root-keys"
 MAX_IMPLEMENTATION_TRACKER_BYTES = 2 * 1024 * 1024
+MAX_LEGACY_DIRECT_AUTHORITY_PROVENANCE_BYTES = 4096
 IMPLEMENTATION_BLOCK_HEADING = re.compile(r"^## Block (\d+)\b", re.MULTILINE)
 IMPLEMENTATION_TABLE_ROW = re.compile(r"^\|\s*(\d+)\s*\|(.+)$")
 SUCCESSOR_TRANSITION_IDENTITY_FIELDS = (
@@ -6147,6 +6157,359 @@ def successor_transition_is_activated(
     )
 
 
+def decode_legacy_direct_authority_provenance(
+    encoded_value: str,
+) -> dict[str, Any]:
+    if not isinstance(encoded_value, str) or not encoded_value:
+        raise SupervisionLogError(
+            "Legacy direct-authority provenance must be nonempty canonical base64"
+        )
+    try:
+        encoded = encoded_value.encode("ascii")
+        raw = base64.b64decode(encoded, validate=True)
+    except (UnicodeEncodeError, binascii.Error, ValueError) as exc:
+        raise SupervisionLogError(
+            "Legacy direct-authority provenance is not valid canonical base64"
+        ) from exc
+    if base64.b64encode(raw) != encoded:
+        raise SupervisionLogError(
+            "Legacy direct-authority provenance is not valid canonical base64"
+        )
+    if len(raw) > MAX_LEGACY_DIRECT_AUTHORITY_PROVENANCE_BYTES:
+        raise SupervisionLogError(
+            "Legacy direct-authority provenance exceeds its byte bound"
+        )
+    try:
+        value = json.loads(raw, object_pairs_hook=reject_duplicate_json_pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SupervisionLogError(
+            "Legacy direct-authority provenance is not valid JSON"
+        ) from exc
+    if not isinstance(value, dict):
+        raise SupervisionLogError(
+            "Legacy direct-authority provenance must be a JSON object"
+        )
+    validate_exact_json_value(value)
+    if raw != canonical(value):
+        raise SupervisionLogError(
+            "Legacy direct-authority provenance is not exact canonical JSON"
+        )
+    return value
+
+
+def legacy_full_tracker_request_projection(
+    request_text: str,
+) -> dict[str, str]:
+    pattern = re.compile(
+        r"^\[\$author-implementation-trackers\]"
+        r"\((?P<author>/Users/[^)\r\n]+/author-implementation-trackers/SKILL\.md)\)"
+        r" for this all / make sure the tracker is up to date with what we've discussed\. "
+        r"then \[\$implement-tracker-blocks\]"
+        r"\((?P<implement>/Users/[^)\r\n]+/implement-tracker-blocks/SKILL\.md)\)"
+        r" for that tracker\n$"
+    )
+    match = pattern.fullmatch(request_text)
+    if match is None:
+        raise SupervisionLogError(
+            "Legacy implementation request does not match the allowlisted skill-link form"
+        )
+    author = Path(match.group("author"))
+    implement = Path(match.group("implement"))
+    if (
+        not author.is_absolute()
+        or not implement.is_absolute()
+        or author.name != "SKILL.md"
+        or implement.name != "SKILL.md"
+        or author.parent.name != "author-implementation-trackers"
+        or implement.parent.name != "implement-tracker-blocks"
+        or author.parent.parent != implement.parent.parent
+        or author.parent.parent.name != "software_factory"
+    ):
+        raise SupervisionLogError(
+            "Legacy implementation request skill-link destinations differ"
+        )
+    return {
+        "classification": LEGACY_DIRECT_AUTHORITY_CLASSIFICATION,
+        "range_intent": "full-tracker",
+    }
+
+
+def legacy_direct_authority_review_evidence(
+    provenance: Mapping[str, Any],
+) -> list[str]:
+    return [
+        f"source-task:{provenance['source_task_id']}",
+        f"source-turn:{provenance['source_turn_id']}",
+        f"source-item:{provenance['source_item_id']}",
+        f"source-byte-count:{provenance['source_byte_count']}",
+        f"source-sha256:{provenance['source_sha256']}",
+        f"verifier:{provenance['verifier_id']}",
+        f"legacy-transition-record:{provenance['legacy_transition_record_id']}",
+        f"legacy-transition-id:{provenance['legacy_transition_id']}",
+    ]
+
+
+def legacy_direct_authority_event_evidence(
+    provenance: Mapping[str, Any], authorization: Mapping[str, Any]
+) -> list[str]:
+    return [
+        *legacy_direct_authority_review_evidence(provenance),
+        "authorization-record:"
+        + ":".join(
+            (
+                str(authorization["record_id"]),
+                str(authorization["record_sha256"]),
+            )
+        ),
+        f"classification:{LEGACY_DIRECT_AUTHORITY_CLASSIFICATION}",
+    ]
+
+
+def canonical_legacy_direct_authority_review(
+    all_events: list[dict[str, Any]],
+    *,
+    provenance: Mapping[str, Any],
+    policy: Mapping[str, Any],
+) -> dict[str, Any]:
+    record_id = safe_id(
+        str(provenance["authorization_record_id"]),
+        label="legacy authority review record",
+    )
+    event = next(
+        (item for item in all_events if item.get("record_id") == record_id),
+        None,
+    )
+    if event is None:
+        raise SupervisionLogError(
+            "Legacy direct-authority review is not in the canonical event ledger"
+        )
+    verifier_id = safe_id(
+        str(provenance["verifier_id"]),
+        label="legacy authority independent verifier",
+    )
+    runtime = policy.get("runtime", {})
+    eligible = {
+        runtime.get("base_reviewer_thread_id"),
+        runtime.get("reviewer_thread_id"),
+    }
+    disallowed = {
+        policy.get("target_thread_id"),
+        runtime.get("watcher_thread_id"),
+        runtime.get("fix_executor_thread_id"),
+    }
+    evidence = event.get("evidence")
+    expected_review_kind = (
+        "checkpoint-review"
+        if verifier_id == runtime.get("base_reviewer_thread_id")
+        else "meta-review"
+    )
+    if (
+        verifier_id not in eligible
+        or verifier_id in disallowed
+        or event.get("schema_version") != 1
+        or event.get("target_thread_id") != policy.get("target_thread_id")
+        or event.get("kind") != expected_review_kind
+        or event.get("category") != LEGACY_DIRECT_AUTHORITY_REVIEW_CATEGORY
+        or event.get("status") != "accepted"
+        or event.get("model") != "gpt-5.6-sol"
+        or event.get("reasoning") not in {"xhigh", "max"}
+        or event.get("resolution_owner") != "supervisor"
+        or event.get("user_action_required") != "no"
+        or event.get("policy_sha256") != provenance.get("policy_sha256")
+        or not isinstance(evidence, list)
+        or not all(
+            item in evidence
+            for item in legacy_direct_authority_review_evidence(provenance)
+        )
+    ):
+        raise SupervisionLogError(
+            "Legacy direct-authority review does not bind independent exact provenance"
+        )
+    exact_sha256(
+        str(event.get("record_sha256", "")),
+        label="legacy authority review record SHA-256",
+    )
+    return event
+
+
+def canonical_legacy_successor_transition(
+    all_events: list[dict[str, Any]],
+    *,
+    provenance: Mapping[str, Any],
+    policy: Mapping[str, Any],
+    policy_history: list[dict[str, Any]],
+    require_open: bool,
+) -> dict[str, Any]:
+    transition_id = safe_id(
+        str(provenance["legacy_transition_id"]),
+        label="legacy successor transition ID",
+    )
+    transition_record_id = safe_id(
+        str(provenance["legacy_transition_record_id"]),
+        label="legacy successor transition record",
+    )
+    records = successor_transition_events(all_events, transition_id)
+    event = next(
+        (item for item in records if item.get("record_id") == transition_record_id),
+        None,
+    )
+    if event is None:
+        raise SupervisionLogError(
+            "Legacy successor transition is not in the canonical event ledger"
+        )
+    source_policy_sha256 = exact_sha256(
+        str(event.get("policy_sha256", "")),
+        label="legacy successor transition policy SHA-256",
+    )
+    if not any(
+        isinstance(item.get("policy"), Mapping)
+        and item["policy"].get("policy_sha256") == source_policy_sha256
+        for item in policy_history
+    ):
+        raise SupervisionLogError(
+            "Legacy successor transition is not anchored to policy history"
+        )
+    if (
+        (require_open and len(records) != 1)
+        or event.get("schema_version") != 1
+        or event.get("target_thread_id") != policy.get("target_thread_id")
+        or event.get("phase") != "required"
+        or event.get("governing_authority_source_class") != "direct-user"
+        or event.get("governing_authority_source_record")
+        != provenance.get("source_item_id")
+        or event.get("governing_authority_source_sha256")
+        or event.get("topology_posture")
+        or event.get("topology_basis")
+        or event.get("topology_decision_event_record_id")
+        or event.get("topology_decision_event_sha256")
+    ):
+        raise SupervisionLogError(
+            "Successor transition is not the exact unbound legacy authority transition"
+        )
+    if require_open:
+        open_head = successor_transition_heads(all_events, open_only=True).get(
+            transition_id
+        )
+        if open_head is None or open_head.get("record_id") != transition_record_id:
+            raise SupervisionLogError(
+                "Legacy successor transition is no longer the open canonical head"
+            )
+    return event
+
+
+def validate_legacy_direct_authority_provenance(
+    provenance: Mapping[str, Any],
+    *,
+    policy: Mapping[str, Any],
+    policy_history: list[dict[str, Any]],
+    all_events: list[dict[str, Any]],
+    require_current_policy: bool,
+    require_open_transition: bool,
+) -> tuple[dict[str, str], dict[str, Any], dict[str, Any]]:
+    expected = {
+        "schema_version",
+        "kind",
+        "target_thread_id",
+        "source_task_id",
+        "source_turn_id",
+        "source_item_id",
+        "source_text",
+        "source_byte_count",
+        "source_sha256",
+        "policy_version",
+        "policy_sha256",
+        "verifier_id",
+        "authorization_record_id",
+        "legacy_transition_record_id",
+        "legacy_transition_id",
+    }
+    if set(provenance) != expected:
+        raise SupervisionLogError(
+            "Legacy direct-authority provenance shape differs"
+        )
+    if (
+        provenance.get("schema_version") != 1
+        or provenance.get("kind") != LEGACY_DIRECT_AUTHORITY_PROVENANCE_KIND
+        or provenance.get("target_thread_id") != policy.get("target_thread_id")
+        or provenance.get("source_task_id") != policy.get("target_thread_id")
+    ):
+        raise SupervisionLogError(
+            "Legacy direct-authority target or provenance kind differs"
+        )
+    for field, label in (
+        ("source_task_id", "legacy authority source task"),
+        ("source_turn_id", "legacy authority source turn"),
+        ("source_item_id", "legacy authority source item"),
+    ):
+        safe_id(str(provenance[field]), label=label)
+    source_text = provenance.get("source_text")
+    if not isinstance(source_text, str):
+        raise SupervisionLogError("Legacy direct-authority source text is not exact")
+    source_bytes = source_text.encode("utf-8")
+    source_byte_count = provenance.get("source_byte_count")
+    if (
+        type(source_byte_count) is not int
+        or source_byte_count <= 0
+        or source_byte_count > 1200
+        or len(source_bytes) != source_byte_count
+    ):
+        raise SupervisionLogError(
+            "Legacy direct-authority source byte count differs"
+        )
+    source_sha256 = exact_sha256(
+        str(provenance["source_sha256"]),
+        label="legacy authority source SHA-256",
+    )
+    if hashlib.sha256(source_bytes).hexdigest() != source_sha256:
+        raise SupervisionLogError(
+            "Legacy direct-authority source bytes differ from their SHA-256"
+        )
+    source_policy_sha256 = exact_sha256(
+        str(provenance["policy_sha256"]),
+        label="legacy authority policy SHA-256",
+    )
+    policy_version = provenance.get("policy_version")
+    if type(policy_version) is not int or policy_version <= 0:
+        raise SupervisionLogError(
+            "Legacy direct-authority policy version is invalid"
+        )
+    historical_policy = next(
+        (
+            item.get("policy")
+            for item in policy_history
+            if isinstance(item.get("policy"), Mapping)
+            and item["policy"].get("policy_version") == policy_version
+            and item["policy"].get("policy_sha256") == source_policy_sha256
+        ),
+        None,
+    )
+    if historical_policy is None:
+        raise SupervisionLogError(
+            "Legacy direct-authority provenance is not anchored to policy history"
+        )
+    if require_current_policy and (
+        policy_version != policy.get("policy_version")
+        or source_policy_sha256 != policy.get("policy_sha256")
+    ):
+        raise SupervisionLogError(
+            "Legacy direct-authority provenance policy is stale"
+        )
+    authorization = canonical_legacy_direct_authority_review(
+        all_events,
+        provenance=provenance,
+        policy=policy,
+    )
+    transition = canonical_legacy_successor_transition(
+        all_events,
+        provenance=provenance,
+        policy=policy,
+        policy_history=policy_history,
+        require_open=require_open_transition,
+    )
+    projection = legacy_full_tracker_request_projection(source_text)
+    return projection, authorization, transition
+
+
 def transition_first_record(
     all_events: list[dict[str, Any]], transition_id: str
 ) -> dict[str, Any] | None:
@@ -6674,6 +7037,343 @@ def implementation_range_state(
     }
 
 
+def legacy_direct_authority_event_material(
+    provenance: Mapping[str, Any], authorization: Mapping[str, Any]
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "target_thread_id": provenance["target_thread_id"],
+        "kind": DIRECT_AUTHORITY_EVENT_KIND,
+        "source_class": "direct-user",
+        "source_record": provenance["source_item_id"],
+        "source_sha256": provenance["source_sha256"],
+        "source_task_id": provenance["source_task_id"],
+        "source_item_id": provenance["source_item_id"],
+        "verifier_id": provenance["verifier_id"],
+        "provenance_status": "verified-before-entry",
+        "policy_sha256": provenance["policy_sha256"],
+        "evidence": legacy_direct_authority_event_evidence(
+            provenance, authorization
+        ),
+    }
+
+
+def matching_legacy_direct_authority_event(
+    all_events: list[dict[str, Any]],
+    *,
+    provenance: Mapping[str, Any],
+    authorization: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    expected = legacy_direct_authority_event_material(provenance, authorization)
+    authorization_token = (
+        "authorization-record:"
+        + str(authorization["record_id"])
+        + ":"
+        + str(authorization["record_sha256"])
+    )
+    related = [
+        item
+        for item in all_events
+        if item.get("kind") == DIRECT_AUTHORITY_EVENT_KIND
+        and (
+            item.get("source_record") == provenance.get("source_item_id")
+            or (
+                isinstance(item.get("evidence"), list)
+                and authorization_token in item["evidence"]
+            )
+        )
+    ]
+    for item in related:
+        comparable = {
+            key: value
+            for key, value in item.items()
+            if key
+            not in {
+                "record_id",
+                "timestamp",
+                "previous_record_sha256",
+                "record_sha256",
+            }
+        }
+        if comparable == expected:
+            return item
+    if related:
+        raise SupervisionLogError(
+            "Legacy direct-authority source or review was already used with different provenance"
+        )
+    return None
+
+
+def cmd_legacy_direct_authority_ingest(args: argparse.Namespace) -> None:
+    provenance = decode_legacy_direct_authority_provenance(args.provenance_base64)
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        all_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
+    validate_event_ledger_anchor(
+        directory, all_events, allow_missing=not all_events
+    )
+    policy_history = events(directory / "policy-history.jsonl")
+    projection, authorization, _transition = (
+        validate_legacy_direct_authority_provenance(
+            provenance,
+            policy=policy,
+            policy_history=policy_history,
+            all_events=all_events,
+            require_current_policy=False,
+            require_open_transition=False,
+        )
+    )
+    duplicate = matching_legacy_direct_authority_event(
+        all_events,
+        provenance=provenance,
+        authorization=authorization,
+    )
+    if duplicate is not None:
+        print(
+            json.dumps(
+                {
+                    "duplicate": True,
+                    "record_id": duplicate["record_id"],
+                    "record_sha256": duplicate["record_sha256"],
+                    "source_record": duplicate["source_record"],
+                    "source_sha256": duplicate["source_sha256"],
+                    "classification": projection["classification"],
+                },
+                sort_keys=True,
+            )
+        )
+        return
+    validate_legacy_direct_authority_provenance(
+        provenance,
+        policy=policy,
+        policy_history=policy_history,
+        all_events=all_events,
+        require_current_policy=True,
+        require_open_transition=True,
+    )
+    record = {
+        "record_id": "",
+        "timestamp": utc_now(),
+        **legacy_direct_authority_event_material(provenance, authorization),
+    }
+    with owner_append_lock(
+        root_from(args), args.target_thread, directory_snapshot
+    ) as directory_fd:
+        require_bound_policy_at(
+            directory_fd,
+            expected_policy=policy,
+            expected_snapshot=policy_snapshot,
+        )
+        current_events, current_event_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        current_policy_history, _history_snapshot = events_snapshot(
+            Path("policy-history.jsonl"), directory_fd=directory_fd
+        )
+        validate_event_ledger_anchor_at(
+            directory_fd,
+            current_events,
+            allow_missing=not current_events,
+        )
+        if current_event_snapshot != event_snapshot or current_events != all_events:
+            raise SupervisionLogError(
+                "Legacy direct-authority event state changed before append"
+            )
+        current_projection, current_authorization, _current_transition = (
+            validate_legacy_direct_authority_provenance(
+                provenance,
+                policy=policy,
+                policy_history=current_policy_history,
+                all_events=current_events,
+                require_current_policy=True,
+                require_open_transition=True,
+            )
+        )
+        if current_projection != projection or current_authorization != authorization:
+            raise SupervisionLogError(
+                "Legacy direct-authority provenance changed before append"
+            )
+        duplicate = matching_legacy_direct_authority_event(
+            current_events,
+            provenance=provenance,
+            authorization=current_authorization,
+        )
+        if duplicate is not None:
+            print(
+                json.dumps(
+                    {
+                        "duplicate": True,
+                        "record_id": duplicate["record_id"],
+                        "record_sha256": duplicate["record_sha256"],
+                        "source_record": duplicate["source_record"],
+                        "source_sha256": duplicate["source_sha256"],
+                        "classification": projection["classification"],
+                    },
+                    sort_keys=True,
+                )
+            )
+            return
+        record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
+        previous = (
+            str(current_events[-1]["record_sha256"])
+            if current_events
+            else None
+        )
+        appended_hash = append_raw_locked_at(
+            directory_fd,
+            "events.jsonl",
+            record,
+            previous_record_sha256=previous,
+            expected_file_snapshot=current_event_snapshot,
+            require_event_anchor=bool(current_events),
+        )
+        record["record_sha256"] = appended_hash
+    print(
+        json.dumps(
+            {
+                "duplicate": False,
+                "record_id": record["record_id"],
+                "record_sha256": record["record_sha256"],
+                "source_record": provenance["source_item_id"],
+                "source_sha256": provenance["source_sha256"],
+                "classification": projection["classification"],
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def evidence_value(evidence: Any, prefix: str) -> str:
+    matches = [
+        item[len(prefix):]
+        for item in evidence
+        if isinstance(item, str) and item.startswith(prefix)
+    ] if isinstance(evidence, list) else []
+    if len(matches) != 1 or not matches[0]:
+        raise SupervisionLogError(
+            "Legacy direct-authority event evidence is incomplete"
+        )
+    return matches[0]
+
+
+def legacy_implementation_request_classification(
+    directory: Path,
+    policy: Mapping[str, Any],
+    *,
+    source_record: str,
+    source_sha256: str,
+    request_text: str,
+    blocks: set[int],
+) -> tuple[str, list[int]]:
+    receipt = next(
+        (
+            item
+            for item in policy.get("direct_authority_receipts", [])
+            if item.get("source_record") == source_record
+            and item.get("source_sha256") == source_sha256
+            and item.get("accepted") is True
+        ),
+        None,
+    )
+    if receipt is None or receipt.get("accepted_policy_version") != policy.get(
+        "policy_version"
+    ):
+        raise SupervisionLogError(
+            "Legacy implementation request lacks a current accepted authority receipt"
+        )
+    all_events = events(directory / "events.jsonl")
+    policy_history = events(directory / "policy-history.jsonl")
+    source_event = canonical_direct_authority_event(
+        all_events,
+        event_record_id=str(receipt["source_event_record_id"]),
+        policy=policy,
+        policy_history=policy_history,
+    )
+    evidence = source_event["evidence"]
+    if evidence_value(evidence, "classification:") != (
+        LEGACY_DIRECT_AUTHORITY_CLASSIFICATION
+    ):
+        raise SupervisionLogError(
+            "Direct-authority event is not eligible for legacy request classification"
+        )
+    source_turn_id = safe_id(
+        evidence_value(evidence, "source-turn:"),
+        label="legacy authority source turn",
+    )
+    source_byte_count_value = evidence_value(evidence, "source-byte-count:")
+    if not source_byte_count_value.isdigit():
+        raise SupervisionLogError(
+            "Legacy direct-authority source byte count is invalid"
+        )
+    authorization_value = evidence_value(evidence, "authorization-record:")
+    authorization_record_id, separator, authorization_sha256 = (
+        authorization_value.partition(":")
+    )
+    if not separator:
+        raise SupervisionLogError(
+            "Legacy direct-authority authorization evidence differs"
+        )
+    exact_sha256(
+        authorization_sha256,
+        label="legacy authority review record SHA-256",
+    )
+    provenance = {
+        "schema_version": 1,
+        "kind": LEGACY_DIRECT_AUTHORITY_PROVENANCE_KIND,
+        "target_thread_id": policy["target_thread_id"],
+        "source_task_id": evidence_value(evidence, "source-task:"),
+        "source_turn_id": source_turn_id,
+        "source_item_id": evidence_value(evidence, "source-item:"),
+        "source_text": request_text,
+        "source_byte_count": int(source_byte_count_value),
+        "source_sha256": source_sha256,
+        "policy_version": next(
+            int(item["policy"]["policy_version"])
+            for item in policy_history
+            if isinstance(item.get("policy"), Mapping)
+            and item["policy"].get("policy_sha256")
+            == source_event["policy_sha256"]
+        ),
+        "policy_sha256": source_event["policy_sha256"],
+        "verifier_id": source_event["verifier_id"],
+        "authorization_record_id": authorization_record_id,
+        "legacy_transition_record_id": evidence_value(
+            evidence, "legacy-transition-record:"
+        ),
+        "legacy_transition_id": evidence_value(
+            evidence, "legacy-transition-id:"
+        ),
+    }
+    projection, authorization, _transition = (
+        validate_legacy_direct_authority_provenance(
+            provenance,
+            policy=policy,
+            policy_history=policy_history,
+            all_events=all_events,
+            require_current_policy=False,
+            require_open_transition=True,
+        )
+    )
+    if (
+        authorization.get("record_sha256") != authorization_sha256
+        or source_event.get("source_task_id") != provenance["source_task_id"]
+        or source_event.get("source_item_id") != provenance["source_item_id"]
+        or source_event.get("source_record") != provenance["source_item_id"]
+        or hashlib.sha256(request_text.encode("utf-8")).hexdigest()
+        != source_sha256
+        or projection.get("range_intent") != "full-tracker"
+    ):
+        raise SupervisionLogError(
+            "Legacy implementation request differs from canonical authority"
+        )
+    return "full-tracker", sorted(blocks)
+
+
 def cmd_implementation_authority_receipt(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     policy_history = events(directory / "policy-history.jsonl")
@@ -6767,13 +7467,6 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     if implementation_range_contract(policy) is not None:
         raise SupervisionLogError("Implementation range is already bound")
-    (
-        tracker_path,
-        tracker_sha256,
-        tracker_structure_sha256,
-        blocks,
-    ) = implementation_tracker_snapshot(args.tracker)
-    intent, requested = classify_implementation_request(args.request_text, set(blocks))
     source_record = safe_id(
         args.authority_source_record, label="range authority source record"
     )
@@ -6787,6 +7480,29 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
     if not eligible_direct_authority(policy, source_record, source_sha256):
         raise SupervisionLogError(
             "Implementation range source is not canonical eligible direct authority"
+        )
+    (
+        tracker_path,
+        tracker_sha256,
+        tracker_structure_sha256,
+        blocks,
+    ) = implementation_tracker_snapshot(args.tracker)
+    if (
+        "/Users/" in args.request_text
+        or "file://" in args.request_text
+        or "\\Users\\" in args.request_text
+    ):
+        intent, requested = legacy_implementation_request_classification(
+            directory,
+            policy,
+            source_record=source_record,
+            source_sha256=source_sha256,
+            request_text=args.request_text,
+            blocks=set(blocks),
+        )
+    else:
+        intent, requested = classify_implementation_request(
+            args.request_text, set(blocks)
         )
     authority = {
         "source_class": "direct-user",
@@ -14363,6 +15079,15 @@ def parser() -> argparse.ArgumentParser:
     control_posture_gate = subparsers.add_parser("control-posture-gate")
     control_posture_gate.add_argument("--target-thread", required=True)
     control_posture_gate.set_defaults(func=cmd_control_posture_gate)
+
+    legacy_authority_ingest = subparsers.add_parser(
+        "legacy-direct-authority-ingest"
+    )
+    legacy_authority_ingest.add_argument("--target-thread", required=True)
+    legacy_authority_ingest.add_argument("--provenance-base64", required=True)
+    legacy_authority_ingest.set_defaults(
+        func=cmd_legacy_direct_authority_ingest
+    )
 
     range_authority = subparsers.add_parser(
         "implementation-range-authority-receipt"
