@@ -872,6 +872,13 @@ Immediately before the range-policy write, the policy owner lock re-reads the
 current policy, accepted receipt, source event, reviewer authorization, event
 head, and still-open legacy transition. Any policy/event drift or intervening
 transition correction rejects before policy or policy-history mutation.
+After that exact legacy source has a current accepted receipt and full-tracker
+range, only a terminal disposition of the same still-open pre-contract
+transition may bypass the frozen-genesis range-history compatibility check.
+The helper still requires the exact transition head and identity, source event,
+review chronology, receipt, range authority, policy/event currentness, terminal
+correction authority, and governing-outcome effect; new, nonterminal, modern,
+or otherwise incompatible transitions retain ordinary compatibility checks.
 
 Ordinary tracker status and completion-evidence updates preserve the
 owner-pinned tracker path, exact Block-number set, and canonical structural

@@ -7276,6 +7276,156 @@ def evidence_value(evidence: Any, prefix: str) -> str:
     return matches[0]
 
 
+def legacy_terminal_range_compatibility_eligible(
+    policy: Mapping[str, Any],
+    *,
+    all_events: list[dict[str, Any]],
+    policy_history: list[dict[str, Any]],
+    prior: Mapping[str, Any],
+    record: Mapping[str, Any],
+    contract: Mapping[str, Any],
+    range_state: Mapping[str, Any],
+) -> bool:
+    """Admit only an exact canonical legacy transition's terminal retirement."""
+    mission = bound_mission(dict(policy))
+    authority = contract.get("authority")
+    history = contract.get("history")
+    if (
+        record.get("phase") not in SUCCESSOR_TRANSITION_TERMINAL_PHASES
+        or prior.get("phase") != "required"
+        or record.get("transition_id") != prior.get("transition_id")
+        or record.get("prior_record_id") != prior.get("record_id")
+        or prior.get("governing_authority_source_class") != "direct-user"
+        or prior.get("governing_authority_source_sha256")
+        or prior.get("topology_posture")
+        or prior.get("topology_basis")
+        or prior.get("topology_decision_event_record_id")
+        or prior.get("topology_decision_event_sha256")
+        or not isinstance(mission, Mapping)
+        or prior.get("source_mission_root") != mission.get("mission_root")
+        or not isinstance(authority, Mapping)
+        or not isinstance(history, list)
+        or not history
+        or contract.get("range_intent") != "full-tracker"
+        or contract.get("explicit_blocks") != []
+        or range_state.get("range_intent") != "full-tracker"
+        or range_state.get("requested_blocks") != contract.get("tracker_blocks")
+    ):
+        return False
+    source_record = str(authority.get("source_record", ""))
+    source_sha256 = str(authority.get("source_sha256", ""))
+    expected_authority = {
+        "source_class": "direct-user",
+        "source_record": source_record,
+        "source_sha256": source_sha256,
+    }
+    expected_effect = (
+        "continue-replacement-transition"
+        if record.get("phase") == "superseded"
+        else "continue-same-task"
+    )
+    genesis = history[0]
+    if (
+        dict(authority) != expected_authority
+        or not isinstance(genesis, Mapping)
+        or genesis.get("operation") != "bound"
+        or genesis.get("authority") != expected_authority
+        or genesis.get("range_intent") != "full-tracker"
+        or genesis.get("request_text_sha256") != source_sha256
+        or prior.get("governing_authority_source_record") != source_record
+        or record.get("governing_authority_source_class") != "direct-user"
+        or record.get("governing_authority_source_record") != source_record
+        or record.get("governing_authority_source_sha256") != source_sha256
+        or record.get("correction_authority_source_class") != "direct-user"
+        or record.get("correction_authority_source_record") != source_record
+        or record.get("correction_authority_source_sha256") != source_sha256
+        or record.get("governing_outcome_effect") != expected_effect
+    ):
+        return False
+    receipts = [
+        item
+        for item in policy.get("direct_authority_receipts", [])
+        if isinstance(item, Mapping)
+        and item.get("accepted") is True
+        and item.get("source_class") == "direct-user"
+        and item.get("source_record") == source_record
+        and item.get("source_sha256") == source_sha256
+    ]
+    if len(receipts) != 1:
+        return False
+    receipt = receipts[0]
+    accepted_version = receipt.get("accepted_policy_version")
+    authority_version = genesis.get("authority_policy_version")
+    if (
+        type(accepted_version) is not int
+        or type(authority_version) is not int
+        or accepted_version >= authority_version
+        or authority_version > policy.get("policy_version", 0)
+    ):
+        return False
+    try:
+        source_event = canonical_direct_authority_event(
+            all_events,
+            event_record_id=str(receipt["source_event_record_id"]),
+            policy=policy,
+            policy_history=policy_history,
+        )
+        evidence = source_event["evidence"]
+        authorization_value = evidence_value(evidence, "authorization-record:")
+        authorization_record_id, separator, authorization_sha256 = (
+            authorization_value.partition(":")
+        )
+        if not separator:
+            return False
+        provenance = {
+            "source_task_id": evidence_value(evidence, "source-task:"),
+            "source_turn_id": evidence_value(evidence, "source-turn:"),
+            "source_item_id": evidence_value(evidence, "source-item:"),
+            "source_byte_count": int(evidence_value(evidence, "source-byte-count:")),
+            "source_sha256": evidence_value(evidence, "source-sha256:"),
+            "policy_sha256": source_event["policy_sha256"],
+            "verifier_id": source_event["verifier_id"],
+            "authorization_record_id": authorization_record_id,
+            "legacy_transition_record_id": evidence_value(
+                evidence, "legacy-transition-record:"
+            ),
+            "legacy_transition_id": evidence_value(
+                evidence, "legacy-transition-id:"
+            ),
+        }
+        authorization = canonical_legacy_direct_authority_review(
+            all_events, provenance=provenance, policy=policy
+        )
+        transition = canonical_legacy_successor_transition(
+            all_events,
+            provenance=provenance,
+            policy=policy,
+            policy_history=policy_history,
+            require_open=True,
+        )
+        event_order = {
+            str(item.get("record_id")): index
+            for index, item in enumerate(all_events)
+        }
+        classification = evidence_value(evidence, "classification:")
+    except (KeyError, StopIteration, SupervisionLogError, TypeError, ValueError):
+        return False
+    return bool(
+        classification == LEGACY_DIRECT_AUTHORITY_CLASSIFICATION
+        and source_event.get("source_record") == source_record
+        and source_event.get("source_item_id") == source_record
+        and source_event.get("source_task_id") == policy.get("target_thread_id")
+        and source_event.get("source_sha256") == source_sha256
+        and source_event.get("record_sha256") == receipt.get("source_event_sha256")
+        and source_event.get("verifier_id") == receipt.get("reviewer_id")
+        and authorization.get("record_sha256") == authorization_sha256
+        and transition.get("record_id") == prior.get("record_id")
+        and event_order[str(transition["record_id"])]
+        < event_order[str(authorization["record_id"])]
+        < event_order[str(source_event["record_id"])]
+    )
+
+
 def legacy_implementation_request_classification_from_state(
     policy: Mapping[str, Any],
     *,
@@ -8666,6 +8816,12 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
         records = successor_transition_events(all_events, transition_id)
         prior = dict(records[-1]) if records else None
         if range_state is not None:
+            current_range_state = implementation_range_state(current_policy)
+            if current_range_state != range_state:
+                raise SupervisionLogError(
+                    "Successor transition implementation range changed before append"
+                )
+            range_state = current_range_state
             mission = bound_mission(current_policy)
             contract = implementation_range_contract(current_policy)
             if mission is None or contract is None:
@@ -8725,7 +8881,24 @@ def cmd_successor_transition_record(args: argparse.Namespace) -> None:
                     and prior.get("source_mission_root")
                     == mission.get("mission_root")
                 )
-                if not compatible:
+                legacy_terminal = False
+                if (
+                    not compatible
+                    and record["phase"] in SUCCESSOR_TRANSITION_TERMINAL_PHASES
+                ):
+                    policy_history, _history_snapshot = events_snapshot(
+                        Path("policy-history.jsonl"), directory_fd=directory_fd
+                    )
+                    legacy_terminal = legacy_terminal_range_compatibility_eligible(
+                        current_policy,
+                        all_events=all_events,
+                        policy_history=policy_history,
+                        prior=prior,
+                        record=record,
+                        contract=contract,
+                        range_state=range_state,
+                    )
+                if not compatible and not legacy_terminal:
                     raise SupervisionLogError(
                         "Current implementation range is not structurally compatible "
                         "with the frozen successor genesis"

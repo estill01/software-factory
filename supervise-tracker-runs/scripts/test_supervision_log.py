@@ -2521,10 +2521,15 @@ class LegacyDirectAuthorityIngestTests(unittest.TestCase):
             "transition_id": transition_id or self.transition_id,
             "phase": "required",
             "tracker_sha256": "b" * 64,
-            "tracker_source_record": self.source_item,
-            "requested_block_range": "Blocks 0-17",
-            "first_eligible_block": "Block 9",
-            "source_mission_root": "a" * 64,
+            "tracker_source_record": (
+                "commit:94c8118adca77b574b1e6ef5a1f2a5aad0aa9d91:"
+                "blob:9e6b6d1d03369c84ff9ca48c2df35dcac79e2f64"
+            ),
+            "requested_block_range": "Blocks-0-13",
+            "first_eligible_block": "Block-0",
+            "source_mission_root": supervision_log.bound_mission(policy)[
+                "mission_root"
+            ],
             "governing_authority_source_class": "direct-user",
             "governing_authority_source_record": self.source_item,
             "policy_sha256": policy["policy_sha256"],
@@ -2623,6 +2628,73 @@ class LegacyDirectAuthorityIngestTests(unittest.TestCase):
             self.encode(provenance),
         )
 
+    def bind_legacy_full_range(self) -> None:
+        provenance = self.provenance()
+        self.append_review(provenance)
+        source = self.ingest(provenance)
+        self.call(
+            "implementation-range-authority-receipt",
+            "--target-thread", self.target,
+            "--authority-event-record", str(source["record_id"]),
+        )
+        self.call(
+            "implementation-range-bind",
+            "--target-thread", self.target,
+            "--range-id", "RANGE-ITEM-340",
+            "--tracker", str(self.tracker),
+            "--request-text", self.source_text,
+            "--authority-source-record", self.source_item,
+            "--authority-source-sha256", self.source_sha256,
+        )
+
+    def transition_args(
+        self,
+        phase: str,
+        *,
+        transition: dict[str, object] | None = None,
+        extra: tuple[str, ...] = (),
+    ) -> argparse.Namespace:
+        prior = transition or supervision_log.successor_transition_events(
+            supervision_log.events(self.directory / "events.jsonl"),
+            self.transition_id,
+        )[-1]
+        disposition = []
+        if phase in supervision_log.SUCCESSOR_TRANSITION_TERMINAL_PHASES:
+            disposition = [
+                "--prior-record", str(prior["record_id"]),
+                "--disposition-reason", "Retire the stale pre-contract transition.",
+                "--correction-authority-source-class", "direct-user",
+                "--correction-authority-source-record", self.source_item,
+                "--correction-authority-source-sha256", self.source_sha256,
+                "--governing-outcome-effect",
+                (
+                    "continue-replacement-transition"
+                    if phase == "superseded"
+                    else "continue-same-task"
+                ),
+            ]
+        return supervision_log.parser().parse_args(
+            [
+                "--root", str(self.root),
+                "successor-transition-record",
+                "--target-thread", self.target,
+                "--transition-id", str(prior["transition_id"]),
+                "--phase", phase,
+                "--tracker-sha256", str(prior["tracker_sha256"]),
+                "--tracker-source-record", str(prior["tracker_source_record"]),
+                "--requested-block-range", str(prior["requested_block_range"]),
+                "--first-eligible-block", str(prior["first_eligible_block"]),
+                "--source-mission-root", str(prior["source_mission_root"]),
+                "--governing-authority-source-class", "direct-user",
+                "--governing-authority-source-record", self.source_item,
+                "--governing-authority-source-sha256", self.source_sha256,
+                *disposition,
+                "--state-fingerprint", "legacy-terminal-state-1234",
+                "--evidence", "legacy-terminal-compatibility-proof",
+                *extra,
+            ]
+        )
+
     def state(self) -> dict[str, bytes]:
         return {
             str(path.relative_to(self.root)): path.read_bytes()
@@ -2689,6 +2761,187 @@ class LegacyDirectAuthorityIngestTests(unittest.TestCase):
             binding["history"][0]["request_text_sha256"],
             self.source_sha256,
         )
+
+    def test_exact_legacy_terminal_correction_bypasses_only_range_history_compatibility(self) -> None:
+        self.bind_legacy_full_range()
+        before_policy = (self.directory / "policy.json").read_bytes()
+        arguments = self.transition_args("corrected")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            arguments.func(arguments)
+        result = json.loads(output.getvalue())
+
+        self.assertFalse(result["duplicate"])
+        self.assertEqual(result["record"]["phase"], "corrected")
+        self.assertEqual(result["record"]["prior_record_id"], self.transition_record)
+        self.assertEqual((self.directory / "policy.json").read_bytes(), before_policy)
+        records = supervision_log.successor_transition_events(
+            supervision_log.events(self.directory / "events.jsonl"),
+            self.transition_id,
+        )
+        self.assertEqual([item["phase"] for item in records], ["required", "corrected"])
+
+    def test_legacy_terminal_predicate_rejects_wrong_receipt_source_transition_and_currentness(self) -> None:
+        self.bind_legacy_full_range()
+        before = self.state()
+        policy = supervision_log.read_json(self.directory / "policy.json")
+        all_events = supervision_log.events(self.directory / "events.jsonl")
+        policy_history = supervision_log.events(self.directory / "policy-history.jsonl")
+        prior = supervision_log.successor_transition_events(
+            all_events, self.transition_id
+        )[-1]
+        record = {
+            **prior,
+            "phase": "corrected",
+            "governing_authority_source_sha256": self.source_sha256,
+            "prior_record_id": prior["record_id"],
+            "disposition_reason": "Retire the stale pre-contract transition.",
+            "correction_authority_source_class": "direct-user",
+            "correction_authority_source_record": self.source_item,
+            "correction_authority_source_sha256": self.source_sha256,
+            "governing_outcome_effect": "continue-same-task",
+        }
+        contract = supervision_log.implementation_range_contract(policy)
+        range_state = supervision_log.implementation_range_state(policy)
+        self.assertIsNotNone(contract)
+        self.assertIsNotNone(range_state)
+
+        def eligible(
+            candidate_policy: dict[str, object],
+            candidate_events: list[dict[str, object]],
+            candidate_prior: dict[str, object],
+            candidate_record: dict[str, object],
+        ) -> bool:
+            return supervision_log.legacy_terminal_range_compatibility_eligible(
+                candidate_policy,
+                all_events=candidate_events,
+                policy_history=policy_history,
+                prior=candidate_prior,
+                record=candidate_record,
+                contract=contract,
+                range_state=range_state,
+            )
+
+        self.assertTrue(eligible(policy, all_events, prior, record))
+        for phase in supervision_log.SUCCESSOR_TRANSITION_TERMINAL_PHASES:
+            terminal = {
+                **record,
+                "phase": phase,
+                "governing_outcome_effect": (
+                    "continue-replacement-transition"
+                    if phase == "superseded"
+                    else "continue-same-task"
+                ),
+            }
+            self.assertTrue(eligible(policy, all_events, prior, terminal), phase)
+        variants = []
+        missing_receipt = copy.deepcopy(policy)
+        missing_receipt["direct_authority_receipts"] = []
+        variants.append((missing_receipt, all_events, prior, record))
+        wrong_receipt = copy.deepcopy(policy)
+        wrong_receipt["direct_authority_receipts"][0]["source_sha256"] = "f" * 64
+        variants.append((wrong_receipt, all_events, prior, record))
+        stale_policy = copy.deepcopy(policy)
+        stale_policy["policy_version"] = 1
+        variants.append((stale_policy, all_events, prior, record))
+        missing_source = [
+            item
+            for item in all_events
+            if item.get("kind") != supervision_log.DIRECT_AUTHORITY_EVENT_KIND
+        ]
+        variants.append((policy, missing_source, prior, record))
+        wrong_source = copy.deepcopy(all_events)
+        next(
+            item
+            for item in wrong_source
+            if item.get("kind") == supervision_log.DIRECT_AUTHORITY_EVENT_KIND
+        )["source_sha256"] = "f" * 64
+        variants.append((policy, wrong_source, prior, record))
+        wrong_prior = {**prior, "record_id": "EVT-999999"}
+        variants.append((policy, all_events, wrong_prior, record))
+        nonterminal = {**record, "phase": "successor-created"}
+        variants.append((policy, all_events, prior, nonterminal))
+        ordinary = {
+            **prior,
+            "governing_authority_source_sha256": self.source_sha256,
+            "topology_posture": "same-task-new-run",
+            "topology_basis": "same-task-default",
+        }
+        variants.append((policy, all_events, ordinary, record))
+        for candidate in variants:
+            self.assertFalse(eligible(*candidate))
+        self.assertEqual(self.state(), before)
+
+    def test_nonterminal_and_modern_incompatible_transitions_remain_fail_closed(self) -> None:
+        modern = self.append_legacy_transition(
+            transition_id="TRANSITION-MODERN-1234", modern=True
+        )
+        self.bind_legacy_full_range()
+        before = self.state()
+        attempts = (
+            self.transition_args(
+                "successor-created",
+                extra=("--successor-thread", "successor-1234"),
+            ),
+            self.transition_args("corrected", transition=modern),
+        )
+        for arguments in attempts:
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "not structurally compatible",
+            ):
+                with redirect_stdout(io.StringIO()):
+                    arguments.func(arguments)
+            self.assertEqual(self.state(), before)
+
+    def test_concurrent_close_rejects_terminal_candidate_without_extra_mutation(self) -> None:
+        self.bind_legacy_full_range()
+        before_policy = (self.directory / "policy.json").read_bytes()
+        original_lock = supervision_log.owner_append_lock
+
+        @contextmanager
+        def close_before_candidate(root, target_thread, directory_snapshot):
+            with original_lock(root, target_thread, directory_snapshot) as directory_fd:
+                current, snapshot = supervision_log.events_snapshot(
+                    Path("events.jsonl"), directory_fd=directory_fd
+                )
+                supervision_log.append_raw_locked_at(
+                    directory_fd,
+                    "events.jsonl",
+                    {
+                        "schema_version": 1,
+                        "record_id": f"EVT-{len(current) + 1:06d}",
+                        "timestamp": supervision_log.utc_now(),
+                        "target_thread_id": self.target,
+                        "kind": "successor-transition",
+                        "transition_id": self.transition_id,
+                        "phase": "cancelled",
+                        "evidence": ["deterministic-concurrent-close"],
+                        "policy_sha256": policy["policy_sha256"],
+                    },
+                    previous_record_sha256=str(current[-1]["record_sha256"]),
+                    expected_file_snapshot=snapshot,
+                    require_event_anchor=True,
+                )
+                yield directory_fd
+
+        policy = supervision_log.read_json(self.directory / "policy.json")
+        arguments = self.transition_args("corrected")
+        with mock.patch.object(
+            supervision_log, "owner_append_lock", side_effect=close_before_candidate
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "event state changed before append",
+            ):
+                with redirect_stdout(io.StringIO()):
+                    arguments.func(arguments)
+        self.assertEqual((self.directory / "policy.json").read_bytes(), before_policy)
+        records = supervision_log.successor_transition_events(
+            supervision_log.events(self.directory / "events.jsonl"),
+            self.transition_id,
+        )
+        self.assertEqual([item["phase"] for item in records], ["required", "cancelled"])
 
     def test_generic_classifier_still_rejects_local_paths(self) -> None:
         self.assertEqual(
