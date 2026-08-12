@@ -17840,8 +17840,25 @@ def factory_evolution_adoption_payload(
         raise SupervisionLogError("Factory evolution adoption owner result differs")
     if release_result is not None:
         assert release_before is not None and release_after is not None
+        release_before_activation = release_before.get("activation_record")
+        duplicate_release = release_result.get("duplicate") is True
+        expected_previous_release_id = (
+            release_before_activation.get("previous_release_id")
+            if duplicate_release and isinstance(release_before_activation, Mapping)
+            else release_before.get("active_release_id")
+        )
+        expected_previous_activation_hmac = (
+            release_before_activation.get("previous_record_hmac_sha256")
+            if duplicate_release and isinstance(release_before_activation, Mapping)
+            else (
+                release_before_activation.get("record_hmac_sha256")
+                if isinstance(release_before_activation, Mapping)
+                else None
+            )
+        )
         if (
             release_before.get("installed_complete") is not True
+            or not isinstance(release_before_activation, Mapping)
             or release_before.get("source_commit")
             not in {
                 evaluation["baseline_revision"],
@@ -17851,6 +17868,17 @@ def factory_evolution_adoption_payload(
             != evaluation["baseline_revision"]
             or release_result.get("candidate_source_commit")
             != evaluation["candidate_revision"]
+            or release_result.get("previous_release_id")
+            != expected_previous_release_id
+            or release_result.get(
+                "previous_activation_record_hmac_sha256"
+            )
+            != expected_previous_activation_hmac
+            or (
+                duplicate_release
+                and release_result.get("activation_record_hmac_sha256")
+                != release_before_activation.get("record_hmac_sha256")
+            )
             or release_after.get("installed_complete") is not True
             or release_after.get("source_commit") != evaluation["candidate_revision"]
             or release_after.get("active_release_id")

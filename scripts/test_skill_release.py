@@ -422,6 +422,76 @@ class SkillReleaseTests(unittest.TestCase):
             candidate_commit,
         )
 
+    def test_adoption_activation_rejects_intervening_release_and_aba(self) -> None:
+        baseline_commit = self.git("rev-parse", "HEAD")
+        baseline = self.stage(baseline_commit)
+        bootstrapped = skill_release.bootstrap_release(
+            self.activate_args(str(baseline["release_id"]))
+        )
+        baseline_activation_hmac = bootstrapped["activation_record"][
+            "record_hmac_sha256"
+        ]
+
+        for name in skill_release.SKILLS:
+            (self.repo / name / "VERSION").write_text("2\n", encoding="utf-8")
+        intervening_commit = self.commit("intervening release")
+        intervening = self.stage(intervening_commit)
+
+        for name in skill_release.SKILLS:
+            (self.repo / name / "VERSION").write_text("3\n", encoding="utf-8")
+        candidate_commit = self.commit("adoption candidate")
+        candidate = self.stage(candidate_commit)
+
+        skill_release.activate_release(
+            self.activate_args(
+                str(intervening["release_id"]),
+                operation="activate",
+                previous_release_id=str(baseline["release_id"]),
+            )
+        )
+        candidate_over_intervening = self.activate_args(
+            str(candidate["release_id"]),
+            operation="activate",
+            previous_release_id=str(intervening["release_id"]),
+        )
+        with self.assertRaisesRegex(skill_release.ReleaseError, "baseline changed"):
+            skill_release.activate_release(
+                candidate_over_intervening,
+                expected_previous_release_id=str(baseline["release_id"]),
+                expected_previous_activation_record_hmac_sha256=str(
+                    baseline_activation_hmac
+                ),
+            )
+        self.assertEqual(
+            skill_release.current_release_id(self.release_root.resolve()),
+            intervening["release_id"],
+        )
+
+        skill_release.rollback_release(
+            self.activate_args(
+                str(baseline["release_id"]),
+                operation="rollback",
+                previous_release_id=str(intervening["release_id"]),
+            )
+        )
+        candidate_after_aba = self.activate_args(
+            str(candidate["release_id"]),
+            operation="activate",
+            previous_release_id=str(baseline["release_id"]),
+        )
+        with self.assertRaisesRegex(skill_release.ReleaseError, "baseline changed"):
+            skill_release.activate_release(
+                candidate_after_aba,
+                expected_previous_release_id=str(baseline["release_id"]),
+                expected_previous_activation_record_hmac_sha256=str(
+                    baseline_activation_hmac
+                ),
+            )
+        self.assertEqual(
+            skill_release.current_release_id(self.release_root.resolve()),
+            baseline["release_id"],
+        )
+
     def test_stage_rejects_dirty_missing_review_partial_and_symlinked_source(self) -> None:
         commit = self.git("rev-parse", "HEAD")
         (self.repo / "dirty.txt").write_text("dirty\n", encoding="utf-8")

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import argparse
 import copy
 import base64
 import concurrent.futures
@@ -1559,6 +1560,29 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         ready = supervision_log.factory_evolution_adoption_gate(policy, state)
         self.assertTrue(ready["application_ready"])
         self.assertEqual(ready["application_posture"], "normal-release-owner-ready")
+
+        fake = self.FakeReleaseOwner(
+            str(handoff["baseline_revision"]), str(handoff["candidate_revision"])
+        )
+        release_before = fake.status(None)
+        release_result = fake.adopt_release(
+            argparse.Namespace(
+                baseline_source_commit=handoff["baseline_revision"]
+            )
+        )
+        release_after = fake.status(None)
+        release_result["previous_release_id"] = "different-release-1234"
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "adopted release differs"
+        ):
+            supervision_log.factory_evolution_adoption_payload(
+                policy,
+                state,
+                release_before=release_before,
+                release_after=release_after,
+                release_result=release_result,
+                adoption_executor_id="adoption-executor-1234",
+            )
 
         for disposition, posture in (
             ("advisory", "advisory-retained"),

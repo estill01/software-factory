@@ -3919,7 +3919,17 @@ gate, atomic diff, live installed path, and current effects.
 
 ### Completion evidence
 
-Pending.
+- Rejected exact source `dc817b122eec8bbcaa1bd5bbbc5d5c30498b3b39`:
+  `B15-F01` found that separately locked status, staging, and activation could
+  accept a candidate after the frozen incumbent release changed. The source is
+  retained as rejected history; no live release, policy, mission, lifecycle,
+  or external effect was performed.
+- The correction adds a release-owner compare at the physical activation
+  boundary over both expected prior release ID and activation-history HMAC,
+  preserves the public activation interface, and adds intervening-release plus
+  A-to-B-to-A negative regressions. The supervision adoption payload separately
+  requires the returned prior release/HMAC to equal its frozen pre-effect owner
+  snapshot. Exact successor review remains pending.
 
 ### Stop
 

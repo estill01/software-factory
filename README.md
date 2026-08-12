@@ -430,6 +430,9 @@ atomic release owner. Any target
 currentness loss during the handoff or evaluation append is canonically
 corrected. The bound owner root keeps the stale source inactive even if that
 correction is interrupted or the target transiently changes and returns.
+The release owner also compares the frozen prior release ID and activation
+history HMAC inside its activation lock, so intervening or A-to-B-to-A release
+activity cannot be folded into an older adoption decision.
 
 ## Full demonstrated operation
 

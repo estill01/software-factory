@@ -328,7 +328,10 @@ The evolution artifact never writes an installed path. The existing local
 release owner independently rebuilds the candidate from its exact Git commit,
 requires an externally signed exact-candidate review, stages one sealed
 three-skill release, consumes one current separately signed operator boundary,
-and atomically replaces only the established release-root `current` pointer.
+and atomically compares the frozen prior release ID plus activation-history
+HMAC before replacing only the established release-root `current` pointer.
+Intervening release activity, including an A-to-B-to-A sequence, rejects before
+the operator boundary is consumed.
 Stable discovery links do not change. A fresh process resolves and hashes all
 three installed skills before success. The adoption executor, release
 reviewer, evolution reviewer/proposer, implementation owner, and evaluator

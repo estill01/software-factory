@@ -1557,6 +1557,8 @@ def activate_release(
     args: argparse.Namespace,
     *,
     action: str = "activate",
+    expected_previous_release_id: str | None = None,
+    expected_previous_activation_record_hmac_sha256: str | None = None,
 ) -> dict[str, Any]:
     release_root = ensure_directory(Path(args.release_root), label="release root")
     install_root = ensure_directory(Path(args.install_root), label="skill install root")
@@ -1570,6 +1572,16 @@ def activate_release(
         )
         if history_active != prior:
             raise ReleaseError("Current pointer and activation history differ")
+        if expected_previous_release_id is not None:
+            if (
+                prior != expected_previous_release_id
+                or not prior_history
+                or prior_history[-1]["record_hmac_sha256"]
+                != expected_previous_activation_record_hmac_sha256
+            ):
+                raise ReleaseError(
+                    "Release owner baseline changed before activation"
+                )
         quiescent = validate_quiescent_evidence(
             Path(args.quiescent_evidence),
             release_root=release_root,
@@ -1789,7 +1801,11 @@ def adopt_release(args: argparse.Namespace) -> dict[str, Any]:
             install_root=str(install_root),
             release_id=release_id,
             quiescent_evidence=args.quiescent_evidence,
-        )
+        ),
+        expected_previous_release_id=str(before["active_release_id"]),
+        expected_previous_activation_record_hmac_sha256=str(
+            before["activation_record"]["record_hmac_sha256"]
+        ),
     )
     acceptance = accepted_release_record(release_root, release_id)
     if acceptance is None:
