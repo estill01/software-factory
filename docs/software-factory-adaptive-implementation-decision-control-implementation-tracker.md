@@ -3772,8 +3772,13 @@ effects before reading either implementer's narrative.
   contract, permits the owner-authenticated sidecar only while the comparison
   handoff is incomplete, and removes it with directory durability after the
   canonical handoff. Affected target-class and dogfood proof plus exact
-  independent successor review remain required before broad mapped rerun and
-  Block acceptance.
+  independent review at `91b2b3004cb7262b89cff3b29ef726208402b67b`
+  recorded `B14-RF08`: interruption after unlink but before directory sync
+  left retry unable to prove the removal durable because the already-absent
+  path returned early. The next successor always repeats the directory sync
+  after a canonical handoff, including the already-absent retry case. Exact
+  successor review remains required before broad mapped rerun and Block
+  acceptance.
 
 ### Stop
 

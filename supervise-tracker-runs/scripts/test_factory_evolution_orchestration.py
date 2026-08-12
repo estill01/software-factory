@@ -1604,6 +1604,79 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         ]
         self.assertEqual(len(handoffs), 1)
 
+    def test_interrupted_pending_unlink_durability_rehydrates(self) -> None:
+        self.candidate_ready_for_comparison()
+        evolution = supervision_log.factory_evolution_directory(
+            self.directory, self.evolution_id
+        )
+        pending_path = evolution / "comparison-pending.json"
+        original_execute = supervision_log.factory_candidate_execute_baseline_comparison
+        original_fsync = supervision_log.os.fsync
+        producer_calls = 0
+        pending_seen = False
+        cleanup_fsync_attempts = 0
+        cleanup_fsync_successes = 0
+
+        def counted_execute(*args: object, **kwargs: object) -> object:
+            nonlocal producer_calls
+            producer_calls += 1
+            return original_execute(*args, **kwargs)
+
+        def interrupt_first_cleanup_fsync(descriptor: int) -> None:
+            nonlocal pending_seen, cleanup_fsync_attempts, cleanup_fsync_successes
+            if pending_path.exists():
+                pending_seen = True
+            elif pending_seen:
+                cleanup_fsync_attempts += 1
+                if cleanup_fsync_attempts == 1:
+                    raise OSError("simulated interruption after pending unlink")
+                cleanup_fsync_successes += 1
+            original_fsync(descriptor)
+
+        with mock.patch.object(
+            supervision_log,
+            "factory_candidate_execute_baseline_comparison",
+            side_effect=counted_execute,
+        ), mock.patch.object(
+            supervision_log.os,
+            "fsync",
+            side_effect=interrupt_first_cleanup_fsync,
+        ):
+            with self.assertRaisesRegex(OSError, "simulated interruption"):
+                self.command(
+                    "factory-evolution",
+                    "--target-thread",
+                    self.target_thread,
+                    "--action",
+                    "orchestrate",
+                    "--evolution-id",
+                    self.evolution_id,
+                )
+            retried = self.command(
+                "factory-evolution",
+                "--target-thread",
+                self.target_thread,
+                "--action",
+                "orchestrate",
+                "--evolution-id",
+                self.evolution_id,
+            )
+
+        self.assertEqual(producer_calls, 1)
+        self.assertEqual(cleanup_fsync_attempts, 2)
+        self.assertEqual(cleanup_fsync_successes, 1)
+        self.assertTrue(retried["duplicate"])
+        self.assertEqual(retried["action"]["stage"], "evaluation-required")
+        self.assertFalse(pending_path.exists())
+        supervision_log.verify_factory_evolution_inventory(evolution)
+        handoffs = [
+            item
+            for item in supervision_log.events(self.directory / "events.jsonl")
+            if item.get("kind")
+            == supervision_log.FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND
+        ]
+        self.assertEqual(len(handoffs), 1)
+
     def test_pre_start_pending_comparison_is_not_accepted(self) -> None:
         self.candidate_ready_for_comparison()
         policy = supervision_log.read_json(self.directory / "policy.json")

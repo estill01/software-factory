@@ -15688,20 +15688,19 @@ def factory_candidate_remove_completed_pending_comparison(
     )
     pending_path = evolution_directory / "comparison-pending.json"
     with factory_evolution_lock(evolution_directory):
-        if not factory_evolution_artifact_exists(pending_path):
-            return
-        pending = validate_factory_candidate_comparison_pending(
-            read_factory_evolution_json(pending_path),
-            state=state,
-            owner_key=owner_key,
-        )
-        if pending["comparison_provenance_root"] != evaluation_handoff.get(
-            "baseline_comparison_provenance_root"
-        ):
-            raise SupervisionLogError(
-                "Factory baseline comparison differs from its canonical handoff"
+        if factory_evolution_artifact_exists(pending_path):
+            pending = validate_factory_candidate_comparison_pending(
+                read_factory_evolution_json(pending_path),
+                state=state,
+                owner_key=owner_key,
             )
-        pending_path.unlink()
+            if pending["comparison_provenance_root"] != evaluation_handoff.get(
+                "baseline_comparison_provenance_root"
+            ):
+                raise SupervisionLogError(
+                    "Factory baseline comparison differs from its canonical handoff"
+                )
+            pending_path.unlink()
         evolution_fd = os.open(
             evolution_directory,
             os.O_RDONLY
