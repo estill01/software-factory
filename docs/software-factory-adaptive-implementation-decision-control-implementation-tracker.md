@@ -1,6 +1,6 @@
 # Software Factory Adaptive Implementation Decision Control and Autonomous Evolution Implementation Tracker
 
-- Tracker status: `in-progress`
+- Tracker status: `completed`
 - Tracker sequence: Blocks 0–17
 - Repository: `https://github.com/estill01/software-factory`
 - Planning baseline: `4a33cd9344f0fbb1d1feaa6caac13521eb3237f3`
@@ -667,7 +667,7 @@ continuous cognition the price of ordinary execution.
 | 14 | Independently evaluate the Factory candidate | 13 | `completed` |
 | 15 | Adopt or retire the evaluated candidate under configurable policy | 14 | `completed` |
 | 16 | Feed current outcomes back, suppress recurrence, and support rollback | 15 | `completed` |
-| 17 | Dogfood autonomous evolution and document the integrated system | 16 | `in-progress` |
+| 17 | Dogfood autonomous evolution and document the integrated system | 16 | `completed` |
 
 Required order:
 
@@ -4143,7 +4143,7 @@ candidate.
 
 ## Block 17 — Dogfood autonomous evolution and document the integrated system
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -4348,8 +4348,15 @@ narrative.
   Live release, live policy, live mission, lifecycle, Gmail, deployment,
   external-provider, and external effects were all false. No external release
   or reserved effect is authorized by this evidence.
-- Final evidence-only exact review: pending on the frozen fixture/tracker
-  successor; Block 17 remains in progress until that review is accepted.
+- Final evidence-only exact review: exact commit
+  `af8dceb3674b5140edd8875a34ade9e875ac2b9a`, tree
+  `22b0d8778cdbc529e1a8e03f3923db478cb6dba0`, passed with no findings.
+  Review independently verified the two fixture files and modes, exact file and
+  semantic roots, projector rebuild equality, source/live-release/skill
+  identities, winner/no-op/loser/operator/report/effect semantics, broad counts,
+  rejected history, Stop boundary, focused fixture check, full tracker, all
+  three validators, compilation, diff, clean HEAD/upstream, and byte-unchanged
+  accepted production source. Block 17 is completed.
 
 ### Stop
 
