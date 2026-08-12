@@ -1792,6 +1792,48 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.assertEqual(result["next_action"], "continue-next-eligible-block")
         self.assertEqual(result["severity_if_returned"], "critical")
 
+    def test_exact_skill_invocation_binds_full_tracker_without_changing_source_bytes(self) -> None:
+        self.write_tracker(["completed", "not-started"])
+        request_text = (
+            "[$implement-tracker-blocks]"
+            "(/Users/ethanstillman/code/software_factory/"
+            "implement-tracker-blocks/SKILL.md) for the implementation tracker\n"
+        )
+        source_sha256 = hashlib.sha256(request_text.encode("utf-8")).hexdigest()
+
+        self.assertEqual(len(request_text.encode("utf-8")), 137)
+        self.assertEqual(
+            source_sha256,
+            "ff144b6e23b4fb416d8fac84731a9f26c2ef3d2dc9d8ba9d59ffdd029a3aa601",
+        )
+        binding = self.bind(request_text)["binding"]
+        self.assertEqual(binding["range_intent"], "full-tracker")
+        self.assertEqual(binding["explicit_blocks"], [])
+        self.assertEqual(
+            binding["history"][0]["request_text_sha256"], source_sha256
+        )
+
+    def test_skill_invocation_masks_no_path_outside_its_exact_target(self) -> None:
+        invocation = (
+            "[$implement-tracker-blocks]"
+            "(/Users/example/implement-tracker-blocks/SKILL.md)"
+        )
+        rejected = (
+            f"{invocation} for the implementation tracker /Users/example/other",
+            "[$implement-tracker-blocks](/Users/example/unclosed for the implementation tracker",
+            "[$implement-tracker-blocks](\n/Users/example/SKILL.md) for the implementation tracker",
+            "/Users/example/implement-tracker-blocks/SKILL.md",
+            "file:///Users/example/implement-tracker-blocks/SKILL.md",
+            r"C:\Users\example\implement-tracker-blocks\SKILL.md",
+        )
+
+        for request_text in rejected:
+            with self.subTest(request_text=request_text):
+                with self.assertRaises(supervision_log.SupervisionLogError):
+                    supervision_log.classify_implementation_request(
+                        request_text, {0, 1}
+                    )
+
     def test_caller_selected_tracker_replacement_cannot_truncate_full_range(self) -> None:
         self.write_tracker(["completed", "not-started", "not-started"])
         self.bind()

@@ -6663,8 +6663,19 @@ def implementation_tracker_snapshot(
 def classify_implementation_request(
     request_text: str, blocks: set[int]
 ) -> tuple[str, list[int]]:
-    value = clean(
+    markdown_invocation = re.compile(
+        r"(?P<prefix>\[\$implement-tracker-blocks\]\()"
+        r"(?P<target>[^()\s]+)"
+        r"(?P<suffix>\))"
+    )
+    classification_text = markdown_invocation.sub(
+        lambda match: (
+            f"{match.group('prefix')}skill-target{match.group('suffix')}"
+        ),
         request_text,
+    )
+    value = clean(
+        classification_text,
         label="implementation range request text",
         maximum=1200,
     )
@@ -6693,6 +6704,7 @@ def classify_implementation_request(
     clauses = re.split(r"\s*;\s*|\s*,\s*but\s+", value)
     for raw_clause in clauses:
         clause = raw_clause.strip()
+        markdown_invocation_present = bool(markdown_invocation.search(clause))
         invocation_present = bool(
             re.search(r"\$?implement-tracker-blocks\b", clause, re.I)
         )
@@ -6736,7 +6748,11 @@ def classify_implementation_request(
             continue
         lowered_clause = normalized_clause.lower().strip(" .!")
         if (
-            lowered_clause in {"all", "full"}
+            (
+                markdown_invocation_present
+                and lowered_clause == "the implementation tracker"
+            )
+            or lowered_clause in {"all", "full"}
             or re.fullmatch(
                 r"(?:implement|execute|continue|do)\s+all(?:\s+(?:blocks?|of\s+the\s+blocks?))?",
                 lowered_clause,
@@ -7682,11 +7698,15 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
         blocks,
     ) = implementation_tracker_snapshot(args.tracker)
     legacy_event_head_sha256 = ""
-    if (
-        "/Users/" in args.request_text
-        or "file://" in args.request_text
-        or "\\Users\\" in args.request_text
-    ):
+    try:
+        intent, requested = classify_implementation_request(
+            args.request_text, set(blocks)
+        )
+    except SupervisionLogError as exc:
+        if str(exc) != (
+            "implementation range request text must not contain a local path"
+        ):
+            raise
         (
             intent,
             requested,
@@ -7698,10 +7718,6 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
             source_sha256=source_sha256,
             request_text=args.request_text,
             blocks=set(blocks),
-        )
-    else:
-        intent, requested = classify_implementation_request(
-            args.request_text, set(blocks)
         )
     authority = {
         "source_class": "direct-user",
