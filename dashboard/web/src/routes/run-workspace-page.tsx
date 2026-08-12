@@ -393,6 +393,7 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
             .filter((role) => role.binding_status === "missing-thread")
             .map((role) => role.role)}
           currentMission={run.current_mission}
+          successorTransitions={missionTransitions}
         />
       )}
 
@@ -473,7 +474,21 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
               <div className="workspace-panel-heading"><h2>Decisions &amp; succession</h2><span>{decisionCount + transitionCount}</span></div>
               {isCurrent && missionDecisions.length + missionTransitions.length ? <div className="workspace-record-list">
                 {missionDecisions.map((decision) => <article className="workspace-record" key={decision.decision_id}><div><strong>{decision.decision_id}</strong><BoundedSummary value={decision.head.summary} /></div><StatusMark status={decision.open ? "open" : decision.head.status} /><span>Safe frontier: {decision.safe_frontier ?? "Unavailable"}</span><TimeValue value={decision.head.timestamp} /></article>)}
-                {missionTransitions.map((transition) => <article className="workspace-record" key={transition.transition_id}><div><strong>{transition.transition_id}</strong><BoundedSummary value={transition.head.summary} /></div><StatusMark status={transition.open ? "open" : transition.head.status} /><span>{transition.phase ?? "Phase unavailable"}</span><TimeValue value={transition.head.timestamp} /></article>)}
+                {missionTransitions.map((transition) => (
+                  <article className="workspace-record successor-transition-record" id={`transition-${transition.transition_id}`} key={transition.transition_id}>
+                    <div><strong>{transition.transition_id}</strong><BoundedSummary value={transition.head.summary} /></div>
+                    <StatusMark status={transition.open ? "open" : transition.head.status} />
+                    <span>{transition.phase ?? "Phase unavailable"} · {transition.first_eligible_block ?? "First Block unavailable"}</span>
+                    <TimeValue value={transition.head.timestamp} />
+                    <dl className="successor-transition-facts">
+                      <div><dt>Range</dt><dd>{transition.requested_block_range ?? "Unavailable"}</dd></div>
+                      <div><dt>Successor</dt><dd>{transition.successor_thread_id ? <Link to={`/tasks/${encodeURIComponent(transition.successor_thread_id)}${backQuery}`}><Identity value={transition.successor_thread_id} /></Link> : "Not created"}</dd></div>
+                      <div><dt>Mission / group</dt><dd>{transition.successor_mission_root ? <Identity value={transition.successor_mission_root} /> : "Not bound"}{transition.successor_group_id ? <> · <Identity value={transition.successor_group_id} /></> : null}</dd></div>
+                      <div><dt>Handoff / acknowledgement</dt><dd>{transition.handoff_record ?? "Pending"} · {transition.acknowledgement_record ?? "Pending"}</dd></div>
+                      <div><dt>Source stop</dt><dd>{transition.phase === "work-started" ? "Gate verification required" : "Prohibited"}</dd></div>
+                    </dl>
+                  </article>
+                ))}
               </div> : !isCurrent && historicalDecisionEvents.length + historicalTransitionEvents.length ? <div className="workspace-record-list">{[...historicalDecisionEvents, ...historicalTransitionEvents].map((event, index) => (
                 <article className="workspace-record" key={`${event.record_id}:historical-decision:${index}`}><div><strong>{event.decision_id ?? event.transition_id ?? "Mission record"}</strong><BoundedSummary value={eventLabel(event)} /></div><StatusMark status={event.status ?? event.kind} /><span>Open posture unavailable; no current aggregate carried</span><TimeValue value={event.timestamp} /></article>
               ))}</div> : <QueryState kind="empty" message="No decision or transition in this mission segment" />}

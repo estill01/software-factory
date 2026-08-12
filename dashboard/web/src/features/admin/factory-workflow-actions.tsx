@@ -37,6 +37,7 @@ type RunPolicy = NonNullable<RunDetail["policy"]>
 type CurrentMission = NonNullable<RunDetail["current_mission"]>
 type PolicyField = keyof RunPolicy["adjustable"]
 type AutomationRepairRow = RunPolicy["automation_reconciliation"][number]
+type SuccessorTransition = RunDetail["successor_transitions"][number]
 const roleRepairLabels = {
   base_reviewer: "Base reviewer",
   notice_reviewer: "Notice reviewer",
@@ -454,6 +455,7 @@ export function RunSupervisionActions({
   missionBindingMissing = false,
   roleRepairRoles = [],
   currentMission = null,
+  successorTransitions = [],
 }: {
   targetId: string
   projectId: string | null
@@ -463,6 +465,7 @@ export function RunSupervisionActions({
   missionBindingMissing?: boolean
   roleRepairRoles?: string[]
   currentMission?: CurrentMission | null
+  successorTransitions?: SuccessorTransition[]
 }) {
   const runner = useOperationRunner()
   const [selectedIncident, setSelectedIncident] = useState("")
@@ -747,6 +750,29 @@ export function RunSupervisionActions({
     })
     setSuccessorOpen(false)
   }
+  const openSuccessorTransitions = successorTransitions.filter((transition) => transition.open)
+  const currentTransition = openSuccessorTransitions.length === 1
+    ? openSuccessorTransitions[0]
+    : null
+  const launchSuccessorTransition = () => {
+    if (!projectId || !currentTransition) return
+    runner.launch({
+      request: {
+        operation_type: "factory.successor-task-transition",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: { transition_id: currentTransition.transition_id },
+      },
+      suppliedFacts: [
+        ["Transition", currentTransition.transition_id],
+        ["Current phase", currentTransition.phase ?? "Unavailable"],
+        ["Tracker / range", `${currentTransition.tracker_sha256 ?? "Unavailable"} · ${currentTransition.requested_block_range ?? "Unavailable"}`],
+        ["First eligible Block", currentTransition.first_eligible_block ?? "Unavailable"],
+        ["Successor", currentTransition.successor_thread_id ?? "Not created"],
+        ["Source posture", "In progress until exact work-started evidence"],
+        ["Recovery", "One phase only · no retry, phase leap, source stop, or completion claim"],
+      ],
+    })
+  }
   return (
     <>
       <ActionStrip feedback={runner.feedback}>
@@ -783,6 +809,21 @@ export function RunSupervisionActions({
         >
           Successor mission
         </Button>
+        {openSuccessorTransitions.length > 0 && (
+          <Button
+            size="compact"
+            variant="outline"
+            disabled={unavailable || currentTransition === null}
+            title={
+              openSuccessorTransitions.length > 1
+                ? "Multiple open transition heads conflict; no phase action is available."
+                : "Advance exactly one canonical successor-task continuity phase."
+            }
+            onClick={launchSuccessorTransition}
+          >
+            {openSuccessorTransitions.length > 1 ? "Continuity conflict" : "Advance continuity"}
+          </Button>
+        )}
         <Button size="compact" disabled={unavailable || !policy} onClick={openAdjustment}>Adjust supervision</Button>
         <Button
           size="compact"

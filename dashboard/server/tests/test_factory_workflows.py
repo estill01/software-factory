@@ -276,7 +276,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(duplicate_status, 409)
         self.assertEqual(duplicate["error"]["code"], "authoring_owner_conflict")
         self.assertEqual(executed["data"]["operation"]["state"], "applied")
-        self.assertEqual(len(supported), 20)
+        self.assertEqual(len(supported), 21)
         self.assertIn("factory.blocks-implement", supported)
         self.assertIn("factory.supervision-check-now", supported)
         self.assertIn("factory.supervision-adjust", supported)
@@ -285,6 +285,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertIn("factory.supervision-pause", supported)
         self.assertIn("factory.supervision-resume", supported)
         self.assertIn("factory.supervision-mission-successor", supported)
+        self.assertIn("factory.successor-task-transition", supported)
         automation_repair = next(
             item
             for item in unavailable
@@ -1731,6 +1732,408 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         leaked = definition.verify(target, inputs, source, dispatched)
         self.assertEqual(leaked.state, "unverified")
         self.assertFalse(leaked.evidence["successor_current_state_isolated"])
+
+    def test_successor_transition_requires_acknowledgement_and_concrete_first_work(self) -> None:
+        self.assertTrue(
+            FactoryWorkflowOwner._successor_transition_range_contains(
+                "Blocks 0-25, 27–31", 27
+            )
+        )
+        self.assertFalse(
+            FactoryWorkflowOwner._successor_transition_range_contains(
+                "Blocks 0-25, 27–31", 26
+            )
+        )
+        self.assertFalse(
+            FactoryWorkflowOwner._successor_transition_range_contains(
+                "0-25 plus 27-31", 27
+            )
+        )
+        project_root = self.root / "continuity-project"
+        source_root = project_root / "source"
+        successor_root = project_root / "successor"
+        fix_root = self.root / "continuity-fix"
+        for path in (source_root, successor_root, fix_root):
+            path.mkdir(parents=True)
+        project = ProjectRecord(
+            id="continuity-project",
+            label="Continuity project",
+            root=str(project_root),
+        )
+        target_id = "continuity-source-001"
+        successor_id = "continuity-successor-001"
+        fix_id = "continuity-fix-001"
+        transition_id = "TRANSITION-CONTINUITY-001"
+        source_mission = "a" * 64
+        successor_mission = "b" * 64
+        tracker_sha = "c" * 64
+        bootstrap_fingerprint = "d" * 64
+        work_fingerprint = "e" * 64
+        tracker = {
+            "tracker_id": "f" * 64,
+            "tracker_path": "docs/continuity-implementation-tracker.md",
+            "tracker_sha256": tracker_sha,
+            "tracker_fingerprint": "1" * 64,
+            "repository_head": "2" * 40,
+            "first_block_number": 26,
+            "first_block_title": "Successor-task continuity",
+            "first_block_status": "in-progress",
+            "profile": "full",
+        }
+        bootstrap_marker = {
+            "kind": "successor-continuity",
+            "source_fingerprint": bootstrap_fingerprint,
+            "project_id": project.id,
+            "tracker_id": tracker["tracker_id"],
+            "tracker_sha256": tracker_sha,
+            "transition_id": transition_id,
+            "requested_block_range": "26-31",
+            "first_eligible_block": "Block 26",
+            "source_mission_root": source_mission,
+            "governing_authority_source_record": "direct-user-item-44",
+        }
+        bootstrap_text = "SOFTWARE_FACTORY_DASHBOARD_MISSION " + json.dumps(
+            bootstrap_marker,
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+        handoff_id = "HANDOFF-CONTINUITY-001"
+        ack_id = "ACK-CONTINUITY-001"
+        handoff_text = (
+            "SOFTWARE_FACTORY_DASHBOARD_SUCCESSOR_TRANSITION "
+            + json.dumps(
+                {
+                    "kind": "handoff",
+                    "transition_id": transition_id,
+                    "record_id": handoff_id,
+                },
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        )
+        acknowledgement_text = (
+            "SOFTWARE_FACTORY_DASHBOARD_SUCCESSOR_TRANSITION "
+            + json.dumps(
+                {
+                    "kind": "acknowledgement",
+                    "transition_id": transition_id,
+                    "record_id": ack_id,
+                },
+                ensure_ascii=True,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+        )
+        tasks = {
+            target_id: {
+                "id": target_id,
+                "cwd": str(source_root),
+                "status": {"type": "idle"},
+                "project_binding": {"status": "bound", "project_id": project.id},
+                "turns_truncated": False,
+                "turns": [],
+            },
+            successor_id: {
+                "id": successor_id,
+                "cwd": str(successor_root),
+                "status": {"type": "idle"},
+                "project_binding": {"status": "bound", "project_id": project.id},
+                "turns_truncated": False,
+                "turns": [
+                    {
+                        "id": "turn-bootstrap-001",
+                        "status": "completed",
+                        "items_truncated": False,
+                        "items": [
+                            {"type": "userMessage", "summary": bootstrap_text},
+                            {
+                                "type": "userMessage",
+                                "summary": handoff_text,
+                                "summary_truncated": False,
+                            },
+                            {
+                                "type": "agentMessage",
+                                "summary": acknowledgement_text,
+                                "summary_truncated": False,
+                            },
+                        ],
+                    }
+                ],
+            },
+            fix_id: {
+                "id": fix_id,
+                "cwd": str(fix_root),
+                "status": {"type": "idle"},
+                "project_binding": {"status": "unassigned", "project_id": None},
+                "turns_truncated": False,
+                "turns": [],
+            },
+        }
+        head = {
+            "record_id": "EVT-CONTINUITY-005",
+            "record_sha256": "3" * 64,
+            "transition_id": transition_id,
+            "phase": "target-acknowledged",
+            "tracker_sha256": tracker_sha,
+            "tracker_source_record": "commit:continuity-tracker",
+            "requested_block_range": "26-31",
+            "first_eligible_block": "Block 26",
+            "source_mission_root": source_mission,
+            "governing_authority_source_class": "direct-user",
+            "governing_authority_source_record": "direct-user-item-44",
+            "successor_thread_id": successor_id,
+            "successor_mission_root": successor_mission,
+            "successor_group_id": successor_id,
+            "handoff_record": handoff_id,
+            "acknowledgement_record": ack_id,
+            "started_block": "",
+            "state_fingerprint": "state-before-work",
+        }
+        source_policy_sha = "4" * 64
+        source_control = {
+            "fingerprint": "5" * 64,
+            "owner_sha256": "6" * 64,
+            "policy_sha256": source_policy_sha,
+            "policy": {
+                "policy_sha256": source_policy_sha,
+                "mission_binding": {"mission_root": source_mission},
+            },
+            "runtime": {"fix_executor_thread_id": fix_id},
+            "open_successor_transitions": {transition_id: head},
+            "successor_transitions": {transition_id: head},
+        }
+        successor_control = {
+            "fingerprint": "7" * 64,
+            "policy_sha256": "8" * 64,
+            "policy": {
+                "policy_sha256": "8" * 64,
+                "mission_binding": {"mission_root": successor_mission},
+            },
+            "runtime": {},
+            "open_successor_transitions": {},
+            "successor_transitions": {},
+        }
+
+        expected_transition_id = transition_id
+
+        class OperationsStub:
+            @staticmethod
+            def policy_control_snapshot(selected_target):
+                if selected_target == target_id:
+                    return source_control
+                if selected_target == successor_id:
+                    return successor_control
+                raise AssertionError("wrong continuity control target")
+
+            @staticmethod
+            def binding_group_ids(selected_target):
+                if selected_target == target_id:
+                    return [target_id]
+                if selected_target == successor_id:
+                    return [successor_id]
+                raise AssertionError("wrong continuity group target")
+
+            @staticmethod
+            def successor_transition_gate_snapshot(
+                selected_target,
+                *,
+                transition_id,
+                task_creation_authority,
+            ):
+                if (
+                    selected_target != target_id
+                    or transition_id != expected_transition_id
+                    or task_creation_authority != "available"
+                ):
+                    raise AssertionError("wrong continuity gate source")
+                stopped = head["phase"] == "work-started"
+                next_action = {
+                    "target-acknowledged": "start-first-eligible-block",
+                    "work-started": "continue-successor-and-close-transition-incident",
+                }[head["phase"]]
+                return {
+                    "currentness": "9" * 64,
+                    "owner_sha256": "6" * 64,
+                    "gate": {
+                        "transition_id": expected_transition_id,
+                        "phase": head["phase"],
+                        "transition_open": not stopped,
+                        "source_stop_permitted": stopped,
+                        "required_source_posture": (
+                            "transition-satisfied" if stopped else "in-progress"
+                        ),
+                        "next_action": next_action,
+                    },
+                }
+
+        class AppServerStub:
+            prompt = None
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": name, "status": "supported"}
+                        for name in ("task_read", "task_resume", "turn_start")
+                    ]
+                }
+
+            @staticmethod
+            def read_task(_projects, task_id, *, include_turns):
+                if task_id not in tasks:
+                    raise AssertionError("wrong continuity task read")
+                if include_turns is False:
+                    return {"task": tasks[task_id]}
+                return {"task": tasks[task_id]}
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                metadata = fix_root.stat()
+                if (
+                    task_id != fix_id
+                    or expected_cwd != str(fix_root)
+                    or expected_cwd_identity != (metadata.st_dev, metadata.st_ino)
+                ):
+                    raise AssertionError("wrong continuity owner dispatch")
+                self.prompt = text
+                tasks[fix_id]["turns"] = [
+                    {
+                        "id": "turn-continuity-fix-001",
+                        "status": "completed",
+                        "items_truncated": False,
+                        "items": [{"type": "userMessage", "summary": text}],
+                    }
+                ]
+                implementation_marker = {
+                    "kind": "implement-blocks",
+                    "source_fingerprint": work_fingerprint,
+                    "project_id": project.id,
+                    "tracker_id": tracker["tracker_id"],
+                    "block_start": 26,
+                    "block_end": 31,
+                    "mission_root": successor_mission,
+                    "mission_source_record": "direct-user-item-44",
+                }
+                implementation_text = (
+                    "SOFTWARE_FACTORY_DASHBOARD_MISSION "
+                    + json.dumps(
+                        implementation_marker,
+                        ensure_ascii=True,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    )
+                )
+                tasks[successor_id]["turns"].append(
+                    {
+                        "id": "turn-first-work-001",
+                        "status": "inProgress",
+                        "items_truncated": False,
+                        "items": [
+                            {"type": "userMessage", "summary": implementation_text},
+                            {
+                                "type": "fileChange",
+                                "summary": "1 file change",
+                                "status": "completed",
+                            },
+                        ],
+                    }
+                )
+                head.update(
+                    {
+                        "record_id": "EVT-CONTINUITY-006",
+                        "record_sha256": "a" * 64,
+                        "phase": "work-started",
+                        "started_block": "Block 26",
+                        "state_fingerprint": work_fingerprint,
+                    }
+                )
+                source_control["open_successor_transitions"] = {}
+                return {
+                    "turn": {"id": "turn-continuity-fix-001"},
+                    "task_resumed": False,
+                }
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = AppServerStub()
+        owner.route_gate = lambda request: RouteGateResult(
+            True,
+            route_action_fingerprint(request.required_action),
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint=source_policy_sha,
+            target_thread=request.target_thread,
+        )
+        owner._successor_transition_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), "b" * 64)
+        owner._successor_transition_tracker = lambda selected, selected_head: tracker
+        target = OperationTarget(kind="run", id=target_id, project_id=project.id)
+        definition = owner._successor_transition_definition()
+        inputs = {"transition_id": transition_id}
+
+        handoff_item = tasks[successor_id]["turns"][0]["items"][1]
+        handoff_item["type"] = "agentMessage"
+        with self.assertRaises(OperationError) as spoofed_handoff:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(
+            spoofed_handoff.exception.code,
+            "successor_transition_phase_evidence_missing",
+        )
+        handoff_item["type"] = "userMessage"
+
+        acknowledgement_item = tasks[successor_id]["turns"][0]["items"].pop()
+        with self.assertRaises(OperationError) as missing_ack:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(
+            missing_ack.exception.code,
+            "successor_transition_phase_evidence_missing",
+        )
+        tasks[successor_id]["turns"][0]["items"].append(acknowledgement_item)
+
+        acknowledgement_item["type"] = "userMessage"
+        with self.assertRaises(OperationError) as spoofed_ack:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(
+            spoofed_ack.exception.code,
+            "successor_transition_phase_evidence_missing",
+        )
+        acknowledgement_item["type"] = "agentMessage"
+
+        source = definition.resolve_source(target, inputs)
+        self.assertEqual(source.evidence["phase"], "target-acknowledged")
+        self.assertEqual(source.evidence["next_phase"], "work-started")
+        dispatched = definition.dispatch(target, inputs, source)
+        self.assertIn("start the exact first eligible Block", owner.app_server_client.prompt)
+
+        concrete_item = tasks[successor_id]["turns"][-1]["items"].pop()
+        tasks[successor_id]["turns"][-1]["items"].append(
+            {"type": "agentMessage", "summary": "Starting the requested work."}
+        )
+        pending = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(pending.state, "pending")
+        self.assertFalse(pending.evidence["source_stop_permitted"])
+        self.assertTrue(pending.evidence["maintained_gate_source_stop_claim"])
+        self.assertFalse(pending.evidence["work_started_current"])
+        self.assertFalse(pending.evidence["successor_transition_applied"])
+
+        tasks[successor_id]["turns"][-1]["items"].pop()
+        tasks[successor_id]["turns"][-1]["items"].append(concrete_item)
+        applied = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(applied.state, "applied", applied.evidence)
+        self.assertTrue(applied.evidence["work_started_current"])
+        self.assertTrue(applied.evidence["source_stop_permitted"])
+        self.assertTrue(applied.evidence["source_task_active"])
+        self.assertFalse(applied.evidence["source_completed"])
 
     def test_http_role_binding_repair_uses_disposable_policy_and_existing_task(self) -> None:
         target_id = "target-role-repair-001"

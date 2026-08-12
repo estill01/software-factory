@@ -4900,6 +4900,10 @@ h3 {
 .workspace-record span,
 .workspace-record time,
 .workspace-record code { color: var(--text-faint); font-size: 0.59rem; }
+.successor-transition-facts { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.45rem; margin: 0; padding-top: 0.45rem; border-top: 1px solid var(--border); }
+.successor-transition-facts > div { display: grid; min-width: 0; gap: 0.12rem; }
+.successor-transition-facts dt { color: var(--text-faint); font-size: 0.54rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.successor-transition-facts dd { min-width: 0; margin: 0; overflow: hidden; color: var(--text-soft); font-size: 0.6rem; text-overflow: ellipsis; white-space: nowrap; }
 
 .workspace-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .workspace-metrics > div { display: grid; min-width: 0; gap: 0.12rem; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 0.7rem; }
@@ -5090,6 +5094,7 @@ h3 {
   .workspace-record > span,
   .workspace-record > time,
   .workspace-record > code { grid-column: 1 / -1; }
+  .successor-transition-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .workspace-facts { grid-template-columns: 1fr; }
   .workspace-facts > div,
   .workspace-facts > div:nth-child(2n),

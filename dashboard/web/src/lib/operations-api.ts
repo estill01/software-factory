@@ -414,6 +414,20 @@ const successorTransitionSchema = z
     open: z.boolean(),
     head: recordRefSchema,
     phase: nullableString,
+    tracker_sha256: fingerprintSchema.nullable(),
+    tracker_source_record: nullableString,
+    requested_block_range: nullableString,
+    first_eligible_block: nullableString,
+    source_mission_root: fingerprintSchema.nullable(),
+    governing_authority_source_class: nullableString,
+    governing_authority_source_record: nullableString,
+    successor_thread_id: nullableString,
+    successor_mission_root: fingerprintSchema.nullable(),
+    successor_group_id: nullableString,
+    handoff_record: nullableString,
+    acknowledgement_record: nullableString,
+    started_block: nullableString,
+    state_fingerprint: nullableString,
   })
   .strict()
 

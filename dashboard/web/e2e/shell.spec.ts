@@ -1739,3 +1739,195 @@ test("same-target succession preserves history and stops at pending first-work a
   await page.goto(`/runs/${target}?mission=${historicalRoot}`)
   await expect(page.getByRole("button", { name: "Successor mission" })).toHaveCount(0)
 })
+
+test("successor-task continuity exposes one exact phase and keeps source stop closed", async ({ page, request }) => {
+  const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const transitionId = "TRANSITION-E2E-001"
+  const successorId = "successor-task-e2e-001"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  runEnvelope.data.run.project_binding = {
+    status: "bound",
+    project_id: "software-factory",
+    evidence: [{ source_record: "policy", field: "project_root", value: "/fixture/software_factory" }],
+    limitations: [],
+  }
+  const currentRoot = runEnvelope.data.run.current_mission?.root ?? "a".repeat(64)
+  runEnvelope.data.run.successor_transitions = [{
+    transition_id: transitionId,
+    open: true,
+    phase: "successor-bound",
+    head: {
+      record_id: "EVT-CONTINUITY-E2E-003",
+      timestamp: "2026-08-12T11:00:00Z",
+      kind: "successor-transition",
+      status: null,
+      severity: null,
+      category: null,
+      summary: "Successor task and isolated supervision are bound.",
+    },
+    tracker_sha256: "1".repeat(64),
+    tracker_source_record: "commit:continuity-e2e",
+    requested_block_range: "26-31",
+    first_eligible_block: "Block 26 — Successor-task continuity",
+    source_mission_root: currentRoot,
+    governing_authority_source_class: "direct-user",
+    governing_authority_source_record: "direct-user-item-44",
+    successor_thread_id: successorId,
+    successor_mission_root: "2".repeat(64),
+    successor_group_id: successorId,
+    handoff_record: null,
+    acknowledgement_record: null,
+    started_block: null,
+    state_fingerprint: "state-successor-bound",
+  }]
+  const currentEvent = runEnvelope.data.run.timeline.find(
+    (event: { mission_root: string }) => event.mission_root === currentRoot,
+  )
+  expect(currentEvent).toBeTruthy()
+  runEnvelope.data.run.timeline.push({
+    ...currentEvent,
+    record_id: "EVT-CONTINUITY-E2E-003",
+    timestamp: "2026-08-12T11:00:00Z",
+    kind: "successor-transition",
+    status: "in-progress",
+    transition_id: transitionId,
+    phase: "successor-bound",
+    summary: "Successor task and isolated supervision are bound.",
+    state_fingerprint: "state-successor-bound",
+    evidence: ["successor-task-e2e", "successor-group-e2e"],
+    mission_root: currentRoot,
+  })
+  runEnvelope.data.run.counts.open_successor_transitions = 1
+  const operation = {
+    id: "op_e2e_successor_transition_preview",
+    type: "factory.successor-task-transition",
+    target: { kind: "run", id: target, project_id: "software-factory" },
+    state: "previewed",
+    owner: "maintained fix executor + successor-transition record/gate + Codex task and supervision owners",
+    authority: ["one canonical open transition carrying direct task-creation authority"],
+    preview: {
+      effect: `Advance transition ${transitionId} from successor-bound to handoff-sent.`,
+      risk: "Exactly one maintained phase owner may act; the source cannot stop before verified work-started evidence.",
+      recipient: "fix-executor-task",
+      semantic_changes: {
+        status: "available",
+        complete: true,
+        rows: [
+          {
+            id: "successor-transition-phase",
+            subject: "Continuity phase",
+            kind: "changed",
+            before: { posture: "exact", value: "successor-bound" },
+            after: { posture: "exact", value: "handoff-sent" },
+            owner: "maintained successor-transition record and gate owner",
+            source_identity: `successor-transition:${transitionId}`,
+            source_revision: "3".repeat(64),
+            currentness_fingerprint: "4".repeat(64),
+            links: [{ label: "Source run", href: `/runs/${target}` }],
+          },
+          {
+            id: "successor-transition-source-posture",
+            subject: "Source run posture",
+            kind: "preserved",
+            before: { posture: "exact", value: "in-progress" },
+            after: { posture: "exact", value: "in-progress" },
+            owner: "maintained successor-transition gate",
+            source_identity: `supervision-run:${target}`,
+            source_revision: "3".repeat(64),
+            currentness_fingerprint: "4".repeat(64),
+            links: [{ label: "Source run", href: `/runs/${target}` }],
+          },
+        ],
+        limitations: ["Rows are source-backed and read-only."],
+      },
+      source_fingerprint: "4".repeat(64),
+      source_evidence: {
+        transition_id: transitionId,
+        phase: "successor-bound",
+        next_phase: "handoff-sent",
+        next_action: "send-exact-handoff",
+        source_stop_permitted: false,
+      },
+      route_gate: {
+        status: "allowed",
+        target_thread: target,
+        recipient: "fix-executor-task",
+        purpose: "fix-execution",
+        source_record: "EVT-CONTINUITY-E2E-003",
+        required_action: `Advance successor transition ${transitionId}.`,
+        action_hash: "5".repeat(64),
+        policy_fingerprint: "6".repeat(64),
+        binding_fingerprint: "7".repeat(64),
+      },
+      consequences: {
+        ordinary: ["One exact next continuity phase may be requested."],
+        failure: ["Partial state remains open with no automatic retry."],
+      },
+      confirmation: {
+        class: "successor-task-transition",
+        prompt: "Type ADVANCE CONTINUITY to request this exact next phase.",
+        expected_value: "ADVANCE CONTINUITY",
+      },
+      expected_postcondition: "One exact phase advances while the source remains in-progress.",
+      idempotency: "One consumed preview may advance only one immediate phase.",
+      limitations: ["A handoff never permits source stop."],
+      expires_at: "2099-08-12T12:00:00.000Z",
+    },
+    history: [{ state: "previewed", observed_at: "2026-08-12T11:00:00.000Z" }],
+    request_evidence: null,
+    verification_evidence: null,
+    links: [],
+    failure: null,
+  }
+  await page.route(`**/api/v1/runs/${target}`, (route) => route.fulfill({ json: runEnvelope }))
+  await page.route("**/api/v1/operations/preview", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      operation_type: "factory.successor-task-transition",
+      target: { kind: "run", id: target, project_id: "software-factory" },
+      input: { transition_id: transitionId },
+    })
+    await route.fulfill({
+      json: {
+        data: { operation, preview_token: "c".repeat(32) },
+        source: { kind: "administrative-operation", identity: operation.id, revision: "4".repeat(64) },
+        observed_at: "2026-08-12T11:00:00.000Z",
+        fingerprint: "4".repeat(64),
+        coverage: { status: "partial", observed: ["operation-preview"], missing: ["owner-postcondition"] },
+        limitations: ["Fixture stops before mutation."],
+        error: null,
+      },
+    })
+  })
+
+  await page.goto(`/runs/${target}`)
+  await expect(page.getByText(transitionId, { exact: true })).toBeVisible()
+  await expect(page.getByText(/successor-bound · Block 26/)).toBeVisible()
+  await expect(page.getByText("Prohibited", { exact: true })).toBeVisible()
+  await page.getByRole("button", { name: "Advance continuity" }).click()
+  const preview = page.getByRole("dialog")
+  await expect(preview).toContainText("successor-bound")
+  await expect(preview).toContainText("handoff-sent")
+  await expect(preview).toContainText("Source run posture")
+  await expect(preview).toContainText("in-progress")
+  await expect(preview).toContainText("ADVANCE CONTINUITY")
+  await expect(preview.getByRole("button", { name: "Request operation" })).toBeDisabled()
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(
+    accessibility.violations.filter(({ impact }) => impact === "serious" || impact === "critical"),
+  ).toEqual([])
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+  await preview.getByRole("button", { name: "Close operation preview" }).click()
+
+  const predecessor = runEnvelope.data.run.mission_segments.find(
+    (segment: { posture: string }) => segment.posture === "predecessor",
+  )?.mission_root
+  expect(predecessor).toBeTruthy()
+  await page.goto(`/runs/${target}?mission=${predecessor}`)
+  await expect(page.getByRole("button", { name: "Advance continuity" })).toHaveCount(0)
+})

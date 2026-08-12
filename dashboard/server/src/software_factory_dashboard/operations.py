@@ -1346,6 +1346,9 @@ class OperationsProjectionService:
                     if item.get("kind") == "notification"
                     and item.get("status") == "sent"
                 ]
+        successor_transitions = owner_module.successor_transition_heads(
+            list(evidence.events)
+        )
         open_successor_transitions = owner_module.successor_transition_heads(
             list(evidence.events),
             open_only=True,
@@ -1398,6 +1401,7 @@ class OperationsProjectionService:
             ],
             "lifecycle_status": lifecycle_status,
             "open_successor_transition_ids": sorted(open_successor_transitions),
+            "successor_transition_ids": sorted(successor_transitions),
             "open_mission_activation_ids": sorted(open_mission_activations),
             "automations": {
                 role: automation.get("manifest_sha256") if automation else None
@@ -1442,6 +1446,7 @@ class OperationsProjectionService:
             "open_successor_transitions": json.loads(
                 json.dumps(open_successor_transitions)
             ),
+            "successor_transitions": json.loads(json.dumps(successor_transitions)),
             "open_mission_activations": json.loads(
                 json.dumps(open_mission_activations)
             ),
@@ -2122,6 +2127,139 @@ class OperationsProjectionService:
             "owner_sha256": before.get("owner_sha256"),
             "control_fingerprint": before.get("fingerprint"),
             "currentness": currentness,
+            "gate": json.loads(json.dumps(payload)),
+        }
+
+    def successor_transition_gate_snapshot(
+        self,
+        target_thread_id: str,
+        *,
+        transition_id: str,
+        task_creation_authority: str,
+    ) -> dict[str, Any]:
+        """Run the maintained successor-transition gate against one exact head."""
+
+        if (
+            not SAFE_ID.fullmatch(target_thread_id)
+            or not SAFE_ID.fullmatch(transition_id)
+            or task_creation_authority not in {"available", "unavailable"}
+        ):
+            raise OperationsProjectionError(
+                "successor_transition_source_invalid",
+                "The successor-transition target, identity, or authority posture is invalid.",
+                status=422,
+            )
+        before = self.policy_control_snapshot(target_thread_id)
+        heads = before.get("successor_transitions")
+        heads = heads if isinstance(heads, Mapping) else {}
+        head = heads.get(transition_id)
+        if not isinstance(head, Mapping):
+            raise OperationsProjectionError(
+                "successor_transition_not_open",
+                "The exact successor transition is not a canonical head.",
+                status=409,
+            )
+        record_id = head.get("record_id")
+        record_sha256 = head.get("record_sha256")
+        if (
+            not isinstance(record_id, str)
+            or not SAFE_ID.fullmatch(record_id)
+            or not isinstance(record_sha256, str)
+            or not SHA256.fullmatch(record_sha256)
+        ):
+            raise OperationsProjectionError(
+                "successor_transition_head_invalid",
+                "The canonical successor-transition head identity is incomplete.",
+                status=422,
+            )
+        payload = self._owner_command(
+            [
+                "successor-transition-gate",
+                "--target-thread",
+                target_thread_id,
+                "--transition-id",
+                transition_id,
+                "--task-creation-authority",
+                task_creation_authority,
+            ]
+        )
+        after = self.policy_control_snapshot(target_thread_id)
+        if before.get("fingerprint") != after.get("fingerprint"):
+            raise OperationsProjectionError(
+                "successor_transition_source_changed",
+                "The successor-transition source changed while its maintained gate was evaluated.",
+                status=409,
+                retryable=True,
+            )
+        required = {
+            "transition_id",
+            "phase",
+            "transition_open",
+            "source_stop_permitted",
+            "required_source_posture",
+            "next_action",
+            "direct_task_creation_authority_required",
+            "human_input_required",
+            "task_creation_authority",
+            "failure_mode_if_stopped",
+            "tracker_sha256",
+            "tracker_source_record",
+            "successor_thread_id",
+            "successor_mission_root",
+            "successor_group_id",
+            "first_eligible_block",
+            "policy_sha256",
+            "record_id",
+        }
+        if (
+            not required.issubset(payload)
+            or payload.get("transition_id") != transition_id
+            or payload.get("phase") != head.get("phase")
+            or payload.get("record_id") != record_id
+            or payload.get("task_creation_authority") != task_creation_authority
+            or payload.get("tracker_sha256") != head.get("tracker_sha256")
+            or payload.get("tracker_source_record")
+            != head.get("tracker_source_record")
+            or payload.get("first_eligible_block") != head.get("first_eligible_block")
+            or payload.get("successor_thread_id")
+            != (head.get("successor_thread_id") or None)
+            or payload.get("successor_mission_root")
+            != (head.get("successor_mission_root") or None)
+            or payload.get("successor_group_id")
+            != (head.get("successor_group_id") or None)
+            or payload.get("policy_sha256") != before.get("policy_sha256")
+            or any(
+                type(payload.get(field)) is not bool
+                for field in (
+                    "transition_open",
+                    "source_stop_permitted",
+                    "direct_task_creation_authority_required",
+                    "human_input_required",
+                )
+            )
+            or not isinstance(payload.get("next_action"), str)
+            or not payload["next_action"]
+        ):
+            raise OperationsProjectionError(
+                "successor_transition_gate_invalid",
+                "The maintained successor-transition gate returned an inconsistent contract.",
+                status=503,
+            )
+        return {
+            "target_thread_id": target_thread_id,
+            "transition_id": transition_id,
+            "head": json.loads(json.dumps(head)),
+            "head_record_sha256": record_sha256,
+            "control_fingerprint": before.get("fingerprint"),
+            "owner_sha256": before.get("owner_sha256"),
+            "currentness": _digest(
+                {
+                    "control": before.get("fingerprint"),
+                    "owner": before.get("owner_sha256"),
+                    "head": record_sha256,
+                    "gate": payload,
+                }
+            ),
             "gate": json.loads(json.dumps(payload)),
         }
 
@@ -4371,7 +4509,48 @@ class OperationsProjectionService:
             for decision_id, item in sorted(heads["decisions"].items())
         ]
         transitions = [
-            {"transition_id": transition_id, "open": item.get("phase") != "work-started", "head": _record_ref(item), "phase": _bounded(item.get("phase"))}
+            {
+                "transition_id": transition_id,
+                "open": item.get("phase") != "work-started",
+                "head": _record_ref(item),
+                "phase": _bounded(item.get("phase")),
+                "tracker_sha256": _bounded(item.get("tracker_sha256"), 64),
+                "tracker_source_record": _bounded(
+                    item.get("tracker_source_record"), 160
+                ),
+                "requested_block_range": _bounded(
+                    item.get("requested_block_range"), 80
+                ),
+                "first_eligible_block": _bounded(
+                    item.get("first_eligible_block"), 40
+                ),
+                "source_mission_root": _bounded(
+                    item.get("source_mission_root"), 64
+                ),
+                "governing_authority_source_class": _bounded(
+                    item.get("governing_authority_source_class"), 40
+                ),
+                "governing_authority_source_record": _bounded(
+                    item.get("governing_authority_source_record"), 160
+                ),
+                "successor_thread_id": _bounded(
+                    item.get("successor_thread_id"), 128
+                ),
+                "successor_mission_root": _bounded(
+                    item.get("successor_mission_root"), 64
+                ),
+                "successor_group_id": _bounded(
+                    item.get("successor_group_id"), 128
+                ),
+                "handoff_record": _bounded(item.get("handoff_record"), 128),
+                "acknowledgement_record": _bounded(
+                    item.get("acknowledgement_record"), 128
+                ),
+                "started_block": _bounded(item.get("started_block"), 40),
+                "state_fingerprint": _bounded(
+                    item.get("state_fingerprint"), 128
+                ),
+            }
             for transition_id, item in sorted(heads["transitions"].items())
         ]
         activity_records = [item for item in evidence.active_events if item.get("kind") in ACTIVITY_KINDS]

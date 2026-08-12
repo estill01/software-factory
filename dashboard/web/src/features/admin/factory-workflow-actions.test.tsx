@@ -443,6 +443,75 @@ describe("Factory workflow action strips", () => {
     expect(screen.getByText(/Bind overwrite · successor task/)).toBeVisible()
   })
 
+  it("advances one exact successor-task phase and fails closed on conflicting heads", async () => {
+    const user = userEvent.setup()
+    const transitions = [{
+      transition_id: "TRANSITION-001",
+      open: true,
+      phase: "successor-bound",
+      head: {
+        record_id: "EVT-000101",
+        timestamp: "2026-08-12T12:00:00Z",
+        kind: "successor-transition",
+        status: null,
+        severity: null,
+        category: null,
+        summary: "Successor binding is current; handoff is next.",
+      },
+      tracker_sha256: hash,
+      tracker_source_record: "commit:tracker",
+      requested_block_range: "26-31",
+      first_eligible_block: "Block 26",
+      source_mission_root: hash,
+      governing_authority_source_class: "direct-user",
+      governing_authority_source_record: "direct-user-item-44",
+      successor_thread_id: "successor-task-001",
+      successor_mission_root: "b".repeat(64),
+      successor_group_id: "successor-task-001",
+      handoff_record: null,
+      acknowledgement_record: null,
+      started_block: null,
+      state_fingerprint: "state-successor-bound",
+    }] as RunDetail["successor_transitions"]
+    const { rerender } = renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+        successorTransitions={transitions}
+      />,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Advance continuity" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.successor-task-transition",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: { transition_id: "TRANSITION-001" },
+    })
+    expect(await screen.findByText("successor-bound")).toBeVisible()
+    expect(screen.getByText("In progress until exact work-started evidence")).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Close operation preview" }))
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    rerender(
+      <QueryClientProvider client={client}>
+        <RunSupervisionActions
+          targetId="task-demo"
+          projectId="demo"
+          openIncidentIds={[]}
+          policy={policy}
+          successorTransitions={[
+            ...transitions,
+            { ...transitions[0], transition_id: "TRANSITION-002" },
+          ]}
+        />
+      </QueryClientProvider>,
+    )
+    expect(screen.getByRole("button", { name: "Continuity conflict" })).toBeDisabled()
+  })
+
   it("offers only projected missing owner-backed roles and submits one exact role", async () => {
     const user = userEvent.setup()
     renderActions(

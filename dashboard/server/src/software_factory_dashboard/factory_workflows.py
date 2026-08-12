@@ -66,6 +66,32 @@ MISSION_SUCCESSOR_AUTHORITY_REVIEW_MARKER = (
     "SOFTWARE_FACTORY_DASHBOARD_MISSION_SUCCESSOR_AUTHORITY_REVIEW "
 )
 MISSION_SUCCESSOR_ROUTE_PURPOSE = "semantic-escalation"
+SUCCESSOR_TRANSITION_MARKER = "SOFTWARE_FACTORY_DASHBOARD_SUCCESSOR_TRANSITION "
+SUCCESSOR_TRANSITION_ROUTE_PURPOSE = "fix-execution"
+SUCCESSOR_TRANSITION_PHASES = (
+    "required",
+    "successor-created",
+    "successor-bound",
+    "handoff-sent",
+    "target-acknowledged",
+    "work-started",
+)
+SUCCESSOR_TRANSITION_IDENTITY_FIELDS = (
+    "tracker_sha256",
+    "tracker_source_record",
+    "requested_block_range",
+    "first_eligible_block",
+    "source_mission_root",
+    "governing_authority_source_class",
+    "governing_authority_source_record",
+)
+SUCCESSOR_TRANSITION_WORK_ITEM_TYPES = {
+    "commandExecution",
+    "fileChange",
+    "mcpToolCall",
+    "dynamicToolCall",
+    "collabAgentToolCall",
+}
 ROLE_BINDING_REPAIR_ROLES = {
     "base_reviewer": {
         "label": "Base reviewer",
@@ -484,6 +510,7 @@ class FactoryWorkflowOwner:
         self._supervision_pause_dispatch_lock = RLock()
         self._supervision_resume_dispatch_lock = RLock()
         self._mission_successor_dispatch_lock = RLock()
+        self._successor_transition_dispatch_lock = RLock()
 
     @staticmethod
     def _semantic_exact(value: str | int | float | bool) -> OperationSemanticValue:
@@ -765,6 +792,92 @@ class FactoryWorkflowOwner:
                 source_revision=policy_revision,
                 currentness=currentness,
                 links=run_link,
+            ),
+        )
+
+    @classmethod
+    def _successor_transition_semantic_changes(
+        cls,
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> tuple[OperationSemanticChange, ...]:
+        evidence = source.evidence
+        currentness = source.fingerprint
+        head_revision = str(evidence["head_record_sha256"])
+        run_link = (OperationLink("Source run", f"/runs/{target.id}"),)
+        successor_id = evidence.get("successor_thread_id")
+        successor_links = (
+            (OperationLink("Successor task", f"/tasks/{successor_id}"),)
+            if isinstance(successor_id, str) and successor_id
+            else run_link
+        )
+        tracker_value = cls._semantic_exact(str(evidence["tracker_sha256"]))
+        authority_value = cls._semantic_exact(
+            f"{evidence['governing_authority_source_class']} · "
+            f"{evidence['governing_authority_source_record']}"
+        )
+        return (
+            cls._semantic_change(
+                change_id="successor-transition-phase",
+                subject="Continuity phase",
+                kind="changed",
+                before=cls._semantic_exact(str(evidence["phase"])),
+                after=cls._semantic_exact(str(evidence["next_phase"])),
+                owner="maintained successor-transition record and gate owner",
+                source_identity=f"successor-transition:{evidence['transition_id']}",
+                source_revision=head_revision,
+                currentness=currentness,
+                links=run_link,
+            ),
+            cls._semantic_change(
+                change_id="successor-transition-source-posture",
+                subject="Source run posture",
+                kind="preserved",
+                before=cls._semantic_exact("in-progress"),
+                after=cls._semantic_exact("in-progress"),
+                owner="maintained successor-transition gate",
+                source_identity=f"supervision-run:{target.id}",
+                source_revision=head_revision,
+                currentness=currentness,
+                links=run_link,
+            ),
+            cls._semantic_change(
+                change_id="successor-transition-tracker",
+                subject="Tracker content root",
+                kind="preserved",
+                before=tracker_value,
+                after=tracker_value,
+                owner="maintained tracker verifier and transition owner",
+                source_identity=f"tracker-source:{evidence['tracker_source_record']}",
+                source_revision=str(evidence["tracker_sha256"]),
+                currentness=currentness,
+                links=run_link,
+            ),
+            cls._semantic_change(
+                change_id="successor-transition-authority",
+                subject="Governing task-creation authority",
+                kind="preserved",
+                before=authority_value,
+                after=authority_value,
+                owner="maintained successor-transition authority boundary",
+                source_identity=(
+                    f"authority-source:{evidence['governing_authority_source_record']}"
+                ),
+                source_revision=head_revision,
+                currentness=currentness,
+                links=run_link,
+            ),
+            cls._semantic_change(
+                change_id="successor-transition-next-owner",
+                subject="Next owner action",
+                kind="added",
+                before=cls._semantic_unavailable(),
+                after=cls._semantic_exact(str(evidence["next_action"])),
+                owner="maintained fix executor and phase-specific owner",
+                source_identity=f"codex-task:{evidence['fix_executor_task_id']}",
+                source_revision=str(evidence["fix_executor_task_fingerprint"]),
+                currentness=currentness,
+                links=successor_links,
             ),
         )
 
@@ -1135,6 +1248,7 @@ class FactoryWorkflowOwner:
                 self._supervision_pause_definition(),
                 self._supervision_resume_definition(),
                 self._mission_successor_definition(),
+                self._successor_transition_definition(),
                 self._unavailable_authoring_supervision_definition(),
             )
         )
@@ -11352,6 +11466,1065 @@ class FactoryWorkflowOwner:
                 ),
             ),
             route_gate_request=self._mission_successor_route_request,
+            route_gate=self.route_gate,
+            dispatch=dispatch,
+            verify=verify,
+        )
+
+    @staticmethod
+    def _successor_transition_next_phase(phase: str) -> str:
+        try:
+            index = SUCCESSOR_TRANSITION_PHASES.index(phase)
+        except ValueError as error:
+            raise OperationError(
+                "successor_transition_phase_invalid",
+                "The canonical successor-transition phase is unsupported.",
+                status=409,
+            ) from error
+        if index + 1 >= len(SUCCESSOR_TRANSITION_PHASES):
+            raise OperationError(
+                "successor_transition_complete",
+                "The successor transition has already reached verified work start.",
+                status=409,
+            )
+        return SUCCESSOR_TRANSITION_PHASES[index + 1]
+
+    @staticmethod
+    def _successor_transition_first_block(value: Any) -> int:
+        if not isinstance(value, str):
+            raise OperationError(
+                "successor_transition_block_invalid",
+                "The first eligible Block identity is unavailable.",
+                status=409,
+            )
+        match = re.fullmatch(r"Block\s+([0-9]{1,5})(?:\s+[^\r\n]{1,160})?", value)
+        if match is None:
+            raise OperationError(
+                "successor_transition_block_invalid",
+                "The first eligible Block must carry one exact Block number.",
+                status=409,
+            )
+        return int(match.group(1))
+
+    @staticmethod
+    def _successor_transition_range_contains(value: Any, block_number: int) -> bool:
+        if not isinstance(value, str):
+            return False
+        text = re.sub(r"\ABlocks?\s+", "", value.strip(), flags=re.IGNORECASE)
+        if not text:
+            return False
+        included = False
+        for component in re.split(r"\s*,\s*", text):
+            match = re.fullmatch(
+                r"(?:Block\s+)?([0-9]{1,5})(?:\s*[-–]\s*(?:Block\s+)?([0-9]{1,5}))?",
+                component,
+                flags=re.IGNORECASE,
+            )
+            if match is None:
+                return False
+            start = int(match.group(1))
+            end = int(match.group(2) or match.group(1))
+            if end < start:
+                return False
+            included = included or start <= block_number <= end
+        return included
+
+    def _successor_transition_tracker(
+        self,
+        project: ProjectRecord,
+        head: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            discovery = discover_project(project)["discovery"]
+        except CatalogError as error:
+            raise _operation_error(
+                error,
+                fallback="successor_transition_tracker_unavailable",
+            ) from error
+        candidates = discovery.get("trackers", {}).get("candidates")
+        if discovery.get("status") != "available" or not isinstance(candidates, list):
+            raise OperationError(
+                "successor_transition_tracker_unavailable",
+                "The transition's registered project trackers are unavailable.",
+                status=409,
+            )
+        matches: list[tuple[str, Mapping[str, Any]]] = []
+        for relative_path in candidates:
+            if not isinstance(relative_path, str):
+                continue
+            try:
+                detail = self.tracker_service.project(project, relative_path)
+            except TrackerProjectionError:
+                continue
+            if detail.get("raw_file", {}).get("content_sha256") == head.get(
+                "tracker_sha256"
+            ):
+                matches.append((relative_path, detail))
+        if len(matches) != 1:
+            raise OperationError(
+                "successor_transition_tracker_ambiguous",
+                "The transition does not resolve to one exact current tracker source.",
+                status=409,
+            )
+        relative_path, detail = matches[0]
+        first_number = self._successor_transition_first_block(
+            head.get("first_eligible_block")
+        )
+        block = next(
+            (
+                item
+                for item in detail.get("blocks", [])
+                if item.get("number") == first_number
+            ),
+            None,
+        )
+        if (
+            detail.get("status") != "available"
+            or detail.get("verifier", {}).get("valid") is not True
+            or not isinstance(block, Mapping)
+            or not self._successor_transition_range_contains(
+                head.get("requested_block_range"), first_number
+            )
+        ):
+            raise OperationError(
+                "successor_transition_tracker_invalid",
+                "The exact tracker, requested range, and first eligible Block do not agree.",
+                status=409,
+            )
+        return {
+            "tracker_id": tracker_identity(project.id, relative_path),
+            "tracker_path": relative_path,
+            "tracker_sha256": detail["raw_file"]["content_sha256"],
+            "tracker_fingerprint": detail["fingerprint"],
+            "repository_head": detail.get("git", {}).get("repository_head"),
+            "first_block_number": first_number,
+            "first_block_title": block.get("title"),
+            "first_block_status": block.get("status"),
+            "profile": detail.get("profile"),
+        }
+
+    @staticmethod
+    def _successor_transition_task_marker_current(
+        task: Mapping[str, Any],
+        *,
+        project_id: str,
+        tracker: Mapping[str, Any],
+        head: Mapping[str, Any],
+    ) -> bool:
+        if task.get("turns_truncated") is True:
+            return False
+        marker = FactoryWorkflowOwner._task_marker(task)
+        if not isinstance(marker, Mapping):
+            return False
+        if marker.get("kind") == "successor-continuity":
+            expected = {
+                "project_id": project_id,
+                "tracker_id": tracker["tracker_id"],
+                "tracker_sha256": head.get("tracker_sha256"),
+                "transition_id": head.get("transition_id"),
+                "requested_block_range": head.get("requested_block_range"),
+                "first_eligible_block": head.get("first_eligible_block"),
+                "source_mission_root": head.get("source_mission_root"),
+                "governing_authority_source_record": head.get(
+                    "governing_authority_source_record"
+                ),
+            }
+            return (
+                all(marker.get(key) == value for key, value in expected.items())
+                and isinstance(marker.get("source_fingerprint"), str)
+                and SHA256_PATTERN.fullmatch(str(marker["source_fingerprint"]))
+                is not None
+            )
+        if marker.get("kind") != "implement-blocks":
+            return False
+        return bool(
+            marker.get("project_id") == project_id
+            and marker.get("tracker_id") == tracker["tracker_id"]
+            and marker.get("block_start") == tracker["first_block_number"]
+            and type(marker.get("block_end")) is int
+            and marker["block_end"] >= marker["block_start"]
+            and marker.get("mission_root") == head.get("successor_mission_root")
+            and isinstance(marker.get("source_fingerprint"), str)
+            and SHA256_PATTERN.fullmatch(str(marker["source_fingerprint"]))
+            is not None
+        )
+
+    @staticmethod
+    def _successor_transition_item_marker(
+        task: Mapping[str, Any],
+        *,
+        kind: str,
+        transition_id: str,
+        record_id: str,
+    ) -> bool:
+        if task.get("turns_truncated") is True:
+            return False
+        expected_item_type = {
+            "handoff": "userMessage",
+            "acknowledgement": "agentMessage",
+        }.get(kind)
+        if expected_item_type is None:
+            return False
+        matches: list[Mapping[str, Any]] = []
+        for turn in task.get("turns", []):
+            if not isinstance(turn, Mapping) or turn.get("items_truncated") is True:
+                return False
+            for item in turn.get("items", []):
+                summary = item.get("summary") if isinstance(item, Mapping) else None
+                if (
+                    item.get("type") != expected_item_type
+                    or not isinstance(summary, str)
+                    or not summary.startswith(SUCCESSOR_TRANSITION_MARKER)
+                    or item.get("summary_truncated") is True
+                ):
+                    continue
+                try:
+                    marker = json.loads(
+                        summary.splitlines()[0].removeprefix(
+                            SUCCESSOR_TRANSITION_MARKER
+                        )
+                    )
+                except json.JSONDecodeError:
+                    return False
+                if isinstance(marker, Mapping) and marker.get("kind") == kind:
+                    matches.append(marker)
+        return bool(
+            len(matches) == 1
+            and matches[0].get("transition_id") == transition_id
+            and matches[0].get("record_id") == record_id
+        )
+
+    @staticmethod
+    def _successor_transition_work_started(
+        task: Mapping[str, Any],
+        *,
+        project_id: str,
+        tracker: Mapping[str, Any],
+        head: Mapping[str, Any],
+    ) -> bool:
+        if not FactoryWorkflowOwner._successor_transition_task_marker_current(
+            task,
+            project_id=project_id,
+            tracker=tracker,
+            head=head,
+        ):
+            return False
+        marker = FactoryWorkflowOwner._task_marker(task)
+        if (
+            not isinstance(marker, Mapping)
+            or marker.get("kind") != "implement-blocks"
+            or head.get("started_block") != head.get("first_eligible_block")
+            or head.get("state_fingerprint") != marker.get("source_fingerprint")
+        ):
+            return False
+        for turn in task.get("turns", []):
+            if not isinstance(turn, Mapping) or turn.get("items_truncated") is True:
+                return False
+            marker_seen = False
+            for item in turn.get("items", []):
+                if not isinstance(item, Mapping):
+                    continue
+                summary = item.get("summary")
+                if item.get("type") == "userMessage" and isinstance(summary, str):
+                    parsed = FactoryWorkflowOwner._parse_marker(summary)
+                    if isinstance(parsed, Mapping) and parsed == marker:
+                        marker_seen = True
+                        continue
+                if marker_seen and item.get("type") in SUCCESSOR_TRANSITION_WORK_ITEM_TYPES:
+                    return True
+        return False
+
+    def _successor_transition_task_evidence(
+        self,
+        *,
+        projects: Sequence[ProjectRecord],
+        project: ProjectRecord,
+        tracker: Mapping[str, Any],
+        head: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        successor_id = head.get("successor_thread_id")
+        if not isinstance(successor_id, str) or not successor_id:
+            return {
+                "successor_task_current": False,
+                "successor_binding_current": False,
+                "handoff_current": False,
+                "acknowledgement_current": False,
+                "work_started_current": False,
+                "successor_task_fingerprint": None,
+            }
+        try:
+            detail = self.app_server_client.read_task(
+                projects,
+                successor_id,
+                include_turns=True,
+            )
+        except AppServerError:
+            return {
+                "successor_task_current": False,
+                "successor_binding_current": False,
+                "handoff_current": False,
+                "acknowledgement_current": False,
+                "work_started_current": False,
+                "successor_task_fingerprint": None,
+            }
+        task = detail.get("task")
+        task = task if isinstance(task, Mapping) else {}
+        binding = task.get("project_binding")
+        task_current = bool(
+            task.get("id") == successor_id
+            and task.get("status", {}).get("type") in LIVE_TASK_STATES
+            and isinstance(binding, Mapping)
+            and binding.get("status") == "bound"
+            and binding.get("project_id") == project.id
+            and self._successor_transition_task_marker_current(
+                task,
+                project_id=project.id,
+                tracker=tracker,
+                head=head,
+            )
+        )
+        task_fingerprint = fingerprint(
+            {
+                "id": task.get("id"),
+                "cwd": task.get("cwd"),
+                "status": task.get("status"),
+                "binding": binding,
+                "turns_truncated": task.get("turns_truncated"),
+                "turns": task.get("turns"),
+            }
+        )
+        bound_current = False
+        if head.get("phase") in {
+            "successor-bound",
+            "handoff-sent",
+            "target-acknowledged",
+            "work-started",
+        }:
+            try:
+                control = self.operations_service.policy_control_snapshot(successor_id)
+                group_ids = self.operations_service.binding_group_ids(successor_id)
+            except OperationsProjectionError:
+                control = {}
+                group_ids = []
+            policy = control.get("policy")
+            mission = policy.get("mission_binding") if isinstance(policy, Mapping) else None
+            bound_current = bool(
+                task_current
+                and head.get("successor_group_id") == successor_id
+                and group_ids == [successor_id]
+                and isinstance(mission, Mapping)
+                and mission.get("mission_root") == head.get("successor_mission_root")
+                and isinstance(head.get("successor_mission_root"), str)
+                and SHA256_PATTERN.fullmatch(str(head["successor_mission_root"]))
+                is not None
+            )
+        handoff_current = bool(
+            task_current
+            and isinstance(head.get("handoff_record"), str)
+            and head["handoff_record"]
+            and self._successor_transition_item_marker(
+                task,
+                kind="handoff",
+                transition_id=str(head.get("transition_id")),
+                record_id=str(head["handoff_record"]),
+            )
+        )
+        acknowledgement_current = bool(
+            handoff_current
+            and isinstance(head.get("acknowledgement_record"), str)
+            and head["acknowledgement_record"]
+            and self._successor_transition_item_marker(
+                task,
+                kind="acknowledgement",
+                transition_id=str(head.get("transition_id")),
+                record_id=str(head["acknowledgement_record"]),
+            )
+        )
+        work_started_current = bool(
+            acknowledgement_current
+            and self._successor_transition_work_started(
+                task,
+                project_id=project.id,
+                tracker=tracker,
+                head=head,
+            )
+        )
+        return {
+            "successor_task_current": task_current,
+            "successor_binding_current": bound_current,
+            "handoff_current": handoff_current,
+            "acknowledgement_current": acknowledgement_current,
+            "work_started_current": work_started_current,
+            "successor_task_fingerprint": task_fingerprint,
+            "successor_task_status": task.get("status", {}).get("type"),
+        }
+
+    @staticmethod
+    def _successor_transition_marker(
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> dict[str, Any]:
+        return {
+            "kind": "successor-transition-owner-request",
+            "target_thread_id": target.id,
+            "transition_id": source.evidence["transition_id"],
+            "phase": source.evidence["phase"],
+            "next_phase": source.evidence["next_phase"],
+            "head_record_id": source.evidence["head_record_id"],
+            "head_record_sha256": source.evidence["head_record_sha256"],
+            "tracker_sha256": source.evidence["tracker_sha256"],
+            "requested_block_range": source.evidence["requested_block_range"],
+            "first_eligible_block": source.evidence["first_eligible_block"],
+            "source_mission_root": source.evidence["source_mission_root"],
+            "successor_thread_id": source.evidence.get("successor_thread_id"),
+            "successor_mission_root": source.evidence.get(
+                "successor_mission_root"
+            ),
+            "successor_group_id": source.evidence.get("successor_group_id"),
+            "preview_fingerprint": source.fingerprint,
+            "route_purpose": SUCCESSOR_TRANSITION_ROUTE_PURPOSE,
+        }
+
+    @staticmethod
+    def _successor_transition_turn_has_marker(
+        task: Mapping[str, Any],
+        *,
+        turn_id: str,
+        expected: Mapping[str, Any],
+    ) -> bool:
+        if task.get("turns_truncated") is True:
+            return False
+        turns = [turn for turn in task.get("turns", []) if turn.get("id") == turn_id]
+        if len(turns) != 1 or turns[0].get("items_truncated") is True:
+            return False
+        markers: list[Mapping[str, Any]] = []
+        for item in turns[0].get("items", []):
+            summary = item.get("summary") if isinstance(item, Mapping) else None
+            if (
+                item.get("type") != "userMessage"
+                or not isinstance(summary, str)
+                or not summary.startswith(SUCCESSOR_TRANSITION_MARKER)
+            ):
+                continue
+            try:
+                marker = json.loads(
+                    summary.splitlines()[0].removeprefix(
+                        SUCCESSOR_TRANSITION_MARKER
+                    )
+                )
+            except json.JSONDecodeError:
+                return False
+            if isinstance(marker, Mapping):
+                markers.append(marker)
+        return len(markers) == 1 and markers[0] == expected
+
+    def _successor_transition_source(
+        self,
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+    ) -> SourceSnapshot:
+        transition_id = inputs.get("transition_id")
+        if not isinstance(transition_id, str):
+            raise OperationError(
+                "successor_transition_input_invalid",
+                "One exact successor-transition ID is required.",
+            )
+        projects, catalog_fingerprint = self._active_projects()
+        project = self._project_from(projects, target)
+        self._require_capabilities("task_read", "task_resume", "turn_start")
+        try:
+            control = self.operations_service.policy_control_snapshot(target.id)
+            group_ids = self.operations_service.binding_group_ids(target.id)
+            gate_snapshot = self.operations_service.successor_transition_gate_snapshot(
+                target.id,
+                transition_id=transition_id,
+                task_creation_authority="available",
+            )
+        except OperationsProjectionError as error:
+            raise _operation_error(
+                error,
+                fallback="successor_transition_source_unavailable",
+            ) from error
+        open_heads = control.get("open_successor_transitions")
+        open_heads = open_heads if isinstance(open_heads, Mapping) else {}
+        head = open_heads.get(transition_id)
+        policy = control.get("policy")
+        runtime = control.get("runtime")
+        mission = policy.get("mission_binding") if isinstance(policy, Mapping) else None
+        gate = gate_snapshot.get("gate")
+        if (
+            list(sorted(open_heads)) != [transition_id]
+            or not isinstance(head, Mapping)
+            or group_ids != [target.id]
+            or not isinstance(policy, Mapping)
+            or not isinstance(runtime, Mapping)
+            or not isinstance(mission, Mapping)
+            or mission.get("mission_root") != head.get("source_mission_root")
+            or not isinstance(gate, Mapping)
+            or gate.get("transition_open") is not True
+            or gate.get("source_stop_permitted") is not False
+            or gate.get("required_source_posture") != "in-progress"
+            or head.get("governing_authority_source_class")
+            not in {"direct-user", "system", "repository", "tracker"}
+        ):
+            raise OperationError(
+                "successor_transition_source_mismatch",
+                "The selected run, mission, authority, open head, or maintained gate does not identify one current transition.",
+                status=409,
+            )
+        phase = str(head.get("phase", ""))
+        next_phase = self._successor_transition_next_phase(phase)
+        expected_next_action = {
+            "required": "create-successor-task",
+            "successor-created": "bind-successor-mission-and-isolated-supervision",
+            "successor-bound": "send-exact-handoff",
+            "handoff-sent": "obtain-target-acknowledgement",
+            "target-acknowledged": "start-first-eligible-block",
+        }[phase]
+        if gate.get("next_action") != expected_next_action:
+            raise OperationError(
+                "successor_transition_gate_mismatch",
+                "The maintained gate's next action disagrees with the canonical phase.",
+                status=409,
+            )
+        for field in SUCCESSOR_TRANSITION_IDENTITY_FIELDS:
+            if not isinstance(head.get(field), str) or not head[field]:
+                raise OperationError(
+                    "successor_transition_identity_incomplete",
+                    f"The canonical transition lacks {field.replace('_', ' ')}.",
+                    status=409,
+                )
+        if (
+            not SHA256_PATTERN.fullmatch(str(head["tracker_sha256"]))
+            or not SHA256_PATTERN.fullmatch(str(head["source_mission_root"]))
+            or not isinstance(head.get("record_id"), str)
+            or not isinstance(head.get("record_sha256"), str)
+            or not SHA256_PATTERN.fullmatch(str(head["record_sha256"]))
+        ):
+            raise OperationError(
+                "successor_transition_identity_incomplete",
+                "The canonical transition hashes or head record are incomplete.",
+                status=409,
+            )
+        tracker = self._successor_transition_tracker(project, head)
+        try:
+            target_detail = self.app_server_client.read_task(
+                projects,
+                target.id,
+                include_turns=False,
+            )
+        except AppServerError as error:
+            raise _operation_error(
+                error,
+                fallback="successor_transition_source_task_unavailable",
+            ) from error
+        target_task = target_detail.get("task")
+        target_task = target_task if isinstance(target_task, Mapping) else {}
+        target_binding = target_task.get("project_binding")
+        if (
+            target_task.get("id") != target.id
+            or target_task.get("status", {}).get("type") not in LIVE_TASK_STATES
+            or not isinstance(target_binding, Mapping)
+            or target_binding.get("status") != "bound"
+            or target_binding.get("project_id") != project.id
+        ):
+            raise OperationError(
+                "successor_transition_source_task_unavailable",
+                "The source implementation task is not current and active in the registered project.",
+                status=409,
+            )
+        fix_executor_id = runtime.get("fix_executor_thread_id")
+        if (
+            not isinstance(fix_executor_id, str)
+            or not fix_executor_id
+            or fix_executor_id == target.id
+            or fix_executor_id == head.get("successor_thread_id")
+        ):
+            raise OperationError(
+                "successor_transition_owner_unavailable",
+                "The source policy lacks one distinct exact fix executor.",
+                status=409,
+            )
+        try:
+            fix_detail = self.app_server_client.read_task(
+                projects,
+                fix_executor_id,
+                include_turns=True,
+            )
+        except AppServerError as error:
+            raise _operation_error(
+                error,
+                fallback="successor_transition_owner_unavailable",
+            ) from error
+        fix_task = fix_detail.get("task")
+        fix_task = fix_task if isinstance(fix_task, Mapping) else {}
+        fix_cwd, fix_identity, fix_status = self._validated_role_task(
+            fix_task,
+            task_id=fix_executor_id,
+            role="fix executor",
+            unavailable_code="successor_transition_owner_unavailable",
+            active_code="successor_transition_owner_active",
+        )
+        task_evidence = self._successor_transition_task_evidence(
+            projects=projects,
+            project=project,
+            tracker=tracker,
+            head=head,
+        )
+        phase_index = SUCCESSOR_TRANSITION_PHASES.index(phase)
+        required_task_checks = {
+            "successor-created": task_evidence["successor_task_current"],
+            "successor-bound": task_evidence["successor_binding_current"],
+            "handoff-sent": task_evidence["handoff_current"],
+            "target-acknowledged": task_evidence["acknowledgement_current"],
+        }
+        for required_phase, current in required_task_checks.items():
+            if phase_index >= SUCCESSOR_TRANSITION_PHASES.index(required_phase) and not current:
+                raise OperationError(
+                    "successor_transition_phase_evidence_missing",
+                    f"The canonical {required_phase} phase lacks its exact task/group evidence.",
+                    status=409,
+                )
+        evidence = {
+            "catalog_fingerprint": catalog_fingerprint,
+            "project_id": project.id,
+            "transition_id": transition_id,
+            "phase": phase,
+            "next_phase": next_phase,
+            "next_action": expected_next_action,
+            "head_record_id": head["record_id"],
+            "head_record_sha256": head["record_sha256"],
+            "tracker_sha256": head["tracker_sha256"],
+            "tracker_source_record": head["tracker_source_record"],
+            "requested_block_range": head["requested_block_range"],
+            "first_eligible_block": head["first_eligible_block"],
+            "source_mission_root": head["source_mission_root"],
+            "governing_authority_source_class": head[
+                "governing_authority_source_class"
+            ],
+            "governing_authority_source_record": head[
+                "governing_authority_source_record"
+            ],
+            "successor_thread_id": head.get("successor_thread_id") or None,
+            "successor_mission_root": head.get("successor_mission_root") or None,
+            "successor_group_id": head.get("successor_group_id") or None,
+            "handoff_record": head.get("handoff_record") or None,
+            "acknowledgement_record": head.get("acknowledgement_record") or None,
+            "started_block": head.get("started_block") or None,
+            "state_fingerprint": head.get("state_fingerprint") or None,
+            "tracker": tracker,
+            "gate_currentness": gate_snapshot["currentness"],
+            "gate_owner_sha256": gate_snapshot["owner_sha256"],
+            "source_control_fingerprint": control["fingerprint"],
+            "source_policy_sha256": control["policy_sha256"],
+            "source_task_fingerprint": fingerprint(target_task),
+            "fix_executor_task_id": fix_executor_id,
+            "fix_executor_task_status": fix_status,
+            "fix_executor_task_cwd": fix_cwd,
+            "fix_executor_cwd_device": fix_identity[0],
+            "fix_executor_cwd_inode": fix_identity[1],
+            "fix_executor_task_fingerprint": fingerprint(fix_task),
+            "task_evidence": task_evidence,
+            "compensation_posture": (
+                "No automatic retry or phase leap. Preserve any canonical next phase or created successor, re-read that exact head and task, and preview only the still-missing next owner action."
+            ),
+        }
+        material = {
+            "catalog": catalog_fingerprint,
+            "project": project.id,
+            "source_control": control["fingerprint"],
+            "gate": gate_snapshot["currentness"],
+            "transition_head": head["record_sha256"],
+            "tracker": tracker,
+            "source_task": evidence["source_task_fingerprint"],
+            "fix_executor": evidence["fix_executor_task_fingerprint"],
+            "successor": task_evidence,
+        }
+        return SourceSnapshot(fingerprint=fingerprint(material), evidence=evidence)
+
+    @staticmethod
+    def _successor_transition_prompt(
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> str:
+        marker = FactoryWorkflowOwner._successor_transition_marker(target, source)
+        phase = str(source.evidence["phase"])
+        common = (
+            "Use $supervise-tracker-runs and only the maintained successor-transition, Codex task, supervision bind, and route-gate owners for one exact phase. "
+            "Re-read the canonical head and task evidence before acting. Advance exactly one phase, append only through successor-transition-record, and call successor-transition-gate afterward. "
+            "Do not edit policy, policy history, event JSONL, or task session files directly. Do not retry, leap a phase, invent an ID, alter tracker/mission/range/authority identity, stop or complete the source, generate reports, or implement beyond the first-work proof. "
+        )
+        phase_instruction = {
+            "required": (
+                "The canonical direct authority permits one successor task. Create exactly one non-ephemeral task in the registered project through the Codex task owner, and start only a bootstrap turn whose first line is SOFTWARE_FACTORY_DASHBOARD_MISSION followed by canonical JSON with kind successor-continuity and the exact project, tracker, transition, range, first Block, source mission, authority-source record, and a full source fingerprint. Then record successor-created with that real task ID."
+            ),
+            "successor-created": (
+                "Bind the exact created task to one isolated tracker-derived successor mission and supervision group through the maintained supervision owner. Require the group ID to equal the successor task ID, preserve the source group, and record successor-bound only after the new policy/group is current."
+            ),
+            "successor-bound": (
+                "Use thread-route-gate purpose target-action for the exact successor task. Send one handoff whose first line is SOFTWARE_FACTORY_DASHBOARD_SUCCESSOR_TRANSITION followed by canonical JSON with kind handoff, this transition ID, and one stable handoff record ID. Include the exact tracker, range, first Block, source and successor mission identities. Record handoff-sent only after the exact target turn exists."
+            ),
+            "handoff-sent": (
+                "Obtain an exact successor acknowledgement. The successor must emit one agent message whose first line is SOFTWARE_FACTORY_DASHBOARD_SUCCESSOR_TRANSITION followed by canonical JSON with kind acknowledgement, this transition ID, and one stable acknowledgement record ID. Record target-acknowledged only after that exact non-truncated agent message is readable."
+            ),
+            "target-acknowledged": (
+                "Use thread-route-gate purpose target-action to start the exact first eligible Block on the successor. The turn must begin with the maintained implement-blocks SOFTWARE_FACTORY_DASHBOARD_MISSION marker bound to this tracker, successor mission, and first Block. Stop after one concrete non-reasoning owner action is visible; only then record work-started with started-block exactly equal to first-eligible-block and state-fingerprint equal to the implementation marker source fingerprint. Do not implement further work in this phase request."
+            ),
+        }[phase]
+        facts = {
+            key: source.evidence.get(key)
+            for key in (
+                "transition_id",
+                "phase",
+                "next_phase",
+                "head_record_id",
+                "head_record_sha256",
+                "tracker_sha256",
+                "tracker_source_record",
+                "requested_block_range",
+                "first_eligible_block",
+                "source_mission_root",
+                "governing_authority_source_class",
+                "governing_authority_source_record",
+                "successor_thread_id",
+                "successor_mission_root",
+                "successor_group_id",
+                "handoff_record",
+                "acknowledgement_record",
+            )
+        }
+        prompt = (
+            f"{SUCCESSOR_TRANSITION_MARKER}{_canonical(marker)}\n"
+            f"{common}{phase_instruction}\n"
+            f"Exact phase facts: {_canonical(facts)}\n"
+            f"Registered project: {source.evidence['project_id']}\n"
+            f"Tracker path: {source.evidence['tracker']['tracker_path']}\n"
+            f"Preview fingerprint: {source.fingerprint}"
+        )
+        if len(prompt) > MAX_WORKFLOW_PROMPT:
+            raise OperationError(
+                "successor_transition_prompt_too_large",
+                "The bounded successor-transition request exceeds the prompt limit.",
+            )
+        return prompt
+
+    @staticmethod
+    def _successor_transition_route_request(
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+        source: SourceSnapshot,
+    ) -> RouteGateRequest:
+        del inputs
+        return RouteGateRequest(
+            recipient=str(source.evidence["fix_executor_task_id"]),
+            purpose=SUCCESSOR_TRANSITION_ROUTE_PURPOSE,
+            source_record=str(source.evidence["head_record_id"]),
+            target_thread=target.id,
+            required_action=(
+                f"Advance successor transition {source.evidence['transition_id']} from "
+                f"{source.evidence['phase']} to {source.evidence['next_phase']} at "
+                f"preview {source.fingerprint}; keep source in-progress until verified work-started."
+            ),
+        )
+
+    def _successor_transition_definition(self) -> OperationDefinition:
+        schema = _object_schema(
+            {
+                "transition_id": _text_schema(
+                    128,
+                    pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{2,127}$",
+                )
+            }
+        )
+
+        def dispatch(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+        ) -> DispatchResult:
+            with self._successor_transition_dispatch_lock:
+                current = self._successor_transition_source(target, inputs)
+                if current.fingerprint != source.fingerprint:
+                    raise OperationOwnerError(
+                        "successor_transition_source_changed",
+                        "The exact transition, tracker, source task, successor, group, or owner changed before dispatch.",
+                    )
+                projects, _ = self._active_projects()
+                fix_executor_id = str(source.evidence["fix_executor_task_id"])
+                prompt = self._successor_transition_prompt(target, source)
+                try:
+                    result = self.app_server_client.start_configured_role_turn(
+                        projects,
+                        fix_executor_id,
+                        prompt,
+                        expected_cwd=str(source.evidence["fix_executor_task_cwd"]),
+                        expected_cwd_identity=(
+                            int(source.evidence["fix_executor_cwd_device"]),
+                            int(source.evidence["fix_executor_cwd_inode"]),
+                        ),
+                    )
+                except AppServerError as error:
+                    raise OperationOwnerError(_owner_code(error), str(error)) from error
+                return DispatchResult(
+                    evidence={
+                        "target_thread_id": target.id,
+                        "transition_id": source.evidence["transition_id"],
+                        "requested_phase": source.evidence["next_phase"],
+                        "successor_transition_requested": True,
+                        "successor_transition_applied": False,
+                        "source_stop_permitted": False,
+                        "fix_executor_task_id": fix_executor_id,
+                        "fix_executor_turn_id": result["turn"]["id"],
+                        "fix_executor_task_resumed": result["task_resumed"],
+                        "preview_fingerprint": source.fingerprint,
+                    },
+                    links=(
+                        OperationLink("Source run", f"/runs/{target.id}"),
+                        OperationLink(
+                            "Fix executor task",
+                            f"/tasks/{fix_executor_id}",
+                        ),
+                    ),
+                )
+
+        def verify(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+            result: DispatchResult,
+        ) -> VerificationResult:
+            del inputs
+            transition_id = str(source.evidence["transition_id"])
+            try:
+                control = self.operations_service.policy_control_snapshot(target.id)
+                gate_snapshot = self.operations_service.successor_transition_gate_snapshot(
+                    target.id,
+                    transition_id=transition_id,
+                    task_creation_authority="available",
+                )
+            except OperationsProjectionError as error:
+                return VerificationResult(
+                    "pending",
+                    {
+                        **result.evidence,
+                        "owner_error_code": error.code,
+                        "partial_posture": "canonical-next-phase-pending",
+                        "recovery": source.evidence["compensation_posture"],
+                    },
+                    result.links,
+                )
+            heads = control.get("successor_transitions")
+            heads = heads if isinstance(heads, Mapping) else {}
+            head = heads.get(transition_id)
+            gate = gate_snapshot.get("gate")
+            identity_current = bool(
+                isinstance(head, Mapping)
+                and head.get("phase") == source.evidence["next_phase"]
+                and all(
+                    head.get(field) == source.evidence[field]
+                    for field in SUCCESSOR_TRANSITION_IDENTITY_FIELDS
+                )
+                and isinstance(head.get("record_sha256"), str)
+                and SHA256_PATTERN.fullmatch(str(head["record_sha256"]))
+                is not None
+            )
+            expected_stop = source.evidence["next_phase"] == "work-started"
+            gate_current = bool(
+                identity_current
+                and isinstance(gate, Mapping)
+                and gate.get("phase") == source.evidence["next_phase"]
+                and gate.get("source_stop_permitted") is expected_stop
+                and gate.get("transition_open") is (not expected_stop)
+                and gate.get("required_source_posture")
+                == ("transition-satisfied" if expected_stop else "in-progress")
+            )
+            projects, _ = self._active_projects()
+            project = self._project_from(projects, target)
+            tracker = source.evidence["tracker"]
+            task_evidence = (
+                self._successor_transition_task_evidence(
+                    projects=projects,
+                    project=project,
+                    tracker=tracker,
+                    head=head,
+                )
+                if isinstance(head, Mapping)
+                else {}
+            )
+            phase_postcondition = {
+                "successor-created": task_evidence.get("successor_task_current"),
+                "successor-bound": task_evidence.get("successor_binding_current"),
+                "handoff-sent": task_evidence.get("handoff_current"),
+                "target-acknowledged": task_evidence.get(
+                    "acknowledgement_current"
+                ),
+                "work-started": task_evidence.get("work_started_current"),
+            }.get(str(source.evidence["next_phase"])) is True
+            try:
+                target_detail = self.app_server_client.read_task(
+                    projects,
+                    target.id,
+                    include_turns=False,
+                )
+                fix_detail = self.app_server_client.read_task(
+                    projects,
+                    str(source.evidence["fix_executor_task_id"]),
+                    include_turns=True,
+                )
+            except AppServerError:
+                source_task_current = False
+                request_current = False
+            else:
+                target_task = target_detail.get("task")
+                target_task = target_task if isinstance(target_task, Mapping) else {}
+                source_task_current = bool(
+                    target_task.get("id") == target.id
+                    and target_task.get("status", {}).get("type")
+                    in LIVE_TASK_STATES
+                    and target_task.get("project_binding", {}).get("status")
+                    == "bound"
+                    and target_task.get("project_binding", {}).get("project_id")
+                    == project.id
+                )
+                fix_task = fix_detail.get("task")
+                fix_task = fix_task if isinstance(fix_task, Mapping) else {}
+                request_current = self._successor_transition_turn_has_marker(
+                    fix_task,
+                    turn_id=str(result.evidence["fix_executor_turn_id"]),
+                    expected=self._successor_transition_marker(target, source),
+                )
+            policy_current = bool(
+                control.get("policy_sha256")
+                == source.evidence["source_policy_sha256"]
+                and control.get("policy", {}).get("mission_binding", {}).get(
+                    "mission_root"
+                )
+                == source.evidence["source_mission_root"]
+            )
+            applied = bool(
+                identity_current
+                and gate_current
+                and phase_postcondition
+                and source_task_current
+                and request_current
+                and policy_current
+            )
+            evidence = {
+                **result.evidence,
+                "successor_transition_applied": applied,
+                "canonical_phase_current": identity_current,
+                "phase_postcondition_current": phase_postcondition,
+                "maintained_gate_current": gate_current,
+                "source_task_active": source_task_current,
+                "source_policy_current": policy_current,
+                "fix_executor_request_current": request_current,
+                "source_stop_permitted": (
+                    applied
+                    and expected_stop
+                    and isinstance(gate, Mapping)
+                    and gate.get("source_stop_permitted") is True
+                ),
+                "maintained_gate_source_stop_claim": (
+                    gate.get("source_stop_permitted")
+                    if isinstance(gate, Mapping)
+                    else False
+                ),
+                "successor_task_current": task_evidence.get(
+                    "successor_task_current", False
+                ),
+                "successor_binding_current": task_evidence.get(
+                    "successor_binding_current", False
+                ),
+                "handoff_current": task_evidence.get("handoff_current", False),
+                "acknowledgement_current": task_evidence.get(
+                    "acknowledgement_current", False
+                ),
+                "work_started_current": task_evidence.get(
+                    "work_started_current", False
+                ),
+                "current_phase": head.get("phase")
+                if isinstance(head, Mapping)
+                else None,
+                "current_record_id": head.get("record_id")
+                if isinstance(head, Mapping)
+                else None,
+                "automatic_retry": False,
+                "phase_leap": False,
+                "source_completed": False,
+                "direct_ledger_write": False,
+                "direct_policy_write": False,
+                "partial_posture": (
+                    "work-started-source-stop-permitted"
+                    if applied and expected_stop
+                    else "next-phase-current-source-active"
+                    if applied
+                    else "canonical-next-phase-pending"
+                ),
+                "recovery": None if applied else source.evidence["compensation_posture"],
+            }
+            return VerificationResult(
+                "applied" if applied else "pending",
+                evidence,
+                result.links,
+            )
+
+        return OperationDefinition(
+            operation_type="factory.successor-task-transition",
+            target_kind="run",
+            input_schema=schema,
+            owner=(
+                "maintained fix executor + successor-transition record/gate + Codex task and supervision owners"
+            ),
+            authority=(
+                "explicit operator confirmation for one exact next continuity phase",
+                "one canonical open transition carrying direct task-creation authority",
+                "one exact current tracker, source mission, source task, and fix executor",
+                "phase-specific successor task, group, route, acknowledgement, and first-work evidence",
+            ),
+            ordinary_consequences=(
+                "Starts one bounded fix-executor turn for exactly the next canonical phase.",
+                "The maintained owners may create or bind one exact successor, route one handoff or first-work request, and append one next transition record.",
+            ),
+            failure_consequences=(
+                "Missing authority, stale identity, partial task history, or wrong phase sends no owner request.",
+                "A created task or partial next phase remains visible and requires a fresh preview; no automatic retry or rollback occurs.",
+                "The source remains active and not stoppable until exact work-started evidence and the maintained gate agree.",
+            ),
+            confirmation=ConfirmationContract(
+                "successor-task-transition",
+                "Type ADVANCE CONTINUITY to request this exact next phase.",
+                "ADVANCE CONTINUITY",
+            ),
+            idempotency=(
+                "One consumed preview starts at most one fix-executor turn and may advance only its immediate canonical phase; changed or satisfied heads require a new preview."
+            ),
+            expected_postcondition=(
+                "The exact transition advances one phase with current canonical task/group/route evidence; the source remains in-progress until the work-started phase also proves exact first-Block task evidence."
+            ),
+            timeout_seconds=30,
+            limitations=(
+                "This operation is distinct from same-target mission succession and generic task creation.",
+                "The dashboard does not write the event ledger, policy, task session, or supervision group directly.",
+                "A handoff, created task, bound group, or acknowledgement never permits source stop.",
+                "Weekly/terminal reporting, source request-stop, terminal shutdown, and implementation beyond first-work proof remain outside this operation.",
+            ),
+            resolve_source=self._successor_transition_source,
+            describe_effect=lambda target, inputs, source: PreviewEffect(
+                (
+                    f"Advance transition {source.evidence['transition_id']} from "
+                    f"{source.evidence['phase']} to {source.evidence['next_phase']}."
+                ),
+                (
+                    "Exactly one maintained phase owner may act; partial effects remain open, "
+                    "and the source cannot stop before verified work-started evidence."
+                ),
+                recipient=str(source.evidence["fix_executor_task_id"]),
+                semantic_changes=self._successor_transition_semantic_changes(
+                    target,
+                    source,
+                ),
+            ),
+            route_gate_request=self._successor_transition_route_request,
             route_gate=self.route_gate,
             dispatch=dispatch,
             verify=verify,

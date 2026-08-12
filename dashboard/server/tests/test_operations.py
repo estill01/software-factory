@@ -597,6 +597,123 @@ class OperationsProjectionTests(unittest.TestCase):
             )
         self.assertEqual(stale.exception.code, "lifecycle_source_mismatch")
 
+    def test_successor_transition_gate_projection_preserves_phase_and_stop_boundary(self) -> None:
+        transition_id = "TRANSITION-PROJECTION-001"
+        identity = [
+            "--tracker-sha256",
+            "1" * 64,
+            "--tracker-source-record",
+            "commit:tracker-projection",
+            "--requested-block-range",
+            "26-31",
+            "--first-eligible-block",
+            "Block 26",
+            "--source-mission-root",
+            OLD_MISSION,
+            "--governing-authority-source-class",
+            "direct-user",
+            "--governing-authority-source-record",
+            "direct-user-item-44",
+        ]
+
+        def record(phase: str, *extra: str) -> dict[str, object]:
+            return self._command(
+                "successor-transition-record",
+                "--target-thread",
+                TARGET,
+                "--transition-id",
+                transition_id,
+                "--phase",
+                phase,
+                *identity,
+                *extra,
+                "--state-fingerprint",
+                f"state-{phase}",
+                "--evidence",
+                f"fixture-{phase}",
+            )
+
+        required = record("required")["record"]
+        control = self.service.policy_control_snapshot(TARGET)
+        self.assertEqual(
+            control["successor_transitions"][transition_id]["record_id"],
+            required["record_id"],
+        )
+        self.assertIn(transition_id, control["open_successor_transitions"])
+        gated = self.service.successor_transition_gate_snapshot(
+            TARGET,
+            transition_id=transition_id,
+            task_creation_authority="available",
+        )
+        self.assertEqual(gated["gate"]["phase"], "required")
+        self.assertEqual(gated["gate"]["next_action"], "create-successor-task")
+        self.assertFalse(gated["gate"]["source_stop_permitted"])
+
+        successor = ("successor-projection-001", "2" * 64, "successor-projection-001")
+        record("successor-created", "--successor-thread", successor[0])
+        record(
+            "successor-bound",
+            "--successor-thread",
+            successor[0],
+            "--successor-mission-root",
+            successor[1],
+            "--successor-group-id",
+            successor[2],
+        )
+        record(
+            "handoff-sent",
+            "--successor-thread",
+            successor[0],
+            "--successor-mission-root",
+            successor[1],
+            "--successor-group-id",
+            successor[2],
+            "--handoff-record",
+            "HANDOFF-PROJECTION-001",
+        )
+        record(
+            "target-acknowledged",
+            "--successor-thread",
+            successor[0],
+            "--successor-mission-root",
+            successor[1],
+            "--successor-group-id",
+            successor[2],
+            "--handoff-record",
+            "HANDOFF-PROJECTION-001",
+            "--acknowledgement-record",
+            "ACK-PROJECTION-001",
+        )
+        started = record(
+            "work-started",
+            "--successor-thread",
+            successor[0],
+            "--successor-mission-root",
+            successor[1],
+            "--successor-group-id",
+            successor[2],
+            "--handoff-record",
+            "HANDOFF-PROJECTION-001",
+            "--acknowledgement-record",
+            "ACK-PROJECTION-001",
+            "--started-block",
+            "Block 26",
+        )["record"]
+        completed = self.service.successor_transition_gate_snapshot(
+            TARGET,
+            transition_id=transition_id,
+            task_creation_authority="available",
+        )
+        self.assertEqual(completed["head"]["record_id"], started["record_id"])
+        self.assertTrue(completed["gate"]["source_stop_permitted"])
+        self.assertFalse(completed["gate"]["transition_open"])
+        self.assertNotIn(
+            transition_id,
+            self.service.policy_control_snapshot(TARGET)[
+                "open_successor_transitions"
+            ],
+        )
+
     def test_resume_gate_projection_validates_exact_owner_envelope_read_only(self) -> None:
         control = self.service.policy_control_snapshot(TARGET)
         mission = control["policy"]["mission_binding"]["mission_root"]
