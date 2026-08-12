@@ -423,18 +423,31 @@ def validate_packet(packet: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def report_record(
-    report: Mapping[str, Any], *, report_set_id: str, source_root: str, report_type: str
+    report: Mapping[str, Any],
+    *,
+    report_set_id: str,
+    source_root: str,
+    report_type: str,
+    factory_evolution_outcomes: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return {
+    result = {
         "schema_version": SCHEMA_VERSION,
         "kind": f"{REPORT_KIND}-{report_type}",
         "report_set_id": report_set_id,
         "source_root": source_root,
         **dict(report),
     }
+    if factory_evolution_outcomes is not None:
+        result["factory_evolution_outcomes"] = dict(factory_evolution_outcomes)
+    return result
 
 
-def markdown_report(report: Mapping[str, Any], *, report_set_id: str) -> str:
+def markdown_report(
+    report: Mapping[str, Any],
+    *,
+    report_set_id: str,
+    factory_evolution_outcomes: Mapping[str, Any] | None = None,
+) -> str:
     rows = [
         f"# {report['title']}\n\n",
         f"- Report set: `{report_set_id}`\n",
@@ -452,13 +465,30 @@ def markdown_report(report: Mapping[str, Any], *, report_set_id: str) -> str:
         )
     rows.append("## Limitations\n\n")
     rows.extend(f"- {item}\n" for item in report["limitations"])
+    if factory_evolution_outcomes is not None:
+        rows.append("\n## Factory evolution outcomes\n\n")
+        current = factory_evolution_outcomes.get("current_outcomes", [])
+        if current:
+            rows.extend(
+                f"- `{item['evolution_id']}`: {item['outcome_posture']}; "
+                f"next `{item['next_action']}`; outcome `{item['outcome_root']}`.\n"
+                for item in current
+            )
+        else:
+            rows.append("- No current terminal Factory-evolution outcome.\n")
     rows.append(
         "\nThis is a derived implementation report. It does not confer patent, legal, filing, release, or substantive approval status.\n"
     )
     return "".join(rows)
 
 
-def render_pdf(path: Path, report: Mapping[str, Any], *, report_set_id: str) -> None:
+def render_pdf(
+    path: Path,
+    report: Mapping[str, Any],
+    *,
+    report_set_id: str,
+    factory_evolution_outcomes: Mapping[str, Any] | None = None,
+) -> None:
     try:
         from reportlab.lib import colors
         from reportlab.lib.enums import TA_CENTER
@@ -583,6 +613,27 @@ def render_pdf(path: Path, report: Mapping[str, Any], *, report_set_id: str) -> 
             ),
         ]
     )
+    if factory_evolution_outcomes is not None:
+        story.append(Paragraph("Factory evolution outcomes", styles["TerminalHeading"]))
+        current = factory_evolution_outcomes.get("current_outcomes", [])
+        if current:
+            story.extend(
+                Paragraph(
+                    escape(
+                        f"{item['evolution_id']}: {item['outcome_posture']}; "
+                        f"next {item['next_action']}."
+                    ),
+                    styles["TerminalBody"],
+                )
+                for item in current
+            )
+        else:
+            story.append(
+                Paragraph(
+                    "No current terminal Factory-evolution outcome.",
+                    styles["TerminalBody"],
+                )
+            )
     document = SimpleDocTemplate(
         str(path),
         pagesize=LETTER,

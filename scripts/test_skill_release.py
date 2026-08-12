@@ -421,6 +421,39 @@ class SkillReleaseTests(unittest.TestCase):
             )["source_commit"],
             candidate_commit,
         )
+        rollback = skill_release.restore_adoption_release(
+            argparse.Namespace(
+                release_root=str(self.release_root),
+                install_root=str(self.install_root),
+                release_id=str(baseline["release_id"]),
+                expected_candidate_release_id=expected_release_id,
+                expected_candidate_activation_hmac_sha256=adopted[
+                    "activation_record_hmac_sha256"
+                ],
+                quiescent_evidence=self.activate_args(
+                    str(baseline["release_id"]),
+                    operation="rollback",
+                    previous_release_id=expected_release_id,
+                ).quiescent_evidence,
+            )
+        )
+        self.assertFalse(rollback["duplicate"])
+        repeated_rollback = skill_release.restore_adoption_release(
+            argparse.Namespace(
+                release_root=str(self.release_root),
+                install_root=str(self.install_root),
+                release_id=str(baseline["release_id"]),
+                expected_candidate_release_id=expected_release_id,
+                expected_candidate_activation_hmac_sha256=adopted[
+                    "activation_record_hmac_sha256"
+                ],
+                quiescent_evidence=str(self.root / "already-consumed.json"),
+            )
+        )
+        self.assertTrue(repeated_rollback["duplicate"])
+        self.assertEqual(
+            rollback["activation_record"], repeated_rollback["activation_record"]
+        )
 
     def test_adoption_activation_rejects_intervening_release_and_aba(self) -> None:
         baseline_commit = self.git("rev-parse", "HEAD")

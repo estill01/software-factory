@@ -359,6 +359,46 @@ successful adoption. This stage does not publish, deploy, expand policy,
 create a candidate, rerun the mapped comparison, or claim terminal outcome
 completion.
 
+## Governed outcome feedback and rollback
+
+Every adopted, retained, revised, or retired cycle closes through one canonical
+`factory-evolution-outcome` event. The event binds the admission coverage,
+packet, review, evaluation and adoption roots; selected and rejected paths;
+intended and independently observed effects; protected regressions; bounded
+resource use; owner identities; recurrence posture; and exact evidence refs.
+An installed adoption requires the latest independently verified
+`observable-outcome-completion` record for its exact evaluation/adoption state.
+Evaluation or report prose alone cannot establish effectiveness.
+
+Run `factory-evolution --action outcome --evolution-id <id>
+--outcome-completion-record <record-id>` after the current observable result is
+available. Non-adoption postures omit the completion argument and close against
+the retained incumbent. A verified adopted result becomes
+`adopted-effective`. A later supported `reopen-narrow-owner` result appends a
+successor in the same outcome lineage, preserves the earlier effective record,
+and requires `--quiescent-evidence` so the existing release owner can restore
+the frozen baseline. Rollback compares the exact candidate activation, appends
+one normal release-history rollback record, revalidates all installed skill
+roots, and is idempotent across interruption; it never deletes the candidate,
+review, evaluation, adoption, or earlier outcome evidence.
+
+The latest current outcome head alone governs status. A release-owner change at
+the physical outcome append produces an append-only currentness correction;
+interruption before that correction is recoverable, and a corrected outcome is
+never authoritative. The original admission's canonical coverage becomes
+consumed only after a current terminal outcome. Repackaging, checkpoint changes,
+overlap, and unrelated repository revisions remain no-ops. A current terminal
+outcome may itself be nominated as later canonical evidence, but only the latest
+uncorrected head is eligible and its new record root is consumed by the later
+cycle in the ordinary way.
+
+Weekly and terminal JSON, Markdown, and PDF reports contain a concise derived
+outcome projection with current cycle IDs, outcome roots, posture, rollback,
+recurrence, and next action. The canonical event ledger retains the complete
+precision. Reporting remains nonauthorizing and does not reopen a consumed
+cycle. No continuous monitor, reward score, learning database, or automatic new
+candidate is introduced.
+
 ## Exact submission wire shapes
 
 The public helper rejects extra or missing fields. Submission JSON is bounded,

@@ -14527,6 +14527,39 @@ def factory_evolution_supported_novelty(
             state_fingerprint=str(item.get("state_fingerprint", "")),
         )[0]
     }
+    outcome_heads: dict[str, dict[str, Any]] = {}
+    outcome_records: dict[str, dict[str, Any]] = {}
+    for item in source_events:
+        kind = item.get("kind")
+        if kind == FACTORY_EVOLUTION_OUTCOME_EVENT_KIND:
+            record = validate_factory_evolution_orchestration_evidence_record(
+                item, policy=policy
+            )
+            validate_factory_evolution_outcome_evidence_payload(record["payload"])
+            outcome_heads[str(record["evolution_id"])] = record
+            outcome_records[str(record["record_id"])] = record
+        elif kind == FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND:
+            correction = validate_factory_evolution_orchestration_evidence_record(
+                item, policy=policy
+            )
+            source_id = str(
+                correction["payload"].get("supersedes_record_id", "")
+            )
+            source = outcome_records.get(source_id)
+            if (
+                source is None
+                or outcome_heads.get(str(correction["evolution_id"])) != source
+            ):
+                raise SupervisionLogError(
+                    "Factory evolution terminal correction source differs"
+                )
+            validate_factory_evolution_outcome_correction(
+                correction["payload"], source_record=source
+            )
+            outcome_heads.pop(str(correction["evolution_id"]), None)
+    productive_record_ids.update(
+        str(item["record_id"]) for item in outcome_heads.values()
+    )
     supported_records: dict[str, dict[str, str]] = {}
     signal_classes: set[str] = set()
     nominations = 0
@@ -15000,6 +15033,36 @@ FACTORY_EVOLUTION_ADOPTION_EVENT_KIND = "factory-evolution-adoption"
 FACTORY_EVOLUTION_ADOPTION_CORRECTION_EVENT_KIND = (
     "factory-evolution-adoption-currentness-rejected"
 )
+FACTORY_EVOLUTION_OUTCOME_EVENT_KIND = "factory-evolution-outcome"
+FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND = (
+    "factory-evolution-outcome-currentness-rejected"
+)
+FACTORY_EVOLUTION_OUTCOME_POSTURES = {
+    "adopted-effective",
+    "rolled-back",
+    "advisory-retained",
+    "revision-required",
+    "candidate-retired",
+    "recommendation-retained",
+    "record-only",
+    "inconclusive",
+}
+FACTORY_EVOLUTION_OUTCOME_FIELDS = {
+    "schema_version", "kind", "evolution_id", "outcome_id",
+    "predecessor_outcome_root", "admission_record_id",
+    "canonical_evidence_novelty_key", "consumed_coverage_root",
+    "packet_root", "review_root", "evaluation_root",
+    "adoption_currentness_root", "selected_candidate_id",
+    "rejected_candidate_ids", "intended_effect_root",
+    "outcome_completion_record_id", "outcome_completion_record_sha256",
+    "observed_effect_root", "capability_reconciliation_root",
+    "protected_regression_count", "resource_cost", "outcome_posture",
+    "recurrence_posture", "rollback_performed", "rollback_release_id",
+    "rollback_record_id", "rollback_record_hmac_sha256",
+    "release_owner_state_root", "implementation_owner_id", "evaluator_id",
+    "outcome_reviewer_id", "evidence_refs", "candidate_authoritative",
+    "incumbent_authoritative", "next_action", "outcome_root",
+}
 FACTORY_EVOLUTION_OWNER_ACK_INPUT_KIND = (
     "software-factory-evolution-owner-acknowledgment-input"
 )
@@ -15352,6 +15415,8 @@ def validate_factory_evolution_orchestration_record(
         FACTORY_EVOLUTION_EVALUATION_CORRECTION_EVENT_KIND,
         FACTORY_EVOLUTION_ADOPTION_EVENT_KIND,
         FACTORY_EVOLUTION_ADOPTION_CORRECTION_EVENT_KIND,
+        FACTORY_EVOLUTION_OUTCOME_EVENT_KIND,
+        FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND,
     }:
         raise SupervisionLogError("Factory evolution orchestration record kind differs")
     safe_id(str(value.get("record_id", "")), label="orchestration record ID")
@@ -15377,6 +15442,56 @@ def validate_factory_evolution_orchestration_record(
     return dict(value)
 
 
+def validate_factory_evolution_orchestration_evidence_record(
+    value: Any, *, policy: Mapping[str, Any]
+) -> dict[str, Any]:
+    expected = {
+        "schema_version",
+        "kind",
+        "record_id",
+        "timestamp",
+        "target_thread_id",
+        "policy_sha256",
+        "mission_root",
+        "evolution_id",
+        "payload",
+        "payload_root",
+        "orchestration_root",
+        "previous_record_sha256",
+        "record_sha256",
+    }
+    mission = bound_mission(dict(policy))
+    if (
+        not isinstance(value, Mapping)
+        or set(value) != expected
+        or type(value.get("schema_version")) is not int
+        or value.get("schema_version") != 1
+        or mission is None
+        or value.get("target_thread_id") != policy.get("target_thread_id")
+        or value.get("mission_root") != mission.get("mission_root")
+        or not isinstance(value.get("payload"), Mapping)
+        or value.get("payload_root") != digest(value["payload"])
+        or not SHA256.fullmatch(str(value.get("policy_sha256", "")))
+        or not SHA256.fullmatch(str(value.get("record_sha256", "")))
+    ):
+        raise SupervisionLogError(
+            "Factory evolution orchestration evidence differs"
+        )
+    safe_id(str(value.get("record_id", "")), label="orchestration record ID")
+    safe_id(str(value.get("evolution_id", "")), label="factory evolution ID")
+    parse_time(str(value.get("timestamp", "")))
+    material = {
+        key: item
+        for key, item in value.items()
+        if key not in {"orchestration_root", "previous_record_sha256", "record_sha256"}
+    }
+    if value.get("orchestration_root") != digest(material):
+        raise SupervisionLogError(
+            "Factory evolution orchestration evidence root differs"
+        )
+    return dict(value)
+
+
 def factory_evolution_orchestration_history(
     directory: Path,
     policy: Mapping[str, Any],
@@ -15397,6 +15512,8 @@ def factory_evolution_orchestration_history(
             FACTORY_EVOLUTION_EVALUATION_CORRECTION_EVENT_KIND,
             FACTORY_EVOLUTION_ADOPTION_EVENT_KIND,
             FACTORY_EVOLUTION_ADOPTION_CORRECTION_EVENT_KIND,
+            FACTORY_EVOLUTION_OUTCOME_EVENT_KIND,
+            FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND,
         }:
             validated = validate_factory_evolution_orchestration_record(
                 item, policy=policy
@@ -16983,6 +17100,12 @@ def factory_evolution_checkpoint_admission(
     terminal_ids = {
         item["evolution_id"] for item in inventory if item["state"] == "terminal"
     }
+    terminal_ids.update(
+        str(item["evolution_id"])
+        for item in factory_evolution_outcome_projection(active_events)[
+            "current_outcomes"
+        ]
+    )
     consumed_hashes = {
         str(item)
         for admission_event in admissions
@@ -17039,6 +17162,7 @@ def factory_evolution_checkpoint_admission(
         if item["state"] == "active"
         and item["evolution_id"] in admitted_evolution_ids
         and item["evolution_id"] not in corrected_evolution_ids
+        and item["evolution_id"] not in terminal_ids
     ]
     conflicting_cycles = [
         item for item in active_cycles if item["evolution_id"] != evolution_id
@@ -18055,6 +18179,7 @@ def validate_factory_evolution_adoption_payload(
     *,
     policy: Mapping[str, Any],
     state: Mapping[str, Any],
+    require_current_release: bool = True,
 ) -> dict[str, Any]:
     fields = {
         "schema_version",
@@ -18190,14 +18315,6 @@ def validate_factory_evolution_adoption_payload(
         raise SupervisionLogError("Factory evolution adoption decision differs")
     authorized = value.get("application_authorized") is True
     if authorized:
-        release_state = factory_release_owner_state()
-        current_root = release_state["release_owner_state_root_sha256"]
-        if value.get("release_owner_state_after_root") != current_root:
-            raise SupervisionLogError("Factory evolution adopted installation is stale")
-        acceptance = release_state.get("acceptance_record")
-        activation = release_state.get("activation_record")
-        review = release_state.get("independent_review")
-        verification = release_state.get("current_verification")
         if (
             gate["application_ready"] is not True
             or value.get("application_posture") != "adopted"
@@ -18206,53 +18323,85 @@ def validate_factory_evolution_adoption_payload(
             or value.get("production_authority") != "candidate"
             or value.get("next_action")
             != "continue-to-current-outcome-reconciliation"
-            or release_state.get("installed_complete") is not True
-            or release_state.get("source_commit") != evaluation["candidate_revision"]
-            or value.get("release_id") != release_state.get("active_release_id")
-            or value.get("release_manifest_sha256")
-            != release_state.get("manifest_sha256")
-            or not isinstance(acceptance, Mapping)
-            or value.get("release_acceptance_record_id")
-            != acceptance.get("record_id")
-            or not isinstance(review, Mapping)
-            or value.get("release_reviewer_id") != review.get("reviewer_id")
-            or not isinstance(activation, Mapping)
-            or value.get("release_activation_record_id")
-            != activation.get("record_id")
-            or value.get("release_activation_record_hmac_sha256")
-            != activation.get("record_hmac_sha256")
-            or value.get("release_baseline_transition_root")
-            != digest(
-                {
-                    "baseline_source_commit": evaluation["baseline_revision"],
-                    "previous_release_id": activation.get("previous_release_id"),
-                    "previous_activation_record_hmac_sha256": activation.get(
-                        "previous_record_hmac_sha256"
-                    ),
-                }
-            )
-            or not isinstance(verification, Mapping)
-            or value.get("installed_verification_root_sha256")
-            != verification.get("verification_root_sha256")
-            or value.get("operator_visible_effect_root")
-            != digest(
-                {
-                    "active_release_id": release_state["active_release_id"],
-                    "manifest_sha256": release_state["manifest_sha256"],
-                    "installed_verification_root_sha256": verification[
-                        "verification_root_sha256"
-                    ],
-                }
-            )
         ):
             raise SupervisionLogError("Factory evolution adopted release differs")
         for field in (
+            "release_owner_state_after_root",
+            "release_manifest_sha256",
             "release_baseline_transition_root",
             "release_adoption_root_sha256",
+            "release_activation_record_hmac_sha256",
+            "installed_verification_root_sha256",
             "operator_visible_effect_root",
         ):
             if not SHA256.fullmatch(str(value.get(field, ""))):
                 raise SupervisionLogError("Factory evolution adoption evidence differs")
+        for field in (
+            "release_id",
+            "release_acceptance_record_id",
+            "release_reviewer_id",
+            "release_activation_record_id",
+            "adoption_executor_id",
+        ):
+            if not isinstance(value.get(field), str) or not SAFE_ID.fullmatch(
+                str(value[field])
+            ):
+                raise SupervisionLogError("Factory evolution adoption identity differs")
+        if require_current_release:
+            release_state = factory_release_owner_state()
+            current_root = release_state["release_owner_state_root_sha256"]
+            if value.get("release_owner_state_after_root") != current_root:
+                raise SupervisionLogError(
+                    "Factory evolution adopted installation is stale"
+                )
+            acceptance = release_state.get("acceptance_record")
+            activation = release_state.get("activation_record")
+            installed_review = release_state.get("independent_review")
+            verification = release_state.get("current_verification")
+            if (
+                release_state.get("installed_complete") is not True
+                or release_state.get("source_commit")
+                != evaluation["candidate_revision"]
+                or value.get("release_id")
+                != release_state.get("active_release_id")
+                or value.get("release_manifest_sha256")
+                != release_state.get("manifest_sha256")
+                or not isinstance(acceptance, Mapping)
+                or value.get("release_acceptance_record_id")
+                != acceptance.get("record_id")
+                or not isinstance(installed_review, Mapping)
+                or value.get("release_reviewer_id")
+                != installed_review.get("reviewer_id")
+                or not isinstance(activation, Mapping)
+                or value.get("release_activation_record_id")
+                != activation.get("record_id")
+                or value.get("release_activation_record_hmac_sha256")
+                != activation.get("record_hmac_sha256")
+                or value.get("release_baseline_transition_root")
+                != digest(
+                    {
+                        "baseline_source_commit": evaluation["baseline_revision"],
+                        "previous_release_id": activation.get("previous_release_id"),
+                        "previous_activation_record_hmac_sha256": activation.get(
+                            "previous_record_hmac_sha256"
+                        ),
+                    }
+                )
+                or not isinstance(verification, Mapping)
+                or value.get("installed_verification_root_sha256")
+                != verification.get("verification_root_sha256")
+                or value.get("operator_visible_effect_root")
+                != digest(
+                    {
+                        "active_release_id": release_state["active_release_id"],
+                        "manifest_sha256": release_state["manifest_sha256"],
+                        "installed_verification_root_sha256": verification[
+                            "verification_root_sha256"
+                        ],
+                    }
+                )
+            ):
+                raise SupervisionLogError("Factory evolution adopted release differs")
     else:
         null_fields = (
             "adoption_executor_id",
@@ -18280,12 +18429,518 @@ def validate_factory_evolution_adoption_payload(
     return dict(value)
 
 
+def factory_evolution_outcome_state_fingerprint(
+    state: Mapping[str, Any],
+) -> str:
+    adoption = state.get("adoption")
+    if not isinstance(adoption, Mapping):
+        raise SupervisionLogError("Factory evolution outcome lacks its adoption posture")
+    return digest(
+        {
+            "schema_version": 1,
+            "kind": "software-factory-evolution-outcome-state",
+            "evolution_id": state["context"]["evolution_id"],
+            "evaluation_root": state["evaluation"]["evaluation_root"],
+            "adoption_currentness_root": adoption["adoption_currentness_root"],
+        }
+    )
+
+
+def factory_evolution_outcome_completion_record(
+    all_events: list[dict[str, Any]],
+    *,
+    policy: Mapping[str, Any],
+    state: Mapping[str, Any],
+    record_id: str,
+    require_latest: bool = True,
+) -> dict[str, Any]:
+    fingerprint = factory_evolution_outcome_state_fingerprint(state)
+    record = (
+        latest_outcome_completion_record(all_events, state_fingerprint=fingerprint)
+        if require_latest
+        else next(
+            (
+                item
+                for item in all_events
+                if item.get("record_id") == record_id
+                and item.get("kind") == "check"
+                and item.get("category") == OUTCOME_COMPLETION_CATEGORY
+                and item.get("state_fingerprint") == fingerprint
+            ),
+            None,
+        )
+    )
+    if record is None or record.get("record_id") != record_id:
+        raise SupervisionLogError(
+            "Factory evolution outcome requires the latest exact completion record"
+        )
+    if record.get("capability_reconciliation_revision") != state["evaluation"][
+        "candidate_revision"
+    ]:
+        raise SupervisionLogError("Factory evolution outcome revision is stale")
+    status = record.get("status")
+    if status == "verified":
+        valid, reason = assess_outcome_completion_record(
+            record, policy=dict(policy), state_fingerprint=fingerprint
+        )
+    elif status == "failed":
+        validation_projection = {
+            **record,
+            "status": "verified",
+            "capability_reconciliation_posture": "verified",
+            "capability_reconciliation_gap_count": 0,
+        }
+        valid, reason = assess_outcome_completion_record(
+            validation_projection,
+            policy=dict(policy),
+            state_fingerprint=fingerprint,
+        )
+        valid = valid and record.get(
+            "capability_reconciliation_posture"
+        ) == "reopen-narrow-owner" and int(
+            record.get("capability_reconciliation_gap_count", 0)
+        ) > 0
+    else:
+        valid, reason = False, "The outcome completion status differs."
+    if not valid:
+        raise SupervisionLogError(
+            f"Factory evolution observable outcome is invalid: {reason}"
+        )
+    if not SHA256.fullmatch(str(record.get("record_sha256", ""))):
+        raise SupervisionLogError("Factory evolution completion provenance differs")
+    return record
+
+
+def factory_evolution_outcome_payload(
+    state: Mapping[str, Any],
+    *,
+    completion: Mapping[str, Any] | None,
+    predecessor: Mapping[str, Any] | None,
+    release_before: Mapping[str, Any] | None,
+    release_result: Mapping[str, Any] | None,
+    release_after: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    adoption = state["adoption"]
+    evaluation = state["evaluation"]
+    review = state["review"]
+    acknowledgment = state["acknowledgment_record"]["payload"]
+    admission = state["admitted"]
+    authorized = adoption["application_authorized"] is True
+    if authorized and completion is None:
+        raise SupervisionLogError(
+            "Factory evolution adopted outcome lacks observable completion"
+        )
+    if not authorized and completion is not None:
+        raise SupervisionLogError(
+            "Factory evolution non-adoption outcome cannot claim installed effect"
+        )
+    if completion is None:
+        posture = {
+            "advisory-retained": "advisory-retained",
+            "revision-required": "revision-required",
+            "candidate-retired": "candidate-retired",
+            "recommendation-only": "recommendation-retained",
+            "record-only": "record-only",
+        }.get(adoption["application_posture"], "inconclusive")
+    elif completion["status"] == "verified":
+        posture = "adopted-effective"
+    else:
+        posture = "rolled-back"
+    rollback_performed = posture == "rolled-back"
+    if rollback_performed != (release_result is not None):
+        raise SupervisionLogError("Factory evolution rollback result differs")
+    if rollback_performed:
+        assert release_before is not None and release_after is not None
+        before_activation = release_before.get("activation_record")
+        after_activation = release_after.get("activation_record")
+        if (
+            not isinstance(before_activation, Mapping)
+            or not isinstance(after_activation, Mapping)
+            or release_before.get("active_release_id") != adoption["release_id"]
+            or before_activation.get("record_hmac_sha256")
+            != adoption["release_activation_record_hmac_sha256"]
+            or release_result.get("previous_release_id") != adoption["release_id"]
+            or release_result.get("active_release_id")
+            != before_activation.get("previous_release_id")
+            or release_after.get("active_release_id")
+            != release_result.get("active_release_id")
+            or release_after.get("source_commit") != evaluation["baseline_revision"]
+            or after_activation.get("record_id")
+            != release_result.get("activation_record", {}).get("record_id")
+            or after_activation.get("record_hmac_sha256")
+            != release_result.get("activation_record", {}).get(
+                "record_hmac_sha256"
+            )
+        ):
+            raise SupervisionLogError("Factory evolution rollback owner result differs")
+    elif release_before is not None or release_after is not None:
+        raise SupervisionLogError("Factory evolution outcome changed release state")
+    predecessor_root = (
+        predecessor.get("outcome_root") if predecessor is not None else None
+    )
+    if predecessor is not None and (
+        predecessor.get("outcome_posture") != "adopted-effective"
+        or posture != "rolled-back"
+    ):
+        raise SupervisionLogError("Factory evolution outcome lineage differs")
+    selected_id = review["selection"]["candidate_id"]
+    rejected_ids = sorted(
+        item["candidate_id"]
+        for item in review["candidates"]
+        if item["candidate_id"] != selected_id
+    )
+    completion_id = completion.get("record_id") if completion else None
+    completion_sha = completion.get("record_sha256") if completion else None
+    observed_effect_root = (
+        completion.get("effect_reconciliation_sha256")
+        if completion is not None
+        else None
+    )
+    rollback_record = release_result.get("activation_record") if release_result else None
+    material = {
+        "schema_version": 1,
+        "kind": "software-factory-evolution-terminal-outcome",
+        "evolution_id": state["context"]["evolution_id"],
+        "outcome_id": (
+            f"outcome-{state['context']['evolution_id']}-"
+            f"{len(state.get('outcome_history', [])) + 1}"
+        ),
+        "predecessor_outcome_root": predecessor_root,
+        "admission_record_id": admission["record_id"],
+        "canonical_evidence_novelty_key": admission[
+            "canonical_evidence_novelty_key"
+        ],
+        "consumed_coverage_root": digest(admission["canonical_record_sha256s"]),
+        "packet_root": state["packet"]["packet_root"],
+        "review_root": review["review_root"],
+        "evaluation_root": evaluation["evaluation_root"],
+        "adoption_currentness_root": adoption["adoption_currentness_root"],
+        "selected_candidate_id": selected_id,
+        "rejected_candidate_ids": rejected_ids,
+        "intended_effect_root": digest(
+            {
+                "effect": next(
+                    item["effect"]
+                    for item in review["candidates"]
+                    if item["candidate_id"] == selected_id
+                ),
+                "success_measures": review["experiment"]["success_measures"],
+            }
+        ),
+        "outcome_completion_record_id": completion_id,
+        "outcome_completion_record_sha256": completion_sha,
+        "observed_effect_root": observed_effect_root,
+        "capability_reconciliation_root": (
+            completion.get("capability_reconciliation_sha256")
+            if completion is not None
+            else None
+        ),
+        "protected_regression_count": (
+            int(completion["capability_reconciliation_gap_count"])
+            if completion is not None
+            else sum(
+                item["result"] != "preserved"
+                for item in acknowledgment["protected_capability_results"]
+            )
+        ),
+        "resource_cost": dict(acknowledgment["resource_usage"]),
+        "outcome_posture": posture,
+        "recurrence_posture": "consumed-until-new-canonical-evidence",
+        "rollback_performed": rollback_performed,
+        "rollback_release_id": (
+            release_result.get("active_release_id") if release_result else None
+        ),
+        "rollback_record_id": (
+            rollback_record.get("record_id")
+            if isinstance(rollback_record, Mapping)
+            else None
+        ),
+        "rollback_record_hmac_sha256": (
+            rollback_record.get("record_hmac_sha256")
+            if isinstance(rollback_record, Mapping)
+            else None
+        ),
+        "release_owner_state_root": (
+            release_after.get("release_owner_state_root_sha256")
+            if release_after is not None
+            else adoption.get("release_owner_state_after_root")
+        ),
+        "implementation_owner_id": acknowledgment["owner_id"],
+        "evaluator_id": evaluation["evaluator_id"],
+        "outcome_reviewer_id": (
+            completion.get("capability_reconciliation_reviewer_id")
+            if completion is not None
+            else None
+        ),
+        "evidence_refs": (
+            list(completion["evidence"])
+            if completion is not None
+            else [f"adoption:{state['adoption_record']['record_id']}"]
+        ),
+        "candidate_authoritative": posture == "adopted-effective",
+        "incumbent_authoritative": posture != "adopted-effective",
+        "next_action": (
+            "continue-with-current-adopted-evidence"
+            if posture == "adopted-effective"
+            else "continue-after-normal-owner-rollback"
+            if posture == "rolled-back"
+            else "continue-with-incumbent"
+        ),
+    }
+    return {**material, "outcome_root": digest(material)}
+
+
+def validate_factory_evolution_outcome_payload(
+    value: Any,
+    *,
+    state: Mapping[str, Any],
+    predecessor: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    value = validate_factory_evolution_outcome_evidence_payload(value)
+    material = {key: item for key, item in value.items() if key != "outcome_root"}
+    review = state["review"]
+    selected_id = review["selection"]["candidate_id"]
+    rejected_ids = sorted(
+        item["candidate_id"]
+        for item in review["candidates"]
+        if item["candidate_id"] != selected_id
+    )
+    selected = next(
+        item for item in review["candidates"] if item["candidate_id"] == selected_id
+    )
+    if (
+        value.get("evolution_id") != state["context"]["evolution_id"]
+        or value.get("admission_record_id") != state["admitted"]["record_id"]
+        or value.get("canonical_evidence_novelty_key")
+        != state["admitted"]["canonical_evidence_novelty_key"]
+        or value.get("consumed_coverage_root")
+        != digest(state["admitted"]["canonical_record_sha256s"])
+        or value.get("packet_root") != state["packet"]["packet_root"]
+        or value.get("review_root") != state["review"]["review_root"]
+        or value.get("evaluation_root") != state["evaluation"]["evaluation_root"]
+        or value.get("adoption_currentness_root")
+        != state["adoption"]["adoption_currentness_root"]
+        or value.get("selected_candidate_id") != selected_id
+        or value.get("rejected_candidate_ids") != rejected_ids
+        or value.get("intended_effect_root")
+        != digest(
+            {
+                "effect": selected["effect"],
+                "success_measures": review["experiment"]["success_measures"],
+            }
+        )
+        or value.get("resource_cost")
+        != state["acknowledgment_record"]["payload"]["resource_usage"]
+        or value.get("implementation_owner_id")
+        != state["acknowledgment_record"]["payload"]["owner_id"]
+        or value.get("evaluator_id") != state["evaluation"]["evaluator_id"]
+        or value.get("recurrence_posture")
+        != "consumed-until-new-canonical-evidence"
+        or value.get("outcome_posture") not in FACTORY_EVOLUTION_OUTCOME_POSTURES
+        or type(value.get("protected_regression_count")) is not int
+        or value["protected_regression_count"] < 0
+        or not isinstance(value.get("evidence_refs"), list)
+        or not value["evidence_refs"]
+        or value.get("predecessor_outcome_root")
+        != (predecessor.get("outcome_root") if predecessor else None)
+    ):
+        raise SupervisionLogError("Factory evolution outcome binding differs")
+    effective = value["outcome_posture"] == "adopted-effective"
+    if (
+        value.get("candidate_authoritative") is not effective
+        or value.get("incumbent_authoritative") is not (not effective)
+    ):
+        raise SupervisionLogError("Factory evolution outcome authority differs")
+    if value["outcome_posture"] == "rolled-back":
+        if (
+            value.get("rollback_performed") is not True
+            or not SAFE_ID.fullmatch(str(value.get("rollback_release_id", "")))
+            or not SAFE_ID.fullmatch(str(value.get("rollback_record_id", "")))
+            or not SHA256.fullmatch(
+                str(value.get("rollback_record_hmac_sha256", ""))
+            )
+            or value.get("protected_regression_count", 0) < 1
+            or value.get("outcome_completion_record_id") is None
+        ):
+            raise SupervisionLogError("Factory evolution rollback evidence differs")
+    elif (
+        value.get("rollback_performed") is not False
+        or value.get("rollback_release_id") is not None
+        or value.get("rollback_record_id") is not None
+        or value.get("rollback_record_hmac_sha256") is not None
+    ):
+        raise SupervisionLogError("Factory evolution non-rollback evidence differs")
+    if effective and (
+        value.get("protected_regression_count") != 0
+        or value.get("outcome_completion_record_id") is None
+    ):
+        raise SupervisionLogError("Factory evolution effective outcome differs")
+    for field in (
+        "consumed_coverage_root",
+        "packet_root",
+        "review_root",
+        "evaluation_root",
+        "adoption_currentness_root",
+        "intended_effect_root",
+        "release_owner_state_root",
+    ):
+        if value.get(field) is not None and not SHA256.fullmatch(str(value[field])):
+            raise SupervisionLogError("Factory evolution outcome evidence differs")
+    return dict(value)
+
+
+def validate_factory_evolution_outcome_evidence_payload(
+    value: Any,
+) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != FACTORY_EVOLUTION_OUTCOME_FIELDS:
+        raise SupervisionLogError("Factory evolution outcome shape differs")
+    material = {key: item for key, item in value.items() if key != "outcome_root"}
+    posture = value.get("outcome_posture")
+    effective = posture == "adopted-effective"
+    rolled_back = posture == "rolled-back"
+    identifiers = (
+        "evolution_id",
+        "outcome_id",
+        "admission_record_id",
+        "selected_candidate_id",
+        "implementation_owner_id",
+        "evaluator_id",
+    )
+    root_fields = (
+        "canonical_evidence_novelty_key",
+        "consumed_coverage_root",
+        "packet_root",
+        "review_root",
+        "evaluation_root",
+        "adoption_currentness_root",
+        "intended_effect_root",
+        "outcome_root",
+    )
+    if (
+        type(value.get("schema_version")) is not int
+        or value.get("schema_version") != 1
+        or value.get("kind") != "software-factory-evolution-terminal-outcome"
+        or value.get("outcome_root") != digest(material)
+        or posture not in FACTORY_EVOLUTION_OUTCOME_POSTURES
+        or value.get("recurrence_posture")
+        != "consumed-until-new-canonical-evidence"
+        or any(not SAFE_ID.fullmatch(str(value.get(field, ""))) for field in identifiers)
+        or any(not SHA256.fullmatch(str(value.get(field, ""))) for field in root_fields)
+        or not isinstance(value.get("rejected_candidate_ids"), list)
+        or value["rejected_candidate_ids"]
+        != sorted(set(value["rejected_candidate_ids"]))
+        or any(
+            not isinstance(item, str) or not SAFE_ID.fullmatch(item)
+            for item in value["rejected_candidate_ids"]
+        )
+        or not isinstance(value.get("resource_cost"), Mapping)
+        or type(value.get("protected_regression_count")) is not int
+        or value["protected_regression_count"] < 0
+        or not isinstance(value.get("evidence_refs"), list)
+        or not value["evidence_refs"]
+        or any(not isinstance(item, str) or not item for item in value["evidence_refs"])
+        or type(value.get("candidate_authoritative")) is not bool
+        or type(value.get("incumbent_authoritative")) is not bool
+        or type(value.get("rollback_performed")) is not bool
+        or (value.get("predecessor_outcome_root") is not None and not SHA256.fullmatch(str(value["predecessor_outcome_root"])))
+        or (value.get("release_owner_state_root") is not None and not SHA256.fullmatch(str(value["release_owner_state_root"])))
+    ):
+        raise SupervisionLogError("Factory evolution outcome evidence differs")
+    completion_fields = (
+        "outcome_completion_record_id",
+        "outcome_completion_record_sha256",
+        "observed_effect_root",
+        "capability_reconciliation_root",
+        "outcome_reviewer_id",
+    )
+    if effective or rolled_back:
+        if (
+            not SAFE_ID.fullmatch(str(value.get("outcome_completion_record_id", "")))
+            or not SAFE_ID.fullmatch(str(value.get("outcome_reviewer_id", "")))
+            or any(
+                not SHA256.fullmatch(str(value.get(field, "")))
+                for field in completion_fields[1:4]
+            )
+            or not SHA256.fullmatch(str(value.get("release_owner_state_root", "")))
+        ):
+            raise SupervisionLogError("Factory evolution completion evidence differs")
+    elif any(value.get(field) is not None for field in completion_fields):
+        raise SupervisionLogError("Factory evolution non-adoption evidence differs")
+    if effective and (
+        value.get("rollback_performed") is not False
+        or value.get("protected_regression_count") != 0
+        or value.get("candidate_authoritative") is not True
+        or value.get("incumbent_authoritative") is not False
+        or value.get("next_action") != "continue-with-current-adopted-evidence"
+    ):
+        raise SupervisionLogError("Factory evolution effective evidence differs")
+    if rolled_back and (
+        value.get("rollback_performed") is not True
+        or value.get("protected_regression_count", 0) < 1
+        or value.get("candidate_authoritative") is not False
+        or value.get("incumbent_authoritative") is not True
+        or value.get("next_action") != "continue-after-normal-owner-rollback"
+        or not SAFE_ID.fullmatch(str(value.get("rollback_release_id", "")))
+        or not SAFE_ID.fullmatch(str(value.get("rollback_record_id", "")))
+        or not SHA256.fullmatch(str(value.get("rollback_record_hmac_sha256", "")))
+    ):
+        raise SupervisionLogError("Factory evolution rollback evidence differs")
+    if not effective and not rolled_back and (
+        value.get("rollback_performed") is not False
+        or value.get("candidate_authoritative") is not False
+        or value.get("incumbent_authoritative") is not True
+        or value.get("next_action") != "continue-with-incumbent"
+    ):
+        raise SupervisionLogError("Factory evolution retained evidence differs")
+    if not rolled_back and any(
+        value.get(field) is not None
+        for field in (
+            "rollback_release_id",
+            "rollback_record_id",
+            "rollback_record_hmac_sha256",
+        )
+    ):
+        raise SupervisionLogError("Factory evolution rollback fields differ")
+    return dict(value)
+
+
+def validate_factory_evolution_outcome_correction(
+    value: Any, *, source_record: Mapping[str, Any]
+) -> dict[str, Any]:
+    expected = {
+        "schema_version",
+        "kind",
+        "supersedes_record_id",
+        "outcome_root",
+        "release_owner_state_root",
+        "disposition",
+    }
+    source = source_record.get("payload")
+    if (
+        not isinstance(value, Mapping)
+        or set(value) != expected
+        or not isinstance(source, Mapping)
+        or type(value.get("schema_version")) is not int
+        or value.get("schema_version") != 1
+        or value.get("kind")
+        != "software-factory-evolution-outcome-currentness-rejected"
+        or value.get("supersedes_record_id") != source_record.get("record_id")
+        or value.get("outcome_root") != source.get("outcome_root")
+        or value.get("release_owner_state_root")
+        != source.get("release_owner_state_root")
+        or value.get("disposition") != "currentness-rejected"
+    ):
+        raise SupervisionLogError("Factory evolution outcome correction differs")
+    return dict(value)
+
+
 def factory_evolution_cycle_state(
     directory: Path,
     policy: Mapping[str, Any],
     all_events: list[dict[str, Any]],
     *,
     evolution_id: str,
+    allow_historical_adoption: bool = False,
 ) -> dict[str, Any]:
     module = factory_evolution_module()
     admitted = factory_evolution_admitted_event(
@@ -18329,11 +18984,23 @@ def factory_evolution_cycle_state(
             FACTORY_EVOLUTION_EVALUATION_CORRECTION_EVENT_KIND,
             FACTORY_EVOLUTION_ADOPTION_EVENT_KIND,
             FACTORY_EVOLUTION_ADOPTION_CORRECTION_EVENT_KIND,
+            FACTORY_EVOLUTION_OUTCOME_EVENT_KIND,
+            FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND,
         )
     }
     for item in history:
         grouped[item["kind"]].append(item)
-    if any(len(items) > 1 for items in grouped.values()):
+    if any(
+        len(items)
+        > (
+            4
+            if kind == FACTORY_EVOLUTION_OUTCOME_EVENT_KIND
+            else 2
+            if kind == FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND
+            else 1
+        )
+        for kind, items in grouped.items()
+    ):
         raise SupervisionLogError("Factory evolution orchestration stage repeats")
     review_record = (
         grouped[FACTORY_EVOLUTION_REVIEW_HANDOFF_EVENT_KIND][0]
@@ -18484,6 +19151,9 @@ def factory_evolution_cycle_state(
         ):
             raise SupervisionLogError("Factory evolution adoption correction differs")
         adoption_record = None
+    outcome_correction_records = grouped[
+        FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND
+    ]
     expected_review_handoff = factory_evolution_review_handoff(
         policy, packet=packet, context=context
     )
@@ -18579,6 +19249,7 @@ def factory_evolution_cycle_state(
         except module.FactoryEvolutionError as exc:
             raise SupervisionLogError(str(exc)) from exc
     state_basis = {
+        "admitted": admitted,
         "admission_record_id": admitted["record_id"],
         "packet": packet,
         "review": review,
@@ -18595,6 +19266,7 @@ def factory_evolution_cycle_state(
         "evaluation_correction_record": evaluation_correction_record,
         "adoption_record": adoption_record,
         "adoption_correction_record": adoption_correction_record,
+        "outcome_correction_records": outcome_correction_records,
         "expected_review_handoff": expected_review_handoff,
         "expected_owner_handoff": handoff,
         "evaluation_handoff": evaluation_handoff,
@@ -18605,8 +19277,106 @@ def factory_evolution_cycle_state(
         if evaluation is None:
             raise SupervisionLogError("Factory evolution adoption precedes evaluation")
         adoption = validate_factory_evolution_adoption_payload(
-            adoption_record["payload"], policy=policy, state=state_basis
+            adoption_record["payload"],
+            policy=policy,
+            state=state_basis,
+            require_current_release=(
+                not allow_historical_adoption
+                and not any(
+                    item.get("payload", {}).get("outcome_posture") == "rolled-back"
+                    for item in grouped[FACTORY_EVOLUTION_OUTCOME_EVENT_KIND]
+                )
+            ),
         )
+    state_basis["adoption"] = adoption
+    outcomes: list[dict[str, Any]] = []
+    active_outcome_records: list[dict[str, Any]] = []
+    outcome_history: list[dict[str, Any]] = []
+    replacement_predecessor: dict[str, Any] | None = None
+    outcome_record_state: dict[str, tuple[dict[str, Any], dict[str, Any] | None]] = {}
+    outcome_correction_pending = False
+    for outcome_record in history:
+        if outcome_record["kind"] == FACTORY_EVOLUTION_OUTCOME_EVENT_KIND:
+            if adoption is None:
+                raise SupervisionLogError("Factory evolution outcome precedes adoption")
+            predecessor = outcomes[-1] if outcomes else replacement_predecessor
+            outcome = validate_factory_evolution_outcome_payload(
+                outcome_record["payload"],
+                state=state_basis,
+                predecessor=predecessor,
+            )
+            completion_id = outcome.get("outcome_completion_record_id")
+            if completion_id is not None:
+                completion = factory_evolution_outcome_completion_record(
+                    all_events,
+                    policy=policy,
+                    state=state_basis,
+                    record_id=str(completion_id),
+                    require_latest=False,
+                )
+                if (
+                    outcome.get("outcome_completion_record_sha256")
+                    != completion.get("record_sha256")
+                    or outcome.get("observed_effect_root")
+                    != completion.get("effect_reconciliation_sha256")
+                    or outcome.get("capability_reconciliation_root")
+                    != completion.get("capability_reconciliation_sha256")
+                ):
+                    raise SupervisionLogError(
+                        "Factory evolution outcome completion evidence differs"
+                    )
+            outcome_history.append(outcome)
+            outcomes.append(outcome)
+            active_outcome_records.append(outcome_record)
+            outcome_record_state[str(outcome_record["record_id"])] = (
+                outcome,
+                predecessor,
+            )
+            replacement_predecessor = None
+            outcome_correction_pending = False
+        elif outcome_record["kind"] == FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND:
+            source_id = str(
+                outcome_record.get("payload", {}).get("supersedes_record_id", "")
+            )
+            source_state = outcome_record_state.get(source_id)
+            if (
+                source_state is None
+                or not active_outcome_records
+                or active_outcome_records[-1].get("record_id") != source_id
+            ):
+                raise SupervisionLogError(
+                    "Factory evolution outcome correction order differs"
+                )
+            validate_factory_evolution_outcome_correction(
+                outcome_record["payload"],
+                source_record=active_outcome_records[-1],
+            )
+            active_outcome_records.pop()
+            outcomes.pop()
+            replacement_predecessor = (
+                outcomes[-1] if outcomes else source_state[1]
+            )
+            outcome_correction_pending = True
+    if (
+        not outcome_correction_pending
+        and outcomes
+        and outcomes[-1].get("release_owner_state_root") is not None
+    ):
+        live_release_root = factory_release_owner_state()[
+            "release_owner_state_root_sha256"
+        ]
+        if outcomes[-1]["release_owner_state_root"] != live_release_root:
+            raise SupervisionLogError("Factory evolution terminal outcome is stale")
+    state_basis["outcomes"] = outcomes
+    state_basis["outcome_history"] = outcome_history
+    state_basis["outcome_predecessor"] = (
+        outcomes[-1]
+        if outcome_correction_pending and outcomes
+        else replacement_predecessor
+    )
+    state_basis["current_outcome"] = (
+        None if outcome_correction_pending else outcomes[-1] if outcomes else None
+    )
     try:
         action = module.build_cycle_action(
             packet,
@@ -18676,6 +19446,35 @@ def factory_evolution_cycle_state(
             "adoption_currentness_root": adoption["adoption_currentness_root"],
             "active_release_id": adoption["release_id"],
             "human_request_count": adoption["human_request_count"],
+        }
+        action = {**action_material, "action_root": digest(action_material)}
+    if outcome_correction_pending:
+        action_material = {
+            **{key: value for key, value in action.items() if key != "action_root"},
+            "stage": "outcome-currentness-rejected",
+            "next_action": "reconcile-current-outcome",
+            "outcome_posture": "currentness-rejected",
+            "outcome_root": None,
+            "candidate_authoritative": False,
+            "incumbent_authoritative": False,
+            "production_authority": "unresolved-current-owner",
+        }
+        action = {**action_material, "action_root": digest(action_material)}
+    elif outcomes:
+        current_outcome = outcomes[-1]
+        action_material = {
+            **{key: value for key, value in action.items() if key != "action_root"},
+            "stage": "terminal-outcome",
+            "next_action": current_outcome["next_action"],
+            "outcome_posture": current_outcome["outcome_posture"],
+            "outcome_root": current_outcome["outcome_root"],
+            "candidate_authoritative": current_outcome["candidate_authoritative"],
+            "incumbent_authoritative": current_outcome["incumbent_authoritative"],
+            "production_authority": (
+                "candidate"
+                if current_outcome["candidate_authoritative"]
+                else "incumbent"
+            ),
         }
         action = {**action_material, "action_root": digest(action_material)}
     return {**state_basis, "adoption": adoption, "action": action}
@@ -19266,6 +20065,421 @@ def recover_factory_evolution_adoption_currentness(
     return True
 
 
+def factory_adoption_baseline_release_id(
+    release_owner: Any, adoption: Mapping[str, Any]
+) -> str:
+    records = release_owner.history(FACTORY_RELEASE_ROOT)
+    matches = [
+        item
+        for item in records
+        if item.get("record_id") == adoption.get("release_activation_record_id")
+        and item.get("record_hmac_sha256")
+        == adoption.get("release_activation_record_hmac_sha256")
+        and item.get("release_id") == adoption.get("release_id")
+    ]
+    if len(matches) != 1 or not isinstance(
+        matches[0].get("previous_release_id"), str
+    ):
+        raise SupervisionLogError("Factory evolution adoption baseline is unavailable")
+    return str(matches[0]["previous_release_id"])
+
+
+def factory_evolution_outcome_correction_payload(
+    source: Mapping[str, Any],
+) -> dict[str, Any]:
+    payload = source.get("payload")
+    if (
+        not isinstance(payload, Mapping)
+        or payload.get("kind")
+        != "software-factory-evolution-terminal-outcome"
+        or payload.get("outcome_root")
+        != digest({key: value for key, value in payload.items() if key != "outcome_root"})
+        or (
+            payload.get("release_owner_state_root") is not None
+            and not SHA256.fullmatch(str(payload.get("release_owner_state_root")))
+        )
+    ):
+        raise SupervisionLogError("Factory evolution outcome recovery source differs")
+    return {
+        "schema_version": 1,
+        "kind": "software-factory-evolution-outcome-currentness-rejected",
+        "supersedes_record_id": source["record_id"],
+        "outcome_root": payload["outcome_root"],
+        "release_owner_state_root": payload["release_owner_state_root"],
+        "disposition": "currentness-rejected",
+    }
+
+
+def factory_evolution_outcome_currentness_action(
+    source: Mapping[str, Any],
+) -> dict[str, Any]:
+    payload = validate_factory_evolution_outcome_evidence_payload(
+        source.get("payload")
+    )
+    material = {
+        "schema_version": 1,
+        "kind": "software-factory-evolution-outcome-currentness-action",
+        "evolution_id": payload["evolution_id"],
+        "outcome_id": payload["outcome_id"],
+        "outcome_root": None,
+        "superseded_outcome_root": payload["outcome_root"],
+        "stage": "outcome-currentness-rejected",
+        "next_action": "reconcile-current-outcome",
+        "outcome_posture": "currentness-rejected",
+        "candidate_authoritative": False,
+        "incumbent_authoritative": False,
+        "production_authority": "unresolved-current-owner",
+    }
+    return {**material, "action_root": digest(material)}
+
+
+def recover_factory_evolution_outcome_currentness(
+    args: argparse.Namespace,
+    *,
+    directory: Path,
+    policy: Mapping[str, Any],
+    all_events: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    evolution_id = safe_id(args.evolution_id, label="factory evolution ID")
+    history = factory_evolution_orchestration_history(
+        directory, policy, all_events, evolution_id=evolution_id
+    )
+    outcomes = [
+        item for item in history if item["kind"] == FACTORY_EVOLUTION_OUTCOME_EVENT_KIND
+    ]
+    corrections = [
+        item
+        for item in history
+        if item["kind"] == FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND
+    ]
+    if not outcomes:
+        return None
+    source = outcomes[-1]
+    if any(
+        item.get("payload", {}).get("supersedes_record_id")
+        == source.get("record_id")
+        for item in corrections
+    ):
+        return None
+    correction_payload = factory_evolution_outcome_correction_payload(source)
+    release_root = correction_payload["release_owner_state_root"]
+    release_changed = bool(
+        SHA256.fullmatch(str(release_root))
+        and release_root
+        != factory_release_owner_state()["release_owner_state_root_sha256"]
+    )
+    evaluation_matches = [
+        item
+        for item in history
+        if item.get("kind") == FACTORY_EVOLUTION_EVALUATION_EVENT_KIND
+        and item.get("payload", {}).get("evaluation_root")
+        == source.get("payload", {}).get("evaluation_root")
+    ]
+    if len(evaluation_matches) != 1:
+        raise SupervisionLogError(
+            "Factory evolution outcome recovery evaluation differs"
+        )
+    try:
+        require_factory_evolution_target_current(
+            policy,
+            expected_revision=str(
+                evaluation_matches[0]["payload"]["baseline_revision"]
+            ),
+        )
+        target_changed = False
+    except SupervisionLogError:
+        target_changed = True
+    if not release_changed and not target_changed:
+        return None
+    (
+        current_directory,
+        current_policy,
+        policy_snapshot,
+        directory_snapshot,
+    ) = load_policy_directory_snapshot(args)
+    current_events, event_snapshot = events_snapshot(
+        current_directory / "events.jsonl"
+    )
+    if (
+        current_directory != directory
+        or current_policy != policy
+        or current_events != all_events
+    ):
+        raise SupervisionLogError(
+            "Factory evolution outcome recovery changed; retry current state"
+        )
+    with owner_append_lock(
+        root_from(args), args.target_thread, directory_snapshot
+    ) as directory_fd:
+        require_bound_policy_at(
+            directory_fd,
+            expected_policy=policy,
+            expected_snapshot=policy_snapshot,
+        )
+        current_events, current_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        if current_events != all_events or current_snapshot != event_snapshot:
+            raise SupervisionLogError(
+                "Factory evolution outcome recovery head changed; retry current state"
+            )
+        release_changed = bool(
+            SHA256.fullmatch(str(release_root))
+            and release_root
+            != factory_release_owner_state()[
+                "release_owner_state_root_sha256"
+            ]
+        )
+        try:
+            require_factory_evolution_target_current(
+                policy,
+                expected_revision=str(
+                    evaluation_matches[0]["payload"]["baseline_revision"]
+                ),
+            )
+            target_changed = False
+        except SupervisionLogError:
+            target_changed = True
+        if not release_changed and not target_changed:
+            return None
+        correction = factory_evolution_orchestration_record(
+            kind=FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND,
+            record_id=f"EVT-{len(current_events) + 1:06d}",
+            policy=policy,
+            evolution_id=evolution_id,
+            payload=correction_payload,
+        )
+        append_raw_locked_at(
+            directory_fd,
+            "events.jsonl",
+            correction,
+            previous_record_sha256=str(current_events[-1]["record_sha256"]),
+            expected_file_snapshot=current_snapshot,
+            require_event_anchor=True,
+        )
+    return correction
+
+
+def append_factory_evolution_outcome(args: argparse.Namespace) -> dict[str, Any]:
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        directory_snapshot,
+    ) = load_policy_directory_snapshot(args)
+    all_events, event_snapshot = events_snapshot(directory / "events.jsonl")
+    evolution_id = safe_id(args.evolution_id, label="factory evolution ID")
+    recovered = recover_factory_evolution_outcome_currentness(
+        args, directory=directory, policy=policy, all_events=all_events
+    )
+    if recovered is not None:
+        source_id = str(recovered["payload"]["supersedes_record_id"])
+        source = next(
+            item for item in all_events if item.get("record_id") == source_id
+        )
+        return {
+            "duplicate": False,
+            "currentness_rejected": True,
+            "record": recovered,
+            "action": factory_evolution_outcome_currentness_action(source),
+        }
+    state = factory_evolution_cycle_state(
+        directory,
+        policy,
+        all_events,
+        evolution_id=evolution_id,
+        allow_historical_adoption=True,
+    )
+    if state["adoption"] is None:
+        raise SupervisionLogError("Factory evolution outcome precedes adoption")
+    completion_id = getattr(args, "outcome_completion_record", None)
+    completion = (
+        factory_evolution_outcome_completion_record(
+            all_events,
+            policy=policy,
+            state=state,
+            record_id=safe_id(completion_id, label="outcome completion record"),
+        )
+        if completion_id
+        else None
+    )
+    current_outcome = state["current_outcome"]
+    predecessor = current_outcome or state.get("outcome_predecessor")
+    if current_outcome is not None:
+        if completion is None or (
+            current_outcome["outcome_completion_record_id"] == completion["record_id"]
+        ):
+            return {
+                "duplicate": True,
+                "record": state["outcomes"][-1],
+                "action": state["action"],
+            }
+        if current_outcome["outcome_posture"] != "adopted-effective":
+            raise SupervisionLogError("Factory evolution terminal outcome is already current")
+    if state["adoption"]["application_authorized"] is True and completion is None:
+        raise SupervisionLogError(
+            "Factory evolution adopted outcome requires completion evidence"
+        )
+    rollback_required = completion is not None and completion["status"] == "failed"
+    if rollback_required and not getattr(args, "quiescent_evidence", None):
+        raise SupervisionLogError(
+            "Factory evolution regression rollback requires quiescent evidence"
+        )
+    release_owner = factory_release_module() if rollback_required else None
+    release_before: dict[str, Any] | None = None
+    release_after: dict[str, Any] | None = None
+    release_result: dict[str, Any] | None = None
+    with (
+        owner_append_lock(
+            root_from(args), args.target_thread, directory_snapshot
+        ) as directory_fd,
+        factory_evolution_target_ref_lock(policy),
+    ):
+        require_bound_policy_at(
+            directory_fd,
+            expected_policy=policy,
+            expected_snapshot=policy_snapshot,
+        )
+        current_events, current_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        if current_events != all_events or current_snapshot != event_snapshot:
+            raise SupervisionLogError(
+                "Factory evolution outcome event head changed; retry current state"
+            )
+        current = factory_evolution_cycle_state(
+            directory,
+            policy,
+            current_events,
+            evolution_id=evolution_id,
+            allow_historical_adoption=True,
+        )
+        current_predecessor = current["current_outcome"] or current.get(
+            "outcome_predecessor"
+        )
+        if current_predecessor != predecessor:
+            raise SupervisionLogError(
+                "Factory evolution outcome lineage changed; retry current state"
+            )
+        if completion is not None:
+            current_completion = factory_evolution_outcome_completion_record(
+                current_events,
+                policy=policy,
+                state=current,
+                record_id=str(completion["record_id"]),
+            )
+            if current_completion != completion:
+                raise SupervisionLogError(
+                    "Factory evolution completion changed before outcome"
+                )
+        require_factory_evolution_target_current(
+            policy, expected_revision=current["evaluation"]["baseline_revision"]
+        )
+        if rollback_required:
+            assert release_owner is not None
+            live_before = factory_release_owner_state(release_owner)
+            adoption = current["adoption"]
+            baseline_release_id = factory_adoption_baseline_release_id(
+                release_owner, adoption
+            )
+            release_result = release_owner.restore_adoption_release(
+                argparse.Namespace(
+                    release_root=str(FACTORY_RELEASE_ROOT),
+                    install_root=str(FACTORY_SKILL_INSTALL_ROOT),
+                    release_id=baseline_release_id,
+                    expected_candidate_release_id=adoption["release_id"],
+                    expected_candidate_activation_hmac_sha256=adoption[
+                        "release_activation_record_hmac_sha256"
+                    ],
+                    quiescent_evidence=args.quiescent_evidence,
+                )
+            )
+            if live_before["active_release_id"] == adoption["release_id"]:
+                release_before = live_before
+            else:
+                release_before = {
+                    **live_before,
+                    "active_release_id": adoption["release_id"],
+                    "activation_record": {
+                        "record_hmac_sha256": adoption[
+                            "release_activation_record_hmac_sha256"
+                        ],
+                        "previous_release_id": baseline_release_id,
+                    },
+                }
+            release_after = factory_release_owner_state(release_owner)
+        payload = factory_evolution_outcome_payload(
+            current,
+            completion=completion,
+            predecessor=predecessor,
+            release_before=release_before,
+            release_result=release_result,
+            release_after=release_after,
+        )
+        record = factory_evolution_orchestration_record(
+            kind=FACTORY_EVOLUTION_OUTCOME_EVENT_KIND,
+            record_id=f"EVT-{len(current_events) + 1:06d}",
+            policy=policy,
+            evolution_id=evolution_id,
+            payload=payload,
+        )
+        append_raw_locked_at(
+            directory_fd,
+            "events.jsonl",
+            record,
+            previous_record_sha256=str(current_events[-1]["record_sha256"]),
+            expected_file_snapshot=current_snapshot,
+            require_event_anchor=True,
+        )
+        target_changed = False
+        try:
+            require_factory_evolution_target_current(
+                policy, expected_revision=current["evaluation"]["baseline_revision"]
+            )
+        except SupervisionLogError:
+            target_changed = True
+        expected_release_root = payload.get("release_owner_state_root")
+        release_changed = (
+            expected_release_root is not None
+            and factory_release_owner_state(release_owner)[
+                "release_owner_state_root_sha256"
+            ]
+            != expected_release_root
+        )
+        if target_changed or release_changed:
+            written_events, written_snapshot = events_snapshot(
+                Path("events.jsonl"), directory_fd=directory_fd
+            )
+            correction_payload = factory_evolution_outcome_correction_payload(record)
+            correction = factory_evolution_orchestration_record(
+                kind=FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND,
+                record_id=f"EVT-{len(written_events) + 1:06d}",
+                policy=policy,
+                evolution_id=evolution_id,
+                payload=correction_payload,
+            )
+            append_raw_locked_at(
+                directory_fd,
+                "events.jsonl",
+                correction,
+                previous_record_sha256=str(written_events[-1]["record_sha256"]),
+                expected_file_snapshot=written_snapshot,
+                require_event_anchor=True,
+            )
+            raise SupervisionLogError(
+                "Factory evolution currentness changed during outcome append"
+            )
+    refreshed = events(directory / "events.jsonl")
+    final_state = factory_evolution_cycle_state(
+        directory, policy, refreshed, evolution_id=evolution_id
+    )
+    return {
+        "duplicate": False,
+        "record": refreshed[-1],
+        "action": final_state["action"],
+    }
+
+
 def cmd_factory_evolution_cycle_status(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     state = factory_evolution_cycle_state(
@@ -19281,6 +20495,25 @@ def cmd_factory_evolution_orchestrate(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     all_events = events(directory / "events.jsonl")
     evolution_id = safe_id(args.evolution_id, label="factory evolution ID")
+    recovered = recover_factory_evolution_outcome_currentness(
+        args, directory=directory, policy=policy, all_events=all_events
+    )
+    if recovered is not None:
+        source_id = str(recovered["payload"]["supersedes_record_id"])
+        source = next(
+            item for item in all_events if item.get("record_id") == source_id
+        )
+        print(
+            json.dumps(
+                {
+                    "duplicate": False,
+                    "currentness_rejected": True,
+                    "action": factory_evolution_outcome_currentness_action(source),
+                },
+                sort_keys=True,
+            )
+        )
+        return
     if recover_factory_evolution_adoption_currentness(
         args, directory=directory, policy=policy, all_events=all_events
     ):
@@ -19527,7 +20760,7 @@ def cmd_factory_evolution_admit(args: argparse.Namespace) -> None:
 def cmd_factory_evolution(args: argparse.Namespace) -> None:
     release_review_evidence = getattr(args, "release_review_evidence", None)
     quiescent_evidence = getattr(args, "quiescent_evidence", None)
-    if args.action != "orchestrate" and (
+    if args.action not in {"orchestrate", "outcome"} and (
         release_review_evidence or quiescent_evidence
     ):
         raise SupervisionLogError(
@@ -19551,6 +20784,20 @@ def cmd_factory_evolution(args: argparse.Namespace) -> None:
         return
     if args.action == "verify":
         cmd_factory_evolution_verify(args)
+        return
+    if args.action == "outcome":
+        if (
+            args.report_paths
+            or args.event_paths
+            or args.review_json
+            or args.evaluation_json
+            or args.owner_ack_json
+            or release_review_evidence
+        ):
+            raise SupervisionLogError(
+                "Factory evolution outcome received an unrelated staged input"
+            )
+        print(json.dumps(append_factory_evolution_outcome(args), sort_keys=True))
         return
     if args.report_paths or args.event_paths or args.review_json or args.evaluation_json:
         raise SupervisionLogError(
@@ -19586,6 +20833,119 @@ def weekly_report_module() -> Any:
     except ImportError as exc:
         raise SupervisionLogError("Weekly report implementation is unavailable") from exc
     return weekly_report
+
+
+def factory_evolution_outcome_projection(
+    source_events: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    rows: list[dict[str, Any]] = []
+    records: dict[str, Mapping[str, Any]] = {}
+    current_heads: dict[str, str] = {}
+    admitted_cycles: dict[str, str] = {}
+    admission_records: dict[str, dict[str, Any]] = {}
+    for item in source_events:
+        kind = item.get("kind")
+        if kind == "factory-evolution-admission":
+            validated_admission = validate_factory_evolution_admission_event(item)
+            admitted_cycles[str(validated_admission["evolution_id"])] = str(
+                validated_admission["record_id"]
+            )
+            admission_records[str(validated_admission["record_id"])] = (
+                validated_admission
+            )
+        elif kind == "factory-evolution-admission-currentness-rejected":
+            source_id = str(item.get("supersedes_record_id", ""))
+            source_admission = admission_records.get(source_id)
+            if source_admission is None:
+                continue
+            validate_factory_evolution_admission_correction_event(
+                item, admission=source_admission
+            )
+            for evolution_id, record_id in list(admitted_cycles.items()):
+                if record_id == source_id:
+                    admitted_cycles.pop(evolution_id)
+                    break
+        elif kind == FACTORY_EVOLUTION_OUTCOME_EVENT_KIND:
+            payload = item.get("payload")
+            if not isinstance(payload, Mapping) or item.get("payload_root") != digest(payload):
+                raise SupervisionLogError(
+                    "Factory evolution report outcome differs"
+                )
+            payload = validate_factory_evolution_outcome_evidence_payload(payload)
+            if not SHA256.fullmatch(str(item.get("record_sha256", ""))):
+                raise SupervisionLogError("Factory evolution report outcome differs")
+            record_id = str(item.get("record_id", ""))
+            evolution_id = str(item.get("evolution_id", ""))
+            safe_id(record_id, label="Factory evolution outcome record ID")
+            safe_id(evolution_id, label="Factory evolution report cycle ID")
+            records[record_id] = item
+            current_heads[evolution_id] = record_id
+            rows.append(
+                {
+                    "record_id": record_id,
+                    "record_sha256": item["record_sha256"],
+                    "evolution_id": evolution_id,
+                    "outcome_id": payload["outcome_id"],
+                    "outcome_root": payload["outcome_root"],
+                    "predecessor_outcome_root": payload[
+                        "predecessor_outcome_root"
+                    ],
+                    "outcome_posture": payload["outcome_posture"],
+                    "observed_effect_root": payload["observed_effect_root"],
+                    "protected_regression_count": payload[
+                        "protected_regression_count"
+                    ],
+                    "rollback_release_id": payload["rollback_release_id"],
+                    "recurrence_posture": payload["recurrence_posture"],
+                    "next_action": payload["next_action"],
+                    "current": True,
+                }
+            )
+        elif kind == FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND:
+            payload = item.get("payload")
+            source = records.get(
+                str(payload.get("supersedes_record_id", ""))
+                if isinstance(payload, Mapping)
+                else ""
+            )
+            if source is None:
+                continue
+            if not isinstance(payload, Mapping):
+                raise SupervisionLogError("Factory evolution report correction differs")
+            validate_factory_evolution_outcome_correction(
+                payload, source_record=source
+            )
+            evolution_id = str(item.get("evolution_id", ""))
+            if current_heads.get(evolution_id) != source.get("record_id"):
+                raise SupervisionLogError(
+                    "Factory evolution report correction head differs"
+                )
+            current_heads.pop(evolution_id, None)
+            for row in reversed(rows):
+                if row["record_id"] == source["record_id"]:
+                    row["current"] = False
+                    break
+    current_ids = set(current_heads.values())
+    for row in rows:
+        row["current"] = row["record_id"] in current_ids
+    material = {
+        "schema_version": 1,
+        "kind": "software-factory-evolution-outcome-projection",
+        "history": rows,
+        "current_outcomes": [row for row in rows if row["current"]],
+        "active_cycle_count": len(set(admitted_cycles) - set(current_heads)),
+        "terminal_cycle_count": len(current_ids),
+        "rolled_back_cycle_count": sum(
+            row["current"] and row["outcome_posture"] == "rolled-back"
+            for row in rows
+        ),
+        "next_eligible_posture": (
+            "new-canonical-evidence-required"
+            if current_ids
+            else "no-terminal-outcome-evidence"
+        ),
+    }
+    return {**material, "projection_root": digest(material)}
 
 
 def weekly_projection_inventory(directory: Path) -> dict[str, Any]:
@@ -19630,6 +20990,7 @@ def weekly_report_markdown_bytes(
     metrics: Mapping[str, Any],
     review: Mapping[str, Any],
     admission: Mapping[str, Any] | None,
+    outcomes: Mapping[str, Any],
 ) -> bytes:
     text = module.markdown_report(metrics, review)
     if admission is not None:
@@ -19639,6 +21000,21 @@ def weekly_report_markdown_bytes(
             + str(validated["summary"])
             + "\n"
         )
+    text += "\n## Factory evolution outcomes\n\n"
+    current = outcomes["current_outcomes"]
+    if current:
+        for item in current:
+            text += (
+                f"- `{item['evolution_id']}`: {item['outcome_posture']}; "
+                f"next `{item['next_action']}`; outcome `{item['outcome_root']}`.\n"
+            )
+    else:
+        text += "- No current terminal Factory-evolution outcome.\n"
+    text += (
+        f"- Active cycles: {outcomes['active_cycle_count']}; terminal cycles: "
+        f"{outcomes['terminal_cycle_count']}; rolled back: "
+        f"{outcomes['rolled_back_cycle_count']}.\n"
+    )
     return text.encode("utf-8")
 
 
@@ -19760,7 +21136,13 @@ def cmd_weekly_report_finalize(args: argparse.Namespace) -> None:
     pdf_path = report_directory / "report.pdf"
     manifest_path = report_directory / "manifest.json"
     review_reused = write_exact_or_reuse(review_path, review)
-    machine_report = module.machine_report(metrics, review)
+    outcome_projection = factory_evolution_outcome_projection(
+        packet.get("event_records", [])
+    )
+    machine_report = {
+        **module.machine_report(metrics, review),
+        "factory_evolution_outcomes": outcome_projection,
+    }
     report_json_reused = write_exact_or_reuse(report_json_path, machine_report)
     admission_path = report_directory / "factory-evolution-eligibility.json"
     legacy_finalized = manifest_path.exists() and not admission_path.exists()
@@ -19781,7 +21163,7 @@ def cmd_weekly_report_finalize(args: argparse.Namespace) -> None:
         )
         admission_reused = write_exact_or_reuse(admission_path, admission_result)
     markdown_bytes = weekly_report_markdown_bytes(
-        module, metrics, review, admission_result
+        module, metrics, review, admission_result, outcome_projection
     )
     if markdown_path.exists():
         if markdown_path.read_bytes() != markdown_bytes:
@@ -19798,6 +21180,7 @@ def cmd_weekly_report_finalize(args: argparse.Namespace) -> None:
                 metrics,
                 review,
                 factory_evolution_eligibility=admission_result,
+                factory_evolution_outcomes=outcome_projection,
             )
             os.replace(temporary_pdf, pdf_path)
         finally:
@@ -19892,12 +21275,18 @@ def verify_weekly_report_set(directory: Path, report_id: str) -> dict[str, Any]:
         if admission_path.is_file()
         else None
     )
+    outcome_projection = factory_evolution_outcome_projection(
+        packet.get("event_records", [])
+    )
     expected_markdown = weekly_report_markdown_bytes(
-        module, metrics, review, admission_result
+        module, metrics, review, admission_result, outcome_projection
     )
     if paths["report.md"].read_bytes() != expected_markdown:
         raise SupervisionLogError("Weekly Markdown projection differs")
-    expected_machine_report = module.machine_report(metrics, review)
+    expected_machine_report = {
+        **module.machine_report(metrics, review),
+        "factory_evolution_outcomes": outcome_projection,
+    }
     if read_json(paths["report.json"]) != expected_machine_report:
         raise SupervisionLogError("Weekly machine-readable report differs")
     try:
@@ -19925,6 +21314,7 @@ def verify_weekly_report_set(directory: Path, report_id: str) -> dict[str, Any]:
         "review_sha256": hashlib.sha256(paths["review.json"].read_bytes()).hexdigest(),
         "pdf_sha256": hashlib.sha256(paths["report.pdf"].read_bytes()).hexdigest(),
         "factory_evolution_eligibility": admission_result,
+        "factory_evolution_outcomes": outcome_projection,
     }
 
 
@@ -20088,12 +21478,21 @@ def terminal_pdf_projection(path: Path) -> dict[str, Any]:
 
 
 def render_and_verify_terminal_pdf(
-    *, path: Path, report: Mapping[str, Any], report_set_id: str
+    *,
+    path: Path,
+    report: Mapping[str, Any],
+    report_set_id: str,
+    factory_evolution_outcomes: Mapping[str, Any],
 ) -> bool:
     module = terminal_report_module()
     prepared = path.parent / f".{path.name}.prepared"
     try:
-        module.render_pdf(prepared, report, report_set_id=report_set_id)
+        module.render_pdf(
+            prepared,
+            report,
+            report_set_id=report_set_id,
+            factory_evolution_outcomes=factory_evolution_outcomes,
+        )
         expected = terminal_pdf_projection(prepared)
         if path.exists():
             if terminal_pdf_projection(path) != expected:
@@ -20208,6 +21607,9 @@ def cmd_terminal_report_finalize(args: argparse.Namespace) -> None:
     }
     review_bytes_out = json.dumps(review, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8") + b"\n"
     write_terminal_exact_or_reuse(files["review.json"], review_bytes_out)
+    outcome_projection = factory_evolution_outcome_projection(
+        packet.get("full_event_records", [])
+    )
     for report_type, key, prefix in (
         ("delta", "delta_report", "delta-report"),
         ("full", "full_report", "full-report"),
@@ -20218,17 +21620,21 @@ def cmd_terminal_report_finalize(args: argparse.Namespace) -> None:
             report_set_id=args.report_set_id,
             source_root=str(packet["source_root"]),
             report_type=report_type,
+            factory_evolution_outcomes=outcome_projection,
         )
         machine_bytes = json.dumps(machine, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8") + b"\n"
         write_terminal_exact_or_reuse(files[f"{prefix}.json"], machine_bytes)
         markdown = module.markdown_report(
-            report, report_set_id=args.report_set_id
+            report,
+            report_set_id=args.report_set_id,
+            factory_evolution_outcomes=outcome_projection,
         ).encode("utf-8")
         write_terminal_exact_or_reuse(files[f"{prefix}.md"], markdown)
         render_and_verify_terminal_pdf(
             path=files[f"{prefix}.pdf"],
             report=report,
             report_set_id=args.report_set_id,
+            factory_evolution_outcomes=outcome_projection,
         )
     manifest = module.manifest_for(
         files,
@@ -20326,6 +21732,9 @@ def verify_terminal_report_set(
     )
     if manifest != expected_manifest:
         raise SupervisionLogError("Terminal report manifest identity differs")
+    outcome_projection = factory_evolution_outcome_projection(
+        packet.get("full_event_records", [])
+    )
     for report_type, key, prefix in (
         ("delta", "delta_report", "delta-report"),
         ("full", "full_report", "full-report"),
@@ -20335,18 +21744,24 @@ def verify_terminal_report_set(
             report_set_id=report_set_id,
             source_root=str(packet["source_root"]),
             report_type=report_type,
+            factory_evolution_outcomes=outcome_projection,
         )
         if read_json(paths[f"{prefix}.json"]) != expected_machine:
             raise SupervisionLogError(f"Terminal {report_type} JSON projection differs")
         expected_markdown = module.markdown_report(
-            review[key], report_set_id=report_set_id
+            review[key],
+            report_set_id=report_set_id,
+            factory_evolution_outcomes=outcome_projection,
         ).encode("utf-8")
         if paths[f"{prefix}.md"].read_bytes() != expected_markdown:
             raise SupervisionLogError(f"Terminal {report_type} Markdown projection differs")
         with tempfile.TemporaryDirectory(dir=report_directory) as temporary:
             expected_pdf = Path(temporary) / f"{prefix}.pdf"
             module.render_pdf(
-                expected_pdf, review[key], report_set_id=report_set_id
+                expected_pdf,
+                review[key],
+                report_set_id=report_set_id,
+                factory_evolution_outcomes=outcome_projection,
             )
             if terminal_pdf_projection(paths[f"{prefix}.pdf"]) != terminal_pdf_projection(
                 expected_pdf
@@ -20370,6 +21785,7 @@ def verify_terminal_report_set(
         "full_pdf_sha256": manifest["files"]["full-report.pdf"]["sha256"],
         "delta_page_count": len(delta_projection["pages"]),
         "full_page_count": len(full_projection["pages"]),
+        "factory_evolution_outcomes": outcome_projection,
     }
 
 
@@ -21707,6 +23123,7 @@ def parser() -> argparse.ArgumentParser:
             "status",
             "orchestrate",
             "acknowledge",
+            "outcome",
         ),
         required=True,
     )
@@ -21721,6 +23138,7 @@ def parser() -> argparse.ArgumentParser:
     factory_evolution.add_argument("--owner-ack-json")
     factory_evolution.add_argument("--release-review-evidence")
     factory_evolution.add_argument("--quiescent-evidence")
+    factory_evolution.add_argument("--outcome-completion-record")
     factory_evolution.set_defaults(func=cmd_factory_evolution)
 
     terminal_report = subparsers.add_parser("terminal-report")

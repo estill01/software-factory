@@ -793,7 +793,21 @@ Keep the roles and authority sequence exact:
    owner then calls the existing local release owner; it does not write a skill
    itself. Retry rehydrates one activation, and successful full autonomy records
    zero human requests before continuing to current-outcome reconciliation.
-7. Run `verify` against the stored set. Verification reopens the immutable
+7. Close the cycle with `factory-evolution --action outcome`. An installed
+   adoption requires the latest independently verified observable-outcome
+   completion record for the exact evaluation/adoption state. A verified
+   result becomes current `adopted-effective` evidence. A later supported
+   regression appends a successor outcome in the same lineage and, with exact
+   quiescent evidence, invokes the existing release owner once to restore the
+   frozen baseline. Retry rehydrates an interrupted rollback or outcome append;
+   currentness loss appends a correction and leaves no false authoritative
+   outcome. Non-adoption dispositions close against the incumbent without a
+   release input. Only a current terminal outcome consumes the admission's
+   canonical coverage; unchanged overlap is a no-op, while one newly nominated
+   canonical outcome/event may support a later bounded cycle. Weekly and
+   terminal JSON, Markdown, and PDF reports project concise current outcome
+   summaries without gaining authority or opening a monitor.
+8. Run `verify` against the stored set. Verification reopens the immutable
    packet, review, evaluation, report, and manifests and recomputes their hashes
    and schemas without rerunning a producer.
 

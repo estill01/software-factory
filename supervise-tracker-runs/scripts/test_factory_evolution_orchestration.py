@@ -446,9 +446,25 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             self.active = baseline
             self.adoption_calls = 0
             self.activation_count = 0
+            self.rollback_count = 0
+            self.rollback_active = False
 
         def _status(self) -> dict[str, object]:
             candidate_active = self.active == self.candidate
+            activation_id = (
+                "ACTIVATION-3"
+                if self.rollback_active
+                else "ACTIVATION-2"
+                if candidate_active
+                else "ACTIVATION-1"
+            )
+            activation_hmac = (
+                "9" * 64
+                if self.rollback_active
+                else "e" * 64
+                if candidate_active
+                else "f" * 64
+            )
             result: dict[str, object] = {
                 "active_release_id": "candidate-release-1234" if candidate_active else "baseline-release-1234",
                 "source_commit": self.active,
@@ -467,13 +483,21 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
                     "review_record_id": "release-review-record-1234",
                 },
                 "activation_record": {
-                    "record_id": "ACTIVATION-2" if candidate_active else "ACTIVATION-1",
-                    "record_hmac_sha256": "e" * 64 if candidate_active else "f" * 64,
+                    "record_id": activation_id,
+                    "record_hmac_sha256": activation_hmac,
                     "previous_release_id": (
-                        "baseline-release-1234" if candidate_active else None
+                        "baseline-release-1234"
+                        if candidate_active
+                        else "candidate-release-1234"
+                        if self.rollback_active
+                        else None
                     ),
                     "previous_record_hmac_sha256": (
-                        "f" * 64 if candidate_active else None
+                        "f" * 64
+                        if candidate_active
+                        else "e" * 64
+                        if self.rollback_active
+                        else None
                     ),
                 },
                 "current_verification": {
@@ -522,6 +546,58 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
                 {key: value for key, value in result.items() if key != "duplicate"}
             )
             return result
+
+        def history(self, _release_root: Path) -> list[dict[str, object]]:
+            records: list[dict[str, object]] = [
+                {
+                    "action": "bootstrap",
+                    "record_id": "ACTIVATION-1",
+                    "record_hmac_sha256": "f" * 64,
+                    "previous_record_hmac_sha256": None,
+                    "release_id": "baseline-release-1234",
+                    "previous_release_id": None,
+                },
+                {
+                    "action": "activate",
+                    "record_id": "ACTIVATION-2",
+                    "record_hmac_sha256": "e" * 64,
+                    "previous_record_hmac_sha256": "f" * 64,
+                    "release_id": "candidate-release-1234",
+                    "previous_release_id": "baseline-release-1234",
+                },
+            ]
+            if self.rollback_active:
+                records.append(
+                    {
+                        "action": "rollback",
+                        "record_id": "ACTIVATION-3",
+                        "record_hmac_sha256": "9" * 64,
+                        "previous_record_hmac_sha256": "e" * 64,
+                        "release_id": "baseline-release-1234",
+                        "previous_release_id": "candidate-release-1234",
+                    }
+                )
+            return records
+
+        def restore_adoption_release(self, args: object) -> dict[str, object]:
+            duplicate = self.rollback_active
+            if getattr(args, "expected_candidate_release_id") != "candidate-release-1234":
+                raise self.ReleaseError("candidate differs")
+            if getattr(args, "expected_candidate_activation_hmac_sha256") != "e" * 64:
+                raise self.ReleaseError("activation differs")
+            self.rollback_active = True
+            self.active = self.baseline
+            if not duplicate:
+                self.rollback_count += 1
+            status = self._status()
+            return {
+                "action": "rollback",
+                "duplicate": duplicate,
+                "active_release_id": "baseline-release-1234",
+                "previous_release_id": "candidate-release-1234",
+                "installed": status["current_verification"],
+                "activation_record": status["activation_record"],
+            }
 
     def review_submission(self, *, candidate_type: str = "skill-method") -> dict[str, object]:
         submission = copy.deepcopy(self.review_support.review_submission())
@@ -833,6 +909,119 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             self.evolution_id,
         )
         return comparison, comparison["record"]["payload"]
+
+    def append_factory_outcome_completion(
+        self,
+        fake: "FactoryEvolutionOrchestrationIntegrationTests.FakeReleaseOwner",
+        *,
+        status: str,
+    ) -> str:
+        policy = supervision_log.read_json(self.directory / "policy.json")
+        all_events = supervision_log.events(self.directory / "events.jsonl")
+        with mock.patch.object(
+            supervision_log, "factory_release_module", return_value=fake
+        ):
+            state = supervision_log.factory_evolution_cycle_state(
+                self.directory,
+                policy,
+                all_events,
+                evolution_id=self.evolution_id,
+            )
+        fingerprint = supervision_log.factory_evolution_outcome_state_fingerprint(
+            state
+        )
+        mission = supervision_log.bound_mission(policy)
+        assert mission is not None
+        runtime = policy["runtime"]
+        record = {
+            "schema_version": 1,
+            "record_id": f"EVT-{len(all_events) + 1:06d}",
+            "timestamp": supervision_log.utc_now(),
+            "target_thread_id": self.target_thread,
+            "kind": "check",
+            "model": "gpt-5.6-sol",
+            "reasoning": "xhigh",
+            "state_fingerprint": fingerprint,
+            "status": status,
+            "severity": "info" if status == "verified" else "critical",
+            "category": supervision_log.OUTCOME_COMPLETION_CATEGORY,
+            "active_block": "Block 16",
+            "checkpoint": "Factory current observable outcome",
+            "summary": "Independent current capability reconciliation.",
+            "evidence": [f"factory-evolution:{self.evolution_id}"],
+            "mission_root": mission["mission_root"],
+            "policy_sha256": policy["policy_sha256"],
+            "capability_reconciliation_reviewer_id": runtime[
+                "base_reviewer_thread_id"
+            ],
+            "capability_reconciliation_implementation_owner_id": state[
+                "acknowledgment_record"
+            ]["payload"]["owner_id"],
+            "capability_reconciliation_revision": state["evaluation"][
+                "candidate_revision"
+            ],
+            "capability_reconciliation_posture": (
+                "verified" if status == "verified" else "reopen-narrow-owner"
+            ),
+            "capability_reconciliation_gap_count": 0 if status == "verified" else 1,
+        }
+        for field in supervision_log.OUTCOME_COMPLETION_HASH_FIELDS:
+            record[field] = supervision_log.digest(
+                {"field": field, "status": status, "evolution_id": self.evolution_id}
+            )
+        supervision_log.append_raw(self.directory / "events.jsonl", record)
+        return str(record["record_id"])
+
+    def adopt_cycle_for_outcome(
+        self,
+    ) -> tuple[
+        "FactoryEvolutionOrchestrationIntegrationTests.FakeReleaseOwner",
+        dict[str, object],
+    ]:
+        self.configure_adoption_policy(mode="full-autonomous", permissions=True)
+        _comparison, handoff = self.candidate_ready_for_evaluation()
+        source = self.admission.root / "evaluation-for-terminal-outcome.json"
+        source.write_bytes(
+            supervision_log.canonical(self.evaluation_submission(handoff)) + b"\n"
+        )
+        self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "evaluate",
+            "--evolution-id",
+            self.evolution_id,
+            "--evaluation-json",
+            str(source),
+        )
+        fake = self.FakeReleaseOwner(
+            str(handoff["baseline_revision"]), str(handoff["candidate_revision"])
+        )
+        review_path = self.admission.root / "release-review-outcome.json"
+        review_path.write_text("{}", encoding="utf-8")
+        permit_path = self.admission.root / "quiescent-outcome.json"
+        permit_path.write_text(
+            json.dumps({"operator_id": "release-operator-1234"}), encoding="utf-8"
+        )
+        with mock.patch.object(
+            supervision_log, "factory_release_module", return_value=fake
+        ):
+            adopted = self.command(
+                "factory-evolution",
+                "--target-thread",
+                self.target_thread,
+                "--action",
+                "orchestrate",
+                "--evolution-id",
+                self.evolution_id,
+                "--release-review-evidence",
+                str(review_path),
+                "--quiescent-evidence",
+                str(permit_path),
+            )
+        self.assertEqual(adopted["action"]["stage"], "adopted")
+        return fake, handoff
 
     def start_comparison_without_producing(self) -> dict[str, object]:
         policy = supervision_log.read_json(self.directory / "policy.json")
@@ -1848,6 +2037,505 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             retried = self.command(*arguments)
         self.assertEqual(retried["action"]["stage"], "adopted")
         self.assertEqual(fake.activation_count, 1)
+
+    def test_effective_outcome_is_terminal_and_duplicate_is_a_no_op(self) -> None:
+        fake, _handoff = self.adopt_cycle_for_outcome()
+        record_id = self.append_factory_outcome_completion(fake, status="verified")
+        arguments = (
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "outcome",
+            "--evolution-id",
+            self.evolution_id,
+            "--outcome-completion-record",
+            record_id,
+        )
+        with mock.patch.object(
+            supervision_log, "factory_release_module", return_value=fake
+        ):
+            outcome = self.command(*arguments)
+            repeated = self.command(*arguments)
+        self.assertEqual(outcome["action"]["stage"], "terminal-outcome")
+        self.assertEqual(
+            outcome["action"]["outcome_posture"], "adopted-effective"
+        )
+        self.assertTrue(outcome["action"]["candidate_authoritative"])
+        self.assertTrue(repeated["duplicate"])
+        self.assertEqual(
+            repeated["action"]["outcome_root"], outcome["action"]["outcome_root"]
+        )
+        all_events = supervision_log.events(self.directory / "events.jsonl")
+        outcome_record = next(
+            item
+            for item in all_events
+            if item.get("kind")
+            == supervision_log.FACTORY_EVOLUTION_OUTCOME_EVENT_KIND
+        )
+        projection = supervision_log.factory_evolution_outcome_projection(
+            all_events
+        )
+        self.assertEqual(projection["terminal_cycle_count"], 1)
+        self.assertEqual(
+            projection["current_outcomes"][0]["outcome_root"],
+            outcome["action"]["outcome_root"],
+        )
+        packet = {
+            "evidence": {
+                "events": [outcome_record],
+                "report_hypotheses": [
+                    {
+                        "section": "fixes_and_effectiveness",
+                        "evidence_refs": [outcome_record["record_id"]],
+                    }
+                ],
+            }
+        }
+        novelty_key, novelty = supervision_log.factory_evolution_supported_novelty(
+            packet,
+            policy=supervision_log.read_json(self.directory / "policy.json"),
+            source_events=all_events,
+        )
+        self.assertIsNotNone(novelty_key)
+        self.assertEqual(
+            novelty["coverage"]["record_sha256s"],
+            [outcome_record["record_sha256"]],
+        )
+
+    def test_failed_outcome_rolls_back_once_and_retains_lineage(self) -> None:
+        fake, _handoff = self.adopt_cycle_for_outcome()
+        effective_id = self.append_factory_outcome_completion(fake, status="verified")
+        with mock.patch.object(
+            supervision_log, "factory_release_module", return_value=fake
+        ):
+            effective = self.command(
+                "factory-evolution",
+                "--target-thread",
+                self.target_thread,
+                "--action",
+                "outcome",
+                "--evolution-id",
+                self.evolution_id,
+                "--outcome-completion-record",
+                effective_id,
+            )
+        failed_id = self.append_factory_outcome_completion(fake, status="failed")
+        rollback_permit = self.admission.root / "quiescent-rollback.json"
+        rollback_permit.write_text("{}", encoding="utf-8")
+        arguments = (
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "outcome",
+            "--evolution-id",
+            self.evolution_id,
+            "--outcome-completion-record",
+            failed_id,
+            "--quiescent-evidence",
+            str(rollback_permit),
+        )
+        with mock.patch.object(
+            supervision_log, "factory_release_module", return_value=fake
+        ):
+            rolled_back = self.command(*arguments)
+            repeated = self.command(*arguments)
+        self.assertEqual(rolled_back["action"]["outcome_posture"], "rolled-back")
+        self.assertFalse(rolled_back["action"]["candidate_authoritative"])
+        self.assertEqual(fake.rollback_count, 1)
+        self.assertTrue(repeated["duplicate"])
+        events = supervision_log.events(self.directory / "events.jsonl")
+        outcomes = [
+            item
+            for item in events
+            if item.get("kind") == supervision_log.FACTORY_EVOLUTION_OUTCOME_EVENT_KIND
+        ]
+        self.assertEqual(len(outcomes), 2)
+        self.assertEqual(
+            outcomes[-1]["payload"]["predecessor_outcome_root"],
+            effective["action"]["outcome_root"],
+        )
+
+    def test_adopted_outcome_rejects_missing_or_stale_completion(self) -> None:
+        fake, _handoff = self.adopt_cycle_for_outcome()
+        with (
+            mock.patch.object(
+                supervision_log, "factory_release_module", return_value=fake
+            ),
+            self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "requires completion evidence"
+            ),
+        ):
+            self.command(
+                "factory-evolution",
+                "--target-thread",
+                self.target_thread,
+                "--action",
+                "outcome",
+                "--evolution-id",
+                self.evolution_id,
+            )
+        record_id = self.append_factory_outcome_completion(fake, status="verified")
+        newer = self.append_factory_outcome_completion(fake, status="failed")
+        self.assertNotEqual(record_id, newer)
+        with (
+            mock.patch.object(
+                supervision_log, "factory_release_module", return_value=fake
+            ),
+            self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "latest exact completion"
+            ),
+        ):
+            self.command(
+                "factory-evolution",
+                "--target-thread",
+                self.target_thread,
+                "--action",
+                "outcome",
+                "--evolution-id",
+                self.evolution_id,
+                "--outcome-completion-record",
+                record_id,
+            )
+
+    def test_rejected_candidate_reaches_terminal_outcome_without_release_owner(self) -> None:
+        self.configure_adoption_policy(mode="full-autonomous", permissions=True)
+        _comparison, handoff = self.candidate_ready_for_evaluation()
+        source = self.admission.root / "evaluation-rejected-terminal.json"
+        source.write_bytes(
+            supervision_log.canonical(
+                self.evaluation_submission(handoff, disposition="reject")
+            )
+            + b"\n"
+        )
+        self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "evaluate",
+            "--evolution-id",
+            self.evolution_id,
+            "--evaluation-json",
+            str(source),
+        )
+        stopped = self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "orchestrate",
+            "--evolution-id",
+            self.evolution_id,
+        )
+        self.assertEqual(stopped["action"]["stage"], "candidate-retired")
+        with mock.patch.object(
+            supervision_log, "factory_release_module"
+        ) as release_owner:
+            terminal = self.command(
+                "factory-evolution",
+                "--target-thread",
+                self.target_thread,
+                "--action",
+                "outcome",
+                "--evolution-id",
+                self.evolution_id,
+            )
+        release_owner.assert_not_called()
+        self.assertEqual(terminal["action"]["stage"], "terminal-outcome")
+        self.assertEqual(
+            terminal["action"]["outcome_posture"], "candidate-retired"
+        )
+        self.assertTrue(terminal["action"]["incumbent_authoritative"])
+
+    def test_interrupted_rollback_outcome_rehydrates_one_owner_effect(self) -> None:
+        fake, _handoff = self.adopt_cycle_for_outcome()
+        failed_id = self.append_factory_outcome_completion(fake, status="failed")
+        rollback_permit = self.admission.root / "quiescent-rollback-retry.json"
+        rollback_permit.write_text("{}", encoding="utf-8")
+        arguments = (
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "outcome",
+            "--evolution-id",
+            self.evolution_id,
+            "--outcome-completion-record",
+            failed_id,
+            "--quiescent-evidence",
+            str(rollback_permit),
+        )
+        original = supervision_log.append_raw_locked_at
+        interrupted = False
+
+        def interrupt_before_outcome(*args: object, **kwargs: object) -> str:
+            nonlocal interrupted
+            record = args[2]
+            if (
+                not interrupted
+                and record.get("kind")
+                == supervision_log.FACTORY_EVOLUTION_OUTCOME_EVENT_KIND
+            ):
+                interrupted = True
+                raise OSError("simulated interruption before outcome append")
+            return original(*args, **kwargs)
+
+        with (
+            mock.patch.object(
+                supervision_log, "factory_release_module", return_value=fake
+            ),
+            mock.patch.object(
+                supervision_log,
+                "append_raw_locked_at",
+                side_effect=interrupt_before_outcome,
+            ),
+            self.assertRaisesRegex(OSError, "interruption"),
+        ):
+            self.command(*arguments)
+        self.assertEqual(fake.rollback_count, 1)
+        with mock.patch.object(
+            supervision_log, "factory_release_module", return_value=fake
+        ):
+            retried = self.command(*arguments)
+        self.assertEqual(fake.rollback_count, 1)
+        self.assertEqual(retried["action"]["outcome_posture"], "rolled-back")
+        self.assertEqual(
+            sum(
+                item.get("kind")
+                == supervision_log.FACTORY_EVOLUTION_OUTCOME_EVENT_KIND
+                for item in supervision_log.events(self.directory / "events.jsonl")
+            ),
+            1,
+        )
+
+    def test_outcome_currentness_correction_recovers_interrupted_append(self) -> None:
+        fake, _handoff = self.adopt_cycle_for_outcome()
+        completion_id = self.append_factory_outcome_completion(
+            fake, status="verified"
+        )
+        arguments = (
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "outcome",
+            "--evolution-id",
+            self.evolution_id,
+            "--outcome-completion-record",
+            completion_id,
+        )
+        original = supervision_log.append_raw_locked_at
+        changed = False
+
+        def change_release_then_interrupt_correction(
+            *args: object, **kwargs: object
+        ) -> str:
+            nonlocal changed
+            record = args[2]
+            if (
+                record.get("kind")
+                == supervision_log.FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND
+            ):
+                raise OSError("simulated interruption before outcome correction")
+            result = original(*args, **kwargs)
+            if (
+                not changed
+                and record.get("kind")
+                == supervision_log.FACTORY_EVOLUTION_OUTCOME_EVENT_KIND
+            ):
+                changed = True
+                fake.rollback_active = True
+                fake.active = fake.baseline
+            return result
+
+        with (
+            mock.patch.object(
+                supervision_log, "factory_release_module", return_value=fake
+            ),
+            mock.patch.object(
+                supervision_log,
+                "append_raw_locked_at",
+                side_effect=change_release_then_interrupt_correction,
+            ),
+            self.assertRaisesRegex(OSError, "outcome correction"),
+        ):
+            self.command(*arguments)
+        retained = supervision_log.events(self.directory / "events.jsonl")
+        self.assertEqual(
+            sum(
+                item.get("kind")
+                == supervision_log.FACTORY_EVOLUTION_OUTCOME_EVENT_KIND
+                for item in retained
+            ),
+            1,
+        )
+        self.assertFalse(
+            any(
+                item.get("kind")
+                == supervision_log.FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND
+                for item in retained
+            )
+        )
+        with mock.patch.object(
+            supervision_log, "factory_release_module", return_value=fake
+        ):
+            corrected = self.command(*arguments)
+        self.assertTrue(corrected["currentness_rejected"])
+        self.assertEqual(
+            corrected["action"]["stage"], "outcome-currentness-rejected"
+        )
+        fake.rollback_active = False
+        fake.active = fake.candidate
+        with mock.patch.object(
+            supervision_log, "factory_release_module", return_value=fake
+        ):
+            recovered = self.command(*arguments)
+        self.assertEqual(recovered["action"]["outcome_posture"], "adopted-effective")
+        final_events = supervision_log.events(self.directory / "events.jsonl")
+        self.assertEqual(
+            sum(
+                item.get("kind")
+                == supervision_log.FACTORY_EVOLUTION_OUTCOME_EVENT_KIND
+                for item in final_events
+            ),
+            2,
+        )
+        self.assertEqual(
+            sum(
+                item.get("kind")
+                == supervision_log.FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND
+                for item in final_events
+            ),
+            1,
+        )
+        first_outcome_ids = [
+            item["payload"]["outcome_id"]
+            for item in final_events
+            if item.get("kind")
+            == supervision_log.FACTORY_EVOLUTION_OUTCOME_EVENT_KIND
+        ]
+        self.assertEqual(len(first_outcome_ids), len(set(first_outcome_ids)))
+
+        fake.rollback_active = True
+        fake.active = fake.baseline
+        with mock.patch.object(
+            supervision_log, "factory_release_module", return_value=fake
+        ):
+            corrected_again = self.command(*arguments)
+        self.assertTrue(corrected_again["currentness_rejected"])
+        self.assertEqual(
+            corrected_again["action"]["stage"], "outcome-currentness-rejected"
+        )
+        fake.rollback_active = False
+        fake.active = fake.candidate
+        with mock.patch.object(
+            supervision_log, "factory_release_module", return_value=fake
+        ):
+            recovered_again = self.command(*arguments)
+        self.assertEqual(
+            recovered_again["action"]["outcome_posture"], "adopted-effective"
+        )
+        twice_recovered = supervision_log.events(self.directory / "events.jsonl")
+        outcome_ids = [
+            item["payload"]["outcome_id"]
+            for item in twice_recovered
+            if item.get("kind")
+            == supervision_log.FACTORY_EVOLUTION_OUTCOME_EVENT_KIND
+        ]
+        self.assertEqual(len(outcome_ids), 3)
+        self.assertEqual(len(outcome_ids), len(set(outcome_ids)))
+        self.assertEqual(
+            sum(
+                item.get("kind")
+                == supervision_log.FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND
+                for item in twice_recovered
+            ),
+            2,
+        )
+
+    def test_outcome_target_currentness_recovers_interrupted_correction(
+        self,
+    ) -> None:
+        fake, _handoff = self.adopt_cycle_for_outcome()
+        completion_id = self.append_factory_outcome_completion(
+            fake, status="verified"
+        )
+        arguments = (
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "outcome",
+            "--evolution-id",
+            self.evolution_id,
+            "--outcome-completion-record",
+            completion_id,
+        )
+        changed = self.repository / "outcome-currentness-change.txt"
+        original = supervision_log.append_raw_locked_at
+
+        def change_target_then_interrupt_correction(
+            *args: object, **kwargs: object
+        ) -> str:
+            record = args[2]
+            if (
+                record.get("kind")
+                == supervision_log.FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND
+            ):
+                raise OSError("simulated interruption before outcome correction")
+            result = original(*args, **kwargs)
+            if (
+                record.get("kind")
+                == supervision_log.FACTORY_EVOLUTION_OUTCOME_EVENT_KIND
+            ):
+                changed.write_text("changed during outcome append\n", encoding="utf-8")
+            return result
+
+        with (
+            mock.patch.object(
+                supervision_log, "factory_release_module", return_value=fake
+            ),
+            mock.patch.object(
+                supervision_log,
+                "append_raw_locked_at",
+                side_effect=change_target_then_interrupt_correction,
+            ),
+            self.assertRaisesRegex(OSError, "outcome correction"),
+        ):
+            self.command(*arguments)
+        with mock.patch.object(
+            supervision_log, "factory_release_module", return_value=fake
+        ):
+            corrected = self.command(*arguments)
+        self.assertTrue(corrected["currentness_rejected"])
+        self.assertEqual(
+            corrected["action"]["stage"], "outcome-currentness-rejected"
+        )
+        changed.unlink()
+        with mock.patch.object(
+            supervision_log, "factory_release_module", return_value=fake
+        ):
+            recovered = self.command(*arguments)
+        self.assertEqual(recovered["action"]["stage"], "terminal-outcome")
+        final_events = supervision_log.events(self.directory / "events.jsonl")
+        self.assertEqual(
+            sum(
+                item.get("kind")
+                == supervision_log.FACTORY_EVOLUTION_OUTCOME_EVENT_KIND
+                for item in final_events
+            ),
+            2,
+        )
+        self.assertEqual(
+            sum(
+                item.get("kind")
+                == supervision_log.FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND
+                for item in final_events
+            ),
+            1,
+        )
 
     def test_interrupted_evaluation_append_rehydrates_exact_disposition(self) -> None:
         _comparison, handoff = self.candidate_ready_for_evaluation()

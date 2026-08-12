@@ -519,15 +519,59 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
             record_hashes=hashes,
             evolution_id="terminal-cycle-1234",
         )
+        current_events = supervision_log.events(self.directory / "events.jsonl")
+        policy = supervision_log.read_json(self.directory / "policy.json")
+        outcome_material = {
+            "schema_version": 1,
+            "kind": "software-factory-evolution-terminal-outcome",
+            "evolution_id": "terminal-cycle-1234",
+            "outcome_id": "outcome-terminal-cycle-1234-1",
+            "predecessor_outcome_root": None,
+            "admission_record_id": current_events[-1]["record_id"],
+            "canonical_evidence_novelty_key": novelty_key,
+            "consumed_coverage_root": supervision_log.digest(hashes),
+            "packet_root": "1" * 64,
+            "review_root": "2" * 64,
+            "evaluation_root": "3" * 64,
+            "adoption_currentness_root": "4" * 64,
+            "selected_candidate_id": "candidate-terminal-1234",
+            "rejected_candidate_ids": [],
+            "intended_effect_root": "5" * 64,
+            "outcome_completion_record_id": "EVT-COMPLETION-1234",
+            "outcome_completion_record_sha256": "6" * 64,
+            "observed_effect_root": "7" * 64,
+            "capability_reconciliation_root": "8" * 64,
+            "protected_regression_count": 0,
+            "resource_cost": {},
+            "outcome_posture": "adopted-effective",
+            "recurrence_posture": "consumed-until-new-canonical-evidence",
+            "rollback_performed": False,
+            "rollback_release_id": None,
+            "rollback_record_id": None,
+            "rollback_record_hmac_sha256": None,
+            "release_owner_state_root": "9" * 64,
+            "implementation_owner_id": "implementer-terminal-1234",
+            "evaluator_id": "evaluator-terminal-1234",
+            "outcome_reviewer_id": "reviewer-terminal-1234",
+            "evidence_refs": ["outcome-evidence-1234"],
+            "candidate_authoritative": True,
+            "incumbent_authoritative": False,
+            "next_action": "continue-with-current-adopted-evidence",
+        }
+        outcome_payload = {
+            **outcome_material,
+            "outcome_root": supervision_log.digest(outcome_material),
+        }
+        outcome = supervision_log.factory_evolution_orchestration_record(
+            kind=supervision_log.FACTORY_EVOLUTION_OUTCOME_EVENT_KIND,
+            record_id=f"EVT-{len(current_events) + 1:06d}",
+            policy=policy,
+            evolution_id="terminal-cycle-1234",
+            payload=outcome_payload,
+        )
+        supervision_log.append_raw(self.directory / "events.jsonl", outcome)
         current_report = self.write_report([record_id], name="consumed-current")
-        with mock.patch.object(
-            supervision_log,
-            "factory_evolution_cycle_inventory",
-            return_value=[
-                {"evolution_id": "terminal-cycle-1234", "state": "terminal"}
-            ],
-        ):
-            consumed = self.admit(current_report)
+        consumed = self.admit(current_report)
         self.assertEqual(
             consumed["disposition"], "already-consumed-canonical-coverage"
         )
@@ -1044,9 +1088,12 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
                 review: object,
                 *,
                 factory_evolution_eligibility: object = None,
+                factory_evolution_outcomes: object = None,
             ) -> None:
                 if factory_evolution_eligibility is None:
                     raise AssertionError("Factory-evolution eligibility is absent")
+                if factory_evolution_outcomes is None:
+                    raise AssertionError("Factory-evolution outcomes are absent")
                 path.write_bytes(b"%PDF-1.4\n%%EOF\n")
 
             @staticmethod
@@ -1096,6 +1143,14 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
         self.assertIn(
             admission["summary"],
             (report_directory / "report.md").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "Factory evolution outcomes",
+            (report_directory / "report.md").read_text(encoding="utf-8"),
+        )
+        self.assertIn(
+            "factory_evolution_outcomes",
+            supervision_log.read_json(report_directory / "report.json"),
         )
         self.assertIn(
             "factory-evolution-eligibility.json",

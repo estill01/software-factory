@@ -128,6 +128,9 @@ class FactoryEvolutionContractTests(unittest.TestCase):
         self.assertIn("`skill-method`", self.contract)
         self.assertIn("`non-inferiority`", self.contract)
         self.assertIn("`observed`, `shadow`, or `synthetic`", self.contract)
+        self.assertIn("## Governed outcome feedback and rollback", self.contract)
+        self.assertIn("factory-evolution --action outcome", self.contract)
+        self.assertIn("consumed only after a current terminal outcome", self.contract)
 
     def test_admission_contract_separates_novelty_from_currentness_and_stops_early(self) -> None:
         normalized = " ".join(self.contract.split()).lower()
@@ -341,6 +344,7 @@ class FactoryEvolutionCliTests(unittest.TestCase):
                 "status",
                 "orchestrate",
                 "acknowledge",
+                "outcome",
             ),
         )
 

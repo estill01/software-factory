@@ -434,6 +434,21 @@ The release owner also compares the frozen prior release ID and activation
 history HMAC inside its activation lock, so intervening or A-to-B-to-A release
 activity cannot be folded into an older adoption decision.
 
+Each governed cycle then closes through one exact terminal outcome. An adopted
+candidate requires the latest independently verified observable result for the
+same evaluation and installed release; report prose or a `promote` disposition
+cannot establish effectiveness. A supported later regression appends a
+successor outcome, preserves the earlier effective record, and invokes the
+normal release owner once to restore the frozen baseline under an exact
+quiescent boundary. Interrupted rollback and outcome writes rehydrate without a
+second owner effect, while release-currentness loss records a nonauthorizing
+correction. Only the current terminal head consumes canonical admission
+coverage. Unchanged or repackaged coverage stays closed; a newly nominated
+canonical outcome/event may support one later bounded cycle. Existing weekly
+and terminal JSON, Markdown, and PDF reports project concise outcome posture,
+rollback, recurrence, and next-action summaries. No continuous monitor, score,
+or learning database is added.
+
 ## Full demonstrated operation
 
 The recorded implementation program and included supervision window show two complementary parts of the system. These are observations from specific runs, not general benchmarks for Codex or software engineering.

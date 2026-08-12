@@ -1729,6 +1729,74 @@ def rollback_release(args: argparse.Namespace) -> dict[str, Any]:
     return activate_release(args, action="rollback")
 
 
+def restore_adoption_release(args: argparse.Namespace) -> dict[str, Any]:
+    """Restore one frozen adopted release through the normal release owner.
+
+    A retry after the rollback rehydrates the unique rollback transition and
+    does not consume another operator record.
+    """
+    release_root = ensure_directory(Path(args.release_root), label="release root")
+    install_root = ensure_directory(Path(args.install_root), label="skill install root")
+    target_release_id = bounded_id(args.release_id, label="rollback release ID")
+    expected_candidate_release_id = bounded_id(
+        args.expected_candidate_release_id, label="adopted release ID"
+    )
+    expected_candidate_activation_hmac = exact_sha256(
+        args.expected_candidate_activation_hmac_sha256,
+        label="adopted activation HMAC",
+    )
+    before = status(
+        argparse.Namespace(
+            release_root=str(release_root),
+            install_root=str(install_root),
+        )
+    )
+    activation = before.get("activation_record")
+    if not isinstance(activation, Mapping):
+        raise ReleaseError("Adoption rollback history is unavailable")
+    if before["active_release_id"] == target_release_id:
+        matches = [
+            item
+            for item in history(release_root)
+            if item["action"] == "rollback"
+            and item["release_id"] == target_release_id
+            and item["previous_release_id"] == expected_candidate_release_id
+            and item["previous_record_hmac_sha256"]
+            == expected_candidate_activation_hmac
+        ]
+        if len(matches) != 1 or matches[0] != activation:
+            raise ReleaseError("Adoption rollback history is ambiguous")
+        installed = verify_installed(release_root, install_root, target_release_id)
+        return {
+            "action": "rollback",
+            "duplicate": True,
+            "active_release_id": target_release_id,
+            "previous_release_id": expected_candidate_release_id,
+            "installed": installed,
+            "activation_record": matches[0],
+        }
+    if (
+        before["active_release_id"] != expected_candidate_release_id
+        or activation.get("record_hmac_sha256")
+        != expected_candidate_activation_hmac
+    ):
+        raise ReleaseError("Adoption rollback baseline changed")
+    result = activate_release(
+        argparse.Namespace(
+            release_root=str(release_root),
+            install_root=str(install_root),
+            release_id=target_release_id,
+            quiescent_evidence=args.quiescent_evidence,
+        ),
+        action="rollback",
+        expected_previous_release_id=expected_candidate_release_id,
+        expected_previous_activation_record_hmac_sha256=(
+            expected_candidate_activation_hmac
+        ),
+    )
+    return {**result, "duplicate": False}
+
+
 def adopt_release(args: argparse.Namespace) -> dict[str, Any]:
     """Stage and activate one reviewed candidate through the existing owner.
 
