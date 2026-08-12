@@ -6770,6 +6770,22 @@ and stop without retrying or widening.
   task/turn action, or supervision record mutation was attempted. Independent
   exact-revision review is pending; Block 24 remains `in-progress` and Blocks
   25-31 remain unopened.
+- Independent rejection and narrow successor: exact review rejected immutable
+  evidence `a4d754707203e47ef011a1b8d530d0f80b8e99e8` and product
+  `c6d5a25cb1c022ff5fc3bd0f1e2a287dfd9e94bf` for one UI truth defect only:
+  a canonical resumed lifecycle plus named ACTIVE rows could render `Running`
+  even when one row's owner coverage remained `unavailable`. All backend owner,
+  currentness, replay, route, descriptor, mechanical, and Stop proof remained
+  valid. Product successor `3d7e28ddc530dcf352032458ad7ccb2aa66b15c9`,
+  tree `11913a5f9e00dd0ba515e9e81b85bd9c4fb24b0d`, changes only the completion
+  predicate and focused component/browser proof. `Running` now requires every
+  represented owner ACTIVE, `reconciled`, and duplicate coverage `exact`; a
+  canonical resume with unavailable or partial owner coverage renders disabled
+  `Resume incomplete` with the limitation stated explicitly. The affected
+  component suite passes 15/15, the production build passes, and the semantic-
+  resume Playwright case passes 3/3 across desktop/tablet/mobile. The successor
+  is pushed with divergence `0 0`; fresh delta-only review is pending and Block
+  25 remains closed.
 
 ### Stop
 
