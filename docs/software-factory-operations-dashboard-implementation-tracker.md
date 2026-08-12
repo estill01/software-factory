@@ -7352,6 +7352,41 @@ unverified stage.
   dashboard-local report generator/delivery registry and a generalized workflow
   engine were rejected because they would duplicate stronger maintained owners
   and broaden this Block beyond one report workflow.
+- First exact-revision review: independently `REJECTED` evidence
+  `b9fb8c2ec9754512becc296a0d0537dc5e60fb3b`, tree
+  `997af28ae3558c6e281f572cb19a263fdb5ba097`, over product
+  `becca0646d1b3d64c88ba2110e3bb3c4c9c1c28e`. The sole material finding was
+  the restart/recovery state where an exact valid `review.json` survived a
+  finalize failure: projection truthfully marked cognitive review complete but
+  still exposed `review-finalize`, whose prompt asked Sol XHigh to synthesize
+  the review again. That contradicted stage reuse and could strand recovery
+  when the second valid synthesis differed byte-for-byte. All other report
+  owner, currentness, delivery, bounds, route, UI, mechanical, and Stop proof
+  passed and remains reusable; Block 28 stayed closed.
+- Retained-review recovery correction: product successor
+  `328131782aaa9cb48c85f7cac9b5b34009cf2783`, tree
+  `bdc885f2f03ed21b544489b0f2cc5ea3db9af0ee`, parent rejected evidence
+  `b9fb8c2ec9754512becc296a0d0537dc5e60fb3b`, changes only eight affected
+  projection/operation/schema/UI/test files. A source-valid retained review now
+  produces the distinct `finalize-verify` stage/action: cognitive review remains
+  complete, finalize is current, the UI says `Finalize & verify`, and the owner
+  prompt explicitly forbids producing, regenerating, editing, or reinterpreting
+  the review. It reads and base64-encodes the exact retained JSON for the
+  maintained replay-safe finalizer, then invokes verification; an absent or
+  changed review stops rather than rerunning cognition.
+- Correction proof: an exact maintained prepare plus retained canonical review
+  restarted into `finalize-verify` with cognitive review `complete` and
+  finalize `current`; the operation source and prompt preserved that action and
+  contained no synthesis instruction. Focused backend passed 2/2 with
+  `ResourceWarning` fatal, focused frontend/schema passed 22/22, production
+  TypeScript/Vite build passed, Ruff and Python compilation passed, and focused
+  Playwright passed 3/3 across desktop/tablet/mobile with the retained-review
+  stage, `Finalize & verify`, exact one-stage request, Axe serious/critical, and
+  no-overflow proof. The full-profile verifier remained 32 Blocks with 0
+  errors/warnings, all 30 verifier tests and diff checks passed, and remote
+  divergence was `0 0`. Prior unaffected report/backend/frontend/delivery proof
+  is reused. No live report or Gmail action occurred; fresh focused exact review
+  is pending.
 
 ### Stop
 
