@@ -154,6 +154,28 @@ const weeklyReportWorkflow = {
   error: null,
 } satisfies RunDetail["weekly_report_workflow"]
 
+const retainedReviewWorkflow = {
+  ...weeklyReportWorkflow,
+  stage: "finalize-verify",
+  next_action: "finalize-verify",
+  delivery: {
+    ...weeklyReportWorkflow.delivery,
+    status: "not-ready",
+    configured: false,
+    retryable: false,
+    reason: "Artifact verification has not completed.",
+  },
+  stages: weeklyReportWorkflow.stages.map((stage) => (
+    stage.id === "finalize"
+      ? { ...stage, status: "current" as const }
+      : stage.id === "verify" || stage.id === "display"
+        ? { ...stage, status: "pending" as const }
+        : stage.id === "delivery"
+          ? { ...stage, status: "pending" as const }
+          : stage
+  )),
+} satisfies RunDetail["weekly_report_workflow"]
+
 function previewEnvelope(type: string): OperationPreviewEnvelope {
   return {
     data: {
@@ -372,6 +394,28 @@ describe("Factory workflow action strips", () => {
     expect(await screen.findByText("weekly-20260801-20260808-test")).toBeVisible()
     expect(screen.getByText("delivery → deliver")).toBeVisible()
     expect(screen.getByText(/Advance one stage only/)).toBeVisible()
+  })
+
+  it("labels retained-review recovery as finalize without requesting review again", async () => {
+    const user = userEvent.setup()
+    renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+        weeklyReportWorkflow={retainedReviewWorkflow}
+      />,
+    )
+
+    expect(screen.queryByRole("button", { name: "Review & finalize" })).not.toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "Finalize & verify" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toMatchObject({
+      operation_type: "factory.weekly-supervision-report",
+      input: { coverage_days: 7 },
+    })
+    expect(await screen.findByText("finalize-verify → finalize-verify")).toBeVisible()
   })
 
   it("maps a server expiry to the same re-preview posture", async () => {

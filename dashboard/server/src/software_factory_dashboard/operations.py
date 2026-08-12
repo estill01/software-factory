@@ -4397,6 +4397,7 @@ class OperationsProjectionService:
             "reason": "Artifact verification has not completed.",
         }
         verification_error: str | None = None
+        retained_review_valid = False
         final_member_names = set(expected_members[2:])
         if prepared and final_member_names.issubset(member_names):
             try:
@@ -4423,6 +4424,7 @@ class OperationsProjectionService:
                     )
                 verification = verification_value
                 delivery = dict(delivery_value)
+                retained_review_valid = True
             except Exception as exc:
                 verification_error = str(exc)
         elif prepared and member_names.intersection(final_member_names):
@@ -4445,6 +4447,7 @@ class OperationsProjectionService:
                         source_root=source_root,
                         record_ids=record_ids,
                     )
+                    retained_review_valid = True
                 except Exception as exc:
                     verification_error = (
                         "The retained cognitive review is invalid: " + str(exc)
@@ -4474,12 +4477,21 @@ class OperationsProjectionService:
 
         verified = isinstance(verification, Mapping) and verification.get("valid") is True
         delivery_status = str(delivery.get("status", "not-ready"))
+        review_complete = verified or retained_review_valid
+        finalized = verified or final_member_names.issubset(member_names)
+        display_complete = verified and all(
+            name in member_names
+            for name in ("report.json", "report.md", "report.pdf", "manifest.json")
+        )
         if not prepared:
             stage = "prepare"
             next_action = "prepare"
-        elif not verified:
+        elif not review_complete:
             stage = "review-finalize"
             next_action = "review-finalize"
+        elif not verified:
+            stage = "finalize-verify"
+            next_action = "finalize-verify"
         elif delivery_status == "pending":
             stage = "delivery"
             next_action = "deliver"
@@ -4493,12 +4505,6 @@ class OperationsProjectionService:
             stage = "verified"
             next_action = None
 
-        review_complete = verified or "review.json" in member_names
-        finalized = verified or final_member_names.issubset(member_names)
-        display_complete = verified and all(
-            name in member_names
-            for name in ("report.json", "report.md", "report.pdf", "manifest.json")
-        )
         stages = [
             {
                 "id": "prepare",

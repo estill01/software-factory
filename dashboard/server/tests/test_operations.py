@@ -1427,6 +1427,21 @@ class OperationsProjectionTests(unittest.TestCase):
             ),
             "sections": sections,
         }
+        report_directory = Path(str(prepared["report_directory"]))
+        (report_directory / "review.json").write_text(
+            json.dumps(review, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        retained_review = self.service.weekly_report_workflow_snapshot(
+            TARGET, coverage_days=7
+        )
+        self.assertEqual(retained_review["stage"], "finalize-verify")
+        self.assertEqual(retained_review["next_action"], "finalize-verify")
+        retained_stages = {
+            item["id"]: item["status"] for item in retained_review["stages"]
+        }
+        self.assertEqual(retained_stages["cognitive-review"], "complete")
+        self.assertEqual(retained_stages["finalize"], "current")
         encoded_review = base64.b64encode(
             json.dumps(review, sort_keys=True).encode("utf-8")
         ).decode("ascii")

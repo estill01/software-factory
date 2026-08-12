@@ -508,15 +508,15 @@ test("catalog views preserve bounded discovery, failures, and archive consequenc
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
 })
 
-test("weekly report workflow shows seven exact stages and requests only the current stage", async ({ page, request }) => {
+test("retained weekly review requests only finalize and verify", async ({ page, request }) => {
   const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
   const runResponse = await request.get(`/api/v1/runs/${target}`)
   expect(runResponse.ok()).toBeTruthy()
   const runEnvelope = await runResponse.json()
   runEnvelope.data.run.weekly_report_workflow = {
     status: "available",
-    stage: "delivery",
-    next_action: "deliver",
+    stage: "finalize-verify",
+    next_action: "finalize-verify",
     actionable: true,
     report_id: "weekly-20260801-20260808-browser",
     coverage: {
@@ -540,19 +540,19 @@ test("weekly report workflow shows seven exact stages and requests only the curr
       ["prepare", "Deterministic prepare", "complete", "weekly owner"],
       ["source-currentness", "Source currentness", "complete", "source owner"],
       ["cognitive-review", "Cognitive review", "complete", "roundup writer"],
-      ["finalize", "Finalize projections", "complete", "weekly owner"],
-      ["verify", "Bundle verification", "complete", "weekly owner"],
-      ["display", "Artifact display", "complete", "dashboard"],
-      ["delivery", "Configured delivery", "current", "delivery owner"],
+      ["finalize", "Finalize projections", "current", "weekly owner"],
+      ["verify", "Bundle verification", "pending", "weekly owner"],
+      ["display", "Artifact display", "pending", "dashboard"],
+      ["delivery", "Configured delivery", "pending", "delivery owner"],
     ].map(([id, label, status, owner]) => ({ id, label, status, owner })),
     delivery: {
-      status: "pending",
-      configured: true,
-      retryable: true,
+      status: "not-ready",
+      configured: false,
+      retryable: false,
       record_id: null,
       message_id: null,
       thread_id: null,
-      reason: "Verified report awaits configured delivery.",
+      reason: "Artifact verification has not completed.",
     },
     limitations: ["Delivery remains a separate postcondition."],
     error: null,
@@ -579,8 +579,8 @@ test("weekly report workflow shows seven exact stages and requests only the curr
   const workflow = page.getByRole("article", { name: "Current weekly report workflow" })
   await expect(workflow).toContainText("weekly-20260801-20260808-browser")
   await expect(workflow.locator(".weekly-report-stages > span")).toHaveCount(7)
-  await expect(workflow.locator('[data-status="current"]')).toContainText("Configured delivery")
-  await page.getByRole("button", { name: "Deliver report" }).click()
+  await expect(workflow.locator('[data-status="current"]')).toContainText("Finalize projections")
+  await page.getByRole("button", { name: "Finalize & verify" }).click()
   await expect.poll(() => requested).toEqual({
     operation_type: "factory.weekly-supervision-report",
     target: { kind: "run", id: target, project_id: "software-factory" },

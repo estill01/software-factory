@@ -813,6 +813,8 @@ export function RunSupervisionActions({
     ? "Prepare report"
     : weeklyReportWorkflow.next_action === "review-finalize"
       ? "Review & finalize"
+      : weeklyReportWorkflow.next_action === "finalize-verify"
+        ? "Finalize & verify"
       : weeklyReportWorkflow.next_action === "deliver"
         ? "Deliver report"
         : weeklyReportWorkflow.stage === "delivered"

@@ -549,6 +549,42 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertTrue(applied.evidence["prior_stages_preserved"])
         self.assertFalse(applied.evidence["automatic_retry"])
 
+        workflow.update(
+            {
+                "stage": "finalize-verify",
+                "next_action": "finalize-verify",
+                "fingerprint": "2" * 64,
+            }
+        )
+        workflow["stages"] = [
+            {"id": "prepare", "label": "Prepare", "status": "complete", "owner": "weekly owner"},
+            {"id": "source-currentness", "label": "Source", "status": "complete", "owner": "source owner"},
+            {"id": "cognitive-review", "label": "Review", "status": "complete", "owner": "roundup writer"},
+            {"id": "finalize", "label": "Finalize", "status": "current", "owner": "weekly owner"},
+            {"id": "verify", "label": "Verify", "status": "pending", "owner": "weekly owner"},
+            {"id": "display", "label": "Display", "status": "pending", "owner": "dashboard"},
+            {"id": "delivery", "label": "Delivery", "status": "pending", "owner": "delivery owner"},
+        ]
+        tasks[writer_id]["status"] = {"type": "idle"}
+        recovery_source = definition.resolve_source(target, inputs)
+        self.assertEqual(recovery_source.evidence["action"], "finalize-verify")
+        recovery_dispatched = definition.dispatch(target, inputs, recovery_source)
+        self.assertEqual(
+            recovery_dispatched.evidence["requested_action"], "finalize-verify"
+        )
+        self.assertIn(
+            "Do not produce, regenerate, edit, or reinterpret that review",
+            owner.app_server_client.prompt,
+        )
+        self.assertIn(
+            "base64-encode that exact JSON",
+            owner.app_server_client.prompt,
+        )
+        self.assertNotIn(
+            "Produce one evidence-bound Sol XHigh synthesis",
+            owner.app_server_client.prompt,
+        )
+
     def test_supervision_pause_requires_both_owners_and_preserves_target_state(self) -> None:
         project_root = self.root / "pause-project"
         target_root = project_root / "target"

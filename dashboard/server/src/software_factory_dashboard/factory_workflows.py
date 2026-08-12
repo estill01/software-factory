@@ -12781,7 +12781,7 @@ class FactoryWorkflowOwner:
                 else False,
             )
         action = workflow.get("next_action")
-        if action not in {"prepare", "review-finalize", "deliver"}:
+        if action not in {"prepare", "review-finalize", "finalize-verify", "deliver"}:
             raise OperationError(
                 "weekly_report_no_action",
                 (
@@ -12974,6 +12974,13 @@ class FactoryWorkflowOwner:
                 f"Both commands must use python3 {helper} --root {owner_root} weekly-report --target-thread {target.id} --report-id {source.evidence['report_id']}. "
                 "Do not rewrite deterministic inputs, send Gmail, configure scheduling, or alter the event ledger."
             )
+        if source.evidence["action"] == "finalize-verify":
+            return base + (
+                "The exact source-bound cognitive review already exists and is valid. Do not produce, regenerate, edit, or reinterpret that review. "
+                "Read the retained review.json bytes, base64-encode that exact JSON as --review-base64, then invoke only weekly-report finalize followed by weekly-report verify. "
+                f"Both commands must use python3 {helper} --root {owner_root} weekly-report --target-thread {target.id} --report-id {source.evidence['report_id']}. "
+                "Stop if the retained review is absent or differs; do not rerun cognitive review, send Gmail, configure scheduling, or alter the event ledger."
+            )
         return base + (
             "The artifact set is already verified. Through the configured Gmail roundup owner, reply in the bound roundup thread with only report.pdf attached. "
             "Use the Gmail owner's exact seed, sent-message, raw-MIME, attachment-owner, and read-call identities to build the weekly delivery read-back contract, then invoke weekly-report record-delivery once. "
@@ -13009,6 +13016,7 @@ class FactoryWorkflowOwner:
         after_stage = {
             "prepare": "review-finalize",
             "review-finalize": "verified bundle",
+            "finalize-verify": "verified bundle",
             "deliver": "delivered",
         }[str(source.evidence["action"])]
         links = (
@@ -13234,6 +13242,7 @@ class FactoryWorkflowOwner:
             expected_stage = {
                 "prepare": {"review-finalize"},
                 "review-finalize": {"delivery", "verified"},
+                "finalize-verify": {"delivery", "verified"},
                 "deliver": {"delivered"},
             }[str(source.evidence["action"])]
             stage_current = workflow.get("stage") in expected_stage
@@ -13245,6 +13254,14 @@ class FactoryWorkflowOwner:
             required_stages = {
                 "prepare": {"prepare", "source-currentness"},
                 "review-finalize": {
+                    "prepare",
+                    "source-currentness",
+                    "cognitive-review",
+                    "finalize",
+                    "verify",
+                    "display",
+                },
+                "finalize-verify": {
                     "prepare",
                     "source-currentness",
                     "cognitive-review",
