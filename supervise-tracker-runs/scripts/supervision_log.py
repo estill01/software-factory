@@ -294,6 +294,12 @@ SAFE_FRONTIER_POSTURES = {"empty", "nonempty"}
 DECISION_OUTCOMES = {"", "selected", "safe-deferred", "user-supplied"}
 DECISION_CORRECTION_PHASES = {"corrected"}
 DECISION_GOVERNING_OUTCOME_EFFECTS = {"continue-governing-outcome"}
+DECISION_IMMUTABLE_FIELDS = (
+    "state_fingerprint",
+    "decision_packet_hash",
+    "blocked_scope_hash",
+    "safe_frontier_hash",
+)
 SUCCESSOR_TRANSITION_PHASES = (
     "required",
     "successor-created",
@@ -9668,6 +9674,19 @@ def decision_successor_reconciliation(
     decision_ready_evidence = decision_ready.get("evidence")
     if not isinstance(decision_ready_evidence, list):
         return None
+    premise_fingerprint = decision_ready.get("state_fingerprint")
+    if not isinstance(premise_fingerprint, str) or not premise_fingerprint:
+        return None
+    if any(
+        decision_ready.get(field) != head.get(field)
+        for field in (
+            "mission_root",
+            "authority_source_class",
+            "authority_source_record",
+            *DECISION_IMMUTABLE_FIELDS,
+        )
+    ):
+        return None
     transition_ids = {
         str(item.get("transition_id"))
         for item in all_events
@@ -9697,12 +9716,13 @@ def decision_successor_reconciliation(
             or correction.get("phase") not in {"corrected", "cancelled", "expired"}
             or correction.get("governing_outcome_effect") != "continue-same-task"
             or correction.get("prior_record_id") != records[-2].get("record_id")
-            or first.get("source_mission_root") != head.get("mission_root")
-            or first.get("state_fingerprint") != head.get("state_fingerprint")
+            or first.get("source_mission_root")
+            != decision_ready.get("mission_root")
+            or first.get("state_fingerprint") != premise_fingerprint
             or first.get("governing_authority_source_class")
-            != head.get("authority_source_class")
+            != decision_ready.get("authority_source_class")
             or first.get("governing_authority_source_record")
-            != head.get("authority_source_record")
+            != decision_ready.get("authority_source_record")
             or correction.get("correction_authority_source_class")
             != head.get("authority_source_class")
             or correction.get("correction_authority_source_record")
@@ -10221,6 +10241,11 @@ def cmd_decision_record(args: argparse.Namespace) -> None:
         raise SupervisionLogError("Decision records require nonempty exact evidence")
     if len(evidence_values) > 12:
         raise SupervisionLogError("Too many decision evidence references")
+    state_fingerprint = clean(
+        args.state_fingerprint,
+        label="state fingerprint",
+        maximum=128,
+    )
     exact_hashes = {
         "decision packet hash": args.decision_packet_hash,
         "blocked scope hash": args.blocked_scope_hash,
@@ -10324,6 +10349,19 @@ def cmd_decision_record(args: argparse.Namespace) -> None:
                         raise SupervisionLogError(
                             "Decision transitions must preserve mission impact and authority provenance"
                         )
+            immutable_values = {
+                "state_fingerprint": state_fingerprint,
+                "decision_packet_hash": args.decision_packet_hash,
+                "blocked_scope_hash": args.blocked_scope_hash,
+                "safe_frontier_hash": args.safe_frontier_hash,
+            }
+            if any(
+                prior.get(field) != value
+                for field, value in immutable_values.items()
+            ):
+                raise SupervisionLogError(
+                    "Decision transitions must preserve the frozen decision identity"
+                )
         if (
             prior is not None
             and prior.get("classification") == classification
@@ -10331,12 +10369,7 @@ def cmd_decision_record(args: argparse.Namespace) -> None:
             and prior.get("safe_frontier") == safe_frontier
             and int(prior.get("attempt", 0)) == attempt
             and prior.get("outcome", "") == outcome
-            and prior.get("state_fingerprint", "")
-            == clean(
-                args.state_fingerprint,
-                label="state fingerprint",
-                maximum=128,
-            )
+            and prior.get("state_fingerprint", "") == state_fingerprint
             and prior.get("decision_packet_hash") == args.decision_packet_hash
             and prior.get("blocked_scope_hash") == args.blocked_scope_hash
             and prior.get("safe_frontier_hash") == args.safe_frontier_hash
@@ -10495,11 +10528,7 @@ def cmd_decision_record(args: argparse.Namespace) -> None:
                 label="safe frontier hash",
                 maximum=128,
             ),
-            "state_fingerprint": clean(
-                args.state_fingerprint,
-                label="state fingerprint",
-                maximum=128,
-            ),
+            "state_fingerprint": state_fingerprint,
             "evidence": evidence_values,
             "policy_sha256": policy["policy_sha256"],
             "prior_record_id": prior_record_id,

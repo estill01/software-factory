@@ -3614,6 +3614,65 @@ class ControlPostureReducerTests(unittest.TestCase):
         self.assertEqual(result["blocking_decision_records"], ["EVT-000004"])
         self.assertEqual(result["reconciled_decisions"], [])
 
+    def test_cited_transition_requires_nonempty_decision_ready_fingerprint(
+        self,
+    ) -> None:
+        target = "owner-empty-transition-state-1234"
+        directory, policy = self.create_target(target, self.owner_mission)
+        authority_record = f"mission-{target}"
+        transition = {
+            "record_id": "EVT-000001",
+            "kind": "successor-transition",
+            "transition_id": "TRANSITION-EMPTY-STATE-1234",
+            "phase": "required",
+            "tracker_sha256": "c" * 64,
+            "source_mission_root": self.owner_mission,
+            "state_fingerprint": "",
+            "governing_authority_source_class": "tracker",
+            "governing_authority_source_record": authority_record,
+        }
+        decision_ready = {
+            "record_id": "EVT-000002",
+            "kind": "decision",
+            "decision_id": "DEC-EMPTY-TRANSITION-STATE-1234",
+            "phase": "decision-ready",
+            "classification": "reserved-authority",
+            "outcome": "",
+            "safe_frontier": "empty",
+            "state_fingerprint": "",
+            "mission_root": self.owner_mission,
+            "authority_source_class": "tracker",
+            "authority_source_record": authority_record,
+            "impact_class": "goal-blocking",
+            "ordinary_means_disabled": True,
+            "independent_mission_review": True,
+            "evidence": ["EVT-000001"],
+        }
+        decision = {
+            **decision_ready,
+            "record_id": "EVT-000003",
+            "phase": "target-acknowledged",
+            "outcome": "safe-deferred",
+        }
+        correction = {
+            **transition,
+            "record_id": "EVT-000004",
+            "phase": "corrected",
+            "prior_record_id": "EVT-000001",
+            "correction_authority_source_class": "tracker",
+            "correction_authority_source_record": authority_record,
+            "correction_authority_source_sha256": self.owner_mission,
+            "governing_outcome_effect": "continue-same-task",
+            "evidence": ["current-direct-correction-1234"],
+        }
+        for record in (transition, decision_ready, decision, correction):
+            self.append(directory, record)
+
+        result = self.reduce(directory, policy)
+
+        self.assertEqual(result["required_target_posture"], "blocked")
+        self.assertEqual(result["reconciled_decisions"], [])
+
     def test_cyclic_successor_membership_fails_into_reconciliation(self) -> None:
         directory, policy = self.create_target(self.owner, self.owner_mission)
         self.append(
@@ -9154,6 +9213,7 @@ class DecisionResolutionTests(unittest.TestCase):
         attempt: int = 0,
         outcome: str = "",
         now: str = "2026-08-01T12:00:00+00:00",
+        state_fingerprint: str = "state-1234",
         mission_root: str | None = None,
         authority_source_class: str = "tracker",
         authority_source_record: str = "TRACKER-BOUNDARY-1234",
@@ -9194,7 +9254,7 @@ class DecisionResolutionTests(unittest.TestCase):
                 "--safe-frontier-hash",
                 self.hash_c,
                 "--state-fingerprint",
-                "state-1234",
+                state_fingerprint,
                 "--evidence",
                 "EVT-SOURCE-1234",
                 "--mission-root",
@@ -9961,6 +10021,33 @@ class DecisionResolutionTests(unittest.TestCase):
                 ],
                 "recorded",
             )
+
+    def test_decision_transition_rejects_changed_frozen_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            policy = supervision_log.default_policy(self.init_args())
+            self.record(
+                directory,
+                policy,
+                classification="missing-fact",
+                phase="decision-ready",
+                safe_frontier="empty",
+                state_fingerprint="state-ready-1234",
+            )
+
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "frozen decision identity",
+            ):
+                self.record(
+                    directory,
+                    policy,
+                    classification="missing-fact",
+                    phase="attempt-started",
+                    safe_frontier="empty",
+                    attempt=1,
+                    state_fingerprint="state-later-1234",
+                )
 
     def test_delegable_decision_cannot_start_resolution_attempt(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

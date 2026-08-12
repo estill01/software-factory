@@ -562,7 +562,8 @@ canonical direct-authority successor-transition correction closes the exact
 topology premise frozen by that decision, the reducer reconciles the decision
 without waiting for another human or a manual Resume. The relation is exact:
 the unique matching transition genesis must predate and be cited by the
-decision-ready record; the transition genesis and decision must share mission,
+decision-ready record; every later decision phase must preserve the frozen
+decision identity; the transition genesis and decision must share mission,
 governing source, and state fingerprint; the later correction must be the
 current transition head,
 cite its exact prior record, resolve through the canonical authority owner, and
