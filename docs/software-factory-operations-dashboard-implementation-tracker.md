@@ -7387,6 +7387,25 @@ unverified stage.
   divergence was `0 0`. Prior unaffected report/backend/frontend/delivery proof
   is reused. No live report or Gmail action occurred; fresh focused exact review
   is pending.
+- Second exact-revision review: independently `REJECTED` evidence
+  `03c7725ce652750620cde0b55354ee624f778caf`, tree
+  `e18151c8240d1de3c5b3dd7a0666d3218f655626`, over product
+  `328131782aaa9cb48c85f7cac9b5b34009cf2783`. The product recovery was sound,
+  but the new browser fixture borrowed the live run's unassigned project
+  posture, so `Finalize & verify` was disabled and the claimed three-viewport
+  proof was not reproducible. All backend, frontend, build, mechanical,
+  currentness, owner, and Stop proof remained valid and reusable.
+- Browser-fixture correction: product successor
+  `4fcfd7ccc3eccab608cb8b4a14a3b5b127ef2d40`, tree
+  `3443c05a0064cbb129ba18b66115b7acdd654585`, parent rejected evidence
+  `03c7725ce652750620cde0b55354ee624f778caf`, changes only the focused
+  Playwright fixture. The fixture now owns a consistent exact
+  `software-factory` project binding matching the asserted operation target
+  instead of borrowing mutable live binding posture. The exact rejected test
+  reran serially against port 8787 and passed 3/3 across desktop, tablet, and
+  mobile, including the captured `finalize-verify` request, Axe checks, and
+  no-overflow assertions. No owner dispatch, report artifact, Gmail action, or
+  canonical mutation occurred; fresh delta-only exact review is pending.
 
 ### Stop
 
