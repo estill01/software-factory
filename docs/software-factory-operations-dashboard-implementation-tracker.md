@@ -7132,6 +7132,41 @@ widening.
   successor creation/binding, route, work-start, policy/history/event mutation,
   or source-stop action was attempted. Independent exact-revision review is
   pending.
+- First exact-revision review: independently `REJECTED` evidence
+  `1218642a9f9b4a9faba474e656f6c450bbeb6428`, tree
+  `63560fa00730ab5a14b31c2d1b4a0e73d001f10e`, over product
+  `05ec47134453ef173735c6a34bff46d9c0f73061`. The single material finding was
+  that the operation unconditionally supplied `task_creation_authority` as
+  available after checking only the canonical head's authority-class enum and
+  nonempty source-record string. A fabricated safe record labeled
+  `direct-user` could therefore enable the task-creation phase without an exact
+  direct-source read. All ordered-phase, one-action, task/group/route/
+  acknowledgement/work-start, effective source-stop, UI history-boundary,
+  resource, and Stop checks passed and remain reusable. The reviewer also
+  identified the arbitrary bootstrap `source_fingerprint` as an affected
+  currentness question to close in the same correction.
+- Authority/currentness correction: product successor
+  `db9f1703634871c8462efb6ed066b979a5f9db05`, tree
+  `93bccb8e6b2bfa8d0bc1e5259e0c35e53743a616`, parent rejected evidence
+  `1218642a9f9b4a9faba474e656f6c450bbeb6428`, changes only four backend/test
+  files. Before passing `available` to the maintained gate, the operation now
+  resolves the canonical `codex:<task>:<turn>:<item>` governing record from the
+  exact complete current source task; requires one ordinary text-only direct
+  user item with matching full-content and envelope hashes, client identity,
+  and no routed/generated/truncated posture; binds those identities into the
+  preview fingerprint and semantic source revision; and rechecks the item after
+  owner dispatch. Unsupported source classes or fabricated, absent, changed,
+  partial, routed, or generated records disable the operation. The projection
+  also retains the exact transition record sequence, and every successor
+  bootstrap marker must match the canonical `successor-created` state
+  fingerprint; first-work markers preserve the same governing source record.
+  Focused fabricated-source and mismatched-bootstrap probes passed 2/2, the
+  full affected backend suites passed 58/58 with `ResourceWarning` fatal, Ruff
+  and compilation passed, and the full-profile 32-Block verifier plus all 30
+  verifier tests and diff checks passed. Prior 104/104 frontend, production
+  build, and responsive browser 3/3 evidence is unaffected and reused. No live
+  transition, task creation, route, policy/event mutation, work start, or stop
+  occurred. Fresh focused exact-revision review is pending.
 
 ### Stop
 
