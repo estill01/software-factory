@@ -427,6 +427,11 @@ export function Component() {
     .sort((left, right) => (projectLabels.get(left) ?? left).localeCompare(projectLabels.get(right) ?? right))
 
   const reportRunProject = new Map(metricRuns.map((run) => [run.target_thread_id, run.project_binding.project_id]))
+  const visibleTerminalWorkflows = (reportsQuery.data?.data.terminal_workflows ?? []).filter((item) => {
+    if (projectFilter !== "all" && item.project_binding.project_id !== projectFilter) return false
+    if (runFilter !== "all" && item.target_thread_id !== runFilter) return false
+    return true
+  })
   const visibleEvolutionWorkflows = (reportsQuery.data?.data.evolution_workflows ?? []).filter((item) => {
     if (projectFilter !== "all" && item.project_binding.project_id !== projectFilter) return false
     if (runFilter !== "all" && item.target_thread_id !== runFilter) return false
@@ -540,6 +545,27 @@ export function Component() {
           <div className="workspace-warning-list">{metricsQuery.data.data.factory_history.unsupported.map((item) => <span key={item}><AlertTriangle aria-hidden="true" />{item}</span>)}</div>
         </section>
       </> : reportsQuery.isPending ? <QueryState kind="loading" message="Loading report history" /> : reportsQuery.isError ? <QueryState kind="error" message={reportsQuery.error.message} retry={() => void reportsQuery.refetch()} /> : <>
+        <section className="workspace-panel terminal-workflow-inventory" aria-labelledby="terminal-workflow-heading">
+          <div className="workspace-panel-heading"><h2 id="terminal-workflow-heading">Terminal</h2><span>{visibleTerminalWorkflows.length} current source projection{visibleTerminalWorkflows.length === 1 ? "" : "s"}</span></div>
+          {visibleTerminalWorkflows.length ? <div className="workspace-record-list">{visibleTerminalWorkflows.map(({ target_thread_id: targetId, target_label: targetLabel, project_binding: projectBinding, workflow }) => (
+            <article className="workspace-record terminal-workflow-row" key={targetId}>
+              <div><Link to={`/runs/${encodeURIComponent(targetId)}`}>{targetLabel}</Link><Identity value={targetId} /><strong>{workflow.report_set_id ?? "Terminal report"}</strong></div>
+              <StatusMark status={workflow.stage} />
+              <span>{projectBinding.project_id ?? "Unassigned"} · {workflow.next_action ?? "No next stage"}</span>
+              <span>{workflow.stages.map((stage) => `${stage.label}: ${stage.status}`).join(" · ") || workflow.error?.message || "Stage source unavailable"}</span>
+              <span>{workflow.completion.reconciled ? `Outcome ${workflow.completion.record_id} · lifecycle ${workflow.completion.lifecycle_record_id}` : "Completion reconciliation unavailable"}</span>
+              <span>{workflow.coverage ? `Delta ${workflow.coverage.delta_start} → ${workflow.coverage.end} · full since ${workflow.coverage.full_start}` : "Coverage unavailable"}</span>
+              <span>{workflow.prior_reports.length} verified prior report{workflow.prior_reports.length === 1 ? "" : "s"} · delivery {workflow.delivery.status}</span>
+              <Identity value={workflow.source_root} />
+              <Identity value={workflow.manifest_root} />
+              <span>{workflow.members.length}/{workflow.expected_members.length} bundle members · {workflow.expected_members.join(" · ") || "bundle contract unavailable"}</span>
+              {workflow.limitations.map((item) => <small key={item}>{item}</small>)}
+              {workflow.error ? <small>{workflow.error.message}</small> : null}
+              <small>Request-stop, automation pause, and shutdown remain separate and are not performed by terminal reporting.</small>
+            </article>
+          ))}</div> : <QueryState kind="empty" message="No current terminal-report projection matches the filters" />}
+        </section>
+
         <section className="workspace-panel evolution-workflow-inventory" aria-labelledby="evolution-workflow-heading">
           <div className="workspace-panel-heading"><h2 id="evolution-workflow-heading">Evolution</h2><span>{visibleEvolutionWorkflows.length} current source projection{visibleEvolutionWorkflows.length === 1 ? "" : "s"}</span></div>
           {visibleEvolutionWorkflows.length ? <div className="workspace-record-list">{visibleEvolutionWorkflows.map(({ target_thread_id: targetId, target_label: targetLabel, project_binding: projectBinding, workflow }) => (

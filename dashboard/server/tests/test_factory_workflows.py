@@ -276,7 +276,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(duplicate_status, 409)
         self.assertEqual(duplicate["error"]["code"], "authoring_owner_conflict")
         self.assertEqual(executed["data"]["operation"]["state"], "applied")
-        self.assertEqual(len(supported), 23)
+        self.assertEqual(len(supported), 24)
         self.assertIn("factory.blocks-implement", supported)
         self.assertIn("factory.supervision-check-now", supported)
         self.assertIn("factory.supervision-adjust", supported)
@@ -287,6 +287,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertIn("factory.supervision-mission-successor", supported)
         self.assertIn("factory.successor-task-transition", supported)
         self.assertIn("factory.weekly-supervision-report", supported)
+        self.assertIn("factory.terminal-supervision-report", supported)
         self.assertIn("factory.evolution-evaluate", supported)
         automation_repair = next(
             item
@@ -585,6 +586,279 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             "Produce one evidence-bound Sol XHigh synthesis",
             owner.app_server_client.prompt,
         )
+
+    def test_terminal_report_advances_one_stage_without_stop_pause_or_shutdown(self) -> None:
+        project_root = self.root / "terminal-project"
+        writer_root = self.root / "terminal-writer"
+        project_root.mkdir()
+        writer_root.mkdir()
+        project = ProjectRecord(
+            id="terminal-project",
+            label="Terminal project",
+            root=str(project_root),
+        )
+        target_id = "terminal-target-001"
+        writer_id = "terminal-writer-001"
+        policy_sha = "a" * 64
+        execution_sha = "b" * 64
+        catalog_fingerprint = "c" * 64
+        binding_fingerprint = "d" * 64
+        source_root = "e" * 64
+        state_fingerprint = "terminal-state-001"
+        tasks = {
+            writer_id: {
+                "id": writer_id,
+                "cwd": str(writer_root),
+                "status": {"type": "idle"},
+                "turns_truncated": False,
+                "turns": [],
+                "model_provider": "openai",
+                "execution_contract": {
+                    "model": "gpt-5.6-sol",
+                    "reasoning_effort": "xhigh",
+                    "source_record_sha256": execution_sha,
+                },
+            }
+        }
+        project_claim = {
+            "fingerprint": binding_fingerprint,
+            "project_binding": {"status": "bound", "project_id": project.id},
+        }
+        control = {
+            "fingerprint": "1" * 64,
+            "policy_sha256": policy_sha,
+            "policy_version": 8,
+            "source_record": "EVT-TERMINAL-SOURCE-001",
+            "policy": {"policy_sha256": policy_sha},
+            "runtime": {"base_reviewer_thread_id": writer_id},
+        }
+        coverage = {
+            "delta_start": "2026-08-08T00:00:00+00:00",
+            "full_start": "2026-08-01T00:00:00+00:00",
+            "end": "2026-08-09T00:00:00+00:00",
+            "delta_anchor_record_id": "weekly-report-001",
+            "delta_anchor_kind": "verified-prior-report",
+        }
+        prior_reports = [
+            {
+                "report_id": "weekly-report-001",
+                "source_root": "2" * 64,
+                "manifest_root": "3" * 64,
+                "coverage": None,
+            }
+        ]
+        workflow = {
+            "status": "available",
+            "stage": "prepare",
+            "next_action": "prepare",
+            "actionable": True,
+            "report_set_id": "terminal-target-001-source001",
+            "source_root": source_root,
+            "manifest_root": None,
+            "fingerprint": "f" * 64,
+            "state_fingerprint": state_fingerprint,
+            "mission_root": "4" * 64,
+            "completion": {
+                "status": "reconciled",
+                "record_id": "EVT-TERMINAL-COMPLETION",
+                "lifecycle_record_id": "EVT-TERMINAL-LIFECYCLE",
+                "reconciled": True,
+            },
+            "coverage": coverage,
+            "prior_reports": prior_reports,
+            "writer_role": "base_reviewer",
+            "writer_task_id": writer_id,
+            "expected_members": [
+                "review-packet.json",
+                "review.json",
+                "delta-report.pdf",
+                "full-report.pdf",
+                "manifest.json",
+            ],
+            "members": [],
+            "stages": [
+                {"id": "prepare", "label": "Prepare", "status": "current", "owner": "terminal owner"},
+                {"id": "source-currentness", "label": "Source", "status": "pending", "owner": "source owner"},
+            ],
+            "delivery": {
+                "status": "not-ready",
+                "configured": True,
+                "required": True,
+                "retryable": False,
+                "record_id": None,
+                "message_id": None,
+                "thread_id": None,
+                "readback_root": None,
+                "reason": "Artifacts are not verified.",
+            },
+            "shutdown": {
+                "status": "separate-owner",
+                "permitted": False,
+                "reason": "Terminal reporting is not shutdown authority.",
+            },
+            "limitations": ["Derived evidence only."],
+            "error": None,
+        }
+        group = {"ids": [target_id]}
+
+        class OperationsStub:
+            supervision_root = self.supervision_root
+
+            @staticmethod
+            def project_binding_snapshot(_projects, selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong terminal project target")
+                return project_claim
+
+            @staticmethod
+            def policy_control_snapshot(selected_target, *, automation_roles=()):
+                if selected_target != target_id or automation_roles != ():
+                    raise AssertionError("wrong terminal policy source")
+                return control
+
+            @staticmethod
+            def terminal_report_workflow_snapshot(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong terminal report source")
+                return workflow
+
+            @staticmethod
+            def binding_group_ids(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong terminal group target")
+                return list(group["ids"])
+
+        class AppServerStub:
+            prompt = None
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": name, "status": "supported"}
+                        for name in ("task_read", "task_resume", "turn_start")
+                    ]
+                }
+
+            @staticmethod
+            def read_task_with_execution_contract(_projects, task_id):
+                if task_id != writer_id:
+                    raise AssertionError("wrong terminal writer read")
+                return {"task": tasks[writer_id]}
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                metadata = writer_root.stat()
+                if (
+                    task_id != writer_id
+                    or expected_cwd != str(writer_root)
+                    or expected_cwd_identity != (metadata.st_dev, metadata.st_ino)
+                ):
+                    raise AssertionError("wrong terminal writer dispatch")
+                self.prompt = text
+                tasks[writer_id]["status"] = {"type": "active"}
+                tasks[writer_id]["turns"] = [
+                    {
+                        "id": "turn-terminal-001",
+                        "status": "inProgress",
+                        "items_truncated": False,
+                        "items": [{"type": "userMessage", "summary": text}],
+                    }
+                ]
+                return {"turn": {"id": "turn-terminal-001"}, "task_resumed": False}
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = AppServerStub()
+        owner.route_gate = lambda request: RouteGateResult(
+            True,
+            route_action_fingerprint(request.required_action),
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint=policy_sha,
+            target_thread=request.target_thread,
+        )
+        owner._terminal_report_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), catalog_fingerprint)
+        definition = owner._terminal_report_definition()
+        target = OperationTarget(kind="run", id=target_id, project_id=project.id)
+        inputs: dict[str, object] = {}
+
+        control["runtime"] = {"roundup_thread_id": writer_id}
+        with self.assertRaisesRegex(OperationError, "base reviewer"):
+            definition.resolve_source(target, inputs)
+        control["runtime"] = {"base_reviewer_thread_id": writer_id}
+        workflow["writer_role"] = "roundup_writer"
+        with self.assertRaisesRegex(OperationError, "base reviewer"):
+            definition.resolve_source(target, inputs)
+        workflow["writer_role"] = "base_reviewer"
+
+        source = definition.resolve_source(target, inputs)
+        route_request = definition.route_gate_request(target, inputs, source)
+        self.assertEqual(route_request.purpose, "changed-state-review")
+        self.assertEqual(route_request.recipient, writer_id)
+        changes = {
+            item.id: item
+            for item in definition.describe_effect(target, inputs, source).semantic_changes
+        }
+        self.assertEqual(changes["terminal-report-stage"].kind, "changed")
+        self.assertEqual(changes["terminal-report-outcome"].kind, "preserved")
+        self.assertEqual(changes["terminal-report-shutdown"].after.value, "not performed")
+        dispatched = definition.dispatch(target, inputs, source)
+        self.assertIn("Advance exactly one terminal supervision-report stage", owner.app_server_client.prompt)
+        self.assertIn("Do not review, finalize, deliver, request-stop, pause", owner.app_server_client.prompt)
+        self.assertFalse(dispatched.evidence["direct_gmail_action"])
+        self.assertFalse(dispatched.evidence["direct_lifecycle_action"])
+        self.assertFalse(dispatched.evidence["request_stop"])
+        self.assertFalse(dispatched.evidence["automation_pause"])
+        self.assertFalse(dispatched.evidence["terminal_shutdown"])
+
+        workflow["stage"] = "review-finalize"
+        workflow["next_action"] = "review-finalize"
+        workflow["stages"][0]["status"] = "complete"
+        workflow["stages"][1]["status"] = "complete"
+        tasks[writer_id]["status"] = {"type": "idle"}
+        tasks[writer_id]["turns"][0]["status"] = "completed"
+        applied = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(applied.state, "applied", applied.evidence)
+        self.assertTrue(applied.evidence["terminal_report_applied"])
+        self.assertFalse(applied.evidence["shutdown_permitted"])
+        self.assertFalse(applied.evidence["direct_gmail_action"])
+        self.assertFalse(applied.evidence["automatic_retry"])
+
+        workflow["shutdown"]["permitted"] = True
+        with self.assertRaisesRegex(OperationError, "shutdown-separation"):
+            definition.resolve_source(target, inputs)
+        workflow["shutdown"]["permitted"] = False
+        workflow.update(
+            {
+                "stage": "finalize-verify",
+                "next_action": "finalize-verify",
+                "fingerprint": "5" * 64,
+            }
+        )
+        workflow["stages"] = [
+            {"id": "prepare", "label": "Prepare", "status": "complete", "owner": "terminal owner"},
+            {"id": "source-currentness", "label": "Source", "status": "complete", "owner": "source owner"},
+            {"id": "cognitive-review", "label": "Review", "status": "complete", "owner": "base reviewer"},
+            {"id": "finalize", "label": "Finalize", "status": "current", "owner": "terminal owner"},
+            {"id": "verify", "label": "Verify", "status": "pending", "owner": "terminal owner"},
+            {"id": "display", "label": "Display", "status": "pending", "owner": "dashboard"},
+            {"id": "delivery", "label": "Delivery", "status": "pending", "owner": "Gmail owner"},
+        ]
+        recovery_source = definition.resolve_source(target, inputs)
+        recovery_dispatched = definition.dispatch(target, inputs, recovery_source)
+        self.assertEqual(recovery_dispatched.evidence["requested_action"], "finalize-verify")
+        self.assertIn("Do not produce, regenerate, edit, or reinterpret it", owner.app_server_client.prompt)
+        self.assertNotIn("Produce one bounded Sol XHigh cognitive review", owner.app_server_client.prompt)
 
     def test_factory_evolution_advances_one_maintained_stage_without_candidate_or_adoption(self) -> None:
         project_root = self.root / "evolution-project"

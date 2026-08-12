@@ -3396,6 +3396,7 @@ class OperationsProjectionService:
         paths = {
             "supervision": self.supervision_owner,
             "weekly": self.weekly_owner,
+            "terminal": self.terminal_owner,
             "evolution": self.evolution_owner,
         }
         path = paths[family]
@@ -4721,6 +4722,578 @@ class OperationsProjectionService:
             evidence, coverage_days=coverage_days
         )
 
+    def _terminal_report_workflow(
+        self,
+        evidence: TargetEvidence,
+    ) -> dict[str, Any]:
+        expected_members = [
+            "review-packet.json",
+            "review.json",
+            "delta-report.json",
+            "delta-report.md",
+            "delta-report.pdf",
+            "full-report.json",
+            "full-report.md",
+            "full-report.pdf",
+            "manifest.json",
+        ]
+
+        def unavailable(
+            code: str,
+            message: str,
+            *,
+            retryable: bool = False,
+            report_set_id: str | None = None,
+            source_root: str | None = None,
+            state_fingerprint: str | None = None,
+            completion_record_id: str | None = None,
+            lifecycle_record_id: str | None = None,
+            mission_root: str | None = None,
+            coverage: Mapping[str, Any] | None = None,
+            prior_reports: Sequence[Mapping[str, Any]] = (),
+            members: Sequence[Mapping[str, Any]] = (),
+            fingerprint_value: str | None = None,
+        ) -> dict[str, Any]:
+            return {
+                "status": "unavailable",
+                "stage": "unavailable",
+                "next_action": None,
+                "actionable": False,
+                "report_set_id": report_set_id,
+                "source_root": source_root,
+                "manifest_root": None,
+                "fingerprint": fingerprint_value,
+                "state_fingerprint": state_fingerprint,
+                "mission_root": mission_root,
+                "completion": {
+                    "status": "unavailable",
+                    "record_id": completion_record_id,
+                    "lifecycle_record_id": lifecycle_record_id,
+                    "reconciled": False,
+                },
+                "coverage": dict(coverage) if isinstance(coverage, Mapping) else None,
+                "prior_reports": [dict(item) for item in prior_reports],
+                "writer_role": "base_reviewer",
+                "writer_task_id": None,
+                "expected_members": expected_members,
+                "members": [dict(item) for item in members],
+                "stages": [],
+                "delivery": {
+                    "status": "not-ready",
+                    "configured": False,
+                    "required": True,
+                    "retryable": False,
+                    "record_id": None,
+                    "message_id": None,
+                    "thread_id": None,
+                    "readback_root": None,
+                    "reason": "The verified terminal bundle is not ready for delivery.",
+                },
+                "shutdown": {
+                    "status": "separate-owner",
+                    "permitted": False,
+                    "reason": "Terminal-report readiness never grants request-stop, automation-pause, or shutdown authority.",
+                },
+                "limitations": [
+                    "No terminal-report stage may advance while its canonical completion or source evidence is unavailable.",
+                    "Terminal-report readiness is separate from request-stop, automation pause, and shutdown.",
+                ],
+                "error": {"code": code, "message": message, "retryable": retryable},
+            }
+
+        owner = self._module("supervision")
+        if evidence.policy.get("reports", {}).get("terminal") != owner.terminal_report_contract():
+            return unavailable(
+                "terminal_report_disabled",
+                "The maintained terminal-report contract is not enabled for this run.",
+            )
+        mission = owner.bound_mission(evidence.policy)
+        if not isinstance(mission, Mapping):
+            return unavailable(
+                "terminal_report_mission_unavailable",
+                "Terminal reporting requires one exact current mission binding.",
+            )
+        lifecycle_records = [
+            item
+            for item in evidence.active_events
+            if item.get("kind") == "lifecycle"
+        ]
+        lifecycle = lifecycle_records[-1] if lifecycle_records else None
+        if not isinstance(lifecycle, Mapping) or lifecycle.get("status") != "completed":
+            return unavailable(
+                "terminal_report_completion_unavailable",
+                "Terminal reporting remains unavailable until the current mission has one canonical completed lifecycle.",
+                mission_root=str(mission["mission_root"]),
+                lifecycle_record_id=(
+                    str(lifecycle.get("record_id")) if isinstance(lifecycle, Mapping) else None
+                ),
+            )
+        state_fingerprint = str(lifecycle.get("state_fingerprint", ""))
+        completion = owner.latest_outcome_completion_record(
+            list(evidence.events), state_fingerprint=state_fingerprint
+        )
+        permitted, completion_reason = owner.assess_outcome_completion_record(
+            completion,
+            policy=evidence.policy,
+            state_fingerprint=state_fingerprint,
+        )
+        completion_record_id = (
+            str(completion.get("record_id"))
+            if isinstance(completion, Mapping)
+            else None
+        )
+        lifecycle_record_id = str(lifecycle.get("record_id", ""))
+        completion_reconciled = bool(
+            permitted
+            and completion_record_id
+            and lifecycle.get("outcome_completion_record_id") == completion_record_id
+        )
+        if not completion_reconciled or not 1 <= len(state_fingerprint) <= 128:
+            return unavailable(
+                "terminal_report_completion_unverified",
+                str(completion_reason),
+                state_fingerprint=state_fingerprint or None,
+                completion_record_id=completion_record_id,
+                lifecycle_record_id=lifecycle_record_id,
+                mission_root=str(mission["mission_root"]),
+            )
+        terminal = self._module("terminal")
+        try:
+            prior_reports = owner.terminal_prior_report_inventory(evidence.directory)
+            packet = terminal.build_packet(
+                target_label=str(
+                    evidence.policy.get("target_label", evidence.target_thread_id[:12])
+                ),
+                target_thread_id=evidence.target_thread_id,
+                mission_root=str(mission["mission_root"]),
+                state_fingerprint=state_fingerprint,
+                completion_record=completion,
+                lifecycle_record=lifecycle,
+                all_events=list(evidence.events),
+                prior_reports=prior_reports,
+            )
+        except Exception as exc:
+            return unavailable(
+                "terminal_report_plan_invalid",
+                f"The maintained terminal-report owner rejected the current source: {exc}",
+                state_fingerprint=state_fingerprint,
+                completion_record_id=completion_record_id,
+                lifecycle_record_id=lifecycle_record_id,
+                mission_root=str(mission["mission_root"]),
+            )
+        report_set_id = str(packet.get("report_set_id", ""))
+        source_root = str(packet.get("source_root", ""))
+        if not SAFE_ID.fullmatch(report_set_id) or not SHA256.fullmatch(source_root):
+            return unavailable(
+                "terminal_report_plan_invalid",
+                "The maintained owner returned an invalid terminal report identity.",
+                state_fingerprint=state_fingerprint,
+                completion_record_id=completion_record_id,
+                lifecycle_record_id=lifecycle_record_id,
+                mission_root=str(mission["mission_root"]),
+            )
+        prior_projection = [
+            {
+                "report_id": str(item.get("report_id", "")),
+                "source_root": str(item.get("source_root", "")),
+                "manifest_root": str(item.get("manifest_root", "")),
+                "coverage": dict(item.get("coverage", {}))
+                if isinstance(item.get("coverage"), Mapping)
+                else None,
+            }
+            for item in packet.get("prior_report_records", [])
+            if isinstance(item, Mapping)
+        ]
+        report_directory = evidence.directory / "reports" / "terminal" / report_set_id
+        if report_directory.is_symlink() or (
+            report_directory.exists() and not report_directory.is_dir()
+        ):
+            return unavailable(
+                "terminal_report_directory_invalid",
+                "The terminal-report path is not an owner-local directory.",
+                report_set_id=report_set_id,
+                source_root=source_root,
+                state_fingerprint=state_fingerprint,
+                completion_record_id=completion_record_id,
+                lifecycle_record_id=lifecycle_record_id,
+                mission_root=str(mission["mission_root"]),
+                coverage=packet.get("coverage"),
+                prior_reports=prior_projection,
+            )
+        workflow_fingerprint = _digest(
+            {
+                "target_source": evidence.fingerprint,
+                "report_set_id": report_set_id,
+                "source_root": source_root,
+                "report_tree": self._report_tree_key(
+                    report_directory,
+                    self.owner_revisions()["terminal_report"]["sha256"],
+                ),
+            }
+        )
+        try:
+            members = (
+                self._report_members(report_directory)
+                if report_directory.is_dir()
+                else []
+            )
+        except OperationsProjectionError as exc:
+            return unavailable(
+                exc.code,
+                str(exc),
+                report_set_id=report_set_id,
+                source_root=source_root,
+                state_fingerprint=state_fingerprint,
+                completion_record_id=completion_record_id,
+                lifecycle_record_id=lifecycle_record_id,
+                mission_root=str(mission["mission_root"]),
+                coverage=packet.get("coverage"),
+                prior_reports=prior_projection,
+                fingerprint_value=workflow_fingerprint,
+            )
+        member_names = {item["name"] for item in members}
+        packet_path = report_directory / "review-packet.json"
+        prepared = False
+        if packet_path.exists():
+            if not packet_path.is_file() or packet_path.is_symlink():
+                return unavailable(
+                    "terminal_report_prepare_conflict",
+                    "The terminal review packet is not a canonical owner file.",
+                    report_set_id=report_set_id,
+                    source_root=source_root,
+                    state_fingerprint=state_fingerprint,
+                    completion_record_id=completion_record_id,
+                    lifecycle_record_id=lifecycle_record_id,
+                    mission_root=str(mission["mission_root"]),
+                    coverage=packet.get("coverage"),
+                    prior_reports=prior_projection,
+                    members=members,
+                    fingerprint_value=workflow_fingerprint,
+                )
+            try:
+                prepared = _read_bounded(
+                    packet_path, MAX_REPORT_ARTIFACT_BYTES
+                ) == self._exact_report_json(packet)
+            except (OSError, OperationsProjectionError):
+                prepared = False
+            if not prepared:
+                return unavailable(
+                    "terminal_report_prepare_conflict",
+                    "The retained terminal review packet differs from the current maintained source plan.",
+                    report_set_id=report_set_id,
+                    source_root=source_root,
+                    state_fingerprint=state_fingerprint,
+                    completion_record_id=completion_record_id,
+                    lifecycle_record_id=lifecycle_record_id,
+                    mission_root=str(mission["mission_root"]),
+                    coverage=packet.get("coverage"),
+                    prior_reports=prior_projection,
+                    members=members,
+                    fingerprint_value=workflow_fingerprint,
+                )
+
+        retained_review_valid = False
+        verification: Mapping[str, Any] | None = None
+        artifact_error: str | None = None
+        partial_bundle = False
+        final_members = set(expected_members[1:])
+        review_path = report_directory / "review.json"
+        if prepared and review_path.is_file() and not review_path.is_symlink():
+            try:
+                review = json.loads(
+                    _read_bounded(review_path, MAX_REPORT_ARTIFACT_BYTES).decode("utf-8")
+                )
+                terminal.validate_review(review, packet)
+                retained_review_valid = True
+            except Exception as exc:
+                artifact_error = f"The retained terminal cognitive review is invalid: {exc}"
+        elif member_names.intersection(final_members):
+            artifact_error = (
+                "Terminal report artifacts exist without the exact retained cognitive review."
+            )
+        if prepared and final_members.issubset(member_names):
+            try:
+                candidate = self._owner_command(
+                    [
+                        "terminal-report",
+                        "--target-thread",
+                        evidence.target_thread_id,
+                        "--action",
+                        "verify",
+                        "--report-set-id",
+                        report_set_id,
+                    ]
+                )
+                if candidate.get("valid") is not True:
+                    raise OperationsProjectionError(
+                        "terminal_report_verification_failed",
+                        "The maintained terminal verifier did not accept the report set.",
+                        status=422,
+                    )
+                verification = candidate
+                retained_review_valid = True
+            except Exception as exc:
+                artifact_error = str(exc)
+        elif prepared and (member_names - {"review-packet.json", "review.json"}):
+            partial_bundle = retained_review_valid
+            if not retained_review_valid:
+                artifact_error = (
+                    "Terminal bundle members exist without a valid retained cognitive review."
+                )
+        if artifact_error is not None:
+            return unavailable(
+                "terminal_report_artifact_invalid",
+                artifact_error,
+                report_set_id=report_set_id,
+                source_root=source_root,
+                state_fingerprint=state_fingerprint,
+                completion_record_id=completion_record_id,
+                lifecycle_record_id=lifecycle_record_id,
+                mission_root=str(mission["mission_root"]),
+                coverage=packet.get("coverage"),
+                prior_reports=prior_projection,
+                members=members,
+                fingerprint_value=workflow_fingerprint,
+            )
+
+        verified = isinstance(verification, Mapping)
+        delivery_config = evidence.policy.get("notifications", {}).get("gmail", {})
+        delivery_configured = bool(
+            isinstance(delivery_config, Mapping)
+            and delivery_config.get("enabled") is True
+            and isinstance(delivery_config.get("reply_message_id"), str)
+            and delivery_config.get("reply_message_id")
+        )
+        delivery_record = (
+            owner.latest_terminal_delivery(
+                list(evidence.events), lifecycle_record_id=lifecycle_record_id
+            )
+            if verified
+            else None
+        )
+        delivery_current = bool(
+            verified
+            and isinstance(delivery_record, Mapping)
+            and owner.terminal_delivery_is_current(delivery_record, verification)
+            and delivery_record.get("state_fingerprint") == state_fingerprint
+        )
+        if delivery_current:
+            delivery_status = "delivered"
+            delivery_reason = (
+                "Both verified terminal PDFs were read back from the configured Gmail reply."
+            )
+        elif isinstance(delivery_record, Mapping):
+            delivery_status = "stale"
+            delivery_reason = (
+                "A terminal delivery record exists but no longer matches the verified bundle and read-back receipt."
+            )
+        elif verified and delivery_configured:
+            delivery_status = "pending"
+            delivery_reason = (
+                "Both verified terminal PDFs require one owner-mediated Gmail reply and exact read-back receipt."
+            )
+        elif verified:
+            delivery_status = "unavailable"
+            delivery_reason = (
+                "The terminal bundle is verified, but the canonical Gmail delivery lane is unavailable."
+            )
+        else:
+            delivery_status = "not-ready"
+            delivery_reason = "Artifact verification has not completed."
+
+        if not prepared:
+            stage, next_action = "prepare", "prepare"
+        elif not retained_review_valid:
+            stage, next_action = "review-finalize", "review-finalize"
+        elif not verified:
+            stage, next_action = "finalize-verify", "finalize-verify"
+        elif delivery_status == "pending":
+            stage, next_action = "delivery", "deliver"
+        elif delivery_status == "delivered":
+            stage, next_action = "delivered", None
+        elif delivery_status == "stale":
+            stage, next_action = "delivery-stale", None
+        else:
+            stage, next_action = "verified", None
+
+        stages = [
+            {
+                "id": "prepare",
+                "label": "Deterministic prepare",
+                "status": "complete" if prepared else "current",
+                "owner": "maintained terminal-report prepare owner",
+            },
+            {
+                "id": "source-currentness",
+                "label": "Outcome and source currentness",
+                "status": "complete" if prepared else "pending",
+                "owner": "canonical outcome, lifecycle, mission, event, and prior-report owners",
+            },
+            {
+                "id": "cognitive-review",
+                "label": "Independent cognitive review",
+                "status": "complete"
+                if retained_review_valid
+                else "current"
+                if prepared
+                else "pending",
+                "owner": "configured Sol XHigh base reviewer",
+            },
+            {
+                "id": "finalize",
+                "label": "Finalize delta and full reports",
+                "status": "complete"
+                if verified
+                else "current"
+                if retained_review_valid
+                else "pending",
+                "owner": "maintained terminal-report finalize owner",
+            },
+            {
+                "id": "verify",
+                "label": "JSON, Markdown, PDF, and manifest verification",
+                "status": "complete" if verified else "pending",
+                "owner": "maintained terminal-report verifier",
+            },
+            {
+                "id": "display",
+                "label": "Read-only artifact display",
+                "status": "complete" if verified else "pending",
+                "owner": "dashboard report projection",
+            },
+            {
+                "id": "delivery",
+                "label": "Configured Gmail delivery and read-back",
+                "status": "complete"
+                if delivery_status == "delivered"
+                else "current"
+                if delivery_status == "pending"
+                else "unavailable"
+                if delivery_status in {"unavailable", "stale"}
+                else "pending",
+                "owner": "configured base reviewer + Gmail read owners + terminal delivery owner",
+            },
+        ]
+        writer_task_id = evidence.policy.get("runtime", {}).get(
+            "base_reviewer_thread_id"
+        )
+        writer_configured = bool(
+            isinstance(writer_task_id, str)
+            and writer_task_id
+            and writer_task_id != evidence.target_thread_id
+        )
+        workflow_error = None
+        if next_action is not None and not writer_configured:
+            workflow_error = {
+                "code": "terminal_report_writer_unavailable",
+                "message": "No distinct configured Sol XHigh base reviewer can advance this terminal-report stage.",
+                "retryable": False,
+            }
+        elif verified and not delivery_configured:
+            workflow_error = {
+                "code": "terminal_report_delivery_unavailable",
+                "message": delivery_reason,
+                "retryable": False,
+            }
+        limitations = [
+            str(packet.get("content_boundary", "Terminal reporting is derived evidence only.")),
+            "A verified or delivered terminal report does not permit request-stop, automation pause, or shutdown.",
+            "The dashboard never reads Gmail messages, downloads Gmail attachments, sends email, or records delivery directly.",
+        ]
+        if partial_bundle:
+            limitations.append(
+                "A later-stage terminal bundle is partial; the exact retained review remains accepted and only maintained finalize/verify recovery is available."
+            )
+        return {
+            "status": "available",
+            "stage": stage,
+            "next_action": next_action,
+            "actionable": next_action is not None and writer_configured,
+            "report_set_id": report_set_id,
+            "source_root": source_root,
+            "manifest_root": verification.get("manifest_root") if verified else None,
+            "fingerprint": workflow_fingerprint,
+            "state_fingerprint": state_fingerprint,
+            "mission_root": str(mission["mission_root"]),
+            "completion": {
+                "status": "reconciled",
+                "record_id": completion_record_id,
+                "lifecycle_record_id": lifecycle_record_id,
+                "reconciled": True,
+            },
+            "coverage": dict(packet["coverage"]),
+            "prior_reports": prior_projection,
+            "writer_role": "base_reviewer",
+            "writer_task_id": writer_task_id,
+            "expected_members": expected_members,
+            "members": members,
+            "stages": stages,
+            "delivery": {
+                "status": delivery_status,
+                "configured": delivery_configured,
+                "required": True,
+                "retryable": delivery_status in {"pending", "stale"},
+                "record_id": (
+                    delivery_record.get("record_id")
+                    if isinstance(delivery_record, Mapping)
+                    else None
+                ),
+                "message_id": (
+                    delivery_record.get("gmail_message_id")
+                    if isinstance(delivery_record, Mapping)
+                    else None
+                ),
+                "thread_id": (
+                    delivery_record.get("gmail_thread_id")
+                    if isinstance(delivery_record, Mapping)
+                    else None
+                ),
+                "readback_root": (
+                    delivery_record.get("gmail_readback_root")
+                    if isinstance(delivery_record, Mapping)
+                    else None
+                ),
+                "reason": delivery_reason,
+            },
+            "shutdown": {
+                "status": "separate-owner",
+                "permitted": False,
+                "reason": "Terminal-report readiness never grants request-stop, automation-pause, or shutdown authority.",
+            },
+            "limitations": limitations,
+            "error": workflow_error,
+        }
+
+    def terminal_report_workflow_snapshot(
+        self,
+        target_thread_id: str,
+    ) -> dict[str, Any]:
+        if not SAFE_ID.fullmatch(target_thread_id):
+            raise OperationsProjectionError(
+                "invalid_run_id", "Run target ID is invalid."
+            )
+        directory = self.supervision_root / target_thread_id
+        if directory.is_symlink():
+            raise OperationsProjectionError(
+                "supervision_target_symlink_rejected",
+                "Supervision target must not be a symlink.",
+                status=422,
+            )
+        try:
+            resolved = directory.resolve(strict=True)
+        except OSError as error:
+            raise OperationsProjectionError(
+                "run_not_found", "Supervision target is not discoverable.", status=404
+            ) from error
+        if resolved.parent != self.supervision_root or not resolved.is_dir():
+            raise OperationsProjectionError(
+                "supervision_target_invalid",
+                "Supervision target escaped its canonical owner root.",
+                status=422,
+            )
+        evidence, _cache = self._load_target(resolved)
+        return self._terminal_report_workflow(evidence)
+
     def _factory_evolution_workflow(
         self,
         evidence: TargetEvidence,
@@ -5645,6 +6218,7 @@ class OperationsProjectionService:
         timeline, timeline_truncated = self._timeline(evidence)
         reports = self._reports(evidence, owners)
         weekly_report_workflow = self._weekly_report_workflow(evidence)
+        terminal_report_workflow = self._terminal_report_workflow(evidence)
         factory_evolution_workflow = self._factory_evolution_workflow(evidence)
         metrics = self._metrics(evidence)
         incidents = []
@@ -5822,6 +6396,7 @@ class OperationsProjectionService:
             "operating_history": self._operating_history(evidence),
             "reports": reports,
             "weekly_report_workflow": weekly_report_workflow,
+            "terminal_report_workflow": terminal_report_workflow,
             "factory_evolution_workflow": factory_evolution_workflow,
             "metrics": metrics,
             "source": {
@@ -5922,6 +6497,53 @@ class OperationsProjectionService:
                     "message_id": None,
                     "thread_id": None,
                     "reason": "Run source is unavailable.",
+                },
+                "limitations": [],
+                "error": {
+                    "code": error.code,
+                    "message": str(error),
+                    "retryable": error.retryable,
+                },
+            },
+            "terminal_report_workflow": {
+                "status": "unavailable",
+                "stage": "unavailable",
+                "next_action": None,
+                "actionable": False,
+                "report_set_id": None,
+                "source_root": None,
+                "manifest_root": None,
+                "fingerprint": None,
+                "state_fingerprint": None,
+                "mission_root": None,
+                "completion": {
+                    "status": "unavailable",
+                    "record_id": None,
+                    "lifecycle_record_id": None,
+                    "reconciled": False,
+                },
+                "coverage": None,
+                "prior_reports": [],
+                "writer_role": "base_reviewer",
+                "writer_task_id": None,
+                "expected_members": [],
+                "members": [],
+                "stages": [],
+                "delivery": {
+                    "status": "not-ready",
+                    "configured": False,
+                    "required": True,
+                    "retryable": False,
+                    "record_id": None,
+                    "message_id": None,
+                    "thread_id": None,
+                    "readback_root": None,
+                    "reason": "Run source is unavailable.",
+                },
+                "shutdown": {
+                    "status": "separate-owner",
+                    "permitted": False,
+                    "reason": "Terminal-report readiness never grants request-stop, automation-pause, or shutdown authority.",
                 },
                 "limitations": [],
                 "error": {
@@ -6072,6 +6694,15 @@ class OperationsProjectionService:
                 "target_label": run["target_label"],
                 "project_binding": run["project_binding"],
                 "workflow": run["factory_evolution_workflow"],
+            }
+            for run in runs
+        ]
+        terminal_workflows = [
+            {
+                "target_thread_id": run["target_thread_id"],
+                "target_label": run["target_label"],
+                "project_binding": run["project_binding"],
+                "workflow": run["terminal_report_workflow"],
             }
             for run in runs
         ]
@@ -6376,6 +7007,11 @@ class OperationsProjectionService:
                 "runs": [run.get("fingerprint") or run.get("error") for run in runs],
                 "automations": [automation.get("manifest_sha256") for automation in automations.values()],
                 "reports": [report.get("manifest_root") or report.get("error") for report in reports],
+                "terminal_workflows": [
+                    item["workflow"].get("fingerprint")
+                    or item["workflow"].get("error")
+                    for item in terminal_workflows
+                ],
             }
         )
         automation_inventory_available = not (
@@ -6403,6 +7039,7 @@ class OperationsProjectionService:
             "orphan_automations": orphan_automations,
             "unmonitored_projects": unmonitored_projects,
             "reports": reports,
+            "terminal_workflows": terminal_workflows,
             "evolution_workflows": evolution_workflows,
             "metrics": {
                 "aggregate": aggregate,

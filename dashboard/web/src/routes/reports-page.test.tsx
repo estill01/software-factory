@@ -115,6 +115,44 @@ const reports = [
   weeklyReport("weekly-invalid", "2026-08-10T00:00:00Z", "unavailable"),
 ]
 
+const terminalWorkflows = [{
+  target_thread_id: runs[0].target_thread_id,
+  target_label: runs[0].target_label,
+  project_binding: runs[0].project_binding,
+  workflow: {
+    status: "available",
+    stage: "delivery",
+    next_action: "deliver",
+    actionable: true,
+    report_set_id: "terminal-alpha-0011223344556677",
+    source_root: hash("1"),
+    manifest_root: hash("2"),
+    fingerprint: hash("3"),
+    state_fingerprint: "terminal-state-001",
+    mission_root: hash("4"),
+    completion: { status: "reconciled", record_id: "EVT-COMPLETION", lifecycle_record_id: "EVT-LIFECYCLE", reconciled: true },
+    coverage: { delta_start: "2026-08-08T00:00:00Z", full_start: "2026-08-01T00:00:00Z", end: "2026-08-09T00:00:00Z", delta_anchor_record_id: "weekly-one", delta_anchor_kind: "verified-prior-report" },
+    prior_reports: [{ report_id: "weekly-one", source_root: hash("a"), manifest_root: hash("b"), coverage: reports[0].coverage }],
+    writer_role: "base_reviewer",
+    writer_task_id: "base-reviewer-001",
+    expected_members: ["review-packet.json", "review.json", "delta-report.pdf", "full-report.pdf", "manifest.json"],
+    members: [],
+    stages: [
+      { id: "prepare", label: "Prepare", status: "complete", owner: "terminal owner" },
+      { id: "source-currentness", label: "Source", status: "complete", owner: "source owner" },
+      { id: "cognitive-review", label: "Review", status: "complete", owner: "base reviewer" },
+      { id: "finalize", label: "Finalize", status: "complete", owner: "terminal owner" },
+      { id: "verify", label: "Verify", status: "complete", owner: "terminal owner" },
+      { id: "display", label: "Display", status: "complete", owner: "dashboard" },
+      { id: "delivery", label: "Delivery", status: "current", owner: "Gmail owner" },
+    ],
+    delivery: { status: "pending", configured: true, required: true, retryable: true, record_id: null, message_id: null, thread_id: null, readback_root: null, reason: "Verified terminal PDFs await read-back." },
+    shutdown: { status: "separate-owner", permitted: false, reason: "Terminal reporting is not shutdown authority." },
+    limitations: ["Derived evidence only."],
+    error: null,
+  },
+}]
+
 const evolutionWorkflows = [{
   target_thread_id: runs[0].target_thread_id,
   target_label: runs[0].target_label,
@@ -204,7 +242,7 @@ describe("metrics and report history workspace", () => {
     vi.clearAllMocks()
     mocks.fetchProjects.mockResolvedValue({ data: { projects } })
     mocks.fetchMetrics.mockResolvedValue(metricsResponse())
-    mocks.fetchReports.mockResolvedValue({ coverage: { status: "partial" }, data: { reports, evolution_workflows: evolutionWorkflows } })
+    mocks.fetchReports.mockResolvedValue({ coverage: { status: "partial" }, data: { reports, terminal_workflows: terminalWorkflows, evolution_workflows: evolutionWorkflows } })
     mocks.fetchReport.mockImplementation((_target: string, _family: string, id: string) => Promise.resolve(reportDetail(reports.find((report) => report.id === id)!, id === "weekly-one" ? 10 : 16)))
     mocks.fetchReportArtifactText.mockResolvedValue("# Exact report\n\n<script>not executable</script>")
   })
@@ -247,6 +285,12 @@ describe("metrics and report history workspace", () => {
     renderReports("/reports?view=reports")
 
     expect(await screen.findByRole("heading", { name: "History" })).toBeVisible()
+    const terminal = screen.getByRole("heading", { name: "Terminal" }).closest("section")!
+    expect(terminal).toHaveTextContent("terminal-alpha-0011223344556677")
+    expect(terminal).toHaveTextContent("Outcome EVT-COMPLETION · lifecycle EVT-LIFECYCLE")
+    expect(terminal).toHaveTextContent("0/5 bundle members")
+    expect(terminal).toHaveTextContent("Derived evidence only")
+    expect(terminal).toHaveTextContent("shutdown remain separate")
     const evolution = screen.getByRole("heading", { name: "Evolution" }).closest("section")!
     expect(evolution).toHaveTextContent("awaiting-implementation")
     expect(evolution).toHaveTextContent("External implementation: awaiting-owner-proof")

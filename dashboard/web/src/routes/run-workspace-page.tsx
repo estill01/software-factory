@@ -396,6 +396,7 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
           currentMission={run.current_mission}
           successorTransitions={missionTransitions}
           weeklyReportWorkflow={run.weekly_report_workflow}
+          terminalReportWorkflow={run.terminal_report_workflow}
           factoryEvolutionWorkflow={run.factory_evolution_workflow}
         />
       )}
@@ -554,6 +555,23 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
                   <div><span>{run.weekly_report_workflow.coverage ? `${run.weekly_report_workflow.coverage.start} — ${run.weekly_report_workflow.coverage.end} · ${run.weekly_report_workflow.timezone}` : "Report period unavailable"}</span><span>Writer <Identity value={run.weekly_report_workflow.writer_task_id} /></span></div>
                   <div><Identity value={run.weekly_report_workflow.source_root} /><span>{run.weekly_report_workflow.delivery.status}{run.weekly_report_workflow.delivery.reason ? ` · ${run.weekly_report_workflow.delivery.reason}` : ""}</span></div>
                   {run.weekly_report_workflow.error ? <div className="workspace-bound">{run.weekly_report_workflow.error.message}</div> : null}
+                </article>
+                <article className="weekly-report-progress terminal-report-progress" aria-label="Current terminal report workflow">
+                  <div><strong>{run.terminal_report_workflow.report_set_id ?? "Terminal report"}</strong><StatusMark status={run.terminal_report_workflow.stage} /></div>
+                  <div className="weekly-report-stages">{run.terminal_report_workflow.stages.map((stage) => <span key={stage.id} data-status={stage.status}>{stage.label}<small>{stage.status}</small></span>)}</div>
+                  <div>
+                    <span>{run.terminal_report_workflow.completion.reconciled ? `Outcome ${run.terminal_report_workflow.completion.record_id} · lifecycle ${run.terminal_report_workflow.completion.lifecycle_record_id}` : "Completion reconciliation unavailable"}</span>
+                    <span>Writer <Identity value={run.terminal_report_workflow.writer_task_id} /></span>
+                  </div>
+                  <div>
+                    <span>{run.terminal_report_workflow.coverage ? `${run.terminal_report_workflow.coverage.delta_start} — ${run.terminal_report_workflow.coverage.end} · full since ${run.terminal_report_workflow.coverage.full_start}` : "Terminal coverage unavailable"}</span>
+                    <span>{run.terminal_report_workflow.prior_reports.length} verified prior report{run.terminal_report_workflow.prior_reports.length === 1 ? "" : "s"}</span>
+                  </div>
+                  <div><Identity value={run.terminal_report_workflow.source_root} /><Identity value={run.terminal_report_workflow.manifest_root} /><span>{run.terminal_report_workflow.delivery.status} · {run.terminal_report_workflow.delivery.reason}</span></div>
+                  <div><span>{run.terminal_report_workflow.members.length}/{run.terminal_report_workflow.expected_members.length} bundle members</span><span>{run.terminal_report_workflow.expected_members.join(" · ") || "Bundle contract unavailable"}</span></div>
+                  <div className="workspace-bound">Report readiness is separate from request-stop, automation pause, and shutdown.</div>
+                  {run.terminal_report_workflow.limitations.map((item) => <div className="workspace-bound" key={item}>{item}</div>)}
+                  {run.terminal_report_workflow.error ? <div className="workspace-bound">{run.terminal_report_workflow.error.message}</div> : null}
                 </article>
                 <article className="weekly-report-progress evolution-progress" aria-label="Current Factory evolution workflow">
                   <div><strong>{run.factory_evolution_workflow.evolution_id ?? "Factory evolution"}</strong><StatusMark status={run.factory_evolution_workflow.stage} /></div>

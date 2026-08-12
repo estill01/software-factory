@@ -36,6 +36,7 @@ type TrackerBlock = TrackerDetail["blocks"][number]
 type RunPolicy = NonNullable<RunDetail["policy"]>
 type CurrentMission = NonNullable<RunDetail["current_mission"]>
 type WeeklyReportWorkflow = RunDetail["weekly_report_workflow"]
+type TerminalReportWorkflow = RunDetail["terminal_report_workflow"]
 type FactoryEvolutionWorkflow = RunDetail["factory_evolution_workflow"]
 type PolicyField = keyof RunPolicy["adjustable"]
 type AutomationRepairRow = RunPolicy["automation_reconciliation"][number]
@@ -70,6 +71,53 @@ const unavailableWeeklyReportWorkflow: WeeklyReportWorkflow = {
   error: {
     code: "weekly_report_workflow_unavailable",
     message: "Weekly report workflow projection is unavailable.",
+    retryable: true,
+  },
+}
+const unavailableTerminalReportWorkflow: TerminalReportWorkflow = {
+  status: "unavailable",
+  stage: "unavailable",
+  next_action: null,
+  actionable: false,
+  report_set_id: null,
+  source_root: null,
+  manifest_root: null,
+  fingerprint: null,
+  state_fingerprint: null,
+  mission_root: null,
+  completion: {
+    status: "unavailable",
+    record_id: null,
+    lifecycle_record_id: null,
+    reconciled: false,
+  },
+  coverage: null,
+  prior_reports: [],
+  writer_role: "base_reviewer",
+  writer_task_id: null,
+  expected_members: [],
+  members: [],
+  stages: [],
+  delivery: {
+    status: "not-ready",
+    configured: false,
+    required: true,
+    retryable: false,
+    record_id: null,
+    message_id: null,
+    thread_id: null,
+    readback_root: null,
+    reason: "Terminal report workflow projection is unavailable.",
+  },
+  shutdown: {
+    status: "separate-owner",
+    permitted: false,
+    reason: "Terminal-report readiness never grants request-stop, automation-pause, or shutdown authority.",
+  },
+  limitations: ["Terminal report workflow projection is unavailable."],
+  error: {
+    code: "terminal_report_workflow_unavailable",
+    message: "Terminal report workflow projection is unavailable.",
     retryable: true,
   },
 }
@@ -535,6 +583,7 @@ export function RunSupervisionActions({
   currentMission = null,
   successorTransitions = [],
   weeklyReportWorkflow = unavailableWeeklyReportWorkflow,
+  terminalReportWorkflow = unavailableTerminalReportWorkflow,
   factoryEvolutionWorkflow = unavailableFactoryEvolutionWorkflow,
 }: {
   targetId: string
@@ -547,6 +596,7 @@ export function RunSupervisionActions({
   currentMission?: CurrentMission | null
   successorTransitions?: SuccessorTransition[]
   weeklyReportWorkflow?: WeeklyReportWorkflow
+  terminalReportWorkflow?: TerminalReportWorkflow
   factoryEvolutionWorkflow?: FactoryEvolutionWorkflow
 }) {
   const runner = useOperationRunner()
@@ -894,6 +944,44 @@ export function RunSupervisionActions({
       ],
     })
   }
+  const terminalReportActionLabel = terminalReportWorkflow.next_action === "prepare"
+    ? "Prepare terminal report"
+    : terminalReportWorkflow.next_action === "review-finalize"
+      ? "Review terminal report"
+      : terminalReportWorkflow.next_action === "finalize-verify"
+        ? "Finalize terminal report"
+        : terminalReportWorkflow.next_action === "deliver"
+          ? "Deliver terminal report"
+          : terminalReportWorkflow.stage === "delivered"
+            ? "Terminal report delivered"
+            : terminalReportWorkflow.stage === "verified"
+              ? "Terminal report verified"
+              : "Terminal report unavailable"
+  const launchTerminalReport = () => {
+    if (!projectId || !terminalReportWorkflow.actionable) return
+    runner.launch({
+      request: {
+        operation_type: "factory.terminal-supervision-report",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: {},
+      },
+      suppliedFacts: [
+        ["Report", terminalReportWorkflow.report_set_id ?? "Current owner-derived terminal report"],
+        ["Stage", `${terminalReportWorkflow.stage} → ${terminalReportWorkflow.next_action}`],
+        ["Outcome", `${terminalReportWorkflow.completion.status} · ${terminalReportWorkflow.completion.record_id ?? "Unavailable"} · ${terminalReportWorkflow.completion.lifecycle_record_id ?? "Unavailable"}`],
+        ["Coverage", terminalReportWorkflow.coverage
+          ? `${terminalReportWorkflow.coverage.delta_start} → ${terminalReportWorkflow.coverage.end} · full since ${terminalReportWorkflow.coverage.full_start}`
+          : "Unavailable"],
+        ["Source root", terminalReportWorkflow.source_root ?? "Unavailable"],
+        ["Prior reports", `${terminalReportWorkflow.prior_reports.length} exact verified input${terminalReportWorkflow.prior_reports.length === 1 ? "" : "s"}`],
+        ["Writer", terminalReportWorkflow.writer_task_id ?? "Unavailable"],
+        ["Bundle", terminalReportWorkflow.expected_members.join(" · ")],
+        ["Delivery", `${terminalReportWorkflow.delivery.status} · ${terminalReportWorkflow.delivery.reason}`],
+        ["Boundary", "Request-stop · automation pause · terminal shutdown: separate and not performed"],
+        ["Recovery", "Advance one stage only · retain exact accepted stages · no automatic retry"],
+      ],
+    })
+  }
   const evolutionActionLabel = factoryEvolutionWorkflow.next_action === "prepare"
     ? "Prepare evolution"
     : factoryEvolutionWorkflow.next_action === "finalize"
@@ -984,6 +1072,15 @@ export function RunSupervisionActions({
           onClick={launchWeeklyReport}
         >
           {reportActionLabel}
+        </Button>
+        <Button
+          size="compact"
+          variant="outline"
+          disabled={unavailable || !terminalReportWorkflow.actionable}
+          title={terminalReportWorkflow.error?.message ?? terminalReportWorkflow.delivery.reason}
+          onClick={launchTerminalReport}
+        >
+          {terminalReportActionLabel}
         </Button>
         <Button
           size="compact"

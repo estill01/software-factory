@@ -176,6 +176,64 @@ const retainedReviewWorkflow = {
   )),
 } satisfies RunDetail["weekly_report_workflow"]
 
+const terminalReportWorkflow = {
+  status: "available",
+  stage: "delivery",
+  next_action: "deliver",
+  actionable: true,
+  report_set_id: "terminal-task-demo-0011223344556677",
+  source_root: hash,
+  manifest_root: hash,
+  fingerprint: hash,
+  state_fingerprint: "terminal-state-001",
+  mission_root: hash,
+  completion: {
+    status: "reconciled",
+    record_id: "EVT-TERMINAL-COMPLETION",
+    lifecycle_record_id: "EVT-TERMINAL-LIFECYCLE",
+    reconciled: true,
+  },
+  coverage: {
+    delta_start: "2026-08-08T00:00:00+00:00",
+    full_start: "2026-08-01T00:00:00+00:00",
+    end: "2026-08-09T00:00:00+00:00",
+    delta_anchor_record_id: "weekly-test-001",
+    delta_anchor_kind: "verified-prior-report",
+  },
+  prior_reports: [{ report_id: "weekly-test-001", source_root: hash, manifest_root: hash, coverage: weeklyReportWorkflow.coverage }],
+  writer_role: "base_reviewer",
+  writer_task_id: "base-reviewer-task",
+  expected_members: ["review-packet.json", "review.json", "delta-report.pdf", "full-report.pdf", "manifest.json"],
+  members: [],
+  stages: [
+    { id: "prepare", label: "Prepare", status: "complete", owner: "terminal owner" },
+    { id: "source-currentness", label: "Source", status: "complete", owner: "source owner" },
+    { id: "cognitive-review", label: "Review", status: "complete", owner: "base reviewer" },
+    { id: "finalize", label: "Finalize", status: "complete", owner: "terminal owner" },
+    { id: "verify", label: "Verify", status: "complete", owner: "terminal owner" },
+    { id: "display", label: "Display", status: "complete", owner: "dashboard" },
+    { id: "delivery", label: "Delivery", status: "current", owner: "Gmail owner" },
+  ],
+  delivery: {
+    status: "pending",
+    configured: true,
+    required: true,
+    retryable: true,
+    record_id: null,
+    message_id: null,
+    thread_id: null,
+    readback_root: null,
+    reason: "Verified terminal PDFs await configured delivery.",
+  },
+  shutdown: {
+    status: "separate-owner",
+    permitted: false,
+    reason: "Terminal reporting is not shutdown authority.",
+  },
+  limitations: ["Derived evidence only."],
+  error: null,
+} satisfies RunDetail["terminal_report_workflow"]
+
 const factoryEvolutionWorkflow = {
   status: "available",
   stage: "awaiting-implementation",
@@ -458,6 +516,30 @@ describe("Factory workflow action strips", () => {
       input: { coverage_days: 7 },
     })
     expect(await screen.findByText("finalize-verify → finalize-verify")).toBeVisible()
+  })
+
+  it("previews one terminal-report delivery stage without stop, pause, or shutdown", async () => {
+    const user = userEvent.setup()
+    renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+        terminalReportWorkflow={terminalReportWorkflow}
+      />,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Deliver terminal report" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.terminal-supervision-report",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: {},
+    })
+    expect(await screen.findByText("terminal-task-demo-0011223344556677")).toBeVisible()
+    expect(screen.getByText("reconciled · EVT-TERMINAL-COMPLETION · EVT-TERMINAL-LIFECYCLE")).toBeVisible()
+    expect(screen.getByText(/Request-stop · automation pause · terminal shutdown/)).toHaveTextContent("separate and not performed")
   })
 
   it("previews only the current Factory-evolution stage and keeps adoption outside it", async () => {

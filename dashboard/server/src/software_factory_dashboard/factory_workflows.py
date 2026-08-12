@@ -94,6 +94,8 @@ SUCCESSOR_TRANSITION_WORK_ITEM_TYPES = {
 }
 WEEKLY_REPORT_MARKER = "SOFTWARE_FACTORY_DASHBOARD_WEEKLY_REPORT "
 WEEKLY_REPORT_ROUTE_PURPOSE = "roundup-action"
+TERMINAL_REPORT_MARKER = "SOFTWARE_FACTORY_DASHBOARD_TERMINAL_REPORT "
+TERMINAL_REPORT_ROUTE_PURPOSE = "changed-state-review"
 FACTORY_EVOLUTION_MARKER = "SOFTWARE_FACTORY_DASHBOARD_FACTORY_EVOLUTION "
 ROLE_BINDING_REPAIR_ROLES = {
     "base_reviewer": {
@@ -515,6 +517,7 @@ class FactoryWorkflowOwner:
         self._mission_successor_dispatch_lock = RLock()
         self._successor_transition_dispatch_lock = RLock()
         self._weekly_report_dispatch_lock = RLock()
+        self._terminal_report_dispatch_lock = RLock()
         self._factory_evolution_dispatch_lock = RLock()
 
     @staticmethod
@@ -1257,6 +1260,7 @@ class FactoryWorkflowOwner:
                 self._mission_successor_definition(),
                 self._successor_transition_definition(),
                 self._weekly_report_definition(),
+                self._terminal_report_definition(),
                 self._factory_evolution_definition(),
                 self._unavailable_authoring_supervision_definition(),
             )
@@ -13407,6 +13411,773 @@ class FactoryWorkflowOwner:
                 ),
             ),
             route_gate_request=self._weekly_report_route_request,
+            route_gate=self.route_gate,
+            dispatch=dispatch,
+            verify=verify,
+        )
+
+    @staticmethod
+    def _terminal_report_marker(
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> dict[str, Any]:
+        return {
+            "kind": "terminal-supervision-report",
+            "target_thread_id": target.id,
+            "project_id": source.evidence["project_id"],
+            "report_set_id": source.evidence["report_set_id"],
+            "action": source.evidence["action"],
+            "source_root": source.evidence["source_root"],
+            "state_fingerprint": source.evidence["state_fingerprint"],
+            "completion_record_id": source.evidence["completion_record_id"],
+            "lifecycle_record_id": source.evidence["lifecycle_record_id"],
+            "mission_root": source.evidence["mission_root"],
+            "workflow_fingerprint": source.evidence["workflow_fingerprint"],
+            "policy_sha256": source.evidence["policy_sha256"],
+            "source_record": source.evidence["source_record"],
+            "writer_task_id": source.evidence["writer_task_id"],
+            "preview_fingerprint": source.fingerprint,
+            "route_purpose": TERMINAL_REPORT_ROUTE_PURPOSE,
+        }
+
+    @staticmethod
+    def _terminal_report_turn_has_marker(
+        task: Mapping[str, Any],
+        *,
+        turn_id: str,
+        expected: Mapping[str, Any],
+    ) -> bool:
+        if task.get("turns_truncated") is True:
+            return False
+        turns = [
+            turn
+            for turn in task.get("turns", [])
+            if isinstance(turn, Mapping) and turn.get("id") == turn_id
+        ]
+        if len(turns) != 1 or turns[0].get("items_truncated") is True:
+            return False
+        markers: list[Mapping[str, Any]] = []
+        for item in turns[0].get("items", []):
+            summary = item.get("summary")
+            if item.get("type") != "userMessage" or not isinstance(summary, str):
+                continue
+            first_line = summary.splitlines()[0] if summary else ""
+            if not first_line.startswith(TERMINAL_REPORT_MARKER):
+                continue
+            try:
+                marker = json.loads(first_line.removeprefix(TERMINAL_REPORT_MARKER))
+            except json.JSONDecodeError:
+                return False
+            if isinstance(marker, Mapping):
+                markers.append(marker)
+        return len(markers) == 1 and markers[0] == expected
+
+    def _terminal_report_source(
+        self,
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+    ) -> SourceSnapshot:
+        del inputs
+        projects, catalog_fingerprint = self._active_projects()
+        project = self._project_from(projects, target)
+        self._require_capabilities("task_read", "task_resume", "turn_start")
+        try:
+            project_claim = self.operations_service.project_binding_snapshot(
+                projects, target.id
+            )
+            control = self.operations_service.policy_control_snapshot(
+                target.id, automation_roles=()
+            )
+            workflow = self.operations_service.terminal_report_workflow_snapshot(
+                target.id
+            )
+        except OperationsProjectionError as error:
+            raise _operation_error(
+                error,
+                fallback="terminal_report_source_unavailable",
+            ) from error
+        binding = project_claim.get("project_binding")
+        if (
+            not isinstance(binding, Mapping)
+            or binding.get("status") != "bound"
+            or binding.get("project_id") != project.id
+            or self.operations_service.binding_group_ids(target.id) != [target.id]
+        ):
+            raise OperationError(
+                "terminal_report_project_mismatch",
+                "The run does not resolve to one exact registered project and supervision group.",
+                status=409,
+            )
+        if workflow.get("status") != "available":
+            error = workflow.get("error")
+            raise OperationError(
+                str(error.get("code", "terminal_report_source_unavailable"))
+                if isinstance(error, Mapping)
+                else "terminal_report_source_unavailable",
+                str(error.get("message", "The terminal report source is unavailable."))
+                if isinstance(error, Mapping)
+                else "The terminal report source is unavailable.",
+                status=409,
+                retryable=bool(error.get("retryable"))
+                if isinstance(error, Mapping)
+                else False,
+            )
+        action = workflow.get("next_action")
+        if action not in {"prepare", "review-finalize", "finalize-verify", "deliver"}:
+            raise OperationError(
+                "terminal_report_no_action",
+                (
+                    "The terminal report is already delivered."
+                    if workflow.get("stage") == "delivered"
+                    else "The terminal report has no safely actionable current stage."
+                ),
+                status=409,
+            )
+        policy = control.get("policy")
+        runtime = control.get("runtime")
+        if not isinstance(policy, Mapping) or not isinstance(runtime, Mapping):
+            raise OperationError(
+                "terminal_report_policy_unavailable",
+                "The canonical terminal-report policy and runtime roles are unavailable.",
+                status=409,
+            )
+        writer_task_id = runtime.get("base_reviewer_thread_id")
+        if (
+            not isinstance(writer_task_id, str)
+            or not writer_task_id
+            or writer_task_id == target.id
+            or workflow.get("writer_role") != "base_reviewer"
+            or workflow.get("writer_task_id") != writer_task_id
+        ):
+            raise OperationError(
+                "terminal_report_writer_unavailable",
+                "The policy lacks one distinct configured terminal-report base reviewer.",
+                status=409,
+            )
+        try:
+            writer_detail = self.app_server_client.read_task_with_execution_contract(
+                projects, writer_task_id
+            )
+        except AppServerError as error:
+            raise _operation_error(
+                error,
+                fallback="terminal_report_writer_unavailable",
+            ) from error
+        writer_task = writer_detail.get("task")
+        if not isinstance(writer_task, Mapping) or Path(
+            str(writer_task.get("cwd"))
+        ).expanduser().is_symlink():
+            raise OperationError(
+                "terminal_report_writer_unavailable",
+                "The exact terminal-report writer task or cwd is unavailable.",
+                status=409,
+            )
+        writer_cwd, writer_identity, writer_status = self._validated_role_task(
+            writer_task,
+            task_id=writer_task_id,
+            role="terminal-report writer",
+            unavailable_code="terminal_report_writer_unavailable",
+            active_code="terminal_report_writer_active",
+        )
+        execution = writer_task.get("execution_contract")
+        if (
+            writer_task.get("turns_truncated") is not False
+            or any(
+                not isinstance(turn, Mapping)
+                or turn.get("items_truncated") is not False
+                or turn.get("status") == "inProgress"
+                for turn in writer_task.get("turns", [])
+            )
+            or writer_task.get("model_provider") != "openai"
+            or not isinstance(execution, Mapping)
+            or execution.get("model") != "gpt-5.6-sol"
+            or execution.get("reasoning_effort") != "xhigh"
+            or not isinstance(execution.get("source_record_sha256"), str)
+            or not SHA256_PATTERN.fullmatch(str(execution["source_record_sha256"]))
+        ):
+            raise OperationError(
+                "terminal_report_writer_contract_mismatch",
+                "The configured terminal-report writer lacks the exact complete Sol XHigh execution contract.",
+                status=409,
+            )
+        source_record = control.get("source_record")
+        completion = workflow.get("completion")
+        delivery = workflow.get("delivery")
+        shutdown = workflow.get("shutdown")
+        if (
+            not isinstance(source_record, str)
+            or not source_record
+            or not isinstance(control.get("policy_sha256"), str)
+            or not SHA256_PATTERN.fullmatch(str(control["policy_sha256"]))
+            or not isinstance(workflow.get("report_set_id"), str)
+            or not isinstance(workflow.get("source_root"), str)
+            or not SHA256_PATTERN.fullmatch(str(workflow["source_root"]))
+            or not isinstance(workflow.get("fingerprint"), str)
+            or not SHA256_PATTERN.fullmatch(str(workflow["fingerprint"]))
+            or not isinstance(workflow.get("state_fingerprint"), str)
+            or not 1 <= len(str(workflow["state_fingerprint"])) <= 128
+            or not isinstance(workflow.get("mission_root"), str)
+            or not SHA256_PATTERN.fullmatch(str(workflow["mission_root"]))
+            or not isinstance(completion, Mapping)
+            or completion.get("reconciled") is not True
+            or not isinstance(completion.get("record_id"), str)
+            or not isinstance(completion.get("lifecycle_record_id"), str)
+            or not isinstance(workflow.get("coverage"), Mapping)
+            or not isinstance(delivery, Mapping)
+            or not isinstance(shutdown, Mapping)
+            or shutdown.get("permitted") is not False
+        ):
+            raise OperationError(
+                "terminal_report_source_unavailable",
+                "The terminal report completion, source, currentness, or shutdown-separation identity is incomplete.",
+                status=409,
+            )
+        if action == "deliver" and delivery.get("status") != "pending":
+            raise OperationError(
+                "terminal_report_delivery_unavailable",
+                "The verified terminal report is not eligible for configured delivery.",
+                status=409,
+            )
+        evidence = {
+            "catalog_fingerprint": catalog_fingerprint,
+            "project_id": project.id,
+            "project_binding_fingerprint": project_claim.get("fingerprint"),
+            "target_thread_id": target.id,
+            "policy_sha256": control["policy_sha256"],
+            "policy_version": control.get("policy_version"),
+            "source_record": source_record,
+            "report_set_id": workflow["report_set_id"],
+            "action": action,
+            "stage": workflow["stage"],
+            "source_root": workflow["source_root"],
+            "manifest_root": workflow.get("manifest_root"),
+            "workflow_fingerprint": workflow["fingerprint"],
+            "state_fingerprint": workflow["state_fingerprint"],
+            "mission_root": workflow["mission_root"],
+            "completion_record_id": completion["record_id"],
+            "lifecycle_record_id": completion["lifecycle_record_id"],
+            "coverage": json.loads(json.dumps(workflow["coverage"])),
+            "prior_reports": json.loads(json.dumps(workflow.get("prior_reports", []))),
+            "expected_members": list(workflow.get("expected_members", [])),
+            "completed_stages": [
+                item["id"]
+                for item in workflow.get("stages", [])
+                if isinstance(item, Mapping) and item.get("status") == "complete"
+            ],
+            "delivery": json.loads(json.dumps(delivery)),
+            "shutdown": json.loads(json.dumps(shutdown)),
+            "writer_task_id": writer_task_id,
+            "writer_task_status": writer_status,
+            "writer_task_cwd": writer_cwd,
+            "writer_cwd_device": writer_identity[0],
+            "writer_cwd_inode": writer_identity[1],
+            "writer_execution_sha256": execution["source_record_sha256"],
+            "owner_root": str(self.operations_service.supervision_root),
+            "compensation_posture": (
+                "Preserve the current packet, accepted review, verified bundle, and delivery receipt. Re-read the canonical terminal workflow and preview only its first incomplete stage; never request-stop or pause from this recovery."
+            ),
+        }
+        material = {
+            "catalog": catalog_fingerprint,
+            "project_binding": project_claim.get("fingerprint"),
+            "control": control.get("fingerprint"),
+            "terminal_report": workflow["fingerprint"],
+            "action": action,
+            "owner_root": evidence["owner_root"],
+            "writer": {
+                "task_id": writer_task_id,
+                "status": writer_status,
+                "cwd": writer_cwd,
+                "cwd_identity": writer_identity,
+                "execution": execution["source_record_sha256"],
+            },
+        }
+        return SourceSnapshot(fingerprint=fingerprint(material), evidence=evidence)
+
+    @staticmethod
+    def _terminal_report_prompt(
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> str:
+        marker = FactoryWorkflowOwner._terminal_report_marker(target, source)
+        helper = (
+            Path(__file__).resolve().parents[4]
+            / "supervise-tracker-runs"
+            / "scripts"
+            / "supervision_log.py"
+        )
+        owner_root = str(source.evidence["owner_root"])
+        base = (
+            f"{TERMINAL_REPORT_MARKER}{_canonical(marker)}\n"
+            "Advance exactly one terminal supervision-report stage through the maintained owner. "
+            "This produces derived evidence only and grants no request-stop, automation-pause, shutdown, release, or completion authority.\n\n"
+            f"Target: {target.id}\n"
+            f"Report set: {source.evidence['report_set_id']}\n"
+            f"Mission: {source.evidence['mission_root']}\n"
+            f"Outcome/lifecycle: {source.evidence['completion_record_id']} / {source.evidence['lifecycle_record_id']}\n"
+            f"Source root: {source.evidence['source_root']}\n"
+            f"Maintained helper: {helper}\n\n"
+        )
+        if source.evidence["action"] == "prepare":
+            return base + (
+                "Run only terminal-report prepare for the exact completed lifecycle named in the marker. "
+                f"Use: python3 {helper} --root {owner_root} terminal-report --target-thread {target.id} --action prepare "
+                f"--lifecycle-record {source.evidence['lifecycle_record_id']}. "
+                "Confirm the returned report-set ID and source root equal the marker. Do not review, finalize, deliver, request-stop, pause, or change lifecycle state."
+            )
+        if source.evidence["action"] == "review-finalize":
+            return base + (
+                "Read the complete exact review-packet.json, including the delta window, full history, prior verified reports, required headings, and evidence IDs. "
+                "Produce one bounded Sol XHigh cognitive review containing both required reports. Invoke only terminal-report finalize with the canonical base64 review, then terminal-report verify for this exact report set. "
+                f"Both commands must use python3 {helper} --root {owner_root} terminal-report --target-thread {target.id} --report-set-id {source.evidence['report_set_id']}. "
+                "Do not edit deterministic inputs, send Gmail, record delivery, request-stop, pause automations, or change lifecycle state."
+            )
+        if source.evidence["action"] == "finalize-verify":
+            return base + (
+                "The exact source-bound terminal cognitive review already exists and is valid. Do not produce, regenerate, edit, or reinterpret it. "
+                "Read the retained review.json bytes, base64-encode that exact JSON as --review-base64, then invoke only terminal-report finalize followed by terminal-report verify. "
+                f"Both commands must use python3 {helper} --root {owner_root} terminal-report --target-thread {target.id} --report-set-id {source.evidence['report_set_id']}. "
+                "Stop if retained bytes differ; do not send Gmail, request-stop, pause, or change lifecycle state."
+            )
+        return base + (
+            "The delta and full terminal bundles are already verified. Through the configured Gmail owner, reply once to the bound primary seed with exactly delta-report.pdf and full-report.pdf attached. "
+            "Read the exact seed, sent raw MIME, and both Gmail-owned attachments; build the canonical gmail-terminal-delivery-readback object from those owner results; then invoke terminal-report record-delivery once. "
+            f"The delivery command must use python3 {helper} --root {owner_root} terminal-report --target-thread {target.id} --action record-delivery --report-set-id {source.evidence['report_set_id']}. "
+            "Do not use local files or send output as read-back proof, regenerate artifacts, request-stop, pause automations, run terminal-shutdown, or change lifecycle state."
+        )
+
+    @staticmethod
+    def _terminal_report_route_request(
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+        source: SourceSnapshot,
+    ) -> RouteGateRequest:
+        del inputs
+        action = (
+            f"Advance terminal report {source.evidence['report_set_id']} through "
+            f"{source.evidence['action']} for source {source.evidence['source_root']}."
+        )
+        return RouteGateRequest(
+            recipient=str(source.evidence["writer_task_id"]),
+            purpose=TERMINAL_REPORT_ROUTE_PURPOSE,
+            source_record=str(source.evidence["source_record"]),
+            required_action=action,
+            target_thread=target.id,
+        )
+
+    @classmethod
+    def _terminal_report_semantic_changes(
+        cls,
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> tuple[OperationSemanticChange, ...]:
+        after_stage = {
+            "prepare": "review-finalize",
+            "review-finalize": "verified bundle",
+            "finalize-verify": "verified bundle",
+            "deliver": "delivered",
+        }[str(source.evidence["action"])]
+        links = (
+            OperationLink("Run", f"/runs/{target.id}"),
+            OperationLink("Reports", "/reports?view=reports&family=terminal"),
+        )
+        return (
+            cls._semantic_change(
+                change_id="terminal-report-stage",
+                subject="Terminal report stage",
+                kind="changed",
+                before=cls._semantic_exact(str(source.evidence["stage"])),
+                after=cls._semantic_exact(after_stage),
+                owner="maintained terminal-report stage owner",
+                source_identity=f"terminal-report:{source.evidence['report_set_id']}",
+                source_revision=str(source.evidence["source_root"]),
+                currentness=source.fingerprint,
+                links=links,
+            ),
+            cls._semantic_change(
+                change_id="terminal-report-outcome",
+                subject="Reconciled completion source",
+                kind="preserved",
+                before=cls._semantic_exact(
+                    f"{source.evidence['completion_record_id']} · {source.evidence['lifecycle_record_id']}"
+                ),
+                after=cls._semantic_exact(
+                    f"{source.evidence['completion_record_id']} · {source.evidence['lifecycle_record_id']}"
+                ),
+                owner="canonical observable-outcome and lifecycle owners",
+                source_identity=f"supervision-outcome:{target.id}",
+                source_revision=str(source.evidence["source_root"]),
+                currentness=source.fingerprint,
+                links=links,
+            ),
+            cls._semantic_change(
+                change_id="terminal-report-shutdown",
+                subject="Request-stop, automation pause, and shutdown",
+                kind="preserved",
+                before=cls._semantic_exact("not performed"),
+                after=cls._semantic_exact("not performed"),
+                owner="separate lifecycle and terminal-shutdown owners",
+                source_identity=f"terminal-boundary:{target.id}",
+                source_revision=str(source.evidence["policy_sha256"]),
+                currentness=source.fingerprint,
+                links=links,
+            ),
+        )
+
+    def _terminal_report_definition(self) -> OperationDefinition:
+        schema = _object_schema({})
+
+        def dispatch(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+        ) -> DispatchResult:
+            with self._terminal_report_dispatch_lock:
+                current = self._terminal_report_source(target, inputs)
+                if current.fingerprint != source.fingerprint:
+                    raise OperationOwnerError(
+                        "terminal_report_source_changed",
+                        "Terminal-report source changed before the owner request.",
+                        state="unverified",
+                    )
+                projects, catalog_fingerprint = self._active_projects()
+                if catalog_fingerprint != source.evidence["catalog_fingerprint"]:
+                    raise OperationOwnerError(
+                        "terminal_report_catalog_changed",
+                        "Project catalog changed before the owner request.",
+                        state="unverified",
+                    )
+                try:
+                    started = self.app_server_client.start_configured_role_turn(
+                        projects,
+                        str(source.evidence["writer_task_id"]),
+                        self._terminal_report_prompt(target, source),
+                        expected_cwd=str(source.evidence["writer_task_cwd"]),
+                        expected_cwd_identity=(
+                            int(source.evidence["writer_cwd_device"]),
+                            int(source.evidence["writer_cwd_inode"]),
+                        ),
+                    )
+                except AppServerError as error:
+                    raise OperationOwnerError(
+                        _owner_code(error), str(error), state="failed"
+                    ) from error
+                turn = started.get("turn")
+                turn_id = turn.get("id") if isinstance(turn, Mapping) else None
+                if not isinstance(turn_id, str) or not turn_id:
+                    raise OperationOwnerError(
+                        "terminal_report_owner_response_invalid",
+                        "The terminal-report writer returned no exact turn identity.",
+                        state="unverified",
+                    )
+                return DispatchResult(
+                    evidence={
+                        "writer_turn_id": turn_id,
+                        "writer_task_id": source.evidence["writer_task_id"],
+                        "report_set_id": source.evidence["report_set_id"],
+                        "requested_action": source.evidence["action"],
+                        "task_resumed": started.get("task_resumed") is True,
+                        "direct_report_write": False,
+                        "direct_gmail_action": False,
+                        "direct_lifecycle_action": False,
+                        "request_stop": False,
+                        "automation_pause": False,
+                        "terminal_shutdown": False,
+                        "automatic_retry": False,
+                    },
+                    links=(
+                        OperationLink(
+                            "Terminal-report writer",
+                            f"/tasks/{source.evidence['writer_task_id']}",
+                        ),
+                        OperationLink("Reports", "/reports?view=reports&family=terminal"),
+                    ),
+                )
+
+        def verify(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+            result: DispatchResult,
+        ) -> VerificationResult:
+            projects, catalog_fingerprint = self._active_projects()
+            try:
+                project_claim = self.operations_service.project_binding_snapshot(
+                    projects, target.id
+                )
+                control = self.operations_service.policy_control_snapshot(
+                    target.id, automation_roles=()
+                )
+                workflow = self.operations_service.terminal_report_workflow_snapshot(
+                    target.id
+                )
+                writer_detail = self.app_server_client.read_task_with_execution_contract(
+                    projects, str(source.evidence["writer_task_id"])
+                )
+            except (OperationError, OperationsProjectionError, AppServerError) as error:
+                return VerificationResult(
+                    "pending",
+                    {
+                        **result.evidence,
+                        "terminal_report_applied": False,
+                        "owner_error_code": getattr(error, "code", "owner_unavailable"),
+                        "recovery": source.evidence["compensation_posture"],
+                    },
+                    result.links,
+                )
+            writer_task = writer_detail.get("task")
+            request_current = bool(
+                isinstance(writer_task, Mapping)
+                and self._terminal_report_turn_has_marker(
+                    writer_task,
+                    turn_id=str(result.evidence["writer_turn_id"]),
+                    expected=self._terminal_report_marker(target, source),
+                )
+            )
+            writer_turns = (
+                [
+                    turn
+                    for turn in writer_task.get("turns", [])
+                    if isinstance(turn, Mapping)
+                    and turn.get("id") == result.evidence["writer_turn_id"]
+                ]
+                if isinstance(writer_task, Mapping)
+                else []
+            )
+            writer_turn_completed = bool(
+                len(writer_turns) == 1 and writer_turns[0].get("status") == "completed"
+            )
+            writer_contract_current = False
+            if isinstance(writer_task, Mapping):
+                try:
+                    writer_cwd, writer_identity, writer_status = self._validated_role_task(
+                        writer_task,
+                        task_id=str(source.evidence["writer_task_id"]),
+                        role="terminal-report writer",
+                        unavailable_code="terminal_report_writer_unavailable",
+                        active_code="terminal_report_writer_active",
+                    )
+                except OperationError:
+                    pass
+                else:
+                    execution = writer_task.get("execution_contract")
+                    writer_contract_current = bool(
+                        writer_status in {"idle", "notLoaded"}
+                        and writer_cwd == source.evidence["writer_task_cwd"]
+                        and writer_identity
+                        == (
+                            source.evidence["writer_cwd_device"],
+                            source.evidence["writer_cwd_inode"],
+                        )
+                        and isinstance(execution, Mapping)
+                        and writer_task.get("model_provider") == "openai"
+                        and execution.get("model") == "gpt-5.6-sol"
+                        and execution.get("reasoning_effort") == "xhigh"
+                        and execution.get("source_record_sha256")
+                        == source.evidence["writer_execution_sha256"]
+                    )
+            binding = project_claim.get("project_binding")
+            group_current = self.operations_service.binding_group_ids(target.id) == [
+                target.id
+            ]
+            completion = workflow.get("completion")
+            shutdown = workflow.get("shutdown")
+            source_current = bool(
+                catalog_fingerprint == source.evidence["catalog_fingerprint"]
+                and project_claim.get("fingerprint")
+                == source.evidence["project_binding_fingerprint"]
+                and isinstance(binding, Mapping)
+                and binding.get("status") == "bound"
+                and binding.get("project_id") == source.evidence["project_id"]
+                and group_current
+                and control.get("policy_sha256") == source.evidence["policy_sha256"]
+                and workflow.get("status") == "available"
+                and workflow.get("report_set_id") == source.evidence["report_set_id"]
+                and workflow.get("source_root") == source.evidence["source_root"]
+                and workflow.get("state_fingerprint")
+                == source.evidence["state_fingerprint"]
+                and workflow.get("mission_root") == source.evidence["mission_root"]
+                and isinstance(completion, Mapping)
+                and completion.get("reconciled") is True
+                and completion.get("record_id")
+                == source.evidence["completion_record_id"]
+                and completion.get("lifecycle_record_id")
+                == source.evidence["lifecycle_record_id"]
+                and workflow.get("coverage") == source.evidence["coverage"]
+                and workflow.get("prior_reports") == source.evidence["prior_reports"]
+                and workflow.get("writer_task_id") == source.evidence["writer_task_id"]
+                and isinstance(shutdown, Mapping)
+                and shutdown.get("permitted") is False
+            )
+            expected_stage = {
+                "prepare": {"review-finalize"},
+                "review-finalize": {"delivery", "verified"},
+                "finalize-verify": {"delivery", "verified"},
+                "deliver": {"delivered"},
+            }[str(source.evidence["action"])]
+            stage_current = workflow.get("stage") in expected_stage
+            completed_stages = {
+                item.get("id")
+                for item in workflow.get("stages", [])
+                if isinstance(item, Mapping) and item.get("status") == "complete"
+            }
+            required_stages = {
+                "prepare": {"prepare", "source-currentness"},
+                "review-finalize": {
+                    "prepare",
+                    "source-currentness",
+                    "cognitive-review",
+                    "finalize",
+                    "verify",
+                    "display",
+                },
+                "finalize-verify": {
+                    "prepare",
+                    "source-currentness",
+                    "cognitive-review",
+                    "finalize",
+                    "verify",
+                    "display",
+                },
+                "deliver": {
+                    "prepare",
+                    "source-currentness",
+                    "cognitive-review",
+                    "finalize",
+                    "verify",
+                    "display",
+                    "delivery",
+                },
+            }[str(source.evidence["action"])]
+            prior_stages_preserved = set(
+                source.evidence["completed_stages"]
+            ).issubset(completed_stages)
+            exact_postcondition = bool(
+                stage_current
+                and required_stages.issubset(completed_stages)
+                and prior_stages_preserved
+                and workflow.get("shutdown", {}).get("permitted") is False
+            )
+            route_current = False
+            if (
+                source_current
+                and request_current
+                and writer_turn_completed
+                and writer_contract_current
+            ):
+                request = self._terminal_report_route_request(target, inputs, source)
+                try:
+                    route = self.route_gate(request)
+                except Exception:
+                    route = None
+                route_current = bool(
+                    isinstance(route, RouteGateResult)
+                    and route.allowed
+                    and route.recipient == request.recipient
+                    and route.purpose == request.purpose
+                    and route.source_record == request.source_record
+                    and route.target_thread == request.target_thread
+                    and route.action_hash
+                    == route_action_fingerprint(request.required_action)
+                    and route.policy_fingerprint == control.get("policy_sha256")
+                )
+            applied = bool(
+                source_current
+                and request_current
+                and writer_turn_completed
+                and writer_contract_current
+                and route_current
+                and exact_postcondition
+            )
+            evidence = {
+                **result.evidence,
+                "terminal_report_applied": applied,
+                "report_set_id": workflow.get("report_set_id"),
+                "report_stage": workflow.get("stage"),
+                "source_root": workflow.get("source_root"),
+                "manifest_root": workflow.get("manifest_root"),
+                "completed_stages": sorted(completed_stages),
+                "prior_stages_preserved": prior_stages_preserved,
+                "exact_stage_postcondition": exact_postcondition,
+                "writer_request_current": request_current,
+                "writer_turn_completed": writer_turn_completed,
+                "writer_contract_current": writer_contract_current,
+                "supervision_group_current": group_current,
+                "source_current": source_current,
+                "route_gate_current": route_current,
+                "delivery": workflow.get("delivery"),
+                "shutdown_permitted": False,
+                "automatic_retry": False,
+                "direct_report_write": False,
+                "direct_gmail_action": False,
+                "direct_lifecycle_action": False,
+                "request_stop": False,
+                "automation_pause": False,
+                "terminal_shutdown": False,
+                "recovery": (
+                    None if applied else source.evidence["compensation_posture"]
+                ),
+            }
+            return VerificationResult(
+                "applied" if applied else "pending",
+                evidence,
+                result.links,
+            )
+
+        return OperationDefinition(
+            operation_type="factory.terminal-supervision-report",
+            target_kind="run",
+            input_schema=schema,
+            owner=(
+                "maintained terminal-report artifact owner + configured Sol XHigh base reviewer + configured Gmail read-back owner"
+            ),
+            authority=(
+                "explicit operator confirmation for one exact current terminal-report stage",
+                "one reconciled completion, completed lifecycle, mission, source root, and prior verified-report set",
+                "one configured independent Sol XHigh base reviewer and route gate",
+                "maintained deterministic prepare, finalize, verifier, Gmail read-back, and delivery-record owners",
+            ),
+            ordinary_consequences=(
+                "Starts one bounded base-reviewer turn for only the first incomplete terminal-report stage.",
+                "The maintained owner may create or reuse deterministic report inputs, finalize one cognitive review into the delta/full verified bundle, or record one exact configured Gmail delivery.",
+            ),
+            failure_consequences=(
+                "Stale completion, mission, prior report, writer, artifact, delivery, or route evidence sends no later-stage request.",
+                "A failed later stage retains every exact accepted earlier artifact and does not regenerate its prepare or cognitive review.",
+                "A verified report without current delivery remains explicitly partial and grants no request-stop, pause, or shutdown authority.",
+            ),
+            confirmation=ConfirmationContract(
+                "terminal-supervision-report",
+                "Type ADVANCE TERMINAL REPORT to request this exact current stage.",
+                "ADVANCE TERMINAL REPORT",
+            ),
+            idempotency=(
+                "One consumed preview starts at most one writer turn for the first incomplete stage; exact accepted stages are reused and changed completion/source evidence requires a new preview."
+            ),
+            expected_postcondition=(
+                "The exact terminal report advances only its named stage, retains every prior valid stage, and eventually projects one verified delta/full JSON/Markdown/PDF bundle plus exact configured delivery/read-back while shutdown remains separate."
+            ),
+            timeout_seconds=30,
+            limitations=(
+                "Terminal reports are derived evidence and do not create observable-outcome, request-stop, automation-pause, shutdown, release, or acceptance authority.",
+                "The dashboard never writes report artifacts, reads Gmail, downloads Gmail attachments, sends email, appends delivery records, requests stop, pauses automations, or runs terminal shutdown directly.",
+                "Weekly reporting, Factory evolution, and lifecycle shutdown remain outside this operation.",
+            ),
+            resolve_source=self._terminal_report_source,
+            describe_effect=lambda target, inputs, source: PreviewEffect(
+                (
+                    f"Advance terminal report {source.evidence['report_set_id']} through "
+                    f"{source.evidence['action']}."
+                ),
+                (
+                    "Only the first incomplete owner stage may act; accepted earlier artifacts remain immutable and request-stop, pause, and shutdown remain unavailable here."
+                ),
+                recipient=str(source.evidence["writer_task_id"]),
+                semantic_changes=self._terminal_report_semantic_changes(
+                    target, source
+                ),
+            ),
+            route_gate_request=self._terminal_report_route_request,
             route_gate=self.route_gate,
             dispatch=dispatch,
             verify=verify,

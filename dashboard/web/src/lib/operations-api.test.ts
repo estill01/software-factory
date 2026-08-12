@@ -468,6 +468,69 @@ const weeklyReportWorkflow = {
   error: null,
 } as const
 
+const terminalReportWorkflow = {
+  status: "available",
+  stage: "delivery",
+  next_action: "deliver",
+  actionable: true,
+  report_set_id: "terminal-target-threa-0011223344556677",
+  source_root: hash("1"),
+  manifest_root: hash("2"),
+  fingerprint: hash("3"),
+  state_fingerprint: hash("4"),
+  mission_root: hash("1"),
+  completion: {
+    status: "reconciled",
+    record_id: "EVT-COMPLETION",
+    lifecycle_record_id: "EVT-LIFECYCLE",
+    reconciled: true,
+  },
+  coverage: {
+    delta_start: "2026-08-08T00:00:00+00:00",
+    full_start: "2026-08-01T00:00:00+00:00",
+    end: "2026-08-09T00:00:00+00:00",
+    delta_anchor_record_id: "weekly-report-001",
+    delta_anchor_kind: "verified-prior-report",
+  },
+  prior_reports: [{
+    report_id: "weekly-report-001",
+    source_root: hash("5"),
+    manifest_root: hash("6"),
+    coverage: metrics.coverage,
+  }],
+  writer_role: "base_reviewer",
+  writer_task_id: "base-reviewer-task-1",
+  expected_members: ["review-packet.json", "review.json", "delta-report.pdf", "full-report.pdf", "manifest.json"],
+  members: [],
+  stages: [
+    { id: "prepare", label: "Deterministic prepare", status: "complete", owner: "terminal owner" },
+    { id: "source-currentness", label: "Source currentness", status: "complete", owner: "source owner" },
+    { id: "cognitive-review", label: "Cognitive review", status: "complete", owner: "base reviewer" },
+    { id: "finalize", label: "Finalize", status: "complete", owner: "terminal owner" },
+    { id: "verify", label: "Verify", status: "complete", owner: "terminal owner" },
+    { id: "display", label: "Display", status: "complete", owner: "dashboard" },
+    { id: "delivery", label: "Delivery", status: "current", owner: "Gmail owner" },
+  ],
+  delivery: {
+    status: "pending",
+    configured: true,
+    required: true,
+    retryable: true,
+    record_id: null,
+    message_id: null,
+    thread_id: null,
+    readback_root: null,
+    reason: "Verified terminal PDFs await owner-mediated delivery.",
+  },
+  shutdown: {
+    status: "separate-owner",
+    permitted: false,
+    reason: "Terminal reporting is not shutdown authority.",
+  },
+  limitations: ["Terminal reporting is derived evidence only."],
+  error: null,
+} as const
+
 const factoryEvolutionWorkflow = {
   status: "available",
   stage: "verified",
@@ -679,6 +742,7 @@ const detail = {
   operating_history: [{ from: "neutral", to: "red", trigger: "open-high", record }],
   reports: [report],
   weekly_report_workflow: weeklyReportWorkflow,
+  terminal_report_workflow: terminalReportWorkflow,
   factory_evolution_workflow: factoryEvolutionWorkflow,
   metrics: {
     status: "available",
@@ -749,6 +813,12 @@ const reportEnvelope = {
     recovered_from_previous: false,
     owners,
     reports: [report],
+    terminal_workflows: [{
+      target_thread_id: "target-thread-1",
+      target_label: "Target one",
+      project_binding: projectBinding,
+      workflow: terminalReportWorkflow,
+    }],
     evolution_workflows: [{
       target_thread_id: "target-thread-1",
       target_label: "Target one",

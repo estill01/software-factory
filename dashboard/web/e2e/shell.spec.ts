@@ -603,6 +603,139 @@ test("retained weekly review requests only finalize and verify", async ({ page, 
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
 })
 
+test("terminal reporting advances one delivery stage and remains separate from shutdown", async ({ page, request }) => {
+  const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  runEnvelope.data.run.project_binding = {
+    status: "bound",
+    project_id: "software-factory",
+    evidence: [{ source_record: "policy", field: "project_root", value: "/fixture/software_factory" }],
+    limitations: [],
+  }
+  const terminalWorkflow = {
+    status: "available",
+    stage: "delivery",
+    next_action: "deliver",
+    actionable: true,
+    report_set_id: "terminal-browser-0011223344556677",
+    source_root: "1".repeat(64),
+    manifest_root: "2".repeat(64),
+    fingerprint: "3".repeat(64),
+    state_fingerprint: "terminal-browser-state",
+    mission_root: "4".repeat(64),
+    completion: {
+      status: "reconciled",
+      record_id: "EVT-BROWSER-COMPLETION",
+      lifecycle_record_id: "EVT-BROWSER-LIFECYCLE",
+      reconciled: true,
+    },
+    coverage: {
+      delta_start: "2026-08-08T00:00:00+00:00",
+      full_start: "2026-08-01T00:00:00+00:00",
+      end: "2026-08-09T00:00:00+00:00",
+      delta_anchor_record_id: "weekly-browser-001",
+      delta_anchor_kind: "verified-prior-report",
+    },
+    prior_reports: [{
+      report_id: "weekly-browser-001",
+      source_root: "5".repeat(64),
+      manifest_root: "6".repeat(64),
+      coverage: null,
+    }],
+    writer_role: "base_reviewer",
+    writer_task_id: "base-reviewer-browser",
+    expected_members: ["review-packet.json", "review.json", "delta-report.pdf", "full-report.pdf", "manifest.json"],
+    members: [],
+    stages: [
+      ["prepare", "Deterministic prepare", "complete", "terminal owner"],
+      ["source-currentness", "Outcome and source currentness", "complete", "source owner"],
+      ["cognitive-review", "Independent cognitive review", "complete", "base reviewer"],
+      ["finalize", "Finalize delta and full reports", "complete", "terminal owner"],
+      ["verify", "JSON, Markdown, PDF, and manifest verification", "complete", "terminal owner"],
+      ["display", "Read-only artifact display", "complete", "dashboard"],
+      ["delivery", "Configured Gmail delivery and read-back", "current", "Gmail owner"],
+    ].map(([id, label, status, owner]) => ({ id, label, status, owner })),
+    delivery: {
+      status: "pending",
+      configured: true,
+      required: true,
+      retryable: true,
+      record_id: null,
+      message_id: null,
+      thread_id: null,
+      readback_root: null,
+      reason: "Both verified terminal PDFs require one owner-mediated Gmail reply and exact read-back receipt.",
+    },
+    shutdown: {
+      status: "separate-owner",
+      permitted: false,
+      reason: "Terminal-report readiness never grants request-stop, automation-pause, or shutdown authority.",
+    },
+    limitations: ["Derived evidence only."],
+    error: null,
+  }
+  runEnvelope.data.run.terminal_report_workflow = terminalWorkflow
+  const reportsResponse = await request.get("/api/v1/reports")
+  expect(reportsResponse.ok()).toBeTruthy()
+  const reportsEnvelope = await reportsResponse.json()
+  reportsEnvelope.data.terminal_workflows = [{
+    target_thread_id: target,
+    target_label: runEnvelope.data.run.target_label,
+    project_binding: runEnvelope.data.run.project_binding,
+    workflow: terminalWorkflow,
+  }]
+  await page.route(`**/api/v1/runs/${target}`, (route) => route.fulfill({ json: runEnvelope }))
+  await page.route("**/api/v1/reports", (route) => route.fulfill({ json: reportsEnvelope }))
+  let requested: unknown = null
+  await page.route("**/api/v1/operations/preview", async (route) => {
+    requested = route.request().postDataJSON()
+    await route.fulfill({
+      status: 409,
+      json: {
+        data: null,
+        source: { kind: "administrative-operation", identity: "operations", revision: "a".repeat(64) },
+        observed_at: "2026-08-12T04:00:00.000Z",
+        fingerprint: "b".repeat(64),
+        coverage: { status: "partial", observed: ["operation-request"], missing: ["owner-postcondition"] },
+        limitations: ["Browser proof stops before configured Gmail owner dispatch."],
+        error: { code: "terminal_report_source_changed", message: "Focused browser proof stopped before owner dispatch.", retryable: false },
+      },
+    })
+  })
+
+  await page.goto(`/runs/${target}`)
+  const workflow = page.getByRole("article", { name: "Current terminal report workflow" })
+  await expect(workflow).toContainText("terminal-browser-0011223344556677")
+  await expect(workflow).toContainText("Outcome EVT-BROWSER-COMPLETION · lifecycle EVT-BROWSER-LIFECYCLE")
+  await expect(workflow.locator(".weekly-report-stages > span")).toHaveCount(7)
+  await expect(workflow.locator('[data-status="current"]')).toContainText("Configured Gmail delivery and read-back")
+  await expect(workflow).toContainText("Report readiness is separate from request-stop, automation pause, and shutdown")
+  await page.getByRole("button", { name: "Deliver terminal report" }).click()
+  await expect.poll(() => requested).toEqual({
+    operation_type: "factory.terminal-supervision-report",
+    target: { kind: "run", id: target, project_id: "software-factory" },
+    input: {},
+  })
+  await expect(page.getByRole("alert")).toContainText("Focused browser proof stopped before owner dispatch")
+  await expect(page.getByRole("button", { name: /request stop|terminal shutdown/i })).toHaveCount(0)
+
+  await page.goto("/reports?view=reports&family=terminal")
+  const terminal = page.getByRole("region", { name: "Terminal" })
+  await expect(terminal).toContainText("terminal-browser-0011223344556677")
+  await expect(terminal).toContainText("Outcome EVT-BROWSER-COMPLETION · lifecycle EVT-BROWSER-LIFECYCLE")
+  await expect(terminal).toContainText("shutdown remain separate")
+  const axe = await new AxeBuilder({ page }).analyze()
+  expect(axe.violations.filter(({ impact }) => impact === "serious" || impact === "critical"))
+    .toEqual([])
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+})
+
 test("Factory evolution exposes one current stage without adoption authority", async ({ page, request }) => {
   const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
   const runResponse = await request.get(`/api/v1/runs/${target}`)

@@ -184,6 +184,38 @@ const run = {
     limitations: ["Delivery is unavailable."],
     error: null,
   },
+  terminal_report_workflow: {
+    status: "available",
+    stage: "delivery",
+    next_action: "deliver",
+    actionable: true,
+    report_set_id: "CURRENT-TERMINAL",
+    source_root: hash("1"),
+    manifest_root: hash("2"),
+    fingerprint: hash("3"),
+    state_fingerprint: "CURRENT-TERMINAL-STATE",
+    mission_root: currentRoot,
+    completion: { status: "reconciled", record_id: "CURRENT-TERMINAL-COMPLETION", lifecycle_record_id: "CURRENT-TERMINAL-LIFECYCLE", reconciled: true },
+    coverage: { delta_start: "2026-08-08T00:00:00Z", full_start: "2026-08-01T00:00:00Z", end: "2026-08-09T00:00:00Z", delta_anchor_record_id: "CURRENT-REPORT", delta_anchor_kind: "verified-prior-report" },
+    prior_reports: [{ report_id: "CURRENT-REPORT", source_root: hash("5"), manifest_root: hash("6"), coverage: null }],
+    writer_role: "base_reviewer",
+    writer_task_id: "CURRENT-BASE-REVIEWER",
+    expected_members: ["review-packet.json", "review.json", "delta-report.pdf", "full-report.pdf", "manifest.json"],
+    members: [],
+    stages: [
+      { id: "prepare", label: "Prepare", status: "complete", owner: "terminal owner" },
+      { id: "source-currentness", label: "Source", status: "complete", owner: "source owner" },
+      { id: "cognitive-review", label: "Review", status: "complete", owner: "base reviewer" },
+      { id: "finalize", label: "Finalize", status: "complete", owner: "terminal owner" },
+      { id: "verify", label: "Verify", status: "complete", owner: "terminal owner" },
+      { id: "display", label: "Display", status: "complete", owner: "dashboard" },
+      { id: "delivery", label: "Delivery", status: "current", owner: "Gmail owner" },
+    ],
+    delivery: { status: "pending", configured: true, required: true, retryable: true, record_id: null, message_id: null, thread_id: null, readback_root: null, reason: "CURRENT-TERMINAL-DELIVERY" },
+    shutdown: { status: "separate-owner", permitted: false, reason: "Terminal reporting is not shutdown authority." },
+    limitations: ["CURRENT-TERMINAL-LIMITATION"],
+    error: null,
+  },
   factory_evolution_workflow: {
     status: "available",
     stage: "awaiting-implementation",
@@ -251,6 +283,7 @@ describe("run mission-history boundary", () => {
       "CURRENT-ROLE",
       "CURRENT-AUTOMATION",
       "CURRENT-REPORT",
+      "CURRENT-TERMINAL",
       "CURRENT-OPERATING-HISTORY",
       "CURRENT-INCIDENT-SUMMARY",
       "CURRENT-LIMITATION",
@@ -306,6 +339,8 @@ describe("run mission-history boundary", () => {
     )
 
     expect(await screen.findAllByText("Binding disagreement")).not.toHaveLength(0)
+    expect(screen.getByText("CURRENT-TERMINAL-LIMITATION")).toBeVisible()
+    expect(screen.getByText("0/5 bundle members")).toBeVisible()
     expect(screen.getAllByText("run binding: CURRENT-PROJECT · target task: TASK-PROJECT")).toHaveLength(2)
     expect(screen.getAllByText("degraded").length).toBeGreaterThan(0)
     expect(screen.queryByRole("link", { name: "CURRENT-PROJECT" })).not.toBeInTheDocument()

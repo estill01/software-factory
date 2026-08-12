@@ -864,6 +864,102 @@ const weeklyReportWorkflowSchema = z
   })
   .strict()
 
+const terminalReportWorkflowSchema = z
+  .object({
+    status: z.enum(["available", "unavailable"]),
+    stage: z.enum([
+      "prepare",
+      "review-finalize",
+      "finalize-verify",
+      "delivery",
+      "delivery-stale",
+      "verified",
+      "delivered",
+      "unavailable",
+    ]),
+    next_action: z.enum(["prepare", "review-finalize", "finalize-verify", "deliver"]).nullable(),
+    actionable: z.boolean(),
+    report_set_id: nullableString,
+    source_root: fingerprintSchema.nullable(),
+    manifest_root: fingerprintSchema.nullable(),
+    fingerprint: fingerprintSchema.nullable(),
+    state_fingerprint: z.string().min(1).max(128).nullable(),
+    mission_root: fingerprintSchema.nullable(),
+    completion: z
+      .object({
+        status: z.enum(["reconciled", "unavailable"]),
+        record_id: nullableString,
+        lifecycle_record_id: nullableString,
+        reconciled: z.boolean(),
+      })
+      .strict(),
+    coverage: z
+      .object({
+        delta_start: z.string().min(1),
+        full_start: z.string().min(1),
+        end: z.string().min(1),
+        delta_anchor_record_id: z.string().min(1),
+        delta_anchor_kind: z.enum(["roundup", "supervision-inception", "verified-prior-report"]),
+      })
+      .strict()
+      .nullable(),
+    prior_reports: z.array(
+      z
+        .object({
+          report_id: z.string().min(1),
+          source_root: fingerprintSchema,
+          manifest_root: fingerprintSchema,
+          coverage: metricCoverageSchema.nullable(),
+        })
+        .strict(),
+    ),
+    writer_role: z.literal("base_reviewer"),
+    writer_task_id: nullableString,
+    expected_members: z.array(z.string().min(1)),
+    members: z.array(reportMemberSchema),
+    stages: z.array(
+      z
+        .object({
+          id: z.enum([
+            "prepare",
+            "source-currentness",
+            "cognitive-review",
+            "finalize",
+            "verify",
+            "display",
+            "delivery",
+          ]),
+          label: z.string().min(1),
+          status: z.enum(["pending", "current", "complete", "unavailable"]),
+          owner: z.string().min(1),
+        })
+        .strict(),
+    ),
+    delivery: z
+      .object({
+        status: z.enum(["not-ready", "unavailable", "pending", "delivered", "stale"]),
+        configured: z.boolean(),
+        required: z.boolean(),
+        retryable: z.boolean(),
+        record_id: nullableString,
+        message_id: nullableString,
+        thread_id: nullableString,
+        readback_root: fingerprintSchema.nullable(),
+        reason: z.string().min(1),
+      })
+      .strict(),
+    shutdown: z
+      .object({
+        status: z.literal("separate-owner"),
+        permitted: z.literal(false),
+        reason: z.string().min(1),
+      })
+      .strict(),
+    limitations: z.array(z.string()),
+    error: projectionErrorSchema.nullable(),
+  })
+  .strict()
+
 const factoryEvolutionCandidateSchema = z
   .object({
     candidate_id: z.string().min(1),
@@ -1103,6 +1199,7 @@ export const runDetailSchema = runSummarySchema
     operating_history: z.array(operatingTransitionSchema),
     reports: z.array(reportArtifactSchema),
     weekly_report_workflow: weeklyReportWorkflowSchema,
+    terminal_report_workflow: terminalReportWorkflowSchema,
     factory_evolution_workflow: factoryEvolutionWorkflowSchema,
     metrics: metricsProjectionSchema,
   })
@@ -1200,6 +1297,16 @@ export const reportListEnvelopeSchema = z
         recovered_from_previous: z.boolean(),
         owners: ownerBundleSchema,
         reports: z.array(reportArtifactSchema),
+        terminal_workflows: z.array(
+          z
+            .object({
+              target_thread_id: z.string().min(1),
+              target_label: z.string().min(1),
+              project_binding: projectBindingSchema,
+              workflow: terminalReportWorkflowSchema,
+            })
+            .strict(),
+        ),
         evolution_workflows: z.array(
           z
             .object({

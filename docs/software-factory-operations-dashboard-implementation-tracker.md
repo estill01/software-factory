@@ -7813,6 +7813,82 @@ unverified output.
   delivery owners. Blocks 30–31 remain closed; no completion decision,
   request-stop, lifecycle transition, automation pause, shutdown, Gmail read,
   or Gmail send has been attempted.
+- Pre-broad execution brief — `2026-08-12T11:51:51Z`, focused proof complete,
+  broad validation not started. The bounded product/test worktree contains 15
+  files and has binary-diff SHA-256
+  `517bb9026f69f4a2941bf236c6f0ba6d69bc2f0e55bc1e106f35dfa83beef060`.
+  Before any broad matrix, every likely-mutating boundary was classified and
+  checked as follows:
+  - **Complete — authority and range:** direct-user item 44 and mission root
+    `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`
+    remain the implementation authority; only Block 29 is active and Blocks
+    30–31 remain closed.
+  - **Complete — exact outcome source:** projection requires one current mission,
+    the latest current-mission `completed` lifecycle, its exact state
+    fingerprint, one maintained outcome-completion record accepted by
+    `assess_outcome_completion_record`, and the lifecycle's exact binding to
+    that record. Missing, failed, stale, or unreconciled evidence is
+    unavailable, never actionable.
+  - **Complete — report owner/currentness:** the maintained supervision,
+    terminal-report, and policy-owner SHA-256 values are respectively
+    `46d225ae949e332b0a6718fb400c8f05818d8ac8462a5aac8bce86fe6e532e78`,
+    `800c2ff04bc3dcefaf124aa57d37ad85b42b5732db6825b8225cbf11a437c138`,
+    and `31cbe227f1fa91a184f022bfc1ff3ca49c0feac086e20d7bb621adccdcf24a0a`.
+    Projection rebuilds the maintained packet, binds the source root/report
+    tree/owner revision, verifies every prior weekly report through its
+    maintained owner, rejects a changed retained packet, and rechecks owner
+    revisions after composition.
+  - **Complete — independent writer/reviewer owner:** the terminal contract's
+    exact `base_reviewer` role and `base_reviewer_thread_id` are used, with
+    `changed-state-review` route purpose. The configured task must be distinct
+    from the target, fully read, idle/not-loaded, projectless-capable, and bound
+    to the complete Sol XHigh execution contract and exact cwd identity.
+    Focused negatives reject a roundup-writer substitution or a terminal
+    projection that claims the wrong role.
+  - **Complete — consequential action/currentness:** one typed confirmation
+    consumes one preview, re-resolves project/group/policy/workflow/task/cwd and
+    route-gate state before dispatch, starts at most one exact base-reviewer
+    turn, re-reads its exact marker and completed turn, re-runs the route gate,
+    and verifies the named postcondition. No automatic retry exists.
+  - **Complete — stage and recovery bounds:** prepare, source currentness,
+    cognitive review, finalize, JSON/Markdown/PDF/manifest verification,
+    display, and delivery remain distinct truth-labeled stages. An exact
+    retained review is reused after a later-stage failure; only the first
+    incomplete stage is offered and accepted earlier stages must remain
+    present.
+  - **Complete — delivery ownership:** the dashboard projects only the
+    configured primary Gmail lane and canonical delivery/read-back record. The
+    base-reviewer prompt routes the verified two-PDF reply and raw-MIME plus
+    attachment read-back through the configured Gmail and maintained terminal
+    owners; dashboard server/UI code performs no Gmail read, attachment read,
+    send, or delivery-ledger write.
+  - **Source-backed not-applicable — live delivery mutation:** the current live
+    run has no reconciled completed lifecycle, so its workflow correctly
+    projects `terminal_report_completion_unavailable`. No live terminal report,
+    Gmail reply/read-back, or delivery record is authorized or needed for this
+    implementation proof; maintained owner tests supply disposable artifact
+    coverage and the browser intercept stops before dispatch.
+  - **Complete — lifecycle and Stop:** operation evidence hard-codes direct
+    lifecycle/report/Gmail writes, request-stop, automation pause, terminal
+    shutdown, and automatic retry as false. The semantic diff preserves those
+    actions as not performed, the workflow always projects shutdown through a
+    separate owner with `permitted=false`, and no Block 30/31 owner is called.
+  - **Complete — UI/history boundary:** only the current run receives the action
+    and current terminal workflow; predecessor mode suppresses all current
+    report/action state. Run and Reports expose exact stage, completion,
+    coverage, prior-report count, source/manifest identity, delivery posture,
+    limitations, and the explicit shutdown separation without a second editor
+    or direct-write path.
+  - **Complete — focused proof:** maintained terminal-report owner passed 11/11;
+    focused backend projection/workflow/registry/live-API proof passed 4/4 plus
+    the role/currentness test 1/1; focused frontend schema/action/Run/Reports
+    proof passed 35/35 and the final affected display pass was 11/11; Ruff,
+    Python compilation, TypeScript, production build,
+    and diff check passed. The exact restarted loopback runtime on port 8787
+    reports complete health coverage, exposes 26 closed registry descriptors
+    including the supported terminal operation, and focused Playwright passed
+    3/3 at desktop/tablet/mobile with Axe and no-overflow checks. No broad suite
+    or broad browser matrix had started when this brief was written.
 
 ### Stop
 

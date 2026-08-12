@@ -1623,6 +1623,243 @@ class OperationsProjectionTests(unittest.TestCase):
             bounded["error"]["code"], "report_member_limit_exceeded"
         )
 
+    def test_terminal_report_workflow_requires_reconciled_completion_and_reuses_later_stages(self) -> None:
+        directory = self.supervision_root / TARGET
+        policy = self.owner.read_json(directory / "policy.json")
+        policy["runtime"]["base_reviewer_thread_id"] = "terminal-writer-task-001"
+        policy["notifications"]["gmail"].update(
+            {
+                "enabled": True,
+                "reply_message_id": "gmail-terminal-seed-001",
+                "project_key": "demo",
+                "subject": "Demo terminal report",
+            }
+        )
+        policy["policy_version"] += 1
+        policy["policy_sha256"] = self.owner.digest(
+            self.owner.policy_material(policy)
+        )
+        self.owner.atomic_json(directory / "policy.json", policy)
+        self.owner.append_raw(
+            directory / "policy-history.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": f"POLICY-{policy['policy_version']}",
+                "timestamp": "2026-08-09T10:14:00+00:00",
+                "kind": "policy-change",
+                "policy": policy,
+            },
+        )
+        state = "terminal-state-001"
+        completion = {
+            "schema_version": 1,
+            "record_id": "EVT-TERMINAL-COMPLETION",
+            "timestamp": "2026-08-09T10:15:00+00:00",
+            "target_thread_id": TARGET,
+            "kind": "check",
+            "model": "gpt-5.6-sol",
+            "reasoning": "xhigh",
+            "state_fingerprint": state,
+            "status": "verified",
+            "severity": "info",
+            "category": self.owner.OUTCOME_COMPLETION_CATEGORY,
+            "summary": "Observable outcome verified.",
+            "evidence": ["direct-item-44"],
+            "mission_root": NEW_MISSION,
+            "policy_sha256": policy["policy_sha256"],
+            **{
+                field: "c" * 64
+                for field in self.owner.OUTCOME_COMPLETION_HASH_FIELDS
+            },
+            "capability_reconciliation_reviewer_id": REVIEWER + TARGET[-1],
+            "capability_reconciliation_implementation_owner_id": TARGET,
+            "capability_reconciliation_revision": "d" * 40,
+            "capability_reconciliation_posture": "verified",
+            "capability_reconciliation_gap_count": 0,
+        }
+        lifecycle = {
+            "schema_version": 1,
+            "record_id": "EVT-TERMINAL-LIFECYCLE",
+            "timestamp": "2026-08-09T10:16:00+00:00",
+            "target_thread_id": TARGET,
+            "kind": "lifecycle",
+            "model": "gpt-5.6-terra",
+            "reasoning": "max",
+            "state_fingerprint": state,
+            "status": "completed",
+            "severity": "info",
+            "category": "implementation-lifecycle",
+            "summary": "Target completed.",
+            "evidence": ["direct-item-44"],
+            "outcome_completion_record_id": completion["record_id"],
+            "policy_sha256": policy["policy_sha256"],
+        }
+        self.owner.append_raw(directory / "events.jsonl", completion)
+        self.owner.append_raw(directory / "events.jsonl", lifecycle)
+        incomplete = directory / "reports" / "weekly" / "weekly-incomplete-demo"
+        (incomplete / "metrics.json").unlink()
+        incomplete.rmdir()
+
+        planned = self.service.terminal_report_workflow_snapshot(TARGET)
+        self.assertEqual(planned["stage"], "prepare", planned)
+        self.assertTrue(planned["completion"]["reconciled"])
+        self.assertEqual(planned["next_action"], "prepare")
+        self.assertFalse(planned["shutdown"]["permitted"])
+        self.assertEqual(planned["writer_task_id"], "terminal-writer-task-001")
+        self.assertEqual(planned["writer_role"], "base_reviewer")
+
+        prepared = self._command(
+            "terminal-report",
+            "--target-thread",
+            TARGET,
+            "--action",
+            "prepare",
+            "--lifecycle-record",
+            lifecycle["record_id"],
+        )
+        self.assertEqual(prepared["report_set_id"], planned["report_set_id"])
+        awaiting_review = self.service.terminal_report_workflow_snapshot(TARGET)
+        self.assertEqual(awaiting_review["stage"], "review-finalize")
+        self.assertEqual(
+            [item["status"] for item in awaiting_review["stages"][:2]],
+            ["complete", "complete"],
+        )
+
+        terminal = self.service._module("terminal")
+        packet_path = Path(str(prepared["review_packet_path"]))
+        packet = json.loads(packet_path.read_text(encoding="utf-8"))
+        known = [packet["lifecycle_record_id"]]
+        prior_ids = [
+            item["report_id"] for item in packet.get("prior_report_records", [])
+        ]
+
+        def report(title, start, headings):
+            return {
+                "title": title,
+                "coverage_start": start,
+                "coverage_end": packet["coverage"]["end"],
+                "executive_summary": "The bounded implementation reached its verified observable outcome with explicit limitations.",
+                "sections": [
+                    {
+                        "heading": heading,
+                        "narrative": f"{heading} was reconstructed from exact completion and report evidence.",
+                        "evidence": (
+                            known + prior_ids
+                            if title == terminal.FULL_TITLE
+                            and heading == "Report synthesis"
+                            else known
+                        ),
+                    }
+                    for heading in headings
+                ],
+                "limitations": [
+                    "This derived report grants no lifecycle or shutdown authority."
+                ],
+            }
+
+        review = {
+            "schema_version": 1,
+            "kind": f"{terminal.REPORT_KIND}-cognitive-review",
+            "report_set_id": packet["report_set_id"],
+            "source_root": packet["source_root"],
+            "mission_root": packet["mission_root"],
+            "state_fingerprint": packet["state_fingerprint"],
+            "completion_record_id": packet["completion_record_id"],
+            "lifecycle_record_id": packet["lifecycle_record_id"],
+            "delta_report": report(
+                terminal.DELTA_TITLE,
+                packet["coverage"]["delta_start"],
+                terminal.DELTA_HEADINGS,
+            ),
+            "full_report": report(
+                terminal.FULL_TITLE,
+                packet["coverage"]["full_start"],
+                terminal.FULL_HEADINGS,
+            ),
+        }
+        report_directory = Path(str(prepared["report_directory"]))
+        (report_directory / "review.json").write_text(
+            json.dumps(review, ensure_ascii=False, sort_keys=True, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        retained = self.service.terminal_report_workflow_snapshot(TARGET)
+        self.assertEqual(retained["stage"], "finalize-verify")
+        self.assertEqual(retained["next_action"], "finalize-verify")
+        retained_stages = {
+            item["id"]: item["status"] for item in retained["stages"]
+        }
+        self.assertEqual(retained_stages["cognitive-review"], "complete")
+        self.assertEqual(retained_stages["finalize"], "current")
+        self.assertFalse(retained["shutdown"]["permitted"])
+
+        encoded = base64.b64encode(
+            json.dumps(review, separators=(",", ":")).encode("utf-8")
+        ).decode("ascii")
+        self._command(
+            "terminal-report",
+            "--target-thread",
+            TARGET,
+            "--action",
+            "finalize",
+            "--report-set-id",
+            packet["report_set_id"],
+            "--review-base64",
+            encoded,
+        )
+        (report_directory / "manifest.json").unlink()
+        partial = self.service.terminal_report_workflow_snapshot(TARGET)
+        self.assertEqual(partial["stage"], "finalize-verify")
+        self.assertEqual(partial["next_action"], "finalize-verify")
+        self.assertTrue(any(
+            "later-stage terminal bundle is partial" in item
+            for item in partial["limitations"]
+        ))
+        self._command(
+            "terminal-report",
+            "--target-thread",
+            TARGET,
+            "--action",
+            "finalize",
+            "--report-set-id",
+            packet["report_set_id"],
+            "--review-base64",
+            encoded,
+        )
+        verified = self.service.terminal_report_workflow_snapshot(TARGET)
+        self.assertEqual(verified["stage"], "delivery")
+        self.assertEqual(verified["next_action"], "deliver")
+        self.assertEqual(verified["delivery"]["status"], "pending")
+        self.assertTrue(all(
+            item["status"] == "complete" for item in verified["stages"][:6]
+        ))
+        self.assertFalse(verified["shutdown"]["permitted"])
+        delivery_record = {
+            "record_id": "EVT-TERMINAL-DELIVERY",
+            "gmail_message_id": "gmail-terminal-message",
+            "gmail_thread_id": "gmail-terminal-thread",
+            "gmail_readback_root": "e" * 64,
+            "state_fingerprint": state,
+        }
+        loaded_owner = self.service._module("supervision")
+        with (
+            patch.object(
+                loaded_owner,
+                "latest_terminal_delivery",
+                return_value=delivery_record,
+            ),
+            patch.object(
+                loaded_owner,
+                "terminal_delivery_is_current",
+                return_value=True,
+            ),
+        ):
+            delivered = self.service.terminal_report_workflow_snapshot(TARGET)
+        self.assertEqual(delivered["stage"], "delivered")
+        self.assertIsNone(delivered["next_action"])
+        self.assertEqual(delivered["delivery"]["record_id"], "EVT-TERMINAL-DELIVERY")
+        self.assertEqual(delivered["delivery"]["readback_root"], "e" * 64)
+        self.assertFalse(delivered["shutdown"]["permitted"])
+
     def test_incompatible_metric_contracts_never_produce_cross_run_totals(self) -> None:
         second_target = "target-thread-0003"
         self._init_target(second_target, OLD_MISSION, "direct-item-3")
