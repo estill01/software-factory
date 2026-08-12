@@ -39,6 +39,30 @@ the completed program materially changes Software Factory.
 
 ### Implemented
 
+- **Integrated local Software Factory operations dashboard.** The loopback
+  Python service and React/TypeScript/Vite application now provide the complete
+  Factory Floor, project/run/supervisor/task drill-downs, implementation-tracker
+  review, cross-project metrics and verified reports, Admin health, and a closed
+  owner-gated operation framework. Compact expandable rows preserve exact task,
+  run, mission, tracker, Block, supervisor-group, role, automation, issue,
+  action, conclusion, and freshness identities. Tracker surfaces show the
+  maintained-verifier total and every current task/tracker/supervision
+  active-Block claim without coalescing disagreement; counts remain explicitly
+  exact, partial, lower-bound, conflicting, none-active, or unavailable.
+  Consequential task, tracker, supervision, binding, lifecycle, reporting,
+  evolution, succession, and terminal requests use typed previews, exact source
+  fingerprints, owner-supplied semantic diffs, operation-specific confirmation,
+  route gates, and canonical postcondition re-reads. The dashboard stores only
+  project discovery metadata and process-local operation correlation: it never
+  edits primary operational truth, invents progress, treats a report or task
+  state as completion, adopts an evolution candidate, exposes arbitrary shell/
+  protocol access, or binds beyond loopback. The selected Beautiful UI
+  TaskRows, FilterTable, and DiffTable sources were adapted to the existing
+  tokens and accessibility contract without adopting the gallery shell or demo
+  semantics. Block-by-Block evidence and compatibility roots are in the
+  [32-Block implementation tracker](docs/software-factory-operations-dashboard-implementation-tracker.md);
+  operating and recovery boundaries are in
+  [`dashboard/RUNBOOK.md`](dashboard/RUNBOOK.md).
 - **Loopback operations-dashboard foundation.** Added an installable Python
   runtime and a responsive React/TypeScript/Vite shell for the planned Factory
   Floor, Projects, Trackers, Reports, and Admin workspaces. The service binds
@@ -156,31 +180,6 @@ the completed program materially changes Software Factory.
 
 ### Planned
 
-- **Local Software Factory operations dashboard and factory floor.** A
-  thirty-two-Block implementation program plans a local React/TypeScript/Vite
-  command center that monitors current and historical work across registered
-  projects; pairs every discoverable implementation with its supervisor group,
-  target, roles, automations, current active-Block claims/checkpoints, issues,
-  actions, and conclusions; and exposes transparent red/amber/green/neutral
-  operating states
-  with exact reasons and source history. It also plans implementation-tracker
-  review, verified cross-project metrics and reports, version-gated Codex App
-  Server task control, and owner-gated author/implement/supervise/report/
-  evolution/lifecycle operations. Tracker rows expose maintained-verifier total
-  Block counts and every current task/tracker/supervision active-Block claim
-  without coalescing conflicts. Tracker Markdown, Git, Codex tasks, supervision
-  ledgers, automations, and reports remain their own authorities;
-  the dashboard stores only project discovery metadata and never treats a green
-  light, task terminality, test, commit, or report as completion. The planned
-  runtime is explicitly data-backed through loopback `/api/v1` typed adapters
-  to those primary owners, with no runtime demo-data or duplicated-owner
-  fallback. This is planning, not implemented functionality. Planning baseline:
-  `c7d4efce3e3bf5fb3a8dbc4d9ab0db0ef2cd89bd`; tracker:
-  [`docs/software-factory-operations-dashboard-implementation-tracker.md`](docs/software-factory-operations-dashboard-implementation-tracker.md).
-  The current plan also includes three future source-adaptation slices for
-  compact Factory Floor rows, truthful tracker filters/source diffs, and
-  owner-backed operation semantic diffs using the selected Beautiful UI
-  component sources without adopting its navigation or demo-product shell.
 - **Adaptive implementation decision control and autonomous Factory
   evolution.** A fourteen-Block program plans a
   near-zero-overhead unchanged path, inline correction of bad implementation

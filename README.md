@@ -127,18 +127,20 @@ Run in a dedicated Task:
 $supervise-tracker-runs {session ID}
 ```
 
-### 5. Preview the local operations dashboard
+### 5. Run the local operations dashboard
 
-The operations dashboard currently provides its loopback runtime, responsive
-application shell, bounded multi-project catalog, and read-only tracker, Git,
-supervision, report, and owner-metrics APIs. Register exact local Git roots in
-Admin to expose per-project discovery health and source-local tracker
-projections. The adapters invoke maintained tracker and supervision owners,
-keep current missions separate from predecessor history, retain exact
-role/task/automation bindings and source-local failures, verify report bundles,
-and never edit operational truth or invent progress percentages. The
-operator-facing workspaces and task or lifecycle controls remain unavailable
-until their owning implementation Blocks are accepted.
+The operations dashboard is a data-backed, single-operator control room for the
+Factory Floor, projects, implementation trackers, runs, supervisor groups,
+tasks, reports, metrics, and Admin health. Register exact local Git roots in
+Admin. Typed `/api/v1` adapters read the maintained tracker/Git, supervision,
+automation, report, and Codex App Server owners; source-local failures remain
+visible and current/predecessor missions never share live state.
+
+Consequential controls use owner-supplied previews, exact source fingerprints,
+operation-specific confirmations, route gates where required, and canonical
+postcondition re-reads. The dashboard never edits tracker Markdown, policy,
+automation, supervision ledgers, reports, or Git directly, and it never turns a
+green light, terminal task, test, commit, or report into a completion claim.
 
 ```bash
 npm --prefix dashboard/web ci
@@ -151,7 +153,8 @@ Open `http://127.0.0.1:8787`. The port is selectable and the runtime refuses a
 non-loopback bind. Archiving a catalog record only hides it from normal views;
 it never deletes files or stops work. See the
 [dashboard developer guide](dashboard/README.md) for catalog storage, API,
-development, validation, and browser-test details.
+development, validation, and browser-test details, and the
+[operator runbook](dashboard/RUNBOOK.md) for control and recovery boundaries.
 
 ## Architecture
 

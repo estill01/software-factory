@@ -4501,7 +4501,7 @@ h3 {
   .mobile-nav .nav-link-active {
     border-color: transparent;
     background: var(--primary-soft);
-    color: var(--primary);
+    color: var(--text);
     box-shadow: inset 0 -2px var(--primary);
   }
 

@@ -8561,6 +8561,27 @@ work solely to inflate coverage.
   integrated validation and operator-handoff outcome. Work began by freezing
   this status transition before any new broad validation or mapped correction;
   no live terminal shutdown or external project mutation was performed.
+- Pre-broad validation boundary — `2026-08-12T14:58:11Z`: the active execution
+  brief at
+  `docs/software-factory-operations-dashboard-validation.md` now enumerates
+  every likely-mutating catalog, HTTP, operation, App Server, task, tracker,
+  supervision, binding, lifecycle, report, evolution, succession, terminal,
+  predecessor, source-currentness, and Stop invariant as complete or
+  source-backed unavailable before the final broad matrix. Focused proof fixed
+  the mobile active-navigation contrast and replaced a stale no-open-incident
+  browser assumption with the exact live incident claim; the affected
+  tracker/Axe matrix passed 3/3 and live drill-down passed 1/1. Twelve other
+  previously failing workflow cases passed unchanged after the serving process
+  was refreshed to the current Block 30 schema. A three-project catalog now
+  projects Software Factory, Graphy, and Patent Studio as exact canonical Git
+  roots with 31 trackers and seven untruncated Factory Floor rows; registration
+  changed discovery metadata only. The isolated fake-owner operation packet
+  passed 6/6, and current plus deterministic 2x performance/bounds proof passed
+  6/6. README, changelog, runbook, Beautiful UI provenance checks, dependency/
+  compatibility roots, live source identities, measurements, and explicit
+  limitations are recorded in the brief. The broad matrix has not started; no
+  live task, supervision, report, evolution, lifecycle, request-stop, or
+  shutdown operation was executed.
 
 ### Stop
 

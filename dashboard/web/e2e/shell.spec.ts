@@ -1134,11 +1134,17 @@ test("Factory evolution exposes one current stage without adoption authority", a
   }
 })
 
-test("live project, run, supervisor, and task drill-downs preserve mission boundaries", async ({ page }) => {
+test("live project, run, supervisor, and task drill-downs preserve mission boundaries", async ({ page, request }) => {
   test.setTimeout(180_000)
   const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
   const predecessor = "bc955bd48e01db90aeb98fa27256546e2ce1eaf289fd6f630f36374d3c89d810"
   const returnPath = "/?project=software-factory&time=24h&posture=all&severity=all"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  const hasOpenIncident = runEnvelope.data.run.incidents.some(
+    (incident: { open: boolean }) => incident.open,
+  )
   const projectFloor = makeFactoryFloorEnvelope()
   projectFloor.data.projects = [{ id: "software-factory", label: "Software Factory" }]
   projectFloor.data.rows = [{
@@ -1186,7 +1192,13 @@ test("live project, run, supervisor, and task drill-downs preserve mission bound
   const metaReview = page.getByRole("button", { name: "Meta-review" })
   await expect(checkpointReview).toBeEnabled()
   await expect(metaReview).toBeEnabled()
-  await expect(page.getByRole("button", { name: "Issue follow-up" })).toBeDisabled()
+  const issueFollowUp = page.getByRole("button", { name: "Issue follow-up" })
+  if (hasOpenIncident) {
+    await expect(page.getByRole("combobox", { name: "Issue for follow-up" })).toBeVisible()
+    await expect(issueFollowUp).toBeEnabled()
+  } else {
+    await expect(issueFollowUp).toBeDisabled()
+  }
   await checkpointReview.click()
   const checkpointPreview = page.getByRole("dialog")
   await expect(checkpointPreview).toContainText(/one checkpoint review/i)

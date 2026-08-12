@@ -1,12 +1,11 @@
 # Software Factory Operations Dashboard
 
-The dashboard is a local, single-operator control room. It currently provides
-the loopback runtime, typed transport, accessible application shell, a bounded
-multi-project catalog, and read-only APIs for implementation trackers, Git
-currentness, supervision, reports, owner-produced metrics, and a version-gated
-Codex task adapter. Its composed Factory Floor is the default operating view;
-detailed project, run, tracker, report, and task workspaces remain in later
-tracker Blocks.
+The dashboard is a local, single-operator control room. Its Factory Floor,
+project/run/task drill-downs, tracker review, reports, metrics, Admin health,
+and owner-gated controls are backed by typed loopback APIs to the current
+tracker, Git, supervision, report, automation, and Codex App Server owners. It
+stores only project discovery metadata and process-local operation correlation;
+it does not keep a second operational ledger or infer completion.
 
 ## Prerequisites
 
@@ -15,6 +14,11 @@ tracker Blocks.
 - Codex CLI 0.145.0 for the frozen App Server compatibility contract
 
 No global frontend package installation is required.
+
+The frozen frontend family is React 19.2, TypeScript 7.0, Vite 8.1, React
+Router 8.2, TanStack Query 5.101, Jotai 2.20, Zod 4.4, Tailwind 4.3,
+Recharts 3.9, Vitest 4.1, and Playwright 1.61. Exact installed versions are in
+`dashboard/web/package-lock.json`.
 
 ## Install and validate
 
@@ -48,8 +52,10 @@ uv run --project dashboard/server software-factory-dashboard --port 8787
 Open `http://127.0.0.1:8787`. Choose another free port with `--port`; the
 service rejects non-loopback hosts. The production server serves the Vite build,
 SPA routes, `/api/v1/health`, security headers, and per-launch mutation-nonce
-plumbing. Read-only project, tracker, supervision, report, and metrics APIs are
-served from the same origin, including the composed Factory Floor.
+plumbing. Project, tracker, supervision, report, metrics, task, operation, and
+Factory Floor APIs share that origin. Read projections remain distinct from
+mutation: every consequential request uses the nonce-protected operation
+boundary and a maintained external owner.
 
 ## Register projects
 
@@ -116,9 +122,13 @@ returned locally and does not erase healthy projections.
 
 Unchanged analysis is cached only by tracker content hash, verifier hash, and
 profile. Git reads are batched per repository for list refreshes. The React
-client validates list/detail responses with closed Zod schemas but does not yet
-render a tracker workspace; that interface begins in Block 8. No endpoint in
-this slice edits a tracker, accepts a Block, changes status, or starts work.
+client validates list/detail responses with closed Zod schemas and renders the
+exact maintained-verifier Block total, status counts, dependency order,
+current task/tracker/supervision active-Block claims, source disagreement, Git
+posture, evidence, diagnostics, source links, and bounded semantic source diff.
+The workspace never edits Markdown, changes Block status, accepts work, or
+calculates a synthetic progress percentage. Author/review/revise/implement
+buttons are separate owner-mediated operations.
 
 ## Inspect supervision, reports, and metrics
 
@@ -146,11 +156,14 @@ mission only. Cross-run totals aggregate additive dimensions but never
 synthesize percentiles, and API-equivalent cost is always labeled as an
 estimate with its assumptions.
 
-The service reads canonical supervision and automation roots, does not inspect
-automation prompt bodies, and does not create, repair, pause, resume, stop, or
-otherwise mutate supervised work. It also does not generate reports. Each
-target and report fails locally so one damaged source cannot erase healthy
-operations data.
+The read projection service reads canonical supervision and automation roots,
+does not inspect automation prompt bodies, and does not generate or mutate
+operational truth. Separate operation definitions can request maintained
+supervision checks/reviews, policy adjustment, binding repair, pause/resume,
+mission/task continuity, reporting, evolution evaluation, and terminal
+shutdown. Each preview names its owner and exact postcondition; the dashboard
+reports `applied` only after that owner state is re-read. Each target and report
+still fails locally so one damaged source cannot erase healthy operations data.
 
 ## Operate from the Factory Floor
 
@@ -209,9 +222,12 @@ distinct.
 
 Correlation and activity are process-local; the dashboard does not create a
 second durable operation ledger. After restart, a later owner-backed operation
-must reconstruct its result from its canonical task, ledger, automation, report,
-or catalog source. No tracker, task, supervision, report, evolution, or lifecycle
-operation is registered in the generic framework slice itself.
+must reconstruct its result from its canonical task, ledger, automation,
+report, or catalog source. The closed registry exposes only named typed
+definitions for task control, tracker workflows, supervision attach/check/
+review/adjust/binding/lifecycle, reporting, Factory evolution, succession, and
+terminal handling. A source-ineligible definition is absent or marked
+unavailable with its owner-local reason.
 
 ## Inspect and control Codex tasks
 
@@ -251,19 +267,26 @@ cross-site requests are rejected. Replay is sequence-based and limited to the
 current in-memory window.
 
 The adapter implements typed task start/resume, turn start/steer/interrupt, and
-current approval/input response capabilities for later registered owner
-workflows. Block 5 does not expose those as generic HTTP or UI controls; their
-operation previews, currentness gates, and bounded prompt builders belong to
-the operation-framework Blocks. The only mutation exposed here is the exact
-same-origin, nonce-gated adapter-child restart. Admin shows the resolved CLI
-version, protocol/schema posture, capability matrix, last error, pending request
-count, and restart action. Raw protocol methods, arbitrary prompts or payloads,
-model settings, general tools, remote transports, task forking, and permission-
-profile grants are not exposed.
+current approval/input response. The UI exposes only the corresponding closed
+operation definitions, bounded prompt builders, current task/request
+fingerprints, specific confirmation, and canonical postcondition checks. Admin
+also exposes the exact same-origin, nonce-gated adapter-child restart and shows
+resolved CLI version, protocol/schema posture, capability matrix, last error,
+pending request count, and reconnect state. Raw protocol methods, arbitrary
+prompts or payloads, model settings, general tools, remote transports, task
+forking, and permission-profile grants are not exposed.
 
 The compatibility artifact and deterministic regeneration metadata are in
 `server/src/software_factory_dashboard/app_server_compatibility.json`. Override
 only the executable path, not protocol arguments, with `--codex-binary`.
+
+## Operation and recovery guidance
+
+Use [`RUNBOOK.md`](RUNBOOK.md) for the concise operating sequence, source-truth
+interpretation, consequential-control checklist, compatibility recovery, and
+explicit authorization boundaries. In particular, interrupt, semantic pause,
+resume, request-stop, terminal reporting, and terminal shutdown remain separate
+operations and cannot prove one another.
 
 ## Browser tests
 
