@@ -2386,11 +2386,34 @@ def append_raw_locked_at(
         prior_events, _prior_snapshot = events_snapshot(
             Path(name), directory_fd=directory_fd
         )
-        validate_event_ledger_anchor_at(
-            directory_fd,
-            prior_events,
-            allow_missing=not require_event_anchor and not prior_events,
-        )
+        try:
+            validate_event_ledger_anchor_at(
+                directory_fd,
+                prior_events,
+                allow_missing=not require_event_anchor and not prior_events,
+            )
+        except SupervisionLogError:
+            if (
+                path_snapshot_at(directory_fd, "policy.json") is None
+                or path_snapshot_at(directory_fd, "policy-history.jsonl") is None
+            ):
+                raise
+            reconcile_strict_prefix_event_ledger_anchor_at(directory_fd)
+            reconciled_events, reconciled_snapshot = events_snapshot(
+                Path(name), directory_fd=directory_fd
+            )
+            if (
+                reconciled_events != prior_events
+                or reconciled_snapshot != _prior_snapshot
+            ):
+                raise SupervisionLogError(
+                    "Supervision event ledger changed during anchor recovery"
+                )
+            validate_event_ledger_anchor_at(
+                directory_fd,
+                reconciled_events,
+                allow_missing=False,
+            )
         actual_prior = (
             str(prior_events[-1].get("record_sha256")) if prior_events else None
         )
@@ -2584,6 +2607,163 @@ def ensure_event_ledger_anchor_at(directory_fd: int) -> None:
         all_events,
         allow_missing=False,
     )
+
+
+def reconcile_strict_prefix_event_ledger_anchor_at(
+    directory_fd: int,
+) -> dict[str, Any]:
+    """Recover one exact stale event-head prefix without changing owner state."""
+
+    directory = directory_path_from_fd(directory_fd)
+    directory_snapshot = file_snapshot(os.fstat(directory_fd))
+    if owner_root_enabled_at(directory_fd):
+        raise SupervisionLogError(
+            "Event-head recovery is unavailable while owner-root enforcement is active; "
+            "use the maintained owner-root recovery path"
+        )
+
+    try:
+        event_text, event_snapshot = read_text_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        anchor_text, anchor_snapshot = read_text_snapshot(
+            Path(EVENT_LEDGER_ANCHOR_NAME), directory_fd=directory_fd
+        )
+        policy_text, policy_snapshot = read_text_snapshot(
+            Path("policy.json"), directory_fd=directory_fd
+        )
+        history_text, history_snapshot = read_text_snapshot(
+            Path("policy-history.jsonl"), directory_fd=directory_fd
+        )
+    except OSError as exc:
+        raise SupervisionLogError(
+            "Canonical event-head recovery state is missing or unsafe"
+        ) from exc
+    if None in {
+        event_snapshot,
+        anchor_snapshot,
+        policy_snapshot,
+        history_snapshot,
+    }:
+        raise SupervisionLogError(
+            "Canonical event-head recovery state is missing or unsafe"
+        )
+
+    all_events = parse_events(event_text, ledger_name="events.jsonl")
+    parse_events(history_text, ledger_name="policy-history.jsonl")
+    try:
+        anchor = json.loads(anchor_text)
+        policy = json.loads(policy_text)
+    except json.JSONDecodeError as exc:
+        raise SupervisionLogError(
+            "Canonical event-head recovery state is malformed"
+        ) from exc
+    if not isinstance(anchor, dict) or not isinstance(policy, dict):
+        raise SupervisionLogError(
+            "Canonical event-head recovery state is malformed"
+        )
+    validate_policy(policy)
+
+    anchor_count = anchor.get("event_count")
+    if isinstance(anchor_count, bool) or not isinstance(anchor_count, int):
+        raise SupervisionLogError(
+            "Canonical supervision event-ledger head has an invalid event count"
+        )
+    if anchor_count < 0:
+        raise SupervisionLogError(
+            "Canonical supervision event-ledger head has an invalid event count"
+        )
+    if anchor_count > len(all_events):
+        raise SupervisionLogError(
+            "Canonical supervision event-ledger head is ahead of the ledger"
+        )
+    if all_events and anchor_count == 0:
+        raise SupervisionLogError(
+            "Canonical supervision event-ledger head does not bind the ledger genesis"
+        )
+    try:
+        validate_event_ledger_anchor_value(anchor, all_events[:anchor_count])
+    except SupervisionLogError as exc:
+        raise SupervisionLogError(
+            "Canonical supervision event-ledger head is not an exact ledger prefix"
+        ) from exc
+    if anchor_count == len(all_events):
+        raise SupervisionLogError(
+            "Canonical supervision event-ledger head is already current"
+        )
+
+    current_event_text, current_event_snapshot = read_text_snapshot(
+        Path("events.jsonl"), directory_fd=directory_fd
+    )
+    current_anchor_text, current_anchor_snapshot = read_text_snapshot(
+        Path(EVENT_LEDGER_ANCHOR_NAME), directory_fd=directory_fd
+    )
+    current_policy_text, current_policy_snapshot = read_text_snapshot(
+        Path("policy.json"), directory_fd=directory_fd
+    )
+    current_history_text, current_history_snapshot = read_text_snapshot(
+        Path("policy-history.jsonl"), directory_fd=directory_fd
+    )
+    if (
+        path_snapshot(directory) != directory_snapshot
+        or current_event_snapshot != event_snapshot
+        or current_event_text != event_text
+        or current_anchor_snapshot != anchor_snapshot
+        or current_anchor_text != anchor_text
+        or current_policy_snapshot != policy_snapshot
+        or current_policy_text != policy_text
+        or current_history_snapshot != history_snapshot
+        or current_history_text != history_text
+        or path_snapshot_at(directory_fd, "events.jsonl") != event_snapshot
+        or path_snapshot_at(directory_fd, EVENT_LEDGER_ANCHOR_NAME)
+        != anchor_snapshot
+        or path_snapshot_at(directory_fd, "policy.json") != policy_snapshot
+        or path_snapshot_at(directory_fd, "policy-history.jsonl")
+        != history_snapshot
+    ):
+        raise SupervisionLogError(
+            "Supervision owner, policy, history, event ledger, or anchor changed "
+            "during recovery"
+        )
+
+    recovered_anchor = event_ledger_anchor(all_events)
+    atomic_json_at(directory_fd, EVENT_LEDGER_ANCHOR_NAME, recovered_anchor)
+
+    installed_event_text, installed_event_snapshot = read_text_snapshot(
+        Path("events.jsonl"), directory_fd=directory_fd
+    )
+    installed_anchor, _installed_anchor_snapshot = read_json_snapshot(
+        Path(EVENT_LEDGER_ANCHOR_NAME), directory_fd=directory_fd
+    )
+    installed_policy_text, installed_policy_snapshot = read_text_snapshot(
+        Path("policy.json"), directory_fd=directory_fd
+    )
+    installed_history_text, installed_history_snapshot = read_text_snapshot(
+        Path("policy-history.jsonl"), directory_fd=directory_fd
+    )
+    if (
+        installed_event_snapshot != event_snapshot
+        or installed_event_text != event_text
+        or installed_anchor != recovered_anchor
+        or installed_policy_snapshot != policy_snapshot
+        or installed_policy_text != policy_text
+        or installed_history_snapshot != history_snapshot
+        or installed_history_text != history_text
+    ):
+        raise SupervisionLogError(
+            "Event-head recovery lost canonical currentness"
+        )
+    validate_event_ledger_anchor_value(installed_anchor, all_events)
+    return {
+        "reconciled": True,
+        "previous_event_count": anchor_count,
+        "event_count": len(all_events),
+        "genesis_record_sha256": recovered_anchor["genesis_record_sha256"],
+        "event_head_sha256": recovered_anchor["event_head_sha256"],
+        "events_unchanged": True,
+        "policy_unchanged": True,
+        "policy_history_unchanged": True,
+    }
 
 
 def owner_root_material(

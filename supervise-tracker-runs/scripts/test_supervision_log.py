@@ -511,6 +511,264 @@ class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
         self.assertIn("source JSON remains caller-owned", policy)
 
 
+class OrdinaryWriterEventHeadRecoveryTests(unittest.TestCase):
+    target = "event-head-writer-target-1234"
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "init",
+                "--target-thread",
+                self.target,
+                "--target-label",
+                "Event head writer target",
+                "--watcher-thread",
+                "event-head-writer-watcher-1234",
+                "--reviewer-thread",
+                "event-head-writer-reviewer-1234",
+                "--mission-source-class",
+                "tracker",
+                "--mission-source-record",
+                "tracker:event-head-writer-test",
+                "--mission-source-sha256",
+                "a" * 64,
+            ]
+        )
+        with redirect_stdout(io.StringIO()):
+            args.func(args)
+        self.directory = self.root / self.target
+        self.ledger = self.directory / "events.jsonl"
+        self.anchor = self.directory / supervision_log.EVENT_LEDGER_ANCHOR_NAME
+        for status in ("one", "two", "three"):
+            self.append_event(status)
+        self.set_anchor_count(2)
+
+    def append_event(self, status: str) -> dict[str, object]:
+        current = supervision_log.events(self.ledger)
+        supervision_log.append_raw(
+            self.ledger,
+            {
+                "schema_version": 1,
+                "record_id": f"EVT-{len(current) + 1:06d}",
+                "timestamp": supervision_log.utc_now(),
+                "target_thread_id": self.target,
+                "kind": "check",
+                "status": status,
+                "summary": f"Ordinary writer event-head test {status}.",
+            },
+        )
+        return supervision_log.events(self.ledger)[-1]
+
+    def set_anchor_count(self, count: int) -> None:
+        supervision_log.atomic_json(
+            self.anchor,
+            supervision_log.event_ledger_anchor(
+                supervision_log.events(self.ledger)[:count]
+            ),
+        )
+
+    def owner_bytes(self) -> dict[Path, bytes]:
+        return {
+            path: path.read_bytes()
+            for path in (
+                self.ledger,
+                self.anchor,
+                self.directory / "policy.json",
+                self.directory / "policy-history.jsonl",
+            )
+            if path.exists()
+        }
+
+    def assert_owner_bytes(self, preserved: dict[Path, bytes]) -> None:
+        for path, expected in preserved.items():
+            self.assertEqual(path.read_bytes(), expected)
+
+    def test_strict_prefix_is_reconciled_before_ordinary_append(self) -> None:
+        event_bytes = self.ledger.read_bytes()
+        policy_bytes = (self.directory / "policy.json").read_bytes()
+        history_bytes = (self.directory / "policy-history.jsonl").read_bytes()
+        prior = supervision_log.events(self.ledger)
+
+        appended = self.append_event("four")
+
+        current = supervision_log.events(self.ledger)
+        self.assertTrue(self.ledger.read_bytes().startswith(event_bytes))
+        self.assertEqual((self.directory / "policy.json").read_bytes(), policy_bytes)
+        self.assertEqual(
+            (self.directory / "policy-history.jsonl").read_bytes(), history_bytes
+        )
+        self.assertEqual(len(current), 4)
+        self.assertEqual(appended["previous_record_sha256"], prior[-1]["record_sha256"])
+        supervision_log.validate_event_ledger_anchor(
+            self.directory, current, allow_missing=False
+        )
+
+    def test_missing_malformed_ahead_and_divergent_anchors_fail_closed(self) -> None:
+        preserved = self.owner_bytes()
+        self.anchor.unlink()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "missing or unsafe"
+        ):
+            self.append_event("missing-anchor")
+        self.assertEqual(self.ledger.read_bytes(), preserved[self.ledger])
+
+        self.anchor.write_bytes(b"{not-json\n")
+        malformed = self.owner_bytes()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "malformed"
+        ):
+            self.append_event("malformed-anchor")
+        self.assert_owner_bytes(malformed)
+
+        current = supervision_log.events(self.ledger)
+        ahead = supervision_log.event_ledger_anchor(
+            [*current, {"record_sha256": "e" * 64}]
+        )
+        supervision_log.atomic_json(self.anchor, ahead)
+        ahead_bytes = self.owner_bytes()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "ahead of the ledger"
+        ):
+            self.append_event("ahead-anchor")
+        self.assert_owner_bytes(ahead_bytes)
+
+        divergent = supervision_log.event_ledger_anchor(
+            [{"record_sha256": "f" * 64}]
+        )
+        supervision_log.atomic_json(self.anchor, divergent)
+        divergent_bytes = self.owner_bytes()
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "not an exact ledger prefix"
+        ):
+            self.append_event("divergent-anchor")
+        self.assert_owner_bytes(divergent_bytes)
+
+    def test_broken_and_re_rooted_ledgers_fail_closed(self) -> None:
+        original = self.ledger.read_bytes()
+        original_anchor = self.anchor.read_bytes()
+        rows = supervision_log.events(self.ledger)
+        broken = copy.deepcopy(rows)
+        broken[-1]["previous_record_sha256"] = "f" * 64
+        self.ledger.write_bytes(
+            b"".join(supervision_log.canonical(item) + b"\n" for item in broken)
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "broken hash chain|stale record hash"
+        ):
+            self.append_event("broken-ledger")
+        self.assertEqual(self.anchor.read_bytes(), original_anchor)
+
+        previous = None
+        re_rooted = []
+        for index, item in enumerate(rows):
+            material = {
+                key: value
+                for key, value in item.items()
+                if key not in {"previous_record_sha256", "record_sha256"}
+            }
+            if index == 0:
+                material["summary"] = "Re-rooted event chain."
+            material["previous_record_sha256"] = previous
+            material["record_sha256"] = supervision_log.digest(material)
+            previous = material["record_sha256"]
+            re_rooted.append(material)
+        self.ledger.write_bytes(
+            b"".join(supervision_log.canonical(item) + b"\n" for item in re_rooted)
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "not an exact ledger prefix"
+        ):
+            self.append_event("re-rooted-ledger")
+        self.assertEqual(self.anchor.read_bytes(), original_anchor)
+        self.assertNotEqual(self.ledger.read_bytes(), original)
+
+    def test_symlink_and_snapshot_substitution_fail_closed(self) -> None:
+        event_bytes = self.ledger.read_bytes()
+        outside_events = self.root / "outside-events.jsonl"
+        self.ledger.rename(outside_events)
+        self.ledger.symlink_to(outside_events)
+        with self.assertRaises((OSError, supervision_log.SupervisionLogError)):
+            self.append_event("event-symlink")
+        self.assertEqual(outside_events.read_bytes(), event_bytes)
+
+        self.ledger.unlink()
+        outside_events.rename(self.ledger)
+        anchor_bytes = self.anchor.read_bytes()
+        outside_anchor = self.root / "outside-anchor.json"
+        self.anchor.rename(outside_anchor)
+        self.anchor.symlink_to(outside_anchor)
+        with self.assertRaises((OSError, supervision_log.SupervisionLogError)):
+            self.append_event("anchor-symlink")
+        self.assertEqual(outside_anchor.read_bytes(), anchor_bytes)
+
+        self.anchor.unlink()
+        outside_anchor.rename(self.anchor)
+        original_read = supervision_log.read_text_snapshot
+        event_reads = 0
+
+        def lose_snapshot(path: Path, **kwargs: object):
+            nonlocal event_reads
+            text, snapshot = original_read(path, **kwargs)
+            if path.name == "events.jsonl":
+                event_reads += 1
+                if event_reads == 3 and snapshot is not None:
+                    snapshot = (*snapshot[:3], snapshot[3] + 1)
+            return text, snapshot
+
+        preserved = self.owner_bytes()
+        with (
+            mock.patch.object(
+                supervision_log, "read_text_snapshot", side_effect=lose_snapshot
+            ),
+            self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "changed during recovery"
+            ),
+        ):
+            self.append_event("snapshot-loss")
+        self.assert_owner_bytes(preserved)
+
+    def test_owner_root_enabled_refuses_recovery_without_mutation(self) -> None:
+        flags = (
+            os.O_RDONLY
+            | getattr(os, "O_DIRECTORY", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        directory_fd = os.open(self.directory, flags)
+        try:
+            with supervision_log.append_lock_at(directory_fd):
+                supervision_log.ensure_owner_root_history_at(directory_fd)
+            key = supervision_log.owner_root_key_path_at(directory_fd)
+            external_state = supervision_log.owner_root_state_path_at(directory_fd)
+        finally:
+            os.close(directory_fd)
+        self.set_anchor_count(2)
+        owner_root = self.directory / supervision_log.OWNER_ROOT_HISTORY_NAME
+        preserved = {
+            path: path.read_bytes()
+            for path in (
+                self.ledger,
+                self.anchor,
+                self.directory / "policy.json",
+                self.directory / "policy-history.jsonl",
+                owner_root,
+                key,
+                external_state,
+            )
+        }
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "maintained owner-root recovery path",
+        ):
+            self.append_event("owner-root-enabled")
+        self.assert_owner_bytes(preserved)
+
+
 class SuccessorTransitionContractTests(unittest.TestCase):
     target = "target-1234"
     transition_id = "TRANSITION-1234"
