@@ -546,8 +546,8 @@ the relevant authority and evidence contract.
 | 23 | Canonical supervision-resume lifecycle owner | 22 | `accepted` |
 | 24 | Supervision resume | 7, 10, 11, 22, 23 | `accepted` |
 | 25 | Same-target mission succession | 7, 10, 11 | `accepted` |
-| 26 | Successor-task continuity | 7, 10, 11 | `in-progress` |
-| 27 | Weekly supervision report workflow | 9, 10, 11, 13 | `not-started` |
+| 26 | Successor-task continuity | 7, 10, 11 | `accepted` |
+| 27 | Weekly supervision report workflow | 9, 10, 11, 13 | `in-progress` |
 | 28 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `not-started` |
 | 29 | Terminal report workflow | 9, 10, 11, 13, 27 | `not-started` |
 | 30 | Request-stop and terminal shutdown | 7, 9, 10, 11, 29 | `not-started` |
@@ -6992,7 +6992,7 @@ evolution, or changing terminal lifecycle.
 
 ## Block 26 — Successor-task continuity
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -7167,6 +7167,19 @@ widening.
   build, and responsive browser 3/3 evidence is unaffected and reused. No live
   transition, task creation, route, policy/event mutation, work start, or stop
   occurred. Fresh focused exact-revision review is pending.
+- Fresh exact-revision review: independently `ACCEPTED` evidence successor
+  `beeddf676b261145a3e70ecc222d9b159ec70e78`, tree
+  `83ecf88ec3e6b4b87bdcd1d8969bd20105b161ac`, over corrected product
+  `db9f1703634871c8462efb6ed066b979a5f9db05`. The reviewer reproduced complete
+  direct-source resolution and post-dispatch currentness, fabricated/routed/
+  generated/mixed/truncated/partial-source rejection, canonical
+  `successor-created` fingerprint binding, first-work governing-source
+  preservation, and concrete work evidence. Focused proof passed 3/3 with
+  `ResourceWarning` fatal; Ruff, compilation, full-profile 32-Block
+  verification with 0 diagnostics, diff/object/clean/remote `0 0`, and Stop
+  checks passed. No live transition, task creation, route, canonical mutation,
+  work-start, or source-stop action occurred. Block 26 is accepted only at this
+  exact revision.
 
 ### Stop
 
@@ -7177,7 +7190,7 @@ or terminal shutdown.
 
 ## Block 27 — Weekly supervision report workflow
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -7279,7 +7292,14 @@ unverified stage.
 
 ### Completion evidence
 
-Pending.
+- Activation: Block 27 started automatically after independent acceptance of
+  Block 26 evidence `beeddf676b261145a3e70ecc222d9b159ec70e78` and product
+  `db9f1703634871c8462efb6ed066b979a5f9db05`. Governing implementation
+  authority remains direct-user item 44 under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+  Work is limited to the accepted weekly-report workflow contract; Blocks
+  28–31 remain closed, and no live report preparation, cognitive review,
+  finalization, delivery, or Gmail action has been attempted.
 
 ### Stop
 
