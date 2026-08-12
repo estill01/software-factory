@@ -10493,8 +10493,18 @@ class FactoryWorkflowOwner:
             )
         automations: list[dict[str, Any]] = []
         seen_required: set[str] = set()
+        reports = policy.get("reports")
+        reports = reports if isinstance(reports, Mapping) else {}
+        weekly_report = reports.get("weekly")
+        weekly_report = (
+            weekly_report if isinstance(weekly_report, Mapping) else {}
+        )
         for role, contract in AUTOMATION_BINDING_CONTRACTS.items():
-            automation_id = runtime.get(contract["automation_key"])
+            automation_id = (
+                weekly_report.get(contract["automation_key"])
+                if contract["policy_source"] == "weekly_report"
+                else runtime.get(contract["automation_key"])
+            )
             if not automation_id:
                 continue
             current = automations_by_role.get(role)

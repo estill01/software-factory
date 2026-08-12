@@ -1277,7 +1277,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             "fix_executor_thread_id": fix_id,
             "gmail_gate_thread_id": None,
             "gmail_processor_thread_id": None,
-            "roundup_thread_id": None,
+            "roundup_thread_id": "roundup-successor-001",
             "routine_automation_id": "watcher-automation-successor",
             "meta_automation_id": "reviewer-automation-successor",
             "gmail_poll_automation_id": None,
@@ -1292,6 +1292,12 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             "project_root": str(project_root),
             "mission_binding": predecessor_binding,
             "runtime": runtime,
+            "reports": {
+                "weekly": {
+                    "enabled": True,
+                    "automation_id": "weekly-automation-successor",
+                }
+            },
         }
         next_policy = {
             **json.loads(json.dumps(policy)),
@@ -1334,9 +1340,20 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                 "protected_sha256": "4" * 64,
                 "updated_at": "2026-08-11T23:31:00Z",
             },
+            "weekly_report": {
+                "status": "available",
+                "id": "weekly-automation-successor",
+                "name": "Successor weekly report",
+                "kind": "heartbeat",
+                "owner_status": "ACTIVE",
+                "target_thread_id": runtime["roundup_thread_id"],
+                "rrule": "RRULE:FREQ=WEEKLY;BYDAY=MO;BYHOUR=8;BYMINUTE=0",
+                "manifest_sha256": "5" * 64,
+                "protected_sha256": "6" * 64,
+                "updated_at": "2026-08-11T23:32:00Z",
+            },
             "gmail_gate": None,
             "roundup_writer": None,
-            "weekly_report": None,
         }
         control = {
             "fingerprint": "5" * 64,
@@ -1548,6 +1565,10 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             source.evidence["prior_policy_history_roots"],
             [prior_policy_record["record_sha256"]],
         )
+        self.assertEqual(
+            [item["role"] for item in source.evidence["automations"]],
+            ["watcher", "reviewer", "weekly_report"],
+        )
         semantic = {
             item.id: item
             for item in definition.describe_effect(
@@ -1688,6 +1709,23 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             history["segments"][0]["superseded_by"],
             predecessor_root,
         )
+
+        weekly = control["automations_by_role"]["weekly_report"]
+        weekly_manifest = weekly["manifest_sha256"]
+        weekly_updated_at = weekly["updated_at"]
+        weekly["manifest_sha256"] = "d" * 64
+        weekly["updated_at"] = "2026-08-12T01:01:00Z"
+        changed_weekly = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(changed_weekly.state, "unverified")
+        self.assertFalse(changed_weekly.evidence["automations_preserved"])
+        weekly_result = next(
+            item
+            for item in changed_weekly.evidence["automation_results"]
+            if item["role"] == "weekly_report"
+        )
+        self.assertFalse(weekly_result["preserved"])
+        weekly["manifest_sha256"] = weekly_manifest
+        weekly["updated_at"] = weekly_updated_at
 
         history["segments"][-1]["conclusion_count"] = 1
         leaked = definition.verify(target, inputs, source, dispatched)
