@@ -1937,9 +1937,13 @@ class OperationsProjectionService:
         required = {
             "completion_permitted",
             "duplicate",
+            "event_count",
+            "event_head",
             "lifecycle_state",
             "notification_category",
             "notification_dedup_key",
+            "open_decision_ids",
+            "open_incident_ids",
             "open_mission_activations",
             "open_successor_transitions",
             "pause_automation_ids",
@@ -1967,6 +1971,13 @@ class OperationsProjectionService:
             or not payload["notification_category"]
             or not isinstance(payload.get("notification_dedup_key"), str)
             or not payload["notification_dedup_key"]
+            or type(payload.get("event_count")) is not int
+            or payload.get("event_count") != before.get("event_count")
+            or not isinstance(payload.get("event_head"), str)
+            or not SHA256.fullmatch(str(payload["event_head"]))
+            or payload.get("event_head") != before.get("event_head")
+            or not isinstance(payload.get("open_incident_ids"), list)
+            or not isinstance(payload.get("open_decision_ids"), list)
             or not isinstance(payload.get("open_mission_activations"), list)
             or not isinstance(payload.get("open_successor_transitions"), list)
             or not isinstance(payload.get("pause_automation_ids"), list)
@@ -5649,6 +5660,9 @@ class OperationsProjectionService:
         receipt_current = bool(
             isinstance(receipt, Mapping)
             and isinstance(exact_owner_states, Mapping)
+            and evidence.events
+            and receipt.get("record_sha256")
+            == evidence.events[-1].get("record_sha256")
             and owner.terminal_shutdown_record_is_canonical(
                 receipt,
                 policy=policy,
@@ -5675,11 +5689,15 @@ class OperationsProjectionService:
             and gate.get("supervision_pause_permitted") is True
             and gate.get("terminal_reports_delivered") is True
             and gate.get("terminal_report_set_id") == report_set_id
+            and gate.get("event_head")
+            == (evidence.events[-1].get("record_sha256") if evidence.events else None)
+            and gate.get("open_incident_ids") == incident_ids
+            and gate.get("open_decision_ids") == decision_ids
             and gate.get("open_mission_activations") == []
             and gate.get("open_successor_transitions") == []
             and not any(open_heads.values())
         )
-        if receipt_current:
+        if receipt_current and gate_ready:
             stage = "shutdown"
             next_action = None
             actionable = False
@@ -5688,6 +5706,17 @@ class OperationsProjectionService:
             recovery_guidance = (
                 "No further shutdown action is supported for this report set."
             )
+        elif receipt_current:
+            stage = "blocked"
+            next_action = None
+            actionable = False
+            workflow_error = {
+                "code": "terminal_shutdown_postcondition_changed",
+                "message": "The receipt is canonical, but a current source-stop or open-head gate no longer permits terminal shutdown.",
+                "retryable": False,
+            }
+            recovery_posture = "prerequisite-denied"
+            recovery_guidance = "Preserve the append-once receipt and reconcile the newly opened prerequisite through its maintained owner; do not retry shutdown."
         elif isinstance(receipt, Mapping):
             stage = "blocked"
             next_action = None

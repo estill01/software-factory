@@ -14671,6 +14671,7 @@ class FactoryWorkflowOwner:
             "report_set_id": source.evidence["report_set_id"],
             "delivery_record_id": source.evidence["delivery_record_id"],
             "delivery_timestamp": source.evidence["delivery_timestamp"],
+            "event_head": source.evidence["event_head"],
             "automations": [
                 {
                     "role": item["role"],
@@ -14687,10 +14688,10 @@ class FactoryWorkflowOwner:
             f"{TERMINAL_SHUTDOWN_MARKER}{_canonical(marker)}\n"
             "Use $supervise-tracker-runs and the maintained Codex automation owner for one bounded terminal supervision shutdown.\n"
             f"Exact source facts: {_canonical(facts)}\n"
-            "Re-read the exact completed lifecycle and run lifecycle-gate with the named lifecycle record, state fingerprint, and --terminal-report-set-id. Stop with no owner action unless completion, source-stop, supervision-pause, terminal-delivery, open-transition, and open-activation results remain exact and permissive. "
+            "Immediately before any automation pause, re-read the exact completed lifecycle and run lifecycle-gate with the named lifecycle record, state fingerprint, and --terminal-report-set-id. Stop with no owner action unless completion, source-stop, supervision-pause, and terminal-delivery remain permissive; open_incident_ids, open_decision_ids, open_successor_transitions, and open_mission_activations are empty; and event_head equals the exact source facts. "
             "Do not append or change lifecycle, completion, incident, decision, successor, activation, report, delivery, Gmail, policy, or task records. Do not stop, interrupt, continue, resume, archive, or otherwise mutate the implementation task. "
             "Through the Codex automation owner, pause each and only the named automation whose status is ACTIVE or whose PAUSED update predates delivery. Preserve every ID, kind, name, prompt, schedule, target, created timestamp, and unrelated automation. Leave an already-PAUSED post-delivery named automation byte-identical. "
-            f"View every named automation, then invoke uv run --python 3.14 python {helper} --root {owner_root} terminal-shutdown --target-thread {target.id} --lifecycle-record {source.evidence['lifecycle_record_id']} --report-set-id {source.evidence['report_set_id']} exactly once through the maintained owner. "
+            f"View every named automation, then invoke uv run --python 3.14 python {helper} --root {owner_root} terminal-shutdown --target-thread {target.id} --lifecycle-record {source.evidence['lifecycle_record_id']} --report-set-id {source.evidence['report_set_id']} --expected-event-head {source.evidence['event_head']} exactly once through the maintained owner. "
             "Re-read the lifecycle gate, every named automation, and the shutdown receipt. Report exact partial state without retry, rollback, direct file writes, broad enumeration, or any action on another target."
         )
         if len(prompt) > MAX_WORKFLOW_PROMPT:

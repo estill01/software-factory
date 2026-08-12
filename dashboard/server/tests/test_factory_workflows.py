@@ -1143,6 +1143,13 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             owner.app_server_client.prompt,
         )
         self.assertNotIn("invoke python3", owner.app_server_client.prompt)
+        self.assertIn("--expected-event-head", owner.app_server_client.prompt)
+        self.assertIn("open_incident_ids", owner.app_server_client.prompt)
+        self.assertIn("open_decision_ids", owner.app_server_client.prompt)
+        self.assertIn(
+            "Immediately before any automation pause",
+            owner.app_server_client.prompt,
+        )
         self.assertIn(
             "Do not stop, interrupt, continue, resume, archive",
             owner.app_server_client.prompt,

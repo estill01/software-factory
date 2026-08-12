@@ -664,6 +664,10 @@ class OperationsProjectionTests(unittest.TestCase):
         self.assertEqual(gated["source_record_sha256"], record_sha256)
         self.assertTrue(gated["gate"]["completion_permitted"])
         self.assertTrue(gated["gate"]["source_stop_permitted"])
+        self.assertEqual(gated["gate"]["open_incident_ids"], [])
+        self.assertEqual(gated["gate"]["open_decision_ids"], [])
+        self.assertEqual(gated["gate"]["event_head"], control["event_head"])
+        self.assertEqual(gated["gate"]["event_count"], control["event_count"])
         self.assertFalse(gated["gate"]["send_now"])
         self.assertTrue(gated["gate"]["duplicate"])
         self.assertFalse(gated["gate"]["supervision_pause_permitted"])
@@ -1932,6 +1936,7 @@ class OperationsProjectionTests(unittest.TestCase):
         }
         delivery = {
             "record_id": "EVT-TERMINAL-DELIVERY",
+            "record_sha256": "6" * 64,
             "timestamp": "2026-08-12T08:00:00+00:00",
             "target_thread_id": TARGET,
             "kind": "notification",
@@ -2015,12 +2020,16 @@ class OperationsProjectionTests(unittest.TestCase):
         }
         gate_payload = {
             "completion_permitted": True,
+            "event_count": 1,
+            "event_head": delivery["record_sha256"],
             "source_stop_permitted": True,
             "supervision_pause_permitted": True,
             "terminal_reports_delivered": True,
             "terminal_report_set_id": delivery["report_set_id"],
             "open_mission_activations": [],
             "open_successor_transitions": [],
+            "open_incident_ids": [],
+            "open_decision_ids": [],
             "pause_automation_ids": [
                 "terminal-reviewer-001",
                 "terminal-watcher-001",
@@ -2195,6 +2204,8 @@ class OperationsProjectionTests(unittest.TestCase):
                 "previous_record_sha256": "6" * 64,
             }
             receipt["record_sha256"] = self.owner.digest(receipt)
+            gate_payload["event_count"] = 2
+            gate_payload["event_head"] = receipt["record_sha256"]
             complete = self.service._terminal_shutdown_workflow(
                 evidence_with(delivery, receipt)
             )
@@ -2204,6 +2215,42 @@ class OperationsProjectionTests(unittest.TestCase):
             self.assertTrue(
                 all(item["post_delivery"] for item in complete["automations"])
             )
+
+            late_incident = {
+                "record_id": "EVT-LATE-INCIDENT",
+                "record_sha256": "7" * 64,
+                "kind": "incident",
+                "incident_id": "INC-LATE-CURRENT",
+                "status": "under-review",
+            }
+            heads["incidents"] = {
+                "INC-LATE-CURRENT": late_incident,
+            }
+            gate_payload["completion_permitted"] = False
+            gate_payload["source_stop_permitted"] = False
+            gate_payload["supervision_pause_permitted"] = False
+            gate_payload["open_incident_ids"] = ["INC-LATE-CURRENT"]
+            gate_payload["event_count"] = 3
+            gate_payload["event_head"] = late_incident["record_sha256"]
+            late_partial = self.service._terminal_shutdown_workflow(
+                evidence_with(delivery, receipt, late_incident)
+            )
+            self.assertEqual(late_partial["stage"], "blocked")
+            self.assertFalse(late_partial["actionable"])
+            self.assertEqual(late_partial["receipt"]["status"], "stale")
+            self.assertEqual(
+                late_partial["open_heads"]["incident_ids"],
+                ["INC-LATE-CURRENT"],
+            )
+            self.assertTrue(
+                all(item["post_delivery"] for item in late_partial["automations"])
+            )
+
+            heads["incidents"] = {}
+            gate_payload["completion_permitted"] = True
+            gate_payload["source_stop_permitted"] = True
+            gate_payload["supervision_pause_permitted"] = True
+            gate_payload["open_incident_ids"] = []
 
             stale_receipt = {**receipt, "manifest_root": "5" * 64}
             stale_receipt["record_sha256"] = self.owner.digest(

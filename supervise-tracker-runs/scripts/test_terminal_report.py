@@ -503,6 +503,9 @@ class TerminalReportIntegrationTests(unittest.TestCase):
                 target_thread=TARGET,
                 lifecycle_record="EVT-000002",
                 report_set_id=prepared["report_set_id"],
+                expected_event_head=supervision_log.events(
+                    root / TARGET / "events.jsonl"
+                )[-1]["record_sha256"],
             )
             with self.assertRaisesRegex(
                 supervision_log.SupervisionLogError,
@@ -512,6 +515,150 @@ class TerminalReportIntegrationTests(unittest.TestCase):
 
             automation_root = root / "automations"
             write_automation_owners(automation_root, after["pause_automation_ids"])
+            policy = supervision_log.read_json(root / TARGET / "policy.json")
+
+            supervision_log.append_raw(
+                root / TARGET / "events.jsonl",
+                {
+                    "schema_version": 1,
+                    "record_id": "EVT-LATE-INCIDENT",
+                    "timestamp": "2026-08-01T01:31:00+00:00",
+                    "target_thread_id": TARGET,
+                    "kind": "incident",
+                    "incident_id": "INC-LATE-CURRENT",
+                    "status": "under-review",
+                    "severity": "high",
+                    "category": "terminal-currentness",
+                    "summary": "A current incident opened after terminal preview.",
+                    "evidence": ["EVT-000002"],
+                    "policy_sha256": policy["policy_sha256"],
+                },
+            )
+            late_incident_gate = io.StringIO()
+            with redirect_stdout(late_incident_gate):
+                supervision_log.cmd_lifecycle_gate(gate_args)
+            incident_gate = json.loads(late_incident_gate.getvalue())
+            self.assertEqual(
+                incident_gate["open_incident_ids"], ["INC-LATE-CURRENT"]
+            )
+            self.assertFalse(incident_gate["source_stop_permitted"])
+            self.assertFalse(incident_gate["supervision_pause_permitted"])
+            self.assertEqual(incident_gate["pause_automation_ids"], [])
+            with (
+                mock.patch.object(
+                    supervision_log, "CODEX_AUTOMATIONS_ROOT", automation_root
+                ),
+                self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "closed current incidents and decisions",
+                ),
+            ):
+                supervision_log.cmd_terminal_shutdown(shutdown)
+            self.assertFalse(
+                any(
+                    item.get("category")
+                    == supervision_log.TERMINAL_SHUTDOWN_CATEGORY
+                    for item in supervision_log.events(
+                        root / TARGET / "events.jsonl"
+                    )
+                )
+            )
+            supervision_log.append_raw(
+                root / TARGET / "events.jsonl",
+                {
+                    "schema_version": 1,
+                    "record_id": "EVT-LATE-INCIDENT-CLOSED",
+                    "timestamp": "2026-08-01T01:32:00+00:00",
+                    "target_thread_id": TARGET,
+                    "kind": "resolution",
+                    "incident_id": "INC-LATE-CURRENT",
+                    "status": "resolved",
+                    "severity": "info",
+                    "category": "terminal-currentness",
+                    "summary": "The late incident was resolved.",
+                    "evidence": ["EVT-LATE-INCIDENT"],
+                    "policy_sha256": policy["policy_sha256"],
+                },
+            )
+            with (
+                mock.patch.object(
+                    supervision_log, "CODEX_AUTOMATIONS_ROOT", automation_root
+                ),
+                self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "event head changed before receipt append",
+                ),
+            ):
+                supervision_log.cmd_terminal_shutdown(shutdown)
+            shutdown.expected_event_head = supervision_log.events(
+                root / TARGET / "events.jsonl"
+            )[-1]["record_sha256"]
+            supervision_log.append_raw(
+                root / TARGET / "events.jsonl",
+                {
+                    "schema_version": 1,
+                    "record_id": "EVT-LATE-DECISION",
+                    "timestamp": "2026-08-01T01:33:00+00:00",
+                    "target_thread_id": TARGET,
+                    "kind": "decision",
+                    "decision_id": "DEC-LATE-CURRENT",
+                    "phase": "decision-ready",
+                    "status": "open",
+                    "severity": "high",
+                    "category": "terminal-currentness",
+                    "summary": "A current decision opened after the gate read.",
+                    "evidence": ["EVT-000002"],
+                    "policy_sha256": policy["policy_sha256"],
+                },
+            )
+            late_decision_gate = io.StringIO()
+            with redirect_stdout(late_decision_gate):
+                supervision_log.cmd_lifecycle_gate(gate_args)
+            decision_gate = json.loads(late_decision_gate.getvalue())
+            self.assertEqual(
+                decision_gate["open_decision_ids"], ["DEC-LATE-CURRENT"]
+            )
+            self.assertFalse(decision_gate["source_stop_permitted"])
+            with (
+                mock.patch.object(
+                    supervision_log, "CODEX_AUTOMATIONS_ROOT", automation_root
+                ),
+                self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "closed current incidents and decisions",
+                ),
+            ):
+                supervision_log.cmd_terminal_shutdown(shutdown)
+            self.assertFalse(
+                any(
+                    item.get("category")
+                    == supervision_log.TERMINAL_SHUTDOWN_CATEGORY
+                    for item in supervision_log.events(
+                        root / TARGET / "events.jsonl"
+                    )
+                )
+            )
+            supervision_log.append_raw(
+                root / TARGET / "events.jsonl",
+                {
+                    "schema_version": 1,
+                    "record_id": "EVT-LATE-DECISION-ACK",
+                    "timestamp": "2026-08-01T01:34:00+00:00",
+                    "target_thread_id": TARGET,
+                    "kind": "decision",
+                    "decision_id": "DEC-LATE-CURRENT",
+                    "phase": "target-acknowledged",
+                    "status": "resolved",
+                    "severity": "info",
+                    "category": "terminal-currentness",
+                    "summary": "The late decision was acknowledged.",
+                    "evidence": ["EVT-LATE-DECISION"],
+                    "policy_sha256": policy["policy_sha256"],
+                },
+            )
+            shutdown.expected_event_head = supervision_log.events(
+                root / TARGET / "events.jsonl"
+            )[-1]["record_sha256"]
             shutdown_output = io.StringIO()
             with mock.patch.object(
                 supervision_log, "CODEX_AUTOMATIONS_ROOT", automation_root
@@ -521,7 +668,6 @@ class TerminalReportIntegrationTests(unittest.TestCase):
             shutdown_result = json.loads(shutdown_output.getvalue())
             self.assertFalse(shutdown_result["duplicate"])
             shutdown_record = shutdown_result["record"]
-            policy = supervision_log.read_json(root / TARGET / "policy.json")
             lifecycle = next(
                 item
                 for item in supervision_log.events(root / TARGET / "events.jsonl")

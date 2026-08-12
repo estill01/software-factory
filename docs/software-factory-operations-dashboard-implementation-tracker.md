@@ -8265,6 +8265,47 @@ and stop at denial, partial, or unverified state without retrying or widening.
   with 0 errors/warnings and the verifier suite passes 30/30. No other product,
   owner, prompt family, or browser fixture changed; fresh exact-revision review
   is pending.
+- Independent exact-revision review rejected evidence
+  `83194d893e45c599c641dc96bcfe7e54baaf87e4`, tree
+  `c348625c03769a9187f5202cf560069b25216624`, on one owner/currentness row.
+  The preview rejected open incident and decision heads, but the delegated
+  prompt and maintained lifecycle/receipt owners did not recheck those heads
+  before automation pause and receipt append. The reviewer reproduced a late
+  current incident that appeared in canonical status while lifecycle-gate still
+  returned every terminal boolean true and terminal-shutdown appended a
+  verified receipt. All other owner, runtime, pre-broad, single-broad,
+  mechanical, remote, and Stop evidence remains reusable; Block 31 stays closed.
+- Exact-head successor candidate — `2026-08-12T14:06:23Z`, six-file product/
+  test binary diff from rejected evidence `83194d893e45c599c641dc96bcfe7e54baaf87e4`
+  SHA-256 `7b7e7c24d01a6d2be3865becddab01b2199c5f8432f7b7ca663ef17f9a8720f0`:
+  - The maintained lifecycle gate now projects exact current-mission open
+    incident and decision IDs plus event count/head. A completed lifecycle with
+    either head denies completion, source stop, supervision pause, and the
+    automation ID set. The dashboard validates that owner payload against the
+    same control fingerprint and independently derived open heads.
+  - The delegated prompt binds the preview event head, requires an immediately
+    pre-pause lifecycle-gate read with incident, decision, transition, and
+    activation heads empty, and passes `--expected-event-head` through the
+    maintained `uv run --python 3.14 python <absolute-helper>` command.
+  - Under the append lock, the receipt owner re-reads the exact policy, current
+    mission heads, and event head. A late incident, decision, successor,
+    activation, policy change, or event-head change yields no receipt. Duplicate
+    acceptance requires the canonical receipt to remain the event head and to
+    cite the exact expected predecessor.
+  - Projection accepts shutdown only when the canonical receipt remains the
+    latest event and every gate is still ready. A race after owner work begins
+    therefore renders blocked/stale partial state with paused-owner facts and no
+    retry, rather than a terminal success claim.
+  - Focused owner proof passed 11/11 with `ResourceWarning` fatal, including
+    late incident, late decision, head drift, zero-receipt denial, exact success,
+    and duplicate behavior. Focused lifecycle/projection/registry/workflow proof
+    passed 4/4 with `ResourceWarning` fatal; Ruff, Python compilation, exact
+    helper CLI/help,
+    and diff check passed. The first combined invocation named a nonexistent
+    lifecycle test method and produced one loader error; the corrected exact
+    method set passed 4/4. No broad matrix, browser matrix, live preview,
+    automation pause, receipt append, or shutdown was replayed or performed.
+    Fresh exact-revision review is pending.
 
 ### Stop
 

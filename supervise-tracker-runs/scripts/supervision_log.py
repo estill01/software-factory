@@ -3358,6 +3358,63 @@ def cmd_notice_gate(args: argparse.Namespace) -> None:
     )
 
 
+def terminal_stop_head_snapshot(
+    directory: Path,
+    policy: Mapping[str, Any],
+    all_events: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    current_policy = dict(policy)
+    binding = bound_mission(current_policy)
+    if binding is None:
+        active_events = [dict(item) for item in all_events]
+    else:
+        roots = policy_mission_roots(directory)
+        policy_sha256 = current_policy.get("policy_sha256")
+        if isinstance(policy_sha256, str):
+            roots[policy_sha256] = str(binding["mission_root"])
+        active_events = [
+            dict(item)
+            for item in all_events
+            if roots.get(str(item.get("policy_sha256", "")))
+            == str(binding["mission_root"])
+        ]
+    incident_heads: dict[str, dict[str, Any]] = {}
+    decision_heads: dict[str, dict[str, Any]] = {}
+    for item in active_events:
+        incident_id = item.get("incident_id")
+        if incident_id and is_substantive_incident_record(item, str(incident_id)):
+            incident_heads[str(incident_id)] = item
+        if item.get("kind") == "decision" and item.get("decision_id"):
+            decision_heads[str(item["decision_id"])] = item
+    open_incident_ids = sorted(
+        incident_id
+        for incident_id, item in incident_heads.items()
+        if not is_terminal_incident_record(item, incident_id)
+    )
+    open_decision_ids = sorted(
+        decision_id
+        for decision_id, item in decision_heads.items()
+        if item.get("phase") != "target-acknowledged"
+    )
+    open_transitions = successor_transition_heads(
+        [dict(item) for item in all_events], open_only=True
+    )
+    open_activations = mission_activation_heads(active_events, open_only=True)
+    event_head = all_events[-1].get("record_sha256") if all_events else None
+    if event_head is not None and (
+        not isinstance(event_head, str) or not SHA256.fullmatch(event_head)
+    ):
+        raise SupervisionLogError("Terminal stop event head is invalid")
+    return {
+        "event_count": len(all_events),
+        "event_head": event_head,
+        "open_incident_ids": open_incident_ids,
+        "open_decision_ids": open_decision_ids,
+        "open_successor_transitions": list(open_transitions.values()),
+        "open_mission_activations": list(open_activations.values()),
+    }
+
+
 def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     source_record = safe_id(args.source_record, label="source record ID")
@@ -3379,14 +3436,26 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
     if state_fingerprint and source.get("state_fingerprint") != state_fingerprint:
         raise SupervisionLogError("Lifecycle source record fingerprint differs")
 
-    open_transitions = successor_transition_heads(all_events, open_only=True)
+    stop_heads = terminal_stop_head_snapshot(directory, policy, all_events)
+    open_transitions = stop_heads["open_successor_transitions"]
     transition_stop_conflict = bool(
         open_transitions and lifecycle_state in {"completed", "paused", "stopped"}
     )
-    active_events = mission_scoped_events(directory, policy, all_events)
-    open_activations = mission_activation_heads(active_events, open_only=True)
+    open_activations = stop_heads["open_mission_activations"]
     activation_stop_conflict = bool(
         open_activations and lifecycle_state in {"completed", "paused", "stopped"}
+    )
+    incident_stop_conflict = bool(
+        stop_heads["open_incident_ids"] and lifecycle_state == "completed"
+    )
+    decision_stop_conflict = bool(
+        stop_heads["open_decision_ids"] and lifecycle_state == "completed"
+    )
+    terminal_stop_conflict = bool(
+        incident_stop_conflict
+        or decision_stop_conflict
+        or transition_stop_conflict
+        or activation_stop_conflict
     )
 
     completion_permitted = True
@@ -3412,7 +3481,17 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                 "The completed lifecycle is not bound to the current "
                 "observable-outcome record."
             )
-        if transition_stop_conflict:
+        if incident_stop_conflict:
+            completion_permitted = False
+            completion_reason = (
+                "A current substantive incident remains open; terminal source stop is prohibited."
+            )
+        elif decision_stop_conflict:
+            completion_permitted = False
+            completion_reason = (
+                "A current decision remains open; terminal source stop is prohibited."
+            )
+        elif transition_stop_conflict:
             completion_permitted = False
             completion_reason = (
                 "An open successor transition has not reached work-started; "
@@ -3505,6 +3584,7 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
     supervision_pause_permitted = bool(
         lifecycle_state == "completed"
         and completion_permitted
+        and not terminal_stop_conflict
         and (not terminal_reporting or terminal_reports_delivered)
     )
     if not completion_permitted:
@@ -3556,6 +3636,8 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                     else []
                 ),
                 "lifecycle_state": lifecycle_state,
+                "event_count": stop_heads["event_count"],
+                "event_head": stop_heads["event_head"],
                 "notification_category": category,
                 "notification_dedup_key": notification_key,
                 "pause_automation_ids": (
@@ -3572,12 +3654,12 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                 ),
                 "send_now": send_now,
                 "source_record": source_record,
-                "source_stop_permitted": not (
-                    transition_stop_conflict or activation_stop_conflict
-                ),
+                "source_stop_permitted": not terminal_stop_conflict,
                 "state_fingerprint": source.get("state_fingerprint", ""),
-                "open_mission_activations": list(open_activations.values()),
-                "open_successor_transitions": list(open_transitions.values()),
+                "open_incident_ids": stop_heads["open_incident_ids"],
+                "open_decision_ids": stop_heads["open_decision_ids"],
+                "open_mission_activations": open_activations,
+                "open_successor_transitions": open_transitions,
                 "supervision_pause_permitted": supervision_pause_permitted,
                 "terminal_email_recipient": (
                     notification_config.get("recipient") if terminal_reporting else None
@@ -7676,6 +7758,13 @@ def terminal_shutdown_record_is_canonical(
 
 def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
+    expected_event_head = clean(
+        args.expected_event_head,
+        label="expected terminal event head",
+        maximum=64,
+    )
+    if not SHA256.fullmatch(expected_event_head):
+        raise SupervisionLogError("Expected terminal event head is invalid")
     all_events = events(directory / "events.jsonl")
     lifecycle = next(
         (item for item in all_events if item.get("record_id") == args.lifecycle_record),
@@ -7702,7 +7791,19 @@ def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
         expected, not_before=parse_time(str(delivery.get("timestamp", "")))
     )
     with append_lock(directory):
+        current_directory, current_policy = load_policy(args)
+        if (
+            current_directory.resolve() != directory.resolve()
+            or current_policy.get("target_thread_id") != args.target_thread
+            or current_policy.get("policy_sha256") != policy.get("policy_sha256")
+        ):
+            raise SupervisionLogError(
+                "Terminal shutdown policy changed before receipt append"
+            )
         current_events = events(directory / "events.jsonl")
+        stop_heads = terminal_stop_head_snapshot(
+            directory, current_policy, current_events
+        )
         prior = next(
             (
                 item
@@ -7714,6 +7815,17 @@ def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
             ),
             None,
         )
+        if stop_heads["open_incident_ids"] or stop_heads["open_decision_ids"]:
+            raise SupervisionLogError(
+                "Terminal shutdown requires closed current incidents and decisions"
+            )
+        if (
+            stop_heads["open_successor_transitions"]
+            or stop_heads["open_mission_activations"]
+        ):
+            raise SupervisionLogError(
+                "Terminal shutdown requires closed successor and activation heads"
+            )
         if prior is not None:
             if not terminal_shutdown_record_is_canonical(
                 prior,
@@ -7724,8 +7836,19 @@ def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
                 automation_states=states,
             ):
                 raise SupervisionLogError("Terminal shutdown receipt already differs")
+            if (
+                prior.get("previous_record_sha256") != expected_event_head
+                or stop_heads["event_head"] != prior.get("record_sha256")
+            ):
+                raise SupervisionLogError(
+                    "Terminal shutdown receipt is not current for the expected event head"
+                )
             print(json.dumps({"duplicate": True, "record": prior}, sort_keys=True))
             return
+        if stop_heads["event_head"] != expected_event_head:
+            raise SupervisionLogError(
+                "Terminal shutdown event head changed before receipt append"
+            )
         record = {
             "schema_version": 1,
             "record_id": f"EVT-{len(current_events) + 1:06d}",
@@ -8541,6 +8664,7 @@ def parser() -> argparse.ArgumentParser:
     terminal_shutdown.add_argument("--target-thread", required=True)
     terminal_shutdown.add_argument("--lifecycle-record", required=True)
     terminal_shutdown.add_argument("--report-set-id", required=True)
+    terminal_shutdown.add_argument("--expected-event-head", required=True)
     terminal_shutdown.set_defaults(func=cmd_terminal_shutdown)
 
     status = subparsers.add_parser("status")
