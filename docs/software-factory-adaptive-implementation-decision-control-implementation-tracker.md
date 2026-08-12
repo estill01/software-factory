@@ -664,8 +664,8 @@ continuous cognition the price of ordinary execution.
 | 11 | Dogfood all decision paths and document demonstrated operation | 10 | `completed` |
 | 12 | Admit newly eligible Factory evidence automatically and economically | 11 | `completed` |
 | 13 | Orchestrate one bounded Factory candidate through existing owners | 12 | `completed` |
-| 14 | Independently evaluate the Factory candidate | 13 | `in-progress` |
-| 15 | Adopt or retire the evaluated candidate under configurable policy | 14 | `not-started` |
+| 14 | Independently evaluate the Factory candidate | 13 | `completed` |
+| 15 | Adopt or retire the evaluated candidate under configurable policy | 14 | `in-progress` |
 | 16 | Feed current outcomes back, suppress recurrence, and support rollback | 15 | `not-started` |
 | 17 | Dogfood autonomous evolution and document the integrated system | 16 | `not-started` |
 
@@ -3629,7 +3629,7 @@ rollback.
 
 ## Block 14 — Independently evaluate the Factory candidate
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -3783,8 +3783,19 @@ effects before reading either implementer's narrative.
   13 contract assertion that still expected evaluation to remain later after
   Block 14 had added read-only, nonauthorizing evaluation. The narrow test-only
   successor updates that assertion to preserve the actual Stop before adoption,
-  installation, and cutover. Affected proof and exact successor review remain
-  required before Block acceptance.
+  installation, and cutover. That first mapped supervision run remains
+  diagnostic for the exact parent.
+- Final evidence-only checkpoint
+  `531c7a7b236fc8e9dc87758bb766942b46dc27e2` updates only the stale static
+  assertion and this tracker evidence. Exact independent review reported no
+  findings: the production diff from accepted `4dff6fa` is empty, the affected
+  assertion passed `1/1`, and the parent `364` passing supervision results
+  remain byte-current for the final `365/365` result. Mapped implementation
+  passed `115/115`; author remained current at `42/42`; the full 18-Block
+  tracker, Python compilation, exact diff checks, and all three fixed skill
+  validators passed. Evaluation remains read-only and nonauthorizing, the
+  incumbent remains authoritative, and no adoption, installation, cutover,
+  policy, mission, lifecycle, release, or external effect occurred.
 
 ### Stop
 
@@ -3795,7 +3806,7 @@ mutation.
 
 ## Block 15 — Adopt or retire the evaluated candidate under configurable policy
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
