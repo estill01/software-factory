@@ -5930,9 +5930,65 @@ check. Never enumerate or reconcile unrelated automation families.
   full-profile verifier returned Blocks 0-29 with 0 errors and 0 warnings,
   verifier tests passed 30/30, `git diff --check` passed, and the Block 20 Stop
   remained closed.
+- Rejected target-specific revision retained as evidence: independent review
+  rejected exact evidence commit
+  `ace314424e66169ae1319a19beaa62cc063625d9`, tree
+  `441ad05ec34f6ce78e26fe7fad9cf8423450cc2a`, and product
+  `edbc01ccb455d79e885a3e54bd958d22c86bd030` because its supposedly
+  target-specific index still enumerated every automation directory and read
+  every manifest twice. The reviewer reproduced an unrelated invalid-UTF-8
+  manifest disabling the selected repair while confirming the focused 32/32
+  operations proof, Ruff, tracker verifier, exact identity, and Stop gates.
+  That revision remains unaccepted and Block 21 stayed closed.
+- Contained experiment: after that rejection, a persistent target-index/watch
+  prototype was evaluated only as uncommitted work and removed before freeze.
+  It was rejected because constructing and maintaining the index still reads
+  unrelated automation families, adds a product-owned persistence/currentness
+  responsibility, and exceeds this Block's one-policy/one-named-automation
+  resource and no-bulk-reconciler boundaries. No watcher, index, manifest, or
+  package from that experiment exists in the successor.
+- Product-capability review: the exact 3,511-byte tracker capability frame is
+  frozen at SHA-256
+  `736124301d439cf6f143bb8013d53f085e9f3f4748df35451ef1bce5df0d8857`.
+  The smallest local scan/index path was rejected because it couples one repair
+  to unrelated sources; the selected bounded-general path is an injected,
+  versioned, read-only target-query result with exact candidate IDs and
+  expiring source/currentness identity. The maintained automation surface has
+  exact-ID view/update ownership but no conforming list-by-target query, so the
+  architectural-owner path is intentionally unavailable today rather than
+  synthesized in the dashboard. This preserves exact automation/policy owners,
+  protected fields, single-repair scope, and later-operation Stops at the cost
+  of withholding repair until that dependency exists.
+- Versioned-query correction product: successor commit
+  `d55c2d6f6ec535fd5d5b3ffae3cac567af6fa679`, tree
+  `737cffc6f880145ebd7967c885ba3807637eddb1`, parent rejected evidence
+  `ace314424e66169ae1319a19beaa62cc063625d9`, is pushed with exact local,
+  upstream, and remote identity. Its four-file delta removes the global target
+  scan and defines a version-1 provider envelope containing exact target and
+  sorted candidate IDs, source identity/revision, observed/expiry times, and a
+  currentness identity. The repair reads only the selected automation plus the
+  exact returned candidates, then repeats the query and rejects a changed
+  result. Missing providers, incompatible or ambiguous envelopes, stale
+  freshness, provider failure, mid-read changes, and unreadable or malformed
+  selected-target candidates all leave duplicate coverage and repair
+  unavailable. General dashboard inventory remains a separate read-only
+  projection and is not called by this repair proof.
+- Correction proof: the focused boundary and registry cases passed 5/5, and
+  the complete affected operations/workflow modules passed 49/49 with
+  `ResourceWarning` fatal. The fixtures prove a missing provider, expired
+  result, duplicate/ambiguous candidate set, changed currentness, exact
+  selected/candidate loading, malformed selected-target candidate, and an
+  unrelated invalid-UTF-8 manifest whose ID is never passed to
+  `_load_automation`. Ruff and `git diff --check` pass. The API/UI schemas are
+  unchanged, so the prior exact 97/97 frontend, production build, and 3/3
+  responsive/Axe evidence remains applicable and was not broadly replayed.
+  The exact product server restarted on `127.0.0.1:8787`; health, Codex App
+  Server, and supervision sources are available, while the automation-binding
+  operation truthfully reports `unavailable` with the missing-provider reason.
+  No live policy, automation, task, or supervision mutation was attempted.
 - Candidate review posture: Block 20 remains `in-progress` and Blocks 21-29
   remain unopened until a fresh independent exact-revision product, owner,
-  recovery, resource-bound, responsive-UI, and Stop review accepts this
+  recovery, resource-bound, provider-currentness, and Stop review accepts this
   corrected evidence successor.
 
 ### Stop
