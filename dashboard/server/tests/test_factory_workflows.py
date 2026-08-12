@@ -1769,6 +1769,32 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         tracker_sha = "c" * 64
         bootstrap_fingerprint = "d" * 64
         work_fingerprint = "e" * 64
+        authority_text = (
+            "Continue the full implementation tracker in a distinct successor task "
+            "when that owner boundary is required."
+        )
+        authority_record = (
+            f"codex:{target_id}:turn-authority-001:item-authority-001"
+        )
+        authority_item = {
+            "id": "item-authority-001",
+            "type": "userMessage",
+            "summary": authority_text,
+            "user_content_sha256": sha256(authority_text.encode("utf-8")).hexdigest(),
+            "user_content_envelope_sha256": sha256(
+                json.dumps(
+                    [{"text": authority_text, "type": "text"}],
+                    ensure_ascii=True,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest(),
+            "user_content_part_types": ["text"],
+            "user_content_truncated": False,
+            "user_input_classification": "ordinary-user-message",
+            "user_authority_status": "unverified",
+            "client_id": "codex-desktop",
+        }
         tracker = {
             "tracker_id": "f" * 64,
             "tracker_path": "docs/continuity-implementation-tracker.md",
@@ -1790,7 +1816,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             "requested_block_range": "26-31",
             "first_eligible_block": "Block 26",
             "source_mission_root": source_mission,
-            "governing_authority_source_record": "direct-user-item-44",
+            "governing_authority_source_record": authority_record,
         }
         bootstrap_text = "SOFTWARE_FACTORY_DASHBOARD_MISSION " + json.dumps(
             bootstrap_marker,
@@ -1833,7 +1859,12 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                 "status": {"type": "idle"},
                 "project_binding": {"status": "bound", "project_id": project.id},
                 "turns_truncated": False,
-                "turns": [],
+                "turns": [{
+                    "id": "turn-authority-001",
+                    "status": "completed",
+                    "items_truncated": False,
+                    "items": [authority_item],
+                }],
             },
             successor_id: {
                 "id": successor_id,
@@ -1882,7 +1913,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             "first_eligible_block": "Block 26",
             "source_mission_root": source_mission,
             "governing_authority_source_class": "direct-user",
-            "governing_authority_source_record": "direct-user-item-44",
+            "governing_authority_source_record": authority_record,
             "successor_thread_id": successor_id,
             "successor_mission_root": successor_mission,
             "successor_group_id": successor_id,
@@ -1903,6 +1934,14 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             "runtime": {"fix_executor_thread_id": fix_id},
             "open_successor_transitions": {transition_id: head},
             "successor_transitions": {transition_id: head},
+            "successor_transition_records": {
+                transition_id: [{
+                    **head,
+                    "record_id": "EVT-CONTINUITY-002",
+                    "phase": "successor-created",
+                    "state_fingerprint": bootstrap_fingerprint,
+                }],
+            },
         }
         successor_control = {
             "fingerprint": "7" * 64,
@@ -2021,7 +2060,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                     "block_start": 26,
                     "block_end": 31,
                     "mission_root": successor_mission,
-                    "mission_source_record": "direct-user-item-44",
+                    "mission_source_record": authority_record,
                 }
                 implementation_text = (
                     "SOFTWARE_FACTORY_DASHBOARD_MISSION "
@@ -2080,6 +2119,27 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         target = OperationTarget(kind="run", id=target_id, project_id=project.id)
         definition = owner._successor_transition_definition()
         inputs = {"transition_id": transition_id}
+
+        head["governing_authority_source_record"] = "invented-direct-source"
+        with self.assertRaises(OperationError) as invented_authority:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(
+            invented_authority.exception.code,
+            "successor_transition_authority_unavailable",
+        )
+        head["governing_authority_source_record"] = authority_record
+
+        creation_record = source_control["successor_transition_records"][
+            transition_id
+        ][0]
+        creation_record["state_fingerprint"] = "f" * 64
+        with self.assertRaises(OperationError) as wrong_bootstrap_currentness:
+            definition.resolve_source(target, inputs)
+        self.assertEqual(
+            wrong_bootstrap_currentness.exception.code,
+            "successor_transition_phase_evidence_missing",
+        )
+        creation_record["state_fingerprint"] = bootstrap_fingerprint
 
         handoff_item = tasks[successor_id]["turns"][0]["items"][1]
         handoff_item["type"] = "agentMessage"

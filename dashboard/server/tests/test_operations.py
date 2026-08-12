@@ -628,7 +628,7 @@ class OperationsProjectionTests(unittest.TestCase):
                 *identity,
                 *extra,
                 "--state-fingerprint",
-                f"state-{phase}",
+                sha256(f"state-{phase}".encode("utf-8")).hexdigest(),
                 "--evidence",
                 f"fixture-{phase}",
             )
@@ -640,6 +640,10 @@ class OperationsProjectionTests(unittest.TestCase):
             required["record_id"],
         )
         self.assertIn(transition_id, control["open_successor_transitions"])
+        self.assertEqual(
+            [item["phase"] for item in control["successor_transition_records"][transition_id]],
+            ["required"],
+        )
         gated = self.service.successor_transition_gate_snapshot(
             TARGET,
             transition_id=transition_id,
@@ -650,7 +654,9 @@ class OperationsProjectionTests(unittest.TestCase):
         self.assertFalse(gated["gate"]["source_stop_permitted"])
 
         successor = ("successor-projection-001", "2" * 64, "successor-projection-001")
-        record("successor-created", "--successor-thread", successor[0])
+        created = record("successor-created", "--successor-thread", successor[0])[
+            "record"
+        ]
         record(
             "successor-bound",
             "--successor-thread",
@@ -707,6 +713,13 @@ class OperationsProjectionTests(unittest.TestCase):
         self.assertEqual(completed["head"]["record_id"], started["record_id"])
         self.assertTrue(completed["gate"]["source_stop_permitted"])
         self.assertFalse(completed["gate"]["transition_open"])
+        records = self.service.policy_control_snapshot(TARGET)[
+            "successor_transition_records"
+        ][transition_id]
+        self.assertEqual(len(records), 6)
+        self.assertEqual(
+            records[1]["state_fingerprint"], created["state_fingerprint"]
+        )
         self.assertNotIn(
             transition_id,
             self.service.policy_control_snapshot(TARGET)[

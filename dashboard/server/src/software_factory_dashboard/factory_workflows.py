@@ -863,7 +863,9 @@ class FactoryWorkflowOwner:
                 source_identity=(
                     f"authority-source:{evidence['governing_authority_source_record']}"
                 ),
-                source_revision=head_revision,
+                source_revision=str(
+                    evidence["governing_authority_content_sha256"]
+                ),
                 currentness=currentness,
                 links=run_link,
             ),
@@ -11610,6 +11612,7 @@ class FactoryWorkflowOwner:
         project_id: str,
         tracker: Mapping[str, Any],
         head: Mapping[str, Any],
+        bootstrap_source_fingerprint: str | None,
     ) -> bool:
         if task.get("turns_truncated") is True:
             return False
@@ -11631,9 +11634,9 @@ class FactoryWorkflowOwner:
             }
             return (
                 all(marker.get(key) == value for key, value in expected.items())
-                and isinstance(marker.get("source_fingerprint"), str)
-                and SHA256_PATTERN.fullmatch(str(marker["source_fingerprint"]))
-                is not None
+                and bootstrap_source_fingerprint is not None
+                and marker.get("source_fingerprint")
+                == bootstrap_source_fingerprint
             )
         if marker.get("kind") != "implement-blocks":
             return False
@@ -11644,6 +11647,8 @@ class FactoryWorkflowOwner:
             and type(marker.get("block_end")) is int
             and marker["block_end"] >= marker["block_start"]
             and marker.get("mission_root") == head.get("successor_mission_root")
+            and marker.get("mission_source_record")
+            == head.get("governing_authority_source_record")
             and isinstance(marker.get("source_fingerprint"), str)
             and SHA256_PATTERN.fullmatch(str(marker["source_fingerprint"]))
             is not None
@@ -11701,12 +11706,14 @@ class FactoryWorkflowOwner:
         project_id: str,
         tracker: Mapping[str, Any],
         head: Mapping[str, Any],
+        bootstrap_source_fingerprint: str | None,
     ) -> bool:
         if not FactoryWorkflowOwner._successor_transition_task_marker_current(
             task,
             project_id=project_id,
             tracker=tracker,
             head=head,
+            bootstrap_source_fingerprint=bootstrap_source_fingerprint,
         ):
             return False
         marker = FactoryWorkflowOwner._task_marker(task)
@@ -11741,6 +11748,7 @@ class FactoryWorkflowOwner:
         project: ProjectRecord,
         tracker: Mapping[str, Any],
         head: Mapping[str, Any],
+        bootstrap_source_fingerprint: str | None,
     ) -> dict[str, Any]:
         successor_id = head.get("successor_thread_id")
         if not isinstance(successor_id, str) or not successor_id:
@@ -11781,6 +11789,7 @@ class FactoryWorkflowOwner:
                 project_id=project.id,
                 tracker=tracker,
                 head=head,
+                bootstrap_source_fingerprint=bootstrap_source_fingerprint,
             )
         )
         task_fingerprint = fingerprint(
@@ -11847,6 +11856,7 @@ class FactoryWorkflowOwner:
                 project_id=project.id,
                 tracker=tracker,
                 head=head,
+                bootstrap_source_fingerprint=bootstrap_source_fingerprint,
             )
         )
         return {
@@ -11918,6 +11928,41 @@ class FactoryWorkflowOwner:
                 markers.append(marker)
         return len(markers) == 1 and markers[0] == expected
 
+    @staticmethod
+    def _successor_transition_bootstrap_fingerprint(
+        control: Mapping[str, Any],
+        transition_id: str,
+        phase: str,
+    ) -> str | None:
+        if phase == "required":
+            return None
+        records_by_transition = control.get("successor_transition_records")
+        records = (
+            records_by_transition.get(transition_id)
+            if isinstance(records_by_transition, Mapping)
+            else None
+        )
+        creation_records = [
+            record
+            for record in records or []
+            if isinstance(record, Mapping)
+            and record.get("phase") == "successor-created"
+        ]
+        if len(creation_records) != 1:
+            raise OperationError(
+                "successor_transition_creation_evidence_unavailable",
+                "The exact successor-created source fingerprint is unavailable.",
+                status=409,
+            )
+        value = creation_records[0].get("state_fingerprint")
+        if not isinstance(value, str) or SHA256_PATTERN.fullmatch(value) is None:
+            raise OperationError(
+                "successor_transition_creation_evidence_unavailable",
+                "The successor-created record lacks one exact source fingerprint.",
+                status=409,
+            )
+        return value
+
     def _successor_transition_source(
         self,
         target: OperationTarget,
@@ -11935,11 +11980,6 @@ class FactoryWorkflowOwner:
         try:
             control = self.operations_service.policy_control_snapshot(target.id)
             group_ids = self.operations_service.binding_group_ids(target.id)
-            gate_snapshot = self.operations_service.successor_transition_gate_snapshot(
-                target.id,
-                transition_id=transition_id,
-                task_creation_authority="available",
-            )
         except OperationsProjectionError as error:
             raise _operation_error(
                 error,
@@ -11951,7 +11991,6 @@ class FactoryWorkflowOwner:
         policy = control.get("policy")
         runtime = control.get("runtime")
         mission = policy.get("mission_binding") if isinstance(policy, Mapping) else None
-        gate = gate_snapshot.get("gate")
         if (
             list(sorted(open_heads)) != [transition_id]
             or not isinstance(head, Mapping)
@@ -11960,12 +11999,6 @@ class FactoryWorkflowOwner:
             or not isinstance(runtime, Mapping)
             or not isinstance(mission, Mapping)
             or mission.get("mission_root") != head.get("source_mission_root")
-            or not isinstance(gate, Mapping)
-            or gate.get("transition_open") is not True
-            or gate.get("source_stop_permitted") is not False
-            or gate.get("required_source_posture") != "in-progress"
-            or head.get("governing_authority_source_class")
-            not in {"direct-user", "system", "repository", "tracker"}
         ):
             raise OperationError(
                 "successor_transition_source_mismatch",
@@ -11981,12 +12014,6 @@ class FactoryWorkflowOwner:
             "handoff-sent": "obtain-target-acknowledgement",
             "target-acknowledged": "start-first-eligible-block",
         }[phase]
-        if gate.get("next_action") != expected_next_action:
-            raise OperationError(
-                "successor_transition_gate_mismatch",
-                "The maintained gate's next action disagrees with the canonical phase.",
-                status=409,
-            )
         for field in SUCCESSOR_TRANSITION_IDENTITY_FIELDS:
             if not isinstance(head.get(field), str) or not head[field]:
                 raise OperationError(
@@ -12011,7 +12038,7 @@ class FactoryWorkflowOwner:
             target_detail = self.app_server_client.read_task(
                 projects,
                 target.id,
-                include_turns=False,
+                include_turns=True,
             )
         except AppServerError as error:
             raise _operation_error(
@@ -12033,6 +12060,55 @@ class FactoryWorkflowOwner:
                 "The source implementation task is not current and active in the registered project.",
                 status=409,
             )
+        if head.get("governing_authority_source_class") != "direct-user":
+            raise OperationError(
+                "successor_transition_authority_unavailable",
+                "This transition does not cite one supported direct-user task-creation source.",
+                status=409,
+            )
+        try:
+            authority_source = self._binding_source_item(
+                target_task,
+                source_record=str(head["governing_authority_source_record"]),
+                target_thread_id=target.id,
+            )
+        except OperationError as error:
+            raise OperationError(
+                "successor_transition_authority_unavailable",
+                "The cited governing record is not one complete current direct-user source.",
+                status=409,
+            ) from error
+        try:
+            gate_snapshot = self.operations_service.successor_transition_gate_snapshot(
+                target.id,
+                transition_id=transition_id,
+                task_creation_authority="available",
+            )
+        except OperationsProjectionError as error:
+            raise _operation_error(
+                error,
+                fallback="successor_transition_source_unavailable",
+            ) from error
+        gate = gate_snapshot.get("gate")
+        if (
+            not isinstance(gate, Mapping)
+            or gate.get("transition_open") is not True
+            or gate.get("source_stop_permitted") is not False
+            or gate.get("required_source_posture") != "in-progress"
+            or gate.get("next_action") != expected_next_action
+        ):
+            raise OperationError(
+                "successor_transition_gate_mismatch",
+                "The maintained gate disagrees with the exact current authority or phase.",
+                status=409,
+            )
+        bootstrap_source_fingerprint = (
+            self._successor_transition_bootstrap_fingerprint(
+                control,
+                transition_id,
+                phase,
+            )
+        )
         fix_executor_id = runtime.get("fix_executor_thread_id")
         if (
             not isinstance(fix_executor_id, str)
@@ -12070,6 +12146,7 @@ class FactoryWorkflowOwner:
             project=project,
             tracker=tracker,
             head=head,
+            bootstrap_source_fingerprint=bootstrap_source_fingerprint,
         )
         phase_index = SUCCESSOR_TRANSITION_PHASES.index(phase)
         required_task_checks = {
@@ -12105,6 +12182,19 @@ class FactoryWorkflowOwner:
             "governing_authority_source_record": head[
                 "governing_authority_source_record"
             ],
+            "governing_authority_turn_id": authority_source["turn_id"],
+            "governing_authority_item_id": authority_source["item_id"],
+            "governing_authority_content_sha256": authority_source[
+                "content_sha256"
+            ],
+            "governing_authority_envelope_sha256": authority_source[
+                "envelope_sha256"
+            ],
+            "governing_authority_client_id": authority_source["client_id"],
+            "governing_authority_input_classification": authority_source[
+                "classification"
+            ],
+            "bootstrap_source_fingerprint": bootstrap_source_fingerprint,
             "successor_thread_id": head.get("successor_thread_id") or None,
             "successor_mission_root": head.get("successor_mission_root") or None,
             "successor_group_id": head.get("successor_group_id") or None,
@@ -12137,6 +12227,15 @@ class FactoryWorkflowOwner:
             "transition_head": head["record_sha256"],
             "tracker": tracker,
             "source_task": evidence["source_task_fingerprint"],
+            "authority_source": {
+                key: evidence[key]
+                for key in (
+                    "governing_authority_source_record",
+                    "governing_authority_content_sha256",
+                    "governing_authority_envelope_sha256",
+                    "governing_authority_client_id",
+                )
+            },
             "fix_executor": evidence["fix_executor_task_fingerprint"],
             "successor": task_evidence,
         }
@@ -12186,6 +12285,9 @@ class FactoryWorkflowOwner:
                 "source_mission_root",
                 "governing_authority_source_class",
                 "governing_authority_source_record",
+                "governing_authority_content_sha256",
+                "governing_authority_envelope_sha256",
+                "governing_authority_client_id",
                 "successor_thread_id",
                 "successor_mission_root",
                 "successor_group_id",
@@ -12341,16 +12443,31 @@ class FactoryWorkflowOwner:
             projects, _ = self._active_projects()
             project = self._project_from(projects, target)
             tracker = source.evidence["tracker"]
-            task_evidence = (
-                self._successor_transition_task_evidence(
-                    projects=projects,
-                    project=project,
-                    tracker=tracker,
-                    head=head,
+            try:
+                bootstrap_source_fingerprint = (
+                    self._successor_transition_bootstrap_fingerprint(
+                        control,
+                        transition_id,
+                        str(head.get("phase")),
+                    )
+                    if isinstance(head, Mapping)
+                    else None
                 )
-                if isinstance(head, Mapping)
-                else {}
-            )
+            except OperationError:
+                bootstrap_source_fingerprint = None
+                task_evidence = {}
+            else:
+                task_evidence = (
+                    self._successor_transition_task_evidence(
+                        projects=projects,
+                        project=project,
+                        tracker=tracker,
+                        head=head,
+                        bootstrap_source_fingerprint=bootstrap_source_fingerprint,
+                    )
+                    if isinstance(head, Mapping)
+                    else {}
+                )
             phase_postcondition = {
                 "successor-created": task_evidence.get("successor_task_current"),
                 "successor-bound": task_evidence.get("successor_binding_current"),
@@ -12364,7 +12481,7 @@ class FactoryWorkflowOwner:
                 target_detail = self.app_server_client.read_task(
                     projects,
                     target.id,
-                    include_turns=False,
+                    include_turns=True,
                 )
                 fix_detail = self.app_server_client.read_task(
                     projects,
@@ -12373,6 +12490,7 @@ class FactoryWorkflowOwner:
                 )
             except AppServerError:
                 source_task_current = False
+                authority_source_current = False
                 request_current = False
             else:
                 target_task = target_detail.get("task")
@@ -12386,6 +12504,28 @@ class FactoryWorkflowOwner:
                     and target_task.get("project_binding", {}).get("project_id")
                     == project.id
                 )
+                try:
+                    authority_source = self._binding_source_item(
+                        target_task,
+                        source_record=str(
+                            source.evidence["governing_authority_source_record"]
+                        ),
+                        target_thread_id=target.id,
+                    )
+                except OperationError:
+                    authority_source_current = False
+                else:
+                    authority_source_current = all(
+                        authority_source[field] == source.evidence[expected]
+                        for field, expected in (
+                            ("content_sha256", "governing_authority_content_sha256"),
+                            (
+                                "envelope_sha256",
+                                "governing_authority_envelope_sha256",
+                            ),
+                            ("client_id", "governing_authority_client_id"),
+                        )
+                    )
                 fix_task = fix_detail.get("task")
                 fix_task = fix_task if isinstance(fix_task, Mapping) else {}
                 request_current = self._successor_transition_turn_has_marker(
@@ -12406,6 +12546,7 @@ class FactoryWorkflowOwner:
                 and gate_current
                 and phase_postcondition
                 and source_task_current
+                and authority_source_current
                 and request_current
                 and policy_current
             )
@@ -12416,6 +12557,7 @@ class FactoryWorkflowOwner:
                 "phase_postcondition_current": phase_postcondition,
                 "maintained_gate_current": gate_current,
                 "source_task_active": source_task_current,
+                "governing_authority_source_current": authority_source_current,
                 "source_policy_current": policy_current,
                 "fix_executor_request_current": request_current,
                 "source_stop_permitted": (

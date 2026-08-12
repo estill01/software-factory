@@ -1349,6 +1349,12 @@ class OperationsProjectionService:
         successor_transitions = owner_module.successor_transition_heads(
             list(evidence.events)
         )
+        successor_transition_records = {
+            transition_id: owner_module.successor_transition_events(
+                list(evidence.events), transition_id
+            )
+            for transition_id in sorted(successor_transitions)
+        }
         open_successor_transitions = owner_module.successor_transition_heads(
             list(evidence.events),
             open_only=True,
@@ -1402,6 +1408,12 @@ class OperationsProjectionService:
             "lifecycle_status": lifecycle_status,
             "open_successor_transition_ids": sorted(open_successor_transitions),
             "successor_transition_ids": sorted(successor_transitions),
+            "successor_transition_record_roots": {
+                transition_id: [
+                    record.get("record_sha256") for record in records
+                ]
+                for transition_id, records in successor_transition_records.items()
+            },
             "open_mission_activation_ids": sorted(open_mission_activations),
             "automations": {
                 role: automation.get("manifest_sha256") if automation else None
@@ -1447,6 +1459,9 @@ class OperationsProjectionService:
                 json.dumps(open_successor_transitions)
             ),
             "successor_transitions": json.loads(json.dumps(successor_transitions)),
+            "successor_transition_records": json.loads(
+                json.dumps(successor_transition_records)
+            ),
             "open_mission_activations": json.loads(
                 json.dumps(open_mission_activations)
             ),
