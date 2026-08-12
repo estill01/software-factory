@@ -4282,7 +4282,74 @@ narrative.
 
 ### Completion evidence
 
-Pending.
+- Accepted mutating source: exact commit
+  `69a00124c0223666e55a711198e3385a1019f613`, tree
+  `f8e56b565e5a4f399891eb10ec98273a9979b28d`. Independent exact review
+  found no issue after 16/16 root-consistent semantic mutation cases rejected,
+  removed run-instance leaves remained projection-invariant, exact Git-less
+  execution completed, and every live/reserved effect flag remained false.
+- Integrated current-effect evidence: the production supervision CLI used one
+  disposable Git target and one disposable release owner. The supported winner
+  progressed through packet, independent review, normal
+  `implement-tracker-blocks` owner, executed candidate/incumbent proofs, sealed
+  evaluation, one temporary release activation, installed-behavior observation,
+  and `adopted-effective`. The identical consumed checkpoint returned
+  `already-consumed-canonical-coverage` with zero event/artifact delta, zero
+  model/reviewer/human calls, no candidate, and no authoring handoff. The
+  independently rejected candidate reached `candidate-retired`, retained the
+  incumbent, and caused zero further activation.
+- Frozen evidence: run-specific high-precision JSON is retained at
+  `supervise-tracker-runs/fixtures/factory_evolution_integrated_dogfood_evidence_v1.json`;
+  result root
+  `f64d4733ae787302a64573829c94e3fbd0f31aa5ea5dbcaf5822a55a36302000`,
+  file SHA-256
+  `257eedf58201f030d1e7ec6d3aaf6aa1973b4c06e66d6ee75af9bf11d18e4102`.
+  Its closed nonauthorizing semantic projection is retained at
+  `supervise-tracker-runs/fixtures/factory_evolution_integrated_dogfood_projection_v1.json`;
+  projection root
+  `ccd4c7ca8dbd99231911f9898240815c25859cb3088a932f18101e3690ebe114`,
+  file SHA-256
+  `ca67b5a24683a676ff929bdc133cbe3e9d22d7f505f982ecddf8b4bba36e34a1`.
+  The fixture rebuild check proves the projection derives from the exact raw
+  evidence without normalizing production currentness/provenance roots.
+- Live-skill and compatibility proof: stable installed release
+  `d760d1f94e2e-02a0753bd06b` resolved all three entrypoints. Author tree
+  `5cc27b47d6e26a705ba587d3fcd3b907fc86c5797003286c697dec994a83eeba`
+  (8 files), implementation tree
+  `a27961fe2a168d17418861542ff01ba392628bb521d3343e9512fe1f14502b10`
+  (17 files), and supervision tree
+  `87092048efaf6805a6c1bb4ccb6745ae7121af0183e5cbbe16fffd3f711195cf`
+  (18 files) passed installed validator invocation. Fixed, recommend,
+  reviewed-autonomous, and full-autonomous postures remained exact; ordinary
+  full autonomy requested zero humans and reserved credential work deferred
+  narrowly.
+- Architecture/economy proof: `bounded-existing-skill-owner` was selected;
+  `lower-power-shortcut` and `generalized-detector` were rejected; the Block
+  contract did not change and tracker authoring was not invoked. Canonical raw
+  evidence remains run-specific because target-ref/reflog currentness retains
+  filesystem identity. The separate semantic projection is deterministic only
+  for the exact source, installed release, and fixed disposable workspace; it
+  is explicitly nonauthorizing.
+- Rejected history: `d5204382958278c36ac37d46e483684ebcfd59ae`
+  failed Git-less archive execution (B17-F01); `a267b48efc6ed0eabaf9fdbc4fe5a76e36aacfc4`
+  and `9e5e8991e8b8d76e7255195e51009dc87e1a89f3` exposed nondeterministic raw
+  evidence; `0c14b752a212442b30ead9dfaf67ed814c410ed4`,
+  `45557d65fd7dd6389ebf25c2087070513b113c92`, and
+  `6d44af3cd9b357b330e12204b9482e4eb3f44660` exposed incomplete semantic
+  validation. Every finding remains preserved as rejected history; the
+  accepted source keeps production currentness strict and narrows only the
+  nonauthorizing projection.
+- Broad frozen validation at the accepted mutating source: supervision
+  `394/394`, implementation `116/116`, authoring `42/42`, and release owner
+  `19/19`; all three fixed Skill Creator validators, full 18-Block tracker
+  verification, `py_compile`, exact diff, clean worktree, and HEAD/upstream
+  identity passed.
+- Effect boundary: temporary target/release effects were required and observed.
+  Live release, live policy, live mission, lifecycle, Gmail, deployment,
+  external-provider, and external effects were all false. No external release
+  or reserved effect is authorized by this evidence.
+- Final evidence-only exact review: pending on the frozen fixture/tracker
+  successor; Block 17 remains in progress until that review is accepted.
 
 ### Stop
 

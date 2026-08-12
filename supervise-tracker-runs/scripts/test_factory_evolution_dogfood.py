@@ -19,6 +19,27 @@ SPEC.loader.exec_module(dogfood)
 
 
 class FactoryEvolutionDogfoodUnitTests(unittest.TestCase):
+    def test_frozen_integrated_projection_rebuilds_from_exact_raw_evidence(
+        self,
+    ) -> None:
+        fixtures = SCRIPT.parent.parent / "fixtures"
+        raw = dogfood.json.loads(
+            (
+                fixtures / "factory_evolution_integrated_dogfood_evidence_v1.json"
+            ).read_text(encoding="utf-8")
+        )
+        projection = dogfood.json.loads(
+            (
+                fixtures / "factory_evolution_integrated_dogfood_projection_v1.json"
+            ).read_text(encoding="utf-8")
+        )
+        self.assertEqual(dogfood.reproducible_result_projection(raw), projection)
+        self.assertEqual(raw["source_revision"], "69a00124c0223666e55a711198e3385a1019f613")
+        self.assertEqual(
+            projection["projection_root"],
+            "ccd4c7ca8dbd99231911f9898240815c25859cb3088a932f18101e3690ebe114",
+        )
+
     def test_candidate_proof_pass_and_failure_outputs_are_byte_stable(self) -> None:
         with tempfile.TemporaryDirectory(
             prefix="software-factory-block17-proof-output-"

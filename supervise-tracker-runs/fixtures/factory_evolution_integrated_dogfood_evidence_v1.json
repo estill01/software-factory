@@ -1,0 +1,338 @@
+{
+  "deployment_performed": false,
+  "eligible_adopted": {
+    "admission_result_root": "084f75773710482674c8a43bf120589a7e4fa113fc296ce9e60a131cdd0f7a0a",
+    "adoption_stage": "adopted",
+    "artifact_names": [
+      ".append.lock",
+      "finalize-manifest.json",
+      "learning-packet.json",
+      "prepare-manifest.json",
+      "review.json"
+    ],
+    "baseline_revision": "d8a27eb8d5c18a1237f0132128d20e8343a2ef6e",
+    "baseline_validation_root": "a976ee5b9118e480b02b55552a03f9ccccbc8d777d7a7ead1321d64d845f8e3c",
+    "candidate_authoritative": true,
+    "candidate_currentness_root": "d64a8d8476cc491448bb4a46556f1833b2eab5f7116e635ce4879c6c5cce21bc",
+    "candidate_revision": "d007a9ae015560df52f78d67f4dbaf9515408a07",
+    "candidate_validation_root": "c6e10853a43bde918fc357b6a690bec01268daa206841405ba54eb25d948a5f7",
+    "cycle": "eligible-winner",
+    "cycle_root": "f2ef94511ee498c41efe5b3a8ce7bf400a0b29162a8a9a2dcfb2f5c659fc94fa",
+    "evaluation_disposition": "promote",
+    "evaluation_handoff_root": "2b6c56304d9dde061eaf0a6802724e8733d48f29a7b1cca4d8c591bc4bc0513a",
+    "evaluation_root": "9f2570a72652c61dba59f7a1809466f6277787025d4f8f02b7cf7df1465a1068",
+    "evolution_id": "evolution-auto-ec67d73f54f6-26deca4afecc",
+    "human_request_count": 0,
+    "incumbent_authoritative": false,
+    "installed_effect": {
+      "guidance_observed": true,
+      "installed_release_id": "candidate-release-1234",
+      "installed_source_revision": "d007a9ae015560df52f78d67f4dbaf9515408a07",
+      "observed_effect_root": "d8ac3ef1baf11e339b628b81783658282e766b6b71539fd376f8290b80439390",
+      "proof_exit_code": 0,
+      "proof_stderr_sha256": "fb184ea57734512b1f088f9181209901b9cd46df3eb7eaa2500ea9e48dde20b5",
+      "proof_stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "skill_sha256": "1d722d6fa2c5991908a029a82d9eb7f9bd1920685dfad0816bdfd397fa78df1a"
+    },
+    "normal_owner": "implement-tracker-blocks",
+    "operator_status": {
+      "acknowledgment_root": "d64a8d8476cc491448bb4a46556f1833b2eab5f7116e635ce4879c6c5cce21bc",
+      "action_root": "0498cfa8b1dc64d988ed794bdf445ce8adce901c6b2a6d5026366f249722eeb5",
+      "active_release_id": "candidate-release-1234",
+      "adoption_authorized": true,
+      "adoption_currentness_root": "d5e06a8dff2393089a5b9003ab2bbf54f626f2459823e42785d51287c1fc2f7b",
+      "adoption_eligible": true,
+      "candidate_authoritative": true,
+      "disposition": "promote",
+      "evaluation_handoff_root": "2b6c56304d9dde061eaf0a6802724e8733d48f29a7b1cca4d8c591bc4bc0513a",
+      "evaluation_root": "9f2570a72652c61dba59f7a1809466f6277787025d4f8f02b7cf7df1465a1068",
+      "handoff_root": "f39df08c80d16cfcec074103d3ec59106b0347a1f6c2a9dabe1af02d07bdd98d",
+      "human_request_count": 0,
+      "incumbent_authoritative": false,
+      "kind": "software-factory-evolution-cycle-action",
+      "next_action": "continue-with-current-adopted-evidence",
+      "normal_owner": "implement-tracker-blocks",
+      "outcome_posture": "adopted-effective",
+      "outcome_root": "866974a72a6ba02d8265a47958de21bd08c18b90f887eaf3e0128b8e54d2f1fa",
+      "packet_id": "learning-e9befaa3d2d1b3b5adf6",
+      "packet_root": "e9befaa3d2d1b3b5adf6943667b80cdc8036a36f6df74f73a55c964e13e1ae16",
+      "production_authority": "candidate",
+      "review_root": "aab932ffe97dc63b9d5f5922a7ee9b40258f54fff31f7ad73d982fec1afd56b1",
+      "schema_version": 1,
+      "selected_candidate_id": "candidate-existing-skill-owner",
+      "stage": "terminal-outcome"
+    },
+    "outcome_posture": "adopted-effective",
+    "outcome_retry_duplicate": true,
+    "outcome_root": "866974a72a6ba02d8265a47958de21bd08c18b90f887eaf3e0128b8e54d2f1fa",
+    "owner_handoff_root": "f39df08c80d16cfcec074103d3ec59106b0347a1f6c2a9dabe1af02d07bdd98d",
+    "packet_root": "e9befaa3d2d1b3b5adf6943667b80cdc8036a36f6df74f73a55c964e13e1ae16",
+    "rejected_paths": [
+      "lower-power-shortcut",
+      "generalized-detector"
+    ],
+    "release_activation_delta": 1,
+    "review_handoff_root": "18628174bcaa19e2c1d030031d162231ad8b4f275f59772a423c9d567f4d14f6",
+    "review_root": "aab932ffe97dc63b9d5f5922a7ee9b40258f54fff31f7ad73d982fec1afd56b1",
+    "selected_path": "bounded-existing-skill-owner",
+    "structural_contract_changed": false,
+    "tracker_authoring_invoked": false
+  },
+  "external_effects_performed": false,
+  "gmail_action_performed": false,
+  "human_report_projection": {
+    "current_outcomes": [
+      {
+        "candidate_authoritative": true,
+        "evolution_id": "evolution-auto-ec67d73f54f6-26deca4afecc",
+        "incumbent_authoritative": false,
+        "next_action": "continue-with-current-adopted-evidence",
+        "outcome_posture": "adopted-effective"
+      },
+      {
+        "candidate_authoritative": false,
+        "evolution_id": "evolution-auto-06ece2e32006-8367899d3a96",
+        "incumbent_authoritative": true,
+        "next_action": "continue-with-incumbent",
+        "outcome_posture": "candidate-retired"
+      }
+    ],
+    "human_summary": [
+      "One bounded candidate was adopted and observed in the disposable release owner.",
+      "One independently rejected candidate retained the incumbent and history.",
+      "The identical consumed checkpoint created no new cycle or handoff."
+    ],
+    "report_projection_root": "e80a6e1de116e255a393f96b2d040259eb224926e60f3186e466a7b5375a3b7d",
+    "terminal_cycle_count": 2
+  },
+  "kind": "software-factory-integrated-dogfood-result",
+  "live_lifecycle_mutated": false,
+  "live_mission_mutated": false,
+  "live_policy_mutated": false,
+  "live_release_mutated": false,
+  "live_skill_invocation": {
+    "live_skill_root": "5539d3827c32bbc3d2691e45c589dc5ba99d739137cf045e6958e7bdeb5e3428",
+    "shared_release": "d760d1f94e2e-02a0753bd06b",
+    "skills": [
+      {
+        "discovery_target": "/Users/ethanstillman/.codex/software-factory-releases/current/author-implementation-trackers",
+        "file_count": 8,
+        "instruction_invocation": "current-stable-entrypoint-validated",
+        "resolved_release": "d760d1f94e2e-02a0753bd06b",
+        "skill_id": "author-implementation-trackers",
+        "skill_sha256": "d93bc6634f555348a243ca589e6ff701f663f87b4b9935b25317b908df4944cd",
+        "tree_root": "5cc27b47d6e26a705ba587d3fcd3b907fc86c5797003286c697dec994a83eeba",
+        "validator_exit_code": 0,
+        "validator_stdout_sha256": "db349825903d66adffea3ecf1bd8e1803043e8a71cf1a051235dabc5371f5bb0"
+      },
+      {
+        "discovery_target": "/Users/ethanstillman/.codex/software-factory-releases/current/implement-tracker-blocks",
+        "file_count": 17,
+        "instruction_invocation": "current-stable-entrypoint-validated",
+        "resolved_release": "d760d1f94e2e-02a0753bd06b",
+        "skill_id": "implement-tracker-blocks",
+        "skill_sha256": "ac559e5cb84fa0a5da26bf0857ce86b5272d59d5c0891ebbe0069d60909d73ea",
+        "tree_root": "a27961fe2a168d17418861542ff01ba392628bb521d3343e9512fe1f14502b10",
+        "validator_exit_code": 0,
+        "validator_stdout_sha256": "db349825903d66adffea3ecf1bd8e1803043e8a71cf1a051235dabc5371f5bb0"
+      },
+      {
+        "discovery_target": "/Users/ethanstillman/.codex/software-factory-releases/current/supervise-tracker-runs",
+        "file_count": 18,
+        "instruction_invocation": "current-stable-entrypoint-validated",
+        "resolved_release": "d760d1f94e2e-02a0753bd06b",
+        "skill_id": "supervise-tracker-runs",
+        "skill_sha256": "02dcdf1aa706d804332c2e2f8b0c90046240b2bb1bd076cf68c99da49c540459",
+        "tree_root": "87092048efaf6805a6c1bb4ccb6745ae7121af0183e5cbbe16fffd3f711195cf",
+        "validator_exit_code": 0,
+        "validator_stdout_sha256": "db349825903d66adffea3ecf1bd8e1803043e8a71cf1a051235dabc5371f5bb0"
+      }
+    ],
+    "tracker_verifier_exit_code": 0,
+    "tracker_verifier_output_root": "4916da8677444b5d73001198f364fb5b36c7f6b72320a88f0e8beef62a92523a"
+  },
+  "losing_candidate": {
+    "admission_result_root": "5c6f73b2a5c48a3497830f30ee658b6d96c807b51236f7158619d1593374ba2f",
+    "adoption_stage": "candidate-retired",
+    "artifact_names": [
+      ".append.lock",
+      "finalize-manifest.json",
+      "learning-packet.json",
+      "prepare-manifest.json",
+      "review.json"
+    ],
+    "baseline_revision": "d8a27eb8d5c18a1237f0132128d20e8343a2ef6e",
+    "baseline_validation_root": "38270b91d214a82ba94f7d6d3f828abf1bd5cf95e953fa5198ced4254d23eebc",
+    "candidate_authoritative": false,
+    "candidate_currentness_root": "90732bdc693975e4f37761506beec275d6acf7e8054c13754dc3ef41bd02257e",
+    "candidate_revision": "e147325d48e0fdfd2c8e804ebafe9284e81e29d6",
+    "candidate_validation_root": "1f7d6384dbf2d0edb4065ed33c95a204866373de20aa0f3677b0d8fe315a700f",
+    "cycle": "losing-candidate",
+    "cycle_root": "b0e2ba9091310a1050296b1b25b46c1382b5d607fff34bff05da64873ac93de2",
+    "evaluation_disposition": "reject",
+    "evaluation_handoff_root": "e893ece78b53a7df35560341a03027648fc1726df88109da452b8bdca4494419",
+    "evaluation_root": "cf609fb4c0b73ee5f1b3bc3dde80f466e4654fc006aaa53d3c65528d0c1544ad",
+    "evolution_id": "evolution-auto-06ece2e32006-8367899d3a96",
+    "human_request_count": 0,
+    "incumbent_authoritative": true,
+    "installed_effect": null,
+    "normal_owner": "implement-tracker-blocks",
+    "operator_status": {
+      "acknowledgment_root": "90732bdc693975e4f37761506beec275d6acf7e8054c13754dc3ef41bd02257e",
+      "action_root": "584add2f1ef968cd6100625ca58a95a61e349d87dde7674ab832b9054ce04d30",
+      "active_release_id": null,
+      "adoption_authorized": false,
+      "adoption_currentness_root": "9bdfa19f989628000b664cf7615e75d91c26ad46413a5a35a302d235ba6a958f",
+      "adoption_eligible": false,
+      "candidate_authoritative": false,
+      "disposition": "reject",
+      "evaluation_handoff_root": "e893ece78b53a7df35560341a03027648fc1726df88109da452b8bdca4494419",
+      "evaluation_root": "cf609fb4c0b73ee5f1b3bc3dde80f466e4654fc006aaa53d3c65528d0c1544ad",
+      "handoff_root": "0cc5f0939ee99234230060a9a54b5a273a9548693302a0050e84aff697c08ed1",
+      "human_request_count": 0,
+      "incumbent_authoritative": true,
+      "kind": "software-factory-evolution-cycle-action",
+      "next_action": "continue-with-incumbent",
+      "normal_owner": "implement-tracker-blocks",
+      "outcome_posture": "candidate-retired",
+      "outcome_root": "fa408db2775c2561aebcf8f1b93467edd8041a90575fb12f37e521174bd14d47",
+      "packet_id": "learning-0faf7c398fa46b52bc68",
+      "packet_root": "0faf7c398fa46b52bc68fb50ada80bd484d9a5ac140ec3d6817fa1ceb9b7f78e",
+      "production_authority": "incumbent",
+      "review_root": "aee0cde3fbe420c086b4b315f86753eeedb532f2b144b497ce4de04951d25fa4",
+      "schema_version": 1,
+      "selected_candidate_id": "candidate-existing-skill-owner",
+      "stage": "terminal-outcome"
+    },
+    "outcome_posture": "candidate-retired",
+    "outcome_retry_duplicate": true,
+    "outcome_root": "fa408db2775c2561aebcf8f1b93467edd8041a90575fb12f37e521174bd14d47",
+    "owner_handoff_root": "0cc5f0939ee99234230060a9a54b5a273a9548693302a0050e84aff697c08ed1",
+    "packet_root": "0faf7c398fa46b52bc68fb50ada80bd484d9a5ac140ec3d6817fa1ceb9b7f78e",
+    "rejected_paths": [
+      "lower-power-shortcut",
+      "generalized-detector"
+    ],
+    "release_activation_delta": 0,
+    "review_handoff_root": "b6d07997e0b259cd548d2dbc4f0198ca1b6f67946fa9e1a56977ed9d7c3c6fa6",
+    "review_root": "aee0cde3fbe420c086b4b315f86753eeedb532f2b144b497ce4de04951d25fa4",
+    "selected_path": "bounded-existing-skill-owner",
+    "structural_contract_changed": false,
+    "tracker_authoring_invoked": false
+  },
+  "operator_projection": {
+    "active_release_id": "candidate-release-1234",
+    "event_kind_counts": {
+      "check": 1,
+      "factory-evolution-admission": 2,
+      "factory-evolution-adoption": 2,
+      "factory-evolution-baseline-comparison-started": 2,
+      "factory-evolution-evaluation": 2,
+      "factory-evolution-evaluation-handoff": 2,
+      "factory-evolution-outcome": 2,
+      "factory-evolution-owner-acknowledgment": 2,
+      "factory-evolution-owner-handoff": 2,
+      "factory-evolution-review-handoff": 2,
+      "incident": 2,
+      "resolution": 2
+    },
+    "factory_active_cycle_count": 2,
+    "factory_admission_state": "active",
+    "operator_projection_root": "1276f7e19ca771dec5ba91c0f9009435768336e0f159ef72b18b02cef0c80321",
+    "release_activation_count": 1,
+    "release_rollback_count": 0,
+    "target_head": "d8a27eb8d5c18a1237f0132128d20e8343a2ef6e",
+    "target_status": ""
+  },
+  "result_root": "f64d4733ae787302a64573829c94e3fbd0f31aa5ea5dbcaf5822a55a36302000",
+  "schema_version": 1,
+  "source_revision": "69a00124c0223666e55a711198e3385a1019f613",
+  "temporary_release_effects_performed": true,
+  "temporary_target_effects_performed": true,
+  "unchanged_no_op": {
+    "admission_authorized": false,
+    "artifact_directory_delta": 0,
+    "authoring_handoff_created": false,
+    "candidate_created": false,
+    "disposition": "already-consumed-canonical-coverage",
+    "eligible": false,
+    "event_delta": 0,
+    "human_request_count": 0,
+    "inventory_unchanged": true,
+    "model_calls": 0,
+    "no_op_root": "a56bbcafa3283a67687d44a9e1d4e7e0cd68c79c6a6f618573d4f9b3162cc50c",
+    "packet_builds": 1,
+    "reused": true,
+    "reviewer_calls": 0
+  },
+  "within_run_compatibility": {
+    "authority_cases": [
+      {
+        "authorized": false,
+        "blocked_subjects": [],
+        "case_id": "fixed-record-only",
+        "human_request_count": 0,
+        "mode": "fixed",
+        "posture": "record-only"
+      },
+      {
+        "authorized": false,
+        "blocked_subjects": [],
+        "case_id": "recommend-review-pending",
+        "human_request_count": 0,
+        "mode": "recommend",
+        "posture": "automated-independent-review-required"
+      },
+      {
+        "authorized": false,
+        "blocked_subjects": [],
+        "case_id": "recommend-review-complete",
+        "human_request_count": 0,
+        "mode": "recommend",
+        "posture": "recommendation-only"
+      },
+      {
+        "authorized": false,
+        "blocked_subjects": [],
+        "case_id": "reviewed-autonomous-consequential",
+        "human_request_count": 0,
+        "mode": "reviewed-autonomous",
+        "posture": "external-application-authority-required"
+      },
+      {
+        "authorized": false,
+        "blocked_subjects": [],
+        "case_id": "full-autonomous-ordinary",
+        "human_request_count": 0,
+        "mode": "full-autonomous",
+        "posture": "owner-application-ready"
+      },
+      {
+        "authorized": false,
+        "blocked_subjects": [
+          "credential-boundary"
+        ],
+        "case_id": "full-autonomous-reserved-external",
+        "human_request_count": 0,
+        "mode": "full-autonomous",
+        "posture": "reserved-external"
+      }
+    ],
+    "authority_modes": [
+      "fixed",
+      "full-autonomous",
+      "recommend",
+      "reviewed-autonomous"
+    ],
+    "compatibility_root": "a7f28c3a726255355ae7dad91549cd64dec91a7576ed24851d9f12c1ceb617ab",
+    "external_effects_performed": false,
+    "human_request_count": 0,
+    "lifecycle_mutated": false,
+    "mission_mutated": false,
+    "policy_mutated": false,
+    "release_mutated": false,
+    "result_root": "f0fe20c66328edeaabbd68c9771f28e2c03e564f4efef21e502b277ebd4b28c5",
+    "source_revision": "69a00124c0223666e55a711198e3385a1019f613",
+    "temporary_target_effects_performed": true
+  }
+}
