@@ -8226,8 +8226,45 @@ and stop at denial, partial, or unverified state without retrying or widening.
     currentness, and the absence of retry or bulk stop. The selected path costs
     an explicit task-mediated owner round trip and more unavailable/partial
     states, but preserves authority and truthful recovery.
-- Single broad mapped validation is the next step. It has not started at this
-  checkpoint; no second broad replay will be used for unrelated diagnostics.
+- Single broad mapped validation after immutable pre-broad checkpoint
+  `bcc800ac57bc564c1bccaebd9de74f6faec4f9d2` —
+  `2026-08-12T13:25:00Z`: dashboard backend passed 142/142 with
+  `ResourceWarning` fatal, frontend passed 20 files/116 tests, and the
+  TypeScript/Vite production build passed. The one serial Playwright matrix
+  completed 47/84; the new Block 30 terminal-shutdown case passed 3/3 at
+  desktop/tablet/mobile with its exact owner/gate, Axe, no-overflow, and
+  predecessor-suppression assertions. Thirty-six failures were the same 12
+  older live-state/report/operation fixture families at each viewport: metrics
+  source-anchor navigation, retained weekly review, terminal report, Factory
+  evolution, live drill-down check, mission-binding repair, role-binding
+  repair, automation-binding repair, pause, resume, same-target mission
+  succession, and successor-task continuity. One additional mobile tracker
+  failure reproduced the pre-existing active-navigation contrast diagnostic.
+  These are preserved for Block 31 integrated validation; no second broad run,
+  harness/configuration change, or unrelated correction was made. No live
+  preview, dispatch, request-stop, lifecycle, automation, task, report, Gmail,
+  receipt, or shutdown mutation occurred.
+- Routed correction `INC-20260812-132913-E4C8DA` identified one consequential
+  owner-invocation defect in the frozen checkpoint: the delegated prompt used
+  raw `python3` for the maintained terminal-shutdown helper even though this
+  bound host requires `uv run --python 3.14 python`. Because automation pause
+  precedes receipt append, the raw invocation could leave an avoidable partial
+  shutdown. The raw-interpreter path is rejected; the correction provenance is
+  not implementation authority, Block 31 remains closed, and the broad matrix
+  is not replayed.
+- Narrow invocation successor — `2026-08-12T13:41:33Z`, two-file product/test
+  binary diff from
+  `bcc800ac57bc564c1bccaebd9de74f6faec4f9d2` SHA-256
+  `7bdfb8437ee25fed573db5b936bce097c65a8c9e67d4da9fa087e78d7625d51f`:
+  the terminal-shutdown prompt now invokes exactly
+  `uv run --python 3.14 python <absolute-helper> ... terminal-shutdown` and no
+  longer contains raw `invoke python3`. The focused workflow/currentness test
+  asserts both the maintained invocation and raw-interpreter exclusion and
+  passed 1/1 with `ResourceWarning` fatal; Ruff, Python compilation, diff check,
+  and the exact source scan passed. Full-profile verification reports 32 Blocks
+  with 0 errors/warnings and the verifier suite passes 30/30. No other product,
+  owner, prompt family, or browser fixture changed; fresh exact-revision review
+  is pending.
 
 ### Stop
 

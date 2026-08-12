@@ -1139,6 +1139,11 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         dispatched = definition.dispatch(target, inputs, source)
         self.assertIn("--terminal-report-set-id", owner.app_server_client.prompt)
         self.assertIn(
+            "uv run --python 3.14 python",
+            owner.app_server_client.prompt,
+        )
+        self.assertNotIn("invoke python3", owner.app_server_client.prompt)
+        self.assertIn(
             "Do not stop, interrupt, continue, resume, archive",
             owner.app_server_client.prompt,
         )
