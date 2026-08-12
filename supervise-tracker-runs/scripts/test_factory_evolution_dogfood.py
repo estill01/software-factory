@@ -144,7 +144,8 @@ class IntegratedFactoryEvolutionDogfoodTests(unittest.TestCase):
         }
         self.assertEqual(projection["projection_root"], dogfood.digest(material))
         self.assertFalse(projection["authorizing"])
-        self.assertTrue(projection["raw_evidence_validated"])
+        self.assertTrue(projection["raw_roots_validated"])
+        self.assertTrue(projection["projected_semantics_validated"])
         self.assertTrue(projection["target_clean"])
         self.assertEqual(
             projection["live_skill_identity"]["live_skill_root"],
@@ -152,7 +153,7 @@ class IntegratedFactoryEvolutionDogfoodTests(unittest.TestCase):
         )
         changed = copy.deepcopy(self.result)
         changed["eligible_adopted"]["cycle_root"] = "0" * 64
-        with self.assertRaisesRegex(dogfood.DogfoodError, "winning cycle root differs"):
+        with self.assertRaisesRegex(dogfood.DogfoodError, "root differs"):
             dogfood.reproducible_result_projection(changed)
 
     def test_root_consistent_synthetic_semantics_do_not_validate(self) -> None:
@@ -198,6 +199,90 @@ class IntegratedFactoryEvolutionDogfoodTests(unittest.TestCase):
                     dogfood.DogfoodError,
                     "integrated dogfood semantic evidence differs",
                 ):
+                    dogfood.reproducible_result_projection(changed)
+
+    def test_every_retained_projection_boundary_rejects_synthetic_semantics(
+        self,
+    ) -> None:
+        cases = (
+            ("live-validator", lambda value: value["live_skill_invocation"]["skills"][0].update(validator_exit_code=1), "live"),
+            ("live-release", lambda value: value["live_skill_invocation"].update(shared_release=None), "live"),
+            ("tracker-verifier", lambda value: value["live_skill_invocation"].update(tracker_verifier_exit_code=1), "live"),
+            ("authority", lambda value: value["within_run_compatibility"]["authority_cases"][0].update(authorized=True), "compatibility"),
+            ("high-precision-root", lambda value: value["eligible_adopted"].update(admission_result_root="not-a-root"), "winner"),
+            ("target-head", lambda value: value["operator_projection"].update(target_head="f" * 40), "operator"),
+            ("event-counts", lambda value: value["operator_projection"].update(event_kind_counts={}), "operator"),
+            ("report-authority", lambda value: value["human_report_projection"]["current_outcomes"][0].update(candidate_authoritative=False), "report"),
+            ("raw-kind", lambda value: value.update(kind="synthetic-dogfood"), "raw"),
+            (
+                "candidate-revision",
+                lambda value: (
+                    value["eligible_adopted"].update(candidate_revision="not-a-revision"),
+                    value["eligible_adopted"]["installed_effect"].update(
+                        installed_source_revision="not-a-revision"
+                    ),
+                ),
+                "winner-installed",
+            ),
+        )
+        for case_id, mutate, boundary in cases:
+            with self.subTest(case_id=case_id):
+                changed = copy.deepcopy(self.result)
+                mutate(changed)
+                if boundary == "live":
+                    live = changed["live_skill_invocation"]
+                    live["live_skill_root"] = dogfood.digest(
+                        {key: value for key, value in live.items() if key != "live_skill_root"}
+                    )
+                elif boundary == "compatibility":
+                    compatibility = changed["within_run_compatibility"]
+                    compatibility["compatibility_root"] = dogfood.digest(
+                        {
+                            key: value
+                            for key, value in compatibility.items()
+                            if key != "compatibility_root"
+                        }
+                    )
+                elif boundary in {"winner", "winner-installed"}:
+                    winner = changed["eligible_adopted"]
+                    if boundary == "winner-installed":
+                        installed = winner["installed_effect"]
+                        installed["observed_effect_root"] = dogfood.digest(
+                            {
+                                key: value
+                                for key, value in installed.items()
+                                if key != "observed_effect_root"
+                            }
+                        )
+                    winner["cycle_root"] = dogfood.digest(
+                        {key: value for key, value in winner.items() if key != "cycle_root"}
+                    )
+                elif boundary == "operator":
+                    operator = changed["operator_projection"]
+                    operator["operator_projection_root"] = dogfood.digest(
+                        {
+                            key: value
+                            for key, value in operator.items()
+                            if key != "operator_projection_root"
+                        }
+                    )
+                elif boundary == "report":
+                    report = changed["human_report_projection"]
+                    report["report_projection_root"] = dogfood.digest(
+                        {
+                            key: value
+                            for key, value in report.items()
+                            if key != "report_projection_root"
+                        }
+                    )
+                changed["result_root"] = dogfood.digest(
+                    {
+                        key: value
+                        for key, value in changed.items()
+                        if key != "result_root"
+                    }
+                )
+                with self.assertRaises(dogfood.DogfoodError):
                     dogfood.reproducible_result_projection(changed)
 
     def test_gitless_source_fallback_is_exact(self) -> None:

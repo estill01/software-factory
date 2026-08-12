@@ -1807,6 +1807,12 @@ def reproducible_result_projection(
     }
     if set(raw) != expected:
         raise DogfoodError("integrated dogfood raw schema differs")
+    if (
+        raw["schema_version"] != 1
+        or type(raw["schema_version"]) is not int
+        or raw["kind"] != "software-factory-integrated-dogfood-result"
+    ):
+        raise DogfoodError("integrated dogfood raw identity differs")
     winner = _validated_rooted_object(
         raw["eligible_adopted"], root_field="cycle_root", label="winning cycle"
     )
@@ -1889,6 +1895,244 @@ def reproducible_result_projection(
         "no_op_root",
     }:
         raise DogfoodError("integrated dogfood no-op schema differs")
+    root_fields = (
+        "admission_result_root",
+        "packet_root",
+        "review_root",
+        "review_handoff_root",
+        "owner_handoff_root",
+        "candidate_currentness_root",
+        "candidate_validation_root",
+        "baseline_validation_root",
+        "evaluation_handoff_root",
+        "evaluation_root",
+        "outcome_root",
+    )
+    if any(
+        re.fullmatch(r"[0-9a-f]{64}", str(cycle.get(field))) is None
+        for cycle in (winner, loser)
+        for field in root_fields
+    ) or any(
+        re.fullmatch(r"[0-9a-f]{40}", str(cycle.get(field))) is None
+        for cycle in (winner, loser)
+        for field in ("baseline_revision", "candidate_revision")
+    ):
+        raise DogfoodError("integrated dogfood high-precision identity differs")
+
+    live_schema = {
+        "skills",
+        "shared_release",
+        "tracker_verifier_exit_code",
+        "tracker_verifier_output_root",
+        "live_skill_root",
+    }
+    skill_schema = {
+        "skill_id",
+        "discovery_target",
+        "resolved_release",
+        "skill_sha256",
+        "tree_root",
+        "file_count",
+        "validator_exit_code",
+        "validator_stdout_sha256",
+        "instruction_invocation",
+    }
+    skills = live.get("skills")
+    if (
+        set(live) != live_schema
+        or type(skills) is not list
+        or [item.get("skill_id") for item in skills if isinstance(item, Mapping)]
+        != list(factory_evolution.FACTORY_SKILL_IDS)
+        or type(live.get("shared_release")) is not str
+        or live.get("tracker_verifier_exit_code") != 0
+        or re.fullmatch(
+            r"[0-9a-f]{64}", str(live.get("tracker_verifier_output_root"))
+        )
+        is None
+    ):
+        raise DogfoodError("integrated dogfood live skill evidence differs")
+    for item in skills:
+        if (
+            not isinstance(item, Mapping)
+            or set(item) != skill_schema
+            or item.get("resolved_release") != live["shared_release"]
+            or item.get("discovery_target")
+            != str(DEFAULT_LIVE_SKILLS / str(item.get("skill_id")))
+            and item.get("discovery_target")
+            != str(
+                Path("/Users/ethanstillman/.codex/software-factory-releases/current")
+                / str(item.get("skill_id"))
+            )
+            or type(item.get("file_count")) is not int
+            or int(item.get("file_count", 0)) <= 0
+            or item.get("validator_exit_code") != 0
+            or item.get("instruction_invocation")
+            != "current-stable-entrypoint-validated"
+            or any(
+                re.fullmatch(r"[0-9a-f]{64}", str(item.get(field))) is None
+                for field in (
+                    "skill_sha256",
+                    "tree_root",
+                    "validator_stdout_sha256",
+                )
+            )
+        ):
+            raise DogfoodError("integrated dogfood live skill evidence differs")
+
+    expected_authority_cases = [
+        ("fixed-record-only", "fixed", "record-only", False, []),
+        (
+            "recommend-review-pending",
+            "recommend",
+            "automated-independent-review-required",
+            False,
+            [],
+        ),
+        (
+            "recommend-review-complete",
+            "recommend",
+            "recommendation-only",
+            False,
+            [],
+        ),
+        (
+            "reviewed-autonomous-consequential",
+            "reviewed-autonomous",
+            "external-application-authority-required",
+            False,
+            [],
+        ),
+        (
+            "full-autonomous-ordinary",
+            "full-autonomous",
+            "owner-application-ready",
+            False,
+            [],
+        ),
+        (
+            "full-autonomous-reserved-external",
+            "full-autonomous",
+            "reserved-external",
+            False,
+            ["credential-boundary"],
+        ),
+    ]
+    authority_cases = compatibility.get("authority_cases")
+    observed_authority_cases = []
+    if isinstance(authority_cases, list):
+        for item in authority_cases:
+            if not isinstance(item, Mapping) or set(item) != {
+                "case_id",
+                "mode",
+                "posture",
+                "authorized",
+                "human_request_count",
+                "blocked_subjects",
+            }:
+                raise DogfoodError("integrated dogfood authority evidence differs")
+            if item.get("human_request_count") != 0:
+                raise DogfoodError("integrated dogfood authority evidence differs")
+            observed_authority_cases.append(
+                (
+                    item.get("case_id"),
+                    item.get("mode"),
+                    item.get("posture"),
+                    item.get("authorized"),
+                    item.get("blocked_subjects"),
+                )
+            )
+    if (
+        set(compatibility)
+        != {
+            "source_revision",
+            "result_root",
+            "authority_cases",
+            "authority_modes",
+            "human_request_count",
+            "temporary_target_effects_performed",
+            "external_effects_performed",
+            "release_mutated",
+            "policy_mutated",
+            "mission_mutated",
+            "lifecycle_mutated",
+            "compatibility_root",
+        }
+        or compatibility.get("source_revision") != raw["source_revision"]
+        or re.fullmatch(r"[0-9a-f]{64}", str(compatibility.get("result_root")))
+        is None
+        or observed_authority_cases != expected_authority_cases
+    ):
+        raise DogfoodError("integrated dogfood authority evidence differs")
+
+    expected_event_counts = {
+        "check": 1,
+        "factory-evolution-admission": 2,
+        "factory-evolution-adoption": 2,
+        "factory-evolution-baseline-comparison-started": 2,
+        "factory-evolution-evaluation": 2,
+        "factory-evolution-evaluation-handoff": 2,
+        "factory-evolution-outcome": 2,
+        "factory-evolution-owner-acknowledgment": 2,
+        "factory-evolution-owner-handoff": 2,
+        "factory-evolution-review-handoff": 2,
+        "incident": 2,
+        "resolution": 2,
+    }
+    if (
+        set(operator)
+        != {
+            "factory_admission_state",
+            "factory_active_cycle_count",
+            "event_kind_counts",
+            "target_head",
+            "target_status",
+            "release_activation_count",
+            "release_rollback_count",
+            "active_release_id",
+            "operator_projection_root",
+        }
+        or operator.get("factory_admission_state") != "active"
+        or operator.get("factory_active_cycle_count") != 2
+        or operator.get("event_kind_counts") != expected_event_counts
+        or operator.get("target_head") != winner.get("baseline_revision")
+    ):
+        raise DogfoodError("integrated dogfood operator evidence differs")
+    expected_report_outcomes = [
+        (
+            "adopted-effective",
+            "continue-with-current-adopted-evidence",
+            True,
+            False,
+        ),
+        ("candidate-retired", "continue-with-incumbent", False, True),
+    ]
+    observed_report_outcomes = [
+        (
+            item.get("outcome_posture"),
+            item.get("next_action"),
+            item.get("candidate_authoritative"),
+            item.get("incumbent_authoritative"),
+        )
+        for item in report.get("current_outcomes", [])
+        if isinstance(item, Mapping)
+    ]
+    if (
+        set(report)
+        != {
+            "terminal_cycle_count",
+            "current_outcomes",
+            "human_summary",
+            "report_projection_root",
+        }
+        or observed_report_outcomes != expected_report_outcomes
+        or report.get("human_summary")
+        != [
+            "One bounded candidate was adopted and observed in the disposable release owner.",
+            "One independently rejected candidate retained the incumbent and history.",
+            "The identical consumed checkpoint created no new cycle or handoff.",
+        ]
+    ):
+        raise DogfoodError("integrated dogfood report evidence differs")
     if (
         type(raw["source_revision"]) is not str
         or re.fullmatch(r"[0-9a-f]{40}", str(raw["source_revision"])) is None
@@ -2078,7 +2322,8 @@ def reproducible_result_projection(
         "kind": "software-factory-integrated-dogfood-semantic-projection",
         "source_revision": raw["source_revision"],
         "authorizing": False,
-        "raw_evidence_validated": True,
+        "raw_roots_validated": True,
+        "projected_semantics_validated": True,
         "live_skill_identity": live,
         "eligible_adopted": winner_projection,
         "unchanged_no_op": no_op,

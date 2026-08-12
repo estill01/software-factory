@@ -53,7 +53,9 @@ material, target commit chronology, and closed semantic schema make the default
 projection reproducible at one source revision and one current installed
 three-skill release. It changes when either source or installed skill identity
 changes and is explicitly nonauthorizing. Projection construction first
-revalidates the exact raw result and each retained nested root.
+revalidates the exact raw result, each retained nested root, and every retained
+semantic acceptance leaf. This establishes self-contained disposable proof,
+not external authenticity or permission.
 
 The separate `--evidence-output` JSON is the one frozen high-precision run. Its
 Git target-owner currentness deliberately binds ref and reflog path/stat

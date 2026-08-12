@@ -404,6 +404,9 @@ is byte-reproducible for one exact source and installed three-skill identity.
 `--evidence-output` separately retains the exact high-precision run. Its
 currentness and provenance roots intentionally include the disposable Git ref
 and reflog filesystem identities and are therefore current and run-specific.
+Before emitting the projection, the runner validates all raw root consistency
+and every retained semantic leaf; it does not claim external authenticity for
+the self-contained disposable evidence.
 
 The result is a bounded demonstration, not a live release. Every live release,
 policy, mission, lifecycle, Gmail, deployment, and external-effect flag remains
