@@ -39,6 +39,15 @@ the completed program materially changes Software Factory.
 
 ### Implemented
 
+- **Automated, self-checking local skill promotion.** Ordinary updates to the
+  three Software Factory skills now use one `promote` command over an exact
+  clean commit. The release owner runs the four repository-owned test suites,
+  validates and seals every skill, records deterministic assurance, atomically
+  swaps one `current` pointer, verifies the installed roots in a fresh process,
+  and restores the prior pointer automatically on failure. The prior signed
+  review and quiescent-permit path remains optional for a deliberately required
+  separation-of-duties boundary instead of blocking routine local maintenance.
+
 - **Current-authority reconciliation for stale decision deferrals.** A later
   canonical direct-authority correction of the exact successor-topology premise
   now retires the matching safe-deferral posture in the shared governing-outcome

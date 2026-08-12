@@ -584,11 +584,15 @@ reserved deferrals, safe frontier, and application posture.
   release are separate lanes. An unavailable or failed publication becomes
   `durability-pending`, requires an autonomous retry trigger, and blocks only a
   remote-durability claim; it never changes final-response permission, required
-  target posture, signed local stage or activation eligibility, post-activation
-  role-refresh eligibility, or local effectiveness. Stage and activate only
-  through the maintained signed release owner, retain the prior release, and
-  refresh roles only after exact local activation is verified. A supervisor may
-  never create, select among ambiguous, rewrite, or force-push a remote.
+  target posture, local promotion eligibility, post-activation role-refresh
+  eligibility, or local effectiveness. Promote only through the maintained
+  release owner, which must run exact-commit checks, retain the prior release,
+  atomically swap the active pointer, verify it in a fresh process, and restore
+  the prior pointer on failure. Optional signed review/cutover evidence is for a
+  specifically required separation-of-duties boundary, not ordinary local skill
+  maintenance. Refresh roles only after exact local activation is verified. A
+  supervisor may never create, select among ambiguous, rewrite, or force-push a
+  remote.
 - Changes to models, target permissions, defect semantics, auto-steer
   authority, repository access, patent authority, or the skill allowlist still
   require the user. Skill maintenance never authorizes target-repository or

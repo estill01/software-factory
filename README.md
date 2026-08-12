@@ -59,44 +59,25 @@ cd software-factory
 /usr/bin/python3 scripts/skill_release.py --help
 ```
 
-Freeze a clean commit, generate its read-only candidate projection, and obtain
-an independent exact-revision review. The reviewer returns an externally owned
-review JSON record bound to the projection root; then stage it:
+Promote one exact clean commit with the repository's fixed test suites. The
+command validates all three skills, runs their tests, seals the release, swaps
+one pointer atomically, verifies the installed roots in a fresh process, and
+restores the prior pointer automatically if verification fails:
 
 ```bash
-/usr/bin/python3 scripts/skill_release.py review-request \
+/usr/bin/python3 scripts/skill_release.py promote \
   --repo "$PWD" \
-  --source-commit "$ACCEPTED_COMMIT" > /tmp/software-factory-review-request.json
-
-/usr/bin/python3 scripts/skill_release.py stage \
-  --repo "$PWD" \
-  --source-commit "$ACCEPTED_COMMIT" \
-  --implementer-id "$IMPLEMENTER_ID" \
-  --review-evidence "$EXTERNAL_REVIEW_JSON"
+  --source-commit "$(git rev-parse HEAD)"
 ```
 
-For a new installation, establish the three stable discovery links through the
-single release-root `current` pointer. For migration from the old direct-link
-layout, also pass `--legacy-source-root "$PWD"`; bootstrap verifies that the
-staged baseline and all three existing resolved skill trees are identical and
-rolls every link back if setup is interrupted.
+On a new installation, `promote` establishes the three stable discovery links
+through the single release-root `current` pointer. On later runs it never
+rewrites those links; it replaces only
+`~/.codex/software-factory-releases/current`.
 
 ```bash
-/usr/bin/python3 scripts/skill_release.py bootstrap "$RELEASE_ID" \
-  --quiescent-evidence "$QUIESCENT_EVIDENCE_JSON"
-```
-
-Subsequent accepted cutovers never rewrite the three discovery links. They
-atomically replace only `~/.codex/software-factory-releases/current`, launch a
-fresh-process resolution check, and restore the prior pointer on failure:
-
-```bash
-/usr/bin/python3 scripts/skill_release.py activate "$RELEASE_ID" \
-  --quiescent-evidence "$QUIESCENT_EVIDENCE_JSON"
-
 /usr/bin/python3 scripts/skill_release.py status
-/usr/bin/python3 scripts/skill_release.py rollback \
-  --quiescent-evidence "$QUIESCENT_EVIDENCE_JSON"
+/usr/bin/python3 scripts/skill_release.py rollback
 ```
 
 An already-loaded Codex task continues with the instructions it loaded before
@@ -105,9 +86,9 @@ a fresh filesystem resolution but does not claim a transactional multi-skill
 snapshot inside an already-running host. Exact state, manifest fields, failure
 posture, and migration details are in
 [`docs/software-factory-skill-releases.md`](docs/software-factory-skill-releases.md).
-That guide also gives the exact independent reviewer/operator key
-provisioning, canonical signing, verification, rotation, and recovery procedure
-required before `stage` or `bootstrap` can succeed.
+The guide also documents the optional signed-review and signed-cutover mode for
+cases that deliberately require separation of duties. It is not required for
+ordinary local skill maintenance.
 
 Directly symlinking the three discovery paths to a mutable checkout is an
 explicit **development-live/unsafe mode**. It is useful only when immediate

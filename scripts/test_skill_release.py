@@ -264,6 +264,199 @@ class SkillReleaseTests(unittest.TestCase):
     def stage(self, commit: str) -> dict[str, object]:
         return skill_release.stage_release(self.stage_args(commit))
 
+    def automated_checks(self, *, tests_per_suite: int = 1) -> list[dict[str, object]]:
+        checks: list[dict[str, object]] = []
+        for (
+            check_id,
+            _directory,
+            _pattern,
+            _runtime,
+        ) in skill_release.AUTOMATED_CHECK_SUITES:
+            result = {
+                "id": check_id,
+                "status": "passed",
+                "test_count": tests_per_suite,
+                "failure_count": 0,
+                "baseline_failure_count": 0,
+            }
+            checks.append(
+                {
+                    **result,
+                    "result_sha256": skill_release.digest(result),
+                }
+            )
+        return checks
+
+    def automated_args(self, commit: str) -> argparse.Namespace:
+        return argparse.Namespace(
+            repo=str(self.repo),
+            release_root=str(self.release_root),
+            install_root=str(self.install_root),
+            source_commit=commit,
+            implementer_id=None,
+            review_evidence=None,
+            quiescent_evidence=None,
+            legacy_source_root=str(self.repo),
+        )
+
+    def test_promote_checks_stages_and_activates_without_manual_permits(self) -> None:
+        first_commit = self.git("rev-parse", "HEAD")
+        checks = self.automated_checks(tests_per_suite=7)
+        with mock.patch.object(
+            skill_release, "run_automated_checks", return_value=checks
+        ) as runner:
+            first = skill_release.promote_release(self.automated_args(first_commit))
+        self.assertEqual(first["promotion"], "completed")
+        self.assertEqual(first["activation"]["action"], "bootstrap")
+        self.assertEqual(
+            first["automated_assurance"]["kind"],
+            skill_release.AUTOMATED_ASSURANCE_KIND,
+        )
+        self.assertEqual(
+            skill_release.current_release_id(self.release_root.resolve()),
+            first["release_id"],
+        )
+        runner.assert_called_once_with(self.repo.resolve(), first_commit, None)
+
+        with mock.patch.object(
+            skill_release, "run_automated_checks", return_value=checks
+        ):
+            repeated = skill_release.promote_release(
+                self.automated_args(first_commit)
+            )
+        self.assertEqual(repeated["stage"], "existing")
+        self.assertEqual(repeated["release_id"], first["release_id"])
+        self.assertEqual(repeated["activation"]["action"], "already-active")
+        self.assertEqual(len(skill_release.history(self.release_root.resolve())), 1)
+
+        for name in skill_release.SKILLS:
+            (self.repo / name / "VERSION").write_text("2\n", encoding="utf-8")
+        second_commit = self.commit("second automated release")
+        with mock.patch.object(
+            skill_release, "run_automated_checks", return_value=checks
+        ):
+            second = skill_release.promote_release(self.automated_args(second_commit))
+        self.assertEqual(second["activation"]["action"], "activate")
+        self.assertEqual(second["activation"]["previous_release_id"], first["release_id"])
+        self.assertEqual(len(skill_release.history(self.release_root.resolve())), 2)
+
+    def test_automated_assurance_fails_closed_on_incomplete_or_forged_checks(self) -> None:
+        commit = self.git("rev-parse", "HEAD")
+        with tempfile.TemporaryDirectory() as raw:
+            candidate = skill_release.build_candidate(self.repo, commit, Path(raw))
+        assurance = skill_release.automated_assurance(
+            candidate, self.automated_checks()
+        )
+        missing = dict(assurance)
+        missing["checks"] = list(missing["checks"][:-1])
+        missing["assurance_root_sha256"] = skill_release.digest(
+            {
+                key: value
+                for key, value in missing.items()
+                if key != "assurance_root_sha256"
+            }
+        )
+        with self.assertRaisesRegex(skill_release.ReleaseError, "Automated assurance"):
+            skill_release.validate_automated_assurance(missing, candidate=candidate)
+
+        forged = dict(assurance)
+        forged["checks"] = [dict(item) for item in assurance["checks"]]
+        forged["checks"][0]["test_count"] = 99
+        forged["assurance_root_sha256"] = skill_release.digest(
+            {
+                key: value
+                for key, value in forged.items()
+                if key != "assurance_root_sha256"
+            }
+        )
+        with self.assertRaisesRegex(skill_release.ReleaseError, "invalid check"):
+            skill_release.validate_automated_assurance(forged, candidate=candidate)
+
+    def test_automated_cutover_restores_prior_pointer_on_failed_reload(self) -> None:
+        checks = self.automated_checks()
+        first_commit = self.git("rev-parse", "HEAD")
+        with mock.patch.object(
+            skill_release, "run_automated_checks", return_value=checks
+        ):
+            first = skill_release.promote_release(self.automated_args(first_commit))
+        for name in skill_release.SKILLS:
+            (self.repo / name / "VERSION").write_text("candidate\n", encoding="utf-8")
+        second_commit = self.commit("automated rollback candidate")
+        with mock.patch.object(
+            skill_release, "run_automated_checks", return_value=checks
+        ):
+            second = skill_release.stage_release(self.automated_args(second_commit))
+        activation = argparse.Namespace(
+            release_root=str(self.release_root),
+            install_root=str(self.install_root),
+            release_id=str(second["release_id"]),
+            quiescent_evidence=None,
+        )
+        with (
+            mock.patch.object(
+                skill_release,
+                "child_reload_verify",
+                side_effect=skill_release.ReleaseError("reload failed"),
+            ),
+            self.assertRaisesRegex(skill_release.ReleaseError, "reload failed"),
+        ):
+            skill_release.activate_release(activation)
+        self.assertEqual(
+            skill_release.current_release_id(self.release_root.resolve()),
+            first["release_id"],
+        )
+        self.assertEqual(len(skill_release.history(self.release_root.resolve())), 1)
+
+    def test_automated_checks_allow_only_inherited_failures(self) -> None:
+        commit = self.git("rev-parse", "HEAD")
+
+        def inherited(checkout: Path, **values: object):
+            failures = (
+                {"test_existing (suite.Case)"}
+                if values["check_id"] in {
+                    "tracker-execution",
+                    "tracker-execution-baseline",
+                }
+                else set()
+            )
+            return 1, failures, b"Ran 1 test in 0.001s\n"
+
+        with (
+            mock.patch.object(
+                skill_release, "AUTOMATED_CHECK_RUNNER", Path("/usr/bin/python3")
+            ),
+            mock.patch.object(
+                skill_release, "run_automated_suite", side_effect=inherited
+            ),
+        ):
+            checks = skill_release.run_automated_checks(
+                self.repo.resolve(), commit, commit
+            )
+        execution = next(item for item in checks if item["id"] == "tracker-execution")
+        self.assertEqual(execution["status"], "passed-with-baseline")
+        self.assertEqual(execution["failure_count"], 1)
+        self.assertEqual(execution["baseline_failure_count"], 1)
+
+        def regressed(checkout: Path, **values: object):
+            if values["check_id"] == "tracker-execution":
+                failures = {"test_new_regression (suite.Case)"}
+            elif values["check_id"] == "tracker-execution-baseline":
+                failures = {"test_existing (suite.Case)"}
+            else:
+                failures = set()
+            return 1, failures, b"Ran 1 test in 0.001s\n"
+
+        with (
+            mock.patch.object(
+                skill_release, "AUTOMATED_CHECK_RUNNER", Path("/usr/bin/python3")
+            ),
+            mock.patch.object(
+                skill_release, "run_automated_suite", side_effect=regressed
+            ),
+            self.assertRaisesRegex(skill_release.ReleaseError, "added failures"),
+        ):
+            skill_release.run_automated_checks(self.repo.resolve(), commit, commit)
+
     def test_stage_activate_second_release_and_rollback(self) -> None:
         first_commit = self.git("rev-parse", "HEAD")
         original_targets = {

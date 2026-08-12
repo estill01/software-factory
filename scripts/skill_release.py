@@ -57,6 +57,14 @@ TRUSTED_AUTHORITY_IDS = {
     "reviewers": ("software-factory-release-reviewer-v1",),
     "operators": ("software-factory-release-operator-v1",),
 }
+AUTOMATED_ASSURANCE_KIND = "software-factory-skill-release-automated-assurance"
+AUTOMATED_CHECK_RUNNER = Path("/opt/homebrew/bin/uv")
+AUTOMATED_CHECK_SUITES = (
+    ("release-owner", "scripts", "test_skill_release.py", "system"),
+    ("tracker-authoring", "author-implementation-trackers/scripts", "test_*.py", "system"),
+    ("tracker-execution", "implement-tracker-blocks/scripts", "test_*.py", "system"),
+    ("tracker-supervision", "supervise-tracker-runs/scripts", "test_*.py", "uv-reportlab"),
+)
 
 
 class ReleaseError(RuntimeError):
@@ -600,27 +608,33 @@ def append_acceptance(
     release_root: Path, manifest: Mapping[str, Any]
 ) -> dict[str, Any]:
     records = acceptance_records(release_root)
+    candidate = candidate_material(
+        str(manifest["source_commit"]),
+        manifest["skills"],
+        manifest["validation"],
+    )
+    _assurance, assurance_record_id, assurance_root = release_assurance(
+        manifest, candidate=candidate
+    )
     existing = [
         item for item in records if item["release_id"] == manifest["release_id"]
     ]
     if existing:
         if len(existing) != 1:
             raise ReleaseError("Release acceptance identity is duplicated")
-        review = manifest["independent_review"]
         if any(
             existing[0].get(field) != expected
             for field, expected in (
                 ("source_commit", manifest["source_commit"]),
                 ("manifest_sha256", manifest["manifest_sha256"]),
                 ("candidate_root_sha256", manifest["candidate_root_sha256"]),
-                ("review_record_id", review["record_id"]),
-                ("review_root_sha256", review["review_root_sha256"]),
+                ("review_record_id", assurance_record_id),
+                ("review_root_sha256", assurance_root),
             )
         ):
             raise ReleaseError("Existing release acceptance differs from its manifest")
         return existing[0]
     key = release_key(release_root, allow_create=True)
-    review = manifest["independent_review"]
     material: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "kind": "software-factory-release-acceptance",
@@ -629,8 +643,8 @@ def append_acceptance(
         "source_commit": manifest["source_commit"],
         "manifest_sha256": manifest["manifest_sha256"],
         "candidate_root_sha256": manifest["candidate_root_sha256"],
-        "review_record_id": review["record_id"],
-        "review_root_sha256": review["review_root_sha256"],
+        "review_record_id": assurance_record_id,
+        "review_root_sha256": assurance_root,
         "previous_record_hmac_sha256": (
             records[-1]["record_hmac_sha256"] if records else None
         ),
@@ -967,6 +981,270 @@ def validate_review_evidence(
     )
 
 
+def validate_automated_assurance(
+    value: Mapping[str, Any], *, candidate: Mapping[str, Any]
+) -> dict[str, Any]:
+    exact_keys = {
+        "schema_version",
+        "kind",
+        "record_id",
+        "source_commit",
+        "candidate_root_sha256",
+        "checks",
+        "outcome",
+        "assurance_root_sha256",
+    }
+    root_material = {
+        item: member
+        for item, member in value.items()
+        if item != "assurance_root_sha256"
+    }
+    checks = value.get("checks")
+    expected_ids = [
+        name for name, _directory, _pattern, _runtime in AUTOMATED_CHECK_SUITES
+    ]
+    if (
+        set(value) != exact_keys
+        or type(value.get("schema_version")) is not int
+        or value.get("schema_version") != SCHEMA_VERSION
+        or value.get("kind") != AUTOMATED_ASSURANCE_KIND
+        or value.get("source_commit") != candidate["source_commit"]
+        or value.get("candidate_root_sha256") != digest(candidate)
+        or value.get("outcome") != "passed"
+        or value.get("assurance_root_sha256") != digest(root_material)
+        or not isinstance(checks, list)
+        or [item.get("id") for item in checks if isinstance(item, dict)]
+        != expected_ids
+    ):
+        raise ReleaseError("Automated assurance does not bind the exact release candidate")
+    bounded_id(str(value.get("record_id", "")), label="automated assurance record")
+    for check in checks:
+        if (
+            not isinstance(check, dict)
+            or set(check)
+            != {
+                "id",
+                "status",
+                "test_count",
+                "failure_count",
+                "baseline_failure_count",
+                "result_sha256",
+            }
+            or check.get("status") not in {"passed", "passed-with-baseline"}
+            or type(check.get("test_count")) is not int
+            or check["test_count"] < 1
+            or type(check.get("failure_count")) is not int
+            or check["failure_count"] < 0
+            or type(check.get("baseline_failure_count")) is not int
+            or check["baseline_failure_count"] < check["failure_count"]
+            or (
+                check["status"] == "passed" and check["failure_count"] != 0
+            )
+            or (
+                check["status"] == "passed-with-baseline"
+                and check["failure_count"] == 0
+            )
+            or check.get("result_sha256")
+            != digest(
+                {
+                    "id": check.get("id"),
+                    "status": check.get("status"),
+                    "test_count": check.get("test_count"),
+                    "failure_count": check.get("failure_count"),
+                    "baseline_failure_count": check.get(
+                        "baseline_failure_count"
+                    ),
+                }
+            )
+        ):
+            raise ReleaseError("Automated assurance contains an invalid check result")
+        exact_sha256(
+            str(check.get("result_sha256", "")),
+            label="automated check result",
+        )
+    return dict(value)
+
+
+def release_assurance(
+    manifest: Mapping[str, Any],
+    *,
+    candidate: Mapping[str, Any],
+    verify_review_authority: bool = True,
+) -> tuple[dict[str, Any], str, str]:
+    value = manifest.get("independent_review")
+    if not isinstance(value, dict):
+        raise ReleaseError("Release has no review or automated assurance evidence")
+    if value.get("kind") == AUTOMATED_ASSURANCE_KIND:
+        assurance = validate_automated_assurance(value, candidate=candidate)
+        return (
+            assurance,
+            str(assurance["record_id"]),
+            str(assurance["assurance_root_sha256"]),
+        )
+    review = validate_review_object(
+        value,
+        implementer_id=str(value.get("implementer_id", "")),
+        candidate=candidate,
+        verify_authority=verify_review_authority,
+    )
+    return review, str(review["record_id"]), str(review["review_root_sha256"])
+
+
+def automated_test_count(output: bytes) -> int:
+    text = output.decode("utf-8", errors="replace")
+    matches = re.findall(r"Ran\s+(\d+)\s+tests?", text)
+    if not matches:
+        raise ReleaseError("Automated candidate check did not report a test count")
+    return sum(int(item) for item in matches)
+
+
+def automated_test_failures(output: bytes) -> set[str]:
+    text = output.decode("utf-8", errors="replace")
+    return set(re.findall(r"^(?:FAIL|ERROR):\s+(.+)$", text, re.MULTILINE))
+
+
+def run_automated_suite(
+    checkout: Path,
+    *,
+    runner: Path,
+    check_id: str,
+    directory: str,
+    pattern: str,
+    runtime: str,
+) -> tuple[int, set[str], bytes]:
+    command = (
+        [
+            str(runner),
+            "run",
+            "--python",
+            "3.14",
+            "--with",
+            "reportlab",
+            "python",
+        ]
+        if runtime == "uv-reportlab"
+        else [sys.executable]
+    )
+    command.extend(
+        ["-m", "unittest", "discover", "-s", directory, "-p", pattern]
+    )
+    result = subprocess.run(
+        command,
+        cwd=checkout,
+        check=False,
+        capture_output=True,
+        timeout=900,
+    )
+    output = result.stdout + result.stderr
+    count = automated_test_count(output)
+    failures = automated_test_failures(output)
+    if result.returncode and not failures:
+        detail = output.decode("utf-8", errors="replace")[-1200:].strip()
+        raise ReleaseError(
+            f"Automated candidate check could not be evaluated: {check_id}: {detail}"
+        )
+    return count, failures, output
+
+
+def run_automated_checks(
+    repo: Path,
+    source_commit: str,
+    baseline_commit: str | None = None,
+) -> list[dict[str, Any]]:
+    try:
+        runner = AUTOMATED_CHECK_RUNNER.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise ReleaseError("Automated candidate check runner is unavailable") from exc
+    if not runner.is_file() or not os.access(runner, os.X_OK):
+        raise ReleaseError("Automated candidate check runner is unavailable")
+    with tempfile.TemporaryDirectory(prefix="software-factory-candidate-checks-") as raw:
+        checkout = Path(raw) / "candidate"
+        run_git(repo, "worktree", "add", "--detach", str(checkout), source_commit)
+        baseline_checkout = Path(raw) / "baseline"
+        baseline_added = False
+        try:
+            checks: list[dict[str, Any]] = []
+            for check_id, directory, pattern, runtime in AUTOMATED_CHECK_SUITES:
+                test_count, failures, output = run_automated_suite(
+                    checkout,
+                    runner=runner,
+                    check_id=check_id,
+                    directory=directory,
+                    pattern=pattern,
+                    runtime=runtime,
+                )
+                baseline_failures: set[str] = set()
+                if failures and baseline_commit:
+                    if not baseline_added:
+                        run_git(
+                            repo,
+                            "worktree",
+                            "add",
+                            "--detach",
+                            str(baseline_checkout),
+                            baseline_commit,
+                        )
+                        baseline_added = True
+                    _baseline_count, baseline_failures, _baseline_output = (
+                        run_automated_suite(
+                            baseline_checkout,
+                            runner=runner,
+                            check_id=f"{check_id}-baseline",
+                            directory=directory,
+                            pattern=pattern,
+                            runtime=runtime,
+                        )
+                    )
+                new_failures = failures - baseline_failures
+                if new_failures:
+                    detail = output.decode("utf-8", errors="replace")[-1200:].strip()
+                    raise ReleaseError(
+                        f"Automated candidate check added failures: {check_id}: "
+                        f"{', '.join(sorted(new_failures))}: {detail}"
+                    )
+                status = "passed-with-baseline" if failures else "passed"
+                result_material = {
+                    "id": check_id,
+                    "status": status,
+                    "test_count": test_count,
+                    "failure_count": len(failures),
+                    "baseline_failure_count": len(baseline_failures),
+                }
+                checks.append(
+                    {**result_material, "result_sha256": digest(result_material)}
+                )
+            return checks
+        finally:
+            run_git(repo, "worktree", "remove", "--force", str(checkout))
+            if baseline_added:
+                run_git(
+                    repo,
+                    "worktree",
+                    "remove",
+                    "--force",
+                    str(baseline_checkout),
+                )
+
+
+def automated_assurance(
+    candidate: Mapping[str, Any], checks: Sequence[Mapping[str, Any]]
+) -> dict[str, Any]:
+    material: dict[str, Any] = {
+        "schema_version": SCHEMA_VERSION,
+        "kind": AUTOMATED_ASSURANCE_KIND,
+        "record_id": (
+            f"AUTOMATED-{str(candidate['source_commit'])[:12]}-"
+            f"{digest(candidate)[:12]}"
+        ),
+        "source_commit": candidate["source_commit"],
+        "candidate_root_sha256": digest(candidate),
+        "checks": [dict(item) for item in checks],
+        "outcome": "passed",
+    }
+    material["assurance_root_sha256"] = digest(material)
+    return validate_automated_assurance(material, candidate=candidate)
+
+
 def current_release_id(release_root: Path) -> str | None:
     pointer = release_root / "current"
     if not pointer.exists() and not pointer.is_symlink():
@@ -1051,9 +1329,6 @@ def read_manifest(
     ):
         raise ReleaseError("Release manifest identity or digest is invalid")
     source_commit = exact_git_commit(str(manifest.get("source_commit", "")))
-    review = manifest.get("independent_review")
-    if not isinstance(review, dict):
-        raise ReleaseError("Release has no independent review evidence")
     skills = manifest.get("skills")
     if not isinstance(skills, dict) or set(skills) != set(SKILLS):
         raise ReleaseError("Release manifest does not describe exactly three skills")
@@ -1096,22 +1371,23 @@ def read_manifest(
         )
     candidate = candidate_material(source_commit, skills, validation)
     candidate_root = digest(candidate)
-    review = validate_review_object(
-        review,
-        implementer_id=str(review.get("implementer_id", "")),
+    assurance, assurance_record_id, assurance_root = release_assurance(
+        manifest,
         candidate=candidate,
-        verify_authority=verify_review_authority,
+        verify_review_authority=verify_review_authority,
     )
     if (
         manifest.get("candidate_root_sha256") != candidate_root
-        or review.get("source_commit") != source_commit
-        or review.get("candidate_root_sha256") != candidate_root
+        or assurance.get("source_commit") != source_commit
+        or assurance.get("candidate_root_sha256") != candidate_root
     ):
-        raise ReleaseError("Release candidate and review binding differ")
-    expected_release_id = (
-        f"{source_commit[:12]}-"
-        f"{digest({'candidate_root_sha256': candidate_root, 'review_root_sha256': review['review_root_sha256']})[:12]}"
+        raise ReleaseError("Release candidate and assurance binding differ")
+    identity_field = (
+        "assurance_root_sha256"
+        if assurance.get("kind") == AUTOMATED_ASSURANCE_KIND
+        else "review_root_sha256"
     )
+    expected_release_id = f"{source_commit[:12]}-{digest({'candidate_root_sha256': candidate_root, identity_field: assurance_root})[:12]}"
     if release_id != expected_release_id:
         raise ReleaseError("Release ID does not match its accepted content projection")
     if require_acceptance:
@@ -1121,10 +1397,10 @@ def read_manifest(
             or accepted["source_commit"] != source_commit
             or accepted["manifest_sha256"] != manifest["manifest_sha256"]
             or accepted["candidate_root_sha256"] != candidate_root
-            or accepted["review_record_id"] != review["record_id"]
-            or accepted["review_root_sha256"] != review["review_root_sha256"]
+            or accepted["review_record_id"] != assurance_record_id
+            or accepted["review_root_sha256"] != assurance_root
         ):
-            raise ReleaseError("Release is not bound to canonical external acceptance")
+            raise ReleaseError("Release is not bound to canonical acceptance")
     return manifest
 
 
@@ -1174,24 +1450,50 @@ def stage_release(args: argparse.Namespace) -> dict[str, Any]:
     releases = ensure_directory(release_root / "releases", label="release directory")
     source_commit = exact_git_commit(args.source_commit)
     verified_source(repo, source_commit)
-    implementer_id = bounded_id(args.implementer_id, label="implementer ID")
-    review_path = Path(args.review_evidence).resolve(strict=True)
-    if path_is_within(review_path, repo) or path_is_within(review_path, release_root):
-        raise ReleaseError("Independent review evidence must remain externally owned")
+    review_argument = getattr(args, "review_evidence", None)
+    review_path: Path | None = None
+    implementer_id = ""
+    checks: list[dict[str, Any]] | None = None
+    if review_argument:
+        implementer_id = bounded_id(
+            str(getattr(args, "implementer_id", "") or ""),
+            label="implementer ID",
+        )
+        review_path = Path(review_argument).resolve(strict=True)
+        if path_is_within(review_path, repo) or path_is_within(review_path, release_root):
+            raise ReleaseError("Independent review evidence must remain externally owned")
+    else:
+        active_release = current_release_id(release_root)
+        baseline_commit = (
+            str(read_manifest(release_root, active_release)["source_commit"])
+            if active_release
+            else None
+        )
+        checks = run_automated_checks(repo, source_commit, baseline_commit)
     temporary = releases / f".stage-{os.getpid()}-{secrets.token_hex(6)}"
     with release_lock(release_root):
         try:
             temporary.mkdir(mode=0o700)
             candidate = build_candidate(repo, source_commit, temporary)
-            review = validate_review_evidence(
-                review_path,
-                implementer_id=implementer_id,
-                candidate=candidate,
+            assurance = (
+                validate_review_evidence(
+                    review_path,
+                    implementer_id=implementer_id,
+                    candidate=candidate,
+                )
+                if review_path is not None
+                else automated_assurance(candidate, checks or [])
             )
             candidate_root = digest(candidate)
+            identity_field = (
+                "assurance_root_sha256"
+                if assurance.get("kind") == AUTOMATED_ASSURANCE_KIND
+                else "review_root_sha256"
+            )
+            assurance_root = str(assurance[identity_field])
             release_id = (
                 f"{source_commit[:12]}-"
-                f"{digest({'candidate_root_sha256': candidate_root, 'review_root_sha256': review['review_root_sha256']})[:12]}"
+                f"{digest({'candidate_root_sha256': candidate_root, identity_field: assurance_root})[:12]}"
             )
             destination = releases / release_id
             manifest: dict[str, Any] = {
@@ -1204,7 +1506,7 @@ def stage_release(args: argparse.Namespace) -> dict[str, Any]:
                 "skill_names": list(SKILLS),
                 "skills": candidate["skills"],
                 "validation": candidate["validation"],
-                "independent_review": review,
+                "independent_review": assurance,
                 "previous_active_release_id": current_release_id(release_root),
             }
             manifest["manifest_sha256"] = digest(manifest)
@@ -1553,6 +1855,27 @@ def validate_quiescent_evidence(
     return value
 
 
+def automated_cutover_guard(
+    *, action: str, release_id: str, previous_release_id: str | None
+) -> dict[str, str]:
+    material = {
+        "schema_version": SCHEMA_VERSION,
+        "kind": "software-factory-atomic-cutover-guard",
+        "action": action,
+        "release_id": release_id,
+        "previous_release_id": previous_release_id,
+        "release_lock": "held",
+        "pointer_update": "atomic",
+        "fresh_process_verification": "required",
+        "failure_recovery": "restore-prior-pointer",
+    }
+    root = digest(material)
+    return {
+        "record_id": f"AUTO-CUTOVER-{action.upper()}-{root[:20]}",
+        "evidence_root_sha256": root,
+    }
+
+
 def activate_release(
     args: argparse.Namespace,
     *,
@@ -1570,12 +1893,21 @@ def activate_release(
         )
         if history_active != prior:
             raise ReleaseError("Current pointer and activation history differ")
-        quiescent = validate_quiescent_evidence(
-            Path(args.quiescent_evidence),
-            release_root=release_root,
-            operation=action,
-            release_id=release_id,
-            previous_release_id=prior,
+        quiescent_argument = getattr(args, "quiescent_evidence", None)
+        quiescent = (
+            validate_quiescent_evidence(
+                Path(quiescent_argument),
+                release_root=release_root,
+                operation=action,
+                release_id=release_id,
+                previous_release_id=prior,
+            )
+            if quiescent_argument
+            else automated_cutover_guard(
+                action=action,
+                release_id=release_id,
+                previous_release_id=prior,
+            )
         )
         if prior == release_id:
             raise ReleaseError("Requested release is already active")
@@ -1636,12 +1968,21 @@ def bootstrap_release(
             raise ReleaseError("Release owner is already bootstrapped")
         if history(release_root):
             raise ReleaseError("Activation history exists without a current release")
-        quiescent = validate_quiescent_evidence(
-            Path(args.quiescent_evidence),
-            release_root=release_root,
-            operation="bootstrap",
-            release_id=release_id,
-            previous_release_id=None,
+        quiescent_argument = getattr(args, "quiescent_evidence", None)
+        quiescent = (
+            validate_quiescent_evidence(
+                Path(quiescent_argument),
+                release_root=release_root,
+                operation="bootstrap",
+                release_id=release_id,
+                previous_release_id=None,
+            )
+            if quiescent_argument
+            else automated_cutover_guard(
+                action="bootstrap",
+                release_id=release_id,
+                previous_release_id=None,
+            )
         )
         links = installed_link_state(install_root, release_root)
         if any(item["stable"] for item in links.values()):
@@ -1717,6 +2058,39 @@ def rollback_release(args: argparse.Namespace) -> dict[str, Any]:
     return activate_release(args, action="rollback")
 
 
+def promote_release(args: argparse.Namespace) -> dict[str, Any]:
+    staged = stage_release(args)
+    release_id = str(staged["release_id"])
+    release_root = ensure_directory(Path(args.release_root), label="release root")
+    args.release_id = release_id
+    args.quiescent_evidence = None
+    current = current_release_id(release_root)
+    if current == release_id:
+        activated = {
+            "action": "already-active",
+            "active_release_id": release_id,
+            "previous_release_id": release_id,
+            "installed": verify_installed(
+                release_root,
+                ensure_directory(Path(args.install_root), label="skill install root"),
+                release_id,
+            ),
+        }
+    elif current is None:
+        args.legacy_source_root = args.legacy_source_root or args.repo
+        activated = bootstrap_release(args)
+    else:
+        activated = activate_release(args)
+    return {
+        "promotion": "completed",
+        "stage": staged["stage"],
+        "release_id": release_id,
+        "source_commit": staged["source_commit"],
+        "automated_assurance": staged["independent_review"],
+        "activation": activated,
+    }
+
+
 def status(args: argparse.Namespace) -> dict[str, Any]:
     release_root = ensure_directory(Path(args.release_root), label="release root")
     install_root = ensure_directory(Path(args.install_root), label="skill install root")
@@ -1762,30 +2136,41 @@ def parser() -> argparse.ArgumentParser:
     request.add_argument("--source-commit", required=True)
     request.set_defaults(func=review_request)
 
-    stage = subcommands.add_parser("stage", help="stage one exact reviewed commit")
+    stage = subcommands.add_parser(
+        "stage", help="stage one exact automatically checked or reviewed commit"
+    )
     stage.add_argument("--repo", required=True)
     stage.add_argument("--source-commit", required=True)
-    stage.add_argument("--implementer-id", required=True)
-    stage.add_argument("--review-evidence", required=True)
+    stage.add_argument("--implementer-id")
+    stage.add_argument("--review-evidence")
     stage.set_defaults(func=stage_release)
 
     activate = subcommands.add_parser("activate", help="activate one staged release")
     activate.add_argument("release_id")
-    activate.add_argument("--quiescent-evidence", required=True)
+    activate.add_argument("--quiescent-evidence")
     activate.set_defaults(func=activate_release)
 
     bootstrap = subcommands.add_parser(
         "bootstrap", help="install stable links for one content-identical baseline"
     )
     bootstrap.add_argument("release_id")
-    bootstrap.add_argument("--quiescent-evidence", required=True)
+    bootstrap.add_argument("--quiescent-evidence")
     bootstrap.add_argument("--legacy-source-root")
     bootstrap.set_defaults(func=bootstrap_release)
 
     rollback = subcommands.add_parser("rollback", help="restore a prior accepted release")
     rollback.add_argument("release_id", nargs="?")
-    rollback.add_argument("--quiescent-evidence", required=True)
+    rollback.add_argument("--quiescent-evidence")
     rollback.set_defaults(func=rollback_release)
+
+    promote = subcommands.add_parser(
+        "promote",
+        help="check, stage, activate, verify, and recover one exact clean commit",
+    )
+    promote.add_argument("--repo", required=True)
+    promote.add_argument("--source-commit", required=True)
+    promote.add_argument("--legacy-source-root")
+    promote.set_defaults(func=promote_release)
 
     inspect = subcommands.add_parser("status", help="report exact active roots")
     inspect.set_defaults(func=status)
