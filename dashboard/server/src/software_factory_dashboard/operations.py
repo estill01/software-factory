@@ -4722,6 +4722,23 @@ class OperationsProjectionService:
             evidence, coverage_days=coverage_days
         )
 
+    @staticmethod
+    def _latest_terminal_delivery_for_report_set(
+        owner: Any,
+        all_events: Sequence[Mapping[str, Any]],
+        *,
+        lifecycle_record_id: str,
+        report_set_id: str,
+    ) -> Mapping[str, Any] | None:
+        return owner.latest_terminal_delivery(
+            [
+                item
+                for item in all_events
+                if item.get("report_set_id") == report_set_id
+            ],
+            lifecycle_record_id=lifecycle_record_id,
+        )
+
     def _terminal_report_workflow(
         self,
         evidence: TargetEvidence,
@@ -5065,8 +5082,11 @@ class OperationsProjectionService:
             and delivery_config.get("reply_message_id")
         )
         delivery_record = (
-            owner.latest_terminal_delivery(
-                list(evidence.events), lifecycle_record_id=lifecycle_record_id
+            self._latest_terminal_delivery_for_report_set(
+                owner,
+                evidence.events,
+                lifecycle_record_id=lifecycle_record_id,
+                report_set_id=report_set_id,
             )
             if verified
             else None

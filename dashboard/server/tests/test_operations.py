@@ -1833,14 +1833,41 @@ class OperationsProjectionTests(unittest.TestCase):
             item["status"] == "complete" for item in verified["stages"][:6]
         ))
         self.assertFalse(verified["shutdown"]["permitted"])
+        loaded_owner = self.service._module("supervision")
         delivery_record = {
             "record_id": "EVT-TERMINAL-DELIVERY",
+            "report_set_id": packet["report_set_id"],
             "gmail_message_id": "gmail-terminal-message",
             "gmail_thread_id": "gmail-terminal-thread",
             "gmail_readback_root": "e" * 64,
             "state_fingerprint": state,
+            "kind": "notification",
+            "category": loaded_owner.TERMINAL_REPORT_DELIVERY_CATEGORY,
+            "status": "sent",
+            "evidence": [lifecycle["record_id"]],
         }
-        loaded_owner = self.service._module("supervision")
+        historical_delivery = {
+            **delivery_record,
+            "record_id": "EVT-HISTORICAL-TERMINAL-DELIVERY",
+            "report_set_id": "OLD-REPORT-SET",
+        }
+        self.assertIsNone(
+            self.service._latest_terminal_delivery_for_report_set(
+                loaded_owner,
+                [historical_delivery],
+                lifecycle_record_id=lifecycle["record_id"],
+                report_set_id=packet["report_set_id"],
+            )
+        )
+        selected_delivery = self.service._latest_terminal_delivery_for_report_set(
+            loaded_owner,
+            [historical_delivery, delivery_record],
+            lifecycle_record_id=lifecycle["record_id"],
+            report_set_id=packet["report_set_id"],
+        )
+        self.assertEqual(
+            selected_delivery["record_id"], "EVT-TERMINAL-DELIVERY"
+        )
         with (
             patch.object(
                 loaded_owner,
