@@ -3241,6 +3241,19 @@ def write_policy_version_locked_at(
         Path("policy-history.jsonl"), directory_fd=directory_fd
     )
     if (
+        current_policy.get("policy_sha256") != expected_policy_sha256
+        or int(current_policy.get("policy_version", -1))
+        != expected_policy_version
+        or current_policy.get("target_thread_id")
+        != policy.get("target_thread_id")
+    ):
+        raise SupervisionLogError(
+            "Policy changed concurrently after it was loaded; reload before mutation"
+        )
+    if pre_mutation_validator is not None:
+        pre_mutation_validator(directory_fd, current_policy)
+    ensure_event_ledger_anchor_at(directory_fd)
+    if (
         kind == "owner-root-history-migration"
         and not legacy_history
         and current_policy.get("policy_version") == 1
@@ -3258,19 +3271,6 @@ def write_policy_version_locked_at(
             previous_record_sha256=None,
             expected_file_snapshot=legacy_history_snapshot,
         )
-    if (
-        current_policy.get("policy_sha256") != expected_policy_sha256
-        or int(current_policy.get("policy_version", -1))
-        != expected_policy_version
-        or current_policy.get("target_thread_id")
-        != policy.get("target_thread_id")
-    ):
-        raise SupervisionLogError(
-            "Policy changed concurrently after it was loaded; reload before mutation"
-        )
-    if pre_mutation_validator is not None:
-        pre_mutation_validator(directory_fd, current_policy)
-    ensure_event_ledger_anchor_at(directory_fd)
     if (
         policy.get("owner_root_history_required") is True
         or policy.get("implementation_range") is not None

@@ -898,6 +898,46 @@ class SuccessorTransitionContractTests(unittest.TestCase):
             )
         self.assertEqual(outside.read_text(encoding="utf-8"), "")
 
+    def test_public_lazy_owner_migration_rejects_stale_anchor_before_any_mutation(self) -> None:
+        policy_path = self.directory / "policy.json"
+        history_path = self.directory / "policy-history.jsonl"
+        history_path.write_bytes(b"")
+        stale_anchor = supervision_log.event_ledger_anchor([])
+        stale_anchor["event_count"] = 1
+        supervision_log.atomic_json(
+            self.directory / supervision_log.EVENT_LEDGER_ANCHOR_NAME,
+            stale_anchor,
+        )
+        policy_before = policy_path.read_bytes()
+        history_before = history_path.read_bytes()
+        owner_history_path = (
+            self.directory / supervision_log.OWNER_ROOT_HISTORY_NAME
+        )
+        owner_key_directory = (
+            self.root / supervision_log.OWNER_ROOT_KEY_DIRECTORY
+        )
+        owner_artifacts_before = (
+            sorted(path.name for path in owner_key_directory.iterdir())
+            if owner_key_directory.exists()
+            else []
+        )
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "event-ledger head is stale or replaced",
+        ):
+            self.record("required")
+
+        self.assertEqual(policy_path.read_bytes(), policy_before)
+        self.assertEqual(history_path.read_bytes(), history_before)
+        self.assertFalse(owner_history_path.exists())
+        owner_artifacts_after = (
+            sorted(path.name for path in owner_key_directory.iterdir())
+            if owner_key_directory.exists()
+            else []
+        )
+        self.assertEqual(owner_artifacts_after, owner_artifacts_before)
+
     def test_legacy_unanchored_transition_is_migrated_once_and_advanced(self) -> None:
         required = self.record("required")["record"]
         policy = supervision_log.read_json(self.directory / "policy.json")
