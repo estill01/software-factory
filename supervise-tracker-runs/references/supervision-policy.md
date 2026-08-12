@@ -15,6 +15,7 @@
 - [Weekly supervision performance review](#weekly-supervision-performance-review)
 - [Role prompts](#watcher-role-prompt)
 - [Logging and automation](#logging-examples)
+- [Canonical supervision resume](#canonical-supervision-resume)
 - [Stop conditions](#stop-conditions)
 
 ## Defaults
@@ -2926,6 +2927,63 @@ Do not embed a release ID, released file hash, policy SHA, active Block, or safe
 frontier as controlling prompt state. The automation reads current helper status
 at each wake. This stable-channel binding makes an atomic accepted release take
 effect on the next wake without changing the automation's identity or cadence.
+
+## Canonical supervision resume
+
+A paused supervision group becomes semantically resumed only through the
+maintained two-phase lifecycle owner. A task or turn resume, an enabled
+automation, a policy change, a caller-supplied `resumed` string, or a dashboard
+success response is not the lifecycle postcondition.
+
+First ensure any legacy defaults and existing runtime IDs are current through
+`bind`, then create one distinct post-pause current watcher or Sol XHigh
+semantic `no-intervention` check with exact target evidence under that resulting
+policy. A notification, task event, Max/meta sample, empty evidence row, or
+caller-shaped lifecycle claim is not eligible. Gate the exact tuple:
+
+```bash
+python3 <LOG_HELPER> resume-gate --target-thread <TARGET> \
+  --pause-record <EXACT_PAUSED_LIFECYCLE_RECORD> \
+  --source-record <DISTINCT_CURRENT_SOURCE_RECORD> \
+  --state-fingerprint <EXACT_CURRENT_FINGERPRINT>
+```
+
+The gate validates the current policy/history/event heads, active mission,
+group genesis, exact current `supervision-pause` predecessor, source record and
+fingerprint, and every policy-bound automation owner. It derives the watcher,
+reviewer, optional Gmail gate, roundup, and weekly-report schedules from the
+maintained policy. It reads only those named manifests and returns their exact
+configuration roots, the paused IDs to activate, and one eligibility root that
+excludes only owner-controlled status/update-time changes. Missing, extra or
+duplicate bindings, unreadable/symlinked/oversized/malformed owners, target or
+RRULE disagreement, unsupported state, stale source/policy/event head, or a
+noncurrent pause fails closed. An unrelated manifest is never enumerated.
+
+Enable only the returned paused automation IDs through the Codex automation
+owner while preserving every protected configuration field. Do not write TOML
+directly and do not resume or start the implementation task. Re-run the gate;
+only `ready_to_finalize=true` permits:
+
+```bash
+python3 <LOG_HELPER> resume-finalize --target-thread <TARGET> \
+  --pause-record <SAME_PAUSED_LIFECYCLE_RECORD> \
+  --source-record <SAME_CURRENT_SOURCE_RECORD> \
+  --state-fingerprint <SAME_CURRENT_FINGERPRINT> \
+  --eligibility-root <UNCHANGED_GATE_ROOT>
+```
+
+Under one append lock the finalizer revalidates the exact policy/history/event
+heads and reads only the same named owners twice. Every owner must be `ACTIVE`
+at its owner-derived target and RRULE, retain the gated configuration root, and
+carry an owner update later than the pause. It then appends one stable,
+hash-chain-valid lifecycle record with category `supervision-resume`, status
+`resumed`, the exact pause predecessor, group/mission/policy/source identity,
+configuration/evidence roots, and the preserved state fingerprint. Exact replay
+returns the existing record; divergent replay is rejected. Status exposes the
+canonical last resume/current pause, and weekly availability closes only the
+exact named pause interval from a helper-verified resume record. Legacy
+policy-change pairs remain report-readable history but cannot create a new
+canonical resume.
 
 ## Stop conditions
 

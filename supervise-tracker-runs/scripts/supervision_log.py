@@ -24,7 +24,7 @@ from email import policy as email_policy
 from email.parser import BytesParser
 from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Any, Iterator, Mapping
+from typing import Any, Iterator, Mapping, Sequence
 
 try:
     import tomllib
@@ -148,6 +148,10 @@ TERMINAL_SHUTDOWN_RESERVED_CATEGORIES = {
     TERMINAL_SHUTDOWN_REJECTED_CATEGORY,
 }
 TERMINAL_GMAIL_PROVIDER_REVIEW_KIND = "gmail-terminal-provider-readback-review"
+SUPERVISION_PAUSE_CATEGORY = "supervision-pause"
+SUPERVISION_RESUME_CATEGORY = "supervision-resume"
+SUPERVISION_RESUME_CONTRACT_VERSION = 1
+MAX_AUTOMATION_OWNER_BYTES = 256 * 1024
 GMAIL_CONVERSATION_NOTIFICATION_CATEGORIES = {
     "gmail-user-ack",
     "gmail-user-outcome",
@@ -5829,9 +5833,7 @@ def cmd_completion_record(args: argparse.Namespace) -> None:
         raise SupervisionLogError(
             "Outcome completion requires xhigh or max reviewer reasoning"
         )
-    evidence_values = [
-        clean(item, label="evidence", maximum=160) for item in args.evidence
-    ]
+    evidence_values = [clean(item, label="evidence", maximum=160) for item in args.evidence]
     if not evidence_values or not all(evidence_values):
         raise SupervisionLogError("Outcome completion requires exact source evidence")
     if len(evidence_values) > 16:
@@ -5927,7 +5929,13 @@ def cmd_record(args: argparse.Namespace) -> None:
         raise SupervisionLogError(
             "Terminal shutdown records require the dedicated owner command"
         )
-    evidence_values = [clean(item, label="evidence", maximum=160) for item in args.evidence]
+    if args.status == "resumed" or args.category == SUPERVISION_RESUME_CATEGORY:
+        raise SupervisionLogError(
+            "Canonical supervision resume must use resume-gate and resume-finalize"
+        )
+    evidence_values = [
+        clean(item, label="evidence", maximum=160) for item in args.evidence
+    ]
     if len(evidence_values) > 16:
         raise SupervisionLogError("Too many evidence references")
     record: dict[str, Any] = {
@@ -19385,6 +19393,11 @@ def cmd_weekly_report_prepare(args: argparse.Namespace) -> None:
             ),
         )
     )
+    canonical_resume_record_ids = frozenset(
+        str(item["record_id"])
+        for item in all_events
+        if supervision_resume_record_is_canonical(item, all_events, policy_history)
+    )
     try:
         metrics, packet = module.build_metrics(
             target_label=str(policy.get("target_label", args.target_thread[:12])),
@@ -19396,6 +19409,7 @@ def cmd_weekly_report_prepare(args: argparse.Namespace) -> None:
             policy_history=policy_history,
             current_policy=policy,
             projection_inventory=weekly_projection_inventory(directory),
+            canonical_resume_record_ids=canonical_resume_record_ids,
         )
     except module.WeeklyReportError as exc:
         raise SupervisionLogError(str(exc)) from exc
@@ -20701,6 +20715,957 @@ def terminal_delivery_is_current(
     )
 
 
+def validated_policy_history(
+    directory: Path, policy: Mapping[str, Any]
+) -> list[dict[str, Any]]:
+    history = events(directory / "policy-history.jsonl")
+    if not history:
+        raise SupervisionLogError("Supervision policy history is unavailable")
+    previous_version = 0
+    for item in history:
+        snapshot = item.get("policy")
+        if not isinstance(snapshot, dict):
+            raise SupervisionLogError("Supervision policy history lacks a snapshot")
+        validate_policy(snapshot)
+        version = snapshot.get("policy_version")
+        if type(version) is not int or version != previous_version + 1:
+            raise SupervisionLogError("Supervision policy history is not contiguous")
+        if item.get("record_id") != f"POLICY-{version}":
+            raise SupervisionLogError("Supervision policy history identity differs")
+        if snapshot.get("target_thread_id") != policy.get("target_thread_id"):
+            raise SupervisionLogError("Supervision policy history target differs")
+        previous_version = version
+    latest = history[-1].get("policy")
+    if not isinstance(latest, Mapping) or canonical(latest) != canonical(policy):
+        raise SupervisionLogError("Current supervision policy differs from its history")
+    return history
+
+
+def supervision_group_id(
+    policy: Mapping[str, Any], policy_history: Sequence[Mapping[str, Any]]
+) -> str:
+    genesis = policy_history[0].get("record_sha256") if policy_history else None
+    if not isinstance(genesis, str) or not SHA256.fullmatch(genesis):
+        raise SupervisionLogError("Supervision group genesis is unavailable")
+    return "group-" + digest(
+        {
+            "kind": "supervision-group-identity",
+            "target_thread_id": policy.get("target_thread_id"),
+            "policy_history_genesis_sha256": genesis,
+        }
+    )
+
+
+def expected_resume_automation_specs(
+    policy: Mapping[str, Any],
+    all_events: Sequence[Mapping[str, Any]],
+    *,
+    now: dt.datetime,
+) -> list[dict[str, str]]:
+    runtime = policy.get("runtime")
+    schedule = policy.get("schedule")
+    notifications = policy.get("notifications")
+    reports = policy.get("reports")
+    if not all(
+        isinstance(item, Mapping)
+        for item in (runtime, schedule, notifications, reports)
+    ):
+        raise SupervisionLogError("Resume automation policy is incomplete")
+    runtime = runtime if isinstance(runtime, Mapping) else {}
+    schedule = schedule if isinstance(schedule, Mapping) else {}
+    notifications = notifications if isinstance(notifications, Mapping) else {}
+    reports = reports if isinstance(reports, Mapping) else {}
+    specs: list[dict[str, str]] = []
+
+    def add(
+        role: str,
+        automation_id: Any,
+        target_thread_id: Any,
+        rrule: str | None,
+    ) -> None:
+        if not isinstance(automation_id, str) or not automation_id:
+            raise SupervisionLogError(f"Resume requires the bound {role} automation")
+        if not isinstance(target_thread_id, str) or not target_thread_id:
+            raise SupervisionLogError(f"Resume requires the bound {role} task")
+        if not isinstance(rrule, str) or not rrule:
+            raise SupervisionLogError(f"Resume {role} schedule is unavailable")
+        specs.append(
+            {
+                "role": role,
+                "automation_id": safe_id(automation_id, label=f"{role} automation ID"),
+                "target_thread_id": safe_id(
+                    target_thread_id, label=f"{role} target thread ID"
+                ),
+                "rrule": rrule,
+            }
+        )
+
+    routine_minutes = schedule.get("routine_minutes")
+    if type(routine_minutes) is not int or routine_minutes <= 0:
+        raise SupervisionLogError("Resume watcher schedule is invalid")
+    add(
+        "watcher",
+        runtime.get("routine_automation_id"),
+        runtime.get("watcher_thread_id"),
+        f"RRULE:FREQ=MINUTELY;INTERVAL={routine_minutes}",
+    )
+    meta_hours = schedule.get("meta_review_hours")
+    if type(meta_hours) is not int or meta_hours <= 0:
+        raise SupervisionLogError("Resume reviewer schedule is invalid")
+    add(
+        "reviewer",
+        runtime.get("meta_automation_id"),
+        runtime.get("reviewer_thread_id"),
+        f"RRULE:FREQ=HOURLY;INTERVAL={meta_hours}",
+    )
+
+    gmail = notifications.get("gmail")
+    gmail = gmail if isinstance(gmail, Mapping) else {}
+    gmail_bound = any(
+        (
+            gmail.get("inbound_enabled") is True,
+            runtime.get("gmail_poll_automation_id"),
+            runtime.get("gmail_gate_thread_id"),
+        )
+    )
+    if gmail_bound:
+        quiet_minutes = schedule.get(
+            "gmail_quiet_poll_minutes", schedule.get("gmail_poll_minutes")
+        )
+        active_minutes = schedule.get("gmail_active_poll_minutes")
+        window_minutes = schedule.get("gmail_active_window_minutes")
+        if not (
+            type(quiet_minutes) is int
+            and type(active_minutes) is int
+            and type(window_minutes) is int
+            and 2 <= quiet_minutes <= 10
+            and 1 <= active_minutes < quiet_minutes
+            and 5 <= window_minutes <= 120
+        ):
+            raise SupervisionLogError("Resume Gmail cadence policy is invalid")
+        activity = next(
+            (
+                item
+                for item in reversed(all_events)
+                if is_gmail_conversation_activity(dict(item))
+            ),
+            None,
+        )
+        active_until: dt.datetime | None = None
+        if activity is not None:
+            active_until = parse_event_time(
+                activity.get("timestamp"), label="Gmail activity timestamp"
+            ) + dt.timedelta(minutes=window_minutes)
+        desired_minutes = (
+            active_minutes
+            if active_until is not None and now < active_until
+            else quiet_minutes
+        )
+        add(
+            "gmail-gate",
+            runtime.get("gmail_poll_automation_id"),
+            runtime.get("gmail_gate_thread_id"),
+            f"RRULE:FREQ=MINUTELY;INTERVAL={desired_minutes}",
+        )
+
+    roundup = notifications.get("gmail_roundup")
+    roundup = roundup if isinstance(roundup, Mapping) else {}
+    weekly = reports.get("weekly")
+    weekly = weekly if isinstance(weekly, Mapping) else {}
+    roundup_bound = any(
+        (
+            roundup.get("enabled") is True,
+            runtime.get("roundup_automation_id"),
+        )
+    )
+    if roundup_bound:
+        times = schedule.get("roundup_local_times")
+        if not isinstance(times, list) or not times:
+            raise SupervisionLogError("Resume roundup schedule is unavailable")
+        parsed_times: list[tuple[int, int]] = []
+        for value in times:
+            if not isinstance(value, str) or not re.fullmatch(
+                r"(?:[01]\d|2[0-3]):[0-5]\d", value
+            ):
+                raise SupervisionLogError("Resume roundup schedule is invalid")
+            hour, minute = (int(part) for part in value.split(":"))
+            parsed_times.append((hour, minute))
+        minutes = {minute for _, minute in parsed_times}
+        hours = {hour for hour, _ in parsed_times}
+        if len(minutes) != 1 or len(hours) != len(parsed_times):
+            raise SupervisionLogError("Resume roundup schedule is ambiguous")
+        add(
+            "roundup-writer",
+            runtime.get("roundup_automation_id"),
+            runtime.get("roundup_thread_id"),
+            "RRULE:FREQ=DAILY;"
+            + "BYHOUR="
+            + ",".join(str(hour) for hour, _ in parsed_times)
+            + f";BYMINUTE={parsed_times[0][1]};BYSECOND=0",
+        )
+
+    if weekly.get("enabled") is True:
+        weekday = weekly.get("weekday")
+        local_time = weekly.get("local_time")
+        if weekday not in {"MO", "TU", "WE", "TH", "FR", "SA", "SU"} or not (
+            isinstance(local_time, str)
+            and re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", local_time)
+        ):
+            raise SupervisionLogError("Resume weekly-report schedule is invalid")
+        hour, minute = (int(part) for part in local_time.split(":"))
+        add(
+            "weekly-report",
+            weekly.get("automation_id"),
+            runtime.get("roundup_thread_id"),
+            "RRULE:FREQ=WEEKLY;"
+            f"BYDAY={weekday};BYHOUR={hour};BYMINUTE={minute};BYSECOND=0",
+        )
+
+    automation_ids = [item["automation_id"] for item in specs]
+    if len(automation_ids) != len(set(automation_ids)):
+        raise SupervisionLogError(
+            "Resume automation bindings reuse one owner for multiple roles"
+        )
+    return specs
+
+
+def resume_automation_owner_state(spec: Mapping[str, str]) -> dict[str, Any]:
+    automation_id = safe_id(spec.get("automation_id"), label="automation ID")
+    owner_root = CODEX_AUTOMATIONS_ROOT.expanduser().resolve(strict=True)
+    automation_directory = owner_root / automation_id
+    config_path = automation_directory / "automation.toml"
+    if automation_directory.is_symlink() or config_path.is_symlink():
+        raise SupervisionLogError("Resume automation owner path is symlinked")
+    try:
+        resolved = config_path.resolve(strict=True)
+    except FileNotFoundError as exc:
+        raise SupervisionLogError(
+            f"Resume automation owner is missing: {automation_id}"
+        ) from exc
+    if resolved.parent.parent != owner_root:
+        raise SupervisionLogError("Resume automation owner path escaped")
+    with resolved.open("rb") as handle:
+        raw = handle.read(MAX_AUTOMATION_OWNER_BYTES + 1)
+    if len(raw) > MAX_AUTOMATION_OWNER_BYTES:
+        raise SupervisionLogError("Resume automation owner is oversized")
+    try:
+        config = tomllib.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise SupervisionLogError("Resume automation owner is invalid") from exc
+    expected_fields = {
+        "version",
+        "id",
+        "kind",
+        "name",
+        "prompt",
+        "status",
+        "rrule",
+        "target_thread_id",
+        "created_at",
+        "updated_at",
+    }
+    if set(config) != expected_fields or config.get("version") != 1:
+        raise SupervisionLogError("Resume automation owner shape differs")
+    if config.get("id") != automation_id:
+        raise SupervisionLogError("Resume automation owner identity differs")
+    if config.get("kind") != "heartbeat":
+        raise SupervisionLogError("Resume automation owner kind differs")
+    if config.get("target_thread_id") != spec.get("target_thread_id"):
+        raise SupervisionLogError("Resume automation target differs")
+    if config.get("rrule") != spec.get("rrule"):
+        raise SupervisionLogError("Resume automation schedule differs")
+    if config.get("status") not in {"ACTIVE", "PAUSED"}:
+        raise SupervisionLogError("Resume automation state is unsupported")
+    if not isinstance(config.get("name"), str) or not isinstance(
+        config.get("prompt"), str
+    ):
+        raise SupervisionLogError("Resume automation owner text is malformed")
+    if any(
+        type(config.get(field)) is not int for field in ("created_at", "updated_at")
+    ):
+        raise SupervisionLogError("Resume automation owner timestamps are malformed")
+    configuration = {
+        key: config[key]
+        for key in (
+            "version",
+            "id",
+            "kind",
+            "name",
+            "prompt",
+            "rrule",
+            "target_thread_id",
+            "created_at",
+        )
+    }
+    return {
+        "automation_id": automation_id,
+        "role": str(spec.get("role", "")),
+        "status": config["status"],
+        "rrule": config["rrule"],
+        "target_thread_id": config["target_thread_id"],
+        "updated_at": config["updated_at"],
+        "manifest_sha256": hashlib.sha256(raw).hexdigest(),
+        "configuration_sha256": digest(configuration),
+    }
+
+
+def stable_resume_automation_states(
+    specs: Sequence[Mapping[str, str]],
+) -> dict[str, dict[str, Any]]:
+    first = {
+        str(spec["automation_id"]): resume_automation_owner_state(spec)
+        for spec in specs
+    }
+    second = {
+        str(spec["automation_id"]): resume_automation_owner_state(spec)
+        for spec in specs
+    }
+    if first != second:
+        raise SupervisionLogError("Resume automation owners changed during validation")
+    return first
+
+
+def is_canonical_supervision_pause(item: Mapping[str, Any]) -> bool:
+    return bool(
+        item.get("kind") == "lifecycle"
+        and item.get("status") == "paused"
+        and item.get("category") == SUPERVISION_PAUSE_CATEGORY
+        and isinstance(item.get("state_fingerprint"), str)
+        and item.get("state_fingerprint")
+    )
+
+
+def is_eligible_resume_source(item: Mapping[str, Any]) -> bool:
+    evidence = item.get("evidence")
+    role = (item.get("model"), item.get("reasoning"))
+    return bool(
+        is_completion_check(dict(item))
+        and item.get("status") == "no-intervention"
+        and role
+        in {
+            ("gpt-5.6-terra", "max"),
+            ("gpt-5.6-sol", "xhigh"),
+        }
+        and isinstance(evidence, list)
+        and 1 <= len(evidence) <= 16
+        and all(isinstance(value, str) and value for value in evidence)
+    )
+
+
+def resume_source_currentness_material(
+    *,
+    target_thread_id: str,
+    group_id: str,
+    mission_root: str,
+    mission_source_record: str,
+    policy_version: int,
+    policy_sha256: str,
+    policy_history_head: str,
+    policy_history_count: int,
+    event_head: str,
+    event_count: int,
+    pause_record: Mapping[str, Any],
+    source_record: Mapping[str, Any],
+) -> dict[str, Any]:
+    return {
+        "target_thread_id": target_thread_id,
+        "group_id": group_id,
+        "mission_root": mission_root,
+        "mission_source_record": mission_source_record,
+        "policy_version": policy_version,
+        "policy_sha256": policy_sha256,
+        "policy_history_head": policy_history_head,
+        "policy_history_count": policy_history_count,
+        "event_head": event_head,
+        "event_count": event_count,
+        "pause_record_id": pause_record.get("record_id"),
+        "pause_record_sha256": pause_record.get("record_sha256"),
+        "source_record_id": source_record.get("record_id"),
+        "source_record_sha256": source_record.get("record_sha256"),
+        "state_fingerprint": source_record.get("state_fingerprint"),
+    }
+
+
+def supervision_resume_record_is_canonical(
+    record: Mapping[str, Any],
+    all_events: Sequence[Mapping[str, Any]],
+    policy_history: Sequence[Mapping[str, Any]],
+) -> bool:
+    try:
+        if not (
+            record.get("resume_contract_version") == SUPERVISION_RESUME_CONTRACT_VERSION
+            and record.get("kind") == "lifecycle"
+            and record.get("category") == SUPERVISION_RESUME_CATEGORY
+            and record.get("status") == "resumed"
+        ):
+            return False
+        index = next(
+            idx
+            for idx, item in enumerate(all_events)
+            if item.get("record_id") == record.get("record_id")
+        )
+        if record.get("record_id") != f"EVT-{index + 1:06d}":
+            return False
+        if record.get("event_count_before_resume") != index:
+            return False
+        expected_previous = (
+            all_events[index - 1].get("record_sha256") if index else None
+        )
+        if record.get("previous_record_sha256") != expected_previous:
+            return False
+        by_id = {
+            str(item.get("record_id")): item
+            for item in all_events[:index]
+            if isinstance(item.get("record_id"), str)
+        }
+        pause = by_id.get(str(record.get("pause_record_id", "")))
+        source = by_id.get(str(record.get("source_record_id", "")))
+        if pause is None or source is None or not is_canonical_supervision_pause(pause):
+            return False
+        if any(
+            item.get("target_thread_id") != record.get("target_thread_id")
+            for item in (pause, source)
+        ):
+            return False
+        if pause.get("record_sha256") != record.get("pause_record_sha256"):
+            return False
+        if source.get("record_sha256") != record.get("source_record_sha256"):
+            return False
+        if source.get("state_fingerprint") != record.get("state_fingerprint"):
+            return False
+        if source.get("policy_sha256") != record.get("policy_sha256"):
+            return False
+        pause_time = parse_event_time(
+            pause.get("timestamp"), label="Pause lifecycle timestamp"
+        )
+        source_time = parse_event_time(
+            source.get("timestamp"), label="Resume source timestamp"
+        )
+        resume_time = parse_event_time(
+            record.get("timestamp"), label="Resume lifecycle timestamp"
+        )
+        if not pause_time < source_time <= resume_time:
+            return False
+        history_count = record.get("policy_history_count")
+        if type(history_count) is not int or not 1 <= history_count <= len(
+            policy_history
+        ):
+            return False
+        history_head = policy_history[history_count - 1]
+        if history_head.get("record_sha256") != record.get("policy_history_head"):
+            return False
+        snapshot = history_head.get("policy")
+        if not isinstance(snapshot, Mapping):
+            return False
+        binding = bound_mission(dict(snapshot))
+        if binding is None:
+            return False
+        group_id = supervision_group_id(snapshot, policy_history[:history_count])
+        if group_id != record.get("group_id"):
+            return False
+        if (
+            snapshot.get("policy_sha256") != record.get("policy_sha256")
+            or snapshot.get("policy_version") != record.get("policy_version")
+            or binding.get("mission_root") != record.get("mission_root")
+            or binding.get("mission_source_record")
+            != record.get("mission_source_record")
+        ):
+            return False
+        source_material = resume_source_currentness_material(
+            target_thread_id=str(record.get("target_thread_id", "")),
+            group_id=group_id,
+            mission_root=str(record.get("mission_root", "")),
+            mission_source_record=str(record.get("mission_source_record", "")),
+            policy_version=int(record.get("policy_version")),
+            policy_sha256=str(record.get("policy_sha256", "")),
+            policy_history_head=str(record.get("policy_history_head", "")),
+            policy_history_count=history_count,
+            event_head=str(record.get("previous_record_sha256", "")),
+            event_count=index,
+            pause_record=pause,
+            source_record=source,
+        )
+        if digest(source_material) != record.get("source_currentness_root"):
+            return False
+        expectations = record.get("automation_expectations")
+        states = record.get("automation_states")
+        if not isinstance(expectations, list) or not isinstance(states, Mapping):
+            return False
+        schedule_evaluated_at = parse_event_time(
+            record.get("schedule_evaluated_at"),
+            label="Resume schedule evaluation timestamp",
+        )
+        if expectations != expected_resume_automation_specs(
+            snapshot,
+            all_events[:index],
+            now=schedule_evaluated_at,
+        ):
+            return False
+        expected_ids = {
+            str(item.get("automation_id"))
+            for item in expectations
+            if isinstance(item, Mapping)
+        }
+        if not expected_ids or expected_ids != set(states):
+            return False
+        configuration_roots: dict[str, str] = {}
+        for expectation in expectations:
+            if not isinstance(expectation, Mapping):
+                return False
+            automation_id = str(expectation.get("automation_id", ""))
+            state = states.get(automation_id)
+            if not isinstance(state, Mapping):
+                return False
+            if any(
+                state.get(key) != expectation.get(expected_key)
+                for key, expected_key in (
+                    ("automation_id", "automation_id"),
+                    ("role", "role"),
+                    ("rrule", "rrule"),
+                    ("target_thread_id", "target_thread_id"),
+                )
+            ):
+                return False
+            if state.get("status") != "ACTIVE":
+                return False
+            updated_at = state.get("updated_at")
+            if (
+                type(updated_at) is not int
+                or dt.datetime.fromtimestamp(updated_at / 1000, tz=dt.timezone.utc)
+                <= pause_time
+            ):
+                return False
+            configuration_sha256 = state.get("configuration_sha256")
+            if not isinstance(configuration_sha256, str) or not SHA256.fullmatch(
+                configuration_sha256
+            ):
+                return False
+            configuration_roots[automation_id] = configuration_sha256
+        if configuration_roots != record.get("automation_configuration_roots"):
+            return False
+        eligibility_material = {
+            "kind": "supervision-resume-eligibility",
+            "contract_version": SUPERVISION_RESUME_CONTRACT_VERSION,
+            "source_currentness_root": record.get("source_currentness_root"),
+            "automation_expectations": expectations,
+            "automation_configuration_roots": configuration_roots,
+        }
+        if digest(eligibility_material) != record.get("eligibility_root"):
+            return False
+        if digest(states) != record.get("automation_evidence_root"):
+            return False
+        if record.get("evidence") != [
+            record.get("pause_record_id"),
+            record.get("source_record_id"),
+            *sorted(states),
+        ]:
+            return False
+        expected_resume_id = "resume-" + digest(
+            {
+                "target_thread_id": record.get("target_thread_id"),
+                "pause_record_id": record.get("pause_record_id"),
+                "eligibility_root": record.get("eligibility_root"),
+            }
+        )
+        return record.get("resume_id") == expected_resume_id
+    except (KeyError, StopIteration, TypeError, ValueError, SupervisionLogError):
+        return False
+
+
+def resume_context(
+    directory: Path,
+    policy: dict[str, Any],
+    *,
+    pause_record_id: str,
+    source_record_id: str,
+    state_fingerprint: str,
+) -> dict[str, Any]:
+    policy_history = validated_policy_history(directory, policy)
+    all_events = events(directory / "events.jsonl")
+    binding = bound_mission(policy)
+    if binding is None:
+        raise SupervisionLogError("Resume requires an active mission binding")
+    active_events = mission_scoped_events(directory, policy, all_events)
+    active_ids = {
+        str(item.get("record_id")): item
+        for item in active_events
+        if isinstance(item.get("record_id"), str)
+    }
+    pause = active_ids.get(pause_record_id)
+    source = active_ids.get(source_record_id)
+    if pause is None or not is_canonical_supervision_pause(pause):
+        raise SupervisionLogError("Resume requires the exact current paused lifecycle")
+    if source is None:
+        raise SupervisionLogError("Resume source record is outside the active mission")
+    if not is_eligible_resume_source(source):
+        raise SupervisionLogError(
+            "Resume source must be the current eligible watcher or semantic check"
+        )
+    if source.get("target_thread_id") != policy.get("target_thread_id"):
+        raise SupervisionLogError("Resume source target differs")
+    if source.get("policy_sha256") != policy.get("policy_sha256"):
+        raise SupervisionLogError("Resume source policy is stale")
+    if source.get("state_fingerprint") != state_fingerprint or not state_fingerprint:
+        raise SupervisionLogError("Resume source fingerprint differs")
+    pause_time = parse_event_time(pause.get("timestamp"), label="Pause timestamp")
+    source_time = parse_event_time(
+        source.get("timestamp"), label="Resume source timestamp"
+    )
+    if source_record_id == pause_record_id or source_time <= pause_time:
+        raise SupervisionLogError(
+            "Resume requires a distinct current source after the paused lifecycle"
+        )
+    lifecycle_events = [
+        item for item in active_events if item.get("kind") == "lifecycle"
+    ]
+    if not lifecycle_events:
+        raise SupervisionLogError("Resume lifecycle history is unavailable")
+    latest_lifecycle = lifecycle_events[-1]
+    if latest_lifecycle.get("record_id") != pause_record_id:
+        if latest_lifecycle.get(
+            "pause_record_id"
+        ) == pause_record_id and supervision_resume_record_is_canonical(
+            latest_lifecycle, all_events, policy_history
+        ):
+            if latest_lifecycle.get("mission_root") != binding.get("mission_root"):
+                raise SupervisionLogError(
+                    "Existing resume lifecycle belongs to another mission"
+                )
+            if all_events[-1].get("record_id") != latest_lifecycle.get("record_id"):
+                raise SupervisionLogError(
+                    "Existing resume lifecycle is no longer the current event head"
+                )
+            return {
+                "already_resumed": latest_lifecycle,
+                "policy_history": policy_history,
+                "all_events": all_events,
+                "pause_time": pause_time,
+            }
+        raise SupervisionLogError("Paused lifecycle is no longer current")
+    fingerprint_events = [
+        item
+        for item in active_events
+        if isinstance(item.get("state_fingerprint"), str)
+        and item.get("state_fingerprint")
+        and parse_event_time(item.get("timestamp"), label="Source timestamp")
+        >= pause_time
+    ]
+    if (
+        not fingerprint_events
+        or fingerprint_events[-1].get("record_id") != source_record_id
+    ):
+        raise SupervisionLogError("Resume source record is stale")
+    group_id = supervision_group_id(policy, policy_history)
+    history_head = policy_history[-1]
+    event_head = all_events[-1].get("record_sha256") if all_events else None
+    if not isinstance(event_head, str):
+        raise SupervisionLogError("Resume event head is unavailable")
+    source_material = resume_source_currentness_material(
+        target_thread_id=str(policy["target_thread_id"]),
+        group_id=group_id,
+        mission_root=str(binding["mission_root"]),
+        mission_source_record=str(binding["mission_source_record"]),
+        policy_version=int(policy["policy_version"]),
+        policy_sha256=str(policy["policy_sha256"]),
+        policy_history_head=str(history_head["record_sha256"]),
+        policy_history_count=len(policy_history),
+        event_head=event_head,
+        event_count=len(all_events),
+        pause_record=pause,
+        source_record=source,
+    )
+    return {
+        "already_resumed": None,
+        "policy_history": policy_history,
+        "all_events": all_events,
+        "pause": pause,
+        "source": source,
+        "pause_time": pause_time,
+        "group_id": group_id,
+        "binding": binding,
+        "source_material": source_material,
+        "source_currentness_root": digest(source_material),
+    }
+
+
+def resume_basis(
+    directory: Path,
+    policy: dict[str, Any],
+    *,
+    pause_record_id: str,
+    source_record_id: str,
+    state_fingerprint: str,
+    now: dt.datetime,
+) -> dict[str, Any]:
+    context = resume_context(
+        directory,
+        policy,
+        pause_record_id=pause_record_id,
+        source_record_id=source_record_id,
+        state_fingerprint=state_fingerprint,
+    )
+    specs = expected_resume_automation_specs(policy, context["all_events"], now=now)
+    states = stable_resume_automation_states(specs)
+    pause_time = context["pause_time"]
+    for state in states.values():
+        updated_at = dt.datetime.fromtimestamp(
+            int(state["updated_at"]) / 1000, tz=dt.timezone.utc
+        )
+        if state["status"] == "ACTIVE" and updated_at <= pause_time:
+            raise SupervisionLogError(
+                "Active resume automation state does not postdate the paused lifecycle"
+            )
+    configuration_roots = {
+        automation_id: str(state["configuration_sha256"])
+        for automation_id, state in states.items()
+    }
+    if context.get("already_resumed") is not None:
+        if not all(state["status"] == "ACTIVE" for state in states.values()):
+            raise SupervisionLogError(
+                "Existing resume lifecycle has incomplete current automation state"
+            )
+        context.update(
+            {
+                "automation_expectations": specs,
+                "automation_states": states,
+                "automation_configuration_roots": configuration_roots,
+                "activate_automation_ids": [],
+                "ready_to_finalize": True,
+            }
+        )
+        return context
+    eligibility_material = {
+        "kind": "supervision-resume-eligibility",
+        "contract_version": SUPERVISION_RESUME_CONTRACT_VERSION,
+        "source_currentness_root": context["source_currentness_root"],
+        "automation_expectations": specs,
+        "automation_configuration_roots": configuration_roots,
+    }
+    context.update(
+        {
+            "automation_expectations": specs,
+            "schedule_evaluated_at": now.astimezone(dt.timezone.utc).isoformat(),
+            "automation_states": states,
+            "automation_configuration_roots": configuration_roots,
+            "eligibility_root": digest(eligibility_material),
+            "activate_automation_ids": sorted(
+                automation_id
+                for automation_id, state in states.items()
+                if state["status"] == "PAUSED"
+            ),
+            "ready_to_finalize": all(
+                state["status"] == "ACTIVE" for state in states.values()
+            ),
+        }
+    )
+    return context
+
+
+def cmd_resume_gate(args: argparse.Namespace) -> None:
+    directory, policy = load_policy(args)
+    pause_record_id = safe_id(args.pause_record, label="pause record ID")
+    source_record_id = safe_id(args.source_record, label="source record ID")
+    state_fingerprint = clean(
+        args.state_fingerprint, label="state fingerprint", maximum=128
+    )
+    basis = resume_basis(
+        directory,
+        policy,
+        pause_record_id=pause_record_id,
+        source_record_id=source_record_id,
+        state_fingerprint=state_fingerprint,
+        now=dt.datetime.now(dt.timezone.utc),
+    )
+    after_directory, after_policy = load_policy(args)
+    after_history = validated_policy_history(after_directory, after_policy)
+    after_events = events(after_directory / "events.jsonl")
+    if (
+        after_directory.resolve() != directory.resolve()
+        or after_policy.get("policy_sha256") != policy.get("policy_sha256")
+        or len(after_history) != len(basis["policy_history"])
+        or after_history[-1].get("record_sha256")
+        != basis["policy_history"][-1].get("record_sha256")
+        or len(after_events) != len(basis["all_events"])
+        or after_events[-1].get("record_sha256")
+        != basis["all_events"][-1].get("record_sha256")
+    ):
+        raise SupervisionLogError("Resume source changed during eligibility validation")
+    existing = basis.get("already_resumed")
+    if isinstance(existing, Mapping):
+        print(
+            json.dumps(
+                {
+                    "status": "already-resumed",
+                    "eligible": True,
+                    "ready_to_finalize": True,
+                    "duplicate": True,
+                    "resume_record": existing,
+                    "policy_sha256": policy["policy_sha256"],
+                    "action": "none",
+                },
+                sort_keys=True,
+            )
+        )
+        return
+    print(
+        json.dumps(
+            {
+                "status": (
+                    "ready" if basis["ready_to_finalize"] else "pending-activation"
+                ),
+                "eligible": True,
+                "ready_to_finalize": basis["ready_to_finalize"],
+                "duplicate": False,
+                "action": (
+                    "resume-finalize"
+                    if basis["ready_to_finalize"]
+                    else "activate-exact-bound-automations"
+                ),
+                "activate_automation_ids": basis["activate_automation_ids"],
+                "automation_states": basis["automation_states"],
+                "eligibility_root": basis["eligibility_root"],
+                "source_currentness_root": basis["source_currentness_root"],
+                "pause_record_id": pause_record_id,
+                "source_record_id": source_record_id,
+                "state_fingerprint": state_fingerprint,
+                "group_id": basis["group_id"],
+                "mission_root": basis["binding"]["mission_root"],
+                "policy_version": policy["policy_version"],
+                "policy_sha256": policy["policy_sha256"],
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def cmd_resume_finalize(args: argparse.Namespace) -> None:
+    directory, _ = load_policy(args)
+    pause_record_id = safe_id(args.pause_record, label="pause record ID")
+    source_record_id = safe_id(args.source_record, label="source record ID")
+    state_fingerprint = clean(
+        args.state_fingerprint, label="state fingerprint", maximum=128
+    )
+    eligibility_root = exact_sha256(
+        args.eligibility_root, label="resume eligibility root"
+    )
+    with append_lock(directory):
+        directory, policy = load_policy(args)
+        basis = resume_basis(
+            directory,
+            policy,
+            pause_record_id=pause_record_id,
+            source_record_id=source_record_id,
+            state_fingerprint=state_fingerprint,
+            now=dt.datetime.now(dt.timezone.utc),
+        )
+        prior = basis.get("already_resumed")
+        if isinstance(prior, Mapping):
+            if any(
+                prior.get(key) != value
+                for key, value in (
+                    ("source_record_id", source_record_id),
+                    ("state_fingerprint", state_fingerprint),
+                    ("eligibility_root", eligibility_root),
+                )
+            ):
+                raise SupervisionLogError("Existing resume lifecycle record differs")
+            print(
+                json.dumps(
+                    {"duplicate": True, "record": prior, "postcondition": "resumed"},
+                    sort_keys=True,
+                )
+            )
+            return
+        policy_history = basis["policy_history"]
+        current_events = basis["all_events"]
+        if basis["eligibility_root"] != eligibility_root:
+            raise SupervisionLogError("Resume eligibility is stale")
+        if not basis["ready_to_finalize"]:
+            raise SupervisionLogError(
+                "Resume remains pending until every exact bound automation is active"
+            )
+        # Re-read only the named owners under the append boundary. This detects
+        # an owner transition between validation and the canonical append.
+        final_states = stable_resume_automation_states(basis["automation_expectations"])
+        if final_states != basis["automation_states"]:
+            raise SupervisionLogError(
+                "Resume automation owners changed before finalization"
+            )
+        automation_evidence_root = digest(final_states)
+        resume_id = "resume-" + digest(
+            {
+                "target_thread_id": args.target_thread,
+                "pause_record_id": pause_record_id,
+                "eligibility_root": eligibility_root,
+            }
+        )
+        source_material = basis["source_material"]
+        record = {
+            "schema_version": 1,
+            "resume_contract_version": SUPERVISION_RESUME_CONTRACT_VERSION,
+            "record_id": f"EVT-{len(current_events) + 1:06d}",
+            "timestamp": utc_now(),
+            "target_thread_id": args.target_thread,
+            "kind": "lifecycle",
+            "model": "supervision_log.py",
+            "reasoning": "deterministic",
+            "state_fingerprint": state_fingerprint,
+            "status": "resumed",
+            "severity": "info",
+            "category": SUPERVISION_RESUME_CATEGORY,
+            "summary": "Every exact bound supervision automation is active at its maintained schedule; the paused lifecycle is canonically resumed.",
+            "evidence": [
+                pause_record_id,
+                source_record_id,
+                *sorted(final_states),
+            ],
+            "dedup_key": f"supervision-resume:{pause_record_id}",
+            "resume_id": resume_id,
+            "pause_record_id": pause_record_id,
+            "pause_record_sha256": basis["pause"]["record_sha256"],
+            "source_record_id": source_record_id,
+            "source_record_sha256": basis["source"]["record_sha256"],
+            "source_currentness_root": basis["source_currentness_root"],
+            "eligibility_root": eligibility_root,
+            "automation_expectations": basis["automation_expectations"],
+            "schedule_evaluated_at": basis["schedule_evaluated_at"],
+            "automation_configuration_roots": basis["automation_configuration_roots"],
+            "automation_states": final_states,
+            "automation_evidence_root": automation_evidence_root,
+            "group_id": basis["group_id"],
+            "mission_root": basis["binding"]["mission_root"],
+            "mission_source_record": basis["binding"]["mission_source_record"],
+            "policy_version": policy["policy_version"],
+            "policy_sha256": policy["policy_sha256"],
+            "policy_history_head": source_material["policy_history_head"],
+            "policy_history_count": source_material["policy_history_count"],
+            "event_count_before_resume": source_material["event_count"],
+        }
+        candidate = dict(record)
+        candidate["previous_record_sha256"] = current_events[-1]["record_sha256"]
+        candidate["record_sha256"] = digest(candidate)
+        if not supervision_resume_record_is_canonical(
+            candidate, [*current_events, candidate], policy_history
+        ):
+            raise SupervisionLogError(
+                "Candidate resume lifecycle record failed verification"
+            )
+        append_event_locked(args, directory, record)
+        persisted = events(directory / "events.jsonl")[-1]
+        if not supervision_resume_record_is_canonical(
+            persisted, events(directory / "events.jsonl"), policy_history
+        ):
+            raise SupervisionLogError(
+                "Persisted resume lifecycle record failed verification"
+            )
+    print(
+        json.dumps(
+            {"duplicate": False, "record": persisted, "postcondition": "resumed"},
+            sort_keys=True,
+        )
+    )
+
+
 def expected_terminal_automation_owners(
     policy: Mapping[str, Any],
 ) -> dict[str, str]:
@@ -21425,6 +22390,31 @@ def cmd_status(args: argparse.Namespace) -> None:
     lifecycle_events = [
         item for item in active_events if item.get("kind") == "lifecycle"
     ]
+    policy_history_path = directory / "policy-history.jsonl"
+    resume_policy_history = (
+        events(policy_history_path) if policy_history_path.exists() else []
+    )
+    supervision_resume_events = [
+        item
+        for item in lifecycle_events
+        if supervision_resume_record_is_canonical(
+            item, all_events, resume_policy_history
+        )
+    ]
+    current_supervision_pause: Mapping[str, Any] | None = None
+    valid_resume_ids = {
+        str(item.get("record_id")) for item in supervision_resume_events
+    }
+    for item in lifecycle_events:
+        if is_canonical_supervision_pause(item):
+            current_supervision_pause = item
+        elif (
+            str(item.get("record_id")) in valid_resume_ids
+            and current_supervision_pause is not None
+            and item.get("pause_record_id")
+            == current_supervision_pause.get("record_id")
+        ):
+            current_supervision_pause = None
     outcome_completion_events = [
         item
         for item in active_events
@@ -21491,6 +22481,11 @@ def cmd_status(args: argparse.Namespace) -> None:
                 "last_lifecycle": (
                     lifecycle_events[-1] if lifecycle_events else None
                 ),
+                "last_supervision_resume": (
+                    supervision_resume_events[-1] if supervision_resume_events else None
+                ),
+                "current_supervision_pause": current_supervision_pause,
+                "supervision_resume_supported": True,
                 "last_outcome_completion": (
                     outcome_completion_events[-1]
                     if outcome_completion_events
@@ -21812,6 +22807,21 @@ def parser() -> argparse.ArgumentParser:
     lifecycle_gate.add_argument("--source-record", required=True)
     lifecycle_gate.add_argument("--state-fingerprint", default="")
     lifecycle_gate.set_defaults(func=cmd_lifecycle_gate)
+
+    resume_gate = subparsers.add_parser("resume-gate")
+    resume_gate.add_argument("--target-thread", required=True)
+    resume_gate.add_argument("--pause-record", required=True)
+    resume_gate.add_argument("--source-record", required=True)
+    resume_gate.add_argument("--state-fingerprint", required=True)
+    resume_gate.set_defaults(func=cmd_resume_gate)
+
+    resume_finalize = subparsers.add_parser("resume-finalize")
+    resume_finalize.add_argument("--target-thread", required=True)
+    resume_finalize.add_argument("--pause-record", required=True)
+    resume_finalize.add_argument("--source-record", required=True)
+    resume_finalize.add_argument("--state-fingerprint", required=True)
+    resume_finalize.add_argument("--eligibility-root", required=True)
+    resume_finalize.set_defaults(func=cmd_resume_finalize)
 
     decision_record = subparsers.add_parser("decision-record")
     decision_record.add_argument("--target-thread", required=True)

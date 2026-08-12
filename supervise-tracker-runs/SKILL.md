@@ -927,10 +927,30 @@ hidden reasoning into the review.
   authority the user response contributes. If it adds none and only repeats the
   system's sole eligible reviewed recommendation, classify the stop as
   procedural, issue a current-run correction, and require narrow continuation.
-- Resume only after revalidating target, thread, policy, and automation IDs.
-  Re-run `bind` with the existing exact IDs so a legacy group receives current
-  non-privileged defaults, then refresh its role and heartbeat prompts before
-  the first target check.
+- Resume only after revalidating the target, active mission, current policy and
+  history, exact paused lifecycle, one distinct current watcher/Sol XHigh
+  semantic-check record and state fingerprint, and every bound automation ID.
+  Re-run `bind` with the existing
+  exact IDs first when a legacy group needs current non-privileged defaults;
+  then record a new current `no-intervention` check with exact target evidence
+  under that resulting policy. A notification, task event, Max/meta sample, or
+  empty/caller-shaped record is not eligible resume source evidence.
+- Call `resume-gate` with that pause/source/fingerprint tuple before changing an
+  automation. It reads only the policy-bound automation owners, verifies each
+  owner-derived target and RRULE, and returns the exact paused IDs plus one
+  eligibility root. Missing, duplicate, stale, malformed, differently targeted,
+  differently scheduled, or partially configured owners fail closed.
+- Enable only the returned IDs through the maintained Codex automation owner;
+  never write `automation.toml`. Call `resume-finalize` with the unchanged
+  eligibility root only after a fresh gate reports every exact bound owner
+  `ACTIVE`. The finalizer rechecks policy/event/source currentness and the named
+  owners under one append lock, then appends at most one hash-chained lifecycle
+  record with category `supervision-resume` and status `resumed`.
+- A task/thread resume, turn start, caller assertion, or active automation by
+  itself is not semantic supervision resume. Refresh role and heartbeat prompts
+  before the first target check only after the canonical resumed record exists.
+  Exact duplicate finalization is idempotent; changed replay stays rejected and
+  the prior paused record remains immutable history.
 - On stop, pause or delete the applicable automations as requested. Preserve the local
   supervision ledger unless the user explicitly asks to delete it.
 
