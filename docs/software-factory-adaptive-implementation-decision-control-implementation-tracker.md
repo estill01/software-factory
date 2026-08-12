@@ -665,8 +665,8 @@ continuous cognition the price of ordinary execution.
 | 12 | Admit newly eligible Factory evidence automatically and economically | 11 | `completed` |
 | 13 | Orchestrate one bounded Factory candidate through existing owners | 12 | `completed` |
 | 14 | Independently evaluate the Factory candidate | 13 | `completed` |
-| 15 | Adopt or retire the evaluated candidate under configurable policy | 14 | `in-progress` |
-| 16 | Feed current outcomes back, suppress recurrence, and support rollback | 15 | `not-started` |
+| 15 | Adopt or retire the evaluated candidate under configurable policy | 14 | `completed` |
+| 16 | Feed current outcomes back, suppress recurrence, and support rollback | 15 | `in-progress` |
 | 17 | Dogfood autonomous evolution and document the integrated system | 16 | `not-started` |
 
 Required order:
@@ -3806,7 +3806,7 @@ mutation.
 
 ## Block 15 — Adopt or retire the evaluated candidate under configurable policy
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -3943,7 +3943,17 @@ gate, atomic diff, live installed path, and current effects.
   exposed `B15-F03`: direct staged-action callers without newly optional
   release-input attributes raised before their unchanged flows. The narrow
   correction treats absent optional attributes as not supplied and adds a
-  direct-call regression. Exact successor review remains pending.
+  direct-call regression.
+- Accepted exact successor `df30ca65ce8eb6d292fe3da4cdbdf70b8bfef19a`
+  (tree `19e174d1008c4a03d3f17726636be41ba2962927`): independent
+  exact review found no issue; the direct compatibility class passed `8/8`
+  and explicit non-orchestration release inputs rejected `6/6`. The frozen
+  accepted proof includes release owner `19/19`, adoption orchestration `6/6`,
+  mapped implementation `115/115`, mapped supervision `376/376`, author
+  `42/42`, all three fixed validators, full 18-Block tracker verification,
+  compilation, exact diff, clean worktree, and exact upstream identity. One
+  normal release owner remains the sole installation writer; no live release,
+  policy, mission, lifecycle, or external effect was performed by this Block.
 
 ### Stop
 
@@ -3954,7 +3964,7 @@ integrated dogfood.
 
 ## Block 16 — Feed current outcomes back, suppress recurrence, and support rollback
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
