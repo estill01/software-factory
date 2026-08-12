@@ -1,6 +1,6 @@
 # Software Factory Operations Dashboard Implementation Tracker
 
-- Tracker status: `accepted`
+- Tracker status: `completed`
 - Tracker sequence: Blocks 0–31
 - Repository: `https://github.com/estill01/software-factory.git`
 - Governing objective: direct-user item
@@ -520,38 +520,38 @@ the relevant authority and evidence contract.
 
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
-| 0 | Product contract and live-owner baseline | — | `accepted` |
-| 1 | Loopback runtime and reference frontend scaffold | 0 | `accepted` |
-| 2 | Project catalog and bounded discovery | 1 | `accepted` |
-| 3 | Tracker truth and Git-currentness projection | 2 | `accepted` |
-| 4 | Supervision, automation, report, and metrics projection | 2 | `accepted` |
-| 5 | Codex task and App Server adapter | 1 | `accepted` |
-| 6 | Cross-project factory floor | 3, 4, 5 | `accepted` |
-| 7 | Project and run workspaces | 6 | `accepted` |
-| 8 | Tracker review and progress workspace | 3, 6 | `accepted` |
-| 9 | Metrics and report history workspace | 4, 6 | `accepted` |
-| 10 | Gated administrative operation framework | 2, 4, 5 | `accepted` |
-| 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `accepted` |
-| 12 | On-demand mechanical supervision checks | 7, 10, 11 | `accepted` |
-| 13 | Semantic supervision review requests | 7, 10, 11 | `accepted` |
-| 14 | Supervision policy and cadence administration | 7, 10, 11 | `accepted` |
-| 15 | Mission and target/tracker binding repair | 7, 10, 11 | `accepted` |
-| 16 | Role-task binding repair | 7, 10, 11 | `accepted` |
-| 17 | Factory Floor operational rows and exact count filters | 6, 7 | `accepted` |
-| 18 | Tracker review queue and exact count filters | 3, 8 | `accepted` |
-| 19 | Tracker semantic source diffs | 3, 8 | `accepted` |
-| 20 | Automation binding repair | 7, 10, 11 | `accepted` |
-| 21 | Owner-backed operation semantic diffs | 10, 14, 15, 16, 19, 20 | `accepted` |
-| 22 | Supervision pause | 7, 10, 11 | `accepted` |
-| 23 | Canonical supervision-resume lifecycle owner | 22 | `accepted` |
-| 24 | Supervision resume | 7, 10, 11, 22, 23 | `accepted` |
-| 25 | Same-target mission succession | 7, 10, 11 | `accepted` |
-| 26 | Successor-task continuity | 7, 10, 11 | `accepted` |
-| 27 | Weekly supervision report workflow | 9, 10, 11, 13 | `accepted` |
-| 28 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `accepted` |
-| 29 | Terminal report workflow | 9, 10, 11, 13, 27 | `accepted` |
-| 30 | Request-stop and terminal shutdown | 7, 9, 10, 11, 29 | `accepted` |
-| 31 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 | `accepted` |
+| 0 | Product contract and live-owner baseline | — | `completed` |
+| 1 | Loopback runtime and reference frontend scaffold | 0 | `completed` |
+| 2 | Project catalog and bounded discovery | 1 | `completed` |
+| 3 | Tracker truth and Git-currentness projection | 2 | `completed` |
+| 4 | Supervision, automation, report, and metrics projection | 2 | `completed` |
+| 5 | Codex task and App Server adapter | 1 | `completed` |
+| 6 | Cross-project factory floor | 3, 4, 5 | `completed` |
+| 7 | Project and run workspaces | 6 | `completed` |
+| 8 | Tracker review and progress workspace | 3, 6 | `completed` |
+| 9 | Metrics and report history workspace | 4, 6 | `completed` |
+| 10 | Gated administrative operation framework | 2, 4, 5 | `completed` |
+| 11 | Author, implement, supervise, and task-control workflows | 8, 10 | `completed` |
+| 12 | On-demand mechanical supervision checks | 7, 10, 11 | `completed` |
+| 13 | Semantic supervision review requests | 7, 10, 11 | `completed` |
+| 14 | Supervision policy and cadence administration | 7, 10, 11 | `completed` |
+| 15 | Mission and target/tracker binding repair | 7, 10, 11 | `completed` |
+| 16 | Role-task binding repair | 7, 10, 11 | `completed` |
+| 17 | Factory Floor operational rows and exact count filters | 6, 7 | `completed` |
+| 18 | Tracker review queue and exact count filters | 3, 8 | `completed` |
+| 19 | Tracker semantic source diffs | 3, 8 | `completed` |
+| 20 | Automation binding repair | 7, 10, 11 | `completed` |
+| 21 | Owner-backed operation semantic diffs | 10, 14, 15, 16, 19, 20 | `completed` |
+| 22 | Supervision pause | 7, 10, 11 | `completed` |
+| 23 | Canonical supervision-resume lifecycle owner | 22 | `completed` |
+| 24 | Supervision resume | 7, 10, 11, 22, 23 | `completed` |
+| 25 | Same-target mission succession | 7, 10, 11 | `completed` |
+| 26 | Successor-task continuity | 7, 10, 11 | `completed` |
+| 27 | Weekly supervision report workflow | 9, 10, 11, 13 | `completed` |
+| 28 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `completed` |
+| 29 | Terminal report workflow | 9, 10, 11, 13, 27 | `completed` |
+| 30 | Request-stop and terminal shutdown | 7, 9, 10, 11, 29 | `completed` |
+| 31 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 | `completed` |
 
 Required order:
 
@@ -645,7 +645,7 @@ second implementation of a primary owner is introduced.
 
 ## Block 0 — Product contract and live-owner baseline
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -829,7 +829,7 @@ Stop before creating the dashboard runtime or dependency manifests.
 
 ## Block 1 — Loopback runtime and reference frontend scaffold
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -1003,7 +1003,7 @@ Stop before creating the project catalog or reading any project source.
 
 ## Block 2 — Project catalog and bounded discovery
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -1170,7 +1170,7 @@ Stop before parsing tracker content or aggregating supervision/task state.
 
 ## Block 3 — Tracker truth and Git-currentness projection
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -1353,7 +1353,7 @@ Stop before building tracker pages or initiating authoring/implementation tasks.
 
 ## Block 4 — Supervision, automation, report, and metrics projection
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -1632,7 +1632,7 @@ automation, report, or evolution owner.
 
 ## Block 5 — Codex task and App Server adapter
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -1868,7 +1868,7 @@ Stop before exposing workflow-start or lifecycle mutation controls.
 
 ## Block 6 — Cross-project factory floor
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -2137,7 +2137,7 @@ Stop before adding project/run, tracker, report, or admin detail functionality.
 
 ## Block 7 — Project and run workspaces
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -2464,7 +2464,7 @@ Stop before adding tracker review, report analytics, or operational controls.
 
 ## Block 8 — Tracker review and progress workspace
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -2686,7 +2686,7 @@ state.
 
 ## Block 9 — Metrics and report history workspace
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -2950,7 +2950,7 @@ administration controls.
 
 ## Block 10 — Gated administrative operation framework
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -3251,7 +3251,7 @@ Stop before registering tracker/task/supervision/report/lifecycle operations.
 
 ## Block 11 — Author, implement, supervise, and task-control workflows
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -3596,7 +3596,7 @@ administration, or semantic lifecycle controls.
 
 ## Block 12 — On-demand mechanical supervision checks
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -3831,7 +3831,7 @@ continuity, report, or evolution operation.
 
 ## Block 13 — Semantic supervision review requests
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -4110,7 +4110,7 @@ reporting, or Factory evolution.
 
 ## Block 14 — Supervision policy and cadence administration
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -4369,7 +4369,7 @@ report, evolution, or terminal operations.
 
 ## Block 15 — Mission and target/tracker binding repair
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -4675,7 +4675,7 @@ lifecycle, continuity, report, evolution, or terminal operations.
 
 ## Block 16 — Role-task binding repair
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -4993,7 +4993,7 @@ reporting, evolution, or terminal lifecycle.
 
 ## Block 17 — Factory Floor operational rows and exact count filters
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -5277,7 +5277,7 @@ semantic diffs, pause/resume, continuity, reporting, evolution, or lifecycle.
 
 ## Block 18 — Tracker review queue and exact count filters
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -5516,7 +5516,7 @@ diffs, pause/resume, continuity, reporting, evolution, or lifecycle operations.
 
 ## Block 19 — Tracker semantic source diffs
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -5741,7 +5741,7 @@ continuity, reporting, evolution, or lifecycle operations.
 
 ## Block 20 — Automation binding repair
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -6093,7 +6093,7 @@ lifecycle operations.
 
 ## Block 21 — Owner-backed operation semantic diffs
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -6312,7 +6312,7 @@ request-stop, or terminal lifecycle operations.
 
 ## Block 22 — Supervision pause
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -6461,7 +6461,7 @@ evolution, request-stop, or terminal shutdown.
 
 ## Block 23 — Canonical supervision-resume lifecycle owner
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -6650,7 +6650,7 @@ report generation, Factory evolution, request-stop, or terminal shutdown.
 
 ## Block 24 — Supervision resume
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -6840,7 +6840,7 @@ reporting, evolution, request-stop, or terminal shutdown.
 
 ## Block 25 — Same-target mission succession
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -7024,7 +7024,7 @@ evolution, or changing terminal lifecycle.
 
 ## Block 26 — Successor-task continuity
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -7222,7 +7222,7 @@ or terminal shutdown.
 
 ## Block 27 — Weekly supervision report workflow
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -7457,7 +7457,7 @@ Stop before terminal reporting, Factory evolution, request-stop, or shutdown.
 
 ## Block 28 — Factory evolution evaluation and disposition
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -7734,7 +7734,7 @@ acceptance.
 
 ## Block 29 — Terminal report workflow
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -8017,7 +8017,7 @@ cross-project acceptance.
 
 ## Block 30 — Request-stop and terminal shutdown
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
@@ -8430,7 +8430,7 @@ that the dashboard is ready.
 
 ## Block 31 — Integrated outcome validation and operator handoff
 
-Status: `accepted`
+Status: `completed`
 
 ### Objective
 
