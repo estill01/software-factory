@@ -547,8 +547,8 @@ the relevant authority and evidence contract.
 | 24 | Supervision resume | 7, 10, 11, 22, 23 | `accepted` |
 | 25 | Same-target mission succession | 7, 10, 11 | `accepted` |
 | 26 | Successor-task continuity | 7, 10, 11 | `accepted` |
-| 27 | Weekly supervision report workflow | 9, 10, 11, 13 | `in-progress` |
-| 28 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `not-started` |
+| 27 | Weekly supervision report workflow | 9, 10, 11, 13 | `accepted` |
+| 28 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `in-progress` |
 | 29 | Terminal report workflow | 9, 10, 11, 13, 27 | `not-started` |
 | 30 | Request-stop and terminal shutdown | 7, 9, 10, 11, 29 | `not-started` |
 | 31 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 | `not-started` |
@@ -7190,7 +7190,7 @@ or terminal shutdown.
 
 ## Block 27 — Weekly supervision report workflow
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -7406,6 +7406,16 @@ unverified stage.
   mobile, including the captured `finalize-verify` request, Axe checks, and
   no-overflow assertions. No owner dispatch, report artifact, Gmail action, or
   canonical mutation occurred; fresh delta-only exact review is pending.
+- Fresh delta-only exact-revision review: independently `ACCEPTED` evidence
+  `d1c9ab83471e428450e3f52fd80d809ab31ffc71`, tree
+  `b7cb5a7a8e5d0dd5495e741ffae533f33465472c`, over product/test correction
+  `4fcfd7ccc3eccab608cb8b4a14a3b5b127ef2d40`, tree
+  `3443c05a0064cbb129ba18b66115b7acdd654585`, with no material finding. The
+  exact rejected browser case passed 3/3 at desktop, tablet, and mobile with a
+  consistent source-owned project binding, enabled `Finalize & verify`, exact
+  captured operation target, zero serious/critical Axe findings, and no
+  horizontal overflow. Full-profile verification, diff, object, clean-checkout,
+  remote `0 0`, and Stop gates passed. Block 27 is accepted at this revision.
 
 ### Stop
 
@@ -7415,7 +7425,7 @@ Stop before terminal reporting, Factory evolution, request-stop, or shutdown.
 
 ## Block 28 — Factory evolution evaluation and disposition
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -7533,7 +7543,15 @@ and stop at the first unavailable, stale, rejected, or unverified stage.
 
 ### Completion evidence
 
-Pending.
+- Activation: Block 28 started automatically after independent acceptance of
+  Block 27 evidence `d1c9ab83471e428450e3f52fd80d809ab31ffc71` and
+  product/test correction `4fcfd7ccc3eccab608cb8b4a14a3b5b127ef2d40`.
+  Governing implementation authority remains direct-user item 44 under mission
+  root `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+  Work is limited to the maintained Factory-evolution derived-artifact and
+  disposition owner. Blocks 29–31 remain closed; no evolution artifact,
+  external candidate implementation, adoption, deployment, routing,
+  scheduling, or outcome mutation has been attempted.
 
 ### Stop
 
