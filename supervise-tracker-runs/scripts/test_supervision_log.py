@@ -8240,8 +8240,8 @@ class WatcherAvailabilityContractTests(unittest.TestCase):
 
     def open_incident(self) -> str:
         first = self.unavailable()
-        second = self.unavailable()
-        third = self.unavailable()
+        second = self.unavailable("compact-thread-read-retry-2-1234")
+        third = self.unavailable("compact-thread-read-retry-3-1234")
         self.assertEqual(first["next_action"], "retry-compact-read")
         self.assertEqual(second["next_action"], "retry-compact-read")
         self.assertTrue(third["route_required"])
@@ -8251,7 +8251,7 @@ class WatcherAvailabilityContractTests(unittest.TestCase):
         incident_id = self.open_incident()
         before = supervision_log.events(self.directory / "events.jsonl")
 
-        duplicate = self.unavailable()
+        duplicate = self.unavailable("compact-thread-read-retry-3-1234")
         after = supervision_log.events(self.directory / "events.jsonl")
 
         self.assertTrue(duplicate["duplicate"])
@@ -8274,13 +8274,44 @@ class WatcherAvailabilityContractTests(unittest.TestCase):
         changed = self.unavailable("compact-thread-read-after-route-1234")
 
         self.assertFalse(changed["duplicate"])
-        self.assertFalse(changed["route_required"])
+        self.assertTrue(changed["route_required"])
+        self.assertEqual(changed["record"]["incident_id"], incident_id)
         head = supervision_log.watcher_availability_incident_head(
             supervision_log.events(self.directory / "events.jsonl")
         )
         self.assertIsNotNone(head)
         assert head is not None
         self.assertEqual(head["incident_id"], incident_id)
+
+    def test_three_changed_triggers_share_one_target_state_threshold(self) -> None:
+        first = self.unavailable("compact-trigger-a-1234")
+        second = self.unavailable("compact-trigger-b-1234")
+        third = self.unavailable("compact-trigger-c-1234")
+
+        self.assertFalse(first["route_required"])
+        self.assertFalse(second["route_required"])
+        self.assertTrue(third["route_required"])
+        self.assertEqual(third["record"]["watcher_unavailable_read_count"], 3)
+        self.assertEqual(
+            len(
+                {
+                    first["record"]["watcher_availability_state_fingerprint"],
+                    second["record"]["watcher_availability_state_fingerprint"],
+                    third["record"]["watcher_availability_state_fingerprint"],
+                }
+            ),
+            1,
+        )
+        self.assertEqual(
+            len(
+                {
+                    first["record"]["watcher_availability_attempt_fingerprint"],
+                    second["record"]["watcher_availability_attempt_fingerprint"],
+                    third["record"]["watcher_availability_attempt_fingerprint"],
+                }
+            ),
+            3,
+        )
 
     def test_verified_read_requires_distinct_next_state_and_routes_review(self) -> None:
         incident_id = self.open_incident()
