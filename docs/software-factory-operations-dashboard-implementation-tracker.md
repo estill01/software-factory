@@ -7904,6 +7904,47 @@ unverified output.
   family was folded into Block 29. The loopback health envelope remained
   complete immediately before the browser run; no terminal report, Gmail,
   lifecycle, automation, request-stop, or shutdown mutation occurred.
+- Independent exact-revision review rejected evidence
+  `c8199876018c7840725287db5dd743f2bd13469b` on two bounded rows: a stale
+  append-once delivery was labeled retryable despite having no supported owner
+  action, and this consequential Block lacked its compact product-capability
+  decision. All other owner, currentness, staged recovery, UI, pre-broad-order,
+  single-broad-run, remote, and Stop evidence was accepted as reusable.
+- Product-capability decision — `2026-08-12T12:17:45Z`, consequential frame
+  3,511 bytes, SHA-256
+  `736124301d439cf6f143bb8013d53f085e9f3f4748df35451ef1bce5df0d8857`:
+  - Rejected a local dashboard/registry implementation that would generate or
+    validate terminal artifacts, read or send Gmail, or write delivery state;
+    that path would create duplicate owners and grant the UI report and mail
+    authority it does not have.
+  - Rejected a generalized weekly/terminal workflow abstraction because the
+    terminal family has distinct completed-outcome, prior-report, base-reviewer,
+    two-PDF, delivery/read-back, and no-shutdown contracts; a shared action
+    would erase independently recoverable stages and owner postconditions.
+  - Selected the narrow composition of the maintained terminal prepare/
+    finalize/verify owner, current policy and `base_reviewer` task owner,
+    changed-state-review route gate, configured Gmail read/send owners, and
+    canonical append-once delivery verifier behind the existing typed preview/
+    confirmation coordinator and read-only Run/Reports projection.
+  - Protected effects are exact outcome and mission currentness, retained-review
+    reuse, prior-report verification, independent cognitive review, immutable
+    artifact and delivery evidence, predecessor suppression, and the absence of
+    direct Gmail, lifecycle, automation, request-stop, or shutdown effects.
+    The selected path costs more configuration, owner round trips, and explicit
+    unavailable/stale states, but preserves authority and makes partial recovery
+    truthful instead of substituting a lower-power local workflow.
+- Narrow product successor
+  `bf03d8e9e825f6b695670b5e4e9b4ea89ce4bc40`, tree
+  `4502e2c7e8f471141f1d9218ecbae2be839c40df`, changes only projection and its
+  focused backend/component proof. `delivery-stale` now has no next action,
+  `actionable=false`, `retryable=false`, and a structured non-retryable
+  `terminal_report_delivery_stale` error explaining that the append-once owner
+  cannot replace the receipt. The exact backend regression passed 1/1 with
+  `ResourceWarning` fatal; the first invocation named a nonexistent test class
+  and executed no product test, after which the corrected invocation passed.
+  The affected action component passed 22/22, Ruff, Python compilation, and the
+  TypeScript/Vite production build passed. No broad matrix was replayed and no
+  live owner action occurred; fresh exact-revision review is pending.
 
 ### Stop
 
