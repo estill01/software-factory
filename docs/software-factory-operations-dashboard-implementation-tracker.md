@@ -7599,6 +7599,85 @@ and stop at the first unavailable, stale, rejected, or unverified stage.
   implementation, disposition, adoption, deployment, or canonical mutation
   was attempted. Exact-revision review is pending and Blocks 29–31 remain
   unopened.
+- Rejected exact review retained: independent review rejected evidence
+  `d27ceaaa2b4350ea516aa87de65b0dd2d2f4b27c` and product
+  `e34d92a9c98e4cc8a4ca5e50c1e0beb1a5e71c1e` only because the verified
+  evaluation was validated and then omitted from the dashboard read model.
+  Stage, root, disposition, owner, currentness, mutation, and Stop proof remains
+  reusable. The correction is limited to a bounded verified comparison summary
+  and its Run/Reports/Admin rendering.
+- Pre-broad execution brief boundary, recorded after focused correction proof
+  and before any broad mapped replay:
+  - Maintained owner: complete. The projection consumes only normalized output
+    from the existing `verify_evolution_review` and
+    `verify_candidate_evaluation` owners; no helper, owner command, operation
+    registry, preview, dispatch, verification, or postcondition code changed.
+  - Source/currentness: complete. Plan and result fields come only after exact
+    owner verification; report/event/packet/review/evaluation/manifest roots,
+    the directory tree key, and the existing workflow fingerprint remain the
+    currentness boundary. Missing review produces no plan; missing evaluation
+    produces no results; invalid owner material still fails unavailable.
+  - Authority: source-backed not applicable to this read-only correction. No
+    confirmation, route gate, task start, owner request, candidate writer, or
+    mutation authority was added or changed.
+  - External implementation: source-backed not applicable. Existing Block 11
+    task/Git proof remains the sole candidate input; the summary cannot launch,
+    accept, retry, or modify that work.
+  - Recovery/resource bounds: complete. Recovery is stage-derived read-only
+    guidance with preserved exact roots; it performs no retry. Displayed prose,
+    lists, candidates, cases, and evidence are already bounded by the maintained
+    evolution validator and the existing bounded artifact reader.
+  - Security/UI truth: complete. React renders text without raw HTML; exact
+    result records preserve condition revision, evidence root, and canonical
+    event links. Planned, missing, verified, advisory, revise, reject,
+    regression, contrary-evidence, and no-adoption postures have focused proof.
+  - Stop: complete. No implementation, adoption, installation, routing,
+    scheduling, deployment, rollback, outcome, terminal-report, request-stop,
+    or shutdown owner is introduced; Block 29 remains `not-started`.
+  - Focused proof before the one broad run: backend comparison/projection tests
+    passed 2/2 with `ResourceWarning` fatal; affected frontend schema,
+    component, Reports, Run, and Admin tests passed 20/20; production build,
+    Python compilation, and Ruff passed. The first focused browser assertion
+    incorrectly expected an unshortened identity even though the identity
+    control retained it; after narrowing that test-only assertion to the visible
+    rejected-path effect, the affected desktop/tablet/mobile exercise passed
+    3/3 with planned and verified states, exact source links, regressions,
+    contrary evidence, Axe checks, and no horizontal overflow. All
+    likely-mutating review is therefore complete or source-backed not applicable
+    before the single broad matrix.
+- Frozen comparison-workspace successor: product commit
+  `5d1e51d408992545fe5465c77cd6d0bc40b2d863`, tree
+  `a66361eae8157a4a613758357d1ccc81abb7d876`, parent rejected evidence
+  `d27ceaaa2b4350ea516aa87de65b0dd2d2f4b27c`. The 16-file correction retains
+  the existing owner and operation coordinator and adds only the bounded
+  owner-verified comparison plan/results projection, strict Zod contract,
+  compact shared Run/Reports/Admin evidence component, responsive styling, and
+  focused proof. Planned state exposes selection rationale, selected and
+  compared-not-selected candidates, tradeoffs, uncertainty, resource and Stop
+  bounds, explicit unavailable results, and stage recovery. Evaluated state
+  separately exposes baseline/candidate case outcomes, evidence class, exact
+  condition revision and evidence root, canonical event links, observed effect,
+  cost, per-case and aggregate regressions, contrary evidence, evaluation
+  rationale, disposition, limitations, and preserved roots. It adds no owner,
+  editor, retry, preview, dispatch, acceptance, adoption, or deployment path.
+- Single broad mapped run after the pre-broad boundary: dashboard backend
+  passed 138/138 with `ResourceWarning` fatal, the maintained evolution owner
+  passed 30/30, Ruff passed, frontend passed 20 files/113 tests, and the
+  TypeScript/Vite production build passed. The one serial Playwright matrix
+  completed 72/78; the corrected Factory-evolution case passed 3/3. Its six
+  failures were preserved as unaffected diagnostics rather than hidden by a
+  replay: three live drill-down assertions expected issue follow-up unavailable
+  after the canonical run made it eligible; two dark-theme report-link checks
+  exposed a pre-existing color-only distinction; and one mobile Factory Floor
+  inspector fixture raced. No second broad matrix was run and none of those
+  unrelated rows was folded into this successor. After an indentation-focused
+  review preserved `awaiting-implementation` without requiring a disposition,
+  the affected backend 2/2, Ruff, full-profile verifier (32 Blocks, 0 errors,
+  0 warnings), verifier tests 30/30, and diff check all passed. The exact server
+  is running on loopback port 8787 with the new plan/results/recovery keys and
+  truthful unavailable values for all six current source projections. Fresh
+  exact-revision review is pending; Block 29 remains closed and no live
+  evolution action or canonical mutation occurred.
 
 ### Stop
 
