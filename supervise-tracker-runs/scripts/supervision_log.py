@@ -7784,12 +7784,6 @@ def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
     verified = verify_terminal_report_set(directory, args.report_set_id)
     if not terminal_delivery_is_current(delivery, verified):
         raise SupervisionLogError("Terminal shutdown report delivery is stale")
-    expected = expected_terminal_automation_ids(policy)
-    if not expected:
-        raise SupervisionLogError("Terminal shutdown has no bound automations")
-    states = terminal_automation_owner_states(
-        expected, not_before=parse_time(str(delivery.get("timestamp", "")))
-    )
     with append_lock(directory):
         current_directory, current_policy = load_policy(args)
         if (
@@ -7827,15 +7821,6 @@ def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
                 "Terminal shutdown requires closed successor and activation heads"
             )
         if prior is not None:
-            if not terminal_shutdown_record_is_canonical(
-                prior,
-                policy=policy,
-                lifecycle=lifecycle,
-                delivery=delivery,
-                verified=verified,
-                automation_states=states,
-            ):
-                raise SupervisionLogError("Terminal shutdown receipt already differs")
             if (
                 prior.get("previous_record_sha256") != expected_event_head
                 or stop_heads["event_head"] != prior.get("record_sha256")
@@ -7843,12 +7828,29 @@ def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
                 raise SupervisionLogError(
                     "Terminal shutdown receipt is not current for the expected event head"
                 )
-            print(json.dumps({"duplicate": True, "record": prior}, sort_keys=True))
-            return
-        if stop_heads["event_head"] != expected_event_head:
+        elif stop_heads["event_head"] != expected_event_head:
             raise SupervisionLogError(
                 "Terminal shutdown event head changed before receipt append"
             )
+        expected = expected_terminal_automation_ids(current_policy)
+        if not expected:
+            raise SupervisionLogError("Terminal shutdown has no bound automations")
+        states = terminal_automation_owner_states(
+            expected,
+            not_before=parse_time(str(delivery.get("timestamp", ""))),
+        )
+        if prior is not None:
+            if not terminal_shutdown_record_is_canonical(
+                prior,
+                policy=current_policy,
+                lifecycle=lifecycle,
+                delivery=delivery,
+                verified=verified,
+                automation_states=states,
+            ):
+                raise SupervisionLogError("Terminal shutdown receipt already differs")
+            print(json.dumps({"duplicate": True, "record": prior}, sort_keys=True))
+            return
         record = {
             "schema_version": 1,
             "record_id": f"EVT-{len(current_events) + 1:06d}",
@@ -7873,13 +7875,13 @@ def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
             "manifest_root": verified["manifest_root"],
             "automation_states": states,
             "automation_state_root": digest(states),
-            "policy_sha256": policy["policy_sha256"],
+            "policy_sha256": current_policy["policy_sha256"],
         }
         append_event_locked(args, directory, record)
         persisted = events(directory / "events.jsonl")[-1]
         if not terminal_shutdown_record_is_canonical(
             persisted,
-            policy=policy,
+            policy=current_policy,
             lifecycle=lifecycle,
             delivery=delivery,
             verified=verified,

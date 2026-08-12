@@ -10,7 +10,7 @@ import json
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import contextmanager, redirect_stdout
 from email import policy as email_policy
 from email.message import EmailMessage
 from email.parser import BytesParser
@@ -705,6 +705,56 @@ class TerminalReportIntegrationTests(unittest.TestCase):
             shutdown.expected_event_head = supervision_log.events(
                 root / TARGET / "events.jsonl"
             )[-1]["record_sha256"]
+
+            original_append_lock = supervision_log.append_lock
+            drift_automation_id = after["pause_automation_ids"][0]
+
+            @contextmanager
+            def activate_owner_at_lock(directory: Path):
+                with original_append_lock(directory):
+                    config_path = (
+                        automation_root / drift_automation_id / "automation.toml"
+                    )
+                    config_path.write_text(
+                        config_path.read_text(encoding="utf-8").replace(
+                            'status = "PAUSED"', 'status = "ACTIVE"'
+                        ),
+                        encoding="utf-8",
+                    )
+                    yield
+
+            with (
+                mock.patch.object(
+                    supervision_log, "CODEX_AUTOMATIONS_ROOT", automation_root
+                ),
+                mock.patch.object(
+                    supervision_log, "append_lock", activate_owner_at_lock
+                ),
+                self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "Every terminal supervision automation must be paused",
+                ),
+            ):
+                supervision_log.cmd_terminal_shutdown(shutdown)
+            self.assertFalse(
+                any(
+                    item.get("category")
+                    == supervision_log.TERMINAL_SHUTDOWN_CATEGORY
+                    for item in supervision_log.events(
+                        root / TARGET / "events.jsonl"
+                    )
+                )
+            )
+
+            drift_config = (
+                automation_root / drift_automation_id / "automation.toml"
+            )
+            drift_config.write_text(
+                drift_config.read_text(encoding="utf-8").replace(
+                    'status = "ACTIVE"', 'status = "PAUSED"'
+                ),
+                encoding="utf-8",
+            )
             shutdown_output = io.StringIO()
             with mock.patch.object(
                 supervision_log, "CODEX_AUTOMATIONS_ROOT", automation_root
