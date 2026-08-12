@@ -543,8 +543,8 @@ the relevant authority and evidence contract.
 | 20 | Automation binding repair | 7, 10, 11 | `accepted` |
 | 21 | Owner-backed operation semantic diffs | 10, 14, 15, 16, 19, 20 | `accepted` |
 | 22 | Supervision pause | 7, 10, 11 | `accepted` |
-| 23 | Canonical supervision-resume lifecycle owner | 22 | `in-progress` |
-| 24 | Supervision resume | 7, 10, 11, 22, 23 | `not-started` |
+| 23 | Canonical supervision-resume lifecycle owner | 22 | `accepted` |
+| 24 | Supervision resume | 7, 10, 11, 22, 23 | `in-progress` |
 | 25 | Same-target mission succession | 7, 10, 11 | `not-started` |
 | 26 | Successor-task continuity | 7, 10, 11 | `not-started` |
 | 27 | Weekly supervision report workflow | 9, 10, 11, 13 | `not-started` |
@@ -6429,7 +6429,7 @@ evolution, request-stop, or terminal shutdown.
 
 ## Block 23 — Canonical supervision-resume lifecycle owner
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -6595,11 +6595,19 @@ reconcile unrelated groups and never retry an append automatically.
   availability leaves the exact interval open. The affected resume-owner suite
   passes 8/8; Ruff and diff checks pass, while the prior 205/205 and mechanical
   proof remain applicable.
-- Review posture: the dashboard capability remains truthfully `unavailable`
-  pending fresh independent exact-revision acceptance of successor `896628c`.
-  No dashboard API/UI/control, automation mutation implementation, direct TOML
-  write, live resume, task/turn resume, policy change, or canonical ledger
-  mutation was executed, and Block 24 remains closed.
+- Fresh independent acceptance: exact evidence
+  `27091628203d77caf7e95c7e16d3d8fef5aa39df`, tree
+  `127039d268c77251126bced281b33e971efee1fe`, and product successor
+  `896628cdd97e07b677d3635c2d48181cf6bce973` were accepted with no material
+  findings. Independent fully rehashed App Server task/turn and excluded Sol
+  Max sources both remained ineligible and noncanonical; status retained the
+  pause and weekly reporting left its interval open. Focused 8/8, Ruff,
+  compilation, full-profile 32-Block verification, verifier 30/30, diff, fsck,
+  exact remote identity, clean checkout, and Stop checks passed. The capability
+  contract now marks the maintained lifecycle owner `supported`, but no
+  dashboard API/UI/control, automation mutation, direct TOML write, live
+  resume, task/turn resume, policy change, or canonical ledger mutation was
+  executed in Block 23.
 
 ### Stop
 
@@ -6610,7 +6618,7 @@ report generation, Factory evolution, request-stop, or terminal shutdown.
 
 ## Block 24 — Supervision resume
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -6712,7 +6720,18 @@ and stop without retrying or widening.
 
 ### Completion evidence
 
-Pending.
+- Activation and authority: Block 24 started automatically after independent
+  acceptance of Block 23 evidence
+  `27091628203d77caf7e95c7e16d3d8fef5aa39df` and product
+  `896628cdd97e07b677d3635c2d48181cf6bce973`. Governing implementation
+  authority remains direct-user item 44 under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+- Work-start boundary: re-read the complete Block 24 contract and began with
+  the accepted dashboard operation coordinator, semantic pause operation,
+  automation owner, and canonical `resume-gate`/`resume-finalize` lifecycle
+  owner. Work is limited to one exact paused supervision group; Blocks 25-31
+  remain unopened and no live resume or other consequential action has been
+  requested.
 
 ### Stop
 
