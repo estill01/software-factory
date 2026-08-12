@@ -151,6 +151,12 @@ class IntegratedFactoryEvolutionDogfoodTests(unittest.TestCase):
             projection["live_skill_identity"]["live_skill_root"],
             self.result["live_skill_invocation"]["live_skill_root"],
         )
+        self.assertNotIn("cycle", projection["eligible_adopted"])
+        self.assertNotIn("artifact_names", projection["eligible_adopted"])
+        self.assertNotIn("baseline_revision", projection["losing_candidate"])
+        self.assertNotIn(
+            "discovery_target", projection["live_skill_identity"]["skills"][0]
+        )
         changed = copy.deepcopy(self.result)
         changed["eligible_adopted"]["cycle_root"] = "0" * 64
         with self.assertRaisesRegex(dogfood.DogfoodError, "root differs"):
@@ -223,6 +229,27 @@ class IntegratedFactoryEvolutionDogfoodTests(unittest.TestCase):
                     ),
                 ),
                 "winner-installed",
+            ),
+            (
+                "live-discovery-target",
+                lambda value: value["live_skill_invocation"]["skills"][0].update(
+                    discovery_target=(
+                        "/Users/ethanstillman/.codex/skills/"
+                        "author-implementation-trackers"
+                    )
+                ),
+                "live",
+            ),
+            (
+                "live-release-shape",
+                lambda value: (
+                    value["live_skill_invocation"].update(shared_release="garbage"),
+                    [
+                        item.update(resolved_release="garbage")
+                        for item in value["live_skill_invocation"]["skills"]
+                    ],
+                ),
+                "live",
             ),
         )
         for case_id, mutate, boundary in cases:

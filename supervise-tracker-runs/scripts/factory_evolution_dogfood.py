@@ -1938,12 +1938,14 @@ def reproducible_result_projection(
         "instruction_invocation",
     }
     skills = live.get("skills")
+    shared_release = live.get("shared_release")
     if (
         set(live) != live_schema
         or type(skills) is not list
         or [item.get("skill_id") for item in skills if isinstance(item, Mapping)]
         != list(factory_evolution.FACTORY_SKILL_IDS)
-        or type(live.get("shared_release")) is not str
+        or type(shared_release) is not str
+        or re.fullmatch(r"[0-9a-f]{12}-[0-9a-f]{12}", shared_release) is None
         or live.get("tracker_verifier_exit_code") != 0
         or re.fullmatch(
             r"[0-9a-f]{64}", str(live.get("tracker_verifier_output_root"))
@@ -1957,8 +1959,6 @@ def reproducible_result_projection(
             or set(item) != skill_schema
             or item.get("resolved_release") != live["shared_release"]
             or item.get("discovery_target")
-            != str(DEFAULT_LIVE_SKILLS / str(item.get("skill_id")))
-            and item.get("discovery_target")
             != str(
                 Path("/Users/ethanstillman/.codex/software-factory-releases/current")
                 / str(item.get("skill_id"))
@@ -2242,7 +2242,6 @@ def reproducible_result_projection(
         raise DogfoodError("temporary installed effect semantics differ")
 
     cycle_fields = (
-        "cycle",
         "normal_owner",
         "evaluation_disposition",
         "adoption_stage",
@@ -2256,13 +2255,10 @@ def reproducible_result_projection(
         "rejected_paths",
         "structural_contract_changed",
         "tracker_authoring_invoked",
-        "artifact_names",
     )
     winner_projection = {field: winner[field] for field in cycle_fields}
     winner_projection.update(
         {
-            "baseline_revision": winner["baseline_revision"],
-            "candidate_revision": winner["candidate_revision"],
             "installed_effect": installed,
             "high_precision_evidence_present": all(
                 type(winner.get(field)) is str
@@ -2283,7 +2279,6 @@ def reproducible_result_projection(
     loser_projection = {field: loser[field] for field in cycle_fields}
     loser_projection.update(
         {
-            "baseline_revision": loser["baseline_revision"],
             "candidate_created": type(loser.get("candidate_revision")) is str,
             "high_precision_evidence_present": all(
                 type(loser.get(field)) is str
@@ -2317,6 +2312,43 @@ def reproducible_result_projection(
         ],
         "human_summary": report["human_summary"],
     }
+    live_projection = {
+        "shared_release": live["shared_release"],
+        "skills": [
+            {
+                key: item[key]
+                for key in (
+                    "skill_id",
+                    "resolved_release",
+                    "skill_sha256",
+                    "tree_root",
+                    "file_count",
+                    "validator_exit_code",
+                    "validator_stdout_sha256",
+                    "instruction_invocation",
+                )
+            }
+            for item in skills
+        ],
+        "tracker_verifier_exit_code": live["tracker_verifier_exit_code"],
+        "tracker_verifier_output_root": live["tracker_verifier_output_root"],
+        "live_skill_root": live["live_skill_root"],
+    }
+    compatibility_projection = {
+        "authority_cases": compatibility["authority_cases"],
+        "authority_modes": compatibility["authority_modes"],
+        "human_request_count": compatibility["human_request_count"],
+        "temporary_target_effects_performed": compatibility[
+            "temporary_target_effects_performed"
+        ],
+        "external_effects_performed": compatibility[
+            "external_effects_performed"
+        ],
+        "release_mutated": compatibility["release_mutated"],
+        "policy_mutated": compatibility["policy_mutated"],
+        "mission_mutated": compatibility["mission_mutated"],
+        "lifecycle_mutated": compatibility["lifecycle_mutated"],
+    }
     material: dict[str, object] = {
         "schema_version": 1,
         "kind": "software-factory-integrated-dogfood-semantic-projection",
@@ -2324,11 +2356,11 @@ def reproducible_result_projection(
         "authorizing": False,
         "raw_roots_validated": True,
         "projected_semantics_validated": True,
-        "live_skill_identity": live,
+        "live_skill_identity": live_projection,
         "eligible_adopted": winner_projection,
         "unchanged_no_op": no_op,
         "losing_candidate": loser_projection,
-        "within_run_compatibility": compatibility,
+        "within_run_compatibility": compatibility_projection,
         "operator_projection": operator,
         "human_report_projection": report_projection,
         "target_clean": operator["target_status"] == "",
