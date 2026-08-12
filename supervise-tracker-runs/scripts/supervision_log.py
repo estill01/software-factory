@@ -4397,7 +4397,7 @@ def watcher_availability_incident_head(
 
 
 def watcher_unavailable_run_length(
-    all_events: list[dict[str, Any]], availability_fingerprint: str
+    all_events: list[dict[str, Any]], state_fingerprint: str
 ) -> int:
     """Count the latest exact unavailable run without crossing a real read."""
 
@@ -4406,13 +4406,13 @@ def watcher_unavailable_run_length(
         category = item.get("category")
         if category == WATCHER_VERIFIED_CATEGORY:
             break
-        item_fingerprint = item.get("watcher_availability_fingerprint")
+        item_fingerprint = item.get("watcher_availability_state_fingerprint")
         if category not in {
             WATCHER_UNAVAILABLE_CATEGORY,
             WATCHER_AVAILABILITY_INCIDENT_CATEGORY,
         }:
             continue
-        if item_fingerprint != availability_fingerprint:
+        if item_fingerprint != state_fingerprint:
             break
         if item.get("watcher_read_status") != "unavailable":
             break
@@ -4460,10 +4460,13 @@ def watcher_availability_record_base(
     }
 
 
-def cmd_watcher_availability(args: argparse.Namespace) -> None:
+def _cmd_watcher_availability_locked(
+    args: argparse.Namespace,
+    directory: Path,
+    policy: Mapping[str, Any],
+) -> None:
     """Record bounded watcher read availability and route only real coverage gaps."""
 
-    directory, policy = load_policy(args)
     state_fingerprint = safe_id(
         args.state_fingerprint, label="watcher state fingerprint"
     )
@@ -4479,7 +4482,13 @@ def cmd_watcher_availability(args: argparse.Namespace) -> None:
             raise SupervisionLogError(
                 "Unavailable watcher read requires an exact retry trigger"
             )
-        availability_fingerprint = digest(
+        availability_state_fingerprint = digest(
+            {
+                "target_thread_id": args.target_thread,
+                "state_fingerprint": state_fingerprint,
+            }
+        )
+        availability_attempt_fingerprint = digest(
             {
                 "target_thread_id": args.target_thread,
                 "state_fingerprint": state_fingerprint,
@@ -4487,12 +4496,28 @@ def cmd_watcher_availability(args: argparse.Namespace) -> None:
             }
         )
         run_length = watcher_unavailable_run_length(
-            mission_events, availability_fingerprint
+            mission_events, availability_state_fingerprint
+        )
+        incident_position = (
+            mission_events.index(incident_head)
+            if incident_head is not None
+            else -1
+        )
+        availability_restored_since_head = bool(
+            incident_head is not None
+            and any(
+                item.get("category") == WATCHER_VERIFIED_CATEGORY
+                and item.get("incident_id") == incident_head.get("incident_id")
+                for item in mission_events[incident_position + 1 :]
+            )
         )
         if (
             incident_head is not None
-            and incident_head.get("watcher_availability_fingerprint")
-            == availability_fingerprint
+            and not availability_restored_since_head
+            and incident_head.get("watcher_availability_state_fingerprint")
+            == availability_state_fingerprint
+            and incident_head.get("watcher_availability_attempt_fingerprint")
+            == availability_attempt_fingerprint
         ):
             print(
                 json.dumps(
@@ -4511,14 +4536,17 @@ def cmd_watcher_availability(args: argparse.Namespace) -> None:
             )
             return
         next_count = run_length + 1
-        threshold_reached = next_count >= WATCHER_AVAILABILITY_THRESHOLD
+        threshold_reached = (
+            next_count >= WATCHER_AVAILABILITY_THRESHOLD
+            or incident_head is not None
+        )
         existing_incident_id = (
             str(incident_head.get("incident_id"))
             if incident_head is not None
             else ""
         )
         incident_id_value = existing_incident_id or (
-            f"INC-WATCHER-{availability_fingerprint[:16].upper()}"
+            f"INC-WATCHER-{availability_state_fingerprint[:16].upper()}"
         )
         category = (
             WATCHER_AVAILABILITY_INCIDENT_CATEGORY
@@ -4553,12 +4581,13 @@ def cmd_watcher_availability(args: argparse.Namespace) -> None:
                 else "Watcher status read was unavailable; bounded retry remains active."
             ),
             evidence=[f"read-trigger:{trigger}"],
-            dedup_key=f"watcher-availability:{availability_fingerprint}",
+            dedup_key=f"watcher-availability:{availability_attempt_fingerprint}",
         )
         record.update(
             {
                 "watcher_read_status": "unavailable",
-                "watcher_availability_fingerprint": availability_fingerprint,
+                "watcher_availability_state_fingerprint": availability_state_fingerprint,
+                "watcher_availability_attempt_fingerprint": availability_attempt_fingerprint,
                 "watcher_unavailable_read_count": next_count,
                 "watcher_unavailable_threshold": WATCHER_AVAILABILITY_THRESHOLD,
                 "read_trigger": trigger,
@@ -4574,10 +4603,9 @@ def cmd_watcher_availability(args: argparse.Namespace) -> None:
                     "resolution": "One current incident owns the repeated availability gap until a real read and a distinct next-state verification are independently reviewed.",
                 }
             )
-        with append_lock(directory):
-            current_events = events(directory / "events.jsonl")
-            record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
-            append_event_locked(args, directory, record)
+        current_events = events(directory / "events.jsonl")
+        record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
+        append_event_locked(args, directory, record)
         runtime = policy.get("runtime", {})
         print(
             json.dumps(
@@ -4658,7 +4686,7 @@ def cmd_watcher_availability(args: argparse.Namespace) -> None:
             item
             for item in reversed(mission_events)
             if item.get("category") == WATCHER_VERIFIED_CATEGORY
-            and item.get("watcher_availability_fingerprint")
+            and item.get("watcher_availability_attempt_fingerprint")
             == availability_fingerprint
         ),
         None,
@@ -4692,7 +4720,13 @@ def cmd_watcher_availability(args: argparse.Namespace) -> None:
         {
             "incident_id": incident_id_value,
             "watcher_read_status": "available-verified",
-            "watcher_availability_fingerprint": availability_fingerprint,
+            "watcher_availability_state_fingerprint": digest(
+                {
+                    "target_thread_id": args.target_thread,
+                    "state_fingerprint": state_fingerprint,
+                }
+            ),
+            "watcher_availability_attempt_fingerprint": availability_fingerprint,
             "read_source_record": read_source,
             "verification_source_record": verification_source,
             "observed_state_fingerprint": observed_state,
@@ -4702,10 +4736,9 @@ def cmd_watcher_availability(args: argparse.Namespace) -> None:
             "next_state_verified": True,
         }
     )
-    with append_lock(directory):
-        current_events = events(directory / "events.jsonl")
-        record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
-        append_event_locked(args, directory, record)
+    current_events = events(directory / "events.jsonl")
+    record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
+    append_event_locked(args, directory, record)
     runtime = policy.get("runtime", {})
     print(
         json.dumps(
@@ -4719,6 +4752,23 @@ def cmd_watcher_availability(args: argparse.Namespace) -> None:
             sort_keys=True,
         )
     )
+
+
+def cmd_watcher_availability(args: argparse.Namespace) -> None:
+    """Serialize watcher availability state, duplicate decisions, and append."""
+
+    directory, policy = load_policy(args)
+    with append_lock(directory):
+        current_directory, current_policy = load_policy(args)
+        if current_directory.resolve() != directory.resolve():
+            raise SupervisionLogError(
+                "Watcher availability resolved a different supervision root"
+            )
+        if current_policy.get("policy_sha256") != policy.get("policy_sha256"):
+            raise SupervisionLogError(
+                "Supervision policy changed concurrently; retry watcher availability"
+            )
+        _cmd_watcher_availability_locked(args, directory, policy)
 
 
 def incident_id(args: argparse.Namespace, record: dict[str, Any]) -> str:

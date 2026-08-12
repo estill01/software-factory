@@ -9,6 +9,8 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -8280,10 +8282,41 @@ class WatcherAvailabilityContractTests(unittest.TestCase):
             trigger or self.trigger,
         )
 
+    def concurrent_cli(self, arguments: list[str]) -> list[dict[str, object]]:
+        command = [
+            sys.executable,
+            str(HELPER_PATH),
+            "--root",
+            str(self.root),
+            "watcher-availability",
+            "--target-thread",
+            self.target,
+            "--state-fingerprint",
+            self.state,
+            "--now",
+            "2026-08-12T12:00:00+00:00",
+            *arguments,
+        ]
+        processes = [
+            subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            for _ in range(2)
+        ]
+        result: list[dict[str, object]] = []
+        for process in processes:
+            stdout, stderr = process.communicate(timeout=15)
+            self.assertEqual(process.returncode, 0, stderr)
+            result.append(json.loads(stdout))
+        return result
+
     def open_incident(self) -> str:
         first = self.unavailable()
-        second = self.unavailable()
-        third = self.unavailable()
+        second = self.unavailable("compact-thread-read-retry-2-1234")
+        third = self.unavailable("compact-thread-read-retry-3-1234")
         self.assertEqual(first["next_action"], "retry-compact-read")
         self.assertEqual(second["next_action"], "retry-compact-read")
         self.assertTrue(third["route_required"])
@@ -8293,7 +8326,7 @@ class WatcherAvailabilityContractTests(unittest.TestCase):
         incident_id = self.open_incident()
         before = supervision_log.events(self.directory / "events.jsonl")
 
-        duplicate = self.unavailable()
+        duplicate = self.unavailable("compact-thread-read-retry-3-1234")
         after = supervision_log.events(self.directory / "events.jsonl")
 
         self.assertTrue(duplicate["duplicate"])
@@ -8316,13 +8349,100 @@ class WatcherAvailabilityContractTests(unittest.TestCase):
         changed = self.unavailable("compact-thread-read-after-route-1234")
 
         self.assertFalse(changed["duplicate"])
-        self.assertFalse(changed["route_required"])
+        self.assertTrue(changed["route_required"])
+        self.assertEqual(changed["record"]["incident_id"], incident_id)
         head = supervision_log.watcher_availability_incident_head(
             supervision_log.events(self.directory / "events.jsonl")
         )
         self.assertIsNotNone(head)
         assert head is not None
         self.assertEqual(head["incident_id"], incident_id)
+
+    def test_three_changed_triggers_share_one_target_state_threshold(self) -> None:
+        first = self.unavailable("compact-trigger-a-1234")
+        second = self.unavailable("compact-trigger-b-1234")
+        third = self.unavailable("compact-trigger-c-1234")
+
+        self.assertFalse(first["route_required"])
+        self.assertFalse(second["route_required"])
+        self.assertTrue(third["route_required"])
+        self.assertEqual(third["record"]["watcher_unavailable_read_count"], 3)
+        self.assertEqual(
+            len(
+                {
+                    first["record"]["watcher_availability_state_fingerprint"],
+                    second["record"]["watcher_availability_state_fingerprint"],
+                    third["record"]["watcher_availability_state_fingerprint"],
+                }
+            ),
+            1,
+        )
+        self.assertEqual(
+            len(
+                {
+                    first["record"]["watcher_availability_attempt_fingerprint"],
+                    second["record"]["watcher_availability_attempt_fingerprint"],
+                    third["record"]["watcher_availability_attempt_fingerprint"],
+                }
+            ),
+            3,
+        )
+
+    def test_concurrent_threshold_and_verified_recovery_append_once(self) -> None:
+        self.unavailable("compact-concurrent-trigger-a-1234")
+        self.unavailable("compact-concurrent-trigger-b-1234")
+        threshold_results = self.concurrent_cli(
+            [
+                "--read-status",
+                "unavailable",
+                "--read-trigger",
+                "compact-concurrent-trigger-c-1234",
+            ]
+        )
+        self.assertEqual(
+            sorted(bool(item["duplicate"]) for item in threshold_results),
+            [False, True],
+        )
+        incident_records = [
+            item
+            for item in supervision_log.events(self.directory / "events.jsonl")
+            if item.get("kind") == "incident"
+            and item.get("category")
+            == supervision_log.WATCHER_AVAILABILITY_INCIDENT_CATEGORY
+        ]
+        self.assertEqual(len(incident_records), 1)
+        incident_id = str(incident_records[0]["incident_id"])
+
+        verified_results = self.concurrent_cli(
+            [
+                "--read-status",
+                "available-verified",
+                "--incident-id",
+                incident_id,
+                "--read-source-record",
+                "concurrent-read-before-1234",
+                "--verification-source-record",
+                "concurrent-read-after-1234",
+                "--observed-state-fingerprint",
+                "concurrent-observed-state-1234",
+                "--verification-state-fingerprint",
+                "concurrent-verified-state-1234",
+                "--observed-thread-status",
+                "active",
+                "--verification-thread-status",
+                "active",
+            ]
+        )
+        self.assertEqual(
+            sorted(bool(item["duplicate"]) for item in verified_results),
+            [False, True],
+        )
+        verified_records = [
+            item
+            for item in supervision_log.events(self.directory / "events.jsonl")
+            if item.get("category") == supervision_log.WATCHER_VERIFIED_CATEGORY
+        ]
+        self.assertEqual(len(verified_records), 1)
 
     def test_verified_read_requires_distinct_next_state_and_routes_review(self) -> None:
         incident_id = self.open_incident()
@@ -8379,6 +8499,16 @@ class WatcherAvailabilityContractTests(unittest.TestCase):
                 supervision_log.events(self.directory / "events.jsonl")
             )
         )
+
+        recurrence = self.unavailable("compact-thread-read-retry-3-1234")
+        repeated_recurrence = self.unavailable(
+            "compact-thread-read-retry-3-1234"
+        )
+        self.assertFalse(recurrence["duplicate"])
+        self.assertTrue(recurrence["route_required"])
+        self.assertEqual(recurrence["record"]["incident_id"], incident_id)
+        self.assertEqual(recurrence["record"]["status"], "recurrence-current")
+        self.assertTrue(repeated_recurrence["duplicate"])
 
     def test_verified_read_rejects_unknown_or_closed_incident(self) -> None:
         with self.assertRaisesRegex(
