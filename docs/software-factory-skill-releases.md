@@ -91,9 +91,12 @@ one-pointer `activate` boundary. At that locked boundary it compares both the
 expected prior release ID and the prior activation-history HMAC, so an
 intervening release or an A-to-B-to-A history change rejects before the
 operator record is consumed or the pointer is written. If activation completed
-before its caller could record the adoption, an identical retry rehydrates the exact manifest,
+before its caller could record the adoption, an identical retry rehydrates the
+exact manifest,
 acceptance, activation, and installed verification roots without consuming a
-second operator record. It does not decide eligibility, expand permissions, or
+second operator record. Rehydration requires one unique activation of that
+candidate from the named baseline; later reactivation history rejects as
+ambiguous. It does not decide eligibility, expand permissions, or
 accept a `promote` artifact as release evidence.
 
 `rollback` may select only a release that appears as a prior active release in

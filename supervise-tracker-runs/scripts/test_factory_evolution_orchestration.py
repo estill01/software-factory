@@ -1708,6 +1708,74 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         self.assertFalse(corrected["action"]["adoption_authorized"])
         self.assertEqual(fake.activation_count, 1)
 
+    def test_post_activation_history_change_rejects_before_adoption_event(self) -> None:
+        self.configure_adoption_policy(mode="full-autonomous", permissions=True)
+        _comparison, handoff = self.candidate_ready_for_evaluation()
+        source = self.admission.root / "evaluation-for-adoption-history-change.json"
+        source.write_bytes(
+            supervision_log.canonical(self.evaluation_submission(handoff)) + b"\n"
+        )
+        self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "evaluate",
+            "--evolution-id",
+            self.evolution_id,
+            "--evaluation-json",
+            str(source),
+        )
+        fake = self.FakeReleaseOwner(
+            str(handoff["baseline_revision"]), str(handoff["candidate_revision"])
+        )
+        original_adopt = fake.adopt_release
+
+        def adopt_then_change_history(args: object) -> dict[str, object]:
+            result = original_adopt(args)
+            original_status = fake._status
+
+            def changed_status() -> dict[str, object]:
+                value = original_status()
+                activation = dict(value["activation_record"])
+                activation["record_id"] = "ACTIVATION-4"
+                activation["record_hmac_sha256"] = "4" * 64
+                value["activation_record"] = activation
+                value["release_owner_state_root_sha256"] = supervision_log.digest(value)
+                return value
+
+            fake._status = changed_status  # type: ignore[method-assign]
+            return result
+
+        fake.adopt_release = adopt_then_change_history  # type: ignore[method-assign]
+        review_path = self.admission.root / "release-review-history-change.json"
+        review_path.write_text("{}", encoding="utf-8")
+        permit_path = self.admission.root / "quiescent-history-change.json"
+        permit_path.write_text(
+            json.dumps({"operator_id": "release-operator-1234"}), encoding="utf-8"
+        )
+        before = supervision_log.events(self.directory / "events.jsonl")
+        with (
+            mock.patch.object(supervision_log, "factory_release_module", return_value=fake),
+            self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "adopted release differs"
+            ),
+        ):
+            self.command(
+                "factory-evolution",
+                "--target-thread",
+                self.target_thread,
+                "--action",
+                "orchestrate",
+                "--evolution-id",
+                self.evolution_id,
+                "--release-review-evidence",
+                str(review_path),
+                "--quiescent-evidence",
+                str(permit_path),
+            )
+        self.assertEqual(supervision_log.events(self.directory / "events.jsonl"), before)
+
     def test_interrupted_adoption_append_rehydrates_one_activation(self) -> None:
         self.configure_adoption_policy(mode="reviewed-autonomous", permissions=True)
         _comparison, handoff = self.candidate_ready_for_evaluation()

@@ -1758,13 +1758,25 @@ def adopt_release(args: argparse.Namespace) -> dict[str, Any]:
         records = history(release_root)
         if not records or records[-1]["release_id"] != release_id:
             raise ReleaseError("Adoption activation history is not current")
+        candidate_activations = [
+            record for record in records if record["release_id"] == release_id
+        ]
+        if len(candidate_activations) != 1:
+            raise ReleaseError("Adoption activation history is ambiguous")
+        activation_record = candidate_activations[0]
+        previous_release_id = activation_record["previous_release_id"]
+        if previous_release_id is None:
+            raise ReleaseError("Adoption activation baseline is unavailable")
+        previous_manifest = read_manifest(release_root, str(previous_release_id))
+        if previous_manifest["source_commit"] != baseline_source_commit:
+            raise ReleaseError("Adoption activation baseline differs")
         result = {
             "schema_version": SCHEMA_VERSION,
             "kind": "software-factory-skill-adoption",
             "duplicate": True,
             "baseline_source_commit": baseline_source_commit,
             "candidate_source_commit": staged["source_commit"],
-            "previous_release_id": records[-1]["previous_release_id"],
+            "previous_release_id": activation_record["previous_release_id"],
             "active_release_id": release_id,
             "manifest_sha256": staged["manifest_sha256"],
             "candidate_root_sha256": staged["candidate_root_sha256"],
@@ -1776,11 +1788,11 @@ def adopt_release(args: argparse.Namespace) -> dict[str, Any]:
             "acceptance_record_id": accepted_release_record(
                 release_root, release_id
             )["record_id"],
-            "activation_record_id": records[-1]["record_id"],
-            "activation_record_hmac_sha256": records[-1][
+            "activation_record_id": activation_record["record_id"],
+            "activation_record_hmac_sha256": activation_record[
                 "record_hmac_sha256"
             ],
-            "previous_activation_record_hmac_sha256": records[-1][
+            "previous_activation_record_hmac_sha256": activation_record[
                 "previous_record_hmac_sha256"
             ],
             "installed_verification_root_sha256": installed[

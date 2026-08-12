@@ -3929,7 +3929,14 @@ gate, atomic diff, live installed path, and current effects.
   preserves the public activation interface, and adds intervening-release plus
   A-to-B-to-A negative regressions. The supervision adoption payload separately
   requires the returned prior release/HMAC to equal its frozen pre-effect owner
-  snapshot. Exact successor review remains pending.
+  snapshot.
+- Rejected exact successor `3cce63aae93b1406c0079e45d5ceaccd77df0ef9`:
+  `B15-F02` found that a post-activation C-to-B-to-C history change could pair
+  the original activation fields with the later release-owner snapshot. The
+  correction requires the post-state activation record ID/HMAC to equal the
+  exact owner result before append and rejects duplicate rehydration when the
+  candidate has multiple activation records. Exact successor review remains
+  pending.
 
 ### Stop
 

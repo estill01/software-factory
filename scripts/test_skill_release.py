@@ -440,7 +440,10 @@ class SkillReleaseTests(unittest.TestCase):
         for name in skill_release.SKILLS:
             (self.repo / name / "VERSION").write_text("3\n", encoding="utf-8")
         candidate_commit = self.commit("adoption candidate")
-        candidate = self.stage(candidate_commit)
+        candidate_review = self.review_evidence(candidate_commit)
+        candidate = skill_release.stage_release(
+            self.stage_args(candidate_commit, review_evidence=candidate_review)
+        )
 
         skill_release.activate_release(
             self.activate_args(
@@ -490,6 +493,39 @@ class SkillReleaseTests(unittest.TestCase):
         self.assertEqual(
             skill_release.current_release_id(self.release_root.resolve()),
             baseline["release_id"],
+        )
+
+        skill_release.activate_release(candidate_after_aba)
+        skill_release.rollback_release(
+            self.activate_args(
+                str(baseline["release_id"]),
+                operation="rollback",
+                previous_release_id=str(candidate["release_id"]),
+            )
+        )
+        skill_release.activate_release(
+            self.activate_args(
+                str(candidate["release_id"]),
+                operation="activate",
+                previous_release_id=str(baseline["release_id"]),
+            )
+        )
+        history_count = len(skill_release.history(self.release_root.resolve()))
+        with self.assertRaisesRegex(skill_release.ReleaseError, "history is ambiguous"):
+            skill_release.adopt_release(
+                argparse.Namespace(
+                    repo=str(self.repo),
+                    release_root=str(self.release_root),
+                    install_root=str(self.install_root),
+                    source_commit=candidate_commit,
+                    baseline_source_commit=baseline_commit,
+                    implementer_id="implementation-owner-1234",
+                    review_evidence=str(candidate_review),
+                    quiescent_evidence=str(self.root / "not-consumed.json"),
+                )
+            )
+        self.assertEqual(
+            len(skill_release.history(self.release_root.resolve())), history_count
         )
 
     def test_stage_rejects_dirty_missing_review_partial_and_symlinked_source(self) -> None:

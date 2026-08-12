@@ -343,7 +343,11 @@ protected-behavior, baseline-behavior, capability-frame, packet, review,
 experiment, acknowledgment, and evaluation roots; the baseline release
 transition; the post-release-owner root; accepted manifest; release acceptance
 and activation records; installed verification and operator-visible-effect
-roots; authority posture; and next outcome-reconciliation action. The
+roots; authority posture; and next outcome-reconciliation action. The post-
+release snapshot's activation record ID and HMAC must equal the exact owner
+result, so a post-activation release-history change rejects before the adoption
+event. Interrupted rehydration accepts only one unique candidate activation
+from the frozen baseline. The
 supervision owner holds the exact current Git ref against a concurrent ref
 write and requires a clean, unchanged baseline worktree immediately before and
 after the release effect and physical event append. Retry after a completed

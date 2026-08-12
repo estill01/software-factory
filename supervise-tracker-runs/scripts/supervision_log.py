@@ -17841,6 +17841,7 @@ def factory_evolution_adoption_payload(
     if release_result is not None:
         assert release_before is not None and release_after is not None
         release_before_activation = release_before.get("activation_record")
+        release_after_activation = release_after.get("activation_record")
         duplicate_release = release_result.get("duplicate") is True
         expected_previous_release_id = (
             release_before_activation.get("previous_release_id")
@@ -17887,6 +17888,11 @@ def factory_evolution_adoption_payload(
             != release_result.get("manifest_sha256")
             or release_after.get("candidate_root_sha256")
             != release_result.get("candidate_root_sha256")
+            or not isinstance(release_after_activation, Mapping)
+            or release_after_activation.get("record_id")
+            != release_result.get("activation_record_id")
+            or release_after_activation.get("record_hmac_sha256")
+            != release_result.get("activation_record_hmac_sha256")
         ):
             raise SupervisionLogError("Factory evolution adopted release differs")
         roles = {
