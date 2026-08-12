@@ -507,7 +507,7 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
         self.assertEqual(result["reviewer_calls"], 0)
         self.assertFalse(result["candidate_started"])
 
-    def test_consumed_coverage_and_resource_exhaustion_are_no_ops(self) -> None:
+    def test_synthetic_outcome_cannot_consume_coverage(self) -> None:
         record_id = self.append_event()
         report = self.write_report([record_id], name="consumed-source")
         packet = self.packet_for(report)
@@ -570,13 +570,43 @@ class FactoryEvolutionAdmissionTests(unittest.TestCase):
             payload=outcome_payload,
         )
         supervision_log.append_raw(self.directory / "events.jsonl", outcome)
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "intrinsic outcome",
+        ):
+            supervision_log.factory_evolution_outcome_projection(
+                supervision_log.events(self.directory / "events.jsonl"),
+                policy=supervision_log.read_json(self.directory / "policy.json"),
+            )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "intrinsic outcome",
+        ):
+            self.admit(
+                self.write_report(
+                    [outcome["record_id"]], name="synthetic-outcome-productivity"
+                )
+            )
         current_report = self.write_report([record_id], name="consumed-current")
-        consumed = self.admit(current_report)
-        self.assertEqual(
-            consumed["disposition"], "already-consumed-canonical-coverage"
-        )
-        self.assertFalse(consumed["eligible"])
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "intrinsic outcome",
+        ):
+            self.admit(current_report)
 
+    def test_resource_exhaustion_is_a_no_op(self) -> None:
+        record_id = self.append_event()
+        packet = self.packet_for(
+            self.write_report([record_id], name="resource-source")
+        )
+        novelty_key, novelty = self.novelty(packet)
+        assert novelty_key is not None
+        self.append_prior_admission(
+            novelty_key=novelty_key,
+            record_hashes=novelty["coverage"]["record_sha256s"],
+            evolution_id="prior-resource-cycle-1234",
+            context_root="d" * 64,
+        )
         self.set_policy(max_admissions=1)
         new_record = self.append_event(category="economy-gain")
         exhausted = self.admit(

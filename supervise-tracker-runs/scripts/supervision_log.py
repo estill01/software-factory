@@ -14532,10 +14532,11 @@ def factory_evolution_supported_novelty(
     for item in source_events:
         kind = item.get("kind")
         if kind == FACTORY_EVOLUTION_OUTCOME_EVENT_KIND:
-            record = validate_factory_evolution_orchestration_evidence_record(
-                item, policy=policy
+            record = validate_factory_evolution_intrinsic_outcome_record(
+                item,
+                policy=policy,
+                source_events=source_events,
             )
-            validate_factory_evolution_outcome_evidence_payload(record["payload"])
             outcome_heads[str(record["evolution_id"])] = record
             outcome_records[str(record["record_id"])] = record
         elif kind == FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND:
@@ -15062,6 +15063,27 @@ FACTORY_EVOLUTION_OUTCOME_FIELDS = {
     "release_owner_state_root", "implementation_owner_id", "evaluator_id",
     "outcome_reviewer_id", "evidence_refs", "candidate_authoritative",
     "incumbent_authoritative", "next_action", "outcome_root",
+}
+FACTORY_EVOLUTION_ADOPTION_FIELDS = {
+    "schema_version", "kind", "evolution_id", "evaluation_id",
+    "evaluation_root", "evaluation_handoff_root", "packet_root",
+    "review_root", "experiment_root", "acknowledgment_root",
+    "capability_frame_root", "requested_capability_root",
+    "selected_architecture_root", "accepted_tradeoffs_root",
+    "protected_behavior_root", "baseline_behavior_root",
+    "evaluation_disposition", "baseline_revision", "candidate_revision",
+    "candidate_root", "adaptive_decision_mode", "required_permissions",
+    "permission_results", "permission_granted", "adoption_eligible",
+    "application_posture", "application_authorized", "human_request_count",
+    "candidate_authoritative", "incumbent_authoritative",
+    "adoption_executor_id", "implementation_owner_id", "evaluator_id",
+    "release_baseline_transition_root", "release_owner_state_after_root",
+    "release_id", "release_manifest_sha256", "release_acceptance_record_id",
+    "release_reviewer_id", "release_activation_record_id",
+    "release_activation_record_hmac_sha256",
+    "installed_verification_root_sha256", "release_adoption_root_sha256",
+    "operator_visible_effect_root", "production_authority", "next_action",
+    "adoption_currentness_root",
 }
 FACTORY_EVOLUTION_OWNER_ACK_INPUT_KIND = (
     "software-factory-evolution-owner-acknowledgment-input"
@@ -17102,7 +17124,9 @@ def factory_evolution_checkpoint_admission(
     }
     terminal_ids.update(
         str(item["evolution_id"])
-        for item in factory_evolution_outcome_projection(active_events)[
+        for item in factory_evolution_outcome_projection(
+            active_events, policy=policy
+        )[
             "current_outcomes"
         ]
     )
@@ -18181,56 +18205,10 @@ def validate_factory_evolution_adoption_payload(
     state: Mapping[str, Any],
     require_current_release: bool = True,
 ) -> dict[str, Any]:
-    fields = {
-        "schema_version",
-        "kind",
-        "evolution_id",
-        "evaluation_id",
-        "evaluation_root",
-        "evaluation_handoff_root",
-        "packet_root",
-        "review_root",
-        "experiment_root",
-        "acknowledgment_root",
-        "capability_frame_root",
-        "requested_capability_root",
-        "selected_architecture_root",
-        "accepted_tradeoffs_root",
-        "protected_behavior_root",
-        "baseline_behavior_root",
-        "evaluation_disposition",
-        "baseline_revision",
-        "candidate_revision",
-        "candidate_root",
-        "adaptive_decision_mode",
-        "required_permissions",
-        "permission_results",
-        "permission_granted",
-        "adoption_eligible",
-        "application_posture",
-        "application_authorized",
-        "human_request_count",
-        "candidate_authoritative",
-        "incumbent_authoritative",
-        "adoption_executor_id",
-        "implementation_owner_id",
-        "evaluator_id",
-        "release_baseline_transition_root",
-        "release_owner_state_after_root",
-        "release_id",
-        "release_manifest_sha256",
-        "release_acceptance_record_id",
-        "release_reviewer_id",
-        "release_activation_record_id",
-        "release_activation_record_hmac_sha256",
-        "installed_verification_root_sha256",
-        "release_adoption_root_sha256",
-        "operator_visible_effect_root",
-        "production_authority",
-        "next_action",
-        "adoption_currentness_root",
-    }
-    if not isinstance(value, Mapping) or set(value) != fields:
+    if (
+        not isinstance(value, Mapping)
+        or set(value) != FACTORY_EVOLUTION_ADOPTION_FIELDS
+    ):
         raise SupervisionLogError("Factory evolution adoption result must be an object")
     material = {
         key: item for key, item in value.items() if key != "adoption_currentness_root"
@@ -18902,6 +18880,413 @@ def validate_factory_evolution_outcome_evidence_payload(
     ):
         raise SupervisionLogError("Factory evolution rollback fields differ")
     return dict(value)
+
+
+def validate_factory_evolution_intrinsic_outcome_record(
+    value: Any,
+    *,
+    policy: Mapping[str, Any],
+    source_events: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    record = validate_factory_evolution_orchestration_evidence_record(
+        value, policy=policy
+    )
+    if record.get("kind") != FACTORY_EVOLUTION_OUTCOME_EVENT_KIND:
+        raise SupervisionLogError("Factory evolution intrinsic outcome kind differs")
+    payload = validate_factory_evolution_outcome_evidence_payload(record["payload"])
+    exact_records = [dict(item) for item in source_events if isinstance(item, Mapping)]
+    positions = {
+        str(item.get("record_id")): index for index, item in enumerate(exact_records)
+    }
+    record_id = str(record["record_id"])
+    if (
+        positions.get(record_id) is None
+        or exact_records[positions[record_id]] != record
+        or record.get("record_sha256")
+        != digest(
+            {key: item for key, item in record.items() if key != "record_sha256"}
+        )
+    ):
+        raise SupervisionLogError("Factory evolution intrinsic outcome record differs")
+    outcome_position = positions[record_id]
+    evolution_id = str(record["evolution_id"])
+    if payload["evolution_id"] != evolution_id:
+        raise SupervisionLogError("Factory evolution intrinsic outcome cycle differs")
+
+    def one_event(
+        kind: str,
+        predicate: Any,
+        *,
+        label: str,
+    ) -> dict[str, Any]:
+        matches = [
+            item
+            for index, item in enumerate(exact_records)
+            if index < outcome_position
+            and item.get("kind") == kind
+            and item.get("evolution_id") == evolution_id
+            and isinstance(item.get("payload"), Mapping)
+            and predicate(item.get("payload", {}))
+        ]
+        if len(matches) != 1:
+            raise SupervisionLogError(
+                f"Factory evolution intrinsic outcome {label} differs"
+            )
+        result = validate_factory_evolution_orchestration_evidence_record(
+            matches[0], policy=policy
+        )
+        if result.get("record_sha256") != digest(
+            {key: item for key, item in result.items() if key != "record_sha256"}
+        ) or any(
+            result.get(field) != record.get(field)
+            for field in (
+                "target_thread_id",
+                "policy_sha256",
+                "mission_root",
+            )
+        ):
+            raise SupervisionLogError(
+                f"Factory evolution intrinsic outcome {label} differs"
+            )
+        return result
+
+    admissions = [
+        validate_factory_evolution_admission_event(item)
+        for index, item in enumerate(exact_records)
+        if index < outcome_position
+        and item.get("kind") == "factory-evolution-admission"
+        and item.get("record_id") == payload["admission_record_id"]
+        and item.get("evolution_id") == evolution_id
+    ]
+    if len(admissions) != 1:
+        raise SupervisionLogError(
+            "Factory evolution intrinsic outcome admission differs"
+        )
+    admission = admissions[0]
+    if (
+        admission.get("record_sha256")
+        != digest(
+            {
+                key: item
+                for key, item in admission.items()
+                if key != "record_sha256"
+            }
+        )
+        or admission.get("target_thread_id") != record.get("target_thread_id")
+        or admission.get("policy_sha256") != record.get("policy_sha256")
+        or admission.get("mission_root") != record.get("mission_root")
+        or admission.get("disposition") != "admitted"
+        or admission.get("packet_root") != payload["packet_root"]
+        or admission.get("canonical_evidence_novelty_key")
+        != payload["canonical_evidence_novelty_key"]
+        or digest(admission.get("canonical_record_sha256s", []))
+        != payload["consumed_coverage_root"]
+    ):
+        raise SupervisionLogError(
+            "Factory evolution intrinsic outcome admission binding differs"
+        )
+    admission_corrections = [
+        validate_factory_evolution_admission_correction_event(
+            item, admission=admission
+        )
+        for index, item in enumerate(exact_records)
+        if index < outcome_position
+        and item.get("kind")
+        == "factory-evolution-admission-currentness-rejected"
+        and item.get("supersedes_record_id") == admission["record_id"]
+    ]
+    if admission_corrections:
+        raise SupervisionLogError(
+            "Factory evolution intrinsic outcome admission is not active"
+        )
+    review_handoff = one_event(
+        FACTORY_EVOLUTION_REVIEW_HANDOFF_EVENT_KIND,
+        lambda item: item.get("packet_root") == payload["packet_root"]
+        and item.get("review_handoff_root")
+        == digest(
+            {
+                key: nested
+                for key, nested in item.items()
+                if key != "review_handoff_root"
+            }
+        ),
+        label="review handoff",
+    )
+    owner_handoff = one_event(
+        FACTORY_EVOLUTION_OWNER_HANDOFF_EVENT_KIND,
+        lambda item: item.get("packet_root") == payload["packet_root"]
+        and item.get("review_root") == payload["review_root"]
+        and item.get("candidate_id") == payload["selected_candidate_id"],
+        label="owner handoff",
+    )
+    acknowledgment = one_event(
+        FACTORY_EVOLUTION_OWNER_ACK_EVENT_KIND,
+        lambda item: item.get("handoff_root")
+        == owner_handoff["payload"].get("handoff_root"),
+        label="owner acknowledgment",
+    )
+    module = factory_evolution_module()
+    try:
+        rebuilt_acknowledgment = module.build_owner_acknowledgment(
+            owner_handoff["payload"], acknowledgment["payload"]
+        )
+    except module.FactoryEvolutionError as exc:
+        raise SupervisionLogError(
+            "Factory evolution intrinsic outcome owner proof differs"
+        ) from exc
+    if rebuilt_acknowledgment != acknowledgment["payload"]:
+        raise SupervisionLogError(
+            "Factory evolution intrinsic outcome owner proof differs"
+        )
+    comparison_start = one_event(
+        FACTORY_EVOLUTION_BASELINE_COMPARISON_START_EVENT_KIND,
+        lambda item: item.get("packet_root") == payload["packet_root"]
+        and item.get("review_root") == payload["review_root"]
+        and item.get("handoff_root")
+        == owner_handoff["payload"].get("handoff_root")
+        and item.get("acknowledgment_root")
+        == acknowledgment["payload"].get("currentness_root"),
+        label="comparison start",
+    )
+    evaluation_handoff = one_event(
+        FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND,
+        lambda item: item.get("packet_root") == payload["packet_root"]
+        and item.get("review_root") == payload["review_root"]
+        and item.get("candidate_id") == payload["selected_candidate_id"]
+        and item.get("acknowledgment_root")
+        == acknowledgment["payload"].get("currentness_root"),
+        label="evaluation handoff",
+    )
+    handoff_payload = evaluation_handoff["payload"]
+    comparison_start_payload = comparison_start["payload"]
+    if (
+        handoff_payload.get("evaluation_handoff_root")
+        != digest(
+            {
+                key: item
+                for key, item in handoff_payload.items()
+                if key != "evaluation_handoff_root"
+            }
+        )
+        or comparison_start_payload.get("comparison_start_root")
+        != digest(
+            {
+                key: item
+                for key, item in comparison_start_payload.items()
+                if key != "comparison_start_root"
+            }
+        )
+        or handoff_payload.get("resource_usage")
+        != acknowledgment["payload"].get("resource_usage")
+    ):
+        raise SupervisionLogError(
+            "Factory evolution intrinsic outcome evaluation handoff differs"
+        )
+    evaluation_record = one_event(
+        FACTORY_EVOLUTION_EVALUATION_EVENT_KIND,
+        lambda item: item.get("evaluation_root") == payload["evaluation_root"],
+        label="evaluation",
+    )
+    try:
+        evaluation = module.verify_orchestrated_candidate_evaluation(
+            handoff_payload, evaluation_record["payload"]
+        )
+    except module.FactoryEvolutionError as exc:
+        raise SupervisionLogError(
+            "Factory evolution intrinsic outcome evaluation differs"
+        ) from exc
+    evaluation_submission = {
+        "schema_version": 1,
+        "kind": module.ORCHESTRATED_EVALUATION_SUBMISSION_KIND,
+        "evaluation_handoff_root": evaluation["evaluation_handoff_root"],
+        "evaluator_id": evaluation["evaluator_id"],
+        "evaluator_authority_key_sha256": evaluation[
+            "evaluator_authority_key_sha256"
+        ],
+        "evaluation_signature_base64": evaluation[
+            "evaluation_signature_base64"
+        ],
+        "baseline_results": evaluation["baseline_results"],
+        "candidate_results": evaluation["candidate_results"],
+        "contrary_evidence": evaluation["contrary_evidence"],
+        "regression_findings": evaluation["regression_findings"],
+        "disposition": evaluation["disposition"],
+        "rationale": evaluation["rationale"],
+    }
+    verify_factory_evolution_evaluation_signature(evaluation_submission)
+    adoption_record = one_event(
+        FACTORY_EVOLUTION_ADOPTION_EVENT_KIND,
+        lambda item: item.get("adoption_currentness_root")
+        == payload["adoption_currentness_root"],
+        label="adoption",
+    )
+    adoption = adoption_record["payload"]
+    adoption_material = {
+        key: item
+        for key, item in adoption.items()
+        if key != "adoption_currentness_root"
+    }
+    if (
+        set(adoption) != FACTORY_EVOLUTION_ADOPTION_FIELDS
+        or type(adoption.get("schema_version")) is not int
+        or adoption.get("schema_version") != 1
+        or adoption.get("kind") != "software-factory-evolution-adoption-result"
+        or adoption.get("adoption_currentness_root") != digest(adoption_material)
+        or adoption.get("evolution_id") != evolution_id
+        or adoption.get("packet_root") != payload["packet_root"]
+        or adoption.get("review_root") != payload["review_root"]
+        or adoption.get("evaluation_root") != payload["evaluation_root"]
+        or adoption.get("evaluation_handoff_root")
+        != handoff_payload.get("evaluation_handoff_root")
+        or adoption.get("acknowledgment_root")
+        != acknowledgment["payload"].get("currentness_root")
+        or adoption.get("candidate_root") != evaluation.get("candidate_root")
+        or adoption.get("implementation_owner_id")
+        != acknowledgment["payload"].get("owner_id")
+        or adoption.get("evaluator_id") != evaluation.get("evaluator_id")
+        or payload["resource_cost"]
+        != acknowledgment["payload"].get("resource_usage")
+        or payload["implementation_owner_id"]
+        != acknowledgment["payload"].get("owner_id")
+        or payload["evaluator_id"] != evaluation.get("evaluator_id")
+    ):
+        raise SupervisionLogError(
+            "Factory evolution intrinsic outcome adoption binding differs"
+        )
+    corrected_source_ids = {
+        str(item.get("payload", {}).get("supersedes_record_id", ""))
+        for index, item in enumerate(exact_records)
+        if index < outcome_position
+        and item.get("kind")
+        in {
+            FACTORY_EVOLUTION_EVALUATION_HANDOFF_CORRECTION_EVENT_KIND,
+            FACTORY_EVOLUTION_EVALUATION_CORRECTION_EVENT_KIND,
+            FACTORY_EVOLUTION_ADOPTION_CORRECTION_EVENT_KIND,
+        }
+    }
+    if any(
+        item["record_id"] in corrected_source_ids
+        for item in (evaluation_handoff, evaluation_record, adoption_record)
+    ):
+        raise SupervisionLogError(
+            "Factory evolution intrinsic outcome uses corrected evidence"
+        )
+    ordered_chain = (
+        admission,
+        review_handoff,
+        owner_handoff,
+        acknowledgment,
+        comparison_start,
+        evaluation_handoff,
+        evaluation_record,
+        adoption_record,
+        record,
+    )
+    if [positions[str(item["record_id"])] for item in ordered_chain] != sorted(
+        positions[str(item["record_id"])] for item in ordered_chain
+    ):
+        raise SupervisionLogError(
+            "Factory evolution intrinsic outcome stage order differs"
+        )
+    active_prior_outcomes: list[tuple[str, dict[str, Any]]] = []
+    prior_outcome_count = 0
+    for index, item in enumerate(exact_records[:outcome_position]):
+        if item.get("evolution_id") != evolution_id:
+            continue
+        if item.get("kind") == FACTORY_EVOLUTION_OUTCOME_EVENT_KIND:
+            prior_payload = validate_factory_evolution_outcome_evidence_payload(
+                item.get("payload")
+            )
+            prior_outcome_count += 1
+            active_prior_outcomes.append((str(item.get("record_id")), prior_payload))
+        elif item.get("kind") == FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND:
+            source_id = str(item.get("payload", {}).get("supersedes_record_id", ""))
+            if (
+                not active_prior_outcomes
+                or active_prior_outcomes[-1][0] != source_id
+            ):
+                raise SupervisionLogError(
+                    "Factory evolution intrinsic outcome correction differs"
+                )
+            active_prior_outcomes.pop()
+    expected_predecessor_root = (
+        active_prior_outcomes[-1][1]["outcome_root"]
+        if active_prior_outcomes
+        else None
+    )
+    if (
+        payload["outcome_id"]
+        != f"outcome-{evolution_id}-{prior_outcome_count + 1}"
+        or payload["predecessor_outcome_root"] != expected_predecessor_root
+    ):
+        raise SupervisionLogError(
+            "Factory evolution intrinsic outcome lineage differs"
+        )
+    authorized = adoption.get("application_authorized") is True
+    if authorized != (payload["outcome_posture"] in {"adopted-effective", "rolled-back"}):
+        raise SupervisionLogError(
+            "Factory evolution intrinsic outcome application posture differs"
+        )
+    if authorized:
+        completion_id = str(payload["outcome_completion_record_id"])
+        completion_state = {
+            "context": {"evolution_id": evolution_id},
+            "evaluation": evaluation,
+            "adoption": adoption,
+        }
+        completion = factory_evolution_outcome_completion_record(
+            exact_records[:outcome_position],
+            policy=policy,
+            state=completion_state,
+            record_id=completion_id,
+        )
+        if (
+            completion.get("record_sha256")
+            != digest(
+                {
+                    key: item
+                    for key, item in completion.items()
+                    if key != "record_sha256"
+                }
+            )
+            or completion.get("record_sha256")
+            != payload["outcome_completion_record_sha256"]
+            or completion.get("effect_reconciliation_sha256")
+            != payload["observed_effect_root"]
+            or completion.get("capability_reconciliation_sha256")
+            != payload["capability_reconciliation_root"]
+            or completion.get("capability_reconciliation_reviewer_id")
+            != payload["outcome_reviewer_id"]
+            or (
+                payload["outcome_posture"] == "adopted-effective"
+                and completion.get("status") != "verified"
+            )
+            or (
+                payload["outcome_posture"] == "rolled-back"
+                and completion.get("status") != "failed"
+            )
+            or (
+                payload["outcome_posture"] == "adopted-effective"
+                and payload["release_owner_state_root"]
+                != adoption.get("release_owner_state_after_root")
+            )
+        ):
+            raise SupervisionLogError(
+                "Factory evolution intrinsic outcome completion differs"
+            )
+    else:
+        expected_posture = {
+            "advisory-retained": "advisory-retained",
+            "revision-required": "revision-required",
+            "candidate-retired": "candidate-retired",
+            "recommendation-only": "recommendation-retained",
+            "record-only": "record-only",
+        }.get(str(adoption.get("application_posture")), "inconclusive")
+        if payload["outcome_posture"] != expected_posture:
+            raise SupervisionLogError(
+                "Factory evolution intrinsic outcome retained posture differs"
+            )
+    return record
 
 
 def validate_factory_evolution_outcome_correction(
@@ -20837,6 +21222,8 @@ def weekly_report_module() -> Any:
 
 def factory_evolution_outcome_projection(
     source_events: Sequence[Mapping[str, Any]],
+    *,
+    policy: Mapping[str, Any],
 ) -> dict[str, Any]:
     rows: list[dict[str, Any]] = []
     records: dict[str, Mapping[str, Any]] = {}
@@ -20866,24 +21253,22 @@ def factory_evolution_outcome_projection(
                     admitted_cycles.pop(evolution_id)
                     break
         elif kind == FACTORY_EVOLUTION_OUTCOME_EVENT_KIND:
-            payload = item.get("payload")
-            if not isinstance(payload, Mapping) or item.get("payload_root") != digest(payload):
-                raise SupervisionLogError(
-                    "Factory evolution report outcome differs"
-                )
-            payload = validate_factory_evolution_outcome_evidence_payload(payload)
-            if not SHA256.fullmatch(str(item.get("record_sha256", ""))):
-                raise SupervisionLogError("Factory evolution report outcome differs")
-            record_id = str(item.get("record_id", ""))
-            evolution_id = str(item.get("evolution_id", ""))
+            intrinsic = validate_factory_evolution_intrinsic_outcome_record(
+                item,
+                policy=policy,
+                source_events=source_events,
+            )
+            payload = intrinsic["payload"]
+            record_id = str(intrinsic.get("record_id", ""))
+            evolution_id = str(intrinsic.get("evolution_id", ""))
             safe_id(record_id, label="Factory evolution outcome record ID")
             safe_id(evolution_id, label="Factory evolution report cycle ID")
-            records[record_id] = item
+            records[record_id] = intrinsic
             current_heads[evolution_id] = record_id
             rows.append(
                 {
                     "record_id": record_id,
-                    "record_sha256": item["record_sha256"],
+                    "record_sha256": intrinsic["record_sha256"],
                     "evolution_id": evolution_id,
                     "outcome_id": payload["outcome_id"],
                     "outcome_root": payload["outcome_root"],
@@ -21137,7 +21522,7 @@ def cmd_weekly_report_finalize(args: argparse.Namespace) -> None:
     manifest_path = report_directory / "manifest.json"
     review_reused = write_exact_or_reuse(review_path, review)
     outcome_projection = factory_evolution_outcome_projection(
-        packet.get("event_records", [])
+        packet.get("event_records", []), policy=_policy
     )
     machine_report = {
         **module.machine_report(metrics, review),
@@ -21226,6 +21611,7 @@ def cmd_weekly_report_finalize(args: argparse.Namespace) -> None:
 
 def verify_weekly_report_set(directory: Path, report_id: str) -> dict[str, Any]:
     module = weekly_report_module()
+    policy = read_json(directory / "policy.json")
     report_directory, metrics, packet = load_weekly_artifacts(
         directory, report_id
     )
@@ -21276,7 +21662,7 @@ def verify_weekly_report_set(directory: Path, report_id: str) -> dict[str, Any]:
         else None
     )
     outcome_projection = factory_evolution_outcome_projection(
-        packet.get("event_records", [])
+        packet.get("event_records", []), policy=policy
     )
     expected_markdown = weekly_report_markdown_bytes(
         module, metrics, review, admission_result, outcome_projection
@@ -21608,7 +21994,7 @@ def cmd_terminal_report_finalize(args: argparse.Namespace) -> None:
     review_bytes_out = json.dumps(review, ensure_ascii=False, sort_keys=True, indent=2).encode("utf-8") + b"\n"
     write_terminal_exact_or_reuse(files["review.json"], review_bytes_out)
     outcome_projection = factory_evolution_outcome_projection(
-        packet.get("full_event_records", [])
+        packet.get("full_event_records", []), policy=_policy
     )
     for report_type, key, prefix in (
         ("delta", "delta_report", "delta-report"),
@@ -21663,6 +22049,7 @@ def verify_terminal_report_set(
     directory: Path, report_set_id: str
 ) -> dict[str, Any]:
     module = terminal_report_module()
+    policy = read_json(directory / "policy.json")
     report_directory, packet = terminal_packet(directory, report_set_id)
     all_events = events(directory / "events.jsonl")
     lifecycle_record = next(
@@ -21733,7 +22120,7 @@ def verify_terminal_report_set(
     if manifest != expected_manifest:
         raise SupervisionLogError("Terminal report manifest identity differs")
     outcome_projection = factory_evolution_outcome_projection(
-        packet.get("full_event_records", [])
+        packet.get("full_event_records", []), policy=policy
     )
     for report_type, key, prefix in (
         ("delta", "delta_report", "delta-report"),

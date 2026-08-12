@@ -223,13 +223,17 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         self.evaluator_public_key_sha = hashlib.sha256(
             self.evaluator_public_key.read_bytes()
         ).hexdigest()
-        for name, value in (
-            ("ADAPTIVE_EVALUATOR_PUBLIC_KEY_PATH", self.evaluator_public_key),
-            ("ADAPTIVE_EVALUATOR_PUBLIC_KEY_SHA256", self.evaluator_public_key_sha),
-        ):
-            patcher = mock.patch.object(supervision_log, name, value)
-            patcher.start()
-            self.addCleanup(patcher.stop)
+        for module in (supervision_log, admission_test_support.supervision_log):
+            for name, value in (
+                ("ADAPTIVE_EVALUATOR_PUBLIC_KEY_PATH", self.evaluator_public_key),
+                (
+                    "ADAPTIVE_EVALUATOR_PUBLIC_KEY_SHA256",
+                    self.evaluator_public_key_sha,
+                ),
+            ):
+                patcher = mock.patch.object(module, name, value)
+                patcher.start()
+                self.addCleanup(patcher.stop)
 
     def git(self, *arguments: str) -> str:
         return subprocess.run(
@@ -353,11 +357,15 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         policy = supervision_log.read_json(self.directory / "policy.json")
         mission = supervision_log.bound_mission(policy)
         assert mission is not None
+        coverage_record_id = self.admission.append_event(
+            category="productive-pattern"
+        )
         current = supervision_log.events(self.directory / "events.jsonl")
         record_id = f"EVT-{len(current) + 1:06d}"
-        record_hashes = sorted(
-            item["record_sha256"] for item in self.packet["evidence"]["events"]
+        coverage_record = next(
+            item for item in current if item.get("record_id") == coverage_record_id
         )
+        record_hashes = [coverage_record["record_sha256"]]
         novelty_key = supervision_log.digest(
             {"record_hashes": record_hashes, "signal": "block13-owner-orchestration"}
         )
@@ -2074,7 +2082,8 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             == supervision_log.FACTORY_EVOLUTION_OUTCOME_EVENT_KIND
         )
         projection = supervision_log.factory_evolution_outcome_projection(
-            all_events
+            all_events,
+            policy=supervision_log.read_json(self.directory / "policy.json"),
         )
         self.assertEqual(projection["terminal_cycle_count"], 1)
         self.assertEqual(
@@ -2102,6 +2111,29 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             novelty["coverage"]["record_sha256s"],
             [outcome_record["record_sha256"]],
         )
+        admission_record = next(
+            item
+            for item in all_events
+            if item.get("kind") == "factory-evolution-admission"
+            and item.get("record_id")
+            == outcome_record["payload"]["admission_record_id"]
+        )
+        admitted_hashes = set(admission_record["canonical_record_sha256s"])
+        original_record_ids = [
+            item["record_id"]
+            for item in all_events
+            if item.get("record_sha256") in admitted_hashes
+        ]
+        consumed = self.admission.admit(
+            self.admission.write_report(
+                original_record_ids,
+                name="intrinsic-outcome-consumed",
+            )
+        )
+        self.assertEqual(
+            consumed["disposition"], "already-consumed-canonical-coverage"
+        )
+        self.assertFalse(consumed["eligible"])
 
     def test_failed_outcome_rolls_back_once_and_retains_lineage(self) -> None:
         fake, _handoff = self.adopt_cycle_for_outcome()
