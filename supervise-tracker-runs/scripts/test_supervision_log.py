@@ -155,7 +155,7 @@ class FactoryEvolutionContractTests(unittest.TestCase):
         self.assertIn("regular file under that owner", normalized)
         self.assertIn("four-megabyte stored-byte ceiling", normalized)
 
-    def test_orchestration_contract_binds_complete_owner_map_and_stops_before_evaluation(self) -> None:
+    def test_orchestration_contract_binds_owner_map_and_keeps_evaluation_nonauthorizing(self) -> None:
         normalized = " ".join(self.contract.split()).lower()
 
         for candidate_type in supervision_log.factory_evolution_module().CANDIDATE_TYPES:
@@ -172,7 +172,10 @@ class FactoryEvolutionContractTests(unittest.TestCase):
             self.contract,
         )
         self.assertIn("incumbent remains the sole production authority", normalized)
-        self.assertIn("evaluation, adoption, installation, and cutover remain later", normalized)
+        self.assertIn(
+            "evaluation is read-only and nonauthorizing; adoption, installation, and cutover remain later",
+            normalized,
+        )
 
 
 class FactoryEvolutionCliTests(unittest.TestCase):

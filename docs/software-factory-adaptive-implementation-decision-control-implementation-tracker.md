@@ -3777,8 +3777,14 @@ effects before reading either implementer's narrative.
   left retry unable to prove the removal durable because the already-absent
   path returned early. The next successor always repeats the directory sync
   after a canonical handoff, including the already-absent retry case. Exact
-  successor review remains required before broad mapped rerun and Block
-  acceptance.
+  review accepted `4dff6faafb993516797cebfa092f164f0527cd55` with
+  focused `10/10`; mapped implementation then passed `115/115`. The first
+  mapped supervision run passed `364/365`: the only failure was a stale Block
+  13 contract assertion that still expected evaluation to remain later after
+  Block 14 had added read-only, nonauthorizing evaluation. The narrow test-only
+  successor updates that assertion to preserve the actual Stop before adoption,
+  installation, and cutover. Affected proof and exact successor review remain
+  required before Block acceptance.
 
 ### Stop
 
