@@ -8306,6 +8306,47 @@ and stop at denial, partial, or unverified state without retrying or widening.
     method set passed 4/4. No broad matrix, browser matrix, live preview,
     automation pause, receipt append, or shutdown was replayed or performed.
     Fresh exact-revision review is pending.
+- Independent exact-revision review rejected evidence
+  `a74f72deda65d7f16cd8dbf26163548d638369f4`, tree
+  `9ec81ee61f6ef432de4788fed0ba6bd653f712cc`, on two bounded closure rows.
+  First, the focused lifecycle fixture truthfully retained current incident
+  `INC-TEST-0001`, but its expected value incorrectly asserted an empty incident
+  list, so the claimed focused 4/4 was not reproducible at that revision.
+  Second, the maintained supervision skill and policy still instructed an
+  executor to pause before running raw `python3 ... terminal-shutdown` without
+  the now-required event head. That documented command exited during argument
+  parsing after the consequential pause boundary and could recreate the same
+  avoidable partial shutdown. The reviewer found the product mechanics otherwise
+  closed the late-head row; all reusable proof remains preserved and Block 31
+  stays closed.
+- Maintained-owner contract successor candidate — product/test commit
+  `e773e889c98581b527c8b2858654101370466ffb`, tree
+  `a78941cf2f3c29113708583aff3460133cec1451`, four-file binary diff from
+  rejected evidence `a74f72deda65d7f16cd8dbf26163548d638369f4`
+  SHA-256 `bc8e0bcfe2f47b749a41ceaf9cf811948e9a3f865786fead5771cac5a82335d1`:
+  - The focused projection assertion now preserves the exact current incident
+    identity instead of claiming absence. It changes no gate or product
+    behavior.
+  - The maintained supervision skill, watcher prompt, policy contract, logging
+    example, and Stop now require a fresh immediately pre-pause lifecycle gate,
+    empty incident/decision/successor/activation heads, and retention of its
+    exact event head. Only the returned automations may then be paused and
+    viewed. The receipt owner is invoked exactly through
+    `uv run --python 3.14 python <LOG_HELPER> terminal-shutdown ...
+    --expected-event-head <EVENT_HEAD>` and rechecks the policy, open heads,
+    event head, and automation owners under its append lock before any receipt.
+  - A maintained owner-contract regression rejects the former raw command and
+    proves gate-before-pause-before-helper ordering plus every current-head
+    field. The terminal owner suite passes 12/12 with `ResourceWarning` fatal;
+    the corrected exact lifecycle/projection/registry/workflow invocation passes
+    4/4 with `ResourceWarning` fatal. Three earlier focused workflow invocations
+    omitted one or more required test import roots and produced loader errors
+    only; no product code ran in those failed loads.
+  - Ruff, Python compilation, exact source/command scans, diff check, full-profile
+    verification for all 32 Blocks, and all 30 verifier tests pass. The product
+    commit is pushed at exact remote divergence `0 0`. No broad or browser
+    matrix was replayed, and no live preview, automation pause, receipt append,
+    or shutdown occurred. Fresh exact-revision review is pending.
 
 ### Stop
 
