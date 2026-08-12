@@ -7889,6 +7889,21 @@ unverified output.
     including the supported terminal operation, and focused Playwright passed
     3/3 at desktop/tablet/mobile with Axe and no-overflow checks. No broad suite
     or broad browser matrix had started when this brief was written.
+- Single broad mapped run after the pre-broad checkpoint
+  `23e8f43d7281d86ff90ea7c6c863335185ce7169` — `2026-08-12T12:03:00Z`:
+  dashboard backend passed 140/140 with `ResourceWarning` fatal, frontend
+  passed 20 files/114 tests, and the TypeScript/Vite production build passed.
+  The one serial Playwright matrix completed 76/81; the new Block 29 terminal-
+  report case passed 3/3 at desktop/tablet/mobile. Its five failures are the two
+  already-recorded unaffected Block 28 diagnostic families: three live drill-
+  down assertions expected `Issue follow-up` disabled after the canonical run
+  made it eligible, and two tablet/mobile Reports checks exposed the existing
+  dark-theme link-within-text contrast/style defect. The formerly observed
+  mobile Factory Floor fixture race did not recur. No second broad matrix was
+  run, no harness/configuration was changed, and neither unrelated diagnostic
+  family was folded into Block 29. The loopback health envelope remained
+  complete immediately before the browser run; no terminal report, Gmail,
+  lifecycle, automation, request-stop, or shutdown mutation occurred.
 
 ### Stop
 
