@@ -1768,6 +1768,9 @@ def adopt_release(args: argparse.Namespace) -> dict[str, Any]:
             "activation_record_hmac_sha256": records[-1][
                 "record_hmac_sha256"
             ],
+            "previous_activation_record_hmac_sha256": records[-1][
+                "previous_record_hmac_sha256"
+            ],
             "installed_verification_root_sha256": installed[
                 "verification_root_sha256"
             ],
@@ -1808,6 +1811,9 @@ def adopt_release(args: argparse.Namespace) -> dict[str, Any]:
         "acceptance_record_id": acceptance["record_id"],
         "activation_record_id": record["record_id"],
         "activation_record_hmac_sha256": record["record_hmac_sha256"],
+        "previous_activation_record_hmac_sha256": record[
+            "previous_record_hmac_sha256"
+        ],
         "installed_verification_root_sha256": activation["installed"][
             "verification_root_sha256"
         ],

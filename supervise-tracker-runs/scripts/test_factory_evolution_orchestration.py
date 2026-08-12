@@ -468,6 +468,12 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
                 "activation_record": {
                     "record_id": "ACTIVATION-2" if candidate_active else "ACTIVATION-1",
                     "record_hmac_sha256": "e" * 64 if candidate_active else "f" * 64,
+                    "previous_release_id": (
+                        "baseline-release-1234" if candidate_active else None
+                    ),
+                    "previous_record_hmac_sha256": (
+                        "f" * 64 if candidate_active else None
+                    ),
                 },
                 "current_verification": {
                     "verification_root_sha256": "1" * 64 if candidate_active else "2" * 64,
@@ -508,6 +514,7 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
                 "acceptance_record_id": status["acceptance_record"]["record_id"],
                 "activation_record_id": status["activation_record"]["record_id"],
                 "activation_record_hmac_sha256": status["activation_record"]["record_hmac_sha256"],
+                "previous_activation_record_hmac_sha256": "f" * 64,
                 "installed_verification_root_sha256": status["current_verification"]["verification_root_sha256"],
             }
             result["adoption_root_sha256"] = supervision_log.digest(
@@ -1566,6 +1573,42 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             )
             self.assertFalse(stopped["application_ready"])
             self.assertEqual(stopped["application_posture"], posture)
+
+    def test_adoption_holds_target_ref_and_rejects_dirty_currentness(self) -> None:
+        policy = supervision_log.read_json(self.directory / "policy.json")
+        head = self.git("rev-parse", "HEAD")
+        changed = self.repository / "concurrent-adoption-change.txt"
+        with supervision_log.factory_evolution_target_ref_lock(policy):
+            changed.write_text("changed during adoption\n", encoding="utf-8")
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "worktree changed"
+            ):
+                supervision_log.require_factory_evolution_target_current(
+                    policy, expected_revision=head
+                )
+            self.git("add", str(changed.relative_to(self.repository)))
+            result = subprocess.run(
+                [
+                    "/usr/bin/git",
+                    "-C",
+                    str(self.repository),
+                    "-c",
+                    "user.name=Factory Test",
+                    "-c",
+                    "user.email=factory@example.test",
+                    "commit",
+                    "-m",
+                    "Concurrent adoption change",
+                ],
+                check=False,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            self.assertNotEqual(result.returncode, 0)
+        self.git("reset", "HEAD", "--", str(changed.relative_to(self.repository)))
+        changed.unlink()
+        self.assertEqual(self.git("rev-parse", "HEAD"), head)
 
     def test_full_autonomous_adoption_uses_normal_release_owner_once(self) -> None:
         self.configure_adoption_policy(mode="full-autonomous", permissions=True)

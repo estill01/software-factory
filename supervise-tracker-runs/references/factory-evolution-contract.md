@@ -335,9 +335,15 @@ reviewer, evolution reviewer/proposer, implementation owner, and evaluator
 remain separated by the applicable role constraints.
 
 The canonical adoption result binds the frozen evaluation, mode and four
-permission results, pre/post release-owner roots, accepted manifest, release
-acceptance and activation records, installed verification root, authority
-posture, and next outcome-reconciliation action. Retry after a completed
+permission results, requested-capability, selected-architecture, tradeoff,
+protected-behavior, baseline-behavior, capability-frame, packet, review,
+experiment, acknowledgment, and evaluation roots; the baseline release
+transition; the post-release-owner root; accepted manifest; release acceptance
+and activation records; installed verification and operator-visible-effect
+roots; authority posture; and next outcome-reconciliation action. The
+supervision owner holds the exact current Git ref against a concurrent ref
+write and requires a clean, unchanged baseline worktree immediately before and
+after the release effect and physical event append. Retry after a completed
 activation but before the supervision append rehydrates the installed release
 without another activation or operator record. A release-owner change during
 append records an exact currentness correction; the stale source event cannot
