@@ -24,6 +24,7 @@ import {
   TrackerWorkflowActions,
 } from "@/features/admin/factory-workflow-actions"
 import type { OperationPreviewEnvelope } from "@/lib/admin-operations-api"
+import { DashboardApiError } from "@/lib/api"
 import type { RunDetail } from "@/lib/operations-api"
 import type { ProjectProjection } from "@/lib/projects-api"
 import type { TaskDetailEnvelope } from "@/lib/task-api"
@@ -151,7 +152,7 @@ function previewEnvelope(type: string): OperationPreviewEnvelope {
           expected_postcondition: "The exact task and turn are present.",
           idempotency: "One task.",
           limitations: [],
-          expires_at: "2026-08-10T10:30:00.000Z",
+          expires_at: "2099-08-10T10:30:00.000Z",
         },
         history: [{ state: "previewed", observed_at: "2026-08-10T10:29:00.000Z" }],
         request_evidence: null,
@@ -302,6 +303,30 @@ describe("Factory workflow action strips", () => {
       input: {},
     })
     expect(await screen.findByText("One mechanical watcher check · no semantic conclusion")).toBeVisible()
+  })
+
+  it("maps a server expiry to the same re-preview posture", async () => {
+    const user = userEvent.setup()
+    mocks.executeOperation.mockRejectedValueOnce(new DashboardApiError(409, {
+      data: null,
+      source: { kind: "administrative-operation", identity: "operations", revision: hash },
+      observed_at: "2026-08-11T19:30:00.000Z",
+      fingerprint: hash,
+      coverage: { status: "partial", observed: ["operation-preview"], missing: ["owner-postcondition"] },
+      limitations: ["Expired before dispatch."],
+      error: { code: "preview_expired", message: "The exact preview expired.", retryable: false },
+    }))
+    renderActions(<RunCheckAction targetId="task-demo" projectId="demo" />)
+
+    await user.click(screen.getByRole("button", { name: "Check now" }))
+    await user.type(await screen.findByLabelText("Type AUTHOR"), "AUTHOR")
+    await user.click(screen.getByRole("button", { name: "Request operation" }))
+
+    expect(await screen.findByText("Preview expired")).toBeVisible()
+    expect(screen.getByText("The exact preview expired.")).toBeVisible()
+    expect(screen.getByRole("button", { name: "Request operation" })).toBeDisabled()
+    await user.click(screen.getByRole("button", { name: "Preview again" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledTimes(2))
   })
 
   it("previews closed checkpoint, meta, and exact-incident review variants", async () => {

@@ -125,6 +125,7 @@ function useOperationRunner() {
   const [result, setResult] = useState<OperationRecord | null>(null)
   const [localError, setLocalError] = useState<string | null>(null)
   const [staleReason, setStaleReason] = useState<string | null>(null)
+  const [expiredReason, setExpiredReason] = useState<string | null>(null)
 
   const refreshSources = () => {
     for (const key of [
@@ -144,6 +145,7 @@ function useOperationRunner() {
     onSuccess: (value) => {
       setPreview(value)
       setStaleReason(null)
+      setExpiredReason(null)
       setLocalError(null)
     },
     onError: (error) => setLocalError(errorMessage(error)),
@@ -156,16 +158,21 @@ function useOperationRunner() {
       setPreview(null)
       setPrepared(null)
       setStaleReason(null)
+      setExpiredReason(null)
       setLocalError(null)
       refreshSources()
     },
     onError: (error) => {
-      if (error instanceof DashboardApiError && [
+      if (error instanceof DashboardApiError && error.code === "preview_expired") {
+        setExpiredReason(error.message)
+        setLocalError(null)
+      } else if (error instanceof DashboardApiError && [
         "preview_stale",
         "route_gate_stale",
         "route_gate_denied",
       ].includes(error.code)) {
         setStaleReason(error.message)
+        setLocalError(null)
       } else {
         setLocalError(errorMessage(error))
       }
@@ -180,6 +187,7 @@ function useOperationRunner() {
     setResult(null)
     setLocalError(null)
     setStaleReason(null)
+    setExpiredReason(null)
     previewMutation.mutate(value.request)
   }
 
@@ -188,6 +196,7 @@ function useOperationRunner() {
     setPreview(null)
     setPrepared(null)
     setStaleReason(null)
+    setExpiredReason(null)
   }
 
   const previewAgain = () => {
@@ -200,6 +209,7 @@ function useOperationRunner() {
       request={prepared.request}
       suppliedFacts={prepared.suppliedFacts}
       staleReason={staleReason}
+      expiredReason={expiredReason}
       busy={executeMutation.isPending}
       onCancel={close}
       onRefresh={previewAgain}

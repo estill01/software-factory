@@ -639,6 +639,12 @@ test("missing mission binding exposes only the source-derived repair preview", a
   expect(runResponse.ok()).toBeTruthy()
   const runEnvelope = await runResponse.json()
   runEnvelope.data.run.current_mission = null
+  runEnvelope.data.run.project_binding = {
+    status: "bound",
+    project_id: "software-factory",
+    evidence: [{ source_record: "policy", field: "project_root", value: "/fixture/software_factory" }],
+    limitations: [],
+  }
   const predecessor = runEnvelope.data.run.mission_segments.find(
     (segment: { posture: string }) => segment.posture === "predecessor",
   )?.mission_root
@@ -721,7 +727,7 @@ test("missing mission binding exposes only the source-derived repair preview", a
       expected_postcondition: "One exact next policy-bind record adds only the source-derived mission binding while the live target, complete source item, run/project claim, tracker tuple, history, owner, and single-group identity remain current.",
       idempotency: "One consumed preview starts at most one reviewer turn.",
       limitations: ["Only a missing mission binding is supported."],
-      expires_at: "2026-08-11T03:00:00.000Z",
+      expires_at: "2099-08-11T03:00:00.000Z",
     },
     history: [{ state: "previewed", observed_at: "2026-08-11T02:55:00.000Z" }],
     request_evidence: null,
@@ -732,7 +738,9 @@ test("missing mission binding exposes only the source-derived repair preview", a
   await page.route(`**/api/v1/runs/${target}`, (route) =>
     route.fulfill({ json: runEnvelope }),
   )
+  let previewRequests = 0
   await page.route("**/api/v1/operations/preview", async (route) => {
+    previewRequests += 1
     const requestBody = route.request().postDataJSON()
     expect(requestBody).toEqual({
       operation_type: "factory.supervision-repair-mission-binding",
@@ -741,7 +749,16 @@ test("missing mission binding exposes only the source-derived repair preview", a
     })
     await route.fulfill({
       json: {
-        data: { operation, preview_token: "p".repeat(32) },
+        data: {
+          operation: {
+            ...operation,
+            preview: {
+              ...operation.preview,
+              expires_at: new Date(Date.now() + (previewRequests === 1 ? -1_000 : 60_000)).toISOString(),
+            },
+          },
+          preview_token: `${previewRequests}`.repeat(32),
+        },
         source: { kind: "administrative-operation", identity: operation.id, revision: "8".repeat(64) },
         observed_at: "2026-08-11T02:55:00.000Z",
         fingerprint: "8".repeat(64),
@@ -759,6 +776,14 @@ test("missing mission binding exposes only the source-derived repair preview", a
   await page.getByRole("button", { name: /Switch to (light|dark) mode/ }).click()
   await repair.click()
   const preview = page.getByRole("dialog")
+  await expect(preview.getByText("Preview expired", { exact: true })).toBeVisible()
+  await expect(preview.getByText("Comparison expired · preview again", { exact: true })).toBeVisible()
+  await expect(preview.getByRole("button", { name: "Request operation" })).toBeDisabled()
+  await expect(preview.getByLabel("Type REQUEST BINDING REVIEW")).toHaveCount(0)
+  await preview.getByRole("button", { name: "Preview again" }).click()
+  await expect(preview.getByText("Preview expired", { exact: true })).toHaveCount(0)
+  await expect(preview.getByLabel("Type REQUEST BINDING REVIEW")).toBeVisible()
+  expect(previewRequests).toBe(2)
   await expect(preview).toContainText("Missing mission binding only")
   await expect(preview).toContainText("authority unverified until independent reviewer proof")
   await expect(preview).toContainText("REQUEST BINDING REVIEW")
@@ -898,7 +923,7 @@ test("missing role binding exposes one exact prior-task repair preview", async (
       expected_postcondition: "The task, canonical role binding, and maintained purpose gate all agree.",
       idempotency: "One consumed preview invokes at most one exact bind.",
       limitations: ["No generic task creation or title matching."],
-      expires_at: "2026-08-11T04:20:00.000Z",
+      expires_at: "2099-08-11T04:20:00.000Z",
     },
     history: [{ state: "previewed", observed_at: "2026-08-11T04:15:00.000Z" }],
     request_evidence: null,
@@ -1071,7 +1096,7 @@ test("automation mismatch exposes one bounded dual-owner repair preview", async 
       expected_postcondition: "The named automation and same canonical policy claim both agree.",
       idempotency: "One consumed preview starts at most one fix-executor turn.",
       limitations: ["No direct TOML or policy writes."],
-      expires_at: "2026-08-11T09:30:00.000Z",
+      expires_at: "2099-08-11T09:30:00.000Z",
     },
     history: [{ state: "previewed", observed_at: "2026-08-11T09:25:00.000Z" }],
     request_evidence: null,

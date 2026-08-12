@@ -54,7 +54,13 @@ function SemanticSource({ row }: { row: SemanticRow }) {
   )
 }
 
-export function OperationSemanticDiffTable({ changes }: { changes: OperationSemanticChanges }) {
+export function OperationSemanticDiffTable({
+  changes,
+  expired = false,
+}: {
+  changes: OperationSemanticChanges
+  expired?: boolean
+}) {
   if (changes.status !== "available") {
     return (
       <div className="operation-semantic-unavailable" role="status">
@@ -64,7 +70,12 @@ export function OperationSemanticDiffTable({ changes }: { changes: OperationSema
   }
 
   return (
-    <div className="operation-semantic-diff">
+    <div className={`operation-semantic-diff${expired ? " operation-semantic-diff-expired" : ""}`}>
+      {expired ? (
+        <div className="operation-semantic-currentness" role="status">
+          Comparison expired · preview again
+        </div>
+      ) : null}
       <div className="semantic-diff-scroll" tabIndex={0} aria-label="Owner supplied operation changes">
         <table>
           <caption className="sr-only">Read-only owner supplied semantic changes for this exact operation preview</caption>

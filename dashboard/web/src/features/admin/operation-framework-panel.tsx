@@ -26,6 +26,7 @@ export function OperationConfirmationDialog({
   request,
   suppliedFacts = [],
   staleReason,
+  expiredReason,
   busy = false,
   onConfirm,
   onCancel,
@@ -35,12 +36,14 @@ export function OperationConfirmationDialog({
   request: OperationPreviewRequest
   suppliedFacts?: Array<[string, string]>
   staleReason?: string | null
+  expiredReason?: string | null
   busy?: boolean
   onConfirm: (confirmation: { class: string; value: string }) => void
   onCancel: () => void
   onRefresh?: () => void
 }) {
   const [value, setValue] = useState("")
+  const [clockNow, setClockNow] = useState(() => Date.now())
   const operation = preview.data.operation
   const confirmation = operation.preview.confirmation
   const sourceEvidence = operation.preview.source_evidence
@@ -128,7 +131,31 @@ export function OperationConfirmationDialog({
     && typeof sourceEvidence.observed_model_and_effort.reasoning === "string"
     ? `${sourceEvidence.observed_model_and_effort.model} · ${sourceEvidence.observed_model_and_effort.reasoning}`
     : null
+  const expiresAt = Date.parse(operation.preview.expires_at)
+  const expired = Boolean(expiredReason) || clockNow >= expiresAt
+  const currentnessReason = expiredReason
+    ?? (expired ? "This preview has passed its exact expiry. Request a fresh preview before continuing." : staleReason)
   const matches = value === confirmation.expected_value
+
+  useEffect(() => {
+    setValue("")
+  }, [preview.data.preview_token])
+
+  useEffect(() => {
+    let timer: number | undefined
+    const update = () => {
+      const now = Date.now()
+      setClockNow(now)
+      const remaining = expiresAt - now
+      if (remaining > 0) {
+        timer = window.setTimeout(update, Math.min(remaining, 2_147_483_647))
+      }
+    }
+    update()
+    return () => {
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [expiresAt])
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -191,7 +218,10 @@ export function OperationConfirmationDialog({
         </dl>
 
         {hasSemanticPreview ? (
-          <OperationSemanticDiffTable changes={operation.preview.semantic_changes} />
+          <OperationSemanticDiffTable
+            changes={operation.preview.semantic_changes}
+            expired={expired}
+          />
         ) : null}
 
         <div className="operation-preview-consequences">
@@ -208,10 +238,10 @@ export function OperationConfirmationDialog({
           </dl>
         )}
 
-        {staleReason ? (
+        {currentnessReason ? (
           <div className="operation-stale" role="alert">
             <AlertTriangle aria-hidden="true" />
-            <div><strong>Preview is stale</strong><span>{staleReason}</span></div>
+            <div><strong>{expired ? "Preview expired" : "Preview is stale"}</strong><span>{currentnessReason}</span></div>
             {onRefresh && <Button variant="outline" size="compact" onClick={onRefresh}>Preview again</Button>}
           </div>
         ) : (
@@ -230,8 +260,15 @@ export function OperationConfirmationDialog({
         <div className="operation-dialog-actions">
           <Button variant="ghost" onClick={onCancel}>Cancel</Button>
           <Button
-            disabled={Boolean(staleReason) || !matches || busy}
-            onClick={() => onConfirm({ class: confirmation.class, value })}
+            disabled={Boolean(currentnessReason) || !matches || busy}
+            onClick={() => {
+              const now = Date.now()
+              if (now >= expiresAt) {
+                setClockNow(now)
+                return
+              }
+              onConfirm({ class: confirmation.class, value })
+            }}
           >
             {busy ? "Requesting" : "Request operation"}
           </Button>

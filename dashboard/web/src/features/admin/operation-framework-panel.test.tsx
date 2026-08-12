@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -55,7 +55,7 @@ const operation = {
     expected_postcondition: "The fixture reports next.",
     idempotency: "One request per token.",
     limitations: ["Test only."],
-    expires_at: "2026-08-10T08:02:00.000Z",
+    expires_at: "2099-08-10T08:02:00.000Z",
   },
   history: [{ state: "previewed" as const, observed_at: "2026-08-10T08:00:00.000Z" }],
   request_evidence: null,
@@ -231,6 +231,56 @@ describe("administrative operation UI", () => {
     expect(table).toHaveTextContent("maintained supervision adjust owner")
     expect(screen.getByRole("link", { name: "Run" })).toHaveAttribute("href", "/runs/fixture-1")
     expect(table.querySelector("button")).toBeNull()
+  })
+
+  it("expires an open semantic preview and suppresses its confirmation path", async () => {
+    const user = userEvent.setup()
+    const onConfirm = vi.fn()
+    const onRefresh = vi.fn()
+    const expiringOperation = {
+      ...operation,
+      type: "factory.supervision-adjust",
+      preview: {
+        ...operation.preview,
+        expires_at: new Date(Date.now() + 1_000).toISOString(),
+        semantic_changes: {
+          status: "available" as const,
+          complete: true,
+          rows: [{
+            id: "routine-interval",
+            subject: "Routine interval",
+            kind: "changed" as const,
+            before: { posture: "exact" as const, value: "20" },
+            after: { posture: "exact" as const, value: "25" },
+            owner: "maintained supervision adjust owner",
+            source_identity: "supervision-policy:fixture-1",
+            source_revision: hash,
+            currentness_fingerprint: hash,
+            links: [],
+          }],
+          limitations: ["Rows are owner-supplied and read-only."],
+        },
+      },
+    }
+    render(
+      <OperationConfirmationDialog
+        preview={{ ...frameworkEnvelope, data: { operation: expiringOperation, preview_token: "p".repeat(32) } }}
+        request={{ operation_type: expiringOperation.type, target: expiringOperation.target, input: {} }}
+        onConfirm={onConfirm}
+        onCancel={vi.fn()}
+        onRefresh={onRefresh}
+      />,
+    )
+
+    await user.type(screen.getByLabelText("Type APPLY TEST FIXTURE"), "APPLY TEST FIXTURE")
+    expect(screen.getByRole("button", { name: "Request operation" })).toBeEnabled()
+    await waitFor(() => expect(screen.getByText("Preview expired")).toBeVisible(), { timeout: 2_000 })
+    expect(screen.getByText("Comparison expired · preview again")).toBeVisible()
+    expect(screen.queryByLabelText("Type APPLY TEST FIXTURE")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Request operation" })).toBeDisabled()
+    await user.click(screen.getByRole("button", { name: "Preview again" }))
+    expect(onRefresh).toHaveBeenCalledOnce()
+    expect(onConfirm).not.toHaveBeenCalled()
   })
 
   it("shows exact role-task and route facts for a binding repair preview", () => {

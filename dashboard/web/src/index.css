@@ -583,6 +583,19 @@
   min-width: 58rem;
 }
 
+.operation-semantic-currentness {
+  border-bottom: 1px solid color-mix(in srgb, var(--amber) 50%, var(--border));
+  background: color-mix(in srgb, var(--amber-soft) 48%, var(--panel));
+  padding: 0.42rem 0.62rem;
+  color: var(--amber-contrast);
+  font-size: 0.61rem;
+  font-weight: 750;
+}
+
+.operation-semantic-diff-expired .semantic-diff-scroll {
+  opacity: 0.72;
+}
+
 .semantic-diff-subject-column { width: 17%; }
 .semantic-diff-operation-value-column { width: 15%; }
 .semantic-diff-operation-source-column { width: 39%; }

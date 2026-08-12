@@ -280,7 +280,7 @@ test("factory workflow controls stay compact and preview exact owner scope", asy
       expected_postcondition: "One exact task and first turn request a read-only maintained-skill review; no edit or acceptance is implied.",
       idempotency: "One task per consumed preview; no automatic retry.",
       limitations: ["Task start is separate from tracker status and Block acceptance."],
-      expires_at: "2026-08-10T10:35:00.000Z",
+      expires_at: "2099-08-10T10:35:00.000Z",
     },
     history: [{ state: "previewed", observed_at: observedAt }],
     request_evidence: null,
