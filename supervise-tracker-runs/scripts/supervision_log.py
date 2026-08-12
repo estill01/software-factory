@@ -326,6 +326,14 @@ SUCCESSOR_GOVERNING_OUTCOME_EFFECTS = {
 }
 MAX_SUCCESSOR_TRANSITION_HOURS = 24
 IMPLEMENTATION_RANGE_INTENTS = {"full-tracker", "explicit-blocks"}
+IMPLEMENTATION_RANGE_RESPONSE_KINDS = (
+    "block-boundary",
+    "commit-boundary",
+    "review-boundary",
+    "handoff-boundary",
+    "final-response",
+    "outcome-terminal",
+)
 DIRECT_AUTHORITY_EVENT_KIND = "direct-user-authority-source"
 TRACKER_AMENDMENT_EVENT_KIND = "implementation-tracker-amendment"
 SUCCESSOR_TOPOLOGY_EVENT_KIND = "successor-topology-decision"
@@ -4052,8 +4060,120 @@ def requires_reusable_lane_disposition(
     )
 
 
+def canonical_record_first_incident(
+    *,
+    directory: Path,
+    policy: dict[str, Any],
+    source_record: str,
+    incident_id_value: str,
+    failure_mode_id: str,
+) -> dict[str, str]:
+    """Resolve one exact open incident head before a critical route."""
+
+    current_incident_id = safe_id(
+        incident_id_value, label="critical-route incident ID"
+    )
+    expected_failure_mode_id = safe_id(
+        failure_mode_id, label="critical-route failure mode ID"
+    )
+    all_events = events(directory / "events.jsonl")
+    validate_event_ledger_anchor(
+        directory,
+        all_events,
+        allow_missing=not all_events,
+    )
+    incident_records = [
+        item
+        for item in all_events
+        if is_substantive_incident_record(item, current_incident_id)
+    ]
+    if not incident_records:
+        raise SupervisionLogError(
+            "Critical route requires a pre-existing canonical incident head"
+        )
+    head = incident_records[-1]
+    if head.get("record_id") != source_record:
+        raise SupervisionLogError(
+            "Critical route source is not the current canonical incident head"
+        )
+    if is_terminal_incident_record(head, current_incident_id):
+        raise SupervisionLogError(
+            "Critical route incident head is terminal or closed"
+        )
+    if head.get("severity") != "critical":
+        raise SupervisionLogError(
+            "Critical route incident head is not critical"
+        )
+    failure_mode = head.get("failure_mode")
+    required_failure_fields = {
+        "failure_mode_id",
+        "layer",
+        "mechanism",
+        "trigger",
+        "effect",
+        "detection",
+        "correction",
+        "recurrence_invariant",
+        "human_scheduling_leak",
+    }
+    if not isinstance(failure_mode, Mapping) or any(
+        field not in failure_mode for field in required_failure_fields
+    ):
+        raise SupervisionLogError(
+            "Critical route incident head lacks its complete failure-mode envelope"
+        )
+    if failure_mode.get("failure_mode_id") != expected_failure_mode_id:
+        raise SupervisionLogError(
+            "Critical route failure mode does not match the incident head"
+        )
+    if not str(failure_mode.get("correction", "")).strip():
+        raise SupervisionLogError(
+            "Critical route incident head lacks the exact correction"
+        )
+    resolution_owner = head.get("resolution_owner")
+    if resolution_owner not in {"target", "supervisor"}:
+        raise SupervisionLogError(
+            "Critical route incident head lacks an autonomous resolution owner"
+        )
+    if head.get("user_action_required") != "no":
+        raise SupervisionLogError(
+            "Critical route incident head lacks a no-user-action posture"
+        )
+    next_trigger = str(head.get("action", "")).strip()
+    if not next_trigger:
+        raise SupervisionLogError(
+            "Critical route incident head lacks an autonomous next effectiveness trigger"
+        )
+    record_sha256 = exact_sha256(
+        str(head.get("record_sha256", "")),
+        label="critical-route incident head SHA-256",
+    )
+    anchor = event_ledger_anchor(all_events)
+    currentness_root = digest(
+        {
+            "incident_id": current_incident_id,
+            "incident_head_record_id": source_record,
+            "incident_head_record_sha256": record_sha256,
+            "failure_mode_id": expected_failure_mode_id,
+            "next_effectiveness_trigger_sha256": digest(next_trigger),
+            "event_anchor_sha256": anchor["anchor_sha256"],
+            "policy_sha256": policy["policy_sha256"],
+        }
+    )
+    return {
+        "incident_id": current_incident_id,
+        "incident_head_record_id": source_record,
+        "incident_head_record_sha256": record_sha256,
+        "failure_mode_id": expected_failure_mode_id,
+        "resolution_owner": str(resolution_owner),
+        "user_action_required": "no",
+        "next_effectiveness_trigger_sha256": digest(next_trigger),
+        "incident_currentness_root_sha256": currentness_root,
+    }
+
+
 def cmd_thread_route_gate(args: argparse.Namespace) -> None:
-    _, policy = load_policy(args)
+    directory, policy = load_policy(args)
     routing = policy.get("cross_thread_routing")
     if routing != cross_thread_routing_contract():
         raise SupervisionLogError(
@@ -4101,6 +4221,27 @@ def cmd_thread_route_gate(args: argparse.Namespace) -> None:
             )
         containment = containment_envelope_from_args(args, policy)
 
+    incident_head = None
+    if (
+        getattr(args, "severity", "info") == "critical"
+        and containment is None
+    ):
+        if not getattr(args, "incident_id", None):
+            raise SupervisionLogError(
+                "Critical route requires an exact canonical incident ID"
+            )
+        if not getattr(args, "failure_mode_id", None):
+            raise SupervisionLogError(
+                "Critical route requires an exact failure mode ID"
+            )
+        incident_head = canonical_record_first_incident(
+            directory=directory,
+            policy=policy,
+            source_record=source_record,
+            incident_id_value=args.incident_id,
+            failure_mode_id=args.failure_mode_id,
+        )
+
     result = {
         "send_allowed": True,
         "target_thread_id": policy["target_thread_id"],
@@ -4114,6 +4255,8 @@ def cmd_thread_route_gate(args: argparse.Namespace) -> None:
     if containment is not None:
         result["containment"] = containment
         result["containment_sha256"] = digest(containment)
+    if incident_head is not None:
+        result["critical_incident_head"] = incident_head
     print(json.dumps(result, sort_keys=True))
 
 
@@ -6886,6 +7029,40 @@ def cmd_implementation_range_amend(args: argparse.Namespace) -> None:
     print(json.dumps({"binding": contract, "contraction": contraction}, sort_keys=True))
 
 
+def implementation_range_repair_result(
+    *,
+    response_kind: str,
+    policy: Mapping[str, Any],
+    control: Mapping[str, Any],
+    posture: str,
+    cause: str,
+) -> dict[str, Any]:
+    effective_control = dict(control)
+    effective_control["required_target_posture"] = "in-progress"
+    effective_control["next_action"] = (
+        "continue-local-safe-frontier-and-repair-binding"
+    )
+    return {
+        "range_binding_current": False,
+        "range_binding_posture": posture,
+        "response_kind": response_kind,
+        "final_response_permitted": False,
+        "required_target_posture": "in-progress",
+        "next_action": "continue-local-safe-frontier-and-repair-binding",
+        "failure_mode_if_returned": "FM-UNAUTHORIZED-EARLY-RETURN",
+        "severity_if_returned": "critical",
+        "process_boundary_implies_completion": False,
+        "manual_resume_required": False,
+        "human_input_required": False,
+        "suppression_cause": cause,
+        "control_posture": effective_control,
+        "governing_outcome_currentness_sha256": control[
+            "governing_outcome_currentness_sha256"
+        ],
+        "policy_sha256": policy["policy_sha256"],
+    }
+
+
 def cmd_implementation_range_gate(args: argparse.Namespace) -> None:
     (
         directory,
@@ -6895,9 +7072,6 @@ def cmd_implementation_range_gate(args: argparse.Namespace) -> None:
         event_snapshot,
         directory_snapshot,
     ) = load_control_snapshot(args)
-    state = implementation_range_state(policy)
-    if state is None:
-        raise SupervisionLogError("Implementation range is not canonically bound")
     control = reduce_control_posture(
         directory=directory,
         policy=policy,
@@ -6906,6 +7080,35 @@ def cmd_implementation_range_gate(args: argparse.Namespace) -> None:
         owner_event_snapshot=event_snapshot,
         owner_directory_snapshot=directory_snapshot,
     )
+    try:
+        state = implementation_range_state(policy)
+    except SupervisionLogError as exc:
+        repairable_noncurrent_messages = (
+            "Implementation tracker changed without an accepted range amendment",
+            "Implementation tracker structure changed without an accepted amendment",
+            "Bound explicit Blocks require an exact accepted renumbering map",
+        )
+        if not str(exc).startswith(repairable_noncurrent_messages):
+            raise
+        result = implementation_range_repair_result(
+            response_kind=args.response_kind,
+            policy=policy,
+            control=control,
+            posture="noncurrent",
+            cause=str(exc),
+        )
+        print(json.dumps(result, sort_keys=True))
+        return
+    if state is None:
+        result = implementation_range_repair_result(
+            response_kind=args.response_kind,
+            policy=policy,
+            control=control,
+            posture="absent",
+            cause="Implementation range is not canonically bound",
+        )
+        print(json.dumps(result, sort_keys=True))
+        return
     remaining = state["remaining_blocks"]
     if remaining:
         next_action = (
@@ -6923,10 +7126,19 @@ def cmd_implementation_range_gate(args: argparse.Namespace) -> None:
     else:
         next_action = control["next_action"]
         final_permitted = False
+    effective_control = dict(control)
+    if not final_permitted:
+        effective_control["required_target_posture"] = "in-progress"
+        effective_control["next_action"] = next_action
     result = {
         **state,
+        "range_binding_current": True,
+        "range_binding_posture": "current",
         "response_kind": args.response_kind,
         "final_response_permitted": final_permitted,
+        "required_target_posture": effective_control[
+            "required_target_posture"
+        ],
         "next_action": next_action,
         "failure_mode_if_returned": (
             None if final_permitted else "FM-UNAUTHORIZED-EARLY-RETURN"
@@ -6935,7 +7147,7 @@ def cmd_implementation_range_gate(args: argparse.Namespace) -> None:
         "process_boundary_implies_completion": False,
         "manual_resume_required": False,
         "human_input_required": False,
-        "control_posture": control,
+        "control_posture": effective_control,
         "governing_outcome_currentness_sha256": control[
             "governing_outcome_currentness_sha256"
         ],
@@ -13909,6 +14121,7 @@ def parser() -> argparse.ArgumentParser:
         "--severity", choices=sorted(SEVERITIES), default="info"
     )
     thread_route_gate.add_argument("--incident-id")
+    thread_route_gate.add_argument("--failure-mode-id")
     thread_route_gate.set_defaults(func=cmd_thread_route_gate)
 
     record = subparsers.add_parser("record")
@@ -14103,7 +14316,7 @@ def parser() -> argparse.ArgumentParser:
     range_gate.add_argument("--target-thread", required=True)
     range_gate.add_argument(
         "--response-kind",
-        choices=("block-boundary", "outcome-terminal"),
+        choices=IMPLEMENTATION_RANGE_RESPONSE_KINDS,
         default="outcome-terminal",
     )
     range_gate.set_defaults(func=cmd_implementation_range_gate)

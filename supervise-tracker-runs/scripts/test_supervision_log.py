@@ -1504,6 +1504,76 @@ class ImplementationRangeControlTests(unittest.TestCase):
             response_kind,
         )
 
+    def test_absent_range_returns_structured_nonterminal_repair(self) -> None:
+        result = self.gate("final-response")
+
+        self.assertFalse(result["range_binding_current"])
+        self.assertEqual(result["range_binding_posture"], "absent")
+        self.assertFalse(result["final_response_permitted"])
+        self.assertEqual(result["required_target_posture"], "in-progress")
+        self.assertEqual(
+            result["next_action"],
+            "continue-local-safe-frontier-and-repair-binding",
+        )
+        self.assertEqual(
+            result["failure_mode_if_returned"],
+            "FM-UNAUTHORIZED-EARLY-RETURN",
+        )
+        self.assertFalse(result["manual_resume_required"])
+        self.assertFalse(result["human_input_required"])
+
+    def test_noncurrent_tracker_returns_structured_nonterminal_repair(self) -> None:
+        self.write_tracker(["completed", "not-started"])
+        self.bind()
+        self.tracker.write_text(
+            self.tracker.read_text(encoding="utf-8").replace(
+                "Scope 1", "Changed scope 1"
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.gate("final-response")
+
+        self.assertFalse(result["range_binding_current"])
+        self.assertEqual(result["range_binding_posture"], "noncurrent")
+        self.assertFalse(result["final_response_permitted"])
+        self.assertEqual(result["required_target_posture"], "in-progress")
+        self.assertEqual(
+            result["next_action"],
+            "continue-local-safe-frontier-and-repair-binding",
+        )
+        self.assertIn("changed without an accepted", result["suppression_cause"])
+
+    def test_remaining_range_rejects_every_process_and_response_boundary(self) -> None:
+        self.write_tracker(["completed", "not-started"])
+        self.bind()
+
+        for response_kind in supervision_log.IMPLEMENTATION_RANGE_RESPONSE_KINDS:
+            with self.subTest(response_kind=response_kind):
+                result = self.gate(response_kind)
+                self.assertFalse(result["final_response_permitted"])
+                self.assertEqual(
+                    result["required_target_posture"], "in-progress"
+                )
+                self.assertEqual(
+                    result["next_action"], "continue-next-eligible-block"
+                )
+                self.assertFalse(result["process_boundary_implies_completion"])
+                self.assertFalse(result["manual_resume_required"])
+                self.assertFalse(result["human_input_required"])
+
+    def test_exact_completed_block_request_keeps_its_block_return_boundary(self) -> None:
+        self.write_tracker(["completed", "completed"])
+        self.bind("Block 1")
+
+        result = self.gate("block-boundary")
+
+        self.assertTrue(result["range_binding_current"])
+        self.assertTrue(result["final_response_permitted"])
+        self.assertEqual(
+            result["next_action"], "requested-block-boundary-satisfied"
+        )
+
     def rewrite_owner_root_without_external_authority(self) -> None:
         directory = self.root / self.target
         history = supervision_log.events(directory / "policy-history.jsonl")
@@ -5023,6 +5093,82 @@ class CrossThreadRoutingGateTests(unittest.TestCase):
             supervision_log.cmd_thread_route_gate(args)
         return json.loads(output.getvalue())
 
+    def critical_incident_head(
+        self,
+        *,
+        record_id: str = "EVT-CRITICAL-HEAD-1234",
+        incident_id: str = "INC-CRITICAL-1234",
+        failure_mode_id: str = "FM-CRITICAL-1234",
+        status: str = "under-review",
+        action: str = "Observe the next natural boundary and evaluate effectiveness.",
+        resolution_owner: str = "supervisor",
+        user_action_required: str = "no",
+    ) -> dict[str, object]:
+        record: dict[str, object] = {
+            "schema_version": 1,
+            "record_id": record_id,
+            "timestamp": supervision_log.utc_now(),
+            "target_thread_id": "target-1234",
+            "kind": "incident",
+            "incident_id": incident_id,
+            "status": status,
+            "severity": "critical",
+            "notice_disposition": "intermediate",
+            "resolution_owner": resolution_owner,
+            "user_action_required": user_action_required,
+            "action": action,
+            "failure_mode": {
+                "failure_mode_id": failure_mode_id,
+                "layer": "control-plane",
+                "mechanism": "A route preceded durable incident ownership.",
+                "trigger": "A critical correction was ready to send.",
+                "effect": "The correction had no durable recurrence owner.",
+                "detection": "Require the current incident head before routing.",
+                "correction": "Record or exact-deduplicate the incident first.",
+                "recurrence_invariant": "Record first, then route.",
+                "human_scheduling_leak": False,
+            },
+            "policy_sha256": self.policy()["policy_sha256"],
+            "previous_record_sha256": None,
+        }
+        record["record_sha256"] = supervision_log.digest(record)
+        return record
+
+    def critical_route(
+        self,
+        all_events: list[dict[str, object]],
+        *,
+        source_record: str = "EVT-CRITICAL-HEAD-1234",
+        incident_id: str | None = "INC-CRITICAL-1234",
+        failure_mode_id: str | None = "FM-CRITICAL-1234",
+    ) -> dict[str, object]:
+        args = argparse.Namespace(
+            target_thread="target-1234",
+            recipient_thread="target-1234",
+            purpose="target-action",
+            source_record=source_record,
+            action="Apply the exact critical correction.",
+            severity="critical",
+            incident_id=incident_id,
+            failure_mode_id=failure_mode_id,
+            containment=False,
+        )
+        output = io.StringIO()
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(Path("/tmp/supervision-test"), self.policy()),
+            ),
+            mock.patch.object(
+                supervision_log, "events", return_value=all_events
+            ),
+            mock.patch.object(supervision_log, "validate_event_ledger_anchor"),
+            redirect_stdout(output),
+        ):
+            supervision_log.cmd_thread_route_gate(args)
+        return json.loads(output.getvalue())
+
     def test_exact_configured_action_owner_is_allowed(self) -> None:
         result = self.route(
             self.policy(),
@@ -5113,6 +5259,89 @@ class CrossThreadRoutingGateTests(unittest.TestCase):
                 purpose="semantic-escalation",
                 action="   ",
             )
+
+    def test_critical_route_requires_an_existing_incident_head(self) -> None:
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "pre-existing canonical incident head",
+        ):
+            self.critical_route([])
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "exact canonical incident ID",
+        ):
+            self.critical_route([], incident_id=None)
+
+    def test_critical_route_rejects_stale_and_mismatched_incident_state(self) -> None:
+        first = self.critical_incident_head(record_id="EVT-CRITICAL-OLD-1234")
+        current = self.critical_incident_head()
+        current["previous_record_sha256"] = first["record_sha256"]
+        current["record_sha256"] = supervision_log.digest(
+            {key: value for key, value in current.items() if key != "record_sha256"}
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "not the current canonical incident head",
+        ):
+            self.critical_route(
+                [first, current], source_record="EVT-CRITICAL-OLD-1234"
+            )
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "failure mode does not match",
+        ):
+            self.critical_route([current], failure_mode_id="FM-DIFFERENT-1234")
+
+    def test_critical_route_rejects_terminal_and_triggerless_heads(self) -> None:
+        terminal = self.critical_incident_head(status="closed")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "terminal or closed",
+        ):
+            self.critical_route([terminal])
+
+        triggerless = self.critical_incident_head(action="")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "next effectiveness trigger",
+        ):
+            self.critical_route([triggerless])
+
+    def test_critical_route_rejects_non_autonomous_ownership(self) -> None:
+        user_owned = self.critical_incident_head(
+            resolution_owner="user", user_action_required="yes"
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "autonomous resolution owner",
+        ):
+            self.critical_route([user_owned])
+
+    def test_exact_open_or_deduplicated_incident_head_allows_critical_route(self) -> None:
+        head = self.critical_incident_head()
+
+        result = self.critical_route([head])
+        repeated = self.critical_route([head])
+
+        self.assertTrue(result["send_allowed"])
+        incident = result["critical_incident_head"]
+        self.assertEqual(incident["incident_id"], "INC-CRITICAL-1234")
+        self.assertEqual(
+            incident["incident_head_record_id"], "EVT-CRITICAL-HEAD-1234"
+        )
+        self.assertEqual(incident["resolution_owner"], "supervisor")
+        self.assertEqual(incident["user_action_required"], "no")
+        self.assertRegex(
+            incident["incident_currentness_root_sha256"], r"^[0-9a-f]{64}$"
+        )
+        self.assertEqual(
+            repeated["critical_incident_head"][
+                "incident_currentness_root_sha256"
+            ],
+            incident["incident_currentness_root_sha256"],
+        )
 
     def test_ambiguous_role_binding_fails_closed(self) -> None:
         policy = self.policy()

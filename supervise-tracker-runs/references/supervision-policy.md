@@ -781,7 +781,17 @@ dependency-safe Blocks, and consumes the canonical governing-outcome reducer;
 it accepts no caller-supplied terminal roots. Any nonterminal result requires
 immediate safe continuation and forbids terminalization. It never requests
 Resume or ordinary human scheduling. Only an exact one-Block request may
-normally return at that Block's Stop.
+normally return at that Block's Stop. An absent range binding or a current
+binding whose tracker identity is stale returns a structured nonterminal
+verdict rather than a bare error: `final_response_permitted=false`,
+`required_target_posture=in-progress`, failure mode
+`FM-UNAUTHORIZED-EARLY-RETURN`, and
+`continue-local-safe-frontier-and-repair-binding`, with no human input or manual
+Resume. Ledger, policy-history, owner-root, and path-integrity failures still
+raise and fail closed; a structured repair verdict must not conceal corrupted
+canonical state. Remaining requested Blocks likewise force `in-progress` and
+their exact dependency-safe continuation action. Block, commit, review,
+handoff, push, and final-response boundaries do not alter that result.
 
 Bind once, amend only after an accepted tracker revision, and gate every Stop:
 
@@ -798,7 +808,7 @@ python3 <LOG_HELPER> implementation-range-amend \
 
 python3 <LOG_HELPER> implementation-range-gate \
   --target-thread <TARGET> \
-  --response-kind <block-boundary|outcome-terminal>
+  --response-kind <block-boundary|commit-boundary|review-boundary|handoff-boundary|final-response|outcome-terminal>
 ```
 
 The initial source must resolve to the bound direct mission or an already
@@ -901,6 +911,30 @@ bound thread. It does not create a message ledger, authorize the action, or
 replace semantic review. A caller may not label routine status as an action to
 evade the rule. Email remains governed exclusively by `notice-gate`,
 `lifecycle-gate`, `decision-gate`, and the maintained roundup/reply contracts.
+
+Record-first ordering is mandatory for every critical correction route and
+every critical report that a correction was handled. Pass `--severity critical`,
+`--incident-id <INCIDENT>`, and `--failure-mode-id <FAILURE_MODE>` and use the
+current substantive incident head as `--source-record`. Before permitting the
+send, the gate validates the canonical event head and requires that source to be
+the exact current, open, critical incident head (including an exact-deduplicated
+head). The head must already contain the complete structured failure-mode
+envelope and correction, an autonomous `target` or `supervisor` resolution
+owner, `user_action_required=no`, and a nonempty `action` that owns the next
+effectiveness trigger. Missing incidents, stale source records, closed or other
+terminal heads, mismatched failure modes, incomplete ownership, and triggerless
+records reject. A successful result returns the exact incident head hash,
+failure-mode ID, hashed next trigger, and incident currentness root; it does not
+append or close the incident.
+
+```bash
+python3 <LOG_HELPER> thread-route-gate --target-thread <TARGET> \
+  --recipient-thread <RECIPIENT> --purpose <PURPOSE> \
+  --source-record <CURRENT_OPEN_INCIDENT_HEAD> \
+  --action "<EXACT_CRITICAL_CORRECTION_OR_HANDLED_REPORT>" \
+  --severity critical --incident-id <INCIDENT> \
+  --failure-mode-id <FAILURE_MODE>
+```
 
 For a containment `target-action`, pass the mission binding, authority
 provenance, non-scalar impact, exact scope identity, expiry, non-carry-forward,

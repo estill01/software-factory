@@ -179,6 +179,13 @@ Repeat independently for additional targets.
   source record, and required action, and require `send_allowed=true`. Never use
   an unrelated chat or side conversation as a status sink. User-facing email
   goes only through the maintained notification gates.
+- Record before routing a critical correction or reporting one handled. Mark
+  that route `--severity critical` and cite the exact current open incident head,
+  incident ID, and failure-mode ID. The head must already bind the complete
+  failure-mode envelope and correction, an autonomous target/supervisor owner,
+  `user_action_required=no`, and a nonempty autonomous next effectiveness
+  trigger. A missing, stale, mismatched, triggerless, or terminal head fails
+  closed; the route gate returns the exact accepted head and currentness root.
 - Bind every new supervision group to an exact content-minimized mission root
   and controlling source record before its first watcher check. The semantic
   mission remains in its direct goal, repository, or tracker sources: its
@@ -777,8 +784,13 @@ hidden reasoning into the review.
   `implementation-range-gate`. If it reports remaining Blocks or a noncurrent
   governing outcome, classify a return as the critical
   `FM-UNAUTHORIZED-EARLY-RETURN` failure, reject terminalization, and require
-  its immediate dependency-safe `next_action`. A Block Stop inside a
-  full-tracker request is an audit checkpoint, never a user-return boundary.
+  its immediate dependency-safe `next_action`. An absent or noncurrent range
+  binding also returns a structured nonterminal verdict: keep the target
+  `in-progress`, continue the local safe frontier, and repair the binding with
+  no manual Resume or ordinary human scheduling. Block, commit, review,
+  handoff, push, and final-response boundaries never imply completion. A Block
+  Stop inside a full-tracker request is an audit checkpoint, never a user-return
+  boundary.
 - Treat the content-minimized `control_posture_replay_v1.json` fixture and its
   finite state matrix as the demonstrated convergence baseline for this failure
   family. Replay it through the public `control-posture-gate`: an open or
@@ -835,7 +847,8 @@ hidden reasoning into the review.
   bounded packet identifies the recipient's required action and must pass
   `thread-route-gate`; routine evidence and outcomes remain in the target thread
   or their helper-approved email lane. The gate is read-only and must not become
-  another message ledger or authorization system.
+  another message ledger or authorization system. A critical correction or
+  handled report must pass the record-first incident-head check described above.
 - Scheduled inactivity consumes no model tokens; each wake must remain bounded.
 - Supervision evidence is operational evidence, not patent authority, legal
   status, or proof of patent quality.
