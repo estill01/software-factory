@@ -548,8 +548,8 @@ the relevant authority and evidence contract.
 | 25 | Same-target mission succession | 7, 10, 11 | `accepted` |
 | 26 | Successor-task continuity | 7, 10, 11 | `accepted` |
 | 27 | Weekly supervision report workflow | 9, 10, 11, 13 | `accepted` |
-| 28 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `in-progress` |
-| 29 | Terminal report workflow | 9, 10, 11, 13, 27 | `not-started` |
+| 28 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `accepted` |
+| 29 | Terminal report workflow | 9, 10, 11, 13, 27 | `in-progress` |
 | 30 | Request-stop and terminal shutdown | 7, 9, 10, 11, 29 | `not-started` |
 | 31 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 | `not-started` |
 
@@ -7425,7 +7425,7 @@ Stop before terminal reporting, Factory evolution, request-stop, or shutdown.
 
 ## Block 28 — Factory evolution evaluation and disposition
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -7678,6 +7678,18 @@ and stop at the first unavailable, stale, rejected, or unverified stage.
   truthful unavailable values for all six current source projections. Fresh
   exact-revision review is pending; Block 29 remains closed and no live
   evolution action or canonical mutation occurred.
+- Independent exact-revision acceptance: evidence
+  `bab551b74ca561dd0053e8c2b2158b321afc52e4`, tree
+  `9e58855a6a354ffcb684d4d026c455e91aa9ed33`; product
+  `5d1e51d408992545fe5465c77cd6d0bc40b2d863`, tree
+  `a66361eae8157a4a613758357d1ccc81abb7d876`. The reviewer found no material
+  issue and independently reproduced backend 2/2, affected frontend 40/40,
+  build, Ruff, Python compilation, focused browser 3/3, full-profile 32-Block
+  verification with 0 diagnostics, verifier tests 30/30, diff/fsck/remote/
+  clean gates, and the Block 29 Stop. The pre-broad brief preceded the one
+  documented 72/78 matrix; Block 28 passed 3/3, all six unrelated diagnostics
+  remain truthful, and no replay, harness mutation, live evolution action, or
+  canonical mutation occurred.
 
 ### Stop
 
@@ -7690,7 +7702,7 @@ acceptance.
 
 ## Block 29 — Terminal report workflow
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -7792,7 +7804,15 @@ unverified output.
 
 ### Completion evidence
 
-Pending.
+- Activation: Block 29 started automatically after independent acceptance of
+  Block 28 evidence `bab551b74ca561dd0053e8c2b2158b321afc52e4` and product
+  `5d1e51d408992545fe5465c77cd6d0bc40b2d863`. Governing implementation
+  authority remains direct-user item 44 under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+  Work is limited to the maintained terminal-report artifact and configured
+  delivery owners. Blocks 30–31 remain closed; no completion decision,
+  request-stop, lifecycle transition, automation pause, shutdown, Gmail read,
+  or Gmail send has been attempted.
 
 ### Stop
 
