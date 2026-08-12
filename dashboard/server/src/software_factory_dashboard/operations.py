@@ -489,7 +489,10 @@ def policy_automation_reconciliation(
             if contract["policy_source"] == "weekly_report"
             else runtime.get(contract["automation_key"])
         )
-        if role_name in {"gmail_gate", "roundup_writer"} and not automation_id:
+        target_thread_id = runtime.get(contract["thread_key"])
+        if role_name in {"gmail_gate", "roundup_writer"} and not (
+            automation_id or target_thread_id
+        ):
             continue
         if role_name == "weekly_report" and not (
             weekly.get("enabled") is True or automation_id
@@ -525,7 +528,6 @@ def policy_automation_reconciliation(
         owner_status = (
             automation.get("owner_status") if isinstance(automation, Mapping) else None
         )
-        target_thread_id = runtime.get(contract["thread_key"])
         actual_target = (
             automation.get("target_thread_id") if isinstance(automation, Mapping) else None
         )
@@ -1314,6 +1316,24 @@ class OperationsProjectionService:
             if isinstance(lifecycle_record, Mapping)
             else None
         )
+        post_lifecycle_notifications: list[dict[str, Any]] = []
+        if isinstance(lifecycle_record, Mapping):
+            lifecycle_record_id = lifecycle_record.get("record_id")
+            lifecycle_index = next(
+                (
+                    index
+                    for index, item in enumerate(evidence.events)
+                    if item.get("record_id") == lifecycle_record_id
+                ),
+                None,
+            )
+            if lifecycle_index is not None:
+                post_lifecycle_notifications = [
+                    json.loads(json.dumps(item))
+                    for item in evidence.events[lifecycle_index + 1 :]
+                    if item.get("kind") == "notification"
+                    and item.get("status") == "sent"
+                ]
         open_successor_transitions = owner_module.successor_transition_heads(
             list(evidence.events),
             open_only=True,
@@ -1345,6 +1365,10 @@ class OperationsProjectionService:
                 if isinstance(lifecycle_record, Mapping)
                 else None
             ),
+            "post_lifecycle_notification_sha256s": [
+                item.get("record_sha256")
+                for item in post_lifecycle_notifications
+            ],
             "lifecycle_status": lifecycle_status,
             "open_successor_transition_ids": sorted(open_successor_transitions),
             "open_mission_activation_ids": sorted(open_mission_activations),
@@ -1382,6 +1406,7 @@ class OperationsProjectionService:
                 if isinstance(lifecycle_record, Mapping)
                 else None
             ),
+            "post_lifecycle_notifications": post_lifecycle_notifications,
             "open_successor_transitions": json.loads(
                 json.dumps(open_successor_transitions)
             ),
@@ -1480,6 +1505,8 @@ class OperationsProjectionService:
             "completion_permitted",
             "duplicate",
             "lifecycle_state",
+            "notification_category",
+            "notification_dedup_key",
             "open_mission_activations",
             "open_successor_transitions",
             "policy_sha256",
@@ -1495,6 +1522,10 @@ class OperationsProjectionService:
             or payload.get("source_record") != source_record
             or payload.get("state_fingerprint") != state_fingerprint
             or payload.get("policy_sha256") != before.get("policy_sha256")
+            or not isinstance(payload.get("notification_category"), str)
+            or not payload["notification_category"]
+            or not isinstance(payload.get("notification_dedup_key"), str)
+            or not payload["notification_dedup_key"]
             or not isinstance(payload.get("open_mission_activations"), list)
             or not isinstance(payload.get("open_successor_transitions"), list)
             or any(
@@ -1513,11 +1544,57 @@ class OperationsProjectionService:
                 "The maintained lifecycle gate returned an invalid contract.",
                 status=503,
             )
+        notifications = before.get("post_lifecycle_notifications")
+        notifications = notifications if isinstance(notifications, list) else []
+        matching_notifications = [
+            item
+            for item in notifications
+            if isinstance(item, Mapping)
+            and item.get("category") == payload["notification_category"]
+            and (
+                item.get("dedup_key") == payload["notification_dedup_key"]
+                or (
+                    isinstance(item.get("evidence"), list)
+                    and source_record in item["evidence"]
+                )
+            )
+        ]
+        notification_record: Mapping[str, Any] | None = None
+        if payload.get("duplicate") is True:
+            if (
+                len(matching_notifications) != 1
+                or not isinstance(matching_notifications[0].get("record_id"), str)
+                or not SAFE_ID.fullmatch(str(matching_notifications[0]["record_id"]))
+                or not isinstance(
+                    matching_notifications[0].get("record_sha256"), str
+                )
+                or not SHA256.fullmatch(
+                    str(matching_notifications[0]["record_sha256"])
+                )
+                or _event_time(matching_notifications[0]) is None
+            ):
+                raise OperationsProjectionError(
+                    "lifecycle_notification_evidence_invalid",
+                    "The maintained lifecycle notification is missing, duplicated, or malformed.",
+                    status=409,
+                )
+            notification_record = matching_notifications[0]
+        elif matching_notifications:
+            raise OperationsProjectionError(
+                "lifecycle_notification_evidence_inconsistent",
+                "Canonical notification evidence disagrees with the maintained lifecycle gate.",
+                status=409,
+            )
         currentness = _digest(
             {
                 "control": before.get("fingerprint"),
                 "owner": before.get("owner_sha256"),
                 "record": record.get("record_sha256"),
+                "notification": (
+                    notification_record.get("record_sha256")
+                    if isinstance(notification_record, Mapping)
+                    else None
+                ),
                 "gate": payload,
             }
         )
@@ -1525,6 +1602,11 @@ class OperationsProjectionService:
             "target_thread_id": target_thread_id,
             "owner_sha256": before.get("owner_sha256"),
             "source_record_sha256": record.get("record_sha256"),
+            "notification_record": (
+                json.loads(json.dumps(notification_record))
+                if isinstance(notification_record, Mapping)
+                else None
+            ),
             "control_fingerprint": before.get("fingerprint"),
             "currentness": currentness,
             "gate": json.loads(json.dumps(payload)),

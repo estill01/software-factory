@@ -4421,32 +4421,38 @@ class FactoryWorkflowOwner:
         *,
         task_id: str,
         role: str,
+        unavailable_code: str = "policy_adjust_owner_unavailable",
+        active_code: str = "policy_adjust_owner_active",
+        allow_active: bool = False,
     ) -> tuple[str, tuple[int, int], str]:
         cwd = task.get("cwd")
         try:
             path = Path(str(cwd)).expanduser().resolve(strict=True)
         except (OSError, RuntimeError) as error:
             raise OperationError(
-                "policy_adjust_owner_unavailable",
+                unavailable_code,
                 f"The exact {role} task cwd is unavailable.",
                 status=409,
             ) from error
         status = task.get("status", {}).get("type")
         if task.get("id") != task_id or not path.is_dir():
             raise OperationError(
-                "policy_adjust_owner_unavailable",
+                unavailable_code,
                 f"The exact {role} task identity is unavailable.",
                 status=409,
             )
-        if status == "active":
+        if status == "active" and not allow_active:
             raise OperationError(
-                "policy_adjust_owner_active",
+                active_code,
                 f"The exact {role} already has an active turn.",
                 status=409,
             )
-        if status not in {"idle", "notLoaded"}:
+        allowed_statuses = {"idle", "notLoaded"}
+        if allow_active:
+            allowed_statuses.add("active")
+        if status not in allowed_statuses:
             raise OperationError(
-                "policy_adjust_owner_unavailable",
+                unavailable_code,
                 f"The exact {role} task is not available for this workflow.",
                 status=409,
             )
@@ -8041,6 +8047,16 @@ class FactoryWorkflowOwner:
         return projected
 
     @staticmethod
+    def _supervision_pause_timestamp(value: Any) -> datetime | None:
+        if not isinstance(value, str) or not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo is not None else None
+
+    @staticmethod
     def _supervision_pause_marker(
         target: OperationTarget,
         source: SourceSnapshot,
@@ -8317,6 +8333,8 @@ class FactoryWorkflowOwner:
                 or not SHA256_PATTERN.fullmatch(str(automation["manifest_sha256"]))
                 or not isinstance(automation.get("protected_sha256"), str)
                 or not SHA256_PATTERN.fullmatch(str(automation["protected_sha256"]))
+                or self._supervision_pause_timestamp(automation.get("updated_at"))
+                is None
             ):
                 raise OperationError(
                     "supervision_pause_automation_unavailable",
@@ -8343,6 +8361,7 @@ class FactoryWorkflowOwner:
                     "rrule": automation["rrule"],
                     "manifest_sha256": automation["manifest_sha256"],
                     "protected_sha256": automation["protected_sha256"],
+                    "updated_at": automation["updated_at"],
                 }
             )
         if {item["role"] for item in normalized_automations}.issuperset(
@@ -8392,12 +8411,12 @@ class FactoryWorkflowOwner:
                 "The exact fix-executor projection is unavailable.",
                 status=409,
             )
-        fix_cwd, fix_identity, fix_status = self._validated_automation_project_task(
+        fix_cwd, fix_identity, fix_status = self._validated_role_task(
             fix_task,
             task_id=fix_executor_task_id,
             role="fix executor",
-            project=project,
-            allow_active=False,
+            unavailable_code="supervision_pause_owner_unavailable",
+            active_code="supervision_pause_owner_active",
         )
         target_task_material = {
             "id": target.id,
@@ -8623,7 +8642,7 @@ class FactoryWorkflowOwner:
             automation_results: list[dict[str, Any]] = []
             for expected in source.evidence["automations"]:
                 current = current_by_role.get(expected["role"])
-                exact = bool(
+                base_paused = bool(
                     isinstance(current, Mapping)
                     and current.get("status") == "available"
                     and current.get("id") == expected["id"]
@@ -8635,29 +8654,30 @@ class FactoryWorkflowOwner:
                     and current.get("protected_sha256")
                     == expected["protected_sha256"]
                     and isinstance(current.get("manifest_sha256"), str)
-                    and (
-                        expected["owner_status"] == "PAUSED"
-                        or current.get("manifest_sha256")
-                        != expected["manifest_sha256"]
-                    )
+                    and self._supervision_pause_timestamp(current.get("updated_at"))
+                    is not None
                 )
                 automation_results.append(
                     {
                         "role": expected["role"],
                         "automation_id": expected["id"],
-                        "paused": exact,
+                        "paused": False,
+                        "base_paused": base_paused,
+                        "prior_owner_status": expected["owner_status"],
+                        "prior_manifest_sha256": expected["manifest_sha256"],
+                        "prior_updated_at": expected["updated_at"],
                         "manifest_sha256": (
                             current.get("manifest_sha256")
                             if isinstance(current, Mapping)
                             else None
                         ),
+                        "updated_at": (
+                            current.get("updated_at")
+                            if isinstance(current, Mapping)
+                            else None
+                        ),
                     }
                 )
-            automation_current = bool(
-                policy_current
-                and len(automation_results) == len(source.evidence["automations"])
-                and all(item["paused"] for item in automation_results)
-            )
             lifecycle = control.get("lifecycle_record")
             prior_lifecycle = source.evidence.get("prior_lifecycle")
             lifecycle_shape_current = bool(
@@ -8689,6 +8709,7 @@ class FactoryWorkflowOwner:
                     in lifecycle.get("evidence", [])
                 )
             gate_result: Mapping[str, Any] | None = None
+            notification_record: Mapping[str, Any] | None = None
             gate_current = False
             if lifecycle_shape_current and isinstance(lifecycle, Mapping):
                 try:
@@ -8703,6 +8724,12 @@ class FactoryWorkflowOwner:
                 gate_result = (
                     gated.get("gate") if isinstance(gated, Mapping) else None
                 )
+                notification_record = (
+                    gated.get("notification_record")
+                    if isinstance(gated, Mapping)
+                    and isinstance(gated.get("notification_record"), Mapping)
+                    else None
+                )
                 gate_current = bool(
                     isinstance(gate_result, Mapping)
                     and gate_result.get("completion_permitted") is True
@@ -8711,7 +8738,47 @@ class FactoryWorkflowOwner:
                     and gate_result.get("duplicate") is True
                     and gate_result.get("open_mission_activations") == []
                     and gate_result.get("open_successor_transitions") == []
+                    and isinstance(notification_record, Mapping)
+                    and isinstance(notification_record.get("record_id"), str)
+                    and isinstance(notification_record.get("record_sha256"), str)
+                    and SHA256_PATTERN.fullmatch(
+                        str(notification_record.get("record_sha256"))
+                    )
+                    and self._supervision_pause_timestamp(
+                        notification_record.get("timestamp")
+                    )
+                    is not None
                 )
+            notification_at = self._supervision_pause_timestamp(
+                notification_record.get("timestamp")
+                if isinstance(notification_record, Mapping)
+                else None
+            )
+            for item in automation_results:
+                current_at = self._supervision_pause_timestamp(item["updated_at"])
+                if item["prior_owner_status"] == "ACTIVE":
+                    owner_transition_current = bool(
+                        notification_at is not None
+                        and current_at is not None
+                        and current_at > notification_at
+                        and item["manifest_sha256"]
+                        != item["prior_manifest_sha256"]
+                    )
+                else:
+                    owner_transition_current = bool(
+                        item["manifest_sha256"] == item["prior_manifest_sha256"]
+                        and item["updated_at"] == item["prior_updated_at"]
+                    )
+                item["owner_transition_current"] = owner_transition_current
+                item["paused"] = bool(
+                    item.pop("base_paused") and owner_transition_current
+                )
+            automation_current = bool(
+                policy_current
+                and gate_current
+                and len(automation_results) == len(source.evidence["automations"])
+                and all(item["paused"] for item in automation_results)
+            )
             projects, _ = self._active_projects()
             project = self._project_from(projects, target)
             try:
@@ -8754,11 +8821,12 @@ class FactoryWorkflowOwner:
                 )
                 fix_task = fix_detail.get("task")
                 fix_cwd, fix_identity, _fix_status = (
-                    self._validated_automation_project_task(
+                    self._validated_role_task(
                         fix_task if isinstance(fix_task, Mapping) else {},
                         task_id=str(source.evidence["fix_executor_task_id"]),
                         role="fix executor",
-                        project=project,
+                        unavailable_code="supervision_pause_owner_unavailable",
+                        active_code="supervision_pause_owner_active",
                         allow_active=True,
                     )
                 )
@@ -8855,6 +8923,21 @@ class FactoryWorkflowOwner:
                 "lifecycle_notification_pending": (
                     gate_result.get("send_now")
                     if isinstance(gate_result, Mapping)
+                    else None
+                ),
+                "lifecycle_notification_record_id": (
+                    notification_record.get("record_id")
+                    if isinstance(notification_record, Mapping)
+                    else None
+                ),
+                "lifecycle_notification_record_sha256": (
+                    notification_record.get("record_sha256")
+                    if isinstance(notification_record, Mapping)
+                    else None
+                ),
+                "lifecycle_notification_timestamp": (
+                    notification_record.get("timestamp")
+                    if isinstance(notification_record, Mapping)
                     else None
                 ),
                 "terminal_only_pause_gate_ignored": True,

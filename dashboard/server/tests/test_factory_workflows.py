@@ -312,7 +312,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
     def test_supervision_pause_requires_both_owners_and_preserves_target_state(self) -> None:
         project_root = self.root / "pause-project"
         target_root = project_root / "target"
-        fix_root = project_root / "fix"
+        fix_root = self.root / "pause-fix-role"
         target_root.mkdir(parents=True)
         fix_root.mkdir(parents=True)
         project = ProjectRecord(
@@ -347,8 +347,8 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                 "cwd": str(fix_root),
                 "status": {"type": "idle"},
                 "project_binding": {
-                    "status": "bound",
-                    "project_id": project.id,
+                    "status": "unassigned",
+                    "project_id": None,
                 },
                 "turns_truncated": False,
                 "turns": [],
@@ -403,6 +403,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                     "target_thread_id": "watcher-pause-0001",
                     "manifest_sha256": "4" * 64,
                     "protected_sha256": "5" * 64,
+                    "updated_at": "2026-08-11T09:00:00Z",
                 },
                 "reviewer": {
                     "status": "available",
@@ -414,6 +415,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                     "target_thread_id": "reviewer-pause-0001",
                     "manifest_sha256": "6" * 64,
                     "protected_sha256": "7" * 64,
+                    "updated_at": "2026-08-11T09:00:00Z",
                 },
                 "gmail_gate": None,
                 "roundup_writer": None,
@@ -423,6 +425,15 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
 
         class OperationsStub:
             group_ids = [target_id]
+            notification_record = {
+                "record_id": "EVT-NOTIFY-001",
+                "record_sha256": "d" * 64,
+                "timestamp": "2026-08-11T09:05:00Z",
+                "kind": "notification",
+                "status": "sent",
+                "category": "gmail-lifecycle",
+            }
+            notification_required = False
 
             @staticmethod
             def policy_control_snapshot(selected_target):
@@ -448,8 +459,9 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                     },
                 }
 
-            @staticmethod
+            @classmethod
             def lifecycle_gate_snapshot(
+                cls,
                 selected_target,
                 *,
                 lifecycle_state,
@@ -465,11 +477,12 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                 ):
                     raise AssertionError("wrong lifecycle gate source")
                 return {
+                    "notification_record": cls.notification_record,
                     "gate": {
                         "completion_permitted": True,
-                        "duplicate": True,
+                        "duplicate": not cls.notification_required,
                         "source_stop_permitted": True,
-                        "send_now": False,
+                        "send_now": cls.notification_required,
                         "open_mission_activations": [],
                         "open_successor_transitions": [],
                         "supervision_pause_permitted": False,
@@ -529,6 +542,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
                 control["lifecycle_record"] = {
                     "record_id": "EVT-PAUSE-001",
                     "record_sha256": "9" * 64,
+                    "timestamp": "2026-08-11T09:04:00Z",
                     "kind": "lifecycle",
                     "status": "paused",
                     "severity": "info",
@@ -630,6 +644,27 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         )
         self.assertIn("Do not edit policy JSON", owner.app_server_client.prompt)
 
+        OperationsStub.notification_record = None
+        OperationsStub.notification_required = True
+        notification_pending = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(notification_pending.state, "pending")
+        self.assertEqual(
+            notification_pending.evidence["partial_posture"],
+            "notification-pending",
+        )
+        self.assertFalse(
+            notification_pending.evidence["lifecycle_postcondition_current"]
+        )
+
+        OperationsStub.notification_record = {
+            "record_id": "EVT-NOTIFY-001",
+            "record_sha256": "d" * 64,
+            "timestamp": "2026-08-11T09:05:00Z",
+            "kind": "notification",
+            "status": "sent",
+            "category": "gmail-lifecycle",
+        }
+        OperationsStub.notification_required = False
         lifecycle_only = definition.verify(target, {}, source, dispatched)
         self.assertEqual(lifecycle_only.state, "pending")
         self.assertEqual(
@@ -660,12 +695,35 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             control["automations_by_role"][role]["manifest_sha256"] = (
                 f"{index + 10:x}" * 64
             )[:64]
+            control["automations_by_role"][role]["updated_at"] = (
+                f"2026-08-11T09:06:0{index}Z"
+            )
+        control["automations_by_role"]["watcher"]["updated_at"] = (
+            "2026-08-11T09:04:59Z"
+        )
+        wrong_order = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(wrong_order.state, "pending")
+        watcher_result = next(
+            item
+            for item in wrong_order.evidence["automation_results"]
+            if item["role"] == "watcher"
+        )
+        self.assertFalse(
+            watcher_result["owner_transition_current"]
+        )
+        control["automations_by_role"]["watcher"]["updated_at"] = (
+            "2026-08-11T09:06:00Z"
+        )
         applied = definition.verify(target, {}, source, dispatched)
         self.assertEqual(applied.state, "applied")
         self.assertTrue(applied.evidence["supervision_pause_applied"])
         self.assertTrue(applied.evidence["target_task_preserved"])
         self.assertFalse(applied.evidence["turn_interrupted"])
         self.assertFalse(applied.evidence["semantic_resume_enabled"])
+        self.assertEqual(
+            applied.evidence["lifecycle_notification_record_id"],
+            "EVT-NOTIFY-001",
+        )
 
         tasks[target_id]["turns"][0]["status"] = "interrupted"
         interrupted = definition.verify(target, {}, source, dispatched)

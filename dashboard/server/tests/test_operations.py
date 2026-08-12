@@ -469,14 +469,40 @@ class OperationsProjectionTests(unittest.TestCase):
             "Pause the exact disposable supervision group.",
         )
         record = paused["record"]
+        notification = self._command(
+            "record",
+            "--target-thread",
+            TARGET,
+            "--kind",
+            "notification",
+            "--status",
+            "sent",
+            "--severity",
+            "info",
+            "--category",
+            "gmail-lifecycle",
+            "--state-fingerprint",
+            "pause-state-001",
+            "--dedup-key",
+            f"gmail-lifecycle:{record['record_id']}",
+            "--evidence",
+            record["record_id"],
+            "--summary",
+            "Sent the exact noncritical pause notification.",
+        )["record"]
 
         control = self.service.policy_control_snapshot(TARGET)
         self.assertEqual(control["lifecycle_status"], "paused")
         self.assertEqual(control["lifecycle_record"]["record_id"], record["record_id"])
         record_sha256 = control["lifecycle_record"]["record_sha256"]
         self.assertEqual(control["lifecycle_record_sha256"], record_sha256)
-        self.assertEqual(control["event_head"], record_sha256)
-        self.assertEqual(control["active_event_count"], len(control["policy_history_records"]) + 1)
+        projected_notification = control["post_lifecycle_notifications"][0]
+        self.assertEqual(control["event_head"], projected_notification["record_sha256"])
+        self.assertEqual(control["active_event_count"], len(control["policy_history_records"]) + 2)
+        self.assertEqual(
+            [item["record_id"] for item in control["post_lifecycle_notifications"]],
+            [notification["record_id"]],
+        )
         self.assertEqual(control["open_successor_transitions"], {})
         self.assertEqual(control["open_mission_activations"], {})
 
@@ -490,7 +516,11 @@ class OperationsProjectionTests(unittest.TestCase):
         self.assertTrue(gated["gate"]["completion_permitted"])
         self.assertTrue(gated["gate"]["source_stop_permitted"])
         self.assertFalse(gated["gate"]["send_now"])
+        self.assertTrue(gated["gate"]["duplicate"])
         self.assertFalse(gated["gate"]["supervision_pause_permitted"])
+        self.assertEqual(
+            gated["notification_record"]["record_id"], notification["record_id"]
+        )
 
         with self.assertRaises(OperationsProjectionError) as stale:
             self.service.lifecycle_gate_snapshot(
@@ -1949,6 +1979,38 @@ class OperationsProjectionTests(unittest.TestCase):
             "canonical timezone unavailable",
             invalid_policy_timezone["mismatches"],
         )
+
+    def test_configured_auxiliary_without_automation_id_stays_visible(self) -> None:
+        directory = self.supervision_root / TARGET
+        policy = self.owner.read_json(directory / "policy.json")
+        policy["runtime"]["roundup_thread_id"] = "roundup-writer-missing-owner"
+        policy["runtime"]["roundup_automation_id"] = None
+        policy["policy_version"] += 1
+        policy["policy_sha256"] = self.owner.digest(
+            self.owner.policy_material(policy)
+        )
+        self.owner.atomic_json(directory / "policy.json", policy)
+        self.owner.append_raw(
+            directory / "policy-history.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": f"POLICY-{policy['policy_version']}",
+                "timestamp": "2026-08-11T09:10:00+00:00",
+                "kind": "policy-bind",
+                "policy": policy,
+            },
+        )
+
+        run = self.service.run(self.projects, TARGET)["selected_run"]
+        roundup = next(
+            item
+            for item in run["policy"]["automation_reconciliation"]
+            if item["role"] == "roundup_writer"
+        )
+        self.assertIsNone(roundup["automation_id"])
+        self.assertEqual(roundup["state"], "unavailable")
+        self.assertIn("binding", roundup["reason"])
+
     def test_terminal_decision_and_successor_heads_close_without_erasing_history(self) -> None:
         self._record(
             "EVT-000005",

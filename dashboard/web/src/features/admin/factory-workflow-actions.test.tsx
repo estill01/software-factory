@@ -536,6 +536,41 @@ describe("Factory workflow action strips", () => {
     )
     expect(screen.getByRole("button", { name: "Paused" })).toBeDisabled()
     expect(screen.queryByRole("button", { name: "Finish pause" })).not.toBeInTheDocument()
+
+    const partialPausedPolicy = {
+      ...pausedPolicy,
+      automation_reconciliation: [
+        ...pausedPolicy.automation_reconciliation,
+        {
+          field: "weekly_report_schedule",
+          role: "weekly_report",
+          automation_id: null,
+          expected_rrule: "RRULE:FREQ=WEEKLY;BYDAY=MO;BYHOUR=8;BYMINUTE=0",
+          actual_rrule: null,
+          owner_status: null,
+          target_thread_id: "roundup-task",
+          actual_timezone: "America/Los_Angeles",
+          duplicate_coverage: "unavailable",
+          active_target_owner_ids: [],
+          mode: null,
+          state: "unavailable",
+          reason: "The configured weekly automation binding is unavailable.",
+        },
+      ],
+    } as NonNullable<RunDetail["policy"]>
+    rerender(
+      <QueryClientProvider client={client}>
+        <RunSupervisionActions
+          targetId="task-demo"
+          projectId="demo"
+          openIncidentIds={[]}
+          policy={partialPausedPolicy}
+          lifecycleStatus="paused"
+        />
+      </QueryClientProvider>,
+    )
+    expect(screen.getByRole("button", { name: "Finish pause" })).toBeEnabled()
+    expect(screen.queryByRole("button", { name: "Paused" })).not.toBeInTheDocument()
   })
 
   it("previews one exact policy diff and keeps unbound Gmail cadence unavailable", async () => {

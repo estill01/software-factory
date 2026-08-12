@@ -588,12 +588,13 @@ export function RunSupervisionActions({
   const gmailBound = policy?.automation_reconciliation.some((row) => (
     row.role === "gmail_gate" && row.state !== "unavailable"
   )) ?? false
-  const boundAutomationRows = policy?.automation_reconciliation.filter((row) => (
-    Boolean(row.automation_id)
-  )) ?? []
+  const pauseAutomationRows = policy?.automation_reconciliation ?? []
+  const boundAutomationRows = pauseAutomationRows.filter((row) => Boolean(row.automation_id))
   const pauseComplete = lifecycleStatus === "paused"
-    && boundAutomationRows.length >= 2
-    && boundAutomationRows.every((row) => row.owner_status === "PAUSED")
+    && pauseAutomationRows.length >= 2
+    && pauseAutomationRows.every((row) => (
+      Boolean(row.automation_id) && row.owner_status === "PAUSED"
+    ))
   const launchBindingRepair = () => {
     if (!projectId || !missionBindingMissing) return
     runner.launch({
@@ -658,7 +659,7 @@ export function RunSupervisionActions({
       suppliedFacts: [
         ["Group", targetId],
         ["Lifecycle", lifecycleStatus ?? "No current lifecycle record"],
-        ["Automation owners", `${boundAutomationRows.length} exact policy-bound automation${boundAutomationRows.length === 1 ? "" : "s"}`],
+        ["Automation owners", `${boundAutomationRows.length}/${pauseAutomationRows.length} exact configured automation owner${pauseAutomationRows.length === 1 ? "" : "s"}`],
         ["Preserved", "Implementation task and turn state · policy · mission · bindings"],
         ["Completion", "Canonical paused lifecycle + every exact bound automation PAUSED"],
         ["Recovery", "Partial owner state stays visible · no automatic retry or rollback"],
