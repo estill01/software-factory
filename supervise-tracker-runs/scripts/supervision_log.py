@@ -288,9 +288,12 @@ DECISION_PHASES = {
     "safe-deferred",
     "handoff-sent",
     "target-acknowledged",
+    "corrected",
 }
 SAFE_FRONTIER_POSTURES = {"empty", "nonempty"}
 DECISION_OUTCOMES = {"", "selected", "safe-deferred", "user-supplied"}
+DECISION_CORRECTION_PHASES = {"corrected"}
+DECISION_GOVERNING_OUTCOME_EFFECTS = {"continue-governing-outcome"}
 SUCCESSOR_TRANSITION_PHASES = (
     "required",
     "successor-created",
@@ -3728,7 +3731,7 @@ def cmd_mission_successor(args: argparse.Namespace) -> None:
         open_decisions = [
             item
             for item in decision_heads.values()
-            if item.get("phase") != "target-acknowledged"
+            if decision_head_is_open(item, all_events, policy)
         ]
         open_transitions = successor_transition_heads(all_events, open_only=True)
         open_activations = mission_activation_heads(
@@ -9624,6 +9627,101 @@ def decision_can_block(head: Mapping[str, Any], policy: dict[str, Any]) -> bool:
     )
 
 
+def decision_successor_reconciliation(
+    head: Mapping[str, Any],
+    all_events: list[dict[str, Any]],
+    policy: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Resolve a stale topology deferral from a later canonical correction.
+
+    A successor-transition correction is sufficient only when it closes the
+    exact transition premise that produced the decision: same mission, source,
+    and frozen state fingerprint, followed later in the canonical ledger by a
+    current direct-authority correction that resumes the governing outcome in
+    the same task.  This lets the reducer converge immediately while preserving
+    both histories; the watcher can then append the explicit decision correction
+    without leaving the target blocked in the interim.
+    """
+    if not decision_can_block(head, policy):
+        return None
+    try:
+        decision_position = all_events.index(head)
+    except ValueError:
+        return None
+    transition_ids = {
+        str(item.get("transition_id"))
+        for item in all_events
+        if item.get("kind") == "successor-transition"
+        and isinstance(item.get("transition_id"), str)
+    }
+    for transition_id in sorted(transition_ids):
+        records = successor_transition_events(all_events, transition_id)
+        if len(records) < 2:
+            continue
+        first = records[0]
+        correction = records[-1]
+        try:
+            correction_position = all_events.index(correction)
+        except ValueError:
+            continue
+        if correction_position <= decision_position:
+            continue
+        if (
+            first.get("phase") != "required"
+            or correction.get("phase") not in {"corrected", "cancelled", "expired"}
+            or correction.get("governing_outcome_effect") != "continue-same-task"
+            or correction.get("prior_record_id") != records[-2].get("record_id")
+            or first.get("source_mission_root") != head.get("mission_root")
+            or first.get("state_fingerprint") != head.get("state_fingerprint")
+            or first.get("governing_authority_source_class")
+            != head.get("authority_source_class")
+            or first.get("governing_authority_source_record")
+            != head.get("authority_source_record")
+            or correction.get("correction_authority_source_class")
+            != head.get("authority_source_class")
+            or correction.get("correction_authority_source_record")
+            != head.get("authority_source_record")
+        ):
+            continue
+        correction_sha256 = str(
+            correction.get("correction_authority_source_sha256", "")
+        )
+        if SHA256.fullmatch(correction_sha256) is None or not canonical_authority_source(
+            policy,
+            source_class=str(correction["correction_authority_source_class"]),
+            source_record=str(correction["correction_authority_source_record"]),
+            source_sha256=correction_sha256,
+        ):
+            continue
+        evidence = correction.get("evidence")
+        if not isinstance(evidence, list) or not evidence:
+            continue
+        return {
+            "decision_record_id": head.get("record_id"),
+            "transition_id": transition_id,
+            "transition_genesis_record_id": first.get("record_id"),
+            "correction_record_id": correction.get("record_id"),
+            "correction_phase": correction.get("phase"),
+            "governing_outcome_effect": "continue-governing-outcome",
+        }
+    return None
+
+
+def decision_head_is_open(
+    head: Mapping[str, Any],
+    all_events: list[dict[str, Any]],
+    policy: dict[str, Any],
+) -> bool:
+    if head.get("phase") in DECISION_CORRECTION_PHASES:
+        return False
+    if decision_successor_reconciliation(head, all_events, policy) is not None:
+        return False
+    return bool(
+        head.get("phase") != "target-acknowledged"
+        or head.get("outcome") == "safe-deferred"
+    )
+
+
 def decision_authorizes_direct_stop(
     head: Mapping[str, Any],
     lifecycle: Mapping[str, Any],
@@ -9723,6 +9821,7 @@ def reduce_control_posture(
 
     open_transitions: list[dict[str, Any]] = []
     open_decisions: list[tuple[dict[str, Any], dict[str, Any], str]] = []
+    reconciled_decisions: list[dict[str, Any]] = []
     completion_candidates: list[dict[str, Any]] = []
     subordinate_completion_candidates: list[dict[str, Any]] = []
     direct_stop_candidates: list[dict[str, Any]] = []
@@ -9741,7 +9840,35 @@ def reduce_control_posture(
             if item.get("kind") == "decision" and item.get("decision_id"):
                 heads[str(item["decision_id"])] = item
         for head in heads.values():
-            if head.get("phase") != "target-acknowledged" or head.get("outcome") == "safe-deferred":
+            reconciliation = decision_successor_reconciliation(
+                head, member_events, member_policy
+            )
+            if reconciliation is not None:
+                reconciled_decisions.append(
+                    {
+                        **reconciliation,
+                        "target_thread_id": str(member["target_thread_id"]),
+                        "reconciliation_posture": (
+                            "append-explicit-decision-correction"
+                        ),
+                    }
+                )
+                continue
+            if head.get("phase") in DECISION_CORRECTION_PHASES:
+                reconciled_decisions.append(
+                    {
+                        "decision_record_id": head.get("record_id"),
+                        "target_thread_id": str(member["target_thread_id"]),
+                        "correction_record_id": head.get("record_id"),
+                        "correction_phase": head.get("phase"),
+                        "governing_outcome_effect": head.get(
+                            "governing_outcome_effect"
+                        ),
+                        "reconciliation_posture": "recorded",
+                    }
+                )
+                continue
+            if decision_head_is_open(head, member_events, member_policy):
                 open_decisions.append(
                     (head, member_policy, str(member["target_thread_id"]))
                 )
@@ -9894,6 +10021,7 @@ def reduce_control_posture(
         "blocking_decision_records": [
             item.get("record_id") for item in blocking_decisions
         ],
+        "reconciled_decisions": reconciled_decisions,
         "completion_candidates": completion_candidates,
         "subordinate_completion_candidates": subordinate_completion_candidates,
         "direct_stop_candidates": direct_stop_candidates,
@@ -9929,7 +10057,13 @@ def validate_decision_transition(
     attempt: int,
     outcome: str,
 ) -> None:
-    if phase not in {"resolved", "safe-deferred", "handoff-sent", "target-acknowledged"} and outcome:
+    if phase not in {
+        "resolved",
+        "safe-deferred",
+        "handoff-sent",
+        "target-acknowledged",
+        *DECISION_CORRECTION_PHASES,
+    } and outcome:
         raise SupervisionLogError("Only a disposition or handoff may carry an outcome")
     if prior is None:
         if phase != "decision-ready" or attempt != 0 or outcome:
@@ -9941,6 +10075,20 @@ def validate_decision_transition(
         raise SupervisionLogError("Decision classification cannot change")
     prior_phase = prior.get("phase")
     prior_attempt = int(prior.get("attempt", 0))
+    if phase in DECISION_CORRECTION_PHASES:
+        if prior_phase not in {"handoff-sent", "target-acknowledged"}:
+            raise SupervisionLogError(
+                "Only a handed-off decision may receive a correction"
+            )
+        if prior.get("outcome") != "safe-deferred" or outcome != "safe-deferred":
+            raise SupervisionLogError(
+                "A decision correction must retire an exact safe deferral"
+            )
+        if attempt != prior_attempt:
+            raise SupervisionLogError(
+                "A decision correction must preserve the attempt count"
+            )
+        return
     transitions = {
         "decision-ready": {
             "user-responded",
@@ -9964,7 +10112,7 @@ def validate_decision_transition(
         "resolved": {"handoff-sent"},
         "safe-deferred": {"handoff-sent"},
         "handoff-sent": {"target-acknowledged"},
-        "target-acknowledged": set(),
+        "target-acknowledged": set(DECISION_CORRECTION_PHASES),
     }
     if phase not in transitions.get(str(prior_phase), set()):
         raise SupervisionLogError(
@@ -10053,6 +10201,82 @@ def cmd_decision_record(args: argparse.Namespace) -> None:
     for label, value in exact_hashes.items():
         if not clean(value, label=label, maximum=128):
             raise SupervisionLogError(f"{label.title()} is required")
+    prior_record_id = clean(
+        getattr(args, "prior_record", ""),
+        label="prior decision record",
+        maximum=128,
+    )
+    disposition_reason = clean(
+        getattr(args, "disposition_reason", ""),
+        label="decision correction reason",
+        maximum=500,
+    )
+    correction_authority_source_class = (
+        getattr(args, "correction_authority_source_class", "") or ""
+    )
+    correction_authority_source_record = clean(
+        getattr(args, "correction_authority_source_record", ""),
+        label="decision correction authority source record",
+        maximum=128,
+    )
+    correction_authority_source_sha256 = clean(
+        getattr(args, "correction_authority_source_sha256", ""),
+        label="decision correction authority source SHA-256",
+        maximum=64,
+    )
+    governing_outcome_effect = (
+        getattr(args, "governing_outcome_effect", "") or ""
+    )
+    correction_values = (
+        prior_record_id,
+        disposition_reason,
+        correction_authority_source_class,
+        correction_authority_source_record,
+        correction_authority_source_sha256,
+        governing_outcome_effect,
+    )
+    if phase in DECISION_CORRECTION_PHASES:
+        if prior_record_id:
+            safe_id(prior_record_id, label="prior decision record")
+        if correction_authority_source_record:
+            safe_id(
+                correction_authority_source_record,
+                label="decision correction authority source record",
+            )
+        if not prior_record_id or not disposition_reason:
+            raise SupervisionLogError(
+                "A decision correction requires the exact prior record and reason"
+            )
+        if (
+            correction_authority_source_class
+            not in DIRECT_AUTHORITY_SOURCE_CLASSES
+            or not correction_authority_source_record
+            or not correction_authority_source_sha256
+        ):
+            raise SupervisionLogError(
+                "A decision correction requires current direct authority"
+            )
+        correction_authority_source_sha256 = exact_sha256(
+            correction_authority_source_sha256,
+            label="decision correction authority source SHA-256",
+        )
+        if not canonical_authority_source(
+            policy,
+            source_class=correction_authority_source_class,
+            source_record=correction_authority_source_record,
+            source_sha256=correction_authority_source_sha256,
+        ):
+            raise SupervisionLogError(
+                "Decision correction authority is not canonical"
+            )
+        if governing_outcome_effect not in DECISION_GOVERNING_OUTCOME_EFFECTS:
+            raise SupervisionLogError(
+                "A decision correction must continue the governing outcome"
+            )
+    elif any(correction_values):
+        raise SupervisionLogError(
+            "Decision correction fields are valid only on a corrected decision"
+        )
     now = parse_time(args.now)
     with append_lock(directory):
         all_events = events(directory / "events.jsonl")
@@ -10089,6 +10313,16 @@ def cmd_decision_record(args: argparse.Namespace) -> None:
             and prior.get("blocked_scope_hash") == args.blocked_scope_hash
             and prior.get("safe_frontier_hash") == args.safe_frontier_hash
             and prior.get("evidence") == evidence_values
+            and prior.get("prior_record_id", "") == prior_record_id
+            and prior.get("disposition_reason", "") == disposition_reason
+            and prior.get("correction_authority_source_class", "")
+            == correction_authority_source_class
+            and prior.get("correction_authority_source_record", "")
+            == correction_authority_source_record
+            and prior.get("correction_authority_source_sha256", "")
+            == correction_authority_source_sha256
+            and prior.get("governing_outcome_effect", "")
+            == governing_outcome_effect
             and all(
                 prior.get(field) == mission_impact[field]
                 for field in MISSION_IMPACT_FIELDS
@@ -10108,6 +10342,21 @@ def cmd_decision_record(args: argparse.Namespace) -> None:
             attempt=attempt,
             outcome=outcome,
         )
+        if phase in DECISION_CORRECTION_PHASES:
+            if prior is None or prior_record_id != prior.get("record_id"):
+                raise SupervisionLogError(
+                    "A decision correction requires the exact current prior record"
+                )
+            for field, expected in (
+                ("safe_frontier", safe_frontier),
+                ("decision_packet_hash", args.decision_packet_hash),
+                ("blocked_scope_hash", args.blocked_scope_hash),
+                ("safe_frontier_hash", args.safe_frontier_hash),
+            ):
+                if prior.get(field) != expected:
+                    raise SupervisionLogError(
+                        "A decision correction must preserve the exact deferred decision"
+                    )
         if prior is not None:
             prior_phase = str(prior.get("phase", ""))
             prior_attempt = int(prior.get("attempt", 0))
@@ -10225,6 +10474,18 @@ def cmd_decision_record(args: argparse.Namespace) -> None:
             ),
             "evidence": evidence_values,
             "policy_sha256": policy["policy_sha256"],
+            "prior_record_id": prior_record_id,
+            "disposition_reason": disposition_reason,
+            "correction_authority_source_class": (
+                correction_authority_source_class
+            ),
+            "correction_authority_source_record": (
+                correction_authority_source_record
+            ),
+            "correction_authority_source_sha256": (
+                correction_authority_source_sha256
+            ),
+            "governing_outcome_effect": governing_outcome_effect,
             **mission_impact,
         }
         append_event_locked(args, directory, record)
@@ -10324,6 +10585,9 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
     alignment_contract = alignment_operating_contract()
     meta_charter = mission_meta_charter_profile()
     binding = bound_mission(policy)
+    successor_reconciliation = decision_successor_reconciliation(
+        head, all_events, policy
+    )
     mission_binding_valid = bool(
         binding is not None and head.get("mission_root") == binding["mission_root"]
     )
@@ -10352,7 +10616,11 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
         or impact_class in {"goal-blocking", "goal-reversing"}
         or head.get("ordinary_means_disabled") is True
     )
-    if phase == "decision-ready":
+    if phase in DECISION_CORRECTION_PHASES:
+        action = "continue-governing-outcome-after-decision-correction"
+    elif successor_reconciliation is not None:
+        action = "record-decision-correction-and-continue-governing-outcome"
+    elif phase == "decision-ready":
         if classification == "delegable":
             action = "resolve-immediately-and-continue"
         else:
@@ -10391,7 +10659,9 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
         action = "challenge-mission-provenance"
     next_attempt = attempt + 1 if action == "start-sol-max-attempt" else attempt
     local_blocking_permitted = bool(
-        phase in {"handoff-sent", "target-acknowledged"}
+        phase not in DECISION_CORRECTION_PHASES
+        and successor_reconciliation is None
+        and phase in {"handoff-sent", "target-acknowledged"}
         and head.get("outcome") == "safe-deferred"
         and not safe_work
         and classification in {"missing-fact", "reserved-authority"}
@@ -10431,6 +10701,23 @@ def cmd_decision_gate(args: argparse.Namespace) -> None:
         "max_attempts": contract["max_attempts"],
         "adaptive_decision_mode": adaptive_mode,
         "human_input_eligible": adaptive_mode != "full-autonomous",
+        "decision_reconciliation": (
+            successor_reconciliation
+            if successor_reconciliation is not None
+            else (
+                {
+                    "decision_record_id": head.get("record_id"),
+                    "correction_record_id": head.get("record_id"),
+                    "correction_phase": phase,
+                    "governing_outcome_effect": head.get(
+                        "governing_outcome_effect"
+                    ),
+                    "reconciliation_posture": "recorded",
+                }
+                if phase in DECISION_CORRECTION_PHASES
+                else None
+            )
+        ),
         "deadline_at": head.get("deadline_at", ""),
         "human_input_requested_at": head.get("human_input_requested_at", ""),
         "user_deadline_at": head.get("user_deadline_at", ""),
@@ -14947,7 +15234,7 @@ def cmd_status(args: argparse.Namespace) -> None:
     open_decisions = [
         item
         for item in decision_heads.values()
-        if item.get("phase") != "target-acknowledged"
+        if decision_head_is_open(item, active_events, policy)
     ]
     activation_heads = mission_activation_heads(active_events)
     open_activations = mission_activation_heads(active_events, open_only=True)
@@ -15330,6 +15617,18 @@ def parser() -> argparse.ArgumentParser:
     )
     decision_record.add_argument(
         "--independent-mission-review", choices=["yes", "no"], required=True
+    )
+    decision_record.add_argument("--prior-record")
+    decision_record.add_argument("--disposition-reason")
+    decision_record.add_argument(
+        "--correction-authority-source-class",
+        choices=sorted(DIRECT_AUTHORITY_SOURCE_CLASSES),
+    )
+    decision_record.add_argument("--correction-authority-source-record")
+    decision_record.add_argument("--correction-authority-source-sha256")
+    decision_record.add_argument(
+        "--governing-outcome-effect",
+        choices=sorted(DECISION_GOVERNING_OUTCOME_EFFECTS),
     )
     decision_record.add_argument("--now")
     decision_record.set_defaults(func=cmd_decision_record)

@@ -39,6 +39,16 @@ the completed program materially changes Software Factory.
 
 ### Implemented
 
+- **Current-authority reconciliation for stale decision deferrals.** A later
+  canonical direct-authority correction of the exact successor-topology premise
+  now retires the matching safe-deferral posture in the shared governing-outcome
+  reducer immediately. The relation is mission-, source-, state-, lineage-, and
+  currentness-bound; unrelated later evidence remains ineligible. A new
+  append-only `corrected` decision phase preserves the explicit history while
+  the target continues without user scheduling or a manual Resume. The public
+  replay and focused decision/control regressions cover automatic convergence,
+  exact correction recording, and mismatched-source/state rejection.
+
 - **Reviewed three-skill releases with one-pointer activation.** Mutable
   repository work no longer changes installed Codex behavior by default. A
   bounded local release owner rebuilds exactly three skills from a clean Git

@@ -272,10 +272,14 @@ class ControlPostureReplayTests(unittest.TestCase):
             elif step["step_id"] == "replay-4":
                 self.assertEqual(first["open_transition_records"], [])
                 self.assertEqual(first["open_decision_records"], [])
+                self.assertEqual(
+                    first["reconciled_decisions"][0]["correction_record_id"],
+                    "EVT-000004",
+                )
             else:
                 self.assertEqual(
                     first["completion_candidates"][0]["completion_record_id"],
-                    "EVT-000006",
+                    "EVT-000005",
                 )
         self.assertEqual(first["required_target_posture"], "completed")
 

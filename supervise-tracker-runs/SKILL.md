@@ -327,6 +327,15 @@ Repeat independently for additional targets.
   exact selected or safely deferred handoff, require automatic target
   acknowledgement and continuation at the next turn boundary. Only
   `blocking_permitted=true` may support a terminal blocked posture.
+- Treat every safe deferral as provisional and currentness-bound. If later
+  canonical direct authority corrects, cancels, or expires the exact successor-
+  topology premise that produced the deferral, the governing reducer must
+  reconcile that decision immediately, keep the target `in-progress`, and
+  return `record-decision-correction-and-continue-governing-outcome`. Append the
+  explicit `corrected` decision record from that same authority, but do not keep
+  the target blocked while waiting for the bookkeeping append. Mismatched
+  mission, source, state fingerprint, transition lineage, or authority remains
+  blocking; a generic later event is never enough.
 - Treat every unresolved Important/Critical notice as an incident, not a
   terminal notification. Route it immediately to the event-driven Sol XHigh
   notice reviewer. A corrective steer changes the incident to
