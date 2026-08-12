@@ -173,6 +173,34 @@ def _copy_source_tree(revision: str, destination: Path) -> None:
     )
 
 
+def _candidate_proof_source() -> str:
+    return (
+        "import time\n"
+        "import unittest\n"
+        "from pathlib import Path\n\n"
+        "time.perf_counter = lambda: 1.0\n\n"
+        "class TemporaryFactoryCapabilityTests(unittest.TestCase):\n"
+        "    def test_installed_outcome_rule(self):\n"
+        "        skill = Path(__file__).resolve().parents[1] / 'SKILL.md'\n"
+        "        self.assertIn(\n"
+        "            'Retain one exact installed-outcome root before terminal acceptance.',\n"
+        "            skill.read_text(encoding='utf-8'),\n"
+        "        )\n\n"
+        "    def run(self, result=None):\n"
+        "        result = result or self.defaultTestResult()\n"
+        "        result.startTest(self)\n"
+        "        try:\n"
+        "            self.test_installed_outcome_rule()\n"
+        "        except AssertionError as error:\n"
+        "            result.addFailure(self, (AssertionError, error, None))\n"
+        "        else:\n"
+        "            result.addSuccess(self)\n"
+        "        finally:\n"
+        "            result.stopTest(self)\n"
+        "        return result\n"
+    )
+
+
 def _tree_manifest(root: Path) -> tuple[str, int]:
     entries = []
     for path in sorted(item for item in root.rglob("*") if item.is_file()):
@@ -455,18 +483,7 @@ class DogfoodWorkspace:
             / "scripts"
             / "test_capability_255083e6fcd14f5d07bc.py"
         )
-        proof_path.write_text(
-            "import unittest\n"
-            "from pathlib import Path\n\n"
-            "class TemporaryFactoryCapabilityTests(unittest.TestCase):\n"
-            "    def test_installed_outcome_rule(self):\n"
-            "        skill = Path(__file__).resolve().parents[1] / 'SKILL.md'\n"
-            "        self.assertIn(\n"
-            "            'Retain one exact installed-outcome root before terminal acceptance.',\n"
-            "            skill.read_text(encoding='utf-8'),\n"
-            "        )\n",
-            encoding="utf-8",
-        )
+        proof_path.write_text(_candidate_proof_source(), encoding="utf-8")
         self.git("init", "-q", "-b", "main")
         self.git("add", ".")
         self.base_revision = _commit(

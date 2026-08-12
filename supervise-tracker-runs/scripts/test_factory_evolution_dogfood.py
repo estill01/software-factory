@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,6 +15,55 @@ SPEC = importlib.util.spec_from_file_location("factory_evolution_dogfood", SCRIP
 assert SPEC is not None and SPEC.loader is not None
 dogfood = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(dogfood)
+
+
+class FactoryEvolutionDogfoodUnitTests(unittest.TestCase):
+    def test_candidate_proof_pass_and_failure_outputs_are_byte_stable(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="software-factory-block17-proof-output-"
+        ) as temporary:
+            root = Path(temporary)
+            scripts = root / "implement-tracker-blocks" / "scripts"
+            scripts.mkdir(parents=True)
+            skill = scripts.parent / "SKILL.md"
+            proof = scripts / "test_capability_255083e6fcd14f5d07bc.py"
+            skill.write_text("Baseline guidance.\n", encoding="utf-8")
+            proof.write_text(dogfood._candidate_proof_source(), encoding="utf-8")
+
+            def run_proof() -> subprocess.CompletedProcess[bytes]:
+                return subprocess.run(
+                    [
+                        sys.executable,
+                        "-m",
+                        "unittest",
+                        "discover",
+                        "-s",
+                        str(scripts.relative_to(root)),
+                        "-p",
+                        proof.name,
+                    ],
+                    cwd=root,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env={
+                        "PATH": "/usr/bin:/bin",
+                        "LC_ALL": "C",
+                        "PYTHONDONTWRITEBYTECODE": "1",
+                    },
+                )
+
+            baseline_first = run_proof()
+            baseline_second = run_proof()
+            self.assertEqual(baseline_first.returncode, 1)
+            self.assertEqual(baseline_first.stderr, baseline_second.stderr)
+            skill.write_text(
+                "Retain one exact installed-outcome root before terminal acceptance.\n",
+                encoding="utf-8",
+            )
+            candidate_first = run_proof()
+            candidate_second = run_proof()
+            self.assertEqual(candidate_first.returncode, 0)
+            self.assertEqual(candidate_first.stderr, candidate_second.stderr)
 
 
 class IntegratedFactoryEvolutionDogfoodTests(unittest.TestCase):
