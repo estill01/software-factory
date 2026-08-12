@@ -6951,6 +6951,27 @@ segment. Do not scan unrelated groups or retry automatically.
   descriptor among 22 closed registry entries. No live mission succession,
   owner dispatch, policy/history/event mutation, task creation, or target work
   start was attempted.
+- First exact-revision review: rejected evidence
+  `585fa6fe60af9055708653b03899e075e7796a8a`, tree
+  `829e7fa85f487cbf90c7623a74c6d68d764573ce`, over product
+  `c853b17b976947d7e7eeb7889c0a419c298023fe`. The single material finding was
+  that successor source construction read every automation ID from runtime and
+  therefore omitted a configured weekly-report owner whose canonical ID is
+  `reports.weekly.automation_id`; mutating that omitted manifest after preview
+  could still verify the successor. All other authority, history, isolation,
+  task, UI, resource, and Stop boundaries passed and remain reusable.
+- Weekly-owner correction: product successor
+  `50fcc42a606ea439d27e0e9f7a6a713669dc342d`, tree
+  `33357c00424cfc336ac46447df4dfa00af96f9d3`, parent rejected evidence
+  `585fa6fe60af9055708653b03899e075e7796a8a`, changes only the successor
+  source/preservation lookup and its focused test. The weekly-report ID now
+  comes from the maintained reports-weekly policy source, is included with
+  watcher/reviewer in exact source evidence, and a changed weekly manifest or
+  timestamp makes verification `unverified`. Focused backend proof passed 2/2
+  with `ResourceWarning` fatal; Ruff, full-profile 32-Block verification,
+  verifier tests 30/30, and diff checks passed. Unaffected frontend, build,
+  responsive/browser, and full backend evidence was reused; no live mutation
+  occurred.
 
 ### Stop
 
