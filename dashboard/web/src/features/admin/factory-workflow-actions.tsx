@@ -36,6 +36,7 @@ type TrackerBlock = TrackerDetail["blocks"][number]
 type RunPolicy = NonNullable<RunDetail["policy"]>
 type CurrentMission = NonNullable<RunDetail["current_mission"]>
 type WeeklyReportWorkflow = RunDetail["weekly_report_workflow"]
+type FactoryEvolutionWorkflow = RunDetail["factory_evolution_workflow"]
 type PolicyField = keyof RunPolicy["adjustable"]
 type AutomationRepairRow = RunPolicy["automation_reconciliation"][number]
 type SuccessorTransition = RunDetail["successor_transitions"][number]
@@ -69,6 +70,42 @@ const unavailableWeeklyReportWorkflow: WeeklyReportWorkflow = {
   error: {
     code: "weekly_report_workflow_unavailable",
     message: "Weekly report workflow projection is unavailable.",
+    retryable: true,
+  },
+}
+const unavailableFactoryEvolutionWorkflow: FactoryEvolutionWorkflow = {
+  status: "unavailable",
+  stage: "unavailable",
+  next_action: null,
+  actionable: false,
+  evolution_id: null,
+  packet_id: null,
+  packet_root: null,
+  review_id: null,
+  review_root: null,
+  evaluation_id: null,
+  evaluation_root: null,
+  disposition: null,
+  source_report_id: null,
+  source_report_root: null,
+  event_head_sha256: null,
+  manifest_root: null,
+  fingerprint: null,
+  proposer: { role: "base_reviewer", task_id: null },
+  implementer: {
+    status: "not-selected",
+    task_id: null,
+    baseline_revision: null,
+    candidate_revision: null,
+  },
+  evaluator: { role: "reviewer", task_id: null },
+  expected_members: [],
+  members: [],
+  stages: [],
+  limitations: ["Factory-evolution workflow projection is unavailable."],
+  error: {
+    code: "factory_evolution_workflow_unavailable",
+    message: "Factory-evolution workflow projection is unavailable.",
     retryable: true,
   },
 }
@@ -491,6 +528,7 @@ export function RunSupervisionActions({
   currentMission = null,
   successorTransitions = [],
   weeklyReportWorkflow = unavailableWeeklyReportWorkflow,
+  factoryEvolutionWorkflow = unavailableFactoryEvolutionWorkflow,
 }: {
   targetId: string
   projectId: string | null
@@ -502,6 +540,7 @@ export function RunSupervisionActions({
   currentMission?: CurrentMission | null
   successorTransitions?: SuccessorTransition[]
   weeklyReportWorkflow?: WeeklyReportWorkflow
+  factoryEvolutionWorkflow?: FactoryEvolutionWorkflow
 }) {
   const runner = useOperationRunner()
   const [selectedIncident, setSelectedIncident] = useState("")
@@ -848,6 +887,37 @@ export function RunSupervisionActions({
       ],
     })
   }
+  const evolutionActionLabel = factoryEvolutionWorkflow.next_action === "prepare"
+    ? "Prepare evolution"
+    : factoryEvolutionWorkflow.next_action === "finalize"
+      ? "Review evolution"
+      : factoryEvolutionWorkflow.next_action === "evaluate"
+        ? "Evaluate candidate"
+        : factoryEvolutionWorkflow.stage === "verified"
+          ? `${factoryEvolutionWorkflow.disposition ?? "Verified"} disposition`
+          : factoryEvolutionWorkflow.stage === "awaiting-implementation"
+            ? "Candidate evidence required"
+            : "Evolution unavailable"
+  const launchFactoryEvolution = () => {
+    if (!projectId || !factoryEvolutionWorkflow.actionable) return
+    runner.launch({
+      request: {
+        operation_type: "factory.evolution-evaluate",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: {},
+      },
+      suppliedFacts: [
+        ["Evolution", factoryEvolutionWorkflow.evolution_id ?? "Current deterministic packet"],
+        ["Stage", `${factoryEvolutionWorkflow.stage} → ${factoryEvolutionWorkflow.next_action}`],
+        ["Packet", factoryEvolutionWorkflow.packet_root ?? "Unavailable"],
+        ["Verified report", `${factoryEvolutionWorkflow.source_report_id ?? "Unavailable"} · ${factoryEvolutionWorkflow.source_report_root ?? "Unavailable"}`],
+        ["Roles", `${factoryEvolutionWorkflow.proposer.task_id ?? "Unavailable"} · ${factoryEvolutionWorkflow.implementer.task_id ?? targetId} · ${factoryEvolutionWorkflow.evaluator.task_id ?? "Unavailable"}`],
+        ["External implementation", `${factoryEvolutionWorkflow.implementer.status} · ${factoryEvolutionWorkflow.implementer.baseline_revision ?? "no baseline"} → ${factoryEvolutionWorkflow.implementer.candidate_revision ?? "no candidate"}`],
+        ["Boundary", "Disposition evidence only · no implementation, adoption, installation, routing, scheduling, deployment, rollback, or outcome mutation"],
+        ["Recovery", "Advance one maintained stage only · retain exact accepted artifacts · no automatic retry"],
+      ],
+    })
+  }
   return (
     <>
       <ActionStrip feedback={runner.feedback}>
@@ -907,6 +977,15 @@ export function RunSupervisionActions({
           onClick={launchWeeklyReport}
         >
           {reportActionLabel}
+        </Button>
+        <Button
+          size="compact"
+          variant="outline"
+          disabled={unavailable || !factoryEvolutionWorkflow.actionable}
+          title={factoryEvolutionWorkflow.error?.message ?? factoryEvolutionWorkflow.limitations[0]}
+          onClick={launchFactoryEvolution}
+        >
+          {evolutionActionLabel}
         </Button>
         <Button size="compact" disabled={unavailable || !policy} onClick={openAdjustment}>Adjust supervision</Button>
         <Button

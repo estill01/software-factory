@@ -1346,6 +1346,7 @@ class OperationsProjectionTests(unittest.TestCase):
         directory = self.supervision_root / TARGET
         policy = self.owner.read_json(directory / "policy.json")
         policy["runtime"]["roundup_thread_id"] = "roundup-writer-task-001"
+        policy["runtime"]["base_reviewer_thread_id"] = "evolution-proposer-task-001"
         policy["notifications"]["gmail_roundup"] = {
             "enabled": True,
             "project_key": "software-factory",
@@ -1465,6 +1466,40 @@ class OperationsProjectionTests(unittest.TestCase):
         self.assertEqual(
             [item["status"] for item in verified["stages"][:6]],
             ["complete"] * 6,
+        )
+
+        evolution = self.service.factory_evolution_workflow_snapshot(TARGET)
+        self.assertEqual(evolution["stage"], "prepare", evolution)
+        self.assertEqual(evolution["next_action"], "prepare")
+        self.assertEqual(evolution["source_report_id"], planned["report_id"])
+        self.assertEqual(evolution["source_report_root"], planned["source_root"])
+        self.assertEqual(evolution["proposer"]["task_id"], "evolution-proposer-task-001")
+        self.assertEqual(
+            evolution["evaluator"]["task_id"],
+            policy["runtime"]["reviewer_thread_id"],
+        )
+        self.assertEqual(evolution["implementer"]["task_id"], None)
+        self.assertIn("not performed by evolution", " ".join(evolution["limitations"]))
+        self._command(
+            "factory-evolution",
+            "--target-thread",
+            TARGET,
+            "--evolution-id",
+            evolution["evolution_id"],
+            "--action",
+            "prepare",
+            "--report-json",
+            str(report_directory / "report.json"),
+            "--events-jsonl",
+            str(directory / "events.jsonl"),
+        )
+        prepared_evolution = self.service.factory_evolution_workflow_snapshot(TARGET)
+        self.assertEqual(prepared_evolution["stage"], "finalize", prepared_evolution)
+        self.assertEqual(prepared_evolution["next_action"], "finalize")
+        self.assertEqual(prepared_evolution["packet_root"], evolution["packet_root"])
+        self.assertEqual(
+            [stage["status"] for stage in prepared_evolution["stages"]],
+            ["complete", "current", "pending", "pending", "pending"],
         )
 
         old_report_id = verified["report_id"]

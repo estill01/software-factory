@@ -864,6 +864,62 @@ const weeklyReportWorkflowSchema = z
   })
   .strict()
 
+const factoryEvolutionWorkflowSchema = z
+  .object({
+    status: z.enum(["available", "unavailable"]),
+    stage: z.enum([
+      "prepare",
+      "finalize",
+      "awaiting-implementation",
+      "verified",
+      "unavailable",
+    ]),
+    next_action: z.enum(["prepare", "finalize", "evaluate"]).nullable(),
+    actionable: z.boolean(),
+    evolution_id: nullableString,
+    packet_id: nullableString,
+    packet_root: fingerprintSchema.nullable(),
+    review_id: nullableString,
+    review_root: fingerprintSchema.nullable(),
+    evaluation_id: nullableString,
+    evaluation_root: fingerprintSchema.nullable(),
+    disposition: z.enum(["promote", "advisory", "revise", "reject"]).nullable(),
+    source_report_id: nullableString,
+    source_report_root: fingerprintSchema.nullable(),
+    event_head_sha256: fingerprintSchema.nullable(),
+    manifest_root: fingerprintSchema.nullable(),
+    fingerprint: fingerprintSchema.nullable(),
+    proposer: z
+      .object({ role: z.literal("base_reviewer"), task_id: nullableString })
+      .strict(),
+    implementer: z
+      .object({
+        status: z.enum(["not-selected", "awaiting-owner-proof", "evaluation-evidence-recorded"]),
+        task_id: nullableString,
+        baseline_revision: gitRevisionSchema.nullable(),
+        candidate_revision: gitRevisionSchema.nullable(),
+      })
+      .strict(),
+    evaluator: z
+      .object({ role: z.literal("reviewer"), task_id: nullableString })
+      .strict(),
+    expected_members: z.array(z.string().min(1)),
+    members: z.array(reportMemberSchema),
+    stages: z.array(
+      z
+        .object({
+          id: z.enum(["prepare", "finalize", "external-implementation", "evaluate", "verify"]),
+          label: z.string().min(1),
+          status: z.enum(["pending", "current", "complete", "unavailable"]),
+          owner: z.string().min(1),
+        })
+        .strict(),
+    ),
+    limitations: z.array(z.string()),
+    error: projectionErrorSchema.nullable(),
+  })
+  .strict()
+
 const terminalVerificationSchema = z
   .object({
     valid: z.literal(true),
@@ -954,6 +1010,7 @@ export const runDetailSchema = runSummarySchema
     operating_history: z.array(operatingTransitionSchema),
     reports: z.array(reportArtifactSchema),
     weekly_report_workflow: weeklyReportWorkflowSchema,
+    factory_evolution_workflow: factoryEvolutionWorkflowSchema,
     metrics: metricsProjectionSchema,
   })
   .strict()
@@ -1050,6 +1107,16 @@ export const reportListEnvelopeSchema = z
         recovered_from_previous: z.boolean(),
         owners: ownerBundleSchema,
         reports: z.array(reportArtifactSchema),
+        evolution_workflows: z.array(
+          z
+            .object({
+              target_thread_id: z.string().min(1),
+              target_label: z.string().min(1),
+              project_binding: projectBindingSchema,
+              workflow: factoryEvolutionWorkflowSchema,
+            })
+            .strict(),
+        ),
       })
       .strict(),
     ...envelopeMetadata,

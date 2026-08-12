@@ -3318,6 +3318,7 @@ class OperationsProjectionService:
         paths = {
             "supervision": self.supervision_owner,
             "weekly": self.weekly_owner,
+            "evolution": self.evolution_owner,
         }
         path = paths[family]
         before = _stat_key(path)
@@ -4642,6 +4643,476 @@ class OperationsProjectionService:
             evidence, coverage_days=coverage_days
         )
 
+    def _factory_evolution_workflow(
+        self,
+        evidence: TargetEvidence,
+    ) -> dict[str, Any]:
+        expected_members = [
+            "learning-packet.json",
+            "prepare-manifest.json",
+            "review.json",
+            "finalize-manifest.json",
+            "evaluation.json",
+            "machine-report.json",
+            "manifest.json",
+        ]
+
+        def unavailable(
+            code: str,
+            message: str,
+            *,
+            retryable: bool = False,
+            source_report_id: str | None = None,
+            source_report_root: str | None = None,
+        ) -> dict[str, Any]:
+            return {
+                "status": "unavailable",
+                "stage": "unavailable",
+                "next_action": None,
+                "actionable": False,
+                "evolution_id": None,
+                "packet_id": None,
+                "packet_root": None,
+                "review_id": None,
+                "review_root": None,
+                "evaluation_id": None,
+                "evaluation_root": None,
+                "disposition": None,
+                "source_report_id": source_report_id,
+                "source_report_root": source_report_root,
+                "event_head_sha256": (
+                    evidence.events[-1].get("record_sha256")
+                    if evidence.events
+                    else None
+                ),
+                "manifest_root": None,
+                "fingerprint": _digest(
+                    {
+                        "target": evidence.target_thread_id,
+                        "source": evidence.fingerprint,
+                        "error": code,
+                        "report": source_report_root,
+                    }
+                ),
+                "proposer": {"role": "base_reviewer", "task_id": None},
+                "implementer": {
+                    "status": "not-selected",
+                    "task_id": None,
+                    "baseline_revision": None,
+                    "candidate_revision": None,
+                },
+                "evaluator": {"role": "reviewer", "task_id": None},
+                "expected_members": expected_members,
+                "members": [],
+                "stages": [],
+                "limitations": [
+                    "Factory evolution is unavailable until every exact source and role prerequisite is current.",
+                    "Evolution never implements, adopts, installs, routes, schedules, deploys, or measures a candidate outcome.",
+                ],
+                "error": {"code": code, "message": message, "retryable": retryable},
+            }
+
+        weekly = self._weekly_report_workflow(evidence)
+        source_report_id = weekly.get("report_id")
+        source_report_root = weekly.get("source_root")
+        verified_stage_ids = {
+            item.get("id")
+            for item in weekly.get("stages", [])
+            if isinstance(item, Mapping) and item.get("status") == "complete"
+        }
+        if (
+            weekly.get("status") != "available"
+            or not isinstance(source_report_id, str)
+            or not SAFE_ID.fullmatch(source_report_id)
+            or not isinstance(source_report_root, str)
+            or not SHA256.fullmatch(source_report_root)
+            or not {"prepare", "source-currentness", "cognitive-review", "finalize", "verify", "display"}.issubset(verified_stage_ids)
+        ):
+            return unavailable(
+                "factory_evolution_verified_report_unavailable",
+                "Factory evolution requires one current verified weekly report before its deterministic packet can be prepared.",
+                source_report_id=(source_report_id if isinstance(source_report_id, str) else None),
+                source_report_root=(source_report_root if isinstance(source_report_root, str) else None),
+            )
+        report_path = (
+            evidence.directory
+            / "reports"
+            / "weekly"
+            / source_report_id
+            / "report.json"
+        )
+        events_path = evidence.directory / "events.jsonl"
+        if (
+            report_path.is_symlink()
+            or events_path.is_symlink()
+            or not report_path.is_file()
+            or not events_path.is_file()
+        ):
+            return unavailable(
+                "factory_evolution_source_path_unavailable",
+                "The exact verified report or canonical event source is unavailable or unsafe.",
+                source_report_id=source_report_id,
+                source_report_root=source_report_root,
+            )
+        evolution = self._module("evolution")
+        try:
+            packet = evolution.build_learning_packet(
+                report_paths=[report_path],
+                event_paths=[events_path],
+            )
+            evolution.verify_learning_packet(packet)
+        except Exception as exc:
+            return unavailable(
+                "factory_evolution_packet_invalid",
+                f"The maintained Factory-evolution owner rejected the explicit source set: {exc}",
+                source_report_id=source_report_id,
+                source_report_root=source_report_root,
+            )
+        packet_id = packet.get("packet_id")
+        packet_root = packet.get("packet_root")
+        if (
+            not isinstance(packet_id, str)
+            or not SAFE_ID.fullmatch(packet_id)
+            or not isinstance(packet_root, str)
+            or not SHA256.fullmatch(packet_root)
+        ):
+            return unavailable(
+                "factory_evolution_packet_identity_invalid",
+                "The maintained Factory-evolution owner returned an invalid packet identity.",
+                source_report_id=source_report_id,
+                source_report_root=source_report_root,
+            )
+        evolution_id = f"evolution-{packet_root[:20]}"
+        directory = evidence.directory / "learning" / "factory-evolution" / evolution_id
+        if directory.is_symlink() or (directory.exists() and not directory.is_dir()):
+            return unavailable(
+                "factory_evolution_directory_invalid",
+                "The current evolution path is not an owner-local directory.",
+                source_report_id=source_report_id,
+                source_report_root=source_report_root,
+            )
+        try:
+            members = self._report_members(directory) if directory.is_dir() else []
+        except OperationsProjectionError as exc:
+            return unavailable(
+                exc.code,
+                str(exc),
+                retryable=exc.retryable,
+                source_report_id=source_report_id,
+                source_report_root=source_report_root,
+            )
+        verification: Mapping[str, Any] | None = None
+        if directory.is_dir():
+            try:
+                verification = self._owner_command(
+                    [
+                        "factory-evolution",
+                        "--target-thread",
+                        evidence.target_thread_id,
+                        "--evolution-id",
+                        evolution_id,
+                        "--action",
+                        "verify",
+                    ]
+                )
+            except OperationsProjectionError as exc:
+                return unavailable(
+                    "factory_evolution_artifact_invalid",
+                    str(exc),
+                    retryable=exc.retryable,
+                    source_report_id=source_report_id,
+                    source_report_root=source_report_root,
+                )
+            if (
+                verification.get("evolution_id") != evolution_id
+                or verification.get("packet_id") != packet_id
+                or verification.get("packet_root") != packet_root
+            ):
+                return unavailable(
+                    "factory_evolution_source_conflict",
+                    "The retained evolution set does not match the current deterministic packet.",
+                    source_report_id=source_report_id,
+                    source_report_root=source_report_root,
+                )
+
+        runtime = evidence.policy.get("runtime")
+        runtime = runtime if isinstance(runtime, Mapping) else {}
+        proposer_task_id = runtime.get("base_reviewer_thread_id")
+        evaluator_task_id = runtime.get("reviewer_thread_id")
+        role_configuration_current = bool(
+            isinstance(proposer_task_id, str)
+            and SAFE_ID.fullmatch(proposer_task_id)
+            and isinstance(evaluator_task_id, str)
+            and SAFE_ID.fullmatch(evaluator_task_id)
+            and len({proposer_task_id, evaluator_task_id, evidence.target_thread_id}) == 3
+        )
+        owner_stage = verification.get("stage") if verification else None
+        review: Mapping[str, Any] | None = None
+        review_id = verification.get("review_id") if verification else None
+        review_root = verification.get("review_root") if verification else None
+        evaluation_id = verification.get("evaluation_id") if verification else None
+        evaluation_root = verification.get("evaluation_root") if verification else None
+        disposition = verification.get("disposition") if verification else None
+        implementer = {
+            "status": "not-selected",
+            "task_id": None,
+            "baseline_revision": None,
+            "candidate_revision": None,
+        }
+        if owner_stage in {"finalized", "evaluated"}:
+            review_path = directory / "review.json"
+            try:
+                review_value = json.loads(
+                    _read_bounded(review_path, MAX_REPORT_ARTIFACT_BYTES).decode("utf-8")
+                )
+                review = evolution.verify_evolution_review(packet, review_value)
+            except Exception as exc:
+                return unavailable(
+                    "factory_evolution_review_invalid",
+                    f"The retained evolution review is invalid: {exc}",
+                    source_report_id=source_report_id,
+                    source_report_root=source_report_root,
+                )
+            experiment = review.get("experiment")
+            if not isinstance(experiment, Mapping):
+                return unavailable(
+                    "factory_evolution_experiment_unavailable",
+                    "The retained review has no exact experiment contract.",
+                    source_report_id=source_report_id,
+                    source_report_root=source_report_root,
+                )
+            if (
+                not role_configuration_current
+                or review.get("reviewer_id") != proposer_task_id
+                or experiment.get("proposer_id") != proposer_task_id
+                or experiment.get("evaluator_id") != evaluator_task_id
+                or experiment.get("implementer_id") != evidence.target_thread_id
+            ):
+                return unavailable(
+                    "factory_evolution_role_identity_mismatch",
+                    "The retained review does not preserve the configured distinct proposer, implementation, and evaluator identities.",
+                    source_report_id=source_report_id,
+                    source_report_root=source_report_root,
+                )
+            implementer = {
+                "status": (
+                    "evaluation-evidence-recorded"
+                    if owner_stage == "evaluated"
+                    else "awaiting-owner-proof"
+                ),
+                "task_id": experiment.get("implementer_id"),
+                "baseline_revision": experiment.get("baseline_revision"),
+                "candidate_revision": experiment.get("candidate_revision"),
+            }
+        if owner_stage == "evaluated":
+            try:
+                evaluation_value = json.loads(
+                    _read_bounded(
+                        directory / "evaluation.json", MAX_REPORT_ARTIFACT_BYTES
+                    ).decode("utf-8")
+                )
+                evolution.verify_candidate_evaluation(
+                    packet,
+                    review,
+                    evaluation_value,
+                )
+            except Exception as exc:
+                return unavailable(
+                    "factory_evolution_evaluation_invalid",
+                    f"The retained candidate evaluation is invalid: {exc}",
+                    source_report_id=source_report_id,
+                    source_report_root=source_report_root,
+                )
+            if disposition not in {"promote", "advisory", "revise", "reject"}:
+                return unavailable(
+                    "factory_evolution_disposition_invalid",
+                    "The verified evolution set has no supported disposition.",
+                    source_report_id=source_report_id,
+                    source_report_root=source_report_root,
+                )
+
+        if verification is None:
+            stage, next_action = "prepare", "prepare"
+        elif owner_stage == "prepared":
+            stage, next_action = "finalize", "finalize"
+        elif owner_stage == "finalized":
+            stage, next_action = "awaiting-implementation", "evaluate"
+        elif owner_stage == "evaluated":
+            stage, next_action = "verified", None
+        else:
+            return unavailable(
+                "factory_evolution_stage_invalid",
+                "The maintained Factory-evolution owner returned an unsupported stage.",
+                source_report_id=source_report_id,
+                source_report_root=source_report_root,
+            )
+        manifest_name = {
+            "prepared": "prepare-manifest.json",
+            "finalized": "finalize-manifest.json",
+            "evaluated": "manifest.json",
+        }.get(str(owner_stage))
+        manifest_root: str | None = None
+        if manifest_name:
+            try:
+                manifest = json.loads(
+                    _read_bounded(
+                        directory / manifest_name, MAX_REPORT_ARTIFACT_BYTES
+                    ).decode("utf-8")
+                )
+                manifest_root_value = manifest.get("manifest_root")
+                manifest_root = (
+                    manifest_root_value
+                    if isinstance(manifest_root_value, str)
+                    and SHA256.fullmatch(manifest_root_value)
+                    else None
+                )
+            except (OSError, UnicodeError, json.JSONDecodeError, OperationsProjectionError):
+                manifest_root = None
+            if manifest_root is None:
+                return unavailable(
+                    "factory_evolution_manifest_identity_unavailable",
+                    "The verified evolution stage has no exact readable manifest identity.",
+                    source_report_id=source_report_id,
+                    source_report_root=source_report_root,
+                )
+        stage_statuses = {
+            "prepare": "complete" if verification else "current",
+            "finalize": (
+                "complete" if owner_stage in {"finalized", "evaluated"}
+                else "current" if owner_stage == "prepared" else "pending"
+            ),
+            "external-implementation": (
+                "complete" if owner_stage == "evaluated"
+                else "current" if owner_stage == "finalized" else "pending"
+            ),
+            "evaluate": (
+                "complete" if owner_stage == "evaluated"
+                else "pending"
+            ),
+            "verify": "complete" if owner_stage == "evaluated" else "pending",
+        }
+        stages = [
+            {
+                "id": "prepare",
+                "label": "Deterministic prepare",
+                "status": stage_statuses["prepare"],
+                "owner": "maintained Factory-evolution packet owner",
+            },
+            {
+                "id": "finalize",
+                "label": "Cognitive finalize",
+                "status": stage_statuses["finalize"],
+                "owner": "configured independent Sol XHigh proposer",
+            },
+            {
+                "id": "external-implementation",
+                "label": "External implementation",
+                "status": stage_statuses["external-implementation"],
+                "owner": "separate Block 11 author/implement/supervise owner",
+            },
+            {
+                "id": "evaluate",
+                "label": "Independent evaluate",
+                "status": stage_statuses["evaluate"],
+                "owner": "configured independent Sol evaluator",
+            },
+            {
+                "id": "verify",
+                "label": "Deterministic verify",
+                "status": stage_statuses["verify"],
+                "owner": "maintained Factory-evolution verifier",
+            },
+        ]
+        workflow_error = None
+        if next_action is not None and not role_configuration_current:
+            workflow_error = {
+                "code": "factory_evolution_roles_unavailable",
+                "message": "Factory evolution requires distinct configured proposer, implementation, and evaluator task identities.",
+                "retryable": False,
+            }
+        workflow_fingerprint = _digest(
+            {
+                "target_source": evidence.fingerprint,
+                "report": weekly.get("fingerprint"),
+                "packet": packet_root,
+                "tree": self._report_tree_key(
+                    directory,
+                    self.owner_revisions()["factory_evolution"]["sha256"],
+                ),
+                "roles": [proposer_task_id, evidence.target_thread_id, evaluator_task_id],
+                "stage": stage,
+            }
+        )
+        limitations = [
+            "The selected candidate is implemented only by a separate Block 11 owner; this workflow can validate its exact evidence but cannot launch or accept it.",
+            "A promote disposition is review evidence only. Adoption, installation, routing, scheduling, deployment, rollback, and later outcome remain not performed by evolution.",
+        ]
+        if stage == "awaiting-implementation":
+            limitations.append(
+                "Evaluation remains unavailable until the exact external implementation task and baseline/candidate revisions are current and independently readable."
+            )
+        if workflow_error:
+            limitations.append(workflow_error["message"])
+        return {
+            "status": "available",
+            "stage": stage,
+            "next_action": next_action,
+            "actionable": next_action is not None and role_configuration_current,
+            "evolution_id": evolution_id,
+            "packet_id": packet_id,
+            "packet_root": packet_root,
+            "review_id": review_id,
+            "review_root": review_root,
+            "evaluation_id": evaluation_id,
+            "evaluation_root": evaluation_root,
+            "disposition": disposition,
+            "source_report_id": source_report_id,
+            "source_report_root": source_report_root,
+            "event_head_sha256": (
+                evidence.events[-1].get("record_sha256") if evidence.events else None
+            ),
+            "manifest_root": manifest_root,
+            "fingerprint": workflow_fingerprint,
+            "proposer": {"role": "base_reviewer", "task_id": proposer_task_id},
+            "implementer": implementer,
+            "evaluator": {"role": "reviewer", "task_id": evaluator_task_id},
+            "expected_members": expected_members,
+            "members": members,
+            "stages": stages,
+            "limitations": limitations,
+            "error": workflow_error,
+        }
+
+    def factory_evolution_workflow_snapshot(
+        self,
+        target_thread_id: str,
+    ) -> dict[str, Any]:
+        if not SAFE_ID.fullmatch(target_thread_id):
+            raise OperationsProjectionError(
+                "invalid_run_id", "Run target ID is invalid."
+            )
+        directory = self.supervision_root / target_thread_id
+        if directory.is_symlink():
+            raise OperationsProjectionError(
+                "supervision_target_symlink_rejected",
+                "Supervision target must not be a symlink.",
+                status=422,
+            )
+        try:
+            resolved = directory.resolve(strict=True)
+        except OSError as error:
+            raise OperationsProjectionError(
+                "run_not_found", "Supervision target is not discoverable.", status=404
+            ) from error
+        if resolved.parent != self.supervision_root or not resolved.is_dir():
+            raise OperationsProjectionError(
+                "supervision_target_invalid",
+                "Supervision target escaped its canonical owner root.",
+                status=422,
+            )
+        evidence, _cache = self._load_target(resolved)
+        return self._factory_evolution_workflow(evidence)
+
     def _verify_report(
         self,
         *,
@@ -5028,6 +5499,7 @@ class OperationsProjectionService:
         timeline, timeline_truncated = self._timeline(evidence)
         reports = self._reports(evidence, owners)
         weekly_report_workflow = self._weekly_report_workflow(evidence)
+        factory_evolution_workflow = self._factory_evolution_workflow(evidence)
         metrics = self._metrics(evidence)
         incidents = []
         for incident_id, head in sorted(heads["incidents"].items()):
@@ -5204,6 +5676,7 @@ class OperationsProjectionService:
             "operating_history": self._operating_history(evidence),
             "reports": reports,
             "weekly_report_workflow": weekly_report_workflow,
+            "factory_evolution_workflow": factory_evolution_workflow,
             "metrics": metrics,
             "source": {
                 "identity": "supervise-tracker-runs/scripts/supervision_log.py",
@@ -5311,6 +5784,42 @@ class OperationsProjectionService:
                     "retryable": error.retryable,
                 },
             },
+            "factory_evolution_workflow": {
+                "status": "unavailable",
+                "stage": "unavailable",
+                "next_action": None,
+                "actionable": False,
+                "evolution_id": None,
+                "packet_id": None,
+                "packet_root": None,
+                "review_id": None,
+                "review_root": None,
+                "evaluation_id": None,
+                "evaluation_root": None,
+                "disposition": None,
+                "source_report_id": None,
+                "source_report_root": None,
+                "event_head_sha256": None,
+                "manifest_root": None,
+                "fingerprint": None,
+                "proposer": {"role": "base_reviewer", "task_id": None},
+                "implementer": {
+                    "status": "not-selected",
+                    "task_id": None,
+                    "baseline_revision": None,
+                    "candidate_revision": None,
+                },
+                "evaluator": {"role": "reviewer", "task_id": None},
+                "expected_members": [],
+                "members": [],
+                "stages": [],
+                "limitations": [],
+                "error": {
+                    "code": error.code,
+                    "message": str(error),
+                    "retryable": error.retryable,
+                },
+            },
             "metrics": {"status": "unavailable", "definition_owner": "supervise-tracker-runs/scripts/weekly_report.py", "metrics": None, "error": {"code": error.code, "message": str(error), "retryable": error.retryable}},
             "source": None,
             "coverage": {"status": "unavailable", "observed": [], "missing": ["supervision-integrity"]},
@@ -5411,6 +5920,15 @@ class OperationsProjectionService:
             if automation_id not in referenced_automations
         ]
         reports = [report for run in runs for report in run.get("reports", [])]
+        evolution_workflows = [
+            {
+                "target_thread_id": run["target_thread_id"],
+                "target_label": run["target_label"],
+                "project_binding": run["project_binding"],
+                "workflow": run["factory_evolution_workflow"],
+            }
+            for run in runs
+        ]
         bound_project_ids = {
             str(run["project_binding"]["project_id"])
             for run in runs
@@ -5739,6 +6257,7 @@ class OperationsProjectionService:
             "orphan_automations": orphan_automations,
             "unmonitored_projects": unmonitored_projects,
             "reports": reports,
+            "evolution_workflows": evolution_workflows,
             "metrics": {
                 "aggregate": aggregate,
                 "factory_history": factory_history,

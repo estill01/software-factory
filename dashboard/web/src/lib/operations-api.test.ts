@@ -468,6 +468,45 @@ const weeklyReportWorkflow = {
   error: null,
 } as const
 
+const factoryEvolutionWorkflow = {
+  status: "available",
+  stage: "verified",
+  next_action: null,
+  actionable: false,
+  evolution_id: "evolution-demo",
+  packet_id: "packet-demo",
+  packet_root: hash("1"),
+  review_id: "review-demo",
+  review_root: hash("2"),
+  evaluation_id: "evaluation-demo",
+  evaluation_root: hash("3"),
+  disposition: "advisory",
+  source_report_id: "weekly-demo",
+  source_report_root: hash("4"),
+  event_head_sha256: hash("5"),
+  manifest_root: hash("6"),
+  fingerprint: hash("7"),
+  proposer: { role: "base_reviewer", task_id: "proposer-thread-1" },
+  implementer: {
+    status: "evaluation-evidence-recorded",
+    task_id: "target-thread-1",
+    baseline_revision: revision("1"),
+    candidate_revision: revision("2"),
+  },
+  evaluator: { role: "reviewer", task_id: "evaluator-thread-1" },
+  expected_members: ["learning-packet.json", "review.json", "evaluation.json", "manifest.json"],
+  members: [],
+  stages: [
+    { id: "prepare", label: "Deterministic prepare", status: "complete", owner: "factory_evolution.py" },
+    { id: "finalize", label: "Cognitive finalize", status: "complete", owner: "proposer-thread-1" },
+    { id: "external-implementation", label: "External implementation", status: "complete", owner: "target-thread-1" },
+    { id: "evaluate", label: "Independent evaluate", status: "complete", owner: "evaluator-thread-1" },
+    { id: "verify", label: "Deterministic verify", status: "complete", owner: "factory_evolution.py" },
+  ],
+  limitations: ["Disposition is not adoption authority."],
+  error: null,
+} as const
+
 const projectedEvent = {
   record_id: "EVT-000002",
   timestamp: "2026-08-09T11:20:00+00:00",
@@ -596,6 +635,7 @@ const detail = {
   operating_history: [{ from: "neutral", to: "red", trigger: "open-high", record }],
   reports: [report],
   weekly_report_workflow: weeklyReportWorkflow,
+  factory_evolution_workflow: factoryEvolutionWorkflow,
   metrics: {
     status: "available",
     definition_owner: "supervise-tracker-runs/scripts/weekly_report.py",
@@ -665,6 +705,12 @@ const reportEnvelope = {
     recovered_from_previous: false,
     owners,
     reports: [report],
+    evolution_workflows: [{
+      target_thread_id: "target-thread-1",
+      target_label: "Target one",
+      project_binding: projectBinding,
+      workflow: factoryEvolutionWorkflow,
+    }],
   },
 } as const
 

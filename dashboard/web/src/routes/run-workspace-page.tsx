@@ -395,6 +395,7 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
           currentMission={run.current_mission}
           successorTransitions={missionTransitions}
           weeklyReportWorkflow={run.weekly_report_workflow}
+          factoryEvolutionWorkflow={run.factory_evolution_workflow}
         />
       )}
 
@@ -552,6 +553,26 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
                   <div><span>{run.weekly_report_workflow.coverage ? `${run.weekly_report_workflow.coverage.start} — ${run.weekly_report_workflow.coverage.end} · ${run.weekly_report_workflow.timezone}` : "Report period unavailable"}</span><span>Writer <Identity value={run.weekly_report_workflow.writer_task_id} /></span></div>
                   <div><Identity value={run.weekly_report_workflow.source_root} /><span>{run.weekly_report_workflow.delivery.status}{run.weekly_report_workflow.delivery.reason ? ` · ${run.weekly_report_workflow.delivery.reason}` : ""}</span></div>
                   {run.weekly_report_workflow.error ? <div className="workspace-bound">{run.weekly_report_workflow.error.message}</div> : null}
+                </article>
+                <article className="weekly-report-progress evolution-progress" aria-label="Current Factory evolution workflow">
+                  <div><strong>{run.factory_evolution_workflow.evolution_id ?? "Factory evolution"}</strong><StatusMark status={run.factory_evolution_workflow.stage} /></div>
+                  <div className="weekly-report-stages">{run.factory_evolution_workflow.stages.map((stage) => <span key={stage.id} data-status={stage.status}>{stage.label}<small>{stage.status}</small></span>)}</div>
+                  <div>
+                    <span>Packet <Identity value={run.factory_evolution_workflow.packet_root} /></span>
+                    <span>Report <Identity value={run.factory_evolution_workflow.source_report_root} /></span>
+                  </div>
+                  <div>
+                    <span>Proposer <Identity value={run.factory_evolution_workflow.proposer.task_id} /></span>
+                    <span>Implementer <Identity value={run.factory_evolution_workflow.implementer.task_id} /></span>
+                    <span>Evaluator <Identity value={run.factory_evolution_workflow.evaluator.task_id} /></span>
+                  </div>
+                  <div>
+                    <span>{run.factory_evolution_workflow.implementer.status}{run.factory_evolution_workflow.implementer.candidate_revision ? <> · <Identity value={run.factory_evolution_workflow.implementer.candidate_revision} /></> : null}</span>
+                    <span>{run.factory_evolution_workflow.disposition ? `Disposition: ${run.factory_evolution_workflow.disposition}` : "Disposition unavailable"}</span>
+                    <Link to="/reports?view=reports&family=factory-evolution">Source</Link>
+                  </div>
+                  <div className="workspace-bound">Implementation, adoption, installation, routing, scheduling, deployment, rollback, and later outcome are not performed by evolution.</div>
+                  {run.factory_evolution_workflow.error ? <div className="workspace-bound">{run.factory_evolution_workflow.error.message}</div> : null}
                 </article>
                 {run.reports.length ? <div className="workspace-record-list">{run.reports.map((report) => <article className="workspace-record" key={report.id}><div><strong>{report.family} · {report.stage}</strong><Identity value={report.id} /></div><StatusMark status={report.status} /><span>{report.disposition ?? report.error?.message ?? `${report.members.length} members`}</span>{report.delivery ? <span>Delivery: {report.delivery.status}</span> : null}<Identity value={report.manifest_root} /><Link to="/reports">Artifacts</Link></article>)}</div> : <QueryState kind="empty" message="No report associated" />}
               </>}

@@ -176,6 +176,45 @@ const retainedReviewWorkflow = {
   )),
 } satisfies RunDetail["weekly_report_workflow"]
 
+const factoryEvolutionWorkflow = {
+  status: "available",
+  stage: "awaiting-implementation",
+  next_action: "evaluate",
+  actionable: true,
+  evolution_id: "evolution-test-001",
+  packet_id: "packet-test-001",
+  packet_root: hash,
+  review_id: "review-test-001",
+  review_root: hash,
+  evaluation_id: null,
+  evaluation_root: null,
+  disposition: null,
+  source_report_id: "weekly-test-001",
+  source_report_root: hash,
+  event_head_sha256: hash,
+  manifest_root: hash,
+  fingerprint: hash,
+  proposer: { role: "base_reviewer", task_id: "proposer-task" },
+  implementer: {
+    status: "awaiting-owner-proof",
+    task_id: "task-demo",
+    baseline_revision: "1".repeat(40),
+    candidate_revision: "2".repeat(40),
+  },
+  evaluator: { role: "reviewer", task_id: "evaluator-task" },
+  expected_members: ["learning-packet.json", "review.json", "evaluation.json", "manifest.json"],
+  members: [],
+  stages: [
+    { id: "prepare", label: "Prepare", status: "complete", owner: "factory owner" },
+    { id: "finalize", label: "Finalize", status: "complete", owner: "proposer-task" },
+    { id: "external-implementation", label: "External implementation", status: "current", owner: "Block 11" },
+    { id: "evaluate", label: "Evaluate", status: "pending", owner: "evaluator-task" },
+    { id: "verify", label: "Verify", status: "pending", owner: "factory owner" },
+  ],
+  limitations: ["Disposition is not adoption authority."],
+  error: null,
+} satisfies RunDetail["factory_evolution_workflow"]
+
 function previewEnvelope(type: string): OperationPreviewEnvelope {
   return {
     data: {
@@ -416,6 +455,31 @@ describe("Factory workflow action strips", () => {
       input: { coverage_days: 7 },
     })
     expect(await screen.findByText("finalize-verify → finalize-verify")).toBeVisible()
+  })
+
+  it("previews only the current Factory-evolution stage and keeps adoption outside it", async () => {
+    const user = userEvent.setup()
+    renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+        factoryEvolutionWorkflow={factoryEvolutionWorkflow}
+      />,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Evaluate candidate" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.evolution-evaluate",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: {},
+    })
+    expect(await screen.findByText("awaiting-implementation → evaluate")).toBeVisible()
+    expect(screen.getByText(/Disposition evidence only/)).toHaveTextContent(
+      "no implementation, adoption, installation, routing, scheduling, deployment, rollback, or outcome mutation",
+    )
   })
 
   it("maps a server expiry to the same re-preview posture", async () => {

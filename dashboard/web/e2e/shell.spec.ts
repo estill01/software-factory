@@ -603,6 +603,120 @@ test("retained weekly review requests only finalize and verify", async ({ page, 
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
 })
 
+test("Factory evolution exposes one current stage without adoption authority", async ({ page, request }) => {
+  const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  runEnvelope.data.run.project_binding = {
+    status: "bound",
+    project_id: "software-factory",
+    evidence: [{ source_record: "policy", field: "project_root", value: "/fixture/software_factory" }],
+    limitations: [],
+  }
+  const evolutionWorkflow = {
+    status: "available",
+    stage: "awaiting-implementation",
+    next_action: "evaluate",
+    actionable: true,
+    evolution_id: "evolution-browser-001",
+    packet_id: "packet-browser-001",
+    packet_root: "1".repeat(64),
+    review_id: "review-browser-001",
+    review_root: "2".repeat(64),
+    evaluation_id: null,
+    evaluation_root: null,
+    disposition: null,
+    source_report_id: "weekly-browser-001",
+    source_report_root: "3".repeat(64),
+    event_head_sha256: "4".repeat(64),
+    manifest_root: "5".repeat(64),
+    fingerprint: "6".repeat(64),
+    proposer: { role: "base_reviewer", task_id: "evolution-proposer-browser" },
+    implementer: {
+      status: "awaiting-owner-proof",
+      task_id: target,
+      baseline_revision: "7".repeat(40),
+      candidate_revision: "8".repeat(40),
+    },
+    evaluator: { role: "reviewer", task_id: "evolution-evaluator-browser" },
+    expected_members: ["learning-packet.json", "review.json", "evaluation.json", "manifest.json"],
+    members: [],
+    stages: [
+      ["prepare", "Deterministic prepare", "complete", "factory owner"],
+      ["finalize", "Cognitive finalize", "complete", "proposer"],
+      ["external-implementation", "External implementation", "current", "Block 11"],
+      ["evaluate", "Independent evaluate", "pending", "evaluator"],
+      ["verify", "Deterministic verify", "pending", "factory owner"],
+    ].map(([id, label, status, owner]) => ({ id, label, status, owner })),
+    limitations: ["Disposition is not adoption authority."],
+    error: null,
+  }
+  runEnvelope.data.run.factory_evolution_workflow = evolutionWorkflow
+  const reportsResponse = await request.get("/api/v1/reports")
+  expect(reportsResponse.ok()).toBeTruthy()
+  const reportsEnvelope = await reportsResponse.json()
+  reportsEnvelope.data.evolution_workflows = [{
+    target_thread_id: target,
+    target_label: runEnvelope.data.run.target_label,
+    project_binding: runEnvelope.data.run.project_binding,
+    workflow: evolutionWorkflow,
+  }]
+  await page.route(`**/api/v1/runs/${target}`, (route) => route.fulfill({ json: runEnvelope }))
+  await page.route("**/api/v1/reports", (route) => route.fulfill({ json: reportsEnvelope }))
+  let requested: unknown = null
+  await page.route("**/api/v1/operations/preview", async (route) => {
+    requested = route.request().postDataJSON()
+    await route.fulfill({
+      status: 409,
+      json: {
+        data: null,
+        source: { kind: "administrative-operation", identity: "operations", revision: "a".repeat(64) },
+        observed_at: "2026-08-12T03:00:00.000Z",
+        fingerprint: "b".repeat(64),
+        coverage: { status: "partial", observed: ["operation-request"], missing: ["owner-postcondition"] },
+        limitations: ["Browser proof does not dispatch an evolution role."],
+        error: { code: "factory_evolution_implementation_unavailable", message: "Focused browser proof stopped before owner dispatch.", retryable: false },
+      },
+    })
+  })
+
+  await page.goto(`/runs/${target}`)
+  const workflow = page.getByRole("article", { name: "Current Factory evolution workflow" })
+  await expect(workflow).toContainText("evolution-browser-001")
+  await expect(workflow.locator(".weekly-report-stages > span")).toHaveCount(5)
+  await expect(workflow.locator('[data-status="current"]')).toContainText("External implementation")
+  await expect(workflow).toContainText("not performed by evolution")
+  await page.getByRole("button", { name: "Evaluate candidate" }).click()
+  await expect.poll(() => requested).toEqual({
+    operation_type: "factory.evolution-evaluate",
+    target: { kind: "run", id: target, project_id: "software-factory" },
+    input: {},
+  })
+  await expect(page.getByRole("alert")).toContainText("Focused browser proof stopped before owner dispatch")
+  await expect(page.getByRole("button", { name: /adopt|deploy|install/i })).toHaveCount(0)
+
+  for (const [path, regionName] of [
+    ["/reports?view=reports", "Evolution"],
+    ["/admin", "Factory evolution"],
+  ] as const) {
+    await page.goto(path)
+    const region = page.getByRole("region", { name: regionName })
+    await expect(region).toContainText("awaiting-implementation")
+    await expect(region).toContainText("External implementation")
+    await expect(region).toContainText(/not performed by evolution|Evolution performs no adoption/)
+    await expect(page.getByRole("button", { name: /adopt|deploy|install/i })).toHaveCount(0)
+    const axe = await new AxeBuilder({ page }).analyze()
+    expect(axe.violations.filter(({ impact }) => impact === "serious" || impact === "critical"))
+      .toEqual([])
+    const dimensions = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }))
+    expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+  }
+})
+
 test("live project, run, supervisor, and task drill-downs preserve mission boundaries", async ({ page }) => {
   test.setTimeout(180_000)
   const target = "019fe547-e054-7ca0-9940-ec4aa146df78"

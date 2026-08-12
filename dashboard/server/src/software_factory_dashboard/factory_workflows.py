@@ -94,6 +94,7 @@ SUCCESSOR_TRANSITION_WORK_ITEM_TYPES = {
 }
 WEEKLY_REPORT_MARKER = "SOFTWARE_FACTORY_DASHBOARD_WEEKLY_REPORT "
 WEEKLY_REPORT_ROUTE_PURPOSE = "roundup-action"
+FACTORY_EVOLUTION_MARKER = "SOFTWARE_FACTORY_DASHBOARD_FACTORY_EVOLUTION "
 ROLE_BINDING_REPAIR_ROLES = {
     "base_reviewer": {
         "label": "Base reviewer",
@@ -514,6 +515,7 @@ class FactoryWorkflowOwner:
         self._mission_successor_dispatch_lock = RLock()
         self._successor_transition_dispatch_lock = RLock()
         self._weekly_report_dispatch_lock = RLock()
+        self._factory_evolution_dispatch_lock = RLock()
 
     @staticmethod
     def _semantic_exact(value: str | int | float | bool) -> OperationSemanticValue:
@@ -1255,6 +1257,7 @@ class FactoryWorkflowOwner:
                 self._mission_successor_definition(),
                 self._successor_transition_definition(),
                 self._weekly_report_definition(),
+                self._factory_evolution_definition(),
                 self._unavailable_authoring_supervision_definition(),
             )
         )
@@ -13404,6 +13407,965 @@ class FactoryWorkflowOwner:
                 ),
             ),
             route_gate_request=self._weekly_report_route_request,
+            route_gate=self.route_gate,
+            dispatch=dispatch,
+            verify=verify,
+        )
+
+    @staticmethod
+    def _factory_evolution_marker(
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> dict[str, Any]:
+        return {
+            "kind": "factory-evolution",
+            "target_thread_id": target.id,
+            "project_id": source.evidence["project_id"],
+            "evolution_id": source.evidence["evolution_id"],
+            "action": source.evidence["action"],
+            "packet_id": source.evidence["packet_id"],
+            "packet_root": source.evidence["packet_root"],
+            "review_root": source.evidence.get("review_root"),
+            "source_report_id": source.evidence["source_report_id"],
+            "source_report_root": source.evidence["source_report_root"],
+            "event_head_sha256": source.evidence["event_head_sha256"],
+            "proposer_task_id": source.evidence["proposer_task_id"],
+            "implementer_task_id": target.id,
+            "evaluator_task_id": source.evidence["evaluator_task_id"],
+            "recipient_task_id": source.evidence["recipient_task_id"],
+            "preview_fingerprint": source.fingerprint,
+            "route_purpose": source.evidence["route_purpose"],
+        }
+
+    @staticmethod
+    def _factory_evolution_turn_has_marker(
+        task: Mapping[str, Any],
+        *,
+        turn_id: str,
+        expected: Mapping[str, Any],
+    ) -> bool:
+        if task.get("turns_truncated") is True:
+            return False
+        turns = [
+            turn
+            for turn in task.get("turns", [])
+            if isinstance(turn, Mapping) and turn.get("id") == turn_id
+        ]
+        if len(turns) != 1 or turns[0].get("items_truncated") is True:
+            return False
+        markers: list[Mapping[str, Any]] = []
+        for item in turns[0].get("items", []):
+            summary = item.get("summary")
+            if item.get("type") != "userMessage" or not isinstance(summary, str):
+                continue
+            first_line = summary.splitlines()[0] if summary else ""
+            if not first_line.startswith(FACTORY_EVOLUTION_MARKER):
+                continue
+            try:
+                marker = json.loads(
+                    first_line.removeprefix(FACTORY_EVOLUTION_MARKER)
+                )
+            except json.JSONDecodeError:
+                return False
+            if isinstance(marker, Mapping):
+                markers.append(marker)
+        return len(markers) == 1 and markers[0] == expected
+
+    def _factory_evolution_role_task(
+        self,
+        projects: Sequence[ProjectRecord],
+        *,
+        task_id: str,
+        role: str,
+        allowed_reasoning: frozenset[str],
+    ) -> dict[str, Any]:
+        try:
+            detail = self.app_server_client.read_task_with_execution_contract(
+                projects, task_id
+            )
+        except AppServerError as error:
+            raise _operation_error(
+                error,
+                fallback="factory_evolution_role_unavailable",
+            ) from error
+        task = detail.get("task")
+        if not isinstance(task, Mapping):
+            raise OperationError(
+                "factory_evolution_role_unavailable",
+                f"The exact {role} task is unavailable.",
+                status=409,
+            )
+        cwd, cwd_identity, status = self._validated_role_task(
+            task,
+            task_id=task_id,
+            role=role,
+            unavailable_code="factory_evolution_role_unavailable",
+            active_code="factory_evolution_role_active",
+        )
+        execution = task.get("execution_contract")
+        if (
+            task.get("turns_truncated") is not False
+            or any(
+                not isinstance(turn, Mapping)
+                or turn.get("items_truncated") is not False
+                or turn.get("status") == "inProgress"
+                for turn in task.get("turns", [])
+            )
+            or task.get("model_provider") != "openai"
+            or not isinstance(execution, Mapping)
+            or execution.get("model") != "gpt-5.6-sol"
+            or execution.get("reasoning_effort") not in allowed_reasoning
+            or not isinstance(execution.get("source_record_sha256"), str)
+            or not SHA256_PATTERN.fullmatch(
+                str(execution["source_record_sha256"])
+            )
+        ):
+            raise OperationError(
+                "factory_evolution_role_contract_mismatch",
+                f"The exact {role} lacks the complete maintained Sol execution contract.",
+                status=409,
+            )
+        return {
+            "task": task,
+            "task_id": task_id,
+            "cwd": cwd,
+            "cwd_device": cwd_identity[0],
+            "cwd_inode": cwd_identity[1],
+            "status": status,
+            "model": execution["model"],
+            "reasoning": execution["reasoning_effort"],
+            "execution_sha256": execution["source_record_sha256"],
+        }
+
+    @staticmethod
+    def _factory_evolution_git_probe(
+        project: ProjectRecord,
+        *,
+        baseline_revision: str,
+        candidate_revision: str,
+    ) -> dict[str, Any]:
+        root = Path(project.root)
+        commands = (
+            ("rev-parse", "--verify", f"{baseline_revision}^{{commit}}"),
+            ("rev-parse", "--verify", f"{candidate_revision}^{{commit}}"),
+            ("merge-base", "--is-ancestor", baseline_revision, candidate_revision),
+            ("status", "--porcelain=v1"),
+        )
+        outputs: list[subprocess.CompletedProcess[str]] = []
+        for arguments in commands:
+            try:
+                result = subprocess.run(
+                    ["git", "-C", str(root), *arguments],
+                    check=False,
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+            except (OSError, subprocess.TimeoutExpired) as error:
+                raise OperationError(
+                    "factory_evolution_implementation_git_unavailable",
+                    "The external implementation Git evidence is unavailable.",
+                    status=409,
+                    retryable=True,
+                ) from error
+            outputs.append(result)
+        if (
+            outputs[0].returncode != 0
+            or outputs[1].returncode != 0
+            or outputs[2].returncode != 0
+            or outputs[3].returncode != 0
+            or outputs[3].stdout.strip()
+            or outputs[0].stdout.strip() != baseline_revision
+            or outputs[1].stdout.strip() != candidate_revision
+        ):
+            raise OperationError(
+                "factory_evolution_implementation_revision_unverified",
+                "The exact clean baseline/candidate revision relationship is unavailable or stale.",
+                status=409,
+            )
+        return {
+            "baseline_revision": baseline_revision,
+            "candidate_revision": candidate_revision,
+            "baseline_ancestor": True,
+            "worktree_clean": True,
+        }
+
+    def _factory_evolution_external_implementation(
+        self,
+        projects: Sequence[ProjectRecord],
+        project: ProjectRecord,
+        target: OperationTarget,
+        workflow: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        implementation = workflow.get("implementer")
+        if not isinstance(implementation, Mapping):
+            raise OperationError(
+                "factory_evolution_implementation_unavailable",
+                "The retained experiment has no external implementation identity.",
+                status=409,
+            )
+        task_id = implementation.get("task_id")
+        baseline = implementation.get("baseline_revision")
+        candidate = implementation.get("candidate_revision")
+        if (
+            task_id != target.id
+            or not isinstance(baseline, str)
+            or not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", baseline)
+            or not isinstance(candidate, str)
+            or not re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", candidate)
+        ):
+            raise OperationError(
+                "factory_evolution_implementation_unavailable",
+                "The retained experiment does not identify this exact external implementation task and revision pair.",
+                status=409,
+            )
+        try:
+            detail = self.app_server_client.read_task_with_execution_contract(
+                projects, target.id
+            )
+        except AppServerError as error:
+            raise _operation_error(
+                error,
+                fallback="factory_evolution_implementation_unavailable",
+            ) from error
+        task = detail.get("task")
+        if not isinstance(task, Mapping):
+            raise OperationError(
+                "factory_evolution_implementation_unavailable",
+                "The exact external implementation task is unavailable.",
+                status=409,
+            )
+        cwd, cwd_identity, status = self._validated_role_task(
+            task,
+            task_id=target.id,
+            role="external implementation owner",
+            unavailable_code="factory_evolution_implementation_unavailable",
+            active_code="factory_evolution_implementation_active",
+        )
+        marker = task_workflow_marker(task)
+        project_binding = task.get("project_binding")
+        task_git = task.get("git")
+        if (
+            task.get("turns_truncated") is not False
+            or any(
+                not isinstance(turn, Mapping)
+                or turn.get("items_truncated") is not False
+                or turn.get("status") == "inProgress"
+                for turn in task.get("turns", [])
+            )
+            or not isinstance(marker, Mapping)
+            or marker.get("kind") != "implement-blocks"
+            or marker.get("project_id") != project.id
+            or not isinstance(marker.get("tracker_id"), str)
+            or not SHA256_PATTERN.fullmatch(str(marker["tracker_id"]))
+            or not isinstance(project_binding, Mapping)
+            or project_binding.get("status") != "bound"
+            or project_binding.get("project_id") != project.id
+            or not isinstance(task_git, Mapping)
+            or task_git.get("revision") != candidate
+        ):
+            raise OperationError(
+                "factory_evolution_implementation_owner_unverified",
+                "The external candidate is not attributable to one exact current Block 11 implementation owner.",
+                status=409,
+            )
+        discovery = discover_project(project).get("discovery", {})
+        if (
+            discovery.get("status") != "available"
+            or discovery.get("git", {}).get("revision") != candidate
+        ):
+            raise OperationError(
+                "factory_evolution_candidate_revision_stale",
+                "The registered project is not at the exact candidate revision.",
+                status=409,
+            )
+        git = self._factory_evolution_git_probe(
+            project,
+            baseline_revision=baseline,
+            candidate_revision=candidate,
+        )
+        return {
+            "task_id": target.id,
+            "task_status": status,
+            "task_cwd": cwd,
+            "cwd_device": cwd_identity[0],
+            "cwd_inode": cwd_identity[1],
+            "task_fingerprint": fingerprint(task),
+            "marker": dict(marker),
+            "tracker_id": marker["tracker_id"],
+            **git,
+        }
+
+    def _factory_evolution_source(
+        self,
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+    ) -> SourceSnapshot:
+        del inputs
+        projects, catalog_fingerprint = self._active_projects()
+        project = self._project_from(projects, target)
+        self._require_capabilities("task_read", "task_resume", "turn_start")
+        try:
+            project_claim = self.operations_service.project_binding_snapshot(
+                projects, target.id
+            )
+            control = self.operations_service.policy_control_snapshot(
+                target.id, automation_roles=()
+            )
+            workflow = self.operations_service.factory_evolution_workflow_snapshot(
+                target.id
+            )
+        except OperationsProjectionError as error:
+            raise _operation_error(
+                error,
+                fallback="factory_evolution_source_unavailable",
+            ) from error
+        binding = project_claim.get("project_binding")
+        if (
+            not isinstance(binding, Mapping)
+            or binding.get("status") != "bound"
+            or binding.get("project_id") != project.id
+            or self.operations_service.binding_group_ids(target.id) != [target.id]
+        ):
+            raise OperationError(
+                "factory_evolution_project_mismatch",
+                "The run does not resolve to one exact registered project and supervision group.",
+                status=409,
+            )
+        if workflow.get("status") != "available" or not workflow.get("actionable"):
+            error = workflow.get("error")
+            raise OperationError(
+                str(error.get("code", "factory_evolution_source_unavailable"))
+                if isinstance(error, Mapping)
+                else "factory_evolution_source_unavailable",
+                str(error.get("message", "Factory evolution is unavailable."))
+                if isinstance(error, Mapping)
+                else "Factory evolution is unavailable.",
+                status=409,
+                retryable=bool(error.get("retryable"))
+                if isinstance(error, Mapping)
+                else False,
+            )
+        action = workflow.get("next_action")
+        if action not in {"prepare", "finalize", "evaluate"}:
+            raise OperationError(
+                "factory_evolution_no_action",
+                "The current Factory-evolution set has a verified disposition or no safe next stage.",
+                status=409,
+            )
+        proposer_task_id = workflow.get("proposer", {}).get("task_id")
+        evaluator_task_id = workflow.get("evaluator", {}).get("task_id")
+        if (
+            not isinstance(proposer_task_id, str)
+            or not isinstance(evaluator_task_id, str)
+            or workflow.get("proposer", {}).get("role") != "base_reviewer"
+            or workflow.get("evaluator", {}).get("role") != "reviewer"
+            or len({proposer_task_id, target.id, evaluator_task_id}) != 3
+        ):
+            raise OperationError(
+                "factory_evolution_roles_unavailable",
+                "The configured proposer, external implementation, and evaluator identities are unavailable or not distinct.",
+                status=409,
+            )
+        proposer = self._factory_evolution_role_task(
+            projects,
+            task_id=proposer_task_id,
+            role="Factory-evolution proposer",
+            allowed_reasoning=frozenset({"xhigh"}),
+        )
+        evaluator = self._factory_evolution_role_task(
+            projects,
+            task_id=evaluator_task_id,
+            role="Factory-evolution evaluator",
+            allowed_reasoning=frozenset({"xhigh", "max"}),
+        )
+        recipient = proposer if action in {"prepare", "finalize"} else evaluator
+        route_purpose = (
+            "changed-state-review"
+            if action in {"prepare", "finalize"}
+            else "semantic-escalation"
+        )
+        source_record = control.get("source_record")
+        required_hashes = (
+            "fingerprint",
+            "packet_root",
+            "source_report_root",
+            "event_head_sha256",
+        )
+        if (
+            not isinstance(source_record, str)
+            or not source_record
+            or not isinstance(control.get("policy_sha256"), str)
+            or not SHA256_PATTERN.fullmatch(str(control["policy_sha256"]))
+            or any(
+                not isinstance(workflow.get(field), str)
+                or not SHA256_PATTERN.fullmatch(str(workflow[field]))
+                for field in required_hashes
+            )
+            or not isinstance(workflow.get("evolution_id"), str)
+            or not isinstance(workflow.get("packet_id"), str)
+            or not isinstance(workflow.get("source_report_id"), str)
+        ):
+            raise OperationError(
+                "factory_evolution_source_unavailable",
+                "The evolution identity, sources, or currentness material is incomplete.",
+                status=409,
+            )
+        external = None
+        if action == "evaluate":
+            external = self._factory_evolution_external_implementation(
+                projects,
+                project,
+                target,
+                workflow,
+            )
+        evidence = {
+            "catalog_fingerprint": catalog_fingerprint,
+            "project_id": project.id,
+            "project_binding_fingerprint": project_claim.get("fingerprint"),
+            "target_thread_id": target.id,
+            "policy_sha256": control["policy_sha256"],
+            "source_record": source_record,
+            "evolution_id": workflow["evolution_id"],
+            "action": action,
+            "stage": workflow["stage"],
+            "packet_id": workflow["packet_id"],
+            "packet_root": workflow["packet_root"],
+            "review_id": workflow.get("review_id"),
+            "review_root": workflow.get("review_root"),
+            "source_report_id": workflow["source_report_id"],
+            "source_report_root": workflow["source_report_root"],
+            "event_head_sha256": workflow["event_head_sha256"],
+            "workflow_fingerprint": workflow["fingerprint"],
+            "proposer_task_id": proposer_task_id,
+            "proposer": proposer,
+            "evaluator_task_id": evaluator_task_id,
+            "evaluator": evaluator,
+            "recipient_task_id": recipient["task_id"],
+            "recipient": recipient,
+            "route_purpose": route_purpose,
+            "external_implementation": external,
+            "owner_root": str(self.operations_service.supervision_root),
+            "compensation_posture": (
+                "Retain every immutable accepted artifact. Re-read the source and request only its current stage; never repeat external implementation or infer adoption."
+            ),
+        }
+        material = {
+            "catalog": catalog_fingerprint,
+            "project_binding": project_claim.get("fingerprint"),
+            "control": control.get("fingerprint"),
+            "workflow": workflow["fingerprint"],
+            "action": action,
+            "roles": {
+                "proposer": {
+                    key: proposer[key]
+                    for key in ("task_id", "status", "cwd", "execution_sha256")
+                },
+                "evaluator": {
+                    key: evaluator[key]
+                    for key in ("task_id", "status", "cwd", "execution_sha256")
+                },
+            },
+            "external": external,
+        }
+        return SourceSnapshot(fingerprint=fingerprint(material), evidence=evidence)
+
+    @staticmethod
+    def _factory_evolution_prompt(
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> str:
+        marker = FactoryWorkflowOwner._factory_evolution_marker(target, source)
+        helper = (
+            Path(__file__).resolve().parents[4]
+            / "supervise-tracker-runs"
+            / "scripts"
+            / "supervision_log.py"
+        )
+        owner_root = str(source.evidence["owner_root"])
+        evolution_id = str(source.evidence["evolution_id"])
+        evolution_directory = (
+            Path(owner_root)
+            / target.id
+            / "learning"
+            / "factory-evolution"
+            / evolution_id
+        )
+        base = (
+            f"{FACTORY_EVOLUTION_MARKER}{_canonical(marker)}\n"
+            "Advance exactly one Factory-evolution derived-artifact stage through the maintained owner. "
+            "This action creates no implementation, adoption, deployment, or outcome authority.\n\n"
+            f"Target: {target.id}\n"
+            f"Evolution: {evolution_id}\n"
+            f"Packet: {source.evidence['packet_id']} / {source.evidence['packet_root']}\n"
+            f"Verified report: {source.evidence['source_report_id']} / {source.evidence['source_report_root']}\n"
+            f"Event head: {source.evidence['event_head_sha256']}\n"
+            f"Proposer: {source.evidence['proposer_task_id']}\n"
+            f"External implementer: {target.id}\n"
+            f"Evaluator: {source.evidence['evaluator_task_id']}\n"
+            f"Maintained helper: {helper}\n\n"
+        )
+        if source.evidence["action"] == "prepare":
+            report_path = (
+                Path(owner_root)
+                / target.id
+                / "reports"
+                / "weekly"
+                / str(source.evidence["source_report_id"])
+                / "report.json"
+            )
+            events_path = Path(owner_root) / target.id / "events.jsonl"
+            return base + (
+                "Run only deterministic prepare with the exact verified report and canonical event ledger. "
+                f"Use: python3 {helper} --root {owner_root} factory-evolution --target-thread {target.id} "
+                f"--evolution-id {evolution_id} --action prepare --report-json {report_path} --events-jsonl {events_path}. "
+                "Confirm packet identity equals the marker. Do not synthesize review, implement a candidate, evaluate, edit artifacts directly, or apply any disposition."
+            )
+        if source.evidence["action"] == "finalize":
+            return base + (
+                f"Read the complete exact packet at {evolution_directory / 'learning-packet.json'} and the maintained Factory-evolution contract. "
+                "Produce one bounded source-grounded review submission with reviewer/proposer equal to the configured proposer, implementer equal to the exact external implementation task, and evaluator equal to the configured independent evaluator. "
+                "Preserve contrary evidence, all selection dimensions, resource bounds, baseline/candidate revisions, and the experiment stop condition. "
+                "Write the submission only to a private temporary JSON file outside the owner artifact directory, invoke only factory-evolution finalize with --review-json, then remove that temporary file. "
+                "Do not implement, accept, adopt, install, route, schedule, deploy, or measure the candidate, and do not invoke evaluate."
+            )
+        external = source.evidence["external_implementation"]
+        return base + (
+            f"Read the exact immutable packet and review at {evolution_directory}. "
+            f"The separately governed implementation owner is {external['task_id']} at baseline {external['baseline_revision']} and candidate {external['candidate_revision']}; these are evidence inputs, not acceptance. "
+            "Independently run the experiment's bounded positive and exception cases, capture revision-bound baseline and candidate result roots, contrary evidence, regressions, resource cost, and one promote/advisory/revise/reject disposition. "
+            "Write the submission only to a private temporary JSON file outside the owner artifact directory, invoke only factory-evolution evaluate with --evaluation-json, remove that temporary file, then invoke factory-evolution verify read-only. "
+            "Never edit or rerun the external implementation and never adopt, install, route, schedule, deploy, roll back, or claim a later outcome."
+        )
+
+    @staticmethod
+    def _factory_evolution_route_request(
+        target: OperationTarget,
+        inputs: Mapping[str, Any],
+        source: SourceSnapshot,
+    ) -> RouteGateRequest:
+        del inputs
+        action = (
+            f"Advance Factory evolution {source.evidence['evolution_id']} through "
+            f"{source.evidence['action']} for packet {source.evidence['packet_root']}."
+        )
+        return RouteGateRequest(
+            recipient=str(source.evidence["recipient_task_id"]),
+            purpose=str(source.evidence["route_purpose"]),
+            source_record=str(source.evidence["source_record"]),
+            required_action=action,
+            target_thread=target.id,
+        )
+
+    @classmethod
+    def _factory_evolution_semantic_changes(
+        cls,
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> tuple[OperationSemanticChange, ...]:
+        after_stage = {
+            "prepare": "finalize",
+            "finalize": "awaiting external implementation proof",
+            "evaluate": "verified disposition",
+        }[str(source.evidence["action"])]
+        links = (
+            OperationLink("Run", f"/runs/{target.id}"),
+            OperationLink("Reports", "/reports?view=reports&family=factory-evolution"),
+        )
+        rows = [
+            cls._semantic_change(
+                change_id="factory-evolution-stage",
+                subject="Evolution stage",
+                kind="changed",
+                before=cls._semantic_exact(str(source.evidence["stage"])),
+                after=cls._semantic_exact(after_stage),
+                owner="maintained Factory-evolution stage owner",
+                source_identity=f"factory-evolution:{source.evidence['evolution_id']}",
+                source_revision=str(source.evidence["packet_root"]),
+                currentness=source.fingerprint,
+                links=links,
+            ),
+            cls._semantic_change(
+                change_id="factory-evolution-sources",
+                subject="Verified report and event sources",
+                kind="preserved",
+                before=cls._semantic_exact(
+                    f"{source.evidence['source_report_root']} · {source.evidence['event_head_sha256']}"
+                ),
+                after=cls._semantic_exact(
+                    f"{source.evidence['source_report_root']} · {source.evidence['event_head_sha256']}"
+                ),
+                owner="weekly report + canonical supervision event owners",
+                source_identity=f"factory-evolution-source:{target.id}",
+                source_revision=str(source.evidence["packet_root"]),
+                currentness=source.fingerprint,
+                links=links,
+            ),
+            cls._semantic_change(
+                change_id="factory-evolution-roles",
+                subject="Proposer / implementer / evaluator",
+                kind="preserved",
+                before=cls._semantic_exact(
+                    " · ".join(
+                        (
+                            str(source.evidence["proposer_task_id"]),
+                            target.id,
+                            str(source.evidence["evaluator_task_id"]),
+                        )
+                    )
+                ),
+                after=cls._semantic_exact(
+                    " · ".join(
+                        (
+                            str(source.evidence["proposer_task_id"]),
+                            target.id,
+                            str(source.evidence["evaluator_task_id"]),
+                        )
+                    )
+                ),
+                owner="configured independent task owners",
+                source_identity=f"supervision-policy:{target.id}",
+                source_revision=str(source.evidence["policy_sha256"]),
+                currentness=source.fingerprint,
+                links=links,
+            ),
+        ]
+        if source.evidence["action"] == "evaluate":
+            external = source.evidence["external_implementation"]
+            rows.append(
+                cls._semantic_change(
+                    change_id="factory-evolution-candidate-revisions",
+                    subject="External baseline / candidate revisions",
+                    kind="preserved",
+                    before=cls._semantic_exact(
+                        f"{external['baseline_revision']} → {external['candidate_revision']}"
+                    ),
+                    after=cls._semantic_exact(
+                        f"{external['baseline_revision']} → {external['candidate_revision']}"
+                    ),
+                    owner="separate Block 11 implementation owner",
+                    source_identity=f"codex-task:{target.id}",
+                    source_revision=str(external["candidate_revision"]),
+                    currentness=source.fingerprint,
+                    links=(OperationLink("Implementation task", f"/tasks/{target.id}"),),
+                )
+            )
+        return tuple(rows)
+
+    def _factory_evolution_definition(self) -> OperationDefinition:
+        schema = _object_schema({}, required=())
+
+        def dispatch(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+        ) -> DispatchResult:
+            with self._factory_evolution_dispatch_lock:
+                current = self._factory_evolution_source(target, inputs)
+                if current.fingerprint != source.fingerprint:
+                    raise OperationOwnerError(
+                        "factory_evolution_source_changed",
+                        "Factory-evolution source changed before the owner request.",
+                        state="unverified",
+                    )
+                projects, catalog_fingerprint = self._active_projects()
+                if catalog_fingerprint != source.evidence["catalog_fingerprint"]:
+                    raise OperationOwnerError(
+                        "factory_evolution_catalog_changed",
+                        "Project catalog changed before the owner request.",
+                        state="unverified",
+                    )
+                recipient = source.evidence["recipient"]
+                try:
+                    started = self.app_server_client.start_configured_role_turn(
+                        projects,
+                        str(source.evidence["recipient_task_id"]),
+                        self._factory_evolution_prompt(target, source),
+                        expected_cwd=str(recipient["cwd"]),
+                        expected_cwd_identity=(
+                            int(recipient["cwd_device"]),
+                            int(recipient["cwd_inode"]),
+                        ),
+                    )
+                except AppServerError as error:
+                    raise OperationOwnerError(
+                        _owner_code(error), str(error), state="failed"
+                    ) from error
+                turn = started.get("turn")
+                turn_id = turn.get("id") if isinstance(turn, Mapping) else None
+                if not isinstance(turn_id, str) or not turn_id:
+                    raise OperationOwnerError(
+                        "factory_evolution_owner_response_invalid",
+                        "The Factory-evolution role returned no exact turn identity.",
+                        state="unverified",
+                    )
+                return DispatchResult(
+                    evidence={
+                        "recipient_turn_id": turn_id,
+                        "recipient_task_id": source.evidence["recipient_task_id"],
+                        "evolution_id": source.evidence["evolution_id"],
+                        "requested_action": source.evidence["action"],
+                        "task_resumed": started.get("task_resumed") is True,
+                        "external_implementation_started": False,
+                        "candidate_adopted": False,
+                        "deployment_changed": False,
+                        "automatic_retry": False,
+                    },
+                    links=(
+                        OperationLink(
+                            "Evolution role",
+                            f"/tasks/{source.evidence['recipient_task_id']}",
+                        ),
+                        OperationLink("Reports", "/reports?view=reports&family=factory-evolution"),
+                    ),
+                )
+
+        def verify(
+            target: OperationTarget,
+            inputs: Mapping[str, Any],
+            source: SourceSnapshot,
+            result: DispatchResult,
+        ) -> VerificationResult:
+            projects, catalog_fingerprint = self._active_projects()
+            try:
+                project_claim = self.operations_service.project_binding_snapshot(
+                    projects, target.id
+                )
+                control = self.operations_service.policy_control_snapshot(
+                    target.id, automation_roles=()
+                )
+                workflow = self.operations_service.factory_evolution_workflow_snapshot(
+                    target.id
+                )
+                project = self._project_from(projects, target)
+                proposer = self._factory_evolution_role_task(
+                    projects,
+                    task_id=str(source.evidence["proposer_task_id"]),
+                    role="Factory-evolution proposer",
+                    allowed_reasoning=frozenset({"xhigh"}),
+                )
+                evaluator = self._factory_evolution_role_task(
+                    projects,
+                    task_id=str(source.evidence["evaluator_task_id"]),
+                    role="Factory-evolution evaluator",
+                    allowed_reasoning=frozenset({"xhigh", "max"}),
+                )
+                external_current = (
+                    self._factory_evolution_external_implementation(
+                        projects, project, target, workflow
+                    )
+                    if source.evidence["action"] == "evaluate"
+                    else None
+                )
+            except (OperationError, OperationsProjectionError, AppServerError) as error:
+                return VerificationResult(
+                    "pending",
+                    {
+                        **result.evidence,
+                        "factory_evolution_applied": False,
+                        "owner_error_code": getattr(error, "code", "owner_unavailable"),
+                        "recovery": source.evidence["compensation_posture"],
+                    },
+                    result.links,
+                )
+            role_keys = (
+                "task_id",
+                "cwd",
+                "cwd_device",
+                "cwd_inode",
+                "model",
+                "reasoning",
+                "execution_sha256",
+            )
+            role_contracts_current = bool(
+                all(
+                    proposer.get(key) == source.evidence["proposer"].get(key)
+                    and evaluator.get(key) == source.evidence["evaluator"].get(key)
+                    for key in role_keys
+                )
+                and (
+                    source.evidence["action"] != "evaluate"
+                    or external_current == source.evidence["external_implementation"]
+                )
+            )
+            recipient = (
+                proposer
+                if source.evidence["recipient_task_id"] == proposer["task_id"]
+                else evaluator
+            )
+            recipient_task = recipient.get("task")
+            request_current = bool(
+                isinstance(recipient_task, Mapping)
+                and self._factory_evolution_turn_has_marker(
+                    recipient_task,
+                    turn_id=str(result.evidence["recipient_turn_id"]),
+                    expected=self._factory_evolution_marker(target, source),
+                )
+            )
+            recipient_turns = [
+                turn
+                for turn in recipient_task.get("turns", [])
+                if isinstance(recipient_task, Mapping)
+                and isinstance(turn, Mapping)
+                and turn.get("id") == result.evidence["recipient_turn_id"]
+            ] if isinstance(recipient_task, Mapping) else []
+            turn_completed = bool(
+                len(recipient_turns) == 1
+                and recipient_turns[0].get("status") == "completed"
+            )
+            binding = project_claim.get("project_binding")
+            source_current = bool(
+                catalog_fingerprint == source.evidence["catalog_fingerprint"]
+                and project_claim.get("fingerprint")
+                == source.evidence["project_binding_fingerprint"]
+                and isinstance(binding, Mapping)
+                and binding.get("status") == "bound"
+                and binding.get("project_id") == source.evidence["project_id"]
+                and self.operations_service.binding_group_ids(target.id) == [target.id]
+                and control.get("policy_sha256") == source.evidence["policy_sha256"]
+                and workflow.get("status") == "available"
+                and workflow.get("evolution_id") == source.evidence["evolution_id"]
+                and workflow.get("packet_id") == source.evidence["packet_id"]
+                and workflow.get("packet_root") == source.evidence["packet_root"]
+                and workflow.get("source_report_id")
+                == source.evidence["source_report_id"]
+                and workflow.get("source_report_root")
+                == source.evidence["source_report_root"]
+                and workflow.get("event_head_sha256")
+                == source.evidence["event_head_sha256"]
+                and role_contracts_current
+            )
+            expected_stage = {
+                "prepare": "finalize",
+                "finalize": "awaiting-implementation",
+                "evaluate": "verified",
+            }[str(source.evidence["action"])]
+            exact_postcondition = workflow.get("stage") == expected_stage
+            if source.evidence["action"] == "finalize":
+                exact_postcondition = bool(
+                    exact_postcondition
+                    and workflow.get("review_root")
+                    and workflow.get("implementer", {}).get("task_id") == target.id
+                )
+            if source.evidence["action"] == "evaluate":
+                exact_postcondition = bool(
+                    exact_postcondition
+                    and workflow.get("evaluation_root")
+                    and workflow.get("disposition")
+                    in {"promote", "advisory", "revise", "reject"}
+                )
+            route_current = False
+            if source_current and request_current and turn_completed:
+                request = self._factory_evolution_route_request(
+                    target, inputs, source
+                )
+                try:
+                    route = self.route_gate(request)
+                except Exception:
+                    route = None
+                route_current = bool(
+                    isinstance(route, RouteGateResult)
+                    and route.allowed
+                    and route.recipient == request.recipient
+                    and route.purpose == request.purpose
+                    and route.source_record == request.source_record
+                    and route.target_thread == request.target_thread
+                    and route.action_hash
+                    == route_action_fingerprint(request.required_action)
+                    and route.policy_fingerprint == control.get("policy_sha256")
+                )
+            applied = bool(
+                source_current
+                and request_current
+                and turn_completed
+                and route_current
+                and exact_postcondition
+            )
+            evidence = {
+                **result.evidence,
+                "factory_evolution_applied": applied,
+                "evolution_stage": workflow.get("stage"),
+                "packet_root": workflow.get("packet_root"),
+                "review_root": workflow.get("review_root"),
+                "evaluation_root": workflow.get("evaluation_root"),
+                "disposition": workflow.get("disposition"),
+                "source_current": source_current,
+                "role_contracts_current": role_contracts_current,
+                "role_request_current": request_current,
+                "role_turn_completed": turn_completed,
+                "route_gate_current": route_current,
+                "exact_stage_postcondition": exact_postcondition,
+                "external_implementation_started": False,
+                "candidate_implemented_by_evolution": False,
+                "candidate_adopted": False,
+                "installation_changed": False,
+                "routing_changed": False,
+                "scheduling_changed": False,
+                "deployment_changed": False,
+                "outcome_claimed": False,
+                "automatic_retry": False,
+                "recovery": None if applied else source.evidence["compensation_posture"],
+            }
+            return VerificationResult(
+                "applied" if applied else "pending",
+                evidence,
+                result.links,
+            )
+
+        return OperationDefinition(
+            operation_type="factory.evolution-evaluate",
+            target_kind="run",
+            input_schema=schema,
+            owner=(
+                "maintained Factory-evolution artifact owner + configured independent proposer/evaluator + separate Block 11 implementation evidence"
+            ),
+            authority=(
+                "explicit operator confirmation for one exact current evolution stage",
+                "one verified weekly report, canonical event head, deterministic packet, and exact evolution identity",
+                "distinct configured proposer, external implementation, and evaluator tasks",
+                "maintained immutable prepare/finalize/evaluate/verify owner",
+            ),
+            ordinary_consequences=(
+                "Starts one bounded configured role turn for only the current evolution stage.",
+                "The maintained owner may prepare one packet, retain one independent review, or record and verify one revision-bound disposition.",
+            ),
+            failure_consequences=(
+                "Stale sources, collapsed roles, partial artifacts, missing implementation evidence, or route failure sends no later-stage request.",
+                "A failed later stage retains every exact earlier artifact and does not rerun external implementation.",
+                "No disposition changes current Factory capability, deployment, routing, scheduling, or measured outcome.",
+            ),
+            confirmation=ConfirmationContract(
+                "factory-evolution",
+                "Type ADVANCE EVOLUTION to request this exact current stage.",
+                "ADVANCE EVOLUTION",
+            ),
+            idempotency=(
+                "One consumed preview starts at most one role turn for the first incomplete stage; immutable accepted artifacts are reused and changed sources require a new evolution ID."
+            ),
+            expected_postcondition=(
+                "The exact evolution set advances only its named stage and may end in one verified promote, advisory, revise, or reject disposition without implementing or applying it."
+            ),
+            timeout_seconds=30,
+            limitations=(
+                "The dashboard cannot launch, accept, edit, or rerun the external candidate implementation.",
+                "A verified promote disposition is review evidence only, never adoption or current outcome authority.",
+                "Skill maintenance, installation, routing, scheduling, deployment, rollback, terminal reporting, and shutdown remain outside this operation.",
+            ),
+            resolve_source=self._factory_evolution_source,
+            describe_effect=lambda target, inputs, source: PreviewEffect(
+                (
+                    f"Advance Factory evolution {source.evidence['evolution_id']} through "
+                    f"{source.evidence['action']}."
+                ),
+                (
+                    "Only the current maintained stage may act; exact prior artifacts and the external implementation remain separately owned."
+                ),
+                recipient=str(source.evidence["recipient_task_id"]),
+                semantic_changes=self._factory_evolution_semantic_changes(
+                    target, source
+                ),
+            ),
+            route_gate_request=self._factory_evolution_route_request,
             route_gate=self.route_gate,
             dispatch=dispatch,
             verify=verify,

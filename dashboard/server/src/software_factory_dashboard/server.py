@@ -894,6 +894,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                     "recovered_from_previous": recovered,
                     "owners": snapshot["owners"],
                     "reports": snapshot["reports"],
+                    "evolution_workflows": snapshot["evolution_workflows"],
                 },
                 coverage=snapshot["coverage"],
                 limitations=snapshot["limitations"]

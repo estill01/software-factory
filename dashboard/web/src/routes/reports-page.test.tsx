@@ -115,6 +115,45 @@ const reports = [
   weeklyReport("weekly-invalid", "2026-08-10T00:00:00Z", "unavailable"),
 ]
 
+const evolutionWorkflows = [{
+  target_thread_id: runs[0].target_thread_id,
+  target_label: runs[0].target_label,
+  project_binding: runs[0].project_binding,
+  workflow: {
+    status: "available",
+    stage: "awaiting-implementation",
+    next_action: "evaluate",
+    actionable: true,
+    evolution_id: "evolution-test-001",
+    packet_id: "packet-test-001",
+    packet_root: hash("4"),
+    review_id: "review-test-001",
+    review_root: hash("5"),
+    evaluation_id: null,
+    evaluation_root: null,
+    disposition: null,
+    source_report_id: "weekly-one",
+    source_report_root: hash("a"),
+    event_head_sha256: hash("6"),
+    manifest_root: hash("7"),
+    fingerprint: hash("8"),
+    proposer: { role: "base_reviewer", task_id: "proposer-task" },
+    implementer: { status: "awaiting-owner-proof", task_id: runs[0].target_thread_id, baseline_revision: "1".repeat(40), candidate_revision: "2".repeat(40) },
+    evaluator: { role: "reviewer", task_id: "evaluator-task" },
+    expected_members: [],
+    members: [],
+    stages: [
+      { id: "prepare", label: "Deterministic prepare", status: "complete", owner: "factory owner" },
+      { id: "finalize", label: "Cognitive finalize", status: "complete", owner: "proposer-task" },
+      { id: "external-implementation", label: "External implementation", status: "current", owner: "Block 11" },
+      { id: "evaluate", label: "Independent evaluate", status: "pending", owner: "evaluator-task" },
+      { id: "verify", label: "Deterministic verify", status: "pending", owner: "factory owner" },
+    ],
+    limitations: ["Disposition is not adoption authority."],
+    error: null,
+  },
+}]
+
 function reportDetail(report: ReturnType<typeof weeklyReport>, recordedEvents: number) {
   const run = runs[0]
   return {
@@ -151,7 +190,7 @@ describe("metrics and report history workspace", () => {
     vi.clearAllMocks()
     mocks.fetchProjects.mockResolvedValue({ data: { projects } })
     mocks.fetchMetrics.mockResolvedValue(metricsResponse())
-    mocks.fetchReports.mockResolvedValue({ coverage: { status: "partial" }, data: { reports } })
+    mocks.fetchReports.mockResolvedValue({ coverage: { status: "partial" }, data: { reports, evolution_workflows: evolutionWorkflows } })
     mocks.fetchReport.mockImplementation((_target: string, _family: string, id: string) => Promise.resolve(reportDetail(reports.find((report) => report.id === id)!, id === "weekly-one" ? 10 : 16)))
     mocks.fetchReportArtifactText.mockResolvedValue("# Exact report\n\n<script>not executable</script>")
   })
@@ -194,6 +233,10 @@ describe("metrics and report history workspace", () => {
     renderReports("/reports?view=reports")
 
     expect(await screen.findByRole("heading", { name: "History" })).toBeVisible()
+    const evolution = screen.getByRole("heading", { name: "Evolution" }).closest("section")!
+    expect(evolution).toHaveTextContent("awaiting-implementation")
+    expect(evolution).toHaveTextContent("External implementation: awaiting-owner-proof")
+    expect(evolution).toHaveTextContent("not performed by evolution")
     expect(screen.getByText("Manifest mismatch")).toBeVisible()
     await user.click(screen.getByRole("button", { name: /weekly-one/ }))
     expect(await screen.findByRole("heading", { name: "Detail" })).toBeVisible()

@@ -276,7 +276,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(duplicate_status, 409)
         self.assertEqual(duplicate["error"]["code"], "authoring_owner_conflict")
         self.assertEqual(executed["data"]["operation"]["state"], "applied")
-        self.assertEqual(len(supported), 22)
+        self.assertEqual(len(supported), 23)
         self.assertIn("factory.blocks-implement", supported)
         self.assertIn("factory.supervision-check-now", supported)
         self.assertIn("factory.supervision-adjust", supported)
@@ -287,6 +287,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertIn("factory.supervision-mission-successor", supported)
         self.assertIn("factory.successor-task-transition", supported)
         self.assertIn("factory.weekly-supervision-report", supported)
+        self.assertIn("factory.evolution-evaluate", supported)
         automation_repair = next(
             item
             for item in unavailable
@@ -584,6 +585,216 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             "Produce one evidence-bound Sol XHigh synthesis",
             owner.app_server_client.prompt,
         )
+
+    def test_factory_evolution_advances_one_maintained_stage_without_candidate_or_adoption(self) -> None:
+        project_root = self.root / "evolution-project"
+        proposer_root = self.root / "evolution-proposer"
+        evaluator_root = self.root / "evolution-evaluator"
+        project_root.mkdir()
+        proposer_root.mkdir()
+        evaluator_root.mkdir()
+        project = ProjectRecord(
+            id="evolution-project",
+            label="Evolution project",
+            root=str(project_root),
+        )
+        target_id = "evolution-target-001"
+        proposer_id = "evolution-proposer-001"
+        evaluator_id = "evolution-evaluator-001"
+        policy_sha = "a" * 64
+        tasks = {
+            proposer_id: {
+                "id": proposer_id,
+                "cwd": str(proposer_root),
+                "status": {"type": "idle"},
+                "turns_truncated": False,
+                "turns": [],
+                "model_provider": "openai",
+                "execution_contract": {
+                    "model": "gpt-5.6-sol",
+                    "reasoning_effort": "xhigh",
+                    "source_record_sha256": "b" * 64,
+                },
+            },
+            evaluator_id: {
+                "id": evaluator_id,
+                "cwd": str(evaluator_root),
+                "status": {"type": "idle"},
+                "turns_truncated": False,
+                "turns": [],
+                "model_provider": "openai",
+                "execution_contract": {
+                    "model": "gpt-5.6-sol",
+                    "reasoning_effort": "max",
+                    "source_record_sha256": "c" * 64,
+                },
+            },
+        }
+        project_claim = {
+            "fingerprint": "d" * 64,
+            "project_binding": {"status": "bound", "project_id": project.id},
+        }
+        control = {
+            "fingerprint": "e" * 64,
+            "policy_sha256": policy_sha,
+            "source_record": "EVT-EVOLUTION-SOURCE-001",
+        }
+        workflow = {
+            "status": "available",
+            "stage": "prepare",
+            "next_action": "prepare",
+            "actionable": True,
+            "evolution_id": "evolution-test-001",
+            "packet_id": "packet-test-001",
+            "packet_root": "f" * 64,
+            "review_id": None,
+            "review_root": None,
+            "evaluation_id": None,
+            "evaluation_root": None,
+            "disposition": None,
+            "source_report_id": "weekly-test-001",
+            "source_report_root": "1" * 64,
+            "event_head_sha256": "2" * 64,
+            "manifest_root": None,
+            "fingerprint": "3" * 64,
+            "proposer": {"role": "base_reviewer", "task_id": proposer_id},
+            "implementer": {
+                "status": "not-selected",
+                "task_id": None,
+                "baseline_revision": None,
+                "candidate_revision": None,
+            },
+            "evaluator": {"role": "reviewer", "task_id": evaluator_id},
+            "expected_members": ["learning-packet.json", "prepare-manifest.json"],
+            "members": [],
+            "stages": [
+                {"id": "prepare", "label": "Prepare", "status": "current", "owner": "factory owner"},
+                {"id": "finalize", "label": "Finalize", "status": "pending", "owner": "proposer"},
+                {"id": "external-implementation", "label": "External", "status": "pending", "owner": "Block 11"},
+                {"id": "evaluate", "label": "Evaluate", "status": "pending", "owner": "evaluator"},
+                {"id": "verify", "label": "Verify", "status": "pending", "owner": "factory owner"},
+            ],
+            "limitations": ["Adoption is not performed by evolution."],
+            "error": None,
+        }
+
+        class OperationsStub:
+            supervision_root = self.supervision_root
+
+            @staticmethod
+            def project_binding_snapshot(_projects, selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong evolution project target")
+                return project_claim
+
+            @staticmethod
+            def policy_control_snapshot(selected_target, *, automation_roles=()):
+                if selected_target != target_id or automation_roles != ():
+                    raise AssertionError("wrong evolution policy source")
+                return control
+
+            @staticmethod
+            def factory_evolution_workflow_snapshot(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong evolution workflow target")
+                return workflow
+
+            @staticmethod
+            def binding_group_ids(selected_target):
+                return [selected_target]
+
+        class AppServerStub:
+            prompt = None
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": name, "status": "supported"}
+                        for name in ("task_read", "task_resume", "turn_start")
+                    ]
+                }
+
+            @staticmethod
+            def read_task_with_execution_contract(_projects, task_id):
+                return {"task": tasks[task_id]}
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                if task_id != proposer_id or expected_cwd != str(proposer_root):
+                    raise AssertionError("wrong evolution role dispatch")
+                metadata = proposer_root.stat()
+                if expected_cwd_identity != (metadata.st_dev, metadata.st_ino):
+                    raise AssertionError("wrong evolution cwd identity")
+                self.prompt = text
+                tasks[proposer_id]["status"] = {"type": "active"}
+                tasks[proposer_id]["turns"] = [{
+                    "id": "turn-evolution-001",
+                    "status": "inProgress",
+                    "items_truncated": False,
+                    "items": [{"type": "userMessage", "summary": text}],
+                }]
+                return {"turn": {"id": "turn-evolution-001"}, "task_resumed": False}
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = AppServerStub()
+        owner.route_gate = lambda request: RouteGateResult(
+            True,
+            route_action_fingerprint(request.required_action),
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint=policy_sha,
+            target_thread=request.target_thread,
+        )
+        owner._factory_evolution_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), "4" * 64)
+        definition = owner._factory_evolution_definition()
+        target = OperationTarget(kind="run", id=target_id, project_id=project.id)
+        inputs: dict[str, object] = {}
+
+        source = definition.resolve_source(target, inputs)
+        self.assertEqual(source.evidence["action"], "prepare")
+        semantic = {row.id: row for row in definition.describe_effect(target, inputs, source).semantic_changes}
+        self.assertEqual(semantic["factory-evolution-stage"].kind, "changed")
+        dispatched = definition.dispatch(target, inputs, source)
+        prompt = owner.app_server_client.prompt
+        self.assertIn("Run only deterministic prepare", prompt)
+        self.assertIn("Do not synthesize review", prompt)
+        self.assertNotIn("implement a candidate", prompt.lower().split("do not synthesize review")[0])
+        pending = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(pending.state, "pending")
+
+        tasks[proposer_id]["status"] = {"type": "idle"}
+        tasks[proposer_id]["turns"][0]["status"] = "completed"
+        workflow["stage"] = "finalize"
+        workflow["next_action"] = "finalize"
+        workflow["stages"][0]["status"] = "complete"
+        workflow["stages"][1]["status"] = "current"
+        tasks[evaluator_id]["execution_contract"]["source_record_sha256"] = "9" * 64
+        changed_evaluator = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(changed_evaluator.state, "pending")
+        self.assertFalse(changed_evaluator.evidence["role_contracts_current"])
+        tasks[evaluator_id]["execution_contract"]["source_record_sha256"] = "c" * 64
+        applied = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(applied.state, "applied", applied.evidence)
+        self.assertTrue(applied.evidence["factory_evolution_applied"])
+        self.assertFalse(applied.evidence["external_implementation_started"])
+        self.assertFalse(applied.evidence["candidate_adopted"])
+        self.assertFalse(applied.evidence["deployment_changed"])
+        self.assertFalse(applied.evidence["outcome_claimed"])
+
+        workflow["proposer"] = {"role": "base_reviewer", "task_id": target_id}
+        with self.assertRaisesRegex(OperationError, "not distinct"):
+            definition.resolve_source(target, inputs)
 
     def test_supervision_pause_requires_both_owners_and_preserves_target_state(self) -> None:
         project_root = self.root / "pause-project"
