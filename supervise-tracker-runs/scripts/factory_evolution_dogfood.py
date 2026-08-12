@@ -129,6 +129,8 @@ def _commit(repository: Path, message: str, timestamp: str) -> str:
         "user.name=Factory Dogfood Owner",
         "-c",
         "user.email=factory-dogfood@example.test",
+        "-c",
+        "commit.gpgSign=false",
         "commit",
         "-q",
         "-m",
@@ -138,20 +140,37 @@ def _commit(repository: Path, message: str, timestamp: str) -> str:
     return _git(repository, "rev-parse", "HEAD")
 
 
-def _copy_git_archive(revision: str, destination: Path) -> None:
-    destination.mkdir(parents=True, exist_ok=True)
-    archive = destination.parent / "source.tar"
-    with archive.open("wb") as handle:
-        subprocess.run(
-            ["/usr/bin/git", "archive", "--format=tar", revision],
-            cwd=REPOSITORY_ROOT,
-            check=True,
-            stdout=handle,
-            stderr=subprocess.PIPE,
-        )
-    with tarfile.open(archive, mode="r:") as source:
-        source.extractall(destination)
-    archive.unlink()
+def _copy_source_tree(revision: str, destination: Path) -> None:
+    git_source = subprocess.run(
+        ["/usr/bin/git", "rev-parse", "--is-inside-work-tree"],
+        cwd=REPOSITORY_ROOT,
+        text=True,
+        capture_output=True,
+    )
+    if git_source.returncode == 0 and git_source.stdout.strip() == "true":
+        destination.mkdir(parents=True, exist_ok=True)
+        archive = destination.parent / "source.tar"
+        with archive.open("wb") as handle:
+            subprocess.run(
+                ["/usr/bin/git", "archive", "--format=tar", revision],
+                cwd=REPOSITORY_ROOT,
+                check=True,
+                stdout=handle,
+                stderr=subprocess.PIPE,
+            )
+        with tarfile.open(archive, mode="r:") as source:
+            source.extractall(destination)
+        archive.unlink()
+        return
+
+    if ARCHIVE_SOURCE_REVISION != revision:
+        raise DogfoodError("Git-less source revision differs from frozen archive")
+    shutil.copytree(
+        REPOSITORY_ROOT,
+        destination,
+        symlinks=True,
+        ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc", ".DS_Store"),
+    )
 
 
 def _tree_manifest(root: Path) -> tuple[str, int]:
@@ -429,7 +448,7 @@ class DogfoodWorkspace:
         return value
 
     def setup(self, revision: str) -> None:
-        _copy_git_archive(revision, self.repository)
+        _copy_source_tree(revision, self.repository)
         proof_path = (
             self.repository
             / "implement-tracker-blocks"

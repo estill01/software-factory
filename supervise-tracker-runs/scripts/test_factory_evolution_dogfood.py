@@ -93,6 +93,34 @@ class IntegratedFactoryEvolutionDogfoodTests(unittest.TestCase):
         ):
             self.assertEqual(dogfood.source_revision(), "a" * 40)
 
+    def test_gitless_source_copy_uses_exact_archive_bytes_without_runtime_cache(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="software-factory-block17-gitless-copy-"
+        ) as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            destination = root / "copied"
+            (source / "package" / "__pycache__").mkdir(parents=True)
+            (source / "package" / "current.py").write_text(
+                "VALUE = 1\n", encoding="utf-8"
+            )
+            (source / "package" / "__pycache__" / "current.pyc").write_bytes(
+                b"runtime-cache"
+            )
+            revision = "b" * 40
+            with (
+                mock.patch.object(dogfood, "REPOSITORY_ROOT", source),
+                mock.patch.object(dogfood, "ARCHIVE_SOURCE_REVISION", revision),
+            ):
+                dogfood._copy_source_tree(revision, destination)
+            self.assertEqual(
+                (destination / "package" / "current.py").read_text(encoding="utf-8"),
+                "VALUE = 1\n",
+            )
+            self.assertFalse((destination / "package" / "__pycache__").exists())
+
 
 if __name__ == "__main__":
     unittest.main()
