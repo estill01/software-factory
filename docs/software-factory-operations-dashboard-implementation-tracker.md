@@ -7300,6 +7300,58 @@ unverified stage.
   Work is limited to the accepted weekly-report workflow contract; Blocks
   28–31 remain closed, and no live report preparation, cognitive review,
   finalization, delivery, or Gmail action has been attempted.
+- Product candidate: commit
+  `becca0646d1b3d64c88ba2110e3bb3c4c9c1c28e`, tree
+  `c920a3a38c7ad162001970ef9c114e813ff34960`, parent Block 27 activation
+  `fd8f3e40108bedc0c46bf7e098b18e4c54088068`, pushed with local/upstream
+  divergence `0 0`. The 17-file product/test delta registers typed
+  `factory.weekly-supervision-report`, derives one current period and source
+  root through the maintained metrics owner, projects seven distinct stages,
+  and dispatches at most one configured Sol XHigh roundup-writer turn for the
+  first incomplete stage. Prepare inputs are reproduced byte-for-byte;
+  cognitive review and the manifest/Markdown/PDF/JSON bundle remain separately
+  owned and verified; a configured Gmail delivery counts only after exact
+  seed/sent raw-MIME and attachment-owner read-back proves the verified
+  `report.pdf` in the bound reply thread and the maintained ledger owner appends
+  the receipt. The dashboard never reads Gmail, sends mail, writes report
+  artifacts or the ledger, schedules work, or treats reporting as
+  implementation acceptance.
+- Truth, recovery, and resource posture: current policy SHA is part of the
+  report source root, changed policy replans to a new report without overwriting
+  the prior verified bundle, and partial/corrupt or extra-member bundles fail
+  closed. Report projection reads at most 16 members and 64 MiB total, while
+  every member remains individually capped. Verification, display, and
+  delivery failures retain exact earlier stages and expose only the next
+  bounded recovery; exact replay returns the prior result rather than
+  regenerating it. Missing Gmail leaves a locally verified report with
+  delivery unavailable/retryable. Missing or non-distinct roundup-writer
+  configuration leaves the current report plan and stage visible but disables
+  the operation with `weekly_report_writer_unavailable`; the live current run
+  on port 8787 proves that fail-closed posture.
+- Product and UI proof: the maintained weekly-report suite passed 12/12 with
+  `ResourceWarning` fatal, including prepare/finalize/verify replay, exact
+  directory membership, missing delivery, Gmail raw-MIME/attachment/currentness
+  rejection, and receipt replay. The exact backend operations, workflow,
+  server, and operation-framework suites passed 89/89 with `ResourceWarning`
+  fatal; focused adversarial cases cover changed policy, retained prior bundle,
+  member bounds, wrong writer execution identity, changed supervision group,
+  one-stage postconditions, route currentness, and no direct writes. Ruff and
+  Python compilation passed. All 105 frontend tests, TypeScript, and the
+  production build passed. Focused Playwright passed 3/3 across desktop,
+  tablet, and mobile with seven-stage/source/writer/period/delivery rendering,
+  one exact captured stage request, Axe serious/critical checks, and no
+  horizontal overflow. The full-profile verifier reports all 32 Blocks with 0
+  errors/warnings, all 30 verifier tests pass, and `git diff --check` passes.
+  The restarted loopback runtime on port 8787 reports complete health and 22
+  supported operations among 24 closed registry entries. No live prepare,
+  cognitive review, finalize, delivery, Gmail, policy, event, or report write
+  was attempted. Independent exact-revision review is pending.
+- Product-capability review selected the existing deterministic weekly-report
+  artifact owner, configured roundup-writer task, canonical event/policy
+  sources, typed operation coordinator, and Gmail delivery receipt owner. A
+  dashboard-local report generator/delivery registry and a generalized workflow
+  engine were rejected because they would duplicate stronger maintained owners
+  and broaden this Block beyond one report workflow.
 
 ### Stop
 
