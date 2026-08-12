@@ -139,6 +139,7 @@ ADAPTIVE_EVALUATOR_PUBLIC_KEY_SHA256 = (
     "179f04afb14b47ed7d48560e21fcaa91979974ad2e39de41e4d35ea8e70c898c"
 )
 TERMINAL_REPORT_DELIVERY_CATEGORY = "gmail-terminal-completion"
+WEEKLY_REPORT_DELIVERY_CATEGORY = "gmail-weekly-report"
 TERMINAL_SHUTDOWN_CATEGORY = "terminal-supervision-shutdown"
 TERMINAL_SHUTDOWN_REJECTED_CATEGORY = (
     "terminal-supervision-shutdown-currentness-rejected"
@@ -855,6 +856,9 @@ def weekly_report_contract() -> dict[str, Any]:
         "email_lane": "gmail_roundup",
         "cognitive_review_required": True,
         "pdf_required": True,
+        "attachment_delivery_required_when_configured": True,
+        "gmail_raw_mime_readback_required": True,
+        "gmail_attachment_owner_ids_required": True,
     }
 
 
@@ -19564,10 +19568,16 @@ def verify_weekly_report_set(directory: Path, report_id: str) -> dict[str, Any]:
         "report.md": report_directory / "report.md",
         "report.pdf": report_directory / "report.pdf",
     }
+    try:
+        report_members = {path.name for path in report_directory.iterdir()}
+    except OSError as exc:
+        raise SupervisionLogError("Weekly report directory is unavailable") from exc
+    if report_members != {*paths, "manifest.json"}:
+        raise SupervisionLogError("Weekly report directory member set differs")
     if set(manifest.get("files", {})) != set(paths):
         raise SupervisionLogError("Weekly report manifest file set differs")
     for name, path in paths.items():
-        if not path.is_file():
+        if not path.is_file() or path.is_symlink():
             raise SupervisionLogError(f"Weekly report is missing {name}")
         expected = manifest["files"][name]
         actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -19616,6 +19626,355 @@ def cmd_weekly_report_verify(args: argparse.Namespace) -> None:
     print(
         json.dumps(
             verify_weekly_report_set(directory, args.report_id), sort_keys=True
+        )
+    )
+
+
+def decode_weekly_gmail_readback(value: str) -> dict[str, Any]:
+    try:
+        decoded = base64.b64decode(value, validate=True)
+        readback = json.loads(decoded.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SupervisionLogError("Weekly Gmail read-back encoding is invalid") from exc
+    if not isinstance(readback, dict):
+        raise SupervisionLogError("Weekly Gmail read-back must be an object")
+    return readback
+
+
+def validate_weekly_gmail_readback(
+    readback: Mapping[str, Any],
+    *,
+    policy: Mapping[str, Any],
+    verified: Mapping[str, Any],
+) -> dict[str, Any]:
+    required = {
+        "schema_version",
+        "kind",
+        "seed_message",
+        "sent_message",
+        "attachments",
+    }
+    if set(readback) != required:
+        raise SupervisionLogError("Weekly Gmail read-back shape differs")
+    if (
+        readback.get("schema_version") != 1
+        or readback.get("kind") != "gmail-weekly-report-delivery-readback"
+    ):
+        raise SupervisionLogError("Weekly Gmail read-back version differs")
+    roundup = policy.get("notifications", {}).get("gmail_roundup", {})
+    if (
+        not isinstance(roundup, Mapping)
+        or roundup.get("enabled") is not True
+        or not all(
+            isinstance(roundup.get(key), str) and roundup[key]
+            for key in ("project_key", "reply_message_id", "subject")
+        )
+        or policy.get("permissions", {}).get("gmail_roundup_notification") is not True
+    ):
+        raise SupervisionLogError(
+            "Weekly report delivery requires the enabled roundup Gmail lane"
+        )
+    seed, _seed_message, _seed_mime = validate_gmail_message_owner(
+        readback.get("seed_message"), label="Weekly Gmail seed"
+    )
+    sent, message, _raw_mime = validate_gmail_message_owner(
+        readback.get("sent_message"), label="Weekly Gmail sent message"
+    )
+    if seed["message_id"] != roundup.get("reply_message_id"):
+        raise SupervisionLogError("Weekly Gmail read-back used another thread seed")
+    if sent["message_id"] == seed["message_id"] or sent["thread_id"] != seed["thread_id"]:
+        raise SupervisionLogError(
+            "Weekly Gmail sent message is not owned by the seed thread"
+        )
+    in_reply_to = str(message.get("In-Reply-To", ""))
+    references = str(message.get("References", ""))
+    if seed["rfc_message_id"] not in {in_reply_to, *references.split()}:
+        raise SupervisionLogError(
+            "Weekly Gmail sent message is not a reply to the seed"
+        )
+    expected_subject = str(roundup.get("subject", "")).strip()
+    seed_subject = re.sub(r"^(?:re:\s*)+", "", seed["subject"], flags=re.I)
+    sent_subject = re.sub(r"^(?:re:\s*)+", "", sent["subject"], flags=re.I)
+    if not expected_subject or seed_subject != expected_subject or sent_subject != expected_subject:
+        raise SupervisionLogError("Weekly Gmail subject differs from the bound lane")
+
+    pdf_path = Path(str(verified["pdf_path"]))
+    expected_attachment = {
+        "sha256": verified["pdf_sha256"],
+        "bytes": pdf_path.stat().st_size,
+    }
+    mime_attachments: dict[str, bytes] = {}
+    for part in message.iter_attachments():
+        filename = str(part.get_filename() or "")
+        if not filename or filename in mime_attachments:
+            raise SupervisionLogError("Weekly Gmail MIME attachment identity differs")
+        mime_attachments[filename] = part.get_payload(decode=True) or b""
+    if set(mime_attachments) != {"report.pdf"}:
+        raise SupervisionLogError("Weekly Gmail attachment set differs")
+    declared = readback.get("attachments")
+    if not isinstance(declared, list) or len(declared) != 1:
+        raise SupervisionLogError(
+            "Weekly Gmail read-back requires the verified PDF attachment"
+        )
+    item = declared[0]
+    if not isinstance(item, Mapping) or set(item) != {
+        "filename",
+        "attachment_id",
+        "owner_message_id",
+        "owner_thread_id",
+        "read_tool_call_id",
+        "sha256",
+        "bytes",
+    }:
+        raise SupervisionLogError("Weekly Gmail attachment receipt shape differs")
+    if item.get("filename") != "report.pdf":
+        raise SupervisionLogError("Weekly Gmail attachment filename differs")
+    attachment_id = safe_id(
+        str(item.get("attachment_id", "")), label="Weekly Gmail attachment ID"
+    )
+    attachment_call = safe_id(
+        str(item.get("read_tool_call_id", "")),
+        label="Weekly Gmail attachment read tool call ID",
+    )
+    owner_message_id = safe_id(
+        str(item.get("owner_message_id", "")),
+        label="Weekly Gmail attachment owner message ID",
+    )
+    owner_thread_id = safe_id(
+        str(item.get("owner_thread_id", "")),
+        label="Weekly Gmail attachment owner thread ID",
+    )
+    if owner_message_id != sent["message_id"] or owner_thread_id != sent["thread_id"]:
+        raise SupervisionLogError("Weekly Gmail attachment owner differs")
+    payload = mime_attachments["report.pdf"]
+    actual = {"sha256": hashlib.sha256(payload).hexdigest(), "bytes": len(payload)}
+    if actual != expected_attachment:
+        raise SupervisionLogError("Weekly Gmail MIME attachment bytes differ")
+    if item.get("sha256") != actual["sha256"] or item.get("bytes") != actual["bytes"]:
+        raise SupervisionLogError("Weekly Gmail attachment read-back differs")
+    normalized = {
+        "seed_message": seed,
+        "sent_message": sent,
+        "attachments": [
+            {
+                "filename": "report.pdf",
+                "attachment_id": attachment_id,
+                "owner_message_id": owner_message_id,
+                "owner_thread_id": owner_thread_id,
+                "read_tool_call_id": attachment_call,
+                **actual,
+            }
+        ],
+    }
+    return {**normalized, "readback_root": digest(normalized)}
+
+
+def latest_weekly_delivery(
+    all_events: Sequence[Mapping[str, Any]], *, report_id: str
+) -> Mapping[str, Any] | None:
+    return next(
+        (
+            item
+            for item in reversed(all_events)
+            if item.get("kind") == "notification"
+            and item.get("category") == WEEKLY_REPORT_DELIVERY_CATEGORY
+            and item.get("status") == "sent"
+            and item.get("report_id") == report_id
+        ),
+        None,
+    )
+
+
+def weekly_delivery_is_current(
+    delivery: Mapping[str, Any],
+    verified: Mapping[str, Any],
+    policy: Mapping[str, Any],
+) -> bool:
+    readback = delivery.get("gmail_readback")
+    if not isinstance(readback, Mapping):
+        return False
+    material = {key: value for key, value in readback.items() if key != "readback_root"}
+    sent_message = readback.get("sent_message")
+    attachments = readback.get("attachments")
+    attachment = (
+        attachments[0]
+        if isinstance(attachments, list)
+        and len(attachments) == 1
+        and isinstance(attachments[0], Mapping)
+        else None
+    )
+    roundup = policy.get("notifications", {}).get("gmail_roundup", {})
+    seed_message = readback.get("seed_message")
+    return bool(
+        readback.get("readback_root") == digest(material)
+        and isinstance(sent_message, Mapping)
+        and isinstance(seed_message, Mapping)
+        and isinstance(attachment, Mapping)
+        and delivery.get("report_id") == verified["report_id"]
+        and delivery.get("source_root") == verified["source_root"]
+        and delivery.get("manifest_root") == verified["manifest_root"]
+        and delivery.get("pdf_sha256") == verified["pdf_sha256"]
+        and delivery.get("gmail_readback_root") == readback.get("readback_root")
+        and delivery.get("gmail_message_id") == sent_message.get("message_id")
+        and delivery.get("gmail_thread_id") == sent_message.get("thread_id")
+        and attachment.get("filename") == "report.pdf"
+        and attachment.get("sha256") == verified["pdf_sha256"]
+        and seed_message.get("message_id") == roundup.get("reply_message_id")
+        and delivery.get("policy_sha256") == policy.get("policy_sha256")
+    )
+
+
+def weekly_delivery_status(
+    directory: Path,
+    policy: Mapping[str, Any],
+    verified: Mapping[str, Any],
+) -> dict[str, Any]:
+    roundup = policy.get("notifications", {}).get("gmail_roundup", {})
+    configured = bool(
+        isinstance(roundup, Mapping)
+        and roundup.get("enabled") is True
+        and all(
+            isinstance(roundup.get(key), str) and roundup[key]
+            for key in ("project_key", "reply_message_id", "subject")
+        )
+        and policy.get("permissions", {}).get("gmail_roundup_notification") is True
+    )
+    if not configured:
+        return {
+            "status": "unavailable",
+            "configured": False,
+            "retryable": True,
+            "record_id": None,
+            "message_id": None,
+            "thread_id": None,
+            "reason": "The roundup Gmail lane is not fully configured.",
+        }
+    delivery = latest_weekly_delivery(
+        events(directory / "events.jsonl"), report_id=str(verified["report_id"])
+    )
+    if delivery is None:
+        return {
+            "status": "pending",
+            "configured": True,
+            "retryable": True,
+            "record_id": None,
+            "message_id": None,
+            "thread_id": None,
+            "reason": "The verified report has not been delivered through the roundup Gmail owner.",
+        }
+    current = weekly_delivery_is_current(delivery, verified, policy)
+    return {
+        "status": "delivered" if current else "stale",
+        "configured": True,
+        "retryable": not current,
+        "record_id": delivery.get("record_id"),
+        "message_id": delivery.get("gmail_message_id"),
+        "thread_id": delivery.get("gmail_thread_id"),
+        "reason": (
+            None
+            if current
+            else "The recorded delivery no longer matches the verified report and current roundup lane."
+        ),
+    }
+
+
+def append_weekly_delivery(
+    *,
+    args: argparse.Namespace,
+    directory: Path,
+    policy: Mapping[str, Any],
+    verified: Mapping[str, Any],
+    readback: Mapping[str, Any],
+) -> dict[str, Any]:
+    sent_message = readback["sent_message"]
+    message_id = str(sent_message["message_id"])
+    with append_lock(directory):
+        current_events = events(directory / "events.jsonl")
+        prior = latest_weekly_delivery(
+            current_events, report_id=str(verified["report_id"])
+        )
+        if prior is not None:
+            if (
+                prior.get("gmail_message_id") != message_id
+                or prior.get("gmail_readback_root") != readback["readback_root"]
+                or not weekly_delivery_is_current(prior, verified, policy)
+            ):
+                raise SupervisionLogError("Weekly report delivery already differs")
+            return dict(prior)
+        record = {
+            "schema_version": 1,
+            "record_id": f"EVT-{len(current_events) + 1:06d}",
+            "timestamp": utc_now(),
+            "target_thread_id": policy["target_thread_id"],
+            "kind": "notification",
+            "model": "gpt-5.6-sol",
+            "reasoning": "xhigh",
+            "state_fingerprint": verified["source_root"],
+            "status": "sent",
+            "severity": "info",
+            "category": WEEKLY_REPORT_DELIVERY_CATEGORY,
+            "summary": "Sent the verified weekly supervision PDF through the configured roundup Gmail lane.",
+            "evidence": [
+                verified["report_id"],
+                verified["source_root"],
+                verified["manifest_root"],
+                message_id,
+            ],
+            "dedup_key": f"gmail-weekly:{verified['report_id']}",
+            "report_id": verified["report_id"],
+            "source_root": verified["source_root"],
+            "manifest_root": verified["manifest_root"],
+            "pdf_sha256": verified["pdf_sha256"],
+            "gmail_message_id": message_id,
+            "gmail_thread_id": sent_message["thread_id"],
+            "gmail_rfc_message_id": sent_message["rfc_message_id"],
+            "gmail_read_tool_call_id": sent_message["read_tool_call_id"],
+            "gmail_readback_root": readback["readback_root"],
+            "gmail_attachments": readback["attachments"],
+            "gmail_readback": dict(readback),
+            "policy_sha256": policy["policy_sha256"],
+        }
+        append_event_locked(args, directory, record)
+    return record
+
+
+def cmd_weekly_report_delivery(args: argparse.Namespace) -> None:
+    directory, policy = load_policy(args)
+    verified = verify_weekly_report_set(directory, args.report_id)
+    readback = validate_weekly_gmail_readback(
+        decode_weekly_gmail_readback(args.gmail_readback_base64),
+        policy=policy,
+        verified=verified,
+    )
+    record = append_weekly_delivery(
+        args=args,
+        directory=directory,
+        policy=policy,
+        verified=verified,
+        readback=readback,
+    )
+    print(
+        json.dumps(
+            {
+                "record": record,
+                "verified": verified,
+                "delivery": weekly_delivery_status(directory, policy, verified),
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def cmd_weekly_report_status(args: argparse.Namespace) -> None:
+    directory, policy = load_policy(args)
+    verified = verify_weekly_report_set(directory, args.report_id)
+    print(
+        json.dumps(
+            {
+                "verified": verified,
+                "delivery": weekly_delivery_status(directory, policy, verified),
+            },
+            sort_keys=True,
         )
     )
 
@@ -19681,6 +20040,18 @@ def cmd_weekly_report(args: argparse.Namespace) -> None:
         if not args.report_id:
             raise SupervisionLogError("Weekly report verify requires --report-id")
         cmd_weekly_report_verify(args)
+        return
+    if args.action == "status":
+        if not args.report_id:
+            raise SupervisionLogError("Weekly report status requires --report-id")
+        cmd_weekly_report_status(args)
+        return
+    if args.action == "record-delivery":
+        if not args.report_id or not args.gmail_readback_base64:
+            raise SupervisionLogError(
+                "Weekly report delivery requires --report-id and --gmail-readback-base64"
+            )
+        cmd_weekly_report_delivery(args)
         return
     if args.action == "configure":
         if not args.automation_id:
@@ -23149,7 +23520,14 @@ def parser() -> argparse.ArgumentParser:
     weekly_report.add_argument("--target-thread", required=True)
     weekly_report.add_argument(
         "--action",
-        choices=("prepare", "finalize", "verify", "configure"),
+        choices=(
+            "prepare",
+            "finalize",
+            "verify",
+            "status",
+            "record-delivery",
+            "configure",
+        ),
         required=True,
     )
     weekly_report.add_argument("--start")
@@ -23158,6 +23536,7 @@ def parser() -> argparse.ArgumentParser:
     weekly_report.add_argument("--since-inception", action="store_true")
     weekly_report.add_argument("--report-id")
     weekly_report.add_argument("--review-base64")
+    weekly_report.add_argument("--gmail-readback-base64")
     weekly_report.add_argument("--automation-id")
     weekly_report.add_argument(
         "--weekday",
