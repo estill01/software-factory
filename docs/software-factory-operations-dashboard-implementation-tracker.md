@@ -544,8 +544,8 @@ the relevant authority and evidence contract.
 | 21 | Owner-backed operation semantic diffs | 10, 14, 15, 16, 19, 20 | `accepted` |
 | 22 | Supervision pause | 7, 10, 11 | `accepted` |
 | 23 | Canonical supervision-resume lifecycle owner | 22 | `accepted` |
-| 24 | Supervision resume | 7, 10, 11, 22, 23 | `in-progress` |
-| 25 | Same-target mission succession | 7, 10, 11 | `not-started` |
+| 24 | Supervision resume | 7, 10, 11, 22, 23 | `accepted` |
+| 25 | Same-target mission succession | 7, 10, 11 | `in-progress` |
 | 26 | Successor-task continuity | 7, 10, 11 | `not-started` |
 | 27 | Weekly supervision report workflow | 9, 10, 11, 13 | `not-started` |
 | 28 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `not-started` |
@@ -6618,7 +6618,7 @@ report generation, Factory evolution, request-stop, or terminal shutdown.
 
 ## Block 24 — Supervision resume
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -6767,9 +6767,9 @@ and stop without retrying or widening.
   `factory.supervision-resume` `supported`, its typed confirmation class, exact
   dual owner, bounded consequences, and dual postcondition. No live operation
   preview, fix-executor request, automation activation, lifecycle finalization,
-  task/turn action, or supervision record mutation was attempted. Independent
-  exact-revision review is pending; Block 24 remains `in-progress` and Blocks
-  25-31 remain unopened.
+  task/turn action, or supervision record mutation was attempted. At that
+  candidate freeze, exact-revision review was pending and Blocks 25-31 remained
+  unopened.
 - Independent rejection and narrow successor: exact review rejected immutable
   evidence `a4d754707203e47ef011a1b8d530d0f80b8e99e8` and product
   `c6d5a25cb1c022ff5fc3bd0f1e2a287dfd9e94bf` for one UI truth defect only:
@@ -6784,8 +6784,20 @@ and stop without retrying or widening.
   `Resume incomplete` with the limitation stated explicitly. The affected
   component suite passes 15/15, the production build passes, and the semantic-
   resume Playwright case passes 3/3 across desktop/tablet/mobile. The successor
-  is pushed with divergence `0 0`; fresh delta-only review is pending and Block
-  25 remains closed.
+  was pushed with divergence `0 0`; fresh delta-only review was then requested
+  while Block 25 remained closed.
+- Fresh independent acceptance: exact evidence
+  `6bc47de5cf7da05405e9c1a8f00f39447e40e298`, tree
+  `7414865edcf8512a5c86cbaffd4d1a4ed17604a2`, and product successor
+  `3d7e28ddc530dcf352032458ad7ccb2aa66b15c9` were accepted with no material
+  findings. The reviewer reproduced the exact-coverage completion predicate,
+  truthful `Resume incomplete` posture, component 15/15, production build,
+  Playwright 3/3 across desktop/tablet/mobile, full-profile 32-Block verifier,
+  verifier 30/30, diff/fsck/clean/remote identity, and Block 25 Stop. All
+  unaffected backend owner, replay, route, and live-descriptor proof remains
+  accepted. No live operation preview, execution, automation activation,
+  lifecycle finalization, task/turn action, or canonical supervision mutation
+  occurred in Block 24.
 
 ### Stop
 
@@ -6796,7 +6808,7 @@ reporting, evolution, request-stop, or terminal shutdown.
 
 ## Block 25 — Same-target mission succession
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -6897,7 +6909,15 @@ segment. Do not scan unrelated groups or retry automatically.
 
 ### Completion evidence
 
-Pending.
+- Activation and authority: Block 25 started automatically after independent
+  acceptance of Block 24 evidence
+  `6bc47de5cf7da05405e9c1a8f00f39447e40e298` and product
+  `3d7e28ddc530dcf352032458ad7ccb2aa66b15c9`. Governing implementation
+  authority remains direct-user item 44 under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+  Block 25 is limited to one same-target mission succession through the
+  maintained owner; Block 26 and later operations remain unopened, and no live
+  mission succession has been previewed or requested.
 
 ### Stop
 
