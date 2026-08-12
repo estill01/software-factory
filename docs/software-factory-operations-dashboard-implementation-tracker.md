@@ -7552,6 +7552,53 @@ and stop at the first unavailable, stale, rejected, or unverified stage.
   disposition owner. Blocks 29–31 remain closed; no evolution artifact,
   external candidate implementation, adoption, deployment, routing,
   scheduling, or outcome mutation has been attempted.
+- Frozen implementation candidate: commit
+  `e34d92a9c98e4cc8a4ca5e50c1e0beb1a5e71c1e`, tree
+  `b7af97cc132fbccb88f1934826e59ba262b10141`, parent
+  `65b462994e2a71b46261bff2f246ed9b87f31a7d`. The 17-file slice registers
+  `factory.evolution-evaluate`, projects one deterministic packet/current
+  stage through the run and report APIs, and adds compact source-backed run,
+  Reports, and Admin displays. It invokes only the installed maintained
+  `factory-evolution prepare/finalize/evaluate/verify` owner through one
+  configured proposer or evaluator turn. External implementation remains an
+  exact Block 11 task/Git input and the operation exposes no candidate writer,
+  adoption, installation, routing, scheduling, deployment, rollback, or
+  outcome owner.
+- Truth, authority, and recovery proof: the projection requires one current
+  verified weekly report, its exact `report.json`, the canonical event ledger
+  head, a deterministically rebuilt packet/evolution identity, immutable
+  owner-verified artifact inventory, and three distinct configured proposer,
+  implementer, and evaluator identities. Preview binds report/event/packet/
+  policy/project/role roots and, for evaluation only, a clean exact baseline
+  ancestor/candidate revision pair attributable to the separate current
+  implementation task. Dispatch re-resolves that fingerprint and the route
+  gate, starts one stage owner once, and verification re-reads both independent
+  role contracts, external candidate evidence when applicable, the exact stage
+  postcondition, and the route. Missing, changed, aliased, partial, or invalid
+  sources remain unavailable or pending; accepted earlier artifacts are reused
+  and there is no automatic retry.
+- Validation: dashboard-server discovery passed 137/137 with
+  `ResourceWarning` fatal before the final role-currentness hardening, whose
+  affected projection/coordinator regressions then passed 2/2. The maintained
+  Factory-evolution owner suite passed 30/30 across all four dispositions and
+  invalid/stale/role/resource cases. Ruff and Python compilation passed. The
+  full frontend passed 19 files and 108 tests, TypeScript/Vite production build
+  passed, and the focused evolution browser case passed 3/3 across desktop,
+  tablet, and mobile while exercising run, Reports, and Admin projections,
+  the exact preview request, serious/critical Axe checks, no horizontal
+  overflow, and absence of adoption/deployment controls. `git diff --check`
+  passed.
+- Live nonmutating proof: the exact candidate server was restarted on
+  loopback port 8787. Health, Reports, operations, and Admin returned HTTP 200;
+  the operation registry reports `factory.evolution-evaluate` supported with
+  confirmation class `factory-evolution`, the maintained multi-owner contract,
+  and disposition-only postcondition. Six current run-local evolution
+  projections are truthfully `unavailable` because their exact prerequisites
+  are not all current; no zero, synthetic candidate, or apparent success is
+  substituted. No live preview, role request, artifact creation, external
+  implementation, disposition, adoption, deployment, or canonical mutation
+  was attempted. Exact-revision review is pending and Blocks 29–31 remain
+  unopened.
 
 ### Stop
 
