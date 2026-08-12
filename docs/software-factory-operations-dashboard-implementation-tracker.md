@@ -542,8 +542,8 @@ the relevant authority and evidence contract.
 | 19 | Tracker semantic source diffs | 3, 8 | `accepted` |
 | 20 | Automation binding repair | 7, 10, 11 | `accepted` |
 | 21 | Owner-backed operation semantic diffs | 10, 14, 15, 16, 19, 20 | `accepted` |
-| 22 | Supervision pause | 7, 10, 11 | `in-progress` |
-| 23 | Canonical supervision-resume lifecycle owner | 22 | `not-started` |
+| 22 | Supervision pause | 7, 10, 11 | `accepted` |
+| 23 | Canonical supervision-resume lifecycle owner | 22 | `in-progress` |
 | 24 | Supervision resume | 7, 10, 11, 22, 23 | `not-started` |
 | 25 | Same-target mission succession | 7, 10, 11 | `not-started` |
 | 26 | Successor-task continuity | 7, 10, 11 | `not-started` |
@@ -6280,7 +6280,7 @@ request-stop, or terminal lifecycle operations.
 
 ## Block 22 — Supervision pause
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -6394,6 +6394,30 @@ never repeat or widen automatically.
   The authored successor preserves full scope by narrowing this active Block to
   pause and adding separate owner and dashboard-resume Blocks 23 and 24. No
   implementation or live owner action occurred before this plan correction.
+- Product candidate and correction: commit
+  `4a41973796d7f7100603de2833d907dfe0155a8a` added the typed, route-gated
+  pause operation, exact lifecycle/automation postcondition verifier, semantic
+  preview, sparse run controls, disabled resume posture, and focused tests.
+  Independent review rejected that immutable revision because it excluded the
+  canonical projectless fix-executor shape, could render `Paused` while a
+  configured auxiliary automation was unavailable, and did not prove that
+  automation pause followed the exact lifecycle notification. Successor
+  `c8b3100950f27ea9df481105028695bd907b3af4`, tree
+  `c0cb8a238c0cc149de6c49ace574efcb18120bc4`, closed only those three rows:
+  exact configured task/cwd identity now permits the projectless fix executor;
+  every configured automation remains represented in pause truth; and one
+  hash-chained post-lifecycle notification plus strictly later owner timestamps
+  gates each `ACTIVE` to `PAUSED` transition while prior `PAUSED` owners remain
+  byte/time unchanged.
+- Validation and independent acceptance: affected backend suites passed 52/52
+  with `ResourceWarning` fatal, focused frontend passed 21/21, production build
+  passed, and the semantic-pause browser proof passed 3/3 across desktop,
+  tablet, and mobile with Axe serious/critical and overflow assertions. Ruff,
+  the 32-Block full-profile verifier, all 30 verifier tests, diff check, fsck,
+  exact remote identity, clean checkout, and Stop checks passed. Fresh
+  independent exact-revision review accepted `c8b3100` with no material
+  findings. No live pause, notification, automation, policy, task, or ledger
+  mutation was executed during implementation or review.
 
 ### Stop
 
@@ -6405,7 +6429,7 @@ evolution, request-stop, or terminal shutdown.
 
 ## Block 23 — Canonical supervision-resume lifecycle owner
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -6523,7 +6547,16 @@ reconcile unrelated groups and never retry an append automatically.
 
 ### Completion evidence
 
-Pending.
+- Activation and authority: Block 23 started automatically after independent
+  acceptance of Block 22 successor
+  `c8b3100950f27ea9df481105028695bd907b3af4`. Governing implementation
+  authority remains direct-user item 44 under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+- Work-start boundary: re-read this complete Block 23 contract and began with
+  the maintained `supervision_log.py` lifecycle/status owner, supervision skill
+  and policy contract, weekly pause-interval projection, and exact automation
+  read boundary. Work is limited to the canonical resume lifecycle owner;
+  dashboard execution in Block 24 and Blocks 25-31 remain unopened.
 
 ### Stop
 
