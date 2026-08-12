@@ -1535,6 +1535,21 @@ class OperationsProjectionService:
             }
             return {**material, "fingerprint": _digest(material)}
 
+        inconsistent_candidates = sorted(
+            automation_id
+            for automation_id in target_query.automation_ids
+            if inventory[automation_id].get("target_thread_id") != target_thread_id
+        )
+        if inconsistent_candidates:
+            return unavailable_result(
+                OperationsProjectionError(
+                    "automation_target_query_inconsistent",
+                    "A returned automation candidate does not target the exact queried task.",
+                    status=409,
+                    retryable=True,
+                )
+            )
+
         owners: list[dict[str, Any]] = []
         for automation_id, item in sorted(inventory.items()):
             if not (

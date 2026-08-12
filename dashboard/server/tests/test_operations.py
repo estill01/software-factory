@@ -1438,6 +1438,7 @@ class OperationsProjectionTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+        self.automation_target_ids[WATCHER + TARGET[-1]] = ()
         self.service._target_directories = lambda: (
             self.supervision_root / TARGET,
         )
@@ -1516,7 +1517,6 @@ class OperationsProjectionTests(unittest.TestCase):
         )
         self.automation_target_ids[WATCHER + TARGET[-1]] = (
             "related-broken-automation",
-            "watcher-automation-demo",
         )
         related_broken = self.service.automation_binding_snapshot(TARGET, "watcher")
         self.assertFalse(related_broken["repairable"])
@@ -1531,9 +1531,7 @@ class OperationsProjectionTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
-        self.automation_target_ids[WATCHER + TARGET[-1]] = (
-            "watcher-automation-demo",
-        )
+        self.automation_target_ids[WATCHER + TARGET[-1]] = ()
 
         second_owner = self.automations_root / "second-watcher-owner"
         second_owner.mkdir()
@@ -1557,7 +1555,6 @@ class OperationsProjectionTests(unittest.TestCase):
         )
         self.automation_target_ids[WATCHER + TARGET[-1]] = (
             "second-watcher-owner",
-            "watcher-automation-demo",
         )
         second_active = self.service.automation_binding_snapshot(TARGET, "watcher")
         self.assertFalse(second_active["repairable"])
@@ -1575,6 +1572,36 @@ class OperationsProjectionTests(unittest.TestCase):
             ),
             encoding="utf-8",
         )
+
+        provider_wrong_target = self.automations_root / "provider-wrong-target"
+        provider_wrong_target.mkdir()
+        (provider_wrong_target / "automation.toml").write_text(
+            textwrap.dedent(
+                '''\
+                version = 1
+                id = "provider-wrong-target"
+                kind = "heartbeat"
+                name = "Wrong provider target"
+                prompt = "omitted"
+                status = "ACTIVE"
+                rrule = "RRULE:FREQ=MINUTELY;INTERVAL=20"
+                target_thread_id = "unrelated-task-9999"
+                created_at = 1786270800000
+                updated_at = 1786271400000
+                '''
+            ),
+            encoding="utf-8",
+        )
+        self.automation_target_ids[WATCHER + TARGET[-1]] = (
+            "provider-wrong-target",
+        )
+        inconsistent = self.service.automation_binding_snapshot(TARGET, "watcher")
+        self.assertFalse(inconsistent["repairable"])
+        self.assertEqual(
+            inconsistent["active_target_owners"]["target_query"]["error"]["code"],
+            "automation_target_query_inconsistent",
+        )
+        self.automation_target_ids[WATCHER + TARGET[-1]] = ()
 
         duplicate = "duplicate-automation-claim"
         self._init_target(duplicate, OLD_MISSION, "direct-item-duplicate")
