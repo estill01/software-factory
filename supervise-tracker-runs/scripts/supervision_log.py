@@ -21122,6 +21122,8 @@ def supervision_resume_record_is_canonical(
         source = by_id.get(str(record.get("source_record_id", "")))
         if pause is None or source is None or not is_canonical_supervision_pause(pause):
             return False
+        if not is_eligible_resume_source(source):
+            return False
         if any(
             item.get("target_thread_id") != record.get("target_thread_id")
             for item in (pause, source)
