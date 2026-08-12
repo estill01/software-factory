@@ -294,6 +294,52 @@ class TerminalReportUnitTests(unittest.TestCase):
                 self.assertGreaterEqual(len(reader.pages), 3)
                 self.assertIn(expected, text)
 
+    def test_terminal_shutdown_owner_contract_requires_current_head(self) -> None:
+        skill = (SCRIPT_DIR.parent / "SKILL.md").read_text(encoding="utf-8")
+        policy_text = (
+            SCRIPT_DIR.parent / "references" / "supervision-policy.md"
+        ).read_text(encoding="utf-8")
+
+        skill_section = skill.split(
+            "- Treat `supervision_pause_permitted=true`", 1
+        )[1].split("- Treat an unsupported goal-preventing stop", 1)[0]
+        self.assertIn("Immediately before any automation\n  pause", skill_section)
+        self.assertIn("empty current incident, decision", skill_section)
+        self.assertIn("--expected-event-head", skill_section)
+        self.assertIn("append lock", skill_section)
+
+        start = policy_text.index(
+            "Immediately before any automation pause, re-run `lifecycle-gate` and require"
+        )
+        end = policy_text.index(
+            "Record an independent Max sample", start
+        )
+        policy_section = policy_text[start:end]
+        self.assertLess(
+            policy_section.index("lifecycle-gate"),
+            policy_section.index("Pause and view"),
+        )
+        self.assertLess(
+            policy_section.index("Pause and view"),
+            policy_section.index(
+                "uv run --python 3.14 python <LOG_HELPER> terminal-shutdown"
+            ),
+        )
+        for field in (
+            "open_incident_ids",
+            "open_decision_ids",
+            "open_successor_transitions",
+            "open_mission_activations",
+            "--expected-event-head <EVENT_HEAD>",
+            "append lock",
+        ):
+            self.assertIn(field, policy_section)
+        self.assertIn(
+            "uv run --python 3.14 python <LOG_HELPER> terminal-shutdown",
+            policy_text,
+        )
+        self.assertNotIn("python3 <LOG_HELPER> terminal-shutdown", policy_text)
+
 
 class TerminalReportIntegrationTests(unittest.TestCase):
     def prepare_root(self, root: Path) -> Path:

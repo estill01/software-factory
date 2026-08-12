@@ -314,14 +314,22 @@ current read-back receipt does not satisfy delivery. `lifecycle-gate` returns
 `supervision_pause_permitted=true` only when the completion proof, completed
 lifecycle, verified reports, and recorded Gmail read-back all agree.
 
-After that gate passes, pause every exact automation returned in
-`pause_automation_ids` and view each current state. `terminal-shutdown` then
-reads each exact maintained Codex `automation.toml` owner directly; it accepts
-only the complete bound set in `PAUSED` state with owner update times no earlier
-than report delivery. Caller-asserted `ID=PAUSED` strings, missing owners, active
-states, path escapes, or stale pauses fail closed. The reports and email remain
-derived evidence; they do not become another completion authority, patent
-record, legal conclusion, or filing/release approval.
+Immediately before any automation pause, re-run `lifecycle-gate`. Require the
+same completed lifecycle and terminal report set,
+`supervision_pause_permitted=true`, empty current incident, decision,
+successor-transition, and mission-activation heads, and retain the exact
+returned `event_head`. Only then pause every exact automation returned in
+`pause_automation_ids` and view each current state. Invoke `terminal-shutdown`
+through `uv run --python 3.14 python` and pass that exact head as
+`--expected-event-head`. Under the append lock the helper re-resolves current
+policy and mission identity, rechecks all four open-head families and the event
+head, then reads each exact maintained Codex `automation.toml` owner directly.
+It accepts only the complete bound set in `PAUSED` state with owner update times
+no earlier than report delivery. Caller-asserted `ID=PAUSED` strings, changed
+heads, missing owners, active states, path escapes, or stale pauses fail closed
+without a shutdown receipt. The reports and email remain derived evidence; they
+do not become another completion authority, patent record, legal conclusion, or
+filing/release approval.
 
 Target-native alignment is optional read-only corroboration. When present, a
 reviewer may compare its exact current attestation with the independent charter
@@ -1333,12 +1341,16 @@ At each scheduled wake:
    the primary seed. For completed, do not send a report-less lifecycle email.
    Require the base reviewer to prepare, synthesize, finalize, and verify both
    terminal reports; reply to the primary seed with both PDFs attached; record
-   delivery from the exact raw-MIME and attachment-owner read-back; call
-   `lifecycle-gate` again; pause every returned automation; view each paused
-   state; and run owner-backed `terminal-shutdown`. Include the active Block's
-   plain-language `Block purpose — Block <N>` summary. Report the observed target
-   posture without claiming independent acceptance. Stop only after the exact
-   shutdown receipt is recorded.
+   delivery from the exact raw-MIME and attachment-owner read-back; immediately
+   before any pause call `lifecycle-gate` again; require its current incident,
+   decision, successor-transition, and mission-activation heads to be empty and
+   retain its exact `event_head`; pause every returned automation; view each
+   paused state; and run owner-backed `terminal-shutdown` through
+   `uv run --python 3.14 python` with that head passed as
+   `--expected-event-head`. Include the active Block's plain-language `Block
+   purpose — Block <N>` summary. Report the observed target posture without
+   claiming independent acceptance. Stop only after the exact current shutdown
+   receipt is recorded.
 
 An explicit `stopped` posture without one exact meta-charter valid-stop
 condition is a critical goal-preventing-stop signal. Keep supervision active,
@@ -2020,15 +2032,26 @@ helper parses both MIME messages, proves the reply/thread relationship, and
 rederives the payload hashes; do not construct a receipt from the local files
 or the send response alone.
 
-After `lifecycle-gate` returns `supervision_pause_permitted=true`, pause and view
-every returned automation. Then let the helper inspect the maintained Codex
-automation owner files directly:
+Immediately before any automation pause, re-run `lifecycle-gate` and require
+`supervision_pause_permitted=true`, the same completed lifecycle and report set,
+empty `open_incident_ids`, `open_decision_ids`, `open_successor_transitions`, and
+`open_mission_activations`, and retain the returned `event_head`. Pause and view
+only the exact returned automations. Then let the helper recheck that head and
+those open gates under its append lock before it inspects the maintained Codex
+automation owner files and appends a receipt:
 
 ```bash
-python3 <LOG_HELPER> terminal-shutdown --target-thread <TARGET> \
+uv run --python 3.14 python <LOG_HELPER> terminal-shutdown \
+  --target-thread <TARGET> \
   --lifecycle-record <COMPLETED_LIFECYCLE_RECORD> \
-  --report-set-id <REPORT_SET_ID>
+  --report-set-id <REPORT_SET_ID> \
+  --expected-event-head <EVENT_HEAD>
 ```
+
+If the policy, event head, any incident/decision/transition/activation head, or
+an exact automation owner changes, the helper appends no shutdown receipt. Do
+not pause from an older gate result or retry the receipt with a caller-chosen
+replacement head.
 
 Record an independent Max sample without changing the live gate watermark:
 
@@ -2242,8 +2265,10 @@ Before an applicable pause, ensure blocked/failed/stopped has its deduplicated
 priority-thread lifecycle email and completed/noncritical-paused has its
 deduplicated primary-thread status email. For completed, require both verified
 terminal PDFs attached to that email, its exact delivery receipt, and
-`supervision_pause_permitted=true`; after pausing, view and record every exact
-bound automation with `terminal-shutdown`.
+`supervision_pause_permitted=true`; immediately before pausing, re-run that gate,
+require all current open-head families empty, and retain its exact event head.
+After pausing, view every exact bound automation and pass that head to
+owner-backed `terminal-shutdown` as `--expected-event-head`.
 Do not pause for an open decision. Continue the timed resolution state machine,
 priority phase delivery, safe-frontier verification, and target acknowledgement.
 Do not pause or accept `completed`, `paused`, or `stopped` while a prospective

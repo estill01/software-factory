@@ -254,12 +254,17 @@ Repeat independently for additional targets.
   alone are insufficient.
 - Treat `supervision_pause_permitted=true` as the shutdown boundary. It requires
   the accepted completion record, exact completed lifecycle, both current report
-  PDFs, and their recorded Gmail delivery. Pause every exact bound project
-  supervision automation, then run `terminal-shutdown`. The helper reads the
-  maintained Codex automation owner files directly and requires every exact
-  bound automation to be paused by an update no earlier than report delivery.
-  Do not claim that supervision stopped when an expected owner is missing,
-  active, stale, or divergent.
+  PDFs, and their recorded Gmail delivery. Immediately before any automation
+  pause, re-run `lifecycle-gate`; require the same completed lifecycle and report
+  set, `supervision_pause_permitted=true`, empty current incident, decision,
+  successor-transition, and mission-activation heads, and retain its exact
+  `event_head`. Only then pause and view every exact returned automation. Invoke
+  `terminal-shutdown` through `uv run --python 3.14 python` with that head as
+  `--expected-event-head`. Under its append lock the helper re-reads the current
+  policy, mission heads, event head, and maintained Codex automation owners; a
+  changed head, open gate, missing owner, active/stale owner, or divergent state
+  yields no shutdown receipt. Do not claim that supervision stopped without the
+  exact current receipt.
 - Treat an unsupported goal-preventing stop as a critical operational event,
   not every pause or bounded wait. Completion, a current direct stop/goal
   change, a hard authority/safety boundary, independently established current

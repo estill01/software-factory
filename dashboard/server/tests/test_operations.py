@@ -664,7 +664,7 @@ class OperationsProjectionTests(unittest.TestCase):
         self.assertEqual(gated["source_record_sha256"], record_sha256)
         self.assertTrue(gated["gate"]["completion_permitted"])
         self.assertTrue(gated["gate"]["source_stop_permitted"])
-        self.assertEqual(gated["gate"]["open_incident_ids"], [])
+        self.assertEqual(gated["gate"]["open_incident_ids"], ["INC-TEST-0001"])
         self.assertEqual(gated["gate"]["open_decision_ids"], [])
         self.assertEqual(gated["gate"]["event_head"], control["event_head"])
         self.assertEqual(gated["gate"]["event_count"], control["event_count"])
