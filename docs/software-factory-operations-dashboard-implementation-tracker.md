@@ -6581,11 +6581,25 @@ reconcile unrelated groups and never retry an append automatically.
   direct generic/task resume rejection, stale active state, hash-chain
   corruption, append-once replay, status projection, and exact canonical
   pause-interval closure.
+- Independent rejection and narrow successor: fresh exact-revision review
+  rejected immutable evidence `bf45e2cf78741cb8bf283eb0b485cac4b7e78b84`
+  because the standalone canonical-record verifier did not reapply the same
+  exact resume-source eligibility predicate as the write gate. A fully rehashed
+  task/turn-shaped source could therefore reach status and weekly consumers as
+  canonical. Successor `896628cdd97e07b677d3635c2d48181cf6bce973`,
+  tree `8a7ab193d70457ddd9a9f2262746fcb508c20df7`, changes only that verifier
+  boundary and its adversarial regression. The test reconstructs every
+  dependent source-currentness, eligibility, resume, predecessor, and record
+  hash around an ineligible `thread-resume` source, then proves canonical
+  verification rejects it, status retains the current pause, and weekly
+  availability leaves the exact interval open. The affected resume-owner suite
+  passes 8/8; Ruff and diff checks pass, while the prior 205/205 and mechanical
+  proof remain applicable.
 - Review posture: the dashboard capability remains truthfully `unavailable`
-  pending independent exact-revision acceptance of this candidate. No dashboard
-  API/UI/control, automation mutation implementation, direct TOML write, live
-  resume, task/turn resume, policy change, or canonical ledger mutation was
-  executed, and Block 24 remains closed.
+  pending fresh independent exact-revision acceptance of successor `896628c`.
+  No dashboard API/UI/control, automation mutation implementation, direct TOML
+  write, live resume, task/turn resume, policy change, or canonical ledger
+  mutation was executed, and Block 24 remains closed.
 
 ### Stop
 
