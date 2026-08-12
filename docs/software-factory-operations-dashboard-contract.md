@@ -414,9 +414,9 @@ message delivery, generated file, or stopped task never proves application.
    before executing or accepting it; earlier dependency-safe Blocks remain
    available.
 9. The baseline's former combined pause/resume Block mixed supported pause with
-   unavailable resume. Current Block 22 is pause-only, Block 23 owns the missing
-   maintained resume lifecycle/postcondition, and Block 24 exposes dashboard
-   resume only after that owner is independently accepted.
+   then-unavailable resume. Current Block 22 is pause-only, accepted Block 23
+   supplies the maintained resume lifecycle/postcondition, and Block 24 exposes
+   dashboard resume over that independently accepted owner.
 10. Planned Block 19 predates the durable first-work activation obligation in
     source revision `08b4f98`, whose current closure is not evidence-tight.
     Before executing that future Block, amend its preview, acceptance,

@@ -1302,6 +1302,18 @@ class OperationsProjectionService:
             ),
             None,
         )
+        current_state_source = next(
+            (
+                item
+                for item in reversed(evidence.active_events)
+                if isinstance(item.get("record_id"), str)
+                and isinstance(item.get("record_sha256"), str)
+                and SHA256.fullmatch(str(item["record_sha256"]))
+                and isinstance(item.get("state_fingerprint"), str)
+                and item["state_fingerprint"]
+            ),
+            None,
+        )
         lifecycle_record = next(
             (
                 item
@@ -1357,6 +1369,21 @@ class OperationsProjectionService:
             "policy_history_count": len(evidence.policy_history),
             "policy_history_head": history_head.get("record_sha256"),
             "source_record": source_record,
+            "current_state_source_record": (
+                current_state_source.get("record_id")
+                if isinstance(current_state_source, Mapping)
+                else None
+            ),
+            "current_state_source_sha256": (
+                current_state_source.get("record_sha256")
+                if isinstance(current_state_source, Mapping)
+                else None
+            ),
+            "current_state_fingerprint": (
+                current_state_source.get("state_fingerprint")
+                if isinstance(current_state_source, Mapping)
+                else None
+            ),
             "event_head": event_head,
             "event_count": len(evidence.events),
             "active_event_count": len(evidence.active_events),
@@ -1404,6 +1431,11 @@ class OperationsProjectionService:
             "lifecycle_record": (
                 json.loads(json.dumps(lifecycle_record))
                 if isinstance(lifecycle_record, Mapping)
+                else None
+            ),
+            "current_state_source": (
+                json.loads(json.dumps(current_state_source))
+                if isinstance(current_state_source, Mapping)
                 else None
             ),
             "post_lifecycle_notifications": post_lifecycle_notifications,
@@ -1607,6 +1639,205 @@ class OperationsProjectionService:
                 if isinstance(notification_record, Mapping)
                 else None
             ),
+            "control_fingerprint": before.get("fingerprint"),
+            "currentness": currentness,
+            "gate": json.loads(json.dumps(payload)),
+        }
+
+    def supervision_resume_gate_snapshot(
+        self,
+        target_thread_id: str,
+        *,
+        pause_record: str,
+        source_record: str,
+        state_fingerprint: str,
+    ) -> dict[str, Any]:
+        """Run the maintained semantic-resume gate without mutating an owner."""
+
+        if (
+            not SAFE_ID.fullmatch(target_thread_id)
+            or not SAFE_ID.fullmatch(pause_record)
+            or not SAFE_ID.fullmatch(source_record)
+            or not isinstance(state_fingerprint, str)
+            or not state_fingerprint
+            or len(state_fingerprint) > 128
+        ):
+            raise OperationsProjectionError(
+                "supervision_resume_source_invalid",
+                "The resume target, pause, source, or state identity is invalid.",
+                status=422,
+            )
+        before = self.policy_control_snapshot(target_thread_id)
+        payload = self._owner_command(
+            [
+                "resume-gate",
+                "--target-thread",
+                target_thread_id,
+                "--pause-record",
+                pause_record,
+                "--source-record",
+                source_record,
+                "--state-fingerprint",
+                state_fingerprint,
+            ]
+        )
+        after = self.policy_control_snapshot(target_thread_id)
+        if before.get("fingerprint") != after.get("fingerprint"):
+            raise OperationsProjectionError(
+                "supervision_resume_source_changed",
+                "The resume lifecycle, policy, source, or named automation owners changed during validation.",
+                status=409,
+                retryable=True,
+            )
+        status = payload.get("status")
+        if status == "already-resumed":
+            record = payload.get("resume_record")
+            current = after.get("lifecycle_record")
+            if (
+                payload.get("eligible") is not True
+                or payload.get("ready_to_finalize") is not True
+                or payload.get("duplicate") is not True
+                or payload.get("action") != "none"
+                or payload.get("policy_sha256") != after.get("policy_sha256")
+                or not isinstance(record, Mapping)
+                or record.get("kind") != "lifecycle"
+                or record.get("category") != "supervision-resume"
+                or record.get("status") != "resumed"
+                or record.get("resume_contract_version") != 1
+                or record.get("pause_record_id") != pause_record
+                or record.get("source_record_id") != source_record
+                or record.get("state_fingerprint") != state_fingerprint
+                or not isinstance(record.get("record_id"), str)
+                or not SAFE_ID.fullmatch(str(record["record_id"]))
+                or not isinstance(record.get("record_sha256"), str)
+                or not SHA256.fullmatch(str(record["record_sha256"]))
+                or not isinstance(current, Mapping)
+                or current.get("record_id") != record.get("record_id")
+                or current.get("record_sha256") != record.get("record_sha256")
+            ):
+                raise OperationsProjectionError(
+                    "supervision_resume_gate_output_invalid",
+                    "The maintained resume gate returned an invalid canonical-resume result.",
+                    status=503,
+                )
+        elif status in {"pending-activation", "ready"}:
+            states = payload.get("automation_states")
+            activate_ids = payload.get("activate_automation_ids")
+            required = {
+                "action",
+                "automation_states",
+                "activate_automation_ids",
+                "duplicate",
+                "eligibility_root",
+                "eligible",
+                "group_id",
+                "mission_root",
+                "pause_record_id",
+                "policy_sha256",
+                "policy_version",
+                "ready_to_finalize",
+                "source_currentness_root",
+                "source_record_id",
+                "state_fingerprint",
+                "status",
+            }
+            states_valid = bool(
+                isinstance(states, Mapping)
+                and 2 <= len(states) <= MAX_AUTOMATIONS
+                and all(
+                    isinstance(automation_id, str)
+                    and SAFE_ID.fullmatch(automation_id)
+                    and isinstance(state, Mapping)
+                    and set(state)
+                    == {
+                        "automation_id",
+                        "configuration_sha256",
+                        "manifest_sha256",
+                        "role",
+                        "rrule",
+                        "status",
+                        "target_thread_id",
+                        "updated_at",
+                    }
+                    and state.get("automation_id") == automation_id
+                    and isinstance(state.get("role"), str)
+                    and bool(state["role"])
+                    and state.get("status") in {"ACTIVE", "PAUSED"}
+                    and isinstance(state.get("rrule"), str)
+                    and bool(state["rrule"])
+                    and isinstance(state.get("target_thread_id"), str)
+                    and SAFE_ID.fullmatch(str(state["target_thread_id"]))
+                    and type(state.get("updated_at")) is int
+                    and state["updated_at"] > 0
+                    and isinstance(state.get("manifest_sha256"), str)
+                    and SHA256.fullmatch(str(state["manifest_sha256"]))
+                    and isinstance(state.get("configuration_sha256"), str)
+                    and SHA256.fullmatch(str(state["configuration_sha256"]))
+                    for automation_id, state in states.items()
+                )
+            )
+            paused_ids = (
+                sorted(
+                    str(automation_id)
+                    for automation_id, state in states.items()
+                    if isinstance(state, Mapping) and state.get("status") == "PAUSED"
+                )
+                if isinstance(states, Mapping)
+                else []
+            )
+            if (
+                not required.issubset(payload)
+                or payload.get("eligible") is not True
+                or payload.get("duplicate") is not False
+                or payload.get("pause_record_id") != pause_record
+                or payload.get("source_record_id") != source_record
+                or payload.get("state_fingerprint") != state_fingerprint
+                or payload.get("policy_sha256") != before.get("policy_sha256")
+                or payload.get("policy_version") != before.get("policy_version")
+                or not isinstance(payload.get("group_id"), str)
+                or not payload["group_id"]
+                or not isinstance(payload.get("mission_root"), str)
+                or not SHA256.fullmatch(str(payload["mission_root"]))
+                or not isinstance(payload.get("eligibility_root"), str)
+                or not SHA256.fullmatch(str(payload["eligibility_root"]))
+                or not isinstance(payload.get("source_currentness_root"), str)
+                or not SHA256.fullmatch(str(payload["source_currentness_root"]))
+                or not states_valid
+                or not isinstance(activate_ids, list)
+                or activate_ids != paused_ids
+                or payload.get("ready_to_finalize") is not (not paused_ids)
+                or status != ("ready" if not paused_ids else "pending-activation")
+                or payload.get("action")
+                != (
+                    "resume-finalize"
+                    if not paused_ids
+                    else "activate-exact-bound-automations"
+                )
+            ):
+                raise OperationsProjectionError(
+                    "supervision_resume_gate_output_invalid",
+                    "The maintained resume gate returned an invalid eligibility result.",
+                    status=503,
+                )
+        else:
+            raise OperationsProjectionError(
+                "supervision_resume_gate_output_invalid",
+                "The maintained resume gate returned an unsupported status.",
+                status=503,
+            )
+        currentness = _digest(
+            {
+                "control": before.get("fingerprint"),
+                "owner": before.get("owner_sha256"),
+                "pause_record": pause_record,
+                "source_record": source_record,
+                "state_fingerprint": state_fingerprint,
+                "gate": payload,
+            }
+        )
+        return {
+            "target_thread_id": target_thread_id,
+            "owner_sha256": before.get("owner_sha256"),
             "control_fingerprint": before.get("fingerprint"),
             "currentness": currentness,
             "gate": json.loads(json.dumps(payload)),

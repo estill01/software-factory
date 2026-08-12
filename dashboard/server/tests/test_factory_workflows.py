@@ -276,13 +276,14 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(duplicate_status, 409)
         self.assertEqual(duplicate["error"]["code"], "authoring_owner_conflict")
         self.assertEqual(executed["data"]["operation"]["state"], "applied")
-        self.assertEqual(len(supported), 18)
+        self.assertEqual(len(supported), 19)
         self.assertIn("factory.blocks-implement", supported)
         self.assertIn("factory.supervision-check-now", supported)
         self.assertIn("factory.supervision-adjust", supported)
         self.assertIn("factory.supervision-repair-mission-binding", supported)
         self.assertIn("factory.supervision-repair-role-task-binding", supported)
         self.assertIn("factory.supervision-pause", supported)
+        self.assertIn("factory.supervision-resume", supported)
         automation_repair = next(
             item
             for item in unavailable
@@ -297,7 +298,6 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             {item["type"] for item in unavailable},
             {
                 "factory.supervision-repair-automation-binding",
-                "factory.supervision-resume",
                 "factory.tracker-authoring-supervision",
             },
         )
@@ -734,6 +734,445 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         with self.assertRaises(OperationError) as already:
             definition.resolve_source(target, {})
         self.assertEqual(already.exception.code, "supervision_already_paused")
+
+    def test_supervision_resume_requires_both_owners_and_never_resumes_target_task(self) -> None:
+        project_root = self.root / "resume-project"
+        target_root = project_root / "target"
+        fix_root = self.root / "resume-fix-role"
+        target_root.mkdir(parents=True)
+        fix_root.mkdir(parents=True)
+        project = ProjectRecord(
+            id="resume-project",
+            label="Resume project",
+            root=str(project_root),
+        )
+        target_id = "target-resume-0001"
+        fix_id = "fix-resume-0001"
+        policy_sha = "b" * 64
+        mission_root = "c" * 64
+        pause_record_id = "EVT-PAUSE-RESUME-001"
+        source_record_id = "EVT-RESUME-SOURCE-001"
+        state_fingerprint = "resume-source-state-001"
+        eligibility_root = "d" * 64
+        source_currentness_root = "e" * 64
+        group_id = "group-" + "f" * 64
+        tasks = {
+            target_id: {
+                "id": target_id,
+                "cwd": str(target_root),
+                "status": {"type": "active"},
+                "project_binding": {
+                    "status": "bound",
+                    "project_id": project.id,
+                },
+                "turns_truncated": False,
+                "turns": [
+                    {
+                        "id": "target-resume-turn-001",
+                        "status": "inProgress",
+                        "items": [],
+                    }
+                ],
+            },
+            fix_id: {
+                "id": fix_id,
+                "cwd": str(fix_root),
+                "status": {"type": "idle"},
+                "project_binding": {"status": "unassigned", "project_id": None},
+                "turns_truncated": False,
+                "turns": [],
+            },
+        }
+        policy = {
+            "project_root": str(project_root),
+            "policy_version": 8,
+            "policy_sha256": policy_sha,
+            "mission_binding": {"mission_root": mission_root},
+            "runtime": {
+                "watcher_thread_id": "watcher-resume-0001",
+                "reviewer_thread_id": "reviewer-resume-0001",
+                "fix_executor_thread_id": fix_id,
+                "routine_automation_id": "watcher-automation-resume",
+                "meta_automation_id": "reviewer-automation-resume",
+                "gmail_gate_thread_id": None,
+                "gmail_poll_automation_id": None,
+                "roundup_thread_id": None,
+                "roundup_automation_id": None,
+            },
+            "reports": {"weekly": {"enabled": False}},
+            "notifications": {"gmail": {"enabled": True}},
+        }
+        pause_record = {
+            "record_id": pause_record_id,
+            "record_sha256": "1" * 64,
+            "timestamp": "2026-08-11T09:00:00Z",
+            "kind": "lifecycle",
+            "status": "paused",
+            "category": "supervision-pause",
+            "policy_sha256": policy_sha,
+            "state_fingerprint": "paused-state-001",
+        }
+        state_source = {
+            "record_id": source_record_id,
+            "record_sha256": "2" * 64,
+            "timestamp": "2026-08-11T09:02:30Z",
+            "kind": "check",
+            "status": "no-intervention",
+            "category": "changed-state-review",
+            "model": "gpt-5.6-sol",
+            "reasoning": "xhigh",
+            "policy_sha256": policy_sha,
+            "state_fingerprint": state_fingerprint,
+            "evidence": ["exact-target-read"],
+        }
+        control = {
+            "fingerprint": "3" * 64,
+            "target_thread_id": target_id,
+            "owner_sha256": "4" * 64,
+            "policy": policy,
+            "runtime": policy["runtime"],
+            "policy_sha256": policy_sha,
+            "policy_version": 8,
+            "policy_history_head": "5" * 64,
+            "source_record": source_record_id,
+            "current_state_source": state_source,
+            "event_head": state_source["record_sha256"],
+            "lifecycle_status": "paused",
+            "lifecycle_record": pause_record,
+            "open_successor_transitions": {},
+            "open_mission_activations": {},
+            "automations_by_role": {
+                "watcher": {
+                    "status": "available",
+                    "id": "watcher-automation-resume",
+                    "name": "Resume watcher",
+                    "kind": "heartbeat",
+                    "owner_status": "PAUSED",
+                    "rrule": "RRULE:FREQ=MINUTELY;INTERVAL=20",
+                    "target_thread_id": "watcher-resume-0001",
+                    "manifest_sha256": "6" * 64,
+                    "protected_sha256": "7" * 64,
+                    "updated_at": "2026-08-11T09:01:00Z",
+                },
+                "reviewer": {
+                    "status": "available",
+                    "id": "reviewer-automation-resume",
+                    "name": "Resume reviewer",
+                    "kind": "heartbeat",
+                    "owner_status": "ACTIVE",
+                    "rrule": "RRULE:FREQ=HOURLY;INTERVAL=4",
+                    "target_thread_id": "reviewer-resume-0001",
+                    "manifest_sha256": "8" * 64,
+                    "protected_sha256": "9" * 64,
+                    "updated_at": "2026-08-11T09:02:00Z",
+                },
+                "gmail_gate": None,
+                "roundup_writer": None,
+                "weekly_report": None,
+            },
+        }
+        configuration_roots = {
+            "watcher-automation-resume": "a" * 64,
+            "reviewer-automation-resume": "0" * 64,
+        }
+
+        class OperationsStub:
+            @staticmethod
+            def policy_control_snapshot(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong resume target")
+                return control
+
+            @staticmethod
+            def binding_group_ids(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong resume group target")
+                return [target_id]
+
+            @staticmethod
+            def project_binding_snapshot(_projects, selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong resume project target")
+                return {
+                    "fingerprint": "a" * 64,
+                    "project_binding": {
+                        "status": "bound",
+                        "project_id": project.id,
+                    },
+                }
+
+            @staticmethod
+            def supervision_resume_gate_snapshot(
+                selected_target,
+                *,
+                pause_record,
+                source_record,
+                state_fingerprint,
+            ):
+                if (
+                    selected_target != target_id
+                    or pause_record != pause_record_id
+                    or source_record != source_record_id
+                    or state_fingerprint != "resume-source-state-001"
+                ):
+                    raise AssertionError("wrong resume-gate source")
+                if control["lifecycle_status"] == "resumed":
+                    return {
+                        "currentness": "b" * 64,
+                        "gate": {
+                            "status": "already-resumed",
+                            "eligible": True,
+                            "ready_to_finalize": True,
+                            "duplicate": True,
+                            "action": "none",
+                            "policy_sha256": policy_sha,
+                            "resume_record": control["lifecycle_record"],
+                        },
+                    }
+                states = {}
+                for role, owner_role, configuration_root in (
+                    ("watcher", "watcher", configuration_roots["watcher-automation-resume"]),
+                    ("reviewer", "reviewer", configuration_roots["reviewer-automation-resume"]),
+                ):
+                    automation = control["automations_by_role"][role]
+                    states[automation["id"]] = {
+                        "automation_id": automation["id"],
+                        "configuration_sha256": configuration_root,
+                        "manifest_sha256": automation["manifest_sha256"],
+                        "role": owner_role,
+                        "rrule": automation["rrule"],
+                        "status": automation["owner_status"],
+                        "target_thread_id": automation["target_thread_id"],
+                        "updated_at": {
+                            "2026-08-11T09:01:00Z": 1_786_438_860_000,
+                            "2026-08-11T09:02:00Z": 1_786_438_920_000,
+                            "2026-08-11T09:03:00Z": 1_786_438_980_000,
+                        }[automation["updated_at"]],
+                    }
+                paused_ids = sorted(
+                    automation_id
+                    for automation_id, state in states.items()
+                    if state["status"] == "PAUSED"
+                )
+                return {
+                    "currentness": "b" * 64,
+                    "gate": {
+                        "status": "pending-activation" if paused_ids else "ready",
+                        "eligible": True,
+                        "ready_to_finalize": not paused_ids,
+                        "duplicate": False,
+                        "action": (
+                            "activate-exact-bound-automations"
+                            if paused_ids
+                            else "resume-finalize"
+                        ),
+                        "activate_automation_ids": paused_ids,
+                        "automation_states": states,
+                        "eligibility_root": eligibility_root,
+                        "source_currentness_root": source_currentness_root,
+                        "pause_record_id": pause_record_id,
+                        "source_record_id": source_record_id,
+                        "state_fingerprint": state_fingerprint,
+                        "group_id": group_id,
+                        "mission_root": mission_root,
+                        "policy_version": 8,
+                        "policy_sha256": policy_sha,
+                    },
+                }
+
+        class AppServerStub:
+            prompt = None
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": capability, "status": "supported"}
+                        for capability in ("task_read", "task_resume", "turn_start")
+                    ]
+                }
+
+            @staticmethod
+            def read_task(_projects, task_id, *, include_turns):
+                if task_id not in tasks or not include_turns:
+                    raise AssertionError("wrong resume task read")
+                return {"task": tasks[task_id]}
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                metadata = fix_root.stat()
+                if (
+                    task_id != fix_id
+                    or expected_cwd != str(fix_root)
+                    or expected_cwd_identity != (metadata.st_dev, metadata.st_ino)
+                ):
+                    raise AssertionError("wrong resume owner dispatch")
+                self.prompt = text
+                tasks[fix_id]["turns"] = [
+                    {
+                        "id": "turn-resume-001",
+                        "status": "completed",
+                        "items_truncated": False,
+                        "items": [{"type": "userMessage", "summary": text}],
+                    }
+                ]
+                return {"turn": {"id": "turn-resume-001"}, "task_resumed": False}
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = AppServerStub()
+        owner.route_gate = lambda request: RouteGateResult(
+            True,
+            route_action_fingerprint(request.required_action),
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint=policy_sha,
+            target_thread=request.target_thread,
+        )
+        owner._supervision_resume_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), "c" * 64)
+        definition = owner._supervision_resume_definition()
+        target = OperationTarget(kind="run", id=target_id, project_id=project.id)
+
+        source = definition.resolve_source(target, {})
+        self.assertEqual(
+            source.evidence["activate_automation_ids"],
+            ["watcher-automation-resume"],
+        )
+        changes = {
+            item.id: item
+            for item in definition.describe_effect(target, {}, source).semantic_changes
+        }
+        self.assertEqual(changes["supervision-resume-lifecycle"].before.value, "paused")
+        self.assertEqual(changes["supervision-resume-lifecycle"].after.value, "resumed")
+        self.assertEqual(
+            changes["supervision-resume-automation-watcher"].kind,
+            "changed",
+        )
+        self.assertEqual(
+            changes["supervision-resume-automation-reviewer"].kind,
+            "preserved",
+        )
+        route_request = definition.route_gate_request(target, {}, source)
+        route_result = owner.route_gate(route_request)
+        self.assertTrue(route_result.allowed)
+        self.assertEqual(route_result.recipient, route_request.recipient)
+        self.assertEqual(route_result.purpose, route_request.purpose)
+        self.assertEqual(route_result.source_record, route_request.source_record)
+        self.assertEqual(route_result.target_thread, route_request.target_thread)
+        self.assertEqual(
+            route_result.action_hash,
+            route_action_fingerprint(route_request.required_action),
+        )
+        self.assertEqual(route_result.policy_fingerprint, policy_sha)
+        dispatched = definition.dispatch(target, {}, source)
+        self.assertIn("$supervise-tracker-runs", owner.app_server_client.prompt)
+        self.assertIn("Do not continue, interrupt, stop, or resume", owner.app_server_client.prompt)
+        self.assertIn("Do not edit policy JSON", owner.app_server_client.prompt)
+        self.assertIn("resume-finalize once", owner.app_server_client.prompt)
+
+        partial = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(partial.state, "pending")
+        self.assertEqual(partial.evidence["partial_posture"], "activation-partial")
+        self.assertFalse(partial.evidence["target_task_or_turn_resumed"])
+
+        watcher = control["automations_by_role"]["watcher"]
+        watcher["owner_status"] = "ACTIVE"
+        watcher["manifest_sha256"] = "d" * 64
+        watcher["updated_at"] = "2026-08-11T09:03:00Z"
+        owner_only = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(owner_only.state, "pending")
+        self.assertEqual(
+            owner_only.evidence["partial_posture"],
+            "automations-active-lifecycle-pending",
+        )
+        self.assertFalse(owner_only.evidence["lifecycle_postcondition_current"])
+
+        final_states = {}
+        for role, owner_role in (("watcher", "watcher"), ("reviewer", "reviewer")):
+            automation = control["automations_by_role"][role]
+            final_states[automation["id"]] = {
+                "automation_id": automation["id"],
+                "configuration_sha256": configuration_roots[automation["id"]],
+                "manifest_sha256": automation["manifest_sha256"],
+                "role": owner_role,
+                "rrule": automation["rrule"],
+                "status": "ACTIVE",
+                "target_thread_id": automation["target_thread_id"],
+                "updated_at": {
+                    "2026-08-11T09:02:00Z": 1_786_438_920_000,
+                    "2026-08-11T09:03:00Z": 1_786_438_980_000,
+                }[automation["updated_at"]],
+            }
+        resume_record = {
+            "record_id": "EVT-RESUME-001",
+            "record_sha256": "e" * 64,
+            "timestamp": "2026-08-11T09:04:00Z",
+            "kind": "lifecycle",
+            "category": "supervision-resume",
+            "status": "resumed",
+            "resume_contract_version": 1,
+            "pause_record_id": pause_record_id,
+            "pause_record_sha256": pause_record["record_sha256"],
+            "source_record_id": source_record_id,
+            "source_record_sha256": state_source["record_sha256"],
+            "state_fingerprint": state_fingerprint,
+            "source_currentness_root": source_currentness_root,
+            "eligibility_root": eligibility_root,
+            "group_id": group_id,
+            "mission_root": mission_root,
+            "policy_sha256": policy_sha,
+            "policy_version": 8,
+            "policy_history_head": control["policy_history_head"],
+            "automation_configuration_roots": configuration_roots,
+            "automation_states": final_states,
+        }
+        control["lifecycle_status"] = "resumed"
+        control["lifecycle_record"] = resume_record
+        applied = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(applied.state, "applied", applied.evidence)
+        self.assertTrue(applied.evidence["supervision_resume_applied"])
+        self.assertTrue(applied.evidence["automation_postcondition_current"])
+        self.assertTrue(applied.evidence["lifecycle_postcondition_current"])
+        self.assertTrue(applied.evidence["target_task_preserved"])
+        self.assertFalse(applied.evidence["target_task_or_turn_resumed"])
+        self.assertEqual(applied.evidence["pause_record_id"], pause_record_id)
+        self.assertEqual(applied.evidence["resume_record_id"], "EVT-RESUME-001")
+
+        accepted_route_gate = owner.route_gate
+        owner.route_gate = lambda request: RouteGateResult(
+            False,
+            None,
+            reason="The exact route is no longer permitted.",
+        )
+        denied = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(denied.state, "pending")
+        self.assertTrue(denied.evidence["lifecycle_postcondition_current"])
+        self.assertTrue(denied.evidence["automation_postcondition_current"])
+        self.assertFalse(denied.evidence["route_gate_accepted"])
+        self.assertEqual(
+            denied.evidence["partial_posture"],
+            "owners-resumed-operation-unverified",
+        )
+        owner.route_gate = accepted_route_gate
+
+        tasks[target_id]["turns"][0]["status"] = "interrupted"
+        interrupted = definition.verify(target, {}, source, dispatched)
+        self.assertEqual(interrupted.state, "pending")
+        self.assertFalse(interrupted.evidence["target_task_preserved"])
+        tasks[target_id]["turns"][0]["status"] = "inProgress"
+
+        with self.assertRaises(OperationError) as already:
+            definition.resolve_source(target, {})
+        self.assertEqual(already.exception.code, "supervision_already_running")
 
     def test_http_role_binding_repair_uses_disposable_policy_and_existing_task(self) -> None:
         target_id = "target-role-repair-001"

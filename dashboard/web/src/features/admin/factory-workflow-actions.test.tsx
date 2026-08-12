@@ -483,7 +483,7 @@ describe("Factory workflow action strips", () => {
     expect(screen.getByText(/No automatic retry or rollback/)).toBeVisible()
   })
 
-  it("requests semantic pause separately from turn interruption and keeps resume unavailable", async () => {
+  it("keeps semantic pause and resume separate from task or turn controls", async () => {
     const user = userEvent.setup()
     const { rerender } = renderActions(
       <RunSupervisionActions
@@ -495,13 +495,11 @@ describe("Factory workflow action strips", () => {
       />,
     )
 
-    const resume = screen.getByRole("button", {
-      name: "Resume supervision unavailable until the canonical lifecycle owner is accepted",
-    })
+    const resume = screen.getByRole("button", { name: "Resume" })
     expect(resume).toBeDisabled()
     expect(resume).toHaveAttribute(
       "title",
-      "Semantic resume requires the canonical resumed lifecycle owner in Block 23.",
+      "Resume is available only for a canonical paused lifecycle.",
     )
     await user.click(screen.getByRole("button", { name: "Pause" }))
 
@@ -514,6 +512,7 @@ describe("Factory workflow action strips", () => {
     expect(await screen.findByText("Canonical paused lifecycle + every exact bound automation PAUSED")).toBeVisible()
     expect(screen.getByText(/Implementation task and turn state/)).toBeVisible()
     expect(screen.getByText(/Partial owner state stays visible/)).toBeVisible()
+    await user.click(screen.getByRole("button", { name: "Close operation preview" }))
 
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const pausedPolicy = {
@@ -536,6 +535,15 @@ describe("Factory workflow action strips", () => {
     )
     expect(screen.getByRole("button", { name: "Paused" })).toBeDisabled()
     expect(screen.queryByRole("button", { name: "Finish pause" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Resume" })).toBeEnabled()
+    await user.click(screen.getByRole("button", { name: "Resume" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledTimes(2))
+    expect(mocks.previewOperation.mock.calls[1][0]).toEqual({
+      operation_type: "factory.supervision-resume",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: {},
+    })
+    await user.click(screen.getByRole("button", { name: "Close operation preview" }))
 
     const partialPausedPolicy = {
       ...pausedPolicy,
@@ -571,6 +579,11 @@ describe("Factory workflow action strips", () => {
     )
     expect(screen.getByRole("button", { name: "Finish pause" })).toBeEnabled()
     expect(screen.queryByRole("button", { name: "Paused" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Resume unavailable" })).toBeDisabled()
+    expect(screen.getByRole("button", { name: "Resume unavailable" })).toHaveAttribute(
+      "title",
+      "Resume requires complete current automation-owner coverage.",
+    )
   })
 
   it("previews one exact policy diff and keeps unbound Gmail cadence unavailable", async () => {

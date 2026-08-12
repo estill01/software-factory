@@ -531,6 +531,90 @@ class OperationsProjectionTests(unittest.TestCase):
             )
         self.assertEqual(stale.exception.code, "lifecycle_source_mismatch")
 
+    def test_resume_gate_projection_validates_exact_owner_envelope_read_only(self) -> None:
+        control = self.service.policy_control_snapshot(TARGET)
+        mission = control["policy"]["mission_binding"]["mission_root"]
+        states = {
+            "watcher-automation-demo": {
+                "automation_id": "watcher-automation-demo",
+                "configuration_sha256": "1" * 64,
+                "manifest_sha256": "2" * 64,
+                "role": "watcher",
+                "rrule": "RRULE:FREQ=MINUTELY;INTERVAL=20",
+                "status": "ACTIVE",
+                "target_thread_id": WATCHER,
+                "updated_at": 1_786_000_000_000,
+            },
+            "reviewer-automation-demo": {
+                "automation_id": "reviewer-automation-demo",
+                "configuration_sha256": "3" * 64,
+                "manifest_sha256": "4" * 64,
+                "role": "reviewer",
+                "rrule": "RRULE:FREQ=HOURLY;INTERVAL=4",
+                "status": "ACTIVE",
+                "target_thread_id": REVIEWER,
+                "updated_at": 1_786_000_001_000,
+            },
+        }
+        payload = {
+            "status": "ready",
+            "eligible": True,
+            "ready_to_finalize": True,
+            "duplicate": False,
+            "action": "resume-finalize",
+            "activate_automation_ids": [],
+            "automation_states": states,
+            "eligibility_root": "5" * 64,
+            "source_currentness_root": "6" * 64,
+            "pause_record_id": "EVT-PAUSE-123",
+            "source_record_id": "EVT-SOURCE-123",
+            "state_fingerprint": "resume-state-123",
+            "group_id": "group-" + "7" * 64,
+            "mission_root": mission,
+            "policy_version": control["policy_version"],
+            "policy_sha256": control["policy_sha256"],
+        }
+        with patch.object(self.service, "_owner_command", return_value=payload) as owner:
+            result = self.service.supervision_resume_gate_snapshot(
+                TARGET,
+                pause_record="EVT-PAUSE-123",
+                source_record="EVT-SOURCE-123",
+                state_fingerprint="resume-state-123",
+            )
+
+        self.assertEqual(result["gate"]["status"], "ready")
+        self.assertRegex(result["currentness"], r"^[0-9a-f]{64}$")
+        self.assertEqual(
+            owner.call_args.args[0],
+            [
+                "resume-gate",
+                "--target-thread",
+                TARGET,
+                "--pause-record",
+                "EVT-PAUSE-123",
+                "--source-record",
+                "EVT-SOURCE-123",
+                "--state-fingerprint",
+                "resume-state-123",
+            ],
+        )
+
+        invalid = {**payload, "activate_automation_ids": ["watcher-automation-demo"]}
+        with (
+            patch.object(self.service, "_owner_command", return_value=invalid),
+            self.assertRaises(OperationsProjectionError) as malformed,
+        ):
+            self.service.supervision_resume_gate_snapshot(
+                TARGET,
+                pause_record="EVT-PAUSE-123",
+                source_record="EVT-SOURCE-123",
+                state_fingerprint="resume-state-123",
+            )
+        self.assertEqual(
+            malformed.exception.code,
+            "supervision_resume_gate_output_invalid",
+        )
+
     def test_mission_bind_preview_uses_ephemeral_owner_and_never_mutates_canonical_policy(self) -> None:
         missing_target = "missing-target-0003"
         source_record = f"codex:{missing_target}:turn-source-001:item-source-001"

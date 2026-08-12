@@ -1159,7 +1159,7 @@ test("automation mismatch exposes one bounded dual-owner repair preview", async 
   await expect(page.getByRole("button", { name: "Repair automation" })).toHaveCount(0)
 })
 
-test("semantic pause previews both owners and leaves resume unavailable", async ({ page, request }) => {
+test("semantic pause previews both owners and keeps resume lifecycle-gated", async ({ page, request }) => {
   const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
   const runResponse = await request.get(`/api/v1/runs/${target}`)
   expect(runResponse.ok()).toBeTruthy()
@@ -1296,13 +1296,11 @@ test("semantic pause previews both owners and leaves resume unavailable", async 
 
   await page.goto(`/runs/${target}`)
   await expect(page.getByRole("button", { name: "Pause" })).toBeEnabled()
-  const resume = page.getByRole("button", {
-    name: "Resume supervision unavailable until the canonical lifecycle owner is accepted",
-  })
+  const resume = page.getByRole("button", { name: "Resume" })
   await expect(resume).toBeDisabled()
   await expect(resume).toHaveAttribute(
     "title",
-    "Semantic resume requires the canonical resumed lifecycle owner in Block 23.",
+    "Resume is available only for a canonical paused lifecycle.",
   )
   await page.getByRole("button", { name: "Pause" }).click()
   const preview = page.getByRole("dialog")
@@ -1330,5 +1328,198 @@ test("semantic pause previews both owners and leaves resume unavailable", async 
   await preview.getByRole("button", { name: "Close operation preview" }).click()
   await page.goto(`/runs/${target}?mission=${predecessor}`)
   await expect(page.getByRole("button", { name: "Pause" })).toHaveCount(0)
-  await expect(page.getByText("Resume unavailable", { exact: true })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Resume" })).toHaveCount(0)
+})
+
+test("semantic resume previews exact owners without resuming the implementation task", async ({ page, request }) => {
+  const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  runEnvelope.data.run.project_binding = {
+    status: "bound",
+    project_id: "software-factory",
+    evidence: [{ source_record: "policy", field: "project_root", value: "/fixture/software_factory" }],
+    limitations: [],
+  }
+  runEnvelope.data.run.lifecycle = {
+    status: "paused",
+    record: {
+      record_id: "EVT-PAUSE-001",
+      timestamp: "2026-08-11T09:00:00Z",
+      kind: "lifecycle",
+      status: "paused",
+      severity: "info",
+      category: "supervision-pause",
+      summary: "Paused exact supervision group.",
+    },
+  }
+  const represented = runEnvelope.data.run.policy.automation_reconciliation.filter(
+    (row: { role: string }) => row.role === "watcher" || row.role === "reviewer",
+  )
+  expect(represented).toHaveLength(2)
+  represented[0].owner_status = "PAUSED"
+  represented[0].state = "partial"
+  represented[1].owner_status = "ACTIVE"
+  represented[1].state = "partial"
+  const predecessor = runEnvelope.data.run.mission_segments.find(
+    (segment: { posture: string }) => segment.posture === "predecessor",
+  )?.mission_root
+  expect(predecessor).toBeTruthy()
+  const operation = {
+    id: "op_e2e_supervision_resume_preview",
+    type: "factory.supervision-resume",
+    target: { kind: "run", id: target, project_id: "software-factory" },
+    state: "previewed",
+    owner: "maintained canonical supervision-resume lifecycle owner + exact Codex automation owner",
+    authority: ["one exact canonically paused supervision group"],
+    preview: {
+      effect: `Resume supervision group group-${"a".repeat(64)} with 2 exact bound automations.`,
+      risk: "Monitoring is current only after every exact automation owner and the canonical resume lifecycle agree; task and turn state remains unchanged.",
+      recipient: "fix-executor-task",
+      semantic_changes: {
+        status: "available",
+        complete: true,
+        rows: [
+          {
+            id: "supervision-resume-lifecycle",
+            subject: "Supervision lifecycle",
+            kind: "changed",
+            before: { posture: "exact", value: "paused" },
+            after: { posture: "exact", value: "resumed" },
+            owner: "maintained canonical supervision-resume lifecycle owner",
+            source_identity: `supervision-lifecycle:${target}`,
+            source_revision: "a".repeat(64),
+            currentness_fingerprint: "b".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "supervision-resume-automation-watcher",
+            subject: "Routine watcher automation",
+            kind: "changed",
+            before: { posture: "exact", value: "PAUSED" },
+            after: { posture: "exact", value: "ACTIVE" },
+            owner: "maintained Codex automation owner",
+            source_identity: "automation:watcher-automation",
+            source_revision: "c".repeat(64),
+            currentness_fingerprint: "b".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "supervision-resume-automation-reviewer",
+            subject: "Effectiveness reviewer automation",
+            kind: "preserved",
+            before: { posture: "exact", value: "ACTIVE" },
+            after: { posture: "exact", value: "ACTIVE" },
+            owner: "maintained Codex automation owner",
+            source_identity: "automation:reviewer-automation",
+            source_revision: "d".repeat(64),
+            currentness_fingerprint: "b".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "supervision-resume-target-task-state",
+            subject: "Implementation task state",
+            kind: "preserved",
+            before: { posture: "exact", value: "active" },
+            after: { posture: "exact", value: "active" },
+            owner: "maintained Codex task reader",
+            source_identity: `codex-task:${target}`,
+            source_revision: "e".repeat(64),
+            currentness_fingerprint: "b".repeat(64),
+            links: [{ label: "Target task", href: `/tasks/${target}` }],
+          },
+        ],
+        limitations: ["Rows are source-backed and read-only."],
+      },
+      source_fingerprint: "b".repeat(64),
+      source_evidence: {
+        group_id: `group-${"a".repeat(64)}`,
+        pause_record: "EVT-PAUSE-001",
+        source_record: "EVT-CHECK-002",
+        state_fingerprint: "state-resume-001",
+        eligibility_root: "f".repeat(64),
+        automation_ids: ["watcher-automation", "reviewer-automation"],
+      },
+      route_gate: {
+        status: "allowed",
+        target_thread: target,
+        recipient: "fix-executor-task",
+        purpose: "fix-execution",
+        source_record: "EVT-CHECK-002",
+        required_action: "Resume exact supervision target through maintained owners.",
+        action_hash: "1".repeat(64),
+        policy_fingerprint: "2".repeat(64),
+        binding_fingerprint: "3".repeat(64),
+      },
+      consequences: {
+        ordinary: ["Only the exact named paused automation owners may be activated, then one canonical resume may be finalized."],
+        failure: ["Partial owner state remains visible without automatic retry."],
+      },
+      confirmation: {
+        class: "supervision-resume",
+        prompt: "Type RESUME SUPERVISION to request this exact group resume.",
+        expected_value: "RESUME SUPERVISION",
+      },
+      expected_postcondition: "Every exact named automation ACTIVE + canonical supervision-resume lifecycle; implementation task state unchanged.",
+      idempotency: "One consumed preview starts at most one fix-executor turn.",
+      limitations: ["App Server task and turn resume remain separate."],
+      expires_at: "2099-08-11T09:30:00.000Z",
+    },
+    history: [{ state: "previewed", observed_at: "2026-08-11T09:25:00.000Z" }],
+    request_evidence: null,
+    verification_evidence: null,
+    links: [],
+    failure: null,
+  }
+  await page.route(`**/api/v1/runs/${target}`, (route) => route.fulfill({ json: runEnvelope }))
+  await page.route("**/api/v1/operations/preview", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({
+      operation_type: "factory.supervision-resume",
+      target: { kind: "run", id: target, project_id: "software-factory" },
+      input: {},
+    })
+    await route.fulfill({
+      json: {
+        data: { operation, preview_token: "r".repeat(32) },
+        source: { kind: "administrative-operation", identity: operation.id, revision: "b".repeat(64) },
+        observed_at: "2026-08-11T09:25:00.000Z",
+        fingerprint: "b".repeat(64),
+        coverage: { status: "partial", observed: ["operation-preview"], missing: ["owner-postcondition"] },
+        limitations: ["Fixture stops before mutation."],
+        error: null,
+      },
+    })
+  })
+
+  await page.goto(`/runs/${target}`)
+  await expect(page.getByRole("button", { name: "Finish resume" })).toBeEnabled()
+  await expect(page.getByRole("button", { name: "Finish pause" })).toBeEnabled()
+  await page.getByRole("button", { name: "Finish resume" }).click()
+  const preview = page.getByRole("dialog")
+  await expect(preview).toContainText("Every exact named automation ACTIVE + canonical supervision-resume lifecycle")
+  await expect(preview).toContainText("Implementation task state")
+  await expect(preview).toContainText("Partial owner state stays visible")
+  await expect(preview).toContainText("RESUME SUPERVISION")
+  const semanticChanges = preview.getByLabel("Owner supplied operation changes")
+  await expect(semanticChanges.getByRole("row", { name: /Supervision lifecycle.*paused.*resumed/ })).toBeVisible()
+  await expect(semanticChanges.getByRole("row", { name: /Routine watcher automation.*PAUSED.*ACTIVE/ })).toBeVisible()
+  await expect(semanticChanges).toContainText("maintained canonical supervision-resume lifecycle owner")
+  await expect(preview.getByRole("button", { name: "Request operation" })).toBeDisabled()
+  const accessibility = await new AxeBuilder({ page }).analyze()
+  expect(
+    accessibility.violations.filter(({ impact }) => (
+      impact === "serious" || impact === "critical"
+    )),
+  ).toEqual([])
+  await expect(page.locator("h1")).toHaveCount(1)
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+  await preview.getByRole("button", { name: "Close operation preview" }).click()
+  await page.goto(`/runs/${target}?mission=${predecessor}`)
+  await expect(page.getByRole("button", { name: "Finish resume" })).toHaveCount(0)
+  await expect(page.getByText("RESUME SUPERVISION", { exact: true })).toHaveCount(0)
 })

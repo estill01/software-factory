@@ -595,6 +595,21 @@ export function RunSupervisionActions({
     && pauseAutomationRows.every((row) => (
       Boolean(row.automation_id) && row.owner_status === "PAUSED"
     ))
+  const resumeSourceAvailable = lifecycleStatus === "paused"
+    && pauseAutomationRows.length >= 2
+    && pauseAutomationRows.every((row) => (
+      Boolean(row.automation_id)
+      && row.state !== "unavailable"
+      && (row.owner_status === "PAUSED" || row.owner_status === "ACTIVE")
+    ))
+  const activeAutomationCount = pauseAutomationRows.filter((row) => (
+    row.owner_status === "ACTIVE"
+  )).length
+  const resumeComplete = lifecycleStatus === "resumed"
+    && pauseAutomationRows.length >= 2
+    && pauseAutomationRows.every((row) => (
+      Boolean(row.automation_id) && row.owner_status === "ACTIVE"
+    ))
   const launchBindingRepair = () => {
     if (!projectId || !missionBindingMissing) return
     runner.launch({
@@ -666,6 +681,24 @@ export function RunSupervisionActions({
       ],
     })
   }
+  const launchResume = () => {
+    if (!projectId || !resumeSourceAvailable || resumeComplete) return
+    runner.launch({
+      request: {
+        operation_type: "factory.supervision-resume",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: {},
+      },
+      suppliedFacts: [
+        ["Group", targetId],
+        ["Lifecycle", "Canonical paused lifecycle"],
+        ["Automation owners", `${activeAutomationCount} active · ${pauseAutomationRows.length - activeAutomationCount} paused · ${pauseAutomationRows.length} exact configured`],
+        ["Preserved", "Implementation task and turn state · policy · mission · bindings"],
+        ["Completion", "Every exact named automation ACTIVE + canonical supervision-resume lifecycle"],
+        ["Recovery", "Partial owner state stays visible · no automatic retry or rollback"],
+      ],
+    })
+  }
   return (
     <>
       <ActionStrip feedback={runner.feedback}>
@@ -706,11 +739,25 @@ export function RunSupervisionActions({
         <Button
           size="compact"
           variant="outline"
-          disabled
-          title="Semantic resume requires the canonical resumed lifecycle owner in Block 23."
-          aria-label="Resume supervision unavailable until the canonical lifecycle owner is accepted"
+          disabled={unavailable || !resumeSourceAvailable || resumeComplete}
+          title={
+            resumeComplete
+              ? "Every exact automation and the canonical resume lifecycle are current."
+              : lifecycleStatus !== "paused"
+                ? "Resume is available only for a canonical paused lifecycle."
+                : !resumeSourceAvailable
+                  ? "Resume requires complete current automation-owner coverage."
+                  : undefined
+          }
+          onClick={launchResume}
         >
-          Resume unavailable
+          {resumeComplete
+            ? "Running"
+            : resumeSourceAvailable && activeAutomationCount > 0
+              ? "Finish resume"
+              : lifecycleStatus === "paused" && !resumeSourceAvailable
+                ? "Resume unavailable"
+                : "Resume"}
         </Button>
         {missionBindingMissing && (
           <Button size="compact" disabled={unavailable} onClick={launchBindingRepair}>Repair binding</Button>
