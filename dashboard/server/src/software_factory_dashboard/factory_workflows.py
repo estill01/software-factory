@@ -21,6 +21,8 @@ from .admin_operations import (
     OperationLink,
     OperationOwnerError,
     OperationRegistry,
+    OperationSemanticChange,
+    OperationSemanticValue,
     OperationTarget,
     PreviewEffect,
     RouteGate,
@@ -461,6 +463,374 @@ class FactoryWorkflowOwner:
         self._binding_repair_dispatch_lock = RLock()
         self._role_binding_repair_dispatch_lock = RLock()
         self._automation_binding_repair_dispatch_lock = RLock()
+
+    @staticmethod
+    def _semantic_exact(value: str | int | float | bool) -> OperationSemanticValue:
+        rendered = value if isinstance(value, str) else _canonical(value)
+        return OperationSemanticValue("exact", rendered)
+
+    @staticmethod
+    def _semantic_unavailable() -> OperationSemanticValue:
+        return OperationSemanticValue("unavailable", None)
+
+    @staticmethod
+    def _semantic_change(
+        *,
+        change_id: str,
+        subject: str,
+        kind: str,
+        before: OperationSemanticValue,
+        after: OperationSemanticValue,
+        owner: str,
+        source_identity: str,
+        source_revision: str,
+        currentness: str,
+        links: tuple[OperationLink, ...],
+    ) -> OperationSemanticChange:
+        return OperationSemanticChange(
+            id=change_id,
+            subject=subject,
+            kind=kind,
+            before=before,
+            after=after,
+            owner=owner,
+            source_identity=source_identity,
+            source_revision=source_revision,
+            currentness_fingerprint=currentness,
+            links=links,
+        )
+
+    @classmethod
+    def _policy_adjust_semantic_changes(
+        cls,
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> tuple[OperationSemanticChange, ...]:
+        evidence = source.evidence
+        policy_revision = str(evidence["prior_policy_sha256"])
+        policy_identity = f"supervision-policy:{target.id}"
+        run_link = (OperationLink("Run", f"/runs/{target.id}"),)
+        rows: list[OperationSemanticChange] = []
+        before = evidence["before"]
+        after = evidence["after"]
+        for field in sorted(evidence["changes"]):
+            rows.append(
+                cls._semantic_change(
+                    change_id=f"policy-{field}",
+                    subject=field.replace("_", " "),
+                    kind="changed",
+                    before=cls._semantic_exact(before[field]),
+                    after=cls._semantic_exact(after[field]),
+                    owner="maintained supervision adjust owner",
+                    source_identity=policy_identity,
+                    source_revision=policy_revision,
+                    currentness=source.fingerprint,
+                    links=run_link,
+                )
+            )
+        for field, value in sorted(evidence["preserved_field_values"].items()):
+            exact = cls._semantic_exact(value)
+            rows.append(
+                cls._semantic_change(
+                    change_id=f"policy-preserved-{field}",
+                    subject=field.replace("_", " "),
+                    kind="preserved",
+                    before=exact,
+                    after=exact,
+                    owner="maintained supervision adjust owner",
+                    source_identity=policy_identity,
+                    source_revision=policy_revision,
+                    currentness=source.fingerprint,
+                    links=run_link,
+                )
+            )
+        for automation in sorted(
+            evidence["affected_automations"],
+            key=lambda item: (str(item["role"]), str(item["automation_id"])),
+        ):
+            expected_rrule = automation.get("expected_rrule")
+            rows.append(
+                cls._semantic_change(
+                    change_id=f"automation-{automation['role']}-schedule",
+                    subject=f"{str(automation['role']).replace('_', ' ')} automation schedule",
+                    kind="changed",
+                    before=(
+                        cls._semantic_exact(str(automation["before_rrule"]))
+                        if isinstance(automation.get("before_rrule"), str)
+                        else cls._semantic_unavailable()
+                    ),
+                    after=(
+                        cls._semantic_exact(expected_rrule)
+                        if isinstance(expected_rrule, str)
+                        else cls._semantic_unavailable()
+                    ),
+                    owner=(
+                        "maintained Gmail cadence owner + Codex automation owner"
+                        if automation.get("expected_rrule_owner")
+                        == "maintained-gmail-cadence"
+                        else "maintained Codex automation owner"
+                    ),
+                    source_identity=f"automation:{automation['automation_id']}",
+                    source_revision=str(automation["before_manifest_sha256"]),
+                    currentness=source.fingerprint,
+                    links=run_link,
+                )
+            )
+        return tuple(rows)
+
+    @classmethod
+    def _mission_binding_semantic_changes(
+        cls,
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> tuple[OperationSemanticChange, ...]:
+        evidence = source.evidence
+        policy_identity = f"supervision-policy:{target.id}"
+        task_identity = f"codex-task:{target.id}"
+        policy_revision = str(evidence["prior_policy_sha256"])
+        currentness = source.fingerprint
+        run_link = (OperationLink("Run", f"/runs/{target.id}"),)
+        task_link = (OperationLink("Target task", f"/tasks/{target.id}"),)
+        tracker_link = (
+            OperationLink("Tracker", f"/trackers/{evidence['tracker_id']}"),
+        )
+        return (
+            cls._semantic_change(
+                change_id="mission-binding",
+                subject="Mission binding",
+                kind="added",
+                before=cls._semantic_unavailable(),
+                after=cls._semantic_exact(str(evidence["expected_mission_root"])),
+                owner="maintained supervision bind/policy owner",
+                source_identity=policy_identity,
+                source_revision=policy_revision,
+                currentness=currentness,
+                links=run_link,
+            ),
+            cls._semantic_change(
+                change_id="mission-policy-version",
+                subject="Policy version",
+                kind="changed",
+                before=cls._semantic_exact(int(evidence["prior_policy_version"])),
+                after=cls._semantic_exact(int(evidence["expected_policy_version"])),
+                owner="maintained supervision bind/policy owner",
+                source_identity=policy_identity,
+                source_revision=policy_revision,
+                currentness=currentness,
+                links=run_link,
+            ),
+            cls._semantic_change(
+                change_id="mission-target-task",
+                subject="Target task identity",
+                kind="preserved",
+                before=cls._semantic_exact(target.id),
+                after=cls._semantic_exact(target.id),
+                owner="maintained Codex task reader",
+                source_identity=task_identity,
+                source_revision=str(
+                    evidence["implementation_binding"]["source_fingerprint"]
+                ),
+                currentness=currentness,
+                links=task_link,
+            ),
+            cls._semantic_change(
+                change_id="mission-tracker-content",
+                subject="Tracker content root",
+                kind="preserved",
+                before=cls._semantic_exact(str(evidence["tracker_content_sha256"])),
+                after=cls._semantic_exact(str(evidence["tracker_content_sha256"])),
+                owner="maintained tracker verifier and Git owner",
+                source_identity=f"tracker:{evidence['tracker_id']}",
+                source_revision=str(evidence["tracker_content_sha256"]),
+                currentness=currentness,
+                links=tracker_link,
+            ),
+            cls._semantic_change(
+                change_id="mission-project-binding",
+                subject="Run project binding",
+                kind="preserved",
+                before=cls._semantic_exact(str(evidence["project_id"])),
+                after=cls._semantic_exact(str(evidence["project_id"])),
+                owner="maintained supervision project-binding projection",
+                source_identity=f"run-project-binding:{target.id}",
+                source_revision=str(evidence["run_project_binding_fingerprint"]),
+                currentness=currentness,
+                links=run_link,
+            ),
+        )
+
+    @classmethod
+    def _role_binding_semantic_changes(
+        cls,
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> tuple[OperationSemanticChange, ...]:
+        evidence = source.evidence
+        policy_identity = f"supervision-policy:{target.id}"
+        policy_revision = str(evidence["prior_policy_sha256"])
+        task_id = str(evidence["expected_task_id"])
+        task_revision = str(evidence["candidate_task"]["fingerprint"])
+        mission_root = str(evidence["mission_binding"]["mission_root"])
+        model = evidence["expected_model"]
+        model_value = f"{model['model']} · {model['reasoning']}"
+        automation_root = fingerprint(evidence["preserved_automations"])
+        currentness = source.fingerprint
+        run_link = (OperationLink("Run", f"/runs/{target.id}"),)
+        task_link = (OperationLink("Role task", f"/tasks/{task_id}"),)
+        return (
+            cls._semantic_change(
+                change_id="role-task-binding",
+                subject=str(evidence["role_label"]),
+                kind="added",
+                before=cls._semantic_unavailable(),
+                after=cls._semantic_exact(task_id),
+                owner="maintained supervision bind/policy owner",
+                source_identity=policy_identity,
+                source_revision=policy_revision,
+                currentness=currentness,
+                links=run_link,
+            ),
+            cls._semantic_change(
+                change_id="role-policy-version",
+                subject="Policy version",
+                kind="changed",
+                before=cls._semantic_exact(int(evidence["prior_policy_version"])),
+                after=cls._semantic_exact(int(evidence["expected_policy_version"])),
+                owner="maintained supervision bind/policy owner",
+                source_identity=policy_identity,
+                source_revision=policy_revision,
+                currentness=currentness,
+                links=run_link,
+            ),
+            cls._semantic_change(
+                change_id="role-candidate-task",
+                subject="Existing role task",
+                kind="preserved",
+                before=cls._semantic_exact(task_id),
+                after=cls._semantic_exact(task_id),
+                owner="maintained Codex task reader",
+                source_identity=f"codex-task:{task_id}",
+                source_revision=task_revision,
+                currentness=currentness,
+                links=task_link,
+            ),
+            cls._semantic_change(
+                change_id="role-model-contract",
+                subject="Task model contract",
+                kind="preserved",
+                before=cls._semantic_exact(model_value),
+                after=cls._semantic_exact(model_value),
+                owner="maintained Codex task reader",
+                source_identity=f"codex-task:{task_id}",
+                source_revision=task_revision,
+                currentness=currentness,
+                links=task_link,
+            ),
+            cls._semantic_change(
+                change_id="role-mission-binding",
+                subject="Mission binding",
+                kind="preserved",
+                before=cls._semantic_exact(mission_root),
+                after=cls._semantic_exact(mission_root),
+                owner="maintained supervision bind/policy owner",
+                source_identity=policy_identity,
+                source_revision=policy_revision,
+                currentness=currentness,
+                links=run_link,
+            ),
+            cls._semantic_change(
+                change_id="role-automation-set",
+                subject="Bound automation manifest set",
+                kind="preserved",
+                before=cls._semantic_exact(automation_root),
+                after=cls._semantic_exact(automation_root),
+                owner="maintained supervision policy projection",
+                source_identity=policy_identity,
+                source_revision=policy_revision,
+                currentness=currentness,
+                links=run_link,
+            ),
+        )
+
+    @classmethod
+    def _automation_binding_semantic_changes(
+        cls,
+        target: OperationTarget,
+        source: SourceSnapshot,
+    ) -> tuple[OperationSemanticChange, ...]:
+        evidence = source.evidence
+        current = evidence["current_automation"]
+        expected = evidence["expected_automation"]
+        mismatches = set(evidence["mismatches"])
+        automation_id = str(expected["id"])
+        automation_identity = f"automation:{automation_id}"
+        automation_revision = str(current["manifest_sha256"])
+        currentness = source.fingerprint
+        run_link = (OperationLink("Run", f"/runs/{target.id}"),)
+        rows: list[OperationSemanticChange] = []
+        for mismatch, field, subject in (
+            ("enabled state differs", "owner_status", "Automation enabled state"),
+            ("role target differs", "target_thread_id", "Automation role target"),
+            ("schedule differs", "rrule", "Automation schedule"),
+        ):
+            if mismatch not in mismatches:
+                continue
+            rows.append(
+                cls._semantic_change(
+                    change_id=f"automation-{field.replace('_', '-')}",
+                    subject=subject,
+                    kind="changed",
+                    before=cls._semantic_exact(str(current[field])),
+                    after=cls._semantic_exact(str(expected[field])),
+                    owner="maintained Codex automation owner",
+                    source_identity=automation_identity,
+                    source_revision=automation_revision,
+                    currentness=currentness,
+                    links=run_link,
+                )
+            )
+        for change_id, subject, value in (
+            ("automation-id", "Automation identity", automation_id),
+            ("automation-kind", "Automation kind", str(current["kind"])),
+            (
+                "automation-protected-fields",
+                "Protected automation fields",
+                str(current["protected_sha256"]),
+            ),
+            ("automation-timezone", "Automation timezone", str(expected["timezone"])),
+        ):
+            exact = cls._semantic_exact(value)
+            rows.append(
+                cls._semantic_change(
+                    change_id=change_id,
+                    subject=subject,
+                    kind="preserved",
+                    before=exact,
+                    after=exact,
+                    owner="maintained Codex automation owner",
+                    source_identity=automation_identity,
+                    source_revision=automation_revision,
+                    currentness=currentness,
+                    links=run_link,
+                )
+            )
+        policy_revision = str(evidence["prior_policy_sha256"])
+        policy_exact = cls._semantic_exact(policy_revision)
+        rows.append(
+            cls._semantic_change(
+                change_id="automation-policy-binding",
+                subject="Canonical policy role binding",
+                kind="preserved",
+                before=policy_exact,
+                after=policy_exact,
+                owner="maintained supervision policy/bind owner",
+                source_identity=f"supervision-policy:{target.id}",
+                source_revision=policy_revision,
+                currentness=currentness,
+                links=run_link,
+            )
+        )
+        return tuple(rows)
 
     def registry(self) -> OperationRegistry:
         return OperationRegistry(
@@ -4930,6 +5300,10 @@ class FactoryWorkflowOwner:
                     f"{'s' if len(source.evidence['affected_automations']) != 1 else ''}; no automatic rollback occurs."
                 ),
                 recipient=str(source.evidence["reviewer_task_id"]),
+                semantic_changes=self._policy_adjust_semantic_changes(
+                    target,
+                    source,
+                ),
             ),
             route_gate_request=self._policy_adjust_route_request,
             route_gate=self.route_gate,
@@ -6071,6 +6445,10 @@ class FactoryWorkflowOwner:
                 f"Request independent review of one missing mission binding candidate for run {target.id}.",
                 "Only after independent authority verification may the maintained owner add one mission binding and next policy-history record; target and tracker identity must remain unchanged.",
                 recipient=str(source.evidence["reviewer_task_id"]),
+                semantic_changes=self._mission_binding_semantic_changes(
+                    target,
+                    source,
+                ),
             ),
             route_gate_request=self._binding_repair_route_request,
             route_gate=self.route_gate,
@@ -6781,6 +7159,10 @@ class FactoryWorkflowOwner:
                     f"{source.evidence['role_label']} role for run {target.id}."
                 ),
                 "One canonical policy version may be created; no task or automation is created, resumed, messaged, or relabeled.",
+                semantic_changes=self._role_binding_semantic_changes(
+                    target,
+                    source,
+                ),
             ),
             dispatch=dispatch,
             verify=verify,
@@ -7528,6 +7910,10 @@ class FactoryWorkflowOwner:
                     "the canonical policy binding must remain byte-identical and no rollback is automatic."
                 ),
                 recipient=str(source.evidence["fix_executor_task_id"]),
+                semantic_changes=self._automation_binding_semantic_changes(
+                    target,
+                    source,
+                ),
             ),
             route_gate_request=self._automation_binding_repair_route_request,
             route_gate=self.route_gate,

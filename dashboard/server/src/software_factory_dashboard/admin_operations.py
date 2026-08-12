@@ -46,6 +46,7 @@ SENSITIVE_VALUE_PATTERN = re.compile(
     re.I,
 )
 MAX_ACTIVITY_RECORDS = 200
+MAX_SEMANTIC_CHANGES = 32
 
 
 class OperationError(RuntimeError):
@@ -248,6 +249,7 @@ class PreviewEffect:
     summary: str
     risk: str
     recipient: str | None = None
+    semantic_changes: tuple[OperationSemanticChange, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.summary.strip() or not self.risk.strip():
@@ -256,6 +258,17 @@ class PreviewEffect:
             raise ValueError("Preview effect and risk must be bounded")
         if self.recipient is not None and not self.recipient.strip():
             raise ValueError("Preview recipient cannot be empty")
+        if (
+            not isinstance(self.semantic_changes, tuple)
+            or len(self.semantic_changes) > MAX_SEMANTIC_CHANGES
+            or not all(
+                isinstance(change, OperationSemanticChange)
+                for change in self.semantic_changes
+            )
+            or len({change.id for change in self.semantic_changes})
+            != len(self.semantic_changes)
+        ):
+            raise ValueError("Preview semantic changes must be unique and bounded")
 
 
 @dataclass(frozen=True)
@@ -279,6 +292,99 @@ class OperationLink:
     def __post_init__(self) -> None:
         if len(self.label) > 120 or len(self.href) > 2_000:
             raise ValueError("Operation links must be bounded")
+
+
+@dataclass(frozen=True)
+class OperationSemanticValue:
+    posture: str
+    value: str | None
+
+    def __post_init__(self) -> None:
+        if self.posture not in {"exact", "unavailable", "redacted", "not-applicable"}:
+            raise ValueError("Semantic value posture is invalid")
+        if self.posture == "exact":
+            if (
+                not isinstance(self.value, str)
+                or not self.value
+                or len(self.value) > 500
+                or _redact(self.value) != self.value
+            ):
+                raise ValueError("Exact semantic values must be public and bounded")
+        elif self.value is not None:
+            raise ValueError("Non-exact semantic values cannot carry a value")
+
+    def as_dict(self) -> dict[str, str | None]:
+        return {"posture": self.posture, "value": self.value}
+
+
+@dataclass(frozen=True)
+class OperationSemanticChange:
+    id: str
+    subject: str
+    kind: str
+    before: OperationSemanticValue
+    after: OperationSemanticValue
+    owner: str
+    source_identity: str
+    source_revision: str
+    currentness_fingerprint: str
+    links: tuple[OperationLink, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not IDENTITY_PATTERN.fullmatch(self.id):
+            raise ValueError("Semantic change ID is invalid")
+        if self.kind not in {"added", "removed", "changed", "preserved"}:
+            raise ValueError("Semantic change kind is invalid")
+        if (
+            (self.kind == "added" and not (
+                self.before.posture != "exact" and self.after.posture == "exact"
+            ))
+            or (self.kind == "removed" and not (
+                self.before.posture == "exact" and self.after.posture != "exact"
+            ))
+            or (self.kind == "preserved" and not (
+                self.before.posture == "exact"
+                and self.after.posture == "exact"
+                and self.before.value == self.after.value
+            ))
+            or (self.kind == "changed" and self.before == self.after)
+        ):
+            raise ValueError("Semantic change kind contradicts its before and after values")
+        if not all(
+            isinstance(value, str)
+            and value.strip()
+            and len(value) <= maximum
+            and _redact(value) == value
+            for value, maximum in (
+                (self.subject, 200),
+                (self.owner, 300),
+                (self.source_identity, 400),
+            )
+        ):
+            raise ValueError("Semantic change labels must be public and bounded")
+        if not SHA256_PATTERN.fullmatch(self.source_revision) or not SHA256_PATTERN.fullmatch(
+            self.currentness_fingerprint
+        ):
+            raise ValueError("Semantic change revisions must be exact SHA-256 values")
+        if len(self.links) > 2 or not all(isinstance(link, OperationLink) for link in self.links):
+            raise ValueError("Semantic change links must be bounded")
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "subject": self.subject,
+            "kind": self.kind,
+            "before": self.before.as_dict(),
+            "after": self.after.as_dict(),
+            "owner": self.owner,
+            "source_identity": self.source_identity,
+            "source_revision": self.source_revision,
+            "currentness_fingerprint": self.currentness_fingerprint,
+            "links": [
+                {"label": link.label, "href": link.href}
+                for link in self.links
+            ],
+        }
 
 
 @dataclass(frozen=True)
@@ -509,6 +615,13 @@ class OperationCoordinator:
         try:
             source = definition.resolve_source(target, inputs)
             effect = definition.describe_effect(target, inputs, source)
+            self._validated_links(
+                tuple(
+                    link
+                    for change in effect.semantic_changes
+                    for link in change.links
+                )
+            )
             route_request = (
                 definition.route_gate_request(target, inputs, source)
                 if definition.route_gate_request is not None
@@ -1121,6 +1234,27 @@ class OperationCoordinator:
                 ),
                 "binding_fingerprint": fingerprint(route_binding) if route_binding else None,
             }
+        semantic_changes = (
+            {
+                "status": "available",
+                "complete": True,
+                "rows": _redact(
+                    [change.as_dict() for change in record.effect.semantic_changes]
+                ),
+                "limitations": [
+                    "Rows are owner-supplied from the exact preview snapshot and read-only; they do not establish an applied postcondition."
+                ],
+            }
+            if record.effect.semantic_changes
+            else {
+                "status": "unavailable",
+                "complete": False,
+                "rows": [],
+                "limitations": [
+                    "No owner-supplied semantic comparison is registered for this operation."
+                ],
+            }
+        )
         return {
             "id": record.operation_id,
             "type": record.definition.operation_type,
@@ -1132,6 +1266,7 @@ class OperationCoordinator:
                 "effect": _redact(record.effect.summary),
                 "risk": _redact(record.effect.risk),
                 "recipient": record.effect.recipient,
+                "semantic_changes": semantic_changes,
                 "source_fingerprint": record.source.fingerprint,
                 "source_evidence": _redact(record.source.evidence),
                 "route_gate": route_gate,

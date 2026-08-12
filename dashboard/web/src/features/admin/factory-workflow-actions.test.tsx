@@ -123,6 +123,12 @@ function previewEnvelope(type: string): OperationPreviewEnvelope {
           effect: "Create one exact owner task.",
           risk: "The exact owner may change the registered repository.",
           recipient: null,
+          semantic_changes: {
+            status: "unavailable",
+            complete: false,
+            rows: [],
+            limitations: ["No owner-supplied semantic comparison is registered for this operation."],
+          },
           source_fingerprint: hash,
           source_evidence: {},
           route_gate: {

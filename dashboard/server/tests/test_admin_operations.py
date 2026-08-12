@@ -15,6 +15,8 @@ from software_factory_dashboard.admin_operations import (
     OperationLink,
     OperationOwnerError,
     OperationRegistry,
+    OperationSemanticChange,
+    OperationSemanticValue,
     OperationTarget,
     PreviewEffect,
     RouteGateRequest,
@@ -314,6 +316,102 @@ class AdministrativeOperationTests(unittest.TestCase):
             self.coordinator.execute(execute_payload(preview, request))
         self.assertEqual(raised.exception.code, "preview_token_replayed")
         self.assertEqual(self.owner.dispatches, 1)
+
+    def test_semantic_preview_rows_are_owner_supplied_bounded_and_link_safe(self) -> None:
+        def effect(
+            target: OperationTarget,
+            inputs: dict[str, Any],
+            source: SourceSnapshot,
+        ) -> PreviewEffect:
+            return PreviewEffect(
+                summary=f"Set {target.id} to {inputs['value']}",
+                risk="Changes only the deterministic in-memory test owner.",
+                recipient="test-recipient",
+                semantic_changes=(
+                    OperationSemanticChange(
+                        id="fixture-value",
+                        subject="Fixture value",
+                        kind="changed",
+                        before=OperationSemanticValue("exact", "initial"),
+                        after=OperationSemanticValue("exact", inputs["value"]),
+                        owner="tests/deterministic-owner",
+                        source_identity=f"test-fixture:{target.id}",
+                        source_revision=source.fingerprint,
+                        currentness_fingerprint=source.fingerprint,
+                        links=(OperationLink("Fixture", "/admin"),),
+                    ),
+                ),
+            )
+
+        coordinator = OperationCoordinator(
+            OperationRegistry((replace(test_definition(self.owner), describe_effect=effect),)),
+            preview_ttl_seconds=2,
+            monotonic_clock=self.clock.monotonic,
+            wall_clock=self.clock.wall,
+            sleeper=self.clock.sleep,
+        )
+        semantic = coordinator.preview(preview_payload())["operation"]["preview"][
+            "semantic_changes"
+        ]
+
+        self.assertEqual(semantic["status"], "available")
+        self.assertTrue(semantic["complete"])
+        self.assertEqual(semantic["rows"][0]["kind"], "changed")
+        self.assertEqual(semantic["rows"][0]["before"]["value"], "initial")
+        self.assertEqual(semantic["rows"][0]["after"]["value"], "next")
+        self.assertEqual(semantic["rows"][0]["links"], [{"label": "Fixture", "href": "/admin"}])
+
+        removed = OperationSemanticChange(
+            id="fixture-legacy",
+            subject="Legacy fixture value",
+            kind="removed",
+            before=OperationSemanticValue("exact", "legacy"),
+            after=OperationSemanticValue("not-applicable", None),
+            owner="tests/deterministic-owner",
+            source_identity="test-fixture:fixture-1",
+            source_revision="a" * 64,
+            currentness_fingerprint="b" * 64,
+        )
+        self.assertEqual(removed.as_dict()["after"]["posture"], "not-applicable")
+        with self.assertRaises(ValueError):
+            OperationSemanticChange(
+                id="fixture-invalid",
+                subject="Invalid preserved value",
+                kind="preserved",
+                before=OperationSemanticValue("exact", "before"),
+                after=OperationSemanticValue("exact", "after"),
+                owner="tests/deterministic-owner",
+                source_identity="test-fixture:fixture-1",
+                source_revision="a" * 64,
+                currentness_fingerprint="b" * 64,
+            )
+        with self.assertRaises(ValueError):
+            OperationSemanticValue("exact", "token=private")
+
+        def unsafe_effect(
+            target: OperationTarget,
+            inputs: dict[str, Any],
+            source: SourceSnapshot,
+        ) -> PreviewEffect:
+            safe = effect(target, inputs, source)
+            unsafe = replace(
+                safe.semantic_changes[0],
+                links=(OperationLink("Unsafe", "/safe/../admin"),),
+            )
+            return replace(safe, semantic_changes=(unsafe,))
+
+        unsafe_coordinator = OperationCoordinator(
+            OperationRegistry(
+                (replace(test_definition(self.owner), describe_effect=unsafe_effect),)
+            ),
+            preview_ttl_seconds=2,
+            monotonic_clock=self.clock.monotonic,
+            wall_clock=self.clock.wall,
+            sleeper=self.clock.sleep,
+        )
+        with self.assertRaises(OperationError) as unsafe:
+            unsafe_coordinator.preview(preview_payload())
+        self.assertEqual(unsafe.exception.code, "operation_preview_unavailable")
 
     def test_changed_target_input_confirmation_and_extra_fields_fail_closed(self) -> None:
         request = preview_payload()

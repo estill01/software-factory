@@ -654,6 +654,37 @@ test("missing mission binding exposes only the source-derived repair preview", a
       effect: `Request independent review of one missing mission binding candidate for run ${target}.`,
       risk: "Only after independent authority verification may the maintained owner add one mission binding and next policy-history record; target and tracker identity must remain unchanged.",
       recipient: "019fe54d-acd4-7653-825e-4d710eaeae7b",
+      semantic_changes: {
+        status: "available",
+        complete: true,
+        rows: [
+          {
+            id: "mission-binding",
+            subject: "Mission binding",
+            kind: "added",
+            before: { posture: "unavailable", value: null },
+            after: { posture: "exact", value: "7".repeat(64) },
+            owner: "maintained supervision bind/policy owner",
+            source_identity: `supervision-policy:${target}`,
+            source_revision: "8".repeat(64),
+            currentness_fingerprint: "8".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "mission-target-task",
+            subject: "Target task identity",
+            kind: "preserved",
+            before: { posture: "exact", value: target },
+            after: { posture: "exact", value: target },
+            owner: "maintained Codex task reader",
+            source_identity: `codex-task:${target}`,
+            source_revision: "8".repeat(64),
+            currentness_fingerprint: "8".repeat(64),
+            links: [{ label: "Target task", href: `/tasks/${target}` }],
+          },
+        ],
+        limitations: ["Rows are owner-supplied from the exact preview snapshot and read-only."],
+      },
       source_fingerprint: "8".repeat(64),
       source_evidence: {
         source_record: "EVT-000139",
@@ -721,9 +752,11 @@ test("missing mission binding exposes only the source-derived repair preview", a
     })
   })
 
+  await page.emulateMedia({ reducedMotion: "reduce" })
   await page.goto(`/runs/${target}`)
   const repair = page.getByRole("button", { name: "Repair binding" })
   await expect(repair).toBeEnabled()
+  await page.getByRole("button", { name: /Switch to (light|dark) mode/ }).click()
   await repair.click()
   const preview = page.getByRole("dialog")
   await expect(preview).toContainText("Missing mission binding only")
@@ -739,6 +772,12 @@ test("missing mission binding exposes only the source-derived repair preview", a
   await expect(preview).toContainText("Current path and content root")
   await expect(preview).toContainText("semantic-escalation")
   await expect(preview).toContainText("target and tracker identity must remain unchanged")
+  const semanticChanges = preview.getByLabel("Owner supplied operation changes")
+  await expect(semanticChanges).toContainText("Added")
+  await expect(semanticChanges).toContainText("Preserved")
+  await expect(semanticChanges).toContainText("maintained supervision bind/policy owner")
+  await expect(semanticChanges.getByRole("link", { name: "Target task" })).toHaveAttribute("href", `/tasks/${target}`)
+  await expect(semanticChanges.locator("button")).toHaveCount(0)
   await expect(preview.getByRole("button", { name: "Request operation" })).toBeDisabled()
   await expect(page.locator("h1")).toHaveCount(1)
   const dimensions = await page.evaluate(() => ({
@@ -802,6 +841,23 @@ test("missing role binding exposes one exact prior-task repair preview", async (
       effect: `Assign task ${candidate} to the missing Notice reviewer role for run ${target}.`,
       risk: "One canonical policy version may be created; no task or automation is created, resumed, messaged, or relabeled.",
       recipient: null,
+      semantic_changes: {
+        status: "available",
+        complete: true,
+        rows: [{
+          id: "role-task-binding",
+          subject: "Notice reviewer",
+          kind: "added",
+          before: { posture: "unavailable", value: null },
+          after: { posture: "exact", value: candidate },
+          owner: "maintained supervision bind/policy owner",
+          source_identity: `supervision-policy:${target}`,
+          source_revision: "4".repeat(64),
+          currentness_fingerprint: "4".repeat(64),
+          links: [{ label: "Role task", href: `/tasks/${candidate}` }],
+        }],
+        limitations: ["Rows are owner-supplied from the exact preview snapshot and read-only."],
+      },
       source_fingerprint: "4".repeat(64),
       source_evidence: {
         role: "notice_reviewer",
@@ -884,6 +940,7 @@ test("missing role binding exposes one exact prior-task repair preview", async (
   await expect(preview).toContainText("gpt-5.6-sol · xhigh")
   await expect(preview).toContainText("incident-review")
   await expect(preview).toContainText("no create, resume, turn, or relabel")
+  await expect(preview.getByLabel("Owner supplied operation changes")).toContainText("Added")
   await expect(preview.getByRole("button", { name: "Request operation" })).toBeDisabled()
   await expect(page.locator("h1")).toHaveCount(1)
   const dimensions = await page.evaluate(() => ({
@@ -940,6 +997,37 @@ test("automation mismatch exposes one bounded dual-owner repair preview", async 
       effect: `Repair Routine watcher automation ${watcher.automation_id} for run ${target}.`,
       risk: "One existing automation may change; the canonical policy must remain byte-identical.",
       recipient: "fix-executor-task",
+      semantic_changes: {
+        status: "available",
+        complete: true,
+        rows: [
+          {
+            id: "automation-owner-status",
+            subject: "Automation enabled state",
+            kind: "changed",
+            before: { posture: "exact", value: "PAUSED" },
+            after: { posture: "exact", value: "ACTIVE" },
+            owner: "maintained Codex automation owner",
+            source_identity: `automation:${watcher.automation_id}`,
+            source_revision: "a".repeat(64),
+            currentness_fingerprint: "a".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+          {
+            id: "automation-policy-binding",
+            subject: "Canonical policy role binding",
+            kind: "preserved",
+            before: { posture: "exact", value: "c".repeat(64) },
+            after: { posture: "exact", value: "c".repeat(64) },
+            owner: "maintained supervision policy/bind owner",
+            source_identity: `supervision-policy:${target}`,
+            source_revision: "c".repeat(64),
+            currentness_fingerprint: "a".repeat(64),
+            links: [{ label: "Run", href: `/runs/${target}` }],
+          },
+        ],
+        limitations: ["Rows are owner-supplied from the exact preview snapshot and read-only."],
+      },
       source_fingerprint: "a".repeat(64),
       source_evidence: {
         role: "watcher",
@@ -1024,6 +1112,10 @@ test("automation mismatch exposes one bounded dual-owner repair preview", async 
   await expect(preview).toContainText("Named automation + canonical policy binding")
   await expect(preview).toContainText("No automatic retry or rollback")
   await expect(preview).toContainText("REPAIR AUTOMATION")
+  const semanticChanges = preview.getByLabel("Owner supplied operation changes")
+  await expect(semanticChanges).toContainText("Changed")
+  await expect(semanticChanges).toContainText("Preserved")
+  await expect(semanticChanges).toContainText("maintained Codex automation owner")
   await expect(preview.getByRole("button", { name: "Request operation" })).toBeDisabled()
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(

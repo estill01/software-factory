@@ -425,7 +425,8 @@
   white-space: pre;
 }
 
-.tracker-semantic-diff {
+.tracker-semantic-diff,
+.operation-semantic-diff {
   display: grid;
   gap: 0;
   overflow: hidden;
@@ -480,6 +481,7 @@
 .semantic-diff-row-added { background: color-mix(in srgb, var(--green-soft) 52%, transparent); }
 .semantic-diff-row-removed { background: color-mix(in srgb, var(--red-soft) 50%, transparent); }
 .semantic-diff-row-changed { background: color-mix(in srgb, var(--amber-soft) 47%, transparent); }
+.semantic-diff-row-preserved { background: color-mix(in srgb, var(--panel-subtle) 62%, transparent); }
 
 .semantic-diff-kind {
   display: inline-flex;
@@ -502,6 +504,7 @@
 .semantic-diff-kind-added { color: var(--green); }
 .semantic-diff-kind-removed { color: var(--red); }
 .semantic-diff-kind-changed { color: var(--amber-contrast); }
+.semantic-diff-kind-preserved { color: var(--text-soft); }
 
 .semantic-diff-dot {
   width: 0.34rem;
@@ -568,6 +571,68 @@
   padding: 0.42rem 1.45rem;
   color: var(--text-faint);
   font-size: 0.56rem;
+}
+
+.operation-semantic-diff {
+  border-width: 0 0 1px;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.operation-semantic-diff table {
+  min-width: 58rem;
+}
+
+.semantic-diff-subject-column { width: 17%; }
+.semantic-diff-operation-value-column { width: 15%; }
+.semantic-diff-operation-source-column { width: 39%; }
+
+.semantic-diff-value {
+  overflow-wrap: anywhere;
+  font-size: 0.64rem;
+}
+
+.semantic-diff-value-exact {
+  color: var(--text);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  white-space: pre-wrap;
+}
+
+.semantic-diff-value-unavailable,
+.semantic-diff-value-redacted,
+.semantic-diff-value-not-applicable {
+  color: var(--text-faint);
+  font-style: italic;
+}
+
+.operation-semantic-source {
+  display: grid;
+  min-width: 0;
+  gap: 0.2rem;
+  color: var(--text-faint);
+  font-size: 0.56rem;
+  line-height: 1.4;
+}
+
+.operation-semantic-source strong {
+  color: var(--text-soft);
+  font-size: 0.61rem;
+}
+
+.operation-semantic-source span,
+.operation-semantic-source code {
+  overflow-wrap: anywhere;
+}
+
+.operation-semantic-source code {
+  font-size: inherit;
+}
+
+.operation-semantic-unavailable {
+  border-bottom: 1px solid var(--border);
+  padding: 0.55rem 0.8rem;
+  color: var(--text-faint);
+  font-size: 0.62rem;
 }
 
 .table-scroll {

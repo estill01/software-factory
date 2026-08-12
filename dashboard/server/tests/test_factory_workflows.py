@@ -1547,6 +1547,21 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(source.evidence["before"], {"routine_minutes": 20})
         self.assertEqual(source.evidence["after"], {"routine_minutes": 25})
         self.assertEqual(len(source.evidence["affected_automations"]), 1)
+        semantic = {
+            row.id: row
+            for row in definition.describe_effect(target, inputs, source).semantic_changes
+        }
+        self.assertEqual(semantic["policy-routine_minutes"].kind, "changed")
+        self.assertEqual(semantic["policy-routine_minutes"].before.value, "20")
+        self.assertEqual(semantic["policy-routine_minutes"].after.value, "25")
+        self.assertEqual(
+            semantic["automation-watcher-schedule"].after.value,
+            "RRULE:FREQ=MINUTELY;INTERVAL=25",
+        )
+        self.assertEqual(
+            semantic["policy-preserved-meta_review_hours"].kind,
+            "preserved",
+        )
         route = definition.route_gate_request(target, inputs, source)
         self.assertEqual(route.purpose, "semantic-escalation")
         self.assertEqual(route.recipient, reviewer_task["id"])
@@ -1686,6 +1701,22 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             "maintained-gmail-cadence",
         )
         self.assertIsNone(gmail_automation["expected_rrule"])
+        gmail_semantic = {
+            row.id: row
+            for row in definition.describe_effect(
+                target,
+                gmail_inputs,
+                gmail_source,
+            ).semantic_changes
+        }
+        self.assertEqual(
+            gmail_semantic["automation-gmail_gate-schedule"].after.posture,
+            "unavailable",
+        )
+        self.assertIn(
+            "Gmail cadence owner",
+            gmail_semantic["automation-gmail_gate-schedule"].owner,
+        )
         gmail_dispatched = definition.dispatch(target, gmail_inputs, gmail_source)
         gmail_next_policy = _policy_after_changes(
             current_policy,
@@ -2013,6 +2044,19 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(
             source.evidence["expected_automation"]["timezone"],
             "not-applicable-to-interval-schedule",
+        )
+        semantic = {
+            row.id: row
+            for row in definition.describe_effect(target, inputs, source).semantic_changes
+        }
+        self.assertEqual(semantic["automation-owner-status"].kind, "changed")
+        self.assertEqual(semantic["automation-owner-status"].before.value, "PAUSED")
+        self.assertEqual(semantic["automation-owner-status"].after.value, "ACTIVE")
+        self.assertEqual(semantic["automation-protected-fields"].kind, "preserved")
+        self.assertEqual(semantic["automation-policy-binding"].kind, "preserved")
+        self.assertNotEqual(
+            semantic["automation-policy-binding"].owner,
+            semantic["automation-owner-status"].owner,
         )
         route = definition.route_gate_request(target, inputs, source)
         self.assertEqual(route.purpose, "fix-execution")
@@ -2414,6 +2458,18 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(source.evidence["repair_scope"], "missing-mission-binding-only")
         self.assertEqual(source.evidence["tracker_content_sha256"], tracker_content)
         self.assertEqual(source.evidence["mission_source_sha256"], source_sha)
+        semantic = {
+            row.id: row
+            for row in definition.describe_effect(target, {}, source).semantic_changes
+        }
+        self.assertEqual(semantic["mission-binding"].kind, "added")
+        self.assertEqual(semantic["mission-binding"].before.posture, "unavailable")
+        self.assertEqual(
+            semantic["mission-binding"].after.value,
+            expected_mission["mission_root"],
+        )
+        self.assertEqual(semantic["mission-target-task"].kind, "preserved")
+        self.assertEqual(semantic["mission-tracker-content"].kind, "preserved")
         self.assertEqual(
             source.evidence["mission_source_envelope_sha256"],
             source_envelope_sha,
@@ -2939,6 +2995,15 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
             source.evidence["observed_model_and_effort"]["reasoning"],
             "xhigh",
         )
+        semantic = {
+            row.id: row
+            for row in definition.describe_effect(target, inputs, source).semantic_changes
+        }
+        self.assertEqual(semantic["role-task-binding"].kind, "added")
+        self.assertEqual(semantic["role-task-binding"].before.posture, "unavailable")
+        self.assertEqual(semantic["role-task-binding"].after.value, candidate_id)
+        self.assertEqual(semantic["role-candidate-task"].kind, "preserved")
+        self.assertEqual(semantic["role-automation-set"].kind, "preserved")
         self.assertIsNone(definition.route_gate_request)
 
         candidate_task["turns"] = [

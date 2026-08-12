@@ -22,6 +22,23 @@ const operation = {
     effect: "Set fixture-1 to next",
     risk: "Changes an in-memory fixture.",
     recipient: "test-recipient",
+    semantic_changes: {
+      status: "available",
+      complete: true,
+      rows: [{
+        id: "fixture-value",
+        subject: "Fixture value",
+        kind: "changed",
+        before: { posture: "exact", value: "initial" },
+        after: { posture: "exact", value: "next" },
+        owner: "tests/deterministic-owner",
+        source_identity: "test-fixture:fixture-1",
+        source_revision: hash,
+        currentness_fingerprint: hash,
+        links: [{ label: "Fixture", href: "/admin" }],
+      }],
+      limitations: ["Read-only owner-supplied comparison."],
+    },
     source_fingerprint: hash,
     source_evidence: { version: 1 },
     route_gate: {
@@ -85,7 +102,39 @@ describe("administrative operation API", () => {
       ...envelopeMetadata,
     })
     expect(parsed.data.framework.activity[0].state).toBe("previewed")
+    expect(parsed.data.framework.activity[0].preview.semantic_changes.rows[0].kind).toBe("changed")
     expect(() => operationRecordSchema.parse({ ...operation, command: "arbitrary" })).toThrow()
+  })
+
+  it("rejects contradictory semantic rows, false availability, and unsafe source links", () => {
+    const row = operation.preview.semantic_changes.rows[0]
+    const withChanges = (semantic_changes: unknown) => ({
+      ...operation,
+      preview: { ...operation.preview, semantic_changes },
+    })
+
+    expect(() => operationRecordSchema.parse(withChanges({
+      ...operation.preview.semantic_changes,
+      rows: [{ ...row, kind: "preserved", after: { posture: "exact", value: "different" } }],
+    }))).toThrow()
+    expect(() => operationRecordSchema.parse(withChanges({
+      status: "unavailable",
+      complete: false,
+      rows: [row],
+      limitations: ["Unavailable cannot retain rows."],
+    }))).toThrow()
+    expect(() => operationRecordSchema.parse(withChanges({
+      ...operation.preview.semantic_changes,
+      rows: [{ ...row, links: [{ label: "Unsafe", href: "/safe/%2e%2e/admin" }] }],
+    }))).toThrow()
+    expect(() => operationRecordSchema.parse(withChanges({
+      ...operation.preview.semantic_changes,
+      rows: [{ ...row, currentness_fingerprint: "not-exact" }],
+    }))).toThrow()
+    expect(() => operationRecordSchema.parse(withChanges({
+      ...operation.preview.semantic_changes,
+      rows: [row, row],
+    }))).toThrow()
   })
 
   it("sends the nonce and only the typed preview and execution fields", async () => {

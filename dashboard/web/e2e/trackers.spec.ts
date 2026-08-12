@@ -249,6 +249,12 @@ test("factory workflow controls stay compact and preview exact owner scope", asy
       effect: `Create one independent read-only tracker review task for ${summary.relative_path}.`,
       risk: "The task reads exact tracker and Git sources but receives no edit authorization.",
       recipient: null,
+      semantic_changes: {
+        status: "unavailable",
+        complete: false,
+        rows: [],
+        limitations: ["No owner-supplied semantic comparison is registered for this operation."],
+      },
       source_fingerprint: sourceFingerprint,
       source_evidence: { tracker_path: summary.relative_path },
       route_gate: {

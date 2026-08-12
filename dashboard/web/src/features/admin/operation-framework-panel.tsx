@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowUpRight, ShieldCheck, X } from "lucide-react"
 import { useEffect, useState } from "react"
 
 import { Button } from "@/components/ui/button"
+import { OperationSemanticDiffTable } from "@/components/operation-semantic-diff"
 import { Identity, QueryState, StatusMark, TimeValue } from "@/components/workspace-ui"
 import {
   fetchOperationFramework,
@@ -60,6 +61,12 @@ export function OperationConfirmationDialog({
     : null
   const isBindingRepair = operation.type === "factory.supervision-repair-mission-binding"
   const isRoleBindingRepair = operation.type === "factory.supervision-repair-role-task-binding"
+  const hasSemanticPreview = [
+    "factory.supervision-adjust",
+    "factory.supervision-repair-mission-binding",
+    "factory.supervision-repair-role-task-binding",
+    "factory.supervision-repair-automation-binding",
+  ].includes(operation.type)
   const bindingSourceRecord = isBindingRepair
     && typeof sourceEvidence.mission_source_record === "string"
     ? sourceEvidence.mission_source_record
@@ -182,6 +189,10 @@ export function OperationConfirmationDialog({
           {incidentId && <div><dt>Incident</dt><dd><Identity value={incidentId} /></dd></div>}
           <div><dt>Expires</dt><dd><TimeValue value={operation.preview.expires_at} /></dd></div>
         </dl>
+
+        {hasSemanticPreview ? (
+          <OperationSemanticDiffTable changes={operation.preview.semantic_changes} />
+        ) : null}
 
         <div className="operation-preview-consequences">
           <div><strong>Risk</strong><p>{operation.preview.risk}</p></div>

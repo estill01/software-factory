@@ -19,12 +19,89 @@ export const operationTargetSchema = z
   })
   .strict()
 
+const internalOperationHrefSchema = z
+  .string()
+  .max(2_000)
+  .regex(/^\/(?:[A-Za-z0-9._~:@-]+(?:\/[A-Za-z0-9._~:@-]+)*)?$/)
+  .refine((href) => !href.split("/").some((segment) => segment === "." || segment === ".."), {
+    message: "Operation links must remain inside the dashboard.",
+  })
+
 const operationLinkSchema = z
   .object({
-    label: z.string().min(1),
-    href: z.string().startsWith("/"),
+    label: z.string().min(1).max(120),
+    href: internalOperationHrefSchema,
   })
   .strict()
+
+const operationSemanticValueSchema = z
+  .object({
+    posture: z.enum(["exact", "unavailable", "redacted", "not-applicable"]),
+    value: z.string().min(1).max(500).nullable(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if ((value.posture === "exact") !== (value.value !== null)) {
+      context.addIssue({
+        code: "custom",
+        message: "Only exact semantic values may carry text.",
+      })
+    }
+  })
+
+export const operationSemanticChangeSchema = z
+  .object({
+    id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/),
+    subject: z.string().min(1).max(200),
+    kind: z.enum(["added", "removed", "changed", "preserved"]),
+    before: operationSemanticValueSchema,
+    after: operationSemanticValueSchema,
+    owner: z.string().min(1).max(300),
+    source_identity: z.string().min(1).max(400),
+    source_revision: fingerprintSchema,
+    currentness_fingerprint: fingerprintSchema,
+    links: z.array(operationLinkSchema).max(2),
+  })
+  .strict()
+  .superRefine((row, context) => {
+    const same = row.before.posture === row.after.posture
+      && row.before.value === row.after.value
+    const valid = row.kind === "added"
+      ? row.before.posture !== "exact" && row.after.posture === "exact"
+      : row.kind === "removed"
+        ? row.before.posture === "exact" && row.after.posture !== "exact"
+        : row.kind === "preserved"
+          ? row.before.posture === "exact" && row.after.posture === "exact" && same
+          : !same
+    if (!valid) {
+      context.addIssue({
+        code: "custom",
+        message: "Semantic change kind contradicts its before and after values.",
+      })
+    }
+  })
+
+export const operationSemanticChangesSchema = z
+  .object({
+    status: z.enum(["available", "unavailable"]),
+    complete: z.boolean(),
+    rows: z.array(operationSemanticChangeSchema).max(32),
+    limitations: z.array(z.string().min(1).max(500)).min(1).max(4),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const available = value.status === "available"
+    if (
+      available !== value.complete
+      || available !== (value.rows.length > 0)
+      || new Set(value.rows.map((row) => row.id)).size !== value.rows.length
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Semantic comparison availability, completeness, and row identity disagree.",
+      })
+    }
+  })
 
 const routeGateSchema = z
   .object({
@@ -45,6 +122,7 @@ const operationPreviewSchema = z
     effect: z.string().min(1),
     risk: z.string().min(1),
     recipient: z.string().nullable(),
+    semantic_changes: operationSemanticChangesSchema,
     source_fingerprint: fingerprintSchema,
     source_evidence: jsonObjectSchema,
     route_gate: routeGateSchema,
@@ -187,6 +265,7 @@ export const operationExecuteRequestSchema = operationPreviewRequestSchema
   .strict()
 
 export type OperationRecord = z.infer<typeof operationRecordSchema>
+export type OperationSemanticChanges = z.infer<typeof operationSemanticChangesSchema>
 export type OperationPreviewRequest = z.infer<typeof operationPreviewRequestSchema>
 export type OperationPreviewEnvelope = z.infer<typeof operationPreviewEnvelopeSchema>
 export type OperationFrameworkEnvelope = z.infer<typeof operationFrameworkEnvelopeSchema>

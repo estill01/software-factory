@@ -27,6 +27,12 @@ const operation = {
     effect: "Set fixture-1 to next",
     risk: "Changes only the fixture.",
     recipient: "test-recipient",
+    semantic_changes: {
+      status: "unavailable" as const,
+      complete: false,
+      rows: [],
+      limitations: ["No owner-supplied semantic comparison is registered for this operation."],
+    },
     source_fingerprint: hash,
     source_evidence: { version: 1 },
     route_gate: {
@@ -124,6 +130,107 @@ describe("administrative operation UI", () => {
     expect(screen.getByText("The fixture reports next.")).toBeVisible()
     expect(screen.getByText("deterministic-owner-proof")).toBeVisible()
     expect(screen.queryByText(/workflow complete/i)).not.toBeInTheDocument()
+  })
+
+  it("renders owner-supplied semantic changes as a compact read-only source table", () => {
+    const semanticOperation = {
+      ...operation,
+      type: "factory.supervision-adjust",
+      preview: {
+        ...operation.preview,
+        semantic_changes: {
+          status: "available" as const,
+          complete: true,
+          rows: [
+            {
+              id: "reviewer-role",
+              subject: "Reviewer role",
+              kind: "added" as const,
+              before: { posture: "unavailable" as const, value: null },
+              after: { posture: "exact" as const, value: "reviewer-task-1" },
+              owner: "maintained supervision bind owner",
+              source_identity: "supervision-policy:fixture-1",
+              source_revision: hash,
+              currentness_fingerprint: hash,
+              links: [],
+            },
+            {
+              id: "fixture-value",
+              subject: "Routine interval",
+              kind: "changed" as const,
+              before: { posture: "exact" as const, value: "20" },
+              after: { posture: "exact" as const, value: "25" },
+              owner: "maintained supervision adjust owner",
+              source_identity: "supervision-policy:fixture-1",
+              source_revision: hash,
+              currentness_fingerprint: hash,
+              links: [{ label: "Run", href: "/runs/fixture-1" }],
+            },
+            {
+              id: "legacy-route",
+              subject: "Legacy route",
+              kind: "removed" as const,
+              before: { posture: "exact" as const, value: "legacy-review" },
+              after: { posture: "not-applicable" as const, value: null },
+              owner: "maintained supervision route owner",
+              source_identity: "supervision-policy:fixture-1",
+              source_revision: hash,
+              currentness_fingerprint: hash,
+              links: [],
+            },
+            {
+              id: "protected-input-posture",
+              subject: "Protected input posture",
+              kind: "changed" as const,
+              before: { posture: "redacted" as const, value: null },
+              after: { posture: "exact" as const, value: "owner-managed" },
+              owner: "maintained supervision policy owner with a deliberately long public identity",
+              source_identity: `supervision-policy:${"long-source-identity-".repeat(10)}`,
+              source_revision: hash,
+              currentness_fingerprint: hash,
+              links: [],
+            },
+            {
+              id: "project-binding",
+              subject: "Project binding",
+              kind: "preserved" as const,
+              before: { posture: "exact" as const, value: "test" },
+              after: { posture: "exact" as const, value: "test" },
+              owner: "maintained supervision policy projection",
+              source_identity: "run-project-binding:fixture-1",
+              source_revision: hash,
+              currentness_fingerprint: hash,
+              links: [],
+            },
+          ],
+          limitations: ["Rows are owner-supplied and read-only."],
+        },
+      },
+    }
+
+    render(
+      <OperationConfirmationDialog
+        preview={{ ...frameworkEnvelope, data: { operation: semanticOperation, preview_token: "p".repeat(32) } }}
+        request={{ operation_type: semanticOperation.type, target: semanticOperation.target, input: {} }}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    )
+
+    const table = screen.getByLabelText("Owner supplied operation changes")
+    expect(table).toHaveTextContent("Added")
+    expect(table).toHaveTextContent("Removed")
+    expect(table).toHaveTextContent("Changed")
+    expect(table).toHaveTextContent("Preserved")
+    expect(table).toHaveTextContent("Unavailable")
+    expect(table).toHaveTextContent("Redacted")
+    expect(table).toHaveTextContent("Not applicable")
+    expect(table).toHaveTextContent("Routine interval")
+    expect(table).toHaveTextContent("20")
+    expect(table).toHaveTextContent("25")
+    expect(table).toHaveTextContent("maintained supervision adjust owner")
+    expect(screen.getByRole("link", { name: "Run" })).toHaveAttribute("href", "/runs/fixture-1")
+    expect(table.querySelector("button")).toBeNull()
   })
 
   it("shows exact role-task and route facts for a binding repair preview", () => {
