@@ -263,7 +263,7 @@ class ControlPostureReplayTests(unittest.TestCase):
                 expected_transition_head = {
                     "replay-1": "EVT-000001",
                     "replay-2": "EVT-000001",
-                    "replay-3": "EVT-000003",
+                    "replay-3": "EVT-000004",
                 }
                 self.assertEqual(
                     first["open_transition_records"],
@@ -274,12 +274,12 @@ class ControlPostureReplayTests(unittest.TestCase):
                 self.assertEqual(first["open_decision_records"], [])
                 self.assertEqual(
                     first["reconciled_decisions"][0]["correction_record_id"],
-                    "EVT-000004",
+                    "EVT-000005",
                 )
             else:
                 self.assertEqual(
                     first["completion_candidates"][0]["completion_record_id"],
-                    "EVT-000005",
+                    "EVT-000006",
                 )
         self.assertEqual(first["required_target_posture"], "completed")
 

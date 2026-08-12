@@ -43,11 +43,14 @@ the completed program materially changes Software Factory.
   canonical direct-authority correction of the exact successor-topology premise
   now retires the matching safe-deferral posture in the shared governing-outcome
   reducer immediately. The relation is mission-, source-, state-, lineage-, and
-  currentness-bound; unrelated later evidence remains ineligible. A new
+  currentness-bound: the transition genesis must predate and be cited by the
+  decision-ready record, and exactly one cited lineage may match. Unrelated or
+  ambiguous later evidence remains ineligible. A new
   append-only `corrected` decision phase preserves the explicit history while
   the target continues without user scheduling or a manual Resume. The public
   replay and focused decision/control regressions cover automatic convergence,
-  exact correction recording, and mismatched-source/state rejection.
+  exact correction recording, and mismatched-source/state, uncited-later, and
+  ambiguous-lineage rejection.
 
 - **Reviewed three-skill releases with one-pointer activation.** Mutable
   repository work no longer changes installed Codex behavior by default. A

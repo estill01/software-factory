@@ -335,7 +335,9 @@ Repeat independently for additional targets.
   explicit `corrected` decision record from that same authority, but do not keep
   the target blocked while waiting for the bookkeeping append. Mismatched
   mission, source, state fingerprint, transition lineage, or authority remains
-  blocking; a generic later event is never enough.
+  blocking. The exact transition genesis must predate and be cited by the
+  decision-ready record, and the cited matching lineage must be unique; a
+  generic, uncited, later-created, or ambiguous event is never enough.
 - Treat every unresolved Important/Critical notice as an incident, not a
   terminal notification. Route it immediately to the event-driven Sol XHigh
   notice reviewer. A corrective steer changes the incident to

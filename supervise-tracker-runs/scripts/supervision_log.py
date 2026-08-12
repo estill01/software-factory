@@ -9635,12 +9635,13 @@ def decision_successor_reconciliation(
     """Resolve a stale topology deferral from a later canonical correction.
 
     A successor-transition correction is sufficient only when it closes the
-    exact transition premise that produced the decision: same mission, source,
-    and frozen state fingerprint, followed later in the canonical ledger by a
-    current direct-authority correction that resumes the governing outcome in
-    the same task.  This lets the reducer converge immediately while preserving
-    both histories; the watcher can then append the explicit decision correction
-    without leaving the target blocked in the interim.
+    exact transition premise that produced the decision: the transition genesis
+    predates and is cited by the decision-ready record, has the same mission,
+    source, and frozen state fingerprint, and is followed later in the canonical
+    ledger by a current direct-authority correction that resumes the governing
+    outcome in the same task.  This lets the reducer converge immediately while
+    preserving both histories; the watcher can then append the explicit decision
+    correction without leaving the target blocked in the interim.
     """
     if not decision_can_block(head, policy):
         return None
@@ -9648,12 +9649,32 @@ def decision_successor_reconciliation(
         decision_position = all_events.index(head)
     except ValueError:
         return None
+    decision_id = head.get("decision_id")
+    if not isinstance(decision_id, str):
+        return None
+    decision_lineage = decision_events(all_events, decision_id)
+    decision_ready = next(
+        (item for item in decision_lineage if item.get("phase") == "decision-ready"),
+        None,
+    )
+    if decision_ready is None:
+        return None
+    try:
+        decision_ready_position = all_events.index(decision_ready)
+    except ValueError:
+        return None
+    if decision_ready_position >= decision_position:
+        return None
+    decision_ready_evidence = decision_ready.get("evidence")
+    if not isinstance(decision_ready_evidence, list):
+        return None
     transition_ids = {
         str(item.get("transition_id"))
         for item in all_events
         if item.get("kind") == "successor-transition"
         and isinstance(item.get("transition_id"), str)
     }
+    matches: list[dict[str, Any]] = []
     for transition_id in sorted(transition_ids):
         records = successor_transition_events(all_events, transition_id)
         if len(records) < 2:
@@ -9661,10 +9682,15 @@ def decision_successor_reconciliation(
         first = records[0]
         correction = records[-1]
         try:
+            first_position = all_events.index(first)
             correction_position = all_events.index(correction)
         except ValueError:
             continue
-        if correction_position <= decision_position:
+        if (
+            first_position >= decision_ready_position
+            or first.get("record_id") not in decision_ready_evidence
+            or correction_position <= decision_position
+        ):
             continue
         if (
             first.get("phase") != "required"
@@ -9696,15 +9722,17 @@ def decision_successor_reconciliation(
         evidence = correction.get("evidence")
         if not isinstance(evidence, list) or not evidence:
             continue
-        return {
-            "decision_record_id": head.get("record_id"),
-            "transition_id": transition_id,
-            "transition_genesis_record_id": first.get("record_id"),
-            "correction_record_id": correction.get("record_id"),
-            "correction_phase": correction.get("phase"),
-            "governing_outcome_effect": "continue-governing-outcome",
-        }
-    return None
+        matches.append(
+            {
+                "decision_record_id": head.get("record_id"),
+                "transition_id": transition_id,
+                "transition_genesis_record_id": first.get("record_id"),
+                "correction_record_id": correction.get("record_id"),
+                "correction_phase": correction.get("phase"),
+                "governing_outcome_effect": "continue-governing-outcome",
+            }
+        )
+    return matches[0] if len(matches) == 1 else None
 
 
 def decision_head_is_open(

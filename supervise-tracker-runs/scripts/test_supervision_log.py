@@ -3398,8 +3398,26 @@ class ControlPostureReducerTests(unittest.TestCase):
             "governing_authority_source_class": "tracker",
             "governing_authority_source_record": authority_record,
         }
-        decision = {
+        decision_ready = {
             "record_id": "EVT-000002",
+            "kind": "decision",
+            "decision_id": "DEC-RECONCILIATION-1234",
+            "phase": "decision-ready",
+            "classification": "reserved-authority",
+            "outcome": "",
+            "safe_frontier": "empty",
+            "state_fingerprint": "state-topology-1234",
+            "mission_root": self.owner_mission,
+            "authority_source_class": "tracker",
+            "authority_source_record": authority_record,
+            "impact_class": "goal-blocking",
+            "ordinary_means_disabled": True,
+            "independent_mission_review": True,
+            "evidence": ["EVT-000001"],
+        }
+        decision = {
+            **decision_ready,
+            "record_id": "EVT-000003",
             "kind": "decision",
             "decision_id": "DEC-RECONCILIATION-1234",
             "phase": "target-acknowledged",
@@ -3416,7 +3434,7 @@ class ControlPostureReducerTests(unittest.TestCase):
         }
         correction = {
             **transition,
-            "record_id": "EVT-000003",
+            "record_id": "EVT-000004",
             "phase": "corrected",
             "prior_record_id": "EVT-000001",
             "correction_authority_source_class": "tracker",
@@ -3425,7 +3443,7 @@ class ControlPostureReducerTests(unittest.TestCase):
             "governing_outcome_effect": "continue-same-task",
             "evidence": ["current-direct-correction-1234"],
         }
-        for record in (transition, decision, correction):
+        for record in (transition, decision_ready, decision, correction):
             self.append(directory, record)
 
         result = self.reduce(directory, policy)
@@ -3436,7 +3454,7 @@ class ControlPostureReducerTests(unittest.TestCase):
         self.assertEqual(result["blocking_decision_records"], [])
         self.assertEqual(
             result["reconciled_decisions"][0]["correction_record_id"],
-            "EVT-000003",
+            "EVT-000004",
         )
         self.assertEqual(
             result["reconciled_decisions"][0]["reconciliation_posture"],
@@ -3451,6 +3469,10 @@ class ControlPostureReducerTests(unittest.TestCase):
         for record in (
             {**transition, "governing_authority_source_record": mismatch_authority},
             {
+                **decision_ready,
+                "authority_source_record": mismatch_authority,
+            },
+            {
                 **decision,
                 "authority_source_record": mismatch_authority,
                 "state_fingerprint": "different-decision-state-1234",
@@ -3464,6 +3486,133 @@ class ControlPostureReducerTests(unittest.TestCase):
         mismatch = self.reduce(mismatch_directory, mismatch_policy)
         self.assertEqual(mismatch["required_target_posture"], "blocked")
         self.assertEqual(mismatch["reconciled_decisions"], [])
+
+    def test_later_uncited_transition_cannot_reconcile_safe_deferral(self) -> None:
+        target = "owner-later-transition-1234"
+        directory, policy = self.create_target(target, self.owner_mission)
+        authority_record = f"mission-{target}"
+        decision_ready = {
+            "record_id": "EVT-000001",
+            "kind": "decision",
+            "decision_id": "DEC-LATER-TRANSITION-1234",
+            "phase": "decision-ready",
+            "classification": "reserved-authority",
+            "outcome": "",
+            "safe_frontier": "empty",
+            "state_fingerprint": "state-later-transition-1234",
+            "mission_root": self.owner_mission,
+            "authority_source_class": "tracker",
+            "authority_source_record": authority_record,
+            "impact_class": "goal-blocking",
+            "ordinary_means_disabled": True,
+            "independent_mission_review": True,
+            "evidence": ["missing-transition-premise-1234"],
+        }
+        decision = {
+            **decision_ready,
+            "record_id": "EVT-000002",
+            "phase": "target-acknowledged",
+            "outcome": "safe-deferred",
+        }
+        transition = {
+            "record_id": "EVT-000003",
+            "kind": "successor-transition",
+            "transition_id": "TRANSITION-LATER-1234",
+            "phase": "required",
+            "tracker_sha256": "c" * 64,
+            "source_mission_root": self.owner_mission,
+            "state_fingerprint": "state-later-transition-1234",
+            "governing_authority_source_class": "tracker",
+            "governing_authority_source_record": authority_record,
+        }
+        correction = {
+            **transition,
+            "record_id": "EVT-000004",
+            "phase": "corrected",
+            "prior_record_id": "EVT-000003",
+            "correction_authority_source_class": "tracker",
+            "correction_authority_source_record": authority_record,
+            "correction_authority_source_sha256": self.owner_mission,
+            "governing_outcome_effect": "continue-same-task",
+            "evidence": ["current-direct-correction-1234"],
+        }
+        for record in (decision_ready, decision, transition, correction):
+            self.append(directory, record)
+
+        result = self.reduce(directory, policy)
+
+        self.assertEqual(result["required_target_posture"], "blocked")
+        self.assertEqual(result["open_decision_records"], ["EVT-000002"])
+        self.assertEqual(result["blocking_decision_records"], ["EVT-000002"])
+        self.assertEqual(result["reconciled_decisions"], [])
+
+    def test_ambiguous_cited_transition_lineage_cannot_reconcile_safe_deferral(
+        self,
+    ) -> None:
+        target = "owner-ambiguous-transition-1234"
+        directory, policy = self.create_target(target, self.owner_mission)
+        authority_record = f"mission-{target}"
+        transitions = []
+        for index in (1, 2):
+            transitions.append(
+                {
+                    "record_id": f"EVT-00000{index}",
+                    "kind": "successor-transition",
+                    "transition_id": f"TRANSITION-AMBIGUOUS-{index}-1234",
+                    "phase": "required",
+                    "tracker_sha256": "c" * 64,
+                    "source_mission_root": self.owner_mission,
+                    "state_fingerprint": "state-ambiguous-transition-1234",
+                    "governing_authority_source_class": "tracker",
+                    "governing_authority_source_record": authority_record,
+                }
+            )
+        decision_ready = {
+            "record_id": "EVT-000003",
+            "kind": "decision",
+            "decision_id": "DEC-AMBIGUOUS-TRANSITION-1234",
+            "phase": "decision-ready",
+            "classification": "reserved-authority",
+            "outcome": "",
+            "safe_frontier": "empty",
+            "state_fingerprint": "state-ambiguous-transition-1234",
+            "mission_root": self.owner_mission,
+            "authority_source_class": "tracker",
+            "authority_source_record": authority_record,
+            "impact_class": "goal-blocking",
+            "ordinary_means_disabled": True,
+            "independent_mission_review": True,
+            "evidence": ["EVT-000001", "EVT-000002"],
+        }
+        decision = {
+            **decision_ready,
+            "record_id": "EVT-000004",
+            "phase": "target-acknowledged",
+            "outcome": "safe-deferred",
+        }
+        corrections = []
+        for index, transition in enumerate(transitions, start=5):
+            corrections.append(
+                {
+                    **transition,
+                    "record_id": f"EVT-00000{index}",
+                    "phase": "corrected",
+                    "prior_record_id": transition["record_id"],
+                    "correction_authority_source_class": "tracker",
+                    "correction_authority_source_record": authority_record,
+                    "correction_authority_source_sha256": self.owner_mission,
+                    "governing_outcome_effect": "continue-same-task",
+                    "evidence": ["current-direct-correction-1234"],
+                }
+            )
+        for record in (*transitions, decision_ready, decision, *corrections):
+            self.append(directory, record)
+
+        result = self.reduce(directory, policy)
+
+        self.assertEqual(result["required_target_posture"], "blocked")
+        self.assertEqual(result["blocking_decision_records"], ["EVT-000004"])
+        self.assertEqual(result["reconciled_decisions"], [])
 
     def test_cyclic_successor_membership_fails_into_reconciliation(self) -> None:
         directory, policy = self.create_target(self.owner, self.owner_mission)
