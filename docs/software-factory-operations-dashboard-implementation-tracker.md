@@ -6160,6 +6160,51 @@ affected operation family plus shared schema/component proof.
   read-only adaptation of that component. Blocks 22-29 remain unopened; no
   pause/resume, continuity, reporting, evolution, lifecycle, new operation,
   owner dispatch, or mutation is started.
+- Product-capability decision: the selected bounded-general path extends the
+  existing operation preview snapshot with at most 32 owner-produced semantic
+  rows and reuses the accepted local Diff Table grammar. A smaller browser-side
+  comparison was rejected because it would infer changes from prose or stale
+  snapshots; a larger generic diff service was rejected because no supported
+  owner or additional operation needs it. The existing preview token, expiry,
+  route gate, typed confirmation, canonical postcondition, operation owner,
+  and direct-write prohibitions remain protected and unchanged. The exact
+  target-product capability frame remains 3,511 bytes at SHA-256
+  `736124301d439cf6f143bb8013d53f085e9f3f4748df35451ef1bce5df0d8857`.
+- Candidate product: commit
+  `dc83a8b31f4e5f3ec2ebdb629f8dbdb26b503822`, tree
+  `2feaf1fb030c19245e36ede4e23f78767f66ffc2`, parent activation evidence
+  `29a1093d5c3ae8eda0789333e66558fdf01b93a8`, pushed with local/upstream
+  divergence `0 0`. The existing coordinator now validates and publishes a
+  closed exact/unavailable/redacted/not-applicable semantic-row contract. The
+  four supported maintained owners populate added/changed/preserved scope from
+  their already-read preview snapshot, including separate automation and
+  policy owner rows. Unsupported operations publish explicit unavailable
+  comparison coverage; the browser only formats the typed envelope.
+- Supplied-source provenance: the compact table starts from Beautiful UI's
+  supplied `components/DiffTable.tsx` baseline at
+  `https://beautiful-ui-five.vercel.app/`, frozen SHA-256
+  `aef76b9473debb1abf8cb3b8fe9cf71cfacd4b13ba03916932b1dd41f3007ab2`.
+  The adaptation retains its fixed-column table, semantic row tinting, status
+  dots, and explicit change cues while removing demo data, timers, staged
+  actions, and menu semantics; it adds typed value postures, exact owner/source
+  revisions/currentness, safe internal links, keyboard-scroll containment,
+  and no row action or editor. It adds no explanatory page heading.
+- Candidate validation: Ruff and `git diff --check` passed. The affected
+  backend modules passed 28/28 serially with `ResourceWarning` fatal; one
+  earlier contended HTTP invocation timed out and its exact test passed 1/1 in
+  isolation before the clean full rerun. The full frontend passed 99/99 with
+  invocation-scoped `--maxWorkers=1`; its default parallel invocation had only
+  unrelated five-second test timeouts, and no harness change was made.
+  TypeScript and production build passed. Focused Playwright produced eight
+  valid passes across desktop/tablet/mobile; one tablet enablement wait raced
+  the live App Server, and the invocation-order-only retry passed 1/1. The
+  exact browser proof covers all three viewports, dark mode, reduced motion,
+  keyboard-scroll semantics, Axe in the dual-owner preview, source links,
+  non-color labels, no component buttons, and no document overflow. The
+  full-profile verifier reports 30 Blocks with 0 errors/warnings and its tests
+  pass 30/30. The exact product server restarted on loopback port 8787; live
+  health is `ok` and its closed registry exposes 19 operation definitions with
+  no persisted activity or inferred result.
 
 ### Stop
 
