@@ -6918,6 +6918,39 @@ segment. Do not scan unrelated groups or retry automatically.
   Block 25 is limited to one same-target mission succession through the
   maintained owner; Block 26 and later operations remain unopened, and no live
   mission succession has been previewed or requested.
+- Capability review and owner boundary: the implementation reuses the exact
+  maintained `mission-successor`, policy-history, mission-activation, mission-
+  scoped event, Codex task, and route-gate owners. One complete ordinary user
+  item is content/envelope/client bound but remains authority-unverified until
+  the independent reviewer verifies the direct bytes, material difference, and
+  predecessor disposition. The dashboard neither adds a mission registry nor
+  calls `bind`, creates a task/group, or writes policy, history, events, or
+  automations directly. The applied boundary is one new active policy binding
+  plus one pending first-work activation; it does not claim work-start or
+  implementation completion.
+- Product candidate: commit
+  `c853b17b976947d7e7eeb7889c0a419c298023fe`, tree
+  `eaf6121875c38f90d4d70b2affa7b30b914cee70`, parent Block 25 activation
+  `8ae7abc2c2de53eb826d0a16b4440f182e78a8e6`, pushed with local/upstream
+  divergence `0 0`. The nine-file bounded product/test delta adds the exact
+  mission-history and successor-plan projections, one closed typed operation,
+  complete policy-history-prefix and active-root postcondition checks, a compact
+  current-run action/dialog and semantic before/after rows, predecessor-mode
+  exclusion, and truth labels for independent review, pending activation, and
+  no successor task/work-start claim. Older predecessor `superseded_by` links
+  are preserved rather than rewritten to the newest mission.
+- Candidate proof: the full backend suite passed 132/132 with
+  `ResourceWarning` fatal; the affected workflow/projection suites passed 56/56;
+  Ruff passed; the full frontend passed 103/103 serially; TypeScript and the
+  production build passed. Focused Playwright passed 3/3 across desktop,
+  tablet, and mobile with exact request/semantic-row assertions, predecessor
+  exclusion, Axe serious/critical checks, one `h1`, and no horizontal overflow.
+  The full-profile verifier reports all 32 Blocks with 0 errors/warnings and its
+  tests pass 30/30; diff checks pass. The restarted loopback runtime on port
+  8787 reports complete healthy coverage and exposes the supported successor
+  descriptor among 22 closed registry entries. No live mission succession,
+  owner dispatch, policy/history/event mutation, task creation, or target work
+  start was attempted.
 
 ### Stop
 
