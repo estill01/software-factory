@@ -3935,8 +3935,15 @@ gate, atomic diff, live installed path, and current effects.
   the original activation fields with the later release-owner snapshot. The
   correction requires the post-state activation record ID/HMAC to equal the
   exact owner result before append and rejects duplicate rehydration when the
-  candidate has multiple activation records. Exact successor review remains
-  pending.
+  candidate has multiple activation records.
+- Exact review accepted `e39a9b4b8f394bbed20ff81fe9dafa600be7e586`
+  with focused `8/8`; direct release-owner `19/19`, adoption orchestration
+  `6/6`, author `42/42`, three validators, full tracker verification,
+  compilation, and diff checks passed. The broader supervision suite then
+  exposed `B15-F03`: direct staged-action callers without newly optional
+  release-input attributes raised before their unchanged flows. The narrow
+  correction treats absent optional attributes as not supplied and adds a
+  direct-call regression. Exact successor review remains pending.
 
 ### Stop
 

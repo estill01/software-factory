@@ -212,6 +212,11 @@ class FactoryEvolutionCliTests(unittest.TestCase):
             supervision_log.cmd_factory_evolution(self.args(action, **overrides))
         return json.loads(output.getvalue())
 
+    def test_absent_optional_release_inputs_preserve_staged_actions(self) -> None:
+        self.assertNotIn("release_review_evidence", vars(self.args("prepare")))
+        prepared = self.prepare()
+        self.assertEqual(prepared["action"], "prepare")
+
     @property
     def artifact_directory(self) -> Path:
         return (

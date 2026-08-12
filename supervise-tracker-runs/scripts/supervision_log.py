@@ -19525,8 +19525,10 @@ def cmd_factory_evolution_admit(args: argparse.Namespace) -> None:
 
 
 def cmd_factory_evolution(args: argparse.Namespace) -> None:
+    release_review_evidence = getattr(args, "release_review_evidence", None)
+    quiescent_evidence = getattr(args, "quiescent_evidence", None)
     if args.action != "orchestrate" and (
-        args.release_review_evidence or args.quiescent_evidence
+        release_review_evidence or quiescent_evidence
     ):
         raise SupervisionLogError(
             "Factory evolution release inputs require adoption orchestration"
@@ -19555,7 +19557,7 @@ def cmd_factory_evolution(args: argparse.Namespace) -> None:
             "Factory evolution cycle actions do not accept staged producer inputs"
         )
     if args.action == "status":
-        if args.release_review_evidence or args.quiescent_evidence:
+        if release_review_evidence or quiescent_evidence:
             raise SupervisionLogError(
                 "Factory evolution status does not accept release inputs"
             )
@@ -19569,7 +19571,7 @@ def cmd_factory_evolution(args: argparse.Namespace) -> None:
         cmd_factory_evolution_orchestrate(args)
         return
     if args.action == "acknowledge":
-        if args.release_review_evidence or args.quiescent_evidence:
+        if release_review_evidence or quiescent_evidence:
             raise SupervisionLogError(
                 "Factory evolution acknowledgment does not accept release inputs"
             )
