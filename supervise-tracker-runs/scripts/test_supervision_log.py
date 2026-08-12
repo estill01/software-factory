@@ -795,6 +795,113 @@ class ResumeLifecycleOwnerTests(unittest.TestCase):
         ):
             self.run_gate()
 
+    def test_rehashed_ineligible_source_is_not_canonical_or_projected(self) -> None:
+        self.activate("watcher", "reviewer")
+        gate = self.run_gate()
+        self.run_finalize(str(gate["eligibility_root"]))
+
+        ledger = self.directory / "events.jsonl"
+        pause, source, resume = (
+            dict(item) for item in supervision_log.events(ledger)
+        )
+        source.update(
+            {
+                "status": "resumed",
+                "category": "thread-resume",
+                "model": "codex-app-server",
+                "reasoning": "deterministic",
+            }
+        )
+        source.pop("record_sha256")
+        source["record_sha256"] = supervision_log.digest(source)
+        self.assertFalse(supervision_log.is_eligible_resume_source(source))
+
+        source_material = supervision_log.resume_source_currentness_material(
+            target_thread_id=str(resume["target_thread_id"]),
+            group_id=str(resume["group_id"]),
+            mission_root=str(resume["mission_root"]),
+            mission_source_record=str(resume["mission_source_record"]),
+            policy_version=int(resume["policy_version"]),
+            policy_sha256=str(resume["policy_sha256"]),
+            policy_history_head=str(resume["policy_history_head"]),
+            policy_history_count=int(resume["policy_history_count"]),
+            event_head=str(source["record_sha256"]),
+            event_count=2,
+            pause_record=pause,
+            source_record=source,
+        )
+        source_currentness_root = supervision_log.digest(source_material)
+        eligibility_root = supervision_log.digest(
+            {
+                "kind": "supervision-resume-eligibility",
+                "contract_version": resume["resume_contract_version"],
+                "source_currentness_root": source_currentness_root,
+                "automation_expectations": resume["automation_expectations"],
+                "automation_configuration_roots": resume[
+                    "automation_configuration_roots"
+                ],
+            }
+        )
+        resume.update(
+            {
+                "source_record_sha256": source["record_sha256"],
+                "source_currentness_root": source_currentness_root,
+                "eligibility_root": eligibility_root,
+                "resume_id": "resume-"
+                + supervision_log.digest(
+                    {
+                        "target_thread_id": resume["target_thread_id"],
+                        "pause_record_id": resume["pause_record_id"],
+                        "eligibility_root": eligibility_root,
+                    }
+                ),
+                "previous_record_sha256": source["record_sha256"],
+            }
+        )
+        resume.pop("record_sha256")
+        resume["record_sha256"] = supervision_log.digest(resume)
+        ledger.write_bytes(
+            b"\n".join(supervision_log.canonical(item) for item in (pause, source, resume))
+            + b"\n"
+        )
+
+        all_events = supervision_log.events(ledger)
+        history = supervision_log.events(self.directory / "policy-history.jsonl")
+        self.assertFalse(
+            supervision_log.supervision_resume_record_is_canonical(
+                all_events[-1], all_events, history
+            )
+        )
+
+        status_output = io.StringIO()
+        status_args = supervision_log.parser().parse_args(
+            ["--root", str(self.root), "status", "--target-thread", self.target]
+        )
+        with redirect_stdout(status_output):
+            supervision_log.cmd_status(status_args)
+        status = json.loads(status_output.getvalue())
+        self.assertIsNone(status["last_supervision_resume"])
+        self.assertEqual(
+            status["current_supervision_pause"]["record_id"], self.pause_record
+        )
+
+        report_output = io.StringIO()
+        report_args = argparse.Namespace(
+            root=str(self.root),
+            target_thread=self.target,
+            start="2026-08-11T11:00:00+00:00",
+            end="2026-08-12T06:00:00+00:00",
+            days=7,
+            since_inception=False,
+        )
+        with redirect_stdout(report_output):
+            supervision_log.cmd_weekly_report_prepare(report_args)
+        prepared = json.loads(report_output.getvalue())
+        metrics = json.loads(Path(prepared["metrics_path"]).read_text())
+        interval = metrics["availability"]["explicit_pause_intervals"][0]
+        self.assertEqual(interval["pause_record_id"], self.pause_record)
+        self.assertIsNone(interval["resume_record_id"])
+
     def test_stale_active_owner_and_hash_chain_corruption_are_rejected(self) -> None:
         self.write_automation("watcher", "ACTIVE", self.pause_ms - 1_000)
         with self.assertRaisesRegex(
