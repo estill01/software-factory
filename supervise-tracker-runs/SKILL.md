@@ -555,11 +555,16 @@ reserved deferrals, safe frontier, and application posture.
   preserve unrelated state, stage only the plan-bound files, and commit each
   coherent validated candidate before exact-change review. A rejected candidate
   remains immutable; remediation is a successor commit. After Sol Max accepts
-  the exact commit, push it non-force to the existing unambiguous upstream before
-  refreshing active roles. If the repository, upstream, authentication, or
-  policy is unavailable, preserve the local commit and report the concrete
-  durability blocker. A supervisor may never create, select among ambiguous,
-  rewrite, or force-push a remote.
+  the exact commit, normally attempt a non-force push to the existing unambiguous
+  upstream. Remote publication and the independently signed, rollback-safe local
+  release are separate lanes. An unavailable or failed publication becomes
+  `durability-pending`, requires an autonomous retry trigger, and blocks only a
+  remote-durability claim; it never changes final-response permission, required
+  target posture, signed local stage or activation eligibility, post-activation
+  role-refresh eligibility, or local effectiveness. Stage and activate only
+  through the maintained signed release owner, retain the prior release, and
+  refresh roles only after exact local activation is verified. A supervisor may
+  never create, select among ambiguous, rewrite, or force-push a remote.
 - Changes to models, target permissions, defect semantics, auto-steer
   authority, repository access, patent authority, or the skill allowlist still
   require the user. Skill maintenance never authorizes target-repository or

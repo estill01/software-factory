@@ -1598,6 +1598,111 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.assertFalse(result["process_boundary_implies_completion"])
         self.assertEqual(result["next_action"], "continue-next-eligible-block")
 
+    def test_durability_pending_cannot_false_block_remaining_range(self) -> None:
+        self.write_tracker(["completed", "not-started"])
+        self.bind()
+        baseline = self.gate("final-response")
+        directory = self.root / self.target
+        before = {
+            path.name: path.read_bytes()
+            for path in directory.iterdir()
+            if path.is_file()
+        }
+
+        for publication_status in ("unavailable", "failed"):
+            with self.subTest(publication_status=publication_status):
+                release = self.call(
+                    "skill-release-publication-gate",
+                    "--target-thread",
+                    self.target,
+                    "--publication-status",
+                    publication_status,
+                    "--publication-retry-trigger",
+                    "Retry the exact non-force upstream publication.",
+                )
+                after = self.gate("final-response")
+                for field in (
+                    "final_response_permitted",
+                    "required_target_posture",
+                    "next_action",
+                    "governing_outcome_currentness_sha256",
+                ):
+                    self.assertEqual(after[field], baseline[field])
+                self.assertTrue(release["durability_pending"])
+                self.assertFalse(release["remote_durability_claim_permitted"])
+                self.assertTrue(
+                    release["signed_local_activation_publication_eligible"]
+                )
+                self.assertTrue(
+                    release[
+                        "post_activation_role_refresh_publication_eligible"
+                    ]
+                )
+                self.assertTrue(
+                    release["local_effectiveness_publication_eligible"]
+                )
+                self.assertEqual(release["final_response_effect"], "none")
+                self.assertEqual(
+                    release["required_target_posture_effect"], "none"
+                )
+
+        after_files = {
+            path.name: path.read_bytes()
+            for path in directory.iterdir()
+            if path.is_file()
+        }
+        self.assertEqual(after_files, before)
+
+    def test_durability_pending_cannot_false_block_satisfied_range(self) -> None:
+        self.write_tracker(["completed", "completed"])
+        self.bind("Block 1")
+        baseline = self.gate("final-response")
+
+        release = self.call(
+            "skill-release-publication-gate",
+            "--target-thread",
+            self.target,
+            "--publication-status",
+            "failed",
+            "--publication-retry-trigger",
+            "Retry the exact non-force upstream publication.",
+        )
+        after = self.gate("final-response")
+
+        self.assertTrue(baseline["final_response_permitted"])
+        self.assertEqual(after, baseline)
+        self.assertEqual(
+            release["publication_blocks_only"], "remote-durability-claim"
+        )
+
+    def test_publication_projection_requires_an_autonomous_pending_retry(self) -> None:
+        self.write_tracker(["completed"])
+        self.bind("Block 0")
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "requires an autonomous publication retry trigger",
+        ):
+            self.call(
+                "skill-release-publication-gate",
+                "--target-thread",
+                self.target,
+                "--publication-status",
+                "unavailable",
+            )
+
+        published = self.call(
+            "skill-release-publication-gate",
+            "--target-thread",
+            self.target,
+            "--publication-status",
+            "published",
+        )
+        self.assertFalse(published["durability_pending"])
+        self.assertTrue(published["remote_durability_claim_permitted"])
+        self.assertFalse(published["publication_retry_required"])
+        self.assertIsNone(published["publication_retry_trigger_sha256"])
+
     def rewrite_owner_root_without_external_authority(self) -> None:
         directory = self.root / self.target
         history = supervision_log.events(directory / "policy-history.jsonl")

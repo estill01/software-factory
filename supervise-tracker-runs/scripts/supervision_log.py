@@ -335,6 +335,11 @@ IMPLEMENTATION_RANGE_RESPONSE_KINDS = (
     "final-response",
     "outcome-terminal",
 )
+SKILL_RELEASE_PUBLICATION_STATUSES = (
+    "published",
+    "unavailable",
+    "failed",
+)
 DIRECT_AUTHORITY_EVENT_KIND = "direct-user-authority-source"
 TRACKER_AMENDMENT_EVENT_KIND = "implementation-tracker-amendment"
 SUCCESSOR_TOPOLOGY_EVENT_KIND = "successor-topology-decision"
@@ -7062,6 +7067,69 @@ def implementation_range_repair_result(
         ],
         "policy_sha256": policy["policy_sha256"],
     }
+
+
+def skill_release_publication_projection(
+    *, publication_status: str, publication_retry_trigger: str = ""
+) -> dict[str, Any]:
+    """Separate remote durability from the independently owned local release lane."""
+
+    if publication_status not in SKILL_RELEASE_PUBLICATION_STATUSES:
+        raise SupervisionLogError("Skill release publication status is invalid")
+    retry_trigger = clean(
+        publication_retry_trigger,
+        label="publication retry trigger",
+        maximum=240,
+    )
+    durability_pending = publication_status != "published"
+    if durability_pending and not retry_trigger:
+        raise SupervisionLogError(
+            "Durability-pending release requires an autonomous publication retry trigger"
+        )
+    if not durability_pending and retry_trigger:
+        raise SupervisionLogError(
+            "Published release must not carry a pending publication retry trigger"
+        )
+    return {
+        "publication_status": publication_status,
+        "durability_state": (
+            "durability-pending" if durability_pending else "remote-durable"
+        ),
+        "durability_pending": durability_pending,
+        "remote_durability_claim_permitted": not durability_pending,
+        "publication_retry_required": durability_pending,
+        "publication_retry_trigger_sha256": (
+            digest(retry_trigger) if durability_pending else None
+        ),
+        "signed_local_release_owner_required": True,
+        "signed_local_stage_publication_eligible": True,
+        "signed_local_activation_publication_eligible": True,
+        "post_activation_role_refresh_publication_eligible": True,
+        "local_effectiveness_publication_eligible": True,
+        "final_response_effect": "none",
+        "required_target_posture_effect": "none",
+        "publication_blocks_only": "remote-durability-claim",
+        "manual_resume_required": False,
+        "human_input_required": False,
+    }
+
+
+def cmd_skill_release_publication_gate(args: argparse.Namespace) -> None:
+    _directory, policy = load_policy(args)
+    projection = skill_release_publication_projection(
+        publication_status=args.publication_status,
+        publication_retry_trigger=args.publication_retry_trigger,
+    )
+    print(
+        json.dumps(
+            {
+                "target_thread_id": policy["target_thread_id"],
+                **projection,
+                "policy_sha256": policy["policy_sha256"],
+            },
+            sort_keys=True,
+        )
+    )
 
 
 def cmd_implementation_range_gate(args: argparse.Namespace) -> None:
@@ -14329,6 +14397,16 @@ def parser() -> argparse.ArgumentParser:
         default="outcome-terminal",
     )
     range_gate.set_defaults(func=cmd_implementation_range_gate)
+
+    publication_gate = subparsers.add_parser("skill-release-publication-gate")
+    publication_gate.add_argument("--target-thread", required=True)
+    publication_gate.add_argument(
+        "--publication-status",
+        choices=SKILL_RELEASE_PUBLICATION_STATUSES,
+        required=True,
+    )
+    publication_gate.add_argument("--publication-retry-trigger", default="")
+    publication_gate.set_defaults(func=cmd_skill_release_publication_gate)
 
     successor_record = subparsers.add_parser("successor-transition-record")
     successor_record.add_argument("--target-thread", required=True)

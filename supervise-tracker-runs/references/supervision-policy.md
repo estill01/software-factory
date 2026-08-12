@@ -953,6 +953,25 @@ After an accepted policy or skill change, `role-refresh` may carry only the exac
 new instruction to an already configured runtime role; it cannot target the
 implementation thread or an unrelated conversation.
 
+Remote publication and signed local release activation are independent lanes.
+Use `skill-release-publication-gate` to project only the publication dimension.
+`published` permits the remote-durability claim. `unavailable` or `failed`
+requires an autonomous retry trigger and yields `durability-pending`; that state
+blocks only the remote-durability claim. It cannot change
+`final_response_permitted`, required target posture, signed local stage or
+activation eligibility, post-activation role-refresh eligibility, or local
+effectiveness. The projection does not authorize a release: exact review,
+signature, staging, currentness, atomic activation, retention of the prior
+release, and fresh-process verification remain exclusively owned by the signed
+local release owner.
+
+```bash
+python3 <LOG_HELPER> skill-release-publication-gate \
+  --target-thread <TARGET> \
+  --publication-status <published|unavailable|failed> \
+  [--publication-retry-trigger "<EXACT_AUTONOMOUS_RETRY>"]
+```
+
 ## Gmail notification channel
 
 When explicitly enabled, use the authenticated Gmail account's self-delivery
@@ -2046,11 +2065,17 @@ independent acceptance before refreshing active roles or automations.
 If those skills are Git-tracked, inspect the exact worktree first, preserve
 unrelated state, stage only the plan-bound files, and commit the coherent
 validated candidate before review. Never amend a rejected candidate; append a
-remediation commit. After Sol Max accepts the exact commit, non-force push the
-existing branch to its unambiguous configured upstream, then refresh roles. If
-the repository, upstream, authentication, or policy is unavailable, preserve
-the local commit and report that blocker. Do not create or change a remote,
-guess among remotes, rewrite history, or force-push.
+remediation commit. After Sol Max accepts the exact commit, normally attempt a
+non-force push of the existing branch to its unambiguous configured upstream.
+Remote publication and the independently signed rollback-safe local release are
+separate lanes. Publication unavailable or failed is `durability-pending` with
+an autonomous retry trigger and blocks only remote-durability claims; it cannot
+change final-response permission, required target posture, signed local stage
+or activation eligibility, post-activation role refresh, or local
+effectiveness. Use only the maintained signed release owner, retain the prior
+release, and refresh roles only after exact local activation is verified. Do
+not create or change a remote, guess among remotes, rewrite history, or
+force-push.
 Never modify or run commands/tests in the implementation target, tracker,
 repository, patent workspace, or patent content. Do not execute a thread-only
 steer; Sol Max owns that action. Stop and return the plan when it would expand
