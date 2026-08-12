@@ -5195,6 +5195,16 @@ class OperationsProjectionService:
                 "message": delivery_reason,
                 "retryable": False,
             }
+        elif delivery_status == "stale":
+            workflow_error = {
+                "code": "terminal_report_delivery_stale",
+                "message": (
+                    "The existing terminal delivery receipt no longer matches the "
+                    "verified report set. The maintained append-once delivery owner "
+                    "cannot replace it, so no retry is supported for this report set."
+                ),
+                "retryable": False,
+            }
         limitations = [
             str(packet.get("content_boundary", "Terminal reporting is derived evidence only.")),
             "A verified or delivered terminal report does not permit request-stop, automation pause, or shutdown.",
@@ -5232,7 +5242,7 @@ class OperationsProjectionService:
                 "status": delivery_status,
                 "configured": delivery_configured,
                 "required": True,
-                "retryable": delivery_status in {"pending", "stale"},
+                "retryable": delivery_status == "pending",
                 "record_id": (
                     delivery_record.get("record_id")
                     if isinstance(delivery_record, Mapping)

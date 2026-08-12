@@ -542,6 +542,44 @@ describe("Factory workflow action strips", () => {
     expect(screen.getByText(/Request-stop · automation pause · terminal shutdown/)).toHaveTextContent("separate and not performed")
   })
 
+  it("keeps a stale append-once terminal delivery unavailable and non-retryable", () => {
+    const staleWorkflow = {
+      ...terminalReportWorkflow,
+      stage: "delivery-stale",
+      next_action: null,
+      actionable: false,
+      delivery: {
+        ...terminalReportWorkflow.delivery,
+        status: "stale",
+        retryable: false,
+        reason: "The retained receipt no longer matches the verified report set.",
+      },
+      error: {
+        code: "terminal_report_delivery_stale",
+        message: "The maintained append-once owner cannot replace this receipt.",
+        retryable: false,
+      },
+    } satisfies RunDetail["terminal_report_workflow"]
+
+    renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+        terminalReportWorkflow={staleWorkflow}
+      />,
+    )
+
+    const action = screen.getByRole("button", { name: "Terminal report unavailable" })
+    expect(action).toBeDisabled()
+    expect(action).toHaveAttribute(
+      "title",
+      "The maintained append-once owner cannot replace this receipt.",
+    )
+    expect(mocks.previewOperation).not.toHaveBeenCalled()
+  })
+
   it("previews only the current Factory-evolution stage and keeps adoption outside it", async () => {
     const user = userEvent.setup()
     renderActions(

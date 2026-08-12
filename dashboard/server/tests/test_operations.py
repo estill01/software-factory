@@ -1850,6 +1850,27 @@ class OperationsProjectionTests(unittest.TestCase):
             patch.object(
                 loaded_owner,
                 "terminal_delivery_is_current",
+                return_value=False,
+            ),
+        ):
+            stale_delivery = self.service.terminal_report_workflow_snapshot(TARGET)
+        self.assertEqual(stale_delivery["stage"], "delivery-stale")
+        self.assertIsNone(stale_delivery["next_action"])
+        self.assertFalse(stale_delivery["actionable"])
+        self.assertFalse(stale_delivery["delivery"]["retryable"])
+        self.assertEqual(
+            stale_delivery["error"]["code"], "terminal_report_delivery_stale"
+        )
+        self.assertFalse(stale_delivery["error"]["retryable"])
+        with (
+            patch.object(
+                loaded_owner,
+                "latest_terminal_delivery",
+                return_value=delivery_record,
+            ),
+            patch.object(
+                loaded_owner,
+                "terminal_delivery_is_current",
                 return_value=True,
             ),
         ):
