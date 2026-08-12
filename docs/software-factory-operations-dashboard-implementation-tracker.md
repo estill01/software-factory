@@ -6557,6 +6557,35 @@ reconcile unrelated groups and never retry an append automatically.
   and policy contract, weekly pause-interval projection, and exact automation
   read boundary. Work is limited to the canonical resume lifecycle owner;
   dashboard execution in Block 24 and Blocks 25-31 remain unopened.
+- Capability review and product candidate: commit
+  `9c9fd88573c42eeb6564ba2e6f930c4e07e182de`, tree
+  `938848c1153816490005508cc813ddf118b103b7`, extends only the maintained
+  supervision helper, its skill/policy contract, weekly-report projection, and
+  the dashboard capability matrix. The read-only `resume-gate` binds one exact
+  current pause, distinct eligible post-pause semantic check, active mission,
+  current policy/history/event heads, source fingerprint, and only the exact
+  policy-bound automation owners. `resume-finalize` rechecks that unchanged
+  basis under the append owner, requires every named automation `ACTIVE` at its
+  owner-derived target and schedule, and appends at most one independently
+  verifiable `supervision-resume` lifecycle record. Status and weekly metrics
+  consume only helper-verified canonical records; legacy report pairs remain
+  readable history but cannot create a new canonical resume.
+- Focused and regression proof: the resume-owner plus explicit-pause reporting
+  tests passed 10/10; all maintained supervision helper, weekly report,
+  terminal report, and Factory-evolution tests passed 205/205 with
+  `ResourceWarning` fatal. Ruff, Python bytecode compilation, and
+  `git diff --check` passed; the full-profile tracker verifier reports all 32
+  Blocks with zero errors/warnings and all 30 verifier tests pass. The tests
+  cover partial activation, source/policy/mission currentness, missing/
+  duplicate/malformed/schedule-mismatched owners, named-owner-only reads,
+  direct generic/task resume rejection, stale active state, hash-chain
+  corruption, append-once replay, status projection, and exact canonical
+  pause-interval closure.
+- Review posture: the dashboard capability remains truthfully `unavailable`
+  pending independent exact-revision acceptance of this candidate. No dashboard
+  API/UI/control, automation mutation implementation, direct TOML write, live
+  resume, task/turn resume, policy change, or canonical ledger mutation was
+  executed, and Block 24 remains closed.
 
 ### Stop
 
