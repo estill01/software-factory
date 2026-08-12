@@ -7945,6 +7945,22 @@ unverified output.
   The affected action component passed 22/22, Ruff, Python compilation, and the
   TypeScript/Vite production build passed. No broad matrix was replayed and no
   live owner action occurred; fresh exact-revision review is pending.
+- Exact delta review accepted the capability decision but rejected evidence
+  `601d82c90f3aa52ef3bcbffb13385ddc4cf46fed` because delivery lookup was scoped
+  only to the lifecycle. A historical receipt for a different report set could
+  therefore be mislabeled as an append-once conflict for the current set.
+- Exact-set successor `f180e60411c27f8314de83a96e1789a3b91a5a1f`, tree
+  `aabf4faad8da84c573880df5761f57d999d8b3ce`, changes only projection and its
+  focused backend proof. The dashboard now filters canonical delivery events
+  to the exact current `report_set_id` before invoking the maintained latest-
+  delivery owner. A different-set historical receipt yields no current-set
+  receipt and preserves the supported `delivery` action; an exact same-set
+  stale receipt remains `delivery-stale`, non-actionable, and non-retryable.
+  The focused case proves an old-only set selects nothing, mixed old/current
+  sets select the exact current receipt, no receipt remains pending/deliverable,
+  and same-set stale remains closed; it passed 1/1 with `ResourceWarning` fatal,
+  Ruff, Python compilation, and diff check. No broad or browser matrix was
+  replayed and no live owner action occurred; fresh exact review is pending.
 
 ### Stop
 
