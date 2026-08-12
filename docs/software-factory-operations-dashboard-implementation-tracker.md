@@ -6732,6 +6732,44 @@ and stop without retrying or widening.
   owner. Work is limited to one exact paused supervision group; Blocks 25-31
   remain unopened and no live resume or other consequential action has been
   requested.
+- Frozen implementation candidate: commit
+  `c6d5a25cb1c022ff5fc3bd0f1e2a287dfd9e94bf`, tree
+  `ba4af619d5921369cdf6dd9b4697237d52d96d64`, parent
+  `935ceab2ed3fce65d732dfc35593dfa7ec8ca0a7`. The eight-file slice registers
+  `factory.supervision-resume` over the accepted read-only `resume-gate`, one
+  bounded fix-executor request, the exact Codex automation owners, and the
+  canonical `resume-finalize` postcondition; it adds no dashboard ledger,
+  scheduler, generic toggle, direct owner-file writer, or Block 25 operation.
+- Truth and recovery proof: the source contract binds one canonically paused
+  group, its pause and post-pause semantic source, current mission/policy/
+  project, exact target-task turn state, one distinct configured fix executor,
+  and every owner-derived automation/configuration root. Dispatch re-resolves
+  that fingerprint and the maintained route gate. Verification accepts only
+  the matching canonical resume lineage plus every exact automation ACTIVE at
+  its recorded owner schedule, preserves already-ACTIVE owners byte/time
+  exactly, requires each prior-PAUSED owner to change after the preview, and
+  leaves lifecycle-only, automation-only, denied, changed-task, unavailable,
+  and partial transitions pending without retry or rollback. The UI exposes
+  separate `Pause`, `Finish pause`, `Resume`, `Finish resume`, and unavailable
+  postures and never labels task/turn continuation as supervision resume.
+- Validation: full dashboard-server discovery passed 130/130 with
+  `ResourceWarning` fatal; the final route-denial and owner-envelope pair passed
+  2/2; Ruff and Python compilation passed. The full frontend passed 18 files
+  and 102 tests, the production build passed, and focused semantic pause/resume
+  Playwright passed 6/6 across desktop, tablet, and mobile with serious/
+  critical Axe and horizontal-overflow assertions. The full-profile verifier
+  reports 32 Blocks with zero errors/warnings and all 30 verifier tests pass;
+  diff and relative-link checks pass. The exact candidate is pushed with local/
+  upstream divergence `0 0`.
+- Live nonmutating proof: the product server was restarted on loopback port
+  8787 from the candidate assets. `/api/v1/health`, `/api/v1/operations`, and
+  `/admin` returned HTTP 200; the operation projection reports
+  `factory.supervision-resume` `supported`, its typed confirmation class, exact
+  dual owner, bounded consequences, and dual postcondition. No live operation
+  preview, fix-executor request, automation activation, lifecycle finalization,
+  task/turn action, or supervision record mutation was attempted. Independent
+  exact-revision review is pending; Block 24 remains `in-progress` and Blocks
+  25-31 remain unopened.
 
 ### Stop
 
