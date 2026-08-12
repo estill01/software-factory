@@ -8582,6 +8582,24 @@ work solely to inflate coverage.
   limitations are recorded in the brief. The broad matrix has not started; no
   live task, supervision, report, evolution, lifecycle, request-stop, or
   shutdown operation was executed.
+- Single broad matrix and focused correction — `2026-08-12T15:16:41Z`: the
+  ordered pre-broad package was committed and pushed as
+  `4c72dda49e1597c3e9a1c0d5cdd4015690e291d7` before the broad matrix. Backend
+  proof passed 142/142 with `ResourceWarning` fatal; Ruff and compilation
+  passed; TypeScript and all 116 frontend tests passed; and the production
+  build passed. The one full Playwright invocation ran 90 cases serially in
+  7.7 minutes: 88 passed and the two failures were one supported dark-theme
+  report-link distinction defect at tablet and mobile. The link now retains an
+  underline as well as color. Only the affected build and report/Axe test were
+  rerun; that case passed 3/3 across desktop, tablet, and mobile in 1.2 minutes,
+  and the broad matrix was not replayed. Full-profile verification remains 32
+  Blocks with zero diagnostics, verifier tests passed 30/30, all 25 relative
+  links resolve, and current health/Admin/App Server smoke passed. The frozen
+  corrected product is
+  `5a83a46b498ab636ac79c5c0c79c1003308b3b04`, tree
+  `1891ac53e3905a77be7f83aea3de7dace1228e19`, pushed at divergence `0/0`.
+  Independent exact-revision review remains open; no live consequential
+  operation was previewed or executed.
 
 ### Stop
 

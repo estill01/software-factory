@@ -1,7 +1,9 @@
 # Software Factory operations dashboard validation
 
-Status: Block 31 release candidate in progress. This record is updated only
-from reproducible current-source checks; it is not completion authority.
+Status: Block 31 product candidate frozen at
+`5a83a46b498ab636ac79c5c0c79c1003308b3b04`; independent exact-revision
+review is pending. This record is updated only from reproducible current-source
+checks; it is not completion authority.
 
 ## Runtime and lock identity
 
@@ -218,4 +220,36 @@ second broad replay.
 
 ## Final matrix and independent review
 
-Pending frozen-candidate validation and exact-revision review.
+The pre-broad package was committed and pushed as
+`4c72dda49e1597c3e9a1c0d5cdd4015690e291d7` before the broad matrix began.
+The single broad matrix then produced:
+
+| Gate | Result |
+|---|---|
+| Python server/integration/security/owner suite | 142/142 passed in 60.737 seconds with `ResourceWarning` fatal |
+| Python lint and compilation | Ruff and `compileall` passed |
+| Frontend type/unit/component suite | TypeScript passed; 20 files and 116/116 Vitest tests passed in 19.11 seconds |
+| Production frontend | Vite transformed 2,590 modules and built successfully |
+| Responsive browser matrix | 88/90 passed in 7.7 minutes; the only two failures were the same dark-theme report-link distinction defect at tablet and mobile |
+| Tracker/mechanical checks | full profile returned 32 Blocks and zero diagnostics; verifier tests 30/30; 25 relative links resolved; diff check and object checks passed |
+
+One preliminary standalone TypeScript invocation resolved the repository-root
+`tsconfig.json` and exited `TS6053`; it did not reach the product. The
+package-owned `npm --prefix dashboard/web run check -- --maxWorkers=1` command
+then ran the intended compiler and complete unit suite successfully.
+
+The browser finding was corrected only in the affected report-table link style:
+links now retain a visible underline in addition to color. The corrected
+production build passed, and the exact affected Axe/report-history case passed
+3/3 at desktop, tablet, and mobile in 1.2 minutes. The complete browser matrix
+was not replayed. The corrected product commit is
+`5a83a46b498ab636ac79c5c0c79c1003308b3b04`, tree
+`1891ac53e3905a77be7f83aea3de7dace1228e19`, with exact remote divergence
+`0/0` at freeze.
+
+Final currentness smoke after correction: loopback health was `ok`; every
+health integration was `available`; `/admin` returned HTTP 200; Codex App
+Server remained `available` and `compatible` at 273 schemas and semantic root
+`757aa191b6d452c6e6d05f6c1f1cb093b9f673da2d185a29ee8d5d96feae67a8`.
+No live consequential operation was previewed or executed. Independent exact-
+revision product/UI/authority review remains the only open release gate.
