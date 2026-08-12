@@ -2135,6 +2135,261 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         )
         self.assertFalse(consumed["eligible"])
 
+    def test_post_outcome_source_corrections_invalidate_intrinsic_lineage(self) -> None:
+        fake, _handoff = self.adopt_cycle_for_outcome()
+        completion_id = self.append_factory_outcome_completion(
+            fake, status="verified"
+        )
+        arguments = (
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "outcome",
+            "--evolution-id",
+            self.evolution_id,
+            "--outcome-completion-record",
+            completion_id,
+        )
+        with mock.patch.object(
+            supervision_log, "factory_release_module", return_value=fake
+        ):
+            self.command(*arguments)
+        policy = supervision_log.read_json(self.directory / "policy.json")
+        all_events = supervision_log.events(self.directory / "events.jsonl")
+        outcome = next(
+            item
+            for item in reversed(all_events)
+            if item.get("kind")
+            == supervision_log.FACTORY_EVOLUTION_OUTCOME_EVENT_KIND
+        )
+        admission = next(
+            item
+            for item in all_events
+            if item.get("record_id")
+            == outcome["payload"]["admission_record_id"]
+        )
+        correction_record_id = f"EVT-{len(all_events) + 1:06d}"
+        correction_result = supervision_log.factory_evolution_admission_result(
+            checkpoint_kind=admission["checkpoint_kind"],
+            eligible=False,
+            admission_authorized=False,
+            disposition="currentness-changed-during-admission",
+            next_revisit_condition="the exact sources and target become current",
+            packet_root=admission["packet_root"],
+            novelty_key=admission["canonical_evidence_novelty_key"],
+            context_root=admission["context_root"],
+            evolution_id=self.evolution_id,
+            admission_record_id=correction_record_id,
+            signal_classes=admission["eligibility_result"]["signal_classes"],
+            canonical_record_count=len(admission["canonical_record_sha256s"]),
+            packet_builds=1,
+            prepared=True,
+        )
+        admission_correction_material = {
+            "schema_version": 1,
+            "kind": "factory-evolution-admission-currentness-rejected",
+            "record_id": correction_record_id,
+            "timestamp": supervision_log.utc_now(),
+            "target_thread_id": self.target_thread,
+            "policy_sha256": policy["policy_sha256"],
+            "mission_root": admission["mission_root"],
+            "supersedes_record_id": admission["record_id"],
+            "canonical_evidence_novelty_key": admission[
+                "canonical_evidence_novelty_key"
+            ],
+            "context_root": admission["context_root"],
+            "evolution_id": self.evolution_id,
+            "disposition": "currentness-rejected",
+            "eligibility_result": correction_result,
+            "eligibility_result_root": correction_result["result_root"],
+            "previous_record_sha256": all_events[-1]["record_sha256"],
+        }
+        admission_correction = {
+            **admission_correction_material,
+            "record_sha256": supervision_log.digest(
+                admission_correction_material
+            ),
+        }
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "admission is not active",
+        ):
+            supervision_log.factory_evolution_outcome_projection(
+                [*all_events, admission_correction], policy=policy
+            )
+        admission_outcome_correction_source = (
+            supervision_log.factory_evolution_orchestration_record(
+                kind=supervision_log.FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND,
+                record_id=f"EVT-{len(all_events) + 2:06d}",
+                policy=policy,
+                evolution_id=self.evolution_id,
+                payload=supervision_log.factory_evolution_outcome_correction_payload(
+                    outcome
+                ),
+            )
+        )
+        admission_outcome_correction_material = {
+            **admission_outcome_correction_source,
+            "previous_record_sha256": admission_correction["record_sha256"],
+        }
+        admission_outcome_correction = {
+            **admission_outcome_correction_material,
+            "record_sha256": supervision_log.digest(
+                admission_outcome_correction_material
+            ),
+        }
+        admission_reconciled = (
+            supervision_log.factory_evolution_outcome_projection(
+                [
+                    *all_events,
+                    admission_correction,
+                    admission_outcome_correction,
+                ],
+                policy=policy,
+            )
+        )
+        self.assertEqual(admission_reconciled["terminal_cycle_count"], 0)
+        self.assertEqual(admission_reconciled["current_outcomes"], [])
+        sources = {
+            item["kind"]: item
+            for item in all_events
+            if item.get("evolution_id") == self.evolution_id
+            and item.get("kind")
+            in {
+                supervision_log.FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND,
+                supervision_log.FACTORY_EVOLUTION_EVALUATION_EVENT_KIND,
+                supervision_log.FACTORY_EVOLUTION_ADOPTION_EVENT_KIND,
+            }
+        }
+        correction_cases = (
+            (
+                supervision_log.FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND,
+                supervision_log.FACTORY_EVOLUTION_EVALUATION_HANDOFF_CORRECTION_EVENT_KIND,
+                {
+                    "kind": "software-factory-evaluation-handoff-currentness-rejected",
+                    "evaluation_handoff_root": sources[
+                        supervision_log.FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND
+                    ]["payload"]["evaluation_handoff_root"],
+                    "baseline_revision": sources[
+                        supervision_log.FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND
+                    ]["payload"]["baseline_revision"],
+                    "candidate_revision": sources[
+                        supervision_log.FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND
+                    ]["payload"]["candidate_revision"],
+                },
+            ),
+            (
+                supervision_log.FACTORY_EVOLUTION_EVALUATION_EVENT_KIND,
+                supervision_log.FACTORY_EVOLUTION_EVALUATION_CORRECTION_EVENT_KIND,
+                {
+                    "kind": "software-factory-evaluation-currentness-rejected",
+                    "evaluation_root": sources[
+                        supervision_log.FACTORY_EVOLUTION_EVALUATION_EVENT_KIND
+                    ]["payload"]["evaluation_root"],
+                    "baseline_revision": sources[
+                        supervision_log.FACTORY_EVOLUTION_EVALUATION_EVENT_KIND
+                    ]["payload"]["baseline_revision"],
+                    "candidate_revision": sources[
+                        supervision_log.FACTORY_EVOLUTION_EVALUATION_EVENT_KIND
+                    ]["payload"]["candidate_revision"],
+                },
+            ),
+            (
+                supervision_log.FACTORY_EVOLUTION_ADOPTION_EVENT_KIND,
+                supervision_log.FACTORY_EVOLUTION_ADOPTION_CORRECTION_EVENT_KIND,
+                {
+                    "kind": "software-factory-evolution-adoption-currentness-rejected",
+                    "adoption_currentness_root": sources[
+                        supervision_log.FACTORY_EVOLUTION_ADOPTION_EVENT_KIND
+                    ]["payload"]["adoption_currentness_root"],
+                },
+            ),
+        )
+        for source_kind, correction_kind, fields in correction_cases:
+            with self.subTest(correction_kind=correction_kind):
+                source = sources[source_kind]
+                payload = {
+                    "schema_version": 1,
+                    "supersedes_record_id": source["record_id"],
+                    **fields,
+                    "disposition": "currentness-rejected",
+                }
+                current = supervision_log.events(
+                    self.directory / "events.jsonl"
+                )
+                correction_source = supervision_log.factory_evolution_orchestration_record(
+                    kind=correction_kind,
+                    record_id=f"EVT-{len(current) + 1:06d}",
+                    policy=policy,
+                    evolution_id=self.evolution_id,
+                    payload=payload,
+                )
+                correction_material = {
+                    **correction_source,
+                    "previous_record_sha256": current[-1]["record_sha256"],
+                }
+                correction = {
+                    **correction_material,
+                    "record_sha256": supervision_log.digest(
+                        correction_material
+                    ),
+                }
+                combined = [*all_events, correction]
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "corrected evidence",
+                ):
+                    supervision_log.factory_evolution_outcome_projection(
+                        combined, policy=policy
+                    )
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "corrected evidence",
+                ):
+                    supervision_log.factory_evolution_supported_novelty(
+                        {
+                            "evidence": {
+                                "events": [outcome],
+                                "report_hypotheses": [
+                                    {
+                                        "section": "resource_efficiency",
+                                        "evidence_refs": [outcome["record_id"]],
+                                    }
+                                ],
+                            }
+                        },
+                        policy=policy,
+                        source_events=combined,
+                    )
+                outcome_correction_source = (
+                    supervision_log.factory_evolution_orchestration_record(
+                        kind=supervision_log.FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND,
+                        record_id=f"EVT-{len(current) + 2:06d}",
+                        policy=policy,
+                        evolution_id=self.evolution_id,
+                        payload=supervision_log.factory_evolution_outcome_correction_payload(
+                            outcome
+                        ),
+                    )
+                )
+                outcome_correction_material = {
+                    **outcome_correction_source,
+                    "previous_record_sha256": correction["record_sha256"],
+                }
+                outcome_correction = {
+                    **outcome_correction_material,
+                    "record_sha256": supervision_log.digest(
+                        outcome_correction_material
+                    ),
+                }
+                reconciled = supervision_log.factory_evolution_outcome_projection(
+                    [*combined, outcome_correction], policy=policy
+                )
+                self.assertEqual(reconciled["terminal_cycle_count"], 0)
+                self.assertEqual(reconciled["current_outcomes"], [])
+                self.assertFalse(reconciled["history"][0]["current"])
+
     def test_failed_outcome_rolls_back_once_and_retains_lineage(self) -> None:
         fake, _handoff = self.adopt_cycle_for_outcome()
         effective_id = self.append_factory_outcome_completion(fake, status="verified")

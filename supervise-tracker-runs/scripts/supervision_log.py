@@ -18882,6 +18882,111 @@ def validate_factory_evolution_outcome_evidence_payload(
     return dict(value)
 
 
+def validate_factory_evolution_lineage_correction_record(
+    value: Any,
+    *,
+    policy: Mapping[str, Any],
+    source_record: Mapping[str, Any],
+) -> dict[str, Any]:
+    correction = validate_factory_evolution_orchestration_evidence_record(
+        value, policy=policy
+    )
+    source = validate_factory_evolution_orchestration_evidence_record(
+        source_record, policy=policy
+    )
+    if correction.get("record_sha256") != digest(
+        {
+            key: item
+            for key, item in correction.items()
+            if key != "record_sha256"
+        }
+    ):
+        raise SupervisionLogError(
+            "Factory evolution intrinsic outcome correction differs"
+        )
+    payload = correction.get("payload")
+    source_payload = source.get("payload")
+    common = (
+        isinstance(payload, Mapping)
+        and isinstance(source_payload, Mapping)
+        and correction.get("evolution_id") == source.get("evolution_id")
+        and correction.get("target_thread_id") == source.get("target_thread_id")
+        and correction.get("policy_sha256") == source.get("policy_sha256")
+        and correction.get("mission_root") == source.get("mission_root")
+        and payload.get("supersedes_record_id") == source.get("record_id")
+        and payload.get("disposition") == "currentness-rejected"
+    )
+    kind = correction.get("kind")
+    if kind == FACTORY_EVOLUTION_EVALUATION_HANDOFF_CORRECTION_EVENT_KIND:
+        valid = common and set(payload) == {
+            "schema_version",
+            "kind",
+            "supersedes_record_id",
+            "evaluation_handoff_root",
+            "baseline_revision",
+            "candidate_revision",
+            "disposition",
+        } and (
+            type(payload.get("schema_version")) is int
+            and payload.get("schema_version") == 1
+            and payload.get("kind")
+            == "software-factory-evaluation-handoff-currentness-rejected"
+            and source.get("kind")
+            == FACTORY_EVOLUTION_EVALUATION_HANDOFF_EVENT_KIND
+            and payload.get("evaluation_handoff_root")
+            == source_payload.get("evaluation_handoff_root")
+            and payload.get("baseline_revision")
+            == source_payload.get("baseline_revision")
+            and payload.get("candidate_revision")
+            == source_payload.get("candidate_revision")
+        )
+    elif kind == FACTORY_EVOLUTION_EVALUATION_CORRECTION_EVENT_KIND:
+        valid = common and set(payload) == {
+            "schema_version",
+            "kind",
+            "supersedes_record_id",
+            "evaluation_root",
+            "baseline_revision",
+            "candidate_revision",
+            "disposition",
+        } and (
+            type(payload.get("schema_version")) is int
+            and payload.get("schema_version") == 1
+            and payload.get("kind")
+            == "software-factory-evaluation-currentness-rejected"
+            and source.get("kind") == FACTORY_EVOLUTION_EVALUATION_EVENT_KIND
+            and payload.get("evaluation_root")
+            == source_payload.get("evaluation_root")
+            and payload.get("baseline_revision")
+            == source_payload.get("baseline_revision")
+            and payload.get("candidate_revision")
+            == source_payload.get("candidate_revision")
+        )
+    elif kind == FACTORY_EVOLUTION_ADOPTION_CORRECTION_EVENT_KIND:
+        valid = common and set(payload) == {
+            "schema_version",
+            "kind",
+            "supersedes_record_id",
+            "adoption_currentness_root",
+            "disposition",
+        } and (
+            type(payload.get("schema_version")) is int
+            and payload.get("schema_version") == 1
+            and payload.get("kind")
+            == "software-factory-evolution-adoption-currentness-rejected"
+            and source.get("kind") == FACTORY_EVOLUTION_ADOPTION_EVENT_KIND
+            and payload.get("adoption_currentness_root")
+            == source_payload.get("adoption_currentness_root")
+        )
+    else:
+        valid = False
+    if not valid:
+        raise SupervisionLogError(
+            "Factory evolution intrinsic outcome correction differs"
+        )
+    return correction
+
+
 def validate_factory_evolution_intrinsic_outcome_record(
     value: Any,
     *,
@@ -18912,6 +19017,37 @@ def validate_factory_evolution_intrinsic_outcome_record(
     evolution_id = str(record["evolution_id"])
     if payload["evolution_id"] != evolution_id:
         raise SupervisionLogError("Factory evolution intrinsic outcome cycle differs")
+    outcome_corrections = [
+        item
+        for index, item in enumerate(exact_records)
+        if index > outcome_position
+        and item.get("kind") == FACTORY_EVOLUTION_OUTCOME_CORRECTION_EVENT_KIND
+        and item.get("evolution_id") == evolution_id
+        and isinstance(item.get("payload"), Mapping)
+        and item["payload"].get("supersedes_record_id") == record_id
+    ]
+    if len(outcome_corrections) > 1:
+        raise SupervisionLogError(
+            "Factory evolution intrinsic outcome correction differs"
+        )
+    for correction in outcome_corrections:
+        validated_correction = validate_factory_evolution_orchestration_evidence_record(
+            correction, policy=policy
+        )
+        if validated_correction.get("record_sha256") != digest(
+            {
+                key: item
+                for key, item in validated_correction.items()
+                if key != "record_sha256"
+            }
+        ):
+            raise SupervisionLogError(
+                "Factory evolution intrinsic outcome correction differs"
+            )
+        validate_factory_evolution_outcome_correction(
+            validated_correction["payload"], source_record=record
+        )
+    outcome_reconciled = bool(outcome_corrections)
 
     def one_event(
         kind: str,
@@ -18990,12 +19126,11 @@ def validate_factory_evolution_intrinsic_outcome_record(
             item, admission=admission
         )
         for index, item in enumerate(exact_records)
-        if index < outcome_position
-        and item.get("kind")
+        if item.get("kind")
         == "factory-evolution-admission-currentness-rejected"
         and item.get("supersedes_record_id") == admission["record_id"]
     ]
-    if admission_corrections:
+    if admission_corrections and not outcome_reconciled:
         raise SupervisionLogError(
             "Factory evolution intrinsic outcome admission is not active"
         )
@@ -19153,21 +19288,31 @@ def validate_factory_evolution_intrinsic_outcome_record(
         raise SupervisionLogError(
             "Factory evolution intrinsic outcome adoption binding differs"
         )
-    corrected_source_ids = {
-        str(item.get("payload", {}).get("supersedes_record_id", ""))
-        for index, item in enumerate(exact_records)
-        if index < outcome_position
-        and item.get("kind")
+    lineage_sources = {
+        str(item["record_id"]): item
+        for item in (evaluation_handoff, evaluation_record, adoption_record)
+    }
+    lineage_corrections = [
+        item
+        for item in exact_records
+        if item.get("kind")
         in {
             FACTORY_EVOLUTION_EVALUATION_HANDOFF_CORRECTION_EVENT_KIND,
             FACTORY_EVOLUTION_EVALUATION_CORRECTION_EVENT_KIND,
             FACTORY_EVOLUTION_ADOPTION_CORRECTION_EVENT_KIND,
         }
-    }
-    if any(
-        item["record_id"] in corrected_source_ids
-        for item in (evaluation_handoff, evaluation_record, adoption_record)
-    ):
+        and isinstance(item.get("payload"), Mapping)
+        and str(item["payload"].get("supersedes_record_id", ""))
+        in lineage_sources
+    ]
+    for correction in lineage_corrections:
+        source_id = str(correction["payload"]["supersedes_record_id"])
+        validate_factory_evolution_lineage_correction_record(
+            correction,
+            policy=policy,
+            source_record=lineage_sources[source_id],
+        )
+    if lineage_corrections and not outcome_reconciled:
         raise SupervisionLogError(
             "Factory evolution intrinsic outcome uses corrected evidence"
         )
