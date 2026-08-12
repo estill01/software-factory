@@ -623,6 +623,16 @@ owner exists. Former Blocks 23–29 move mechanically to current Blocks 25–31.
 Accepted Blocks 0–21 remain substantively unchanged except mechanically affected
 forward references and sequence/count language; historical evidence keeps the
 numbers current at its own revision.
+Independent exact authoring review accepted commit
+`99654a738bad16bc37cf2d751a8a25d0cadfe19c`, tree
+`5a7c81b78b566ce3642be5eaf991fb57958d4339`, with no material findings. The
+reviewer independently confirmed the pause, resume-owner, and dashboard-resume
+slices have distinct owner, acceptance, recovery, and Stop boundaries; resolved
+the terminal-only `supervision_pause_permitted` flag separately from ordinary
+user-requested pause authority; and reproduced the 32-Block full verifier with
+0 errors/warnings, all 30 verifier tests, five relative links, focused diff,
+history preservation, remote identity, and no implementation or live
+supervision action.
 
 Data-backing clarification: the direct 2026-08-09 operator request to ensure
 that the application is backed by primary Software Factory functionality and
