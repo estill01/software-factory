@@ -934,6 +934,84 @@ def _record_ref(item: Mapping[str, Any] | None) -> dict[str, Any] | None:
     }
 
 
+def _factory_evolution_comparison(
+    review: Mapping[str, Any],
+    evaluation: Mapping[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    """Project only owner-verified comparison material into a bounded read model."""
+
+    selection = review["selection"]
+    experiment = review["experiment"]
+    candidates = {
+        candidate["candidate_id"]: candidate for candidate in review["candidates"]
+    }
+    selected = candidates[selection["candidate_id"]]
+
+    def candidate_summary(candidate: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "candidate_id": candidate["candidate_id"],
+            "candidate_type": candidate["candidate_type"],
+            "capability_gap": candidate["capability_gap"],
+            "effect": candidate["effect"],
+            "protected_capabilities": list(candidate["protected_capabilities"]),
+            "applicability": candidate["applicability"],
+            "tradeoffs": list(candidate["tradeoffs"]),
+            "uncertainty": candidate["uncertainty"],
+        }
+
+    plan = {
+        "experiment_id": experiment["experiment_id"],
+        "selected_candidate": candidate_summary(selected),
+        "rejected_paths": [
+            candidate_summary(candidates[candidate_id])
+            for candidate_id in selection["compared_candidate_ids"]
+        ],
+        "selection_rationale": selection["rationale"],
+        "dimensions_considered": list(selection["dimensions_considered"]),
+        "comparison_mode": experiment["comparison_mode"],
+        "positive_case_ids": list(experiment["positive_case_ids"]),
+        "exception_case_ids": list(experiment["exception_case_ids"]),
+        "expected_effects": list(experiment["expected_effects"]),
+        "resource_bounds": list(experiment["resource_bounds"]),
+        "rollback_condition": experiment["rollback_condition"],
+        "success_measures": list(experiment["success_measures"]),
+        "regression_measures": list(experiment["regression_measures"]),
+        "stop_condition": experiment["stop_condition"],
+        "minimum_expected_delta": experiment["minimum_expected_delta"],
+        "non_inferiority_justification": experiment[
+            "non_inferiority_justification"
+        ],
+    }
+    if evaluation is None:
+        return plan, None
+
+    def result_summary(result: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "case_id": result["case_id"],
+            "evidence_class": result["evidence_class"],
+            "evidence_ids": list(result["evidence_ids"]),
+            "outcome": result["outcome"],
+            "observed_effect": result["observed_effect"],
+            "resource_cost": result["resource_cost"],
+            "regressions": list(result["regressions"]),
+            "condition_revision": result["condition_revision"],
+            "evidence_root": result["evidence_root"],
+        }
+
+    results = {
+        "baseline_results": [
+            result_summary(result) for result in evaluation["baseline_results"]
+        ],
+        "candidate_results": [
+            result_summary(result) for result in evaluation["candidate_results"]
+        ],
+        "contrary_evidence_ids": list(evaluation["contrary_evidence_ids"]),
+        "regression_findings": list(evaluation["regression_findings"]),
+        "rationale": evaluation["rationale"],
+    }
+    return plan, results
+
+
 class OperationsProjectionService:
     """Read canonical supervision families without becoming an operational owner."""
 
@@ -4678,6 +4756,8 @@ class OperationsProjectionService:
                 "evaluation_id": None,
                 "evaluation_root": None,
                 "disposition": None,
+                "comparison_plan": None,
+                "comparison_results": None,
                 "source_report_id": source_report_id,
                 "source_report_root": source_report_root,
                 "event_head_sha256": (
@@ -4709,6 +4789,15 @@ class OperationsProjectionService:
                     "Factory evolution is unavailable until every exact source and role prerequisite is current.",
                     "Evolution never implements, adopts, installs, routes, schedules, deploys, or measures a candidate outcome.",
                 ],
+                "recovery": {
+                    "posture": "unavailable",
+                    "guidance": message,
+                    "preserved_roots": [
+                        root
+                        for root in (source_report_root,)
+                        if isinstance(root, str) and SHA256.fullmatch(root)
+                    ],
+                },
                 "error": {"code": code, "message": message, "retryable": retryable},
             }
 
@@ -4853,6 +4942,8 @@ class OperationsProjectionService:
         evaluation_id = verification.get("evaluation_id") if verification else None
         evaluation_root = verification.get("evaluation_root") if verification else None
         disposition = verification.get("disposition") if verification else None
+        comparison_plan: dict[str, Any] | None = None
+        comparison_results: dict[str, Any] | None = None
         implementer = {
             "status": "not-selected",
             "task_id": None,
@@ -4911,7 +5002,7 @@ class OperationsProjectionService:
                         directory / "evaluation.json", MAX_REPORT_ARTIFACT_BYTES
                     ).decode("utf-8")
                 )
-                evolution.verify_candidate_evaluation(
+                evaluation = evolution.verify_candidate_evaluation(
                     packet,
                     review,
                     evaluation_value,
@@ -4923,13 +5014,31 @@ class OperationsProjectionService:
                     source_report_id=source_report_id,
                     source_report_root=source_report_root,
                 )
-            if disposition not in {"promote", "advisory", "revise", "reject"}:
+        if review is not None:
+            try:
+                comparison_plan, comparison_results = _factory_evolution_comparison(
+                    review,
+                    evaluation if owner_stage == "evaluated" else None,
+                )
+            except (KeyError, TypeError, ValueError) as exc:
                 return unavailable(
-                    "factory_evolution_disposition_invalid",
-                    "The verified evolution set has no supported disposition.",
+                    "factory_evolution_comparison_projection_invalid",
+                    f"The verified comparison evidence cannot be projected safely: {exc}",
                     source_report_id=source_report_id,
                     source_report_root=source_report_root,
                 )
+        if owner_stage == "evaluated" and disposition not in {
+            "promote",
+            "advisory",
+            "revise",
+            "reject",
+        }:
+            return unavailable(
+                "factory_evolution_disposition_invalid",
+                "The verified evolution set has no supported disposition.",
+                source_report_id=source_report_id,
+                source_report_root=source_report_root,
+            )
 
         if verification is None:
             stage, next_action = "prepare", "prepare"
@@ -5053,6 +5162,40 @@ class OperationsProjectionService:
             )
         if workflow_error:
             limitations.append(workflow_error["message"])
+        preserved_roots = [
+            root
+            for root in (
+                packet_root,
+                review_root,
+                evaluation_root,
+                manifest_root,
+            )
+            if isinstance(root, str) and SHA256.fullmatch(root)
+        ]
+        if stage == "prepare":
+            recovery = {
+                "posture": "available",
+                "guidance": "Prepare the current deterministic packet once; changed source evidence creates a different evolution identity.",
+                "preserved_roots": preserved_roots,
+            }
+        elif stage == "finalize":
+            recovery = {
+                "posture": "available",
+                "guidance": "Retain the prepared packet and retry only the independent cognitive finalize stage with the same current source.",
+                "preserved_roots": preserved_roots,
+            }
+        elif stage == "awaiting-implementation":
+            recovery = {
+                "posture": "blocked",
+                "guidance": "Retain the verified review; evaluation waits for separately owned baseline and candidate evidence from Block 11.",
+                "preserved_roots": preserved_roots,
+            }
+        else:
+            recovery = {
+                "posture": "not-required",
+                "guidance": "The immutable verified disposition is retained; a changed source set begins a new evolution identity.",
+                "preserved_roots": preserved_roots,
+            }
         return {
             "status": "available",
             "stage": stage,
@@ -5066,6 +5209,8 @@ class OperationsProjectionService:
             "evaluation_id": evaluation_id,
             "evaluation_root": evaluation_root,
             "disposition": disposition,
+            "comparison_plan": comparison_plan,
+            "comparison_results": comparison_results,
             "source_report_id": source_report_id,
             "source_report_root": source_report_root,
             "event_head_sha256": (
@@ -5080,6 +5225,7 @@ class OperationsProjectionService:
             "members": members,
             "stages": stages,
             "limitations": limitations,
+            "recovery": recovery,
             "error": workflow_error,
         }
 

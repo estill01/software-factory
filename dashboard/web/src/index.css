@@ -4904,6 +4904,31 @@ h3 {
 .weekly-report-progress > div { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 0.55rem; }
 .weekly-report-progress strong { overflow: hidden; font-size: 0.68rem; text-overflow: ellipsis; white-space: nowrap; }
 .weekly-report-progress > div:last-child { color: var(--text-faint); font-size: 0.58rem; }
+.weekly-report-progress > .factory-evolution-evidence,
+.workspace-record > .factory-evolution-evidence { display: grid; grid-column: 1 / -1; min-width: 0; align-items: stretch; justify-content: normal; gap: 0.55rem; color: inherit; font-size: inherit; }
+.factory-evolution-evidence details { min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--surface-raised) 72%, transparent); }
+.factory-evolution-evidence summary { cursor: pointer; padding: 0.5rem 0.62rem; color: var(--text-muted); font-size: 0.62rem; font-weight: 650; }
+.evolution-evidence-summary { display: flex; min-width: 0; flex-wrap: wrap; gap: 0.35rem 0.75rem; color: var(--text-faint); font-size: 0.58rem; }
+.evolution-evidence-summary > span { display: inline-flex; min-width: 0; align-items: center; gap: 0.25rem; }
+.evolution-evidence-body { display: grid; min-width: 0; gap: 0.7rem; border-top: 1px solid var(--border); padding: 0.65rem; }
+.evolution-evidence-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem 1rem; }
+.evolution-evidence-facts p { display: grid; min-width: 0; gap: 0.12rem; margin: 0; color: var(--text-muted); font-size: 0.62rem; overflow-wrap: anywhere; }
+.evolution-evidence-facts strong { color: var(--text-faint); font-size: 0.54rem; letter-spacing: 0.04em; text-transform: uppercase; }
+.evolution-rejected-paths { display: grid; gap: 0.35rem; }
+.evolution-rejected-paths > strong { color: var(--text-faint); font-size: 0.54rem; letter-spacing: 0.04em; text-transform: uppercase; }
+.evolution-rejected-paths > div { display: grid; gap: 0.12rem; border-left: 2px solid var(--border); padding-left: 0.55rem; }
+.evolution-rejected-paths p,
+.evolution-rejected-paths small { margin: 0; color: var(--text-muted); font-size: 0.6rem; overflow-wrap: anywhere; }
+.evolution-comparison-table { min-width: 42rem; }
+.evolution-comparison-table th:first-child { width: 8.5rem; }
+.evolution-result-cell { display: grid; min-width: 14rem; gap: 0.2rem; }
+.evolution-result-cell p { margin: 0; color: var(--text-muted); overflow-wrap: anywhere; }
+.evolution-result-cell > span { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 0.28rem; }
+.evolution-source-links { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; }
+.evolution-recovery { display: flex; min-width: 0; flex-wrap: wrap; align-items: center; gap: 0.3rem 0.65rem; color: var(--text-faint); font-size: 0.58rem; }
+.evolution-recovery > span { min-width: min(28rem, 100%); flex: 1; overflow-wrap: anywhere; }
+.evolution-limitations { display: grid; gap: 0.18rem; color: var(--text-faint); }
+.evolution-limitations small { overflow-wrap: anywhere; }
 .weekly-report-stages { display: grid !important; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.24rem !important; }
 .weekly-report-stages > span { display: grid; min-width: 0; gap: 0.08rem; border-top: 2px solid var(--border-strong); padding-top: 0.28rem; color: var(--text-faint); font-size: 0.54rem; }
 .weekly-report-stages > span[data-status="complete"] { border-color: var(--green); color: var(--text-soft); }
@@ -5056,6 +5081,7 @@ h3 {
 
 @media (max-width: 44rem) {
   .weekly-report-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .evolution-evidence-facts { grid-template-columns: 1fr; }
   .operation-preview-facts,
   .operation-preview-consequences {
     grid-template-columns: 1fr;

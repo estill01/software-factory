@@ -26,6 +26,7 @@ from software_factory_dashboard.operations import (
     OperationsProjectionService,
     _expected_automation_rrule,
     _expected_automation_timezone,
+    _factory_evolution_comparison,
 )
 
 
@@ -92,6 +93,81 @@ class OperationsProjectionTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
+
+    def test_factory_evolution_comparison_preserves_verified_decision_evidence(self) -> None:
+        candidate = {
+            "candidate_id": "candidate-selected",
+            "candidate_type": "skill-method",
+            "capability_gap": "The workspace omits exact comparison evidence.",
+            "effect": "Expose the maintained comparison read-only.",
+            "protected_capabilities": ["maintained owner"],
+            "applicability": "Consequential Factory changes.",
+            "tradeoffs": ["Requires independent evaluation."],
+            "uncertainty": "One bounded cycle.",
+        }
+        rejected = {
+            **candidate,
+            "candidate_id": "candidate-detector",
+            "candidate_type": "detector",
+            "effect": "Detect the omission only.",
+            "tradeoffs": ["Does not provide the operator capability."],
+        }
+        experiment = {
+            "experiment_id": "experiment-comparison",
+            "comparison_mode": "improvement",
+            "positive_case_ids": ["case-positive"],
+            "exception_case_ids": ["case-exception"],
+            "expected_effects": ["Comparison is inspectable."],
+            "resource_bounds": ["Two exact cases."],
+            "rollback_condition": "Do not adopt after regression.",
+            "success_measures": ["Both cases have results."],
+            "regression_measures": ["No owner bypass."],
+            "stop_condition": "Stop after disposition.",
+            "minimum_expected_delta": "Candidate improves one case.",
+            "non_inferiority_justification": "",
+        }
+        review = {
+            "selection": {
+                "candidate_id": "candidate-selected",
+                "compared_candidate_ids": ["candidate-detector"],
+                "rationale": "The selected path supplies the bounded capability.",
+                "dimensions_considered": ["effect", "regression_risk"],
+            },
+            "experiment": experiment,
+            "candidates": [candidate, rejected],
+        }
+        result = {
+            "case_id": "case-positive",
+            "evidence_class": "observed",
+            "evidence_ids": ["EVT-000001"],
+            "outcome": "pass",
+            "observed_effect": "The comparison is visible.",
+            "resource_cost": "One bounded case.",
+            "regressions": ["One bounded regression."],
+            "condition_revision": "1" * 40,
+            "evidence_root": "2" * 64,
+        }
+        evaluation = {
+            "baseline_results": [result],
+            "candidate_results": [{**result, "condition_revision": "3" * 40}],
+            "contrary_evidence_ids": ["EVT-000002"],
+            "regression_findings": ["One bounded regression."],
+            "rationale": "Keep the disposition advisory.",
+        }
+
+        plan, projected = _factory_evolution_comparison(review, evaluation)
+
+        self.assertEqual(plan["selected_candidate"]["candidate_id"], "candidate-selected")
+        self.assertEqual(
+            [item["candidate_id"] for item in plan["rejected_paths"]],
+            ["candidate-detector"],
+        )
+        self.assertEqual(projected["contrary_evidence_ids"], ["EVT-000002"])
+        self.assertEqual(projected["regression_findings"], ["One bounded regression."])
+        self.assertEqual(projected["baseline_results"][0]["evidence_root"], "2" * 64)
+        planned, missing = _factory_evolution_comparison(review)
+        self.assertEqual(planned, plan)
+        self.assertIsNone(missing)
 
     def _automation_target_query(self, target_thread_id: str) -> AutomationTargetQueryResult:
         automation_ids = self.automation_target_ids.get(target_thread_id, ())
@@ -1479,6 +1555,9 @@ class OperationsProjectionTests(unittest.TestCase):
             policy["runtime"]["reviewer_thread_id"],
         )
         self.assertEqual(evolution["implementer"]["task_id"], None)
+        self.assertIsNone(evolution["comparison_plan"])
+        self.assertIsNone(evolution["comparison_results"])
+        self.assertEqual(evolution["recovery"]["posture"], "available")
         self.assertIn("not performed by evolution", " ".join(evolution["limitations"]))
         self._command(
             "factory-evolution",

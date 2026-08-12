@@ -14,6 +14,7 @@ import {
   WorkspaceBack,
 } from "@/components/workspace-ui"
 import { Button } from "@/components/ui/button"
+import { FactoryEvolutionEvidence } from "@/features/admin/factory-evolution-evidence"
 import { RunSupervisionActions } from "@/features/admin/factory-workflow-actions"
 import { fetchRun, type RunDetail } from "@/lib/operations-api"
 import { fetchTask, fetchTasks } from "@/lib/task-api"
@@ -572,6 +573,7 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
                     <Link to="/reports?view=reports&family=factory-evolution">Source</Link>
                   </div>
                   <div className="workspace-bound">Implementation, adoption, installation, routing, scheduling, deployment, rollback, and later outcome are not performed by evolution.</div>
+                  <FactoryEvolutionEvidence workflow={run.factory_evolution_workflow} targetId={run.target_thread_id} />
                   {run.factory_evolution_workflow.error ? <div className="workspace-bound">{run.factory_evolution_workflow.error.message}</div> : null}
                 </article>
                 {run.reports.length ? <div className="workspace-record-list">{run.reports.map((report) => <article className="workspace-record" key={report.id}><div><strong>{report.family} · {report.stage}</strong><Identity value={report.id} /></div><StatusMark status={report.status} /><span>{report.disposition ?? report.error?.message ?? `${report.members.length} members`}</span>{report.delivery ? <span>Delivery: {report.delivery.status}</span> : null}<Identity value={report.manifest_root} /><Link to="/reports">Artifacts</Link></article>)}</div> : <QueryState kind="empty" message="No report associated" />}

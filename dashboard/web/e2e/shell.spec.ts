@@ -627,6 +627,19 @@ test("Factory evolution exposes one current stage without adoption authority", a
     evaluation_id: null,
     evaluation_root: null,
     disposition: null,
+    comparison_plan: {
+      experiment_id: "experiment-browser-001",
+      selected_candidate: { candidate_id: "candidate-browser-selected", candidate_type: "skill-method", capability_gap: "The operator needs the exact comparison.", effect: "Expose source-backed evaluation evidence.", protected_capabilities: ["Maintained owner"], applicability: "Consequential Factory changes.", tradeoffs: ["Independent evaluation remains required."], uncertainty: "One bounded cycle." },
+      rejected_paths: [{ candidate_id: "candidate-browser-detector", candidate_type: "detector", capability_gap: "The same comparison gap.", effect: "Detect only.", protected_capabilities: ["Maintained owner"], applicability: "Detection only.", tradeoffs: ["Underreaches the operator need."], uncertainty: "No evaluation display." }],
+      selection_rationale: "The selected path exposes the bounded evidence without adding an owner.",
+      dimensions_considered: ["effect", "recurrence", "reach", "compounding_value", "reliability", "product_gain", "evidence_strength", "cost", "regression_risk", "complexity", "reversibility", "time_to_evidence"],
+      comparison_mode: "improvement",
+      positive_case_ids: ["case-browser-positive"], exception_case_ids: ["case-browser-exception"],
+      expected_effects: ["Expose both exact cases."], resource_bounds: ["Two cases and one evaluator."],
+      rollback_condition: "Do not adopt after regression.", success_measures: ["Every case is evaluated."], regression_measures: ["No owner bypass."],
+      stop_condition: "Stop after disposition.", minimum_expected_delta: "Candidate improves one exact case.", non_inferiority_justification: "",
+    },
+    comparison_results: null,
     source_report_id: "weekly-browser-001",
     source_report_root: "3".repeat(64),
     event_head_sha256: "4".repeat(64),
@@ -650,6 +663,7 @@ test("Factory evolution exposes one current stage without adoption authority", a
       ["verify", "Deterministic verify", "pending", "factory owner"],
     ].map(([id, label, status, owner]) => ({ id, label, status, owner })),
     limitations: ["Disposition is not adoption authority."],
+    recovery: { posture: "blocked", guidance: "Retain the review while external evidence is produced.", preserved_roots: ["1".repeat(64), "2".repeat(64)] },
     error: null,
   }
   runEnvelope.data.run.factory_evolution_workflow = evolutionWorkflow
@@ -687,6 +701,9 @@ test("Factory evolution exposes one current stage without adoption authority", a
   await expect(workflow.locator(".weekly-report-stages > span")).toHaveCount(5)
   await expect(workflow.locator('[data-status="current"]')).toContainText("External implementation")
   await expect(workflow).toContainText("not performed by evolution")
+  await expect(workflow).toContainText("Comparison planned")
+  await expect(workflow).toContainText("Detect only")
+  await expect(workflow).toContainText("Retain the review while external evidence is produced")
   await page.getByRole("button", { name: "Evaluate candidate" }).click()
   await expect.poll(() => requested).toEqual({
     operation_type: "factory.evolution-evaluate",
@@ -696,14 +713,47 @@ test("Factory evolution exposes one current stage without adoption authority", a
   await expect(page.getByRole("alert")).toContainText("Focused browser proof stopped before owner dispatch")
   await expect(page.getByRole("button", { name: /adopt|deploy|install/i })).toHaveCount(0)
 
+  const verifiedEvolutionWorkflow = {
+    ...evolutionWorkflow,
+    stage: "verified",
+    next_action: null,
+    actionable: false,
+    evaluation_id: "evaluation-browser-001",
+    evaluation_root: "9".repeat(64),
+    disposition: "revise",
+    implementer: { ...evolutionWorkflow.implementer, status: "evaluation-evidence-recorded" },
+    stages: evolutionWorkflow.stages.map((stage) => ({ ...stage, status: "complete" })),
+    comparison_results: {
+      baseline_results: [
+        { case_id: "case-browser-positive", evidence_class: "observed", evidence_ids: ["EVT-BROWSER-BASE"], outcome: "fail", observed_effect: "Baseline omitted the decision evidence.", resource_cost: "One bounded case.", regressions: [], condition_revision: "7".repeat(40), evidence_root: "a".repeat(64) },
+        { case_id: "case-browser-exception", evidence_class: "observed", evidence_ids: ["EVT-BROWSER-EXCEPTION"], outcome: "mixed", observed_effect: "Baseline exposed roots only.", resource_cost: "One bounded case.", regressions: [], condition_revision: "7".repeat(40), evidence_root: "b".repeat(64) },
+      ],
+      candidate_results: [
+        { case_id: "case-browser-positive", evidence_class: "observed", evidence_ids: ["EVT-BROWSER-CANDIDATE"], outcome: "pass", observed_effect: "Candidate exposed the exact comparison.", resource_cost: "One bounded case.", regressions: [], condition_revision: "8".repeat(40), evidence_root: "c".repeat(64) },
+        { case_id: "case-browser-exception", evidence_class: "shadow", evidence_ids: ["EVT-BROWSER-CONTRARY"], outcome: "mixed", observed_effect: "Exception remains unresolved.", resource_cost: "One bounded case.", regressions: ["Exception path remains."], condition_revision: "8".repeat(40), evidence_root: "d".repeat(64) },
+      ],
+      contrary_evidence_ids: ["EVT-BROWSER-CONTRARY"],
+      regression_findings: ["Exception path remains."],
+      rationale: "Revise before any separately governed adoption decision.",
+    },
+    recovery: { posture: "not-required", guidance: "Retain the immutable verified disposition.", preserved_roots: ["1".repeat(64), "2".repeat(64), "9".repeat(64)] },
+  }
+  runEnvelope.data.run.factory_evolution_workflow = verifiedEvolutionWorkflow
+  reportsEnvelope.data.evolution_workflows[0].workflow = verifiedEvolutionWorkflow
+
   for (const [path, regionName] of [
     ["/reports?view=reports", "Evolution"],
     ["/admin", "Factory evolution"],
   ] as const) {
     await page.goto(path)
     const region = page.getByRole("region", { name: regionName })
-    await expect(region).toContainText("awaiting-implementation")
+    await expect(region).toContainText("verified")
     await expect(region).toContainText("External implementation")
+    await expect(region).toContainText("Verified comparison")
+    await expect(region).toContainText("Detect only")
+    await expect(region).toContainText("Baseline omitted the decision evidence")
+    await expect(region).toContainText("Exception path remains")
+    await expect(region.getByRole("link", { name: "EVT-BROWSER-CONTRARY" }).first()).toHaveAttribute("href", `/runs/${target}#EVT-BROWSER-CONTRARY`)
     await expect(region).toContainText(/not performed by evolution|Evolution performs no adoption/)
     await expect(page.getByRole("button", { name: /adopt|deploy|install/i })).toHaveCount(0)
     const axe = await new AxeBuilder({ page }).analyze()

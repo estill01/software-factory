@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { Link } from "react-router"
 
 import { Identity, QueryState, StatusMark } from "@/components/workspace-ui"
+import { FactoryEvolutionEvidence } from "@/features/admin/factory-evolution-evidence"
 import { fetchReports } from "@/lib/operations-api"
 
 export function FactoryEvolutionPanel() {
@@ -25,6 +26,7 @@ export function FactoryEvolutionPanel() {
           <span>{workflow.stages.map((stage) => `${stage.label}: ${stage.status}`).join(" · ") || workflow.error?.message || "Source unavailable"}</span>
           <Identity value={workflow.packet_root} />
           <small>External implementation: {workflow.implementer.status}. Evolution performs no adoption, installation, routing, scheduling, deployment, rollback, or outcome mutation.</small>
+          <FactoryEvolutionEvidence workflow={workflow} targetId={targetId} />
         </article>
       ))}</div> : <QueryState kind="empty" message="No Factory-evolution source projection" />}
     </section>

@@ -13,6 +13,7 @@ import { Link, useSearchParams } from "react-router"
 import { SafeMarkdown } from "@/components/safe-markdown"
 import { Button } from "@/components/ui/button"
 import { Identity, QueryState, StatusMark, TimeValue } from "@/components/workspace-ui"
+import { FactoryEvolutionEvidence } from "@/features/admin/factory-evolution-evidence"
 import {
   MetricHistoryChart,
   type MetricTrendPoint,
@@ -553,6 +554,7 @@ export function Component() {
               <Identity value={workflow.review_root} />
               <Identity value={workflow.evaluation_root} />
               <small>Adoption, installation, routing, scheduling, deployment, rollback, and outcome: not performed by evolution.</small>
+              <FactoryEvolutionEvidence workflow={workflow} targetId={targetId} />
             </article>
           ))}</div> : <QueryState kind="empty" message="No current Factory-evolution projection matches the filters" />}
         </section>

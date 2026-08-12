@@ -86,6 +86,8 @@ const unavailableFactoryEvolutionWorkflow: FactoryEvolutionWorkflow = {
   evaluation_id: null,
   evaluation_root: null,
   disposition: null,
+  comparison_plan: null,
+  comparison_results: null,
   source_report_id: null,
   source_report_root: null,
   event_head_sha256: null,
@@ -103,6 +105,11 @@ const unavailableFactoryEvolutionWorkflow: FactoryEvolutionWorkflow = {
   members: [],
   stages: [],
   limitations: ["Factory-evolution workflow projection is unavailable."],
+  recovery: {
+    posture: "unavailable",
+    guidance: "Factory-evolution workflow projection is unavailable.",
+    preserved_roots: [],
+  },
   error: {
     code: "factory_evolution_workflow_unavailable",
     message: "Factory-evolution workflow projection is unavailable.",

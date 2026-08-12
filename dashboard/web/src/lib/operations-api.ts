@@ -864,6 +864,90 @@ const weeklyReportWorkflowSchema = z
   })
   .strict()
 
+const factoryEvolutionCandidateSchema = z
+  .object({
+    candidate_id: z.string().min(1),
+    candidate_type: z.enum([
+      "detector",
+      "correction",
+      "exculpator",
+      "skill-method",
+      "tracker-method",
+      "supervision",
+      "execution",
+      "evaluation",
+      "resource-policy",
+      "architecture",
+      "removal",
+      "experiment",
+    ]),
+    capability_gap: z.string().min(1),
+    effect: z.string().min(1),
+    protected_capabilities: z.array(z.string().min(1)),
+    applicability: z.string().min(1),
+    tradeoffs: z.array(z.string().min(1)),
+    uncertainty: z.string().min(1),
+  })
+  .strict()
+
+const factoryEvolutionComparisonPlanSchema = z
+  .object({
+    experiment_id: z.string().min(1),
+    selected_candidate: factoryEvolutionCandidateSchema,
+    rejected_paths: z.array(factoryEvolutionCandidateSchema),
+    selection_rationale: z.string().min(1),
+    dimensions_considered: z.array(z.enum([
+      "effect",
+      "recurrence",
+      "reach",
+      "compounding_value",
+      "reliability",
+      "product_gain",
+      "evidence_strength",
+      "cost",
+      "regression_risk",
+      "complexity",
+      "reversibility",
+      "time_to_evidence",
+    ])),
+    comparison_mode: z.enum(["improvement", "non-inferiority"]),
+    positive_case_ids: z.array(z.string().min(1)),
+    exception_case_ids: z.array(z.string().min(1)),
+    expected_effects: z.array(z.string().min(1)),
+    resource_bounds: z.array(z.string().min(1)),
+    rollback_condition: z.string().min(1),
+    success_measures: z.array(z.string().min(1)),
+    regression_measures: z.array(z.string().min(1)),
+    stop_condition: z.string().min(1),
+    minimum_expected_delta: z.string().min(1),
+    non_inferiority_justification: z.string(),
+  })
+  .strict()
+
+const factoryEvolutionResultSchema = z
+  .object({
+    case_id: z.string().min(1),
+    evidence_class: z.enum(["observed", "shadow", "synthetic"]),
+    evidence_ids: z.array(z.string().min(1)),
+    outcome: z.enum(["pass", "fail", "mixed"]),
+    observed_effect: z.string().min(1),
+    resource_cost: z.string().min(1),
+    regressions: z.array(z.string().min(1)),
+    condition_revision: gitRevisionSchema,
+    evidence_root: fingerprintSchema,
+  })
+  .strict()
+
+const factoryEvolutionComparisonResultsSchema = z
+  .object({
+    baseline_results: z.array(factoryEvolutionResultSchema),
+    candidate_results: z.array(factoryEvolutionResultSchema),
+    contrary_evidence_ids: z.array(z.string().min(1)),
+    regression_findings: z.array(z.string().min(1)),
+    rationale: z.string().min(1),
+  })
+  .strict()
+
 const factoryEvolutionWorkflowSchema = z
   .object({
     status: z.enum(["available", "unavailable"]),
@@ -884,6 +968,8 @@ const factoryEvolutionWorkflowSchema = z
     evaluation_id: nullableString,
     evaluation_root: fingerprintSchema.nullable(),
     disposition: z.enum(["promote", "advisory", "revise", "reject"]).nullable(),
+    comparison_plan: factoryEvolutionComparisonPlanSchema.nullable(),
+    comparison_results: factoryEvolutionComparisonResultsSchema.nullable(),
     source_report_id: nullableString,
     source_report_root: fingerprintSchema.nullable(),
     event_head_sha256: fingerprintSchema.nullable(),
@@ -916,6 +1002,13 @@ const factoryEvolutionWorkflowSchema = z
         .strict(),
     ),
     limitations: z.array(z.string()),
+    recovery: z
+      .object({
+        posture: z.enum(["available", "blocked", "not-required", "unavailable"]),
+        guidance: z.string().min(1),
+        preserved_roots: z.array(fingerprintSchema),
+      })
+      .strict(),
     error: projectionErrorSchema.nullable(),
   })
   .strict()

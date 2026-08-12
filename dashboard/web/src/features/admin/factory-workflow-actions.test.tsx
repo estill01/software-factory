@@ -189,6 +189,8 @@ const factoryEvolutionWorkflow = {
   evaluation_id: null,
   evaluation_root: null,
   disposition: null,
+  comparison_plan: null,
+  comparison_results: null,
   source_report_id: "weekly-test-001",
   source_report_root: hash,
   event_head_sha256: hash,
@@ -212,6 +214,7 @@ const factoryEvolutionWorkflow = {
     { id: "verify", label: "Verify", status: "pending", owner: "factory owner" },
   ],
   limitations: ["Disposition is not adoption authority."],
+  recovery: { posture: "blocked", guidance: "Await exact external evidence.", preserved_roots: [hash] },
   error: null,
 } satisfies RunDetail["factory_evolution_workflow"]
 
