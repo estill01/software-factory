@@ -6205,6 +6205,38 @@ affected operation family plus shared schema/component proof.
   pass 30/30. The exact product server restarted on loopback port 8787; live
   health is `ok` and its closed registry exposes 19 operation definitions with
   no persisted activity or inferred result.
+- First exact-revision review: rejected evidence commit
+  `f10ff208c7b83cd4d4136cfc6e953e76c59ce360` because an expired semantic
+  preview remained visually current and actionable. The server rejected the
+  eventual request, but the browser neither derived expiry while the dialog
+  remained open nor mapped `preview_expired` into the existing stale/re-preview
+  recovery posture. All other owner, schema, provenance, responsive,
+  accessibility, security, resource, and Stop findings were clear; that exact
+  evidence and its valid proof remain immutable diagnostic history.
+- Expiry correction product: commit
+  `c2b6aac6cd3d4ef9d470fd07b91fd6d283bc93da`, tree
+  `a162373a0117a59817cffccaca99deda8ff88078`, parent rejected evidence
+  `f10ff208c7b83cd4d4136cfc6e953e76c59ce360`, pushed with local/upstream
+  divergence `0 0`. The bounded eight-file frontend/test delta derives the
+  exact preview expiry, schedules the transition while the dialog remains
+  open, resets typed confirmation per preview token, disables dispatch after
+  expiry including a click-time recheck, marks the comparison expired, exposes
+  the existing Preview again recovery, and maps the canonical
+  `preview_expired` error to the same posture. It does not change any operation
+  owner, backend schema, route gate, confirmation value, or mutation path.
+- Correction proof: the two affected component/runner files passed 20/20;
+  TypeScript and the production build passed. The exact mission-binding browser
+  fixture now proves already-expired, refreshed-current, source-linked,
+  nonmutating semantic previews on desktop, tablet, and mobile, 3/3 serially;
+  its run/project claim is fixed to the same exact project used by the preview
+  instead of borrowing mutable live task state. The full-profile verifier
+  reports 30 Blocks with 0 errors/warnings, all 30 verifier tests pass,
+  `git diff --check` passes, and the pushed loopback server on port 8787 reports
+  complete health with every integration available. The backend and remaining
+  28/28 plus 99/99 proof are unaffected and were not replayed broadly.
+- Current review posture: the correction is frozen and awaiting a fresh
+  independent exact-revision verdict. Block 21 remains `in-progress`; Blocks
+  22-29 remain unopened.
 
 ### Stop
 
