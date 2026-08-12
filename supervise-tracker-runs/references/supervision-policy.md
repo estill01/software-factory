@@ -839,7 +839,9 @@ Sol XHigh-or-Max checkpoint/meta review with category
 `legacy-direct-authority-ingestion`, supervisor ownership, no user action, the
 current policy SHA, and exact source/transition evidence. Validation, duplicate
 and replay checks, policy/event currentness, and the legacy transition check all
-precede the locked event append:
+precede the locked event append. The canonical transition record must precede
+the reviewer authorization record; an earlier review cannot name a future
+transition and become retroactive authority:
 
 ```bash
 python3 <LOG_HELPER> legacy-direct-authority-ingest \
@@ -866,6 +868,10 @@ as `full-tracker`. The original source bytes and SHA remain the authority and
 `request_text_sha256`; caller-normalized replacement text, altered link labels,
 destinations, order, or clauses, generic local-path text, and generic unbounded
 requests cannot use this seam.
+Immediately before the range-policy write, the policy owner lock re-reads the
+current policy, accepted receipt, source event, reviewer authorization, event
+head, and still-open legacy transition. Any policy/event drift or intervening
+transition correction rejects before policy or policy-history mutation.
 
 Ordinary tracker status and completion-evidence updates preserve the
 owner-pinned tracker path, exact Block-number set, and canonical structural

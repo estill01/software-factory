@@ -3228,10 +3228,10 @@ def write_policy_version_locked_at(
     kind: str,
     reason: str,
     evidence_values: list[str],
+    pre_mutation_validator: Any = None,
 ) -> None:
     expected_policy_sha256 = str(policy.get("policy_sha256", ""))
     expected_policy_version = int(policy["policy_version"])
-    ensure_event_ledger_anchor_at(directory_fd)
     current_policy, _current_snapshot = read_json_snapshot(
         Path("policy.json"), directory_fd=directory_fd
     )
@@ -3268,6 +3268,9 @@ def write_policy_version_locked_at(
         raise SupervisionLogError(
             "Policy changed concurrently after it was loaded; reload before mutation"
         )
+    if pre_mutation_validator is not None:
+        pre_mutation_validator(directory_fd, current_policy)
+    ensure_event_ledger_anchor_at(directory_fd)
     if (
         policy.get("owner_root_history_required") is True
         or policy.get("implementation_range") is not None
@@ -3335,6 +3338,7 @@ def write_policy_version(
     kind: str,
     reason: str,
     evidence_values: list[str],
+    pre_mutation_validator: Any = None,
 ) -> None:
     with policy_owner_lock(directory) as (directory_fd, directory_snapshot):
         write_policy_version_locked_at(
@@ -3345,6 +3349,7 @@ def write_policy_version(
             kind=kind,
             reason=reason,
             evidence_values=evidence_values,
+            pre_mutation_validator=pre_mutation_validator,
         )
 
 
@@ -6506,6 +6511,16 @@ def validate_legacy_direct_authority_provenance(
         policy_history=policy_history,
         require_open=require_open_transition,
     )
+    event_order = {
+        str(item.get("record_id")): index
+        for index, item in enumerate(all_events)
+    }
+    if event_order[str(transition["record_id"])] >= event_order[
+        str(authorization["record_id"])
+    ]:
+        raise SupervisionLogError(
+            "Legacy successor transition must precede its independent authorization"
+        )
     projection = legacy_full_tracker_request_projection(source_text)
     return projection, authorization, transition
 
@@ -7261,10 +7276,11 @@ def evidence_value(evidence: Any, prefix: str) -> str:
     return matches[0]
 
 
-def legacy_implementation_request_classification(
-    directory: Path,
+def legacy_implementation_request_classification_from_state(
     policy: Mapping[str, Any],
     *,
+    all_events: list[dict[str, Any]],
+    policy_history: list[dict[str, Any]],
     source_record: str,
     source_sha256: str,
     request_text: str,
@@ -7286,8 +7302,6 @@ def legacy_implementation_request_classification(
         raise SupervisionLogError(
             "Legacy implementation request lacks a current accepted authority receipt"
         )
-    all_events = events(directory / "events.jsonl")
-    policy_history = events(directory / "policy-history.jsonl")
     source_event = canonical_direct_authority_event(
         all_events,
         event_record_id=str(receipt["source_event_record_id"]),
@@ -7372,6 +7386,33 @@ def legacy_implementation_request_classification(
             "Legacy implementation request differs from canonical authority"
         )
     return "full-tracker", sorted(blocks)
+
+
+def legacy_implementation_request_classification(
+    directory: Path,
+    policy: Mapping[str, Any],
+    *,
+    source_record: str,
+    source_sha256: str,
+    request_text: str,
+    blocks: set[int],
+) -> tuple[str, list[int], str]:
+    all_events = events(directory / "events.jsonl")
+    policy_history = events(directory / "policy-history.jsonl")
+    intent, requested = legacy_implementation_request_classification_from_state(
+        policy,
+        all_events=all_events,
+        policy_history=policy_history,
+        source_record=source_record,
+        source_sha256=source_sha256,
+        request_text=request_text,
+        blocks=blocks,
+    )
+    if not all_events:
+        raise SupervisionLogError(
+            "Legacy implementation authority event ledger is empty"
+        )
+    return intent, requested, str(all_events[-1]["record_sha256"])
 
 
 def cmd_implementation_authority_receipt(args: argparse.Namespace) -> None:
@@ -7487,12 +7528,17 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
         tracker_structure_sha256,
         blocks,
     ) = implementation_tracker_snapshot(args.tracker)
+    legacy_event_head_sha256 = ""
     if (
         "/Users/" in args.request_text
         or "file://" in args.request_text
         or "\\Users\\" in args.request_text
     ):
-        intent, requested = legacy_implementation_request_classification(
+        (
+            intent,
+            requested,
+            legacy_event_head_sha256,
+        ) = legacy_implementation_request_classification(
             directory,
             policy,
             source_record=source_record,
@@ -7553,12 +7599,57 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
         "history_head_sha256": entry["entry_sha256"],
     }
     validate_implementation_range_contract(policy["implementation_range"])
+
+    def revalidate_legacy_binding_before_mutation(
+        directory_fd: int, current_policy: Mapping[str, Any]
+    ) -> None:
+        current_events, _event_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        current_policy_history, _history_snapshot = events_snapshot(
+            Path("policy-history.jsonl"), directory_fd=directory_fd
+        )
+        validate_event_ledger_anchor_at(
+            directory_fd,
+            current_events,
+            allow_missing=False,
+        )
+        current_event_head = (
+            str(current_events[-1].get("record_sha256", ""))
+            if current_events
+            else ""
+        )
+        if current_event_head != legacy_event_head_sha256:
+            raise SupervisionLogError(
+                "Legacy implementation authority event state changed before range bind"
+            )
+        locked_intent, locked_requested = (
+            legacy_implementation_request_classification_from_state(
+                current_policy,
+                all_events=current_events,
+                policy_history=current_policy_history,
+                source_record=source_record,
+                source_sha256=source_sha256,
+                request_text=args.request_text,
+                blocks=set(blocks),
+            )
+        )
+        if locked_intent != intent or locked_requested != requested:
+            raise SupervisionLogError(
+                "Legacy implementation authority changed before range bind"
+            )
+
     write_policy_version(
         directory,
         policy,
         kind="implementation-range-bind",
         reason="Freeze the direct requested implementation range.",
         evidence_values=[source_record, tracker_sha256, genesis],
+        pre_mutation_validator=(
+            revalidate_legacy_binding_before_mutation
+            if legacy_event_head_sha256
+            else None
+        ),
     )
     print(json.dumps({"binding": policy["implementation_range"]}, sort_keys=True))
 

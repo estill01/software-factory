@@ -2771,6 +2771,97 @@ class LegacyDirectAuthorityIngestTests(unittest.TestCase):
             provenance, "not the exact unbound legacy|no longer the open"
         )
 
+    def test_review_before_legacy_transition_cannot_become_retroactive_authority(self) -> None:
+        future_transition_id = "TRANSITION-FUTURE-1234"
+        future_record_id = (
+            f"EVT-{len(supervision_log.events(self.directory / 'events.jsonl')) + 2:06d}"
+        )
+        provenance = self.provenance(
+            transition_record=future_record_id,
+            transition_id=future_transition_id,
+        )
+        self.append_review(provenance)
+        transition = self.append_legacy_transition(
+            transition_id=future_transition_id
+        )
+        self.assertEqual(transition["record_id"], future_record_id)
+
+        self.assert_rejected_without_mutation(
+            provenance,
+            "transition must precede its independent authorization",
+        )
+
+    def test_transition_cancellation_between_classification_and_write_rejects_policy_mutation(self) -> None:
+        provenance = self.provenance()
+        self.append_review(provenance)
+        ingested = self.ingest(provenance)
+        self.call(
+            "implementation-range-authority-receipt",
+            "--target-thread",
+            self.target,
+            "--authority-event-record",
+            str(ingested["record_id"]),
+        )
+        policy_before = (self.directory / "policy.json").read_bytes()
+        history_before = (self.directory / "policy-history.jsonl").read_bytes()
+        original_write = supervision_log.write_policy_version
+
+        def cancel_then_write(*args: object, **kwargs: object) -> None:
+            policy = supervision_log.read_json(self.directory / "policy.json")
+            self.append_event(
+                {
+                    "kind": "successor-transition",
+                    "transition_id": self.transition_id,
+                    "phase": "cancelled",
+                    "governing_authority_source_class": "direct-user",
+                    "governing_authority_source_record": self.source_item,
+                    "policy_sha256": policy["policy_sha256"],
+                    "evidence": ["deterministic-cancel-before-range-write"],
+                }
+            )
+            original_write(*args, **kwargs)
+
+        with mock.patch.object(
+            supervision_log,
+            "write_policy_version",
+            side_effect=cancel_then_write,
+        ):
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "event state changed before range bind",
+            ):
+                self.call(
+                    "implementation-range-bind",
+                    "--target-thread",
+                    self.target,
+                    "--range-id",
+                    "RANGE-ITEM-340",
+                    "--tracker",
+                    str(self.tracker),
+                    "--request-text",
+                    self.source_text,
+                    "--authority-source-record",
+                    self.source_item,
+                    "--authority-source-sha256",
+                    self.source_sha256,
+                )
+
+        self.assertEqual((self.directory / "policy.json").read_bytes(), policy_before)
+        self.assertEqual(
+            (self.directory / "policy-history.jsonl").read_bytes(),
+            history_before,
+        )
+        self.assertIsNone(
+            supervision_log.read_json(self.directory / "policy.json").get(
+                "implementation_range"
+            )
+        )
+        transitions = supervision_log.successor_transition_events(
+            supervision_log.events(self.directory / "events.jsonl"),
+            self.transition_id,
+        )
+        self.assertEqual(transitions[-1]["phase"], "cancelled")
+
 
 class ControlPostureReducerTests(unittest.TestCase):
     owner = "owner-1234"
