@@ -15,10 +15,10 @@ import math
 import os
 import re
 import tempfile
-from collections import Counter, defaultdict
+from collections import Counter
 from pathlib import Path
 from statistics import median
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo
 
 
@@ -640,11 +640,59 @@ def resource_estimate(
 
 
 def availability_metrics(
-    window_events: Sequence[Mapping[str, Any]],
+    bounded_events: Sequence[Mapping[str, Any]],
     start: dt.datetime,
     end: dt.datetime,
+    *,
+    canonical_resume_record_ids: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Compute explicit schedule posture without inferring silence as downtime."""
+
+    window_events = [item for item in bounded_events if in_window(item, start, end)]
+    if not window_events:
+        raise WeeklyReportError("Weekly report window contains no supervision events")
+
+    def pause_identity(item: Mapping[str, Any]) -> tuple[str, str] | None:
+        record_id = item.get("record_id")
+        if not isinstance(record_id, str) or not record_id:
+            return None
+        if (
+            item.get("kind") == "lifecycle"
+            and item.get("category") == "supervision-pause"
+            and item.get("status") == "paused"
+            and isinstance(item.get("state_fingerprint"), str)
+            and item.get("state_fingerprint")
+        ):
+            return record_id, "canonical-lifecycle"
+        if (
+            item.get("kind") == "policy-change"
+            and item.get("category") == "stop-condition-pause"
+            and item.get("status") == "paused"
+        ):
+            return record_id, "legacy-policy-change"
+        return None
+
+    def resumes_pause(
+        item: Mapping[str, Any], pause_record_id: str, pause_kind: str
+    ) -> bool:
+        if pause_kind == "canonical-lifecycle":
+            return bool(
+                item.get("record_id") in canonical_resume_record_ids
+                and item.get("resume_contract_version") == 1
+                and item.get("kind") == "lifecycle"
+                and item.get("category") == "supervision-resume"
+                and item.get("status") == "resumed"
+                and item.get("pause_record_id") == pause_record_id
+                and isinstance(item.get("source_currentness_root"), str)
+                and isinstance(item.get("eligibility_root"), str)
+                and isinstance(item.get("automation_evidence_root"), str)
+            )
+        return bool(
+            pause_kind == "legacy-policy-change"
+            and item.get("kind") == "policy-change"
+            and item.get("category") == "supervision-resume"
+            and item.get("status") == "resumed"
+        )
 
     active = True
     cursor = start
@@ -653,50 +701,74 @@ def availability_metrics(
     intervals: list[dict[str, Any]] = []
     pause_start: dt.datetime | None = None
     pause_record: str | None = None
-    for item in sorted(window_events, key=record_time):
+    pause_kind: str | None = None
+    ordered = sorted(
+        (item for item in bounded_events if record_time(item) <= end),
+        key=record_time,
+    )
+
+    # Establish exact posture at the report boundary from retained history.
+    for item in (item for item in ordered if record_time(item) < start):
+        identity = pause_identity(item)
+        if identity is not None and active:
+            active = False
+            pause_start = record_time(item)
+            pause_record, pause_kind = identity
+        elif (
+            not active
+            and pause_record is not None
+            and pause_kind is not None
+            and resumes_pause(item, pause_record, pause_kind)
+        ):
+            active = True
+            pause_start = None
+            pause_record = None
+            pause_kind = None
+
+    for item in (item for item in ordered if start <= record_time(item) <= end):
         stamp = record_time(item)
-        is_pause = (
-            item.get("kind") == "policy-change"
-            and item.get("category") == "stop-condition-pause"
-            and item.get("status") == "paused"
+        identity = pause_identity(item)
+        is_resume = bool(
+            not active
+            and pause_record is not None
+            and pause_kind is not None
+            and resumes_pause(item, pause_record, pause_kind)
         )
-        is_resume = (
-            item.get("kind") == "policy-change"
-            and item.get("category") == "supervision-resume"
-            and item.get("status") == "resumed"
-        )
-        if is_pause and active:
+        if identity is not None and active:
             active_seconds += max(0.0, (stamp - cursor).total_seconds())
             active = False
             cursor = stamp
             pause_start = stamp
-            pause_record = str(item.get("record_id"))
+            pause_record, pause_kind = identity
         elif is_resume and not active:
             paused_seconds += max(0.0, (stamp - cursor).total_seconds())
             intervals.append(
                 {
-                    "start": iso_time(pause_start or cursor),
+                    "start": iso_time(max(pause_start or cursor, start)),
                     "end": iso_time(stamp),
-                    "hours": round((stamp - (pause_start or cursor)).total_seconds() / 3600, 2),
+                    "hours": round((stamp - cursor).total_seconds() / 3600, 2),
                     "pause_record_id": pause_record,
                     "resume_record_id": item.get("record_id"),
+                    "evidence_posture": pause_kind,
                 }
             )
             active = True
             cursor = stamp
             pause_start = None
             pause_record = None
+            pause_kind = None
     if active:
         active_seconds += max(0.0, (end - cursor).total_seconds())
     else:
         paused_seconds += max(0.0, (end - cursor).total_seconds())
         intervals.append(
             {
-                "start": iso_time(pause_start or cursor),
+                "start": iso_time(max(pause_start or cursor, start)),
                 "end": iso_time(end),
-                "hours": round((end - (pause_start or cursor)).total_seconds() / 3600, 2),
+                "hours": round((end - cursor).total_seconds() / 3600, 2),
                 "pause_record_id": pause_record,
                 "resume_record_id": None,
+                "evidence_posture": pause_kind,
             }
         )
 
@@ -730,7 +802,7 @@ def availability_metrics(
             100.0 * successful_reads / read_total if read_total else None
         ),
         "continuous_process_uptime_measured": False,
-        "interpretation": "Scheduled-active time is derived only from explicit pause/resume policy records. Target-read availability uses recorded material read outcomes. Quiet gaps are not downtime because unchanged wakes may emit no event.",
+        "interpretation": "Scheduled-active time is derived only from exact canonical pause/resume lifecycle pairs or retained legacy policy-change pairs. A canonical resume closes only its named pause predecessor. Target-read availability uses recorded material read outcomes. Quiet gaps are not downtime because unchanged wakes may emit no event.",
     }
 
 
@@ -745,6 +817,7 @@ def build_metrics(
     policy_history: Sequence[Mapping[str, Any]],
     current_policy: Mapping[str, Any],
     projection_inventory: Mapping[str, Any],
+    canonical_resume_record_ids: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if end <= start:
         raise WeeklyReportError("Weekly report end must be after start")
@@ -956,7 +1029,12 @@ def build_metrics(
             ),
             "denominator_note": "Incident rate uses incident openings divided by exact changed-state routing records. It measures supervision yield, not implementation quality.",
         },
-        "availability": availability_metrics(window_events, start, end),
+        "availability": availability_metrics(
+            bounded_events,
+            start,
+            end,
+            canonical_resume_record_ids=canonical_resume_record_ids,
+        ),
         "resource_estimate": resource_estimate(
             window_events, timezone, pricing_profile
         ),

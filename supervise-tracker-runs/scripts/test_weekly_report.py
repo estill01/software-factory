@@ -38,6 +38,7 @@ def event(
     reasoning: str = "max",
     block: str = "1",
     incident_id: str | None = None,
+    **extra: object,
 ) -> dict[str, object]:
     value: dict[str, object] = {
         "schema_version": 1,
@@ -59,6 +60,7 @@ def event(
     }
     if incident_id:
         value["incident_id"] = incident_id
+    value.update(extra)
     return value
 
 
@@ -222,6 +224,101 @@ class WeeklyMetricsTests(unittest.TestCase):
         self.assertEqual(value["core_heartbeats_scheduled_active_hours"], 36.0)
         self.assertEqual(value["core_heartbeats_explicitly_paused_hours"], 12.0)
         self.assertEqual(len(value["explicit_pause_intervals"]), 1)
+
+    def test_availability_closes_only_the_exact_canonical_pause(self) -> None:
+        events = fixture_events()
+        events.extend(
+            [
+                event(
+                    8,
+                    "2026-08-01T12:00:00+00:00",
+                    kind="lifecycle",
+                    category="supervision-pause",
+                    status="paused",
+                    state_fingerprint="state-paused",
+                ),
+                event(
+                    9,
+                    "2026-08-01T18:00:00+00:00",
+                    kind="policy-change",
+                    category="supervision-resume",
+                    status="resumed",
+                ),
+                event(
+                    10,
+                    "2026-08-02T00:00:00+00:00",
+                    kind="lifecycle",
+                    category="supervision-resume",
+                    status="resumed",
+                    resume_contract_version=1,
+                    pause_record_id="EVT-000008",
+                    source_currentness_root="a" * 64,
+                    eligibility_root="b" * 64,
+                    automation_evidence_root="c" * 64,
+                ),
+            ]
+        )
+
+        value = weekly_report.availability_metrics(
+            sorted(events, key=weekly_report.record_time),
+            dt.datetime(2026, 8, 1, tzinfo=dt.timezone.utc),
+            dt.datetime(2026, 8, 3, tzinfo=dt.timezone.utc),
+            canonical_resume_record_ids=frozenset({"EVT-000010"}),
+        )
+
+        self.assertEqual(value["core_heartbeats_explicitly_paused_hours"], 12.0)
+        self.assertEqual(
+            value["explicit_pause_intervals"][0]["pause_record_id"],
+            "EVT-000008",
+        )
+        self.assertEqual(
+            value["explicit_pause_intervals"][0]["resume_record_id"],
+            "EVT-000010",
+        )
+        self.assertEqual(
+            value["explicit_pause_intervals"][0]["evidence_posture"],
+            "canonical-lifecycle",
+        )
+
+    def test_pause_before_window_is_clipped_and_closed_by_its_resume(self) -> None:
+        events = fixture_events()
+        events.extend(
+            [
+                event(
+                    8,
+                    "2026-07-31T18:00:00+00:00",
+                    kind="lifecycle",
+                    category="supervision-pause",
+                    status="paused",
+                    state_fingerprint="state-paused",
+                ),
+                event(
+                    9,
+                    "2026-08-01T06:00:00+00:00",
+                    kind="lifecycle",
+                    category="supervision-resume",
+                    status="resumed",
+                    resume_contract_version=1,
+                    pause_record_id="EVT-000008",
+                    source_currentness_root="a" * 64,
+                    eligibility_root="b" * 64,
+                    automation_evidence_root="c" * 64,
+                ),
+            ]
+        )
+
+        value = weekly_report.availability_metrics(
+            sorted(events, key=weekly_report.record_time),
+            dt.datetime(2026, 8, 1, tzinfo=dt.timezone.utc),
+            dt.datetime(2026, 8, 2, tzinfo=dt.timezone.utc),
+            canonical_resume_record_ids=frozenset({"EVT-000009"}),
+        )
+
+        self.assertEqual(value["core_heartbeats_explicitly_paused_hours"], 6.0)
+        self.assertEqual(
+            value["explicit_pause_intervals"][0]["start"],
+            "2026-08-01T00:00:00+00:00",
+        )
 
     def test_pricing_profile_and_estimate_are_deterministic(self) -> None:
         profile = weekly_report.load_pricing_profile()
