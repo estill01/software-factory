@@ -808,7 +808,7 @@ python3 <LOG_HELPER> implementation-range-amend \
 
 python3 <LOG_HELPER> implementation-range-gate \
   --target-thread <TARGET> \
-  --response-kind <block-boundary|commit-boundary|review-boundary|handoff-boundary|final-response|outcome-terminal>
+  --response-kind <block-boundary|commit-boundary|review-boundary|handoff-boundary|push-boundary|final-response|outcome-terminal>
 ```
 
 The initial source must resolve to the bound direct mission or an already

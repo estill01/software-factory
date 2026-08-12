@@ -1566,13 +1566,37 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.write_tracker(["completed", "completed"])
         self.bind("Block 1")
 
+        boundary = self.gate("block-boundary")
+        final = self.gate("final-response")
+
+        self.assertTrue(boundary["range_binding_current"])
+        self.assertTrue(boundary["final_response_permitted"])
+        self.assertEqual(
+            boundary["next_action"], "requested-block-boundary-satisfied"
+        )
+        self.assertTrue(final["final_response_permitted"])
+        self.assertEqual(
+            final["next_action"], "requested-range-final-response-satisfied"
+        )
+
+    def test_completed_multi_block_request_cannot_use_an_internal_block_return(self) -> None:
+        self.write_tracker(["completed", "completed"])
+        self.bind("Blocks 0-1")
+
         result = self.gate("block-boundary")
 
-        self.assertTrue(result["range_binding_current"])
-        self.assertTrue(result["final_response_permitted"])
-        self.assertEqual(
-            result["next_action"], "requested-block-boundary-satisfied"
-        )
+        self.assertFalse(result["final_response_permitted"])
+        self.assertEqual(result["next_action"], "continue-governing-outcome")
+
+    def test_push_boundary_is_explicit_and_never_implies_completion(self) -> None:
+        self.write_tracker(["completed", "not-started"])
+        self.bind()
+
+        result = self.gate("push-boundary")
+
+        self.assertFalse(result["final_response_permitted"])
+        self.assertFalse(result["process_boundary_implies_completion"])
+        self.assertEqual(result["next_action"], "continue-next-eligible-block")
 
     def rewrite_owner_root_without_external_authority(self) -> None:
         directory = self.root / self.target

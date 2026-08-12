@@ -331,6 +331,7 @@ IMPLEMENTATION_RANGE_RESPONSE_KINDS = (
     "commit-boundary",
     "review-boundary",
     "handoff-boundary",
+    "push-boundary",
     "final-response",
     "outcome-terminal",
 )
@@ -7117,8 +7118,16 @@ def cmd_implementation_range_gate(args: argparse.Namespace) -> None:
             else "reconcile-unmet-dependencies-without-final-response"
         )
         final_permitted = False
-    elif state["range_intent"] == "explicit-blocks" and args.response_kind == "block-boundary":
-        next_action = "requested-block-boundary-satisfied"
+    elif (
+        state["range_intent"] == "explicit-blocks"
+        and len(state["requested_blocks"]) == 1
+        and args.response_kind in {"block-boundary", "final-response"}
+    ):
+        next_action = (
+            "requested-block-boundary-satisfied"
+            if args.response_kind == "block-boundary"
+            else "requested-range-final-response-satisfied"
+        )
         final_permitted = True
     elif control["required_target_posture"] in {"completed", "stopped"}:
         next_action = "governing-outcome-terminal-current"
