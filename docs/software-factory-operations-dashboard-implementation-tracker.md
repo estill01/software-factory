@@ -541,8 +541,8 @@ the relevant authority and evidence contract.
 | 18 | Tracker review queue and exact count filters | 3, 8 | `accepted` |
 | 19 | Tracker semantic source diffs | 3, 8 | `accepted` |
 | 20 | Automation binding repair | 7, 10, 11 | `accepted` |
-| 21 | Owner-backed operation semantic diffs | 10, 14, 15, 16, 19, 20 | `in-progress` |
-| 22 | Supervision pause and resume | 7, 10, 11 | `not-started` |
+| 21 | Owner-backed operation semantic diffs | 10, 14, 15, 16, 19, 20 | `accepted` |
+| 22 | Supervision pause and resume | 7, 10, 11 | `in-progress` |
 | 23 | Same-target mission succession | 7, 10, 11 | `not-started` |
 | 24 | Successor-task continuity | 7, 10, 11 | `not-started` |
 | 25 | Weekly supervision report workflow | 9, 10, 11, 13 | `not-started` |
@@ -6036,7 +6036,7 @@ lifecycle operations.
 
 ## Block 21 — Owner-backed operation semantic diffs
 
-Status: `in-progress`
+Status: `accepted`
 
 ### Objective
 
@@ -6234,9 +6234,17 @@ affected operation family plus shared schema/component proof.
   `git diff --check` passes, and the pushed loopback server on port 8787 reports
   complete health with every integration available. The backend and remaining
   28/28 plus 99/99 proof are unaffected and were not replayed broadly.
-- Current review posture: the correction is frozen and awaiting a fresh
-  independent exact-revision verdict. Block 21 remains `in-progress`; Blocks
-  22-29 remain unopened.
+- Independent exact-revision review: accepted evidence
+  `504b139e78b2db0250271e54bf2eb2eb5f00e3e4`, tree
+  `fc42a3f68a02a5aab2d71810cd94d389058fff33`, over product
+  `c2b6aac6cd3d4ef9d470fd07b91fd6d283bc93da` with no material findings. The
+  reviewer independently reproduced 20/20 affected Vitest tests, the
+  production build, and Playwright 3/3 across desktop/tablet/mobile; verified
+  both already-expired and expires-while-open postures plus refresh and
+  click-time currentness; confirmed no backend, schema, owner, confirmation,
+  route-gate, or mutation scope changed; and passed tracker, diff, fsck,
+  ancestry, remote-identity, and Stop gates. Block 21 is accepted at that exact
+  revision.
 
 ### Stop
 
@@ -6247,7 +6255,7 @@ request-stop, or terminal lifecycle operations.
 
 ## Block 22 — Supervision pause and resume
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
@@ -6338,7 +6346,18 @@ never repeat or widen automatically.
 
 ### Completion evidence
 
-Pending.
+- Activation and authority: Block 22 started automatically after independently
+  accepted Block 21 evidence
+  `504b139e78b2db0250271e54bf2eb2eb5f00e3e4`; direct dependencies Blocks 7,
+  10, and 11 are accepted. Governing implementation authority remains
+  direct-user item 44 under mission root
+  `45549ee8a796601b16c2ce01b50d31b540390434a959cc83418e351ddaf3ac5c`.
+- Work-start boundary: re-read the complete Block 22 contract and began the
+  capability review by inspecting the maintained supervision pause/resume,
+  lifecycle-gate, automation-owner, and existing operation/task boundaries.
+  Work remains limited to one selected supervision group and its exact bound
+  automations; Blocks 23-29 remain unopened and no live pause/resume or other
+  consequential operation has been requested.
 
 ### Stop
 
