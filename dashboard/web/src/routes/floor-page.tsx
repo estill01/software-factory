@@ -221,6 +221,14 @@ function Inspector({ data, selected, close }: {
           ? row.work.block_claims.tracker_total.posture
           : `${row.work.block_claims.tracker_total.value} · ${row.work.block_claims.tracker_total.posture}`,
       ],
+      ["Done (accepted)", row.work.block_claims.tracker_progress.accepted],
+      ["Remaining", row.work.block_claims.tracker_progress.remaining],
+      [
+        "Tracker completion",
+        row.work.block_claims.tracker_progress.is_complete === true
+          ? "Complete"
+          : row.work.block_claims.tracker_progress.posture,
+      ],
       ["Active claim posture", row.work.block_claims.posture],
       ["Checkpoint", row.work.checkpoint],
       ["Open items", row.issues.total],
@@ -354,9 +362,14 @@ function FloorRow({ row, inspect, returnPath }: {
 }) {
   const tracker = row.work.tracker
   const blockClaims = row.work.block_claims
+  const trackerProgress = blockClaims.tracker_progress
   const totalLabel = blockClaims.tracker_total.value === null
     ? blockClaims.tracker_total.posture === "partial" ? "Blocks partial" : "Blocks unavailable"
     : `${blockClaims.tracker_total.value} Blocks${blockClaims.tracker_total.posture === "exact" ? "" : " · partial"}`
+  const progressLabel = trackerProgress.accepted === null || trackerProgress.remaining === null
+    ? "Done and remaining unavailable"
+    : `${trackerProgress.accepted} done · ${trackerProgress.remaining} remaining${trackerProgress.posture === "partial" ? " · partial" : ""}`
+  const completionLabel = trackerProgress.is_complete === true ? "Tracker complete" : null
   const workspacePath = row.detail.kind === "run"
     ? `/runs/${encodeURIComponent(row.detail.id)}?return=${encodeURIComponent(returnPath)}`
     : `/tasks/${encodeURIComponent(row.detail.id)}?return=${encodeURIComponent(returnPath)}`
@@ -374,6 +387,8 @@ function FloorRow({ row, inspect, returnPath }: {
     `group ${row.supervision.group_id ?? "unavailable"}`,
     `roles ${roleSummary || "unavailable"}`,
     totalLabel,
+    progressLabel,
+    ...(completionLabel ? [completionLabel] : []),
     activeSummary,
     `${row.issues.total} open items`,
     `${row.light.label}: ${row.light.reason}`,
@@ -403,7 +418,11 @@ function FloorRow({ row, inspect, returnPath }: {
             <span title={roleSummary || undefined}>{roleSummary || "Roles unavailable"}</span>
           </span>
           <span className={`operational-row-blocks claims-${blockClaims.posture}`}>
-            <span className="cell-label">{totalLabel}</span>
+            <span className={`collapsed-tracker-progress progress-${trackerProgress.posture}${completionLabel ? " tracker-complete" : ""}`}>
+              <span className="cell-label">{totalLabel}</span>
+              <strong>{progressLabel}</strong>
+              {completionLabel && <span className="tracker-complete-mark"><CheckCircle2 aria-hidden="true" />{completionLabel}</span>}
+            </span>
             {blockClaims.claims.map((claim) => (
               <span className={`collapsed-block-claim claim-${claim.status}`} key={claim.source}>
                 <span>{claim.label}</span>
@@ -471,6 +490,11 @@ function FloorRow({ row, inspect, returnPath }: {
         <div className="factory-row-work">
           <span className="cell-label">Tracker &amp; active claims</span>
           <strong>{totalLabel}</strong>
+          <span className={`expanded-tracker-progress progress-${trackerProgress.posture}`}>
+            <strong>{progressLabel}</strong>
+            {completionLabel && <span className="tracker-complete-mark"><CheckCircle2 aria-hidden="true" />{completionLabel}</span>}
+            <small>{trackerProgress.reason}</small>
+          </span>
           <span title={tracker.relative_path ?? undefined}>{tracker.title ?? `Tracker ${tracker.status}`} · {tracker.status}</span>
           <small>{blockClaims.tracker_total.reason}</small>
           <div className="active-claim-list">

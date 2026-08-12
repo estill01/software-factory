@@ -34,6 +34,12 @@ describe("Factory Floor API contract", () => {
     expect(parsed.data.rows[0].work.block_claims).toMatchObject({
       posture: "exact",
       tracker_total: { value: 26, posture: "exact" },
+      tracker_progress: {
+        accepted: 5,
+        remaining: 21,
+        posture: "exact",
+        is_complete: false,
+      },
     })
     expect(parsed.data.rows[0].work.block_claims.claims.map((claim) => claim.source))
       .toEqual(["tracker", "task", "supervision"])
@@ -66,6 +72,14 @@ describe("Factory Floor API contract", () => {
     const missingClaim = makeFactoryFloorEnvelope()
     missingClaim.data.rows[0].work.block_claims.claims.pop()
     expect(() => floorEnvelopeSchema.parse(missingClaim)).toThrow()
+
+    const inconsistentProgress = makeFactoryFloorEnvelope()
+    inconsistentProgress.data.rows[0].work.block_claims.tracker_progress.remaining = 20
+    expect(() => floorEnvelopeSchema.parse(inconsistentProgress)).toThrow()
+
+    const falseCompletion = makeFactoryFloorEnvelope()
+    falseCompletion.data.rows[0].work.block_claims.tracker_progress.is_complete = true
+    expect(() => floorEnvelopeSchema.parse(falseCompletion)).toThrow()
   })
 
   it("parses the success envelope and structured failure before returning", async () => {

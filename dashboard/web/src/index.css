@@ -2204,6 +2204,7 @@ h3 {
 .operational-row-identity,
 .operational-row-supervision,
 .operational-row-blocks,
+.collapsed-tracker-progress,
 .collapsed-block-claim,
 .operational-disclosure-trailing {
   display: flex;
@@ -2257,6 +2258,48 @@ h3 {
 .operational-row-blocks {
   border-left: 1px solid var(--border);
   padding-left: 0.7rem;
+}
+
+.collapsed-tracker-progress {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.18rem 0.48rem;
+  padding-bottom: 0.08rem;
+}
+
+.collapsed-tracker-progress > strong {
+  color: var(--text-soft);
+  font-size: 0.61rem;
+  font-weight: 650;
+}
+
+.progress-partial > strong,
+.progress-unavailable > strong {
+  color: var(--text-faint);
+}
+
+.tracker-complete-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  width: fit-content;
+  color: var(--green);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.tracker-complete-mark svg {
+  width: 0.68rem;
+  height: 0.68rem;
+}
+
+.expanded-tracker-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
 }
 
 .collapsed-block-claim {
@@ -5197,34 +5240,6 @@ h3 {
   .floor-metric:nth-child(4n) {
     border-right: 0;
   }
-}
-
-@media (max-width: 56rem) {
-  .floor-filters {
-    flex-wrap: wrap;
-  }
-
-  .floor-filters label {
-    flex: 1 1 calc(50% - 0.55rem);
-  }
-
-  .hidden-critical {
-    margin-left: 0;
-  }
-
-  .factory-row-labels {
-    display: none;
-  }
-
-  .factory-row {
-    grid-template-columns: 1fr 1fr;
-    gap: 0.8rem 1rem;
-  }
-
-  .factory-row > div:nth-child(n + 3) {
-    border-top: 1px solid var(--border);
-    padding-top: 0.65rem;
-  }
 
   .operational-disclosure-trigger {
     grid-template-columns: 1.55rem minmax(0, 1fr) 1rem;
@@ -5254,6 +5269,34 @@ h3 {
   .operational-disclosure-chevron {
     grid-column: 3;
     grid-row: 1 / span 2;
+  }
+}
+
+@media (max-width: 56rem) {
+  .floor-filters {
+    flex-wrap: wrap;
+  }
+
+  .floor-filters label {
+    flex: 1 1 calc(50% - 0.55rem);
+  }
+
+  .hidden-critical {
+    margin-left: 0;
+  }
+
+  .factory-row-labels {
+    display: none;
+  }
+
+  .factory-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.8rem 1rem;
+  }
+
+  .factory-row > div:nth-child(n + 3) {
+    border-top: 1px solid var(--border);
+    padding-top: 0.65rem;
   }
 
   .factory-row-detail-grid {

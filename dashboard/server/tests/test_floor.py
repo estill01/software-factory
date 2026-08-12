@@ -323,6 +323,16 @@ class FactoryFloorCompositionTests(unittest.TestCase):
                 "reason": "Maintained verifier Block set for the exact canonical tracker binding.",
             },
         )
+        self.assertEqual(
+            alpha["work"]["block_claims"]["tracker_progress"],
+            {
+                "accepted": 1,
+                "remaining": 1,
+                "posture": "exact",
+                "is_complete": False,
+                "reason": "Maintained tracker counts for the exact canonical tracker binding.",
+            },
+        )
         claims = {
             claim["source"]: claim for claim in alpha["work"]["block_claims"]["claims"]
         }
@@ -453,6 +463,16 @@ class FactoryFloorCompositionTests(unittest.TestCase):
             "unavailable",
         )
         self.assertIsNone(row["work"]["block_claims"]["tracker_total"]["value"])
+        self.assertEqual(
+            row["work"]["block_claims"]["tracker_progress"],
+            {
+                "accepted": None,
+                "remaining": None,
+                "posture": "unavailable",
+                "is_complete": None,
+                "reason": "Maintained tracker counts cannot establish accepted and remaining Blocks.",
+            },
+        )
         self.assertNotEqual(row["work"]["block_claims"]["posture"], "exact")
 
         alpha_tracker["blocks"] = [{
@@ -468,6 +488,16 @@ class FactoryFloorCompositionTests(unittest.TestCase):
             item for item in self.compose()["rows"] if item["id"] == "run:target-alpha"  # type: ignore[index]
         )
         self.assertEqual(none_active["work"]["block_claims"]["posture"], "none")
+        self.assertEqual(
+            none_active["work"]["block_claims"]["tracker_progress"],
+            {
+                "accepted": 1,
+                "remaining": 0,
+                "posture": "exact",
+                "is_complete": True,
+                "reason": "Maintained tracker counts for the exact canonical tracker binding.",
+            },
+        )
 
     def test_preserves_attention_precedence_and_partial_sources(self) -> None:
         floor = self.compose()

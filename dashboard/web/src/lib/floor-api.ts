@@ -97,6 +97,15 @@ const blockClaimsSchema = z
         reason: z.string().min(1),
       })
       .strict(),
+    tracker_progress: z
+      .object({
+        accepted: nonnegativeInteger.nullable(),
+        remaining: nonnegativeInteger.nullable(),
+        posture: z.enum(["exact", "partial", "unavailable"]),
+        is_complete: z.boolean().nullable(),
+        reason: z.string().min(1),
+      })
+      .strict(),
     claims: z.array(activeBlockClaimSchema).length(3),
   })
   .strict()
@@ -113,6 +122,52 @@ const blockClaimsSchema = z
         code: "custom",
         message: "An unavailable tracker total cannot expose a confident value.",
         path: ["tracker_total", "value"],
+      })
+    }
+    const progress = value.tracker_progress
+    if (progress.posture === "unavailable") {
+      if (progress.accepted !== null || progress.remaining !== null || progress.is_complete !== null) {
+        context.addIssue({
+          code: "custom",
+          message: "Unavailable tracker progress cannot expose confident counts or completion.",
+          path: ["tracker_progress"],
+        })
+      }
+    } else if (progress.accepted === null || progress.remaining === null) {
+      context.addIssue({
+        code: "custom",
+        message: "Available tracker progress requires accepted and remaining Block counts.",
+        path: ["tracker_progress"],
+      })
+    } else if (
+      value.tracker_total.value === null
+      || progress.accepted + progress.remaining !== value.tracker_total.value
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Accepted and remaining Blocks must equal the verifier-parsed total.",
+        path: ["tracker_progress"],
+      })
+    }
+    if (progress.posture === "exact") {
+      if (value.tracker_total.posture !== "exact" || progress.is_complete === null) {
+        context.addIssue({
+          code: "custom",
+          message: "Exact tracker progress requires an exact total and explicit completion state.",
+          path: ["tracker_progress"],
+        })
+      } else if (progress.is_complete !== (progress.remaining === 0)) {
+        context.addIssue({
+          code: "custom",
+          message: "Tracker completion must agree with the exact remaining Block count.",
+          path: ["tracker_progress", "is_complete"],
+        })
+      }
+    } else if (progress.is_complete !== null) {
+      context.addIssue({
+        code: "custom",
+        message: "Partial or unavailable progress cannot claim tracker completion.",
+        path: ["tracker_progress", "is_complete"],
       })
     }
     const sources = value.claims.map((claim) => claim.source)

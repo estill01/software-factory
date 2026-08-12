@@ -241,7 +241,22 @@ test("three-project floor keeps operations, attention, outcomes, and partial tru
   await expect(alphaRow).toContainText("Watcher · Reviewer")
   await expect(alphaRow).toContainText("group-ta…alpha")
   await expect(alphaRow).toContainText("26 Blocks")
+  await expect(alphaRow).toContainText("5 done · 21 remaining")
   await expect(alphaRow).toContainText("Block 6 — Factory Floor composition")
+  const gammaDisclosure = page.getByRole("button", { name: /Gamma implementation/ })
+  const gammaRow = page.locator("article.operational-disclosure").filter({ has: gammaDisclosure })
+  await expect(gammaRow).toContainText("Unmonitored")
+  await expect(gammaRow).toContainText("2 done · 2 remaining · partial")
+  const rowRegionsOverlap = await alphaRow.evaluate((row) => {
+    const summary = row.querySelector(".operational-disclosure-summary")?.getBoundingClientRect()
+    const trailing = row.querySelector(".operational-disclosure-trailing")?.getBoundingClientRect()
+    if (!summary || !trailing) return true
+    return summary.left < trailing.right
+      && summary.right > trailing.left
+      && summary.top < trailing.bottom
+      && summary.bottom > trailing.top
+  })
+  expect(rowRegionsOverlap).toBe(false)
   await expect(alphaDisclosure).toHaveAttribute("aria-expanded", "false")
   await alphaDisclosure.focus()
   await alphaDisclosure.press("Enter")
@@ -288,6 +303,51 @@ test("three-project floor keeps operations, attention, outcomes, and partial tru
   await page.getByRole("button", { name: "Close inspector" }).click()
   await expect(page.getByRole("complementary", { name: "Factory source inspector" })).toHaveCount(0)
 
+  const results = await new AxeBuilder({ page }).analyze()
+  expect(
+    results.violations.filter(({ impact }) => impact === "serious" || impact === "critical"),
+  ).toEqual([])
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+})
+
+test("collapsed Factory Floor row makes exact completion visible", async ({ page }) => {
+  const envelope = makeFactoryFloorEnvelope()
+  const completed = envelope.data.rows[1]
+  completed.implementation.status = "idle"
+  completed.implementation.status_label = "Idle"
+  completed.supervision.status = "completed"
+  completed.supervision.status_label = "Completed"
+  completed.work.block_claims.posture = "none"
+  completed.work.block_claims.tracker_progress = {
+    accepted: 8,
+    remaining: 0,
+    posture: "exact",
+    is_complete: true,
+    reason: "Maintained tracker counts for the exact canonical tracker binding.",
+  }
+  completed.work.block_claims.claims.forEach((claim) => {
+    claim.status = "none"
+    claim.blocks = []
+    claim.range = null
+    claim.reason = `${claim.label} reports no active Block.`
+  })
+  envelope.data.rows = [completed]
+
+  await page.route("**/api/v1/factory-floor", (route) => route.fulfill({ json: envelope }))
+  await page.goto("/")
+
+  const disclosure = page.getByRole("button", { name: /Beta implementation/ })
+  const row = page.locator("article.operational-disclosure").filter({ has: disclosure })
+  await expect(disclosure).toHaveAttribute("aria-expanded", "false")
+  await expect(row).toContainText("8 Blocks")
+  await expect(row).toContainText("8 done · 0 remaining")
+  await expect(row).toContainText("Tracker complete")
+  await expect(disclosure).toHaveAccessibleName(/Tracker complete/)
+  await expect(disclosure).toHaveAccessibleName(/None active/)
   const results = await new AxeBuilder({ page }).analyze()
   expect(
     results.violations.filter(({ impact }) => impact === "serious" || impact === "critical"),

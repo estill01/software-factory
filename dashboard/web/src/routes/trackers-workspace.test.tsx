@@ -115,6 +115,7 @@ const floor = {
         block_claims: {
           posture: "none",
           tracker_total: { value: 2, posture: "exact", reason: "Maintained verifier Block set." },
+          tracker_progress: { accepted: 1, remaining: 1, posture: "exact", is_complete: false, reason: "Maintained tracker counts." },
           claims: [
             { source: "tracker", label: "Tracker", status: "none", blocks: [], range: null, reason: "No Block in progress.", source_identity: "tracker-markdown/status", route: `/trackers/${tracker.id}/blocks` },
             { source: "task", label: "Implementation task", status: "none", blocks: [], range: null, reason: "No active task Block.", source_identity: "codex-app-server/task-workflow-marker", route: "/tasks/target-1" },
@@ -250,6 +251,7 @@ describe("tracker review workspace", () => {
     activeFloor.data.rows[0].work.block_claims = {
       posture: "conflict",
       tracker_total: { value: 2, posture: "exact", reason: "Maintained verifier Block set." },
+      tracker_progress: { accepted: 0, remaining: 2, posture: "exact", is_complete: false, reason: "Maintained tracker counts." },
       claims: [
         { ...activeFloor.data.rows[0].work.block_claims.claims[0], status: "exact", blocks: trackerBlocks, reason: "Tracker names two current Blocks." },
         { ...activeFloor.data.rows[0].work.block_claims.claims[1], status: "exact", blocks: [trackerBlocks[1]], range: { start: 1, end: 1 }, reason: "Task names Block 1." },
