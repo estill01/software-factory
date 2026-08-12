@@ -508,6 +508,95 @@ test("catalog views preserve bounded discovery, failures, and archive consequenc
   expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
 })
 
+test("weekly report workflow shows seven exact stages and requests only the current stage", async ({ page, request }) => {
+  const target = "019fe547-e054-7ca0-9940-ec4aa146df78"
+  const runResponse = await request.get(`/api/v1/runs/${target}`)
+  expect(runResponse.ok()).toBeTruthy()
+  const runEnvelope = await runResponse.json()
+  runEnvelope.data.run.weekly_report_workflow = {
+    status: "available",
+    stage: "delivery",
+    next_action: "deliver",
+    actionable: true,
+    report_id: "weekly-20260801-20260808-browser",
+    coverage: {
+      start: "2026-08-01T00:00:00+00:00",
+      end: "2026-08-08T00:00:00+00:00",
+      timezone: "America/Los_Angeles",
+      calendar_days: ["2026-08-01"],
+      elapsed_hours: 168,
+      partial_week: false,
+    },
+    coverage_days: 7,
+    timezone: "America/Los_Angeles",
+    source_root: "7".repeat(64),
+    manifest_root: "8".repeat(64),
+    fingerprint: "9".repeat(64),
+    writer_role: "roundup_writer",
+    writer_task_id: "roundup-writer-browser",
+    expected_members: ["metrics.json", "review-packet.json", "review.json", "report.json", "report.md", "report.pdf", "manifest.json"],
+    members: [],
+    stages: [
+      ["prepare", "Deterministic prepare", "complete", "weekly owner"],
+      ["source-currentness", "Source currentness", "complete", "source owner"],
+      ["cognitive-review", "Cognitive review", "complete", "roundup writer"],
+      ["finalize", "Finalize projections", "complete", "weekly owner"],
+      ["verify", "Bundle verification", "complete", "weekly owner"],
+      ["display", "Artifact display", "complete", "dashboard"],
+      ["delivery", "Configured delivery", "current", "delivery owner"],
+    ].map(([id, label, status, owner]) => ({ id, label, status, owner })),
+    delivery: {
+      status: "pending",
+      configured: true,
+      retryable: true,
+      record_id: null,
+      message_id: null,
+      thread_id: null,
+      reason: "Verified report awaits configured delivery.",
+    },
+    limitations: ["Delivery remains a separate postcondition."],
+    error: null,
+  }
+  await page.route(`**/api/v1/runs/${target}`, (route) => route.fulfill({ json: runEnvelope }))
+  let requested: unknown = null
+  await page.route("**/api/v1/operations/preview", async (route) => {
+    requested = route.request().postDataJSON()
+    await route.fulfill({
+      status: 409,
+      json: {
+        data: null,
+        source: { kind: "administrative-operation", identity: "operations", revision: "a".repeat(64) },
+        observed_at: "2026-08-12T02:00:00.000Z",
+        fingerprint: "b".repeat(64),
+        coverage: { status: "partial", observed: ["operation-request"], missing: ["owner-postcondition"] },
+        limitations: ["Browser proof does not dispatch the owner."],
+        error: { code: "weekly_report_source_changed", message: "Focused browser proof stopped before dispatch.", retryable: false },
+      },
+    })
+  })
+
+  await page.goto(`/runs/${target}`)
+  const workflow = page.getByRole("article", { name: "Current weekly report workflow" })
+  await expect(workflow).toContainText("weekly-20260801-20260808-browser")
+  await expect(workflow.locator(".weekly-report-stages > span")).toHaveCount(7)
+  await expect(workflow.locator('[data-status="current"]')).toContainText("Configured delivery")
+  await page.getByRole("button", { name: "Deliver report" }).click()
+  await expect.poll(() => requested).toEqual({
+    operation_type: "factory.weekly-supervision-report",
+    target: { kind: "run", id: target, project_id: "software-factory" },
+    input: { coverage_days: 7 },
+  })
+  await expect(page.getByRole("alert")).toContainText("Focused browser proof stopped before dispatch")
+  const axe = await new AxeBuilder({ page }).analyze()
+  expect(axe.violations.filter(({ impact }) => impact === "serious" || impact === "critical"))
+    .toEqual([])
+  const dimensions = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }))
+  expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth + 1)
+})
+
 test("live project, run, supervisor, and task drill-downs preserve mission boundaries", async ({ page }) => {
   test.setTimeout(180_000)
   const target = "019fe547-e054-7ca0-9940-ec4aa146df78"

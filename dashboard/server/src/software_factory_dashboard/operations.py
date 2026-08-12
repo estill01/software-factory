@@ -42,6 +42,8 @@ MAX_AUTOMATIONS = 500
 MAX_LEDGER_BYTES = 32 * 1024 * 1024
 MAX_AUTOMATION_BYTES = 256 * 1024
 MAX_REPORT_ARTIFACT_BYTES = 32 * 1024 * 1024
+MAX_REPORT_BUNDLE_BYTES = 64 * 1024 * 1024
+MAX_REPORT_MEMBERS = 16
 MAX_TIMELINE_RECORDS = 2_500
 MAX_RECENT_RECORDS = 250
 MAX_REPORT_SETS = 250
@@ -4105,20 +4107,50 @@ class OperationsProjectionService:
     def _report_tree_key(directory: Path, owner_sha256: str) -> tuple[Any, ...]:
         if not directory.exists():
             return (str(directory), owner_sha256, None)
+        paths: list[Path] = []
+        overflow = False
+        for path in directory.iterdir():
+            if len(paths) >= MAX_REPORT_MEMBERS:
+                overflow = True
+                break
+            paths.append(path)
         entries = tuple(
             _stat_key(path)
-            for path in sorted(directory.iterdir(), key=lambda item: item.name)
+            for path in sorted(paths, key=lambda item: item.name)
             if path.is_file()
         )
-        return (str(directory), owner_sha256, entries)
+        return (
+            str(directory),
+            owner_sha256,
+            _stat_key(directory),
+            entries,
+            overflow,
+        )
 
     @staticmethod
     def _report_members(directory: Path) -> list[dict[str, Any]]:
+        paths: list[Path] = []
+        for path in directory.iterdir():
+            if len(paths) >= MAX_REPORT_MEMBERS:
+                raise OperationsProjectionError(
+                    "report_member_limit_exceeded",
+                    f"Report bundles may contain at most {MAX_REPORT_MEMBERS} members.",
+                    status=422,
+                )
+            paths.append(path)
         members: list[dict[str, Any]] = []
-        for path in sorted(directory.iterdir(), key=lambda item: item.name):
+        total_bytes = 0
+        for path in sorted(paths, key=lambda item: item.name):
             if not path.is_file() or path.is_symlink() or path.name == ".append.lock":
                 continue
             raw = _read_bounded(path, MAX_REPORT_ARTIFACT_BYTES)
+            total_bytes += len(raw)
+            if total_bytes > MAX_REPORT_BUNDLE_BYTES:
+                raise OperationsProjectionError(
+                    "report_bundle_limit_exceeded",
+                    "Report bundle exceeds the bounded read budget.",
+                    status=422,
+                )
             members.append(
                 {
                     "name": path.name,
@@ -4139,6 +4171,471 @@ class OperationsProjectionService:
             )
         return members
 
+    @staticmethod
+    def _exact_report_json(value: Mapping[str, Any]) -> bytes:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            indent=2,
+        ).encode("utf-8") + b"\n"
+
+    def _weekly_report_workflow(
+        self,
+        evidence: TargetEvidence,
+        *,
+        coverage_days: int | None = None,
+    ) -> dict[str, Any]:
+        expected_members = [
+            "metrics.json",
+            "review-packet.json",
+            "review.json",
+            "report.json",
+            "report.md",
+            "report.pdf",
+            "manifest.json",
+        ]
+
+        def unavailable(code: str, message: str, *, retryable: bool = False) -> dict[str, Any]:
+            return {
+                "status": "unavailable",
+                "stage": "unavailable",
+                "next_action": None,
+                "actionable": False,
+                "report_id": None,
+                "coverage": None,
+                "coverage_days": None,
+                "timezone": None,
+                "source_root": None,
+                "manifest_root": None,
+                "fingerprint": _digest(
+                    {
+                        "target": evidence.target_thread_id,
+                        "source": evidence.fingerprint,
+                        "error": code,
+                    }
+                ),
+                "writer_role": "roundup_writer",
+                "writer_task_id": None,
+                "expected_members": expected_members,
+                "members": [],
+                "stages": [],
+                "delivery": {
+                    "status": "not-ready",
+                    "configured": False,
+                    "retryable": False,
+                    "record_id": None,
+                    "message_id": None,
+                    "thread_id": None,
+                    "reason": "Artifact verification has not completed.",
+                },
+                "limitations": [
+                    "No report stage may advance while its canonical source is unavailable."
+                ],
+                "error": {"code": code, "message": message, "retryable": retryable},
+            }
+
+        if not evidence.events:
+            return unavailable(
+                "weekly_report_source_empty",
+                "The canonical supervision ledger has no reportable records.",
+            )
+        weekly_config = _policy_weekly_report(evidence.policy)
+        selected_days = (
+            coverage_days
+            if coverage_days is not None
+            else weekly_config.get("coverage_days", 7)
+        )
+        if type(selected_days) is not int or not 2 <= selected_days <= 31:
+            return unavailable(
+                "weekly_report_period_invalid",
+                "Weekly report coverage must be an exact 2-31 day interval.",
+            )
+        owner = self._module("supervision")
+        reportable_events = [
+            item
+            for item in evidence.events
+            if item.get("category")
+            != getattr(owner, "WEEKLY_REPORT_DELIVERY_CATEGORY", "gmail-weekly-report")
+        ]
+        if not reportable_events:
+            return unavailable(
+                "weekly_report_source_empty",
+                "The canonical supervision ledger has no reportable records.",
+            )
+        end = _event_time(reportable_events[-1])
+        first = _event_time(evidence.events[0])
+        if end is None or first is None:
+            return unavailable(
+                "weekly_report_time_invalid",
+                "The canonical report window timestamps are invalid.",
+            )
+        start = max(first, end - timedelta(days=selected_days))
+        timezone_name = str(
+            weekly_config.get(
+                "timezone",
+                evidence.policy.get("schedule", {}).get(
+                    "roundup_timezone", "America/Los_Angeles"
+                ),
+            )
+        )
+        weekly = self._module("weekly")
+        try:
+            canonical_resume_record_ids = frozenset(
+                str(item["record_id"])
+                for item in evidence.events
+                if owner.supervision_resume_record_is_canonical(
+                    item,
+                    list(evidence.events),
+                    list(evidence.policy_history),
+                )
+            )
+            metrics, packet = weekly.build_metrics(
+                target_label=str(
+                    evidence.policy.get(
+                        "target_label", evidence.target_thread_id[:12]
+                    )
+                ),
+                target_thread_id=evidence.target_thread_id,
+                start=start,
+                end=end,
+                timezone_name=timezone_name,
+                all_events=list(evidence.events),
+                policy_history=list(evidence.policy_history),
+                current_policy=evidence.policy,
+                projection_inventory=owner.weekly_projection_inventory(
+                    evidence.directory
+                ),
+                canonical_resume_record_ids=canonical_resume_record_ids,
+            )
+        except Exception as exc:
+            return unavailable(
+                "weekly_report_plan_invalid",
+                f"The maintained weekly-report owner rejected the current window: {exc}",
+            )
+        report_id = str(metrics.get("report_id", ""))
+        source_root = metrics.get("source", {}).get("source_root")
+        if not SAFE_ID.fullmatch(report_id) or not isinstance(
+            source_root, str
+        ) or not SHA256.fullmatch(source_root):
+            return unavailable(
+                "weekly_report_plan_invalid",
+                "The maintained owner returned an invalid report identity.",
+            )
+        report_directory = evidence.directory / "reports" / "weekly" / report_id
+        if report_directory.is_symlink() or (
+            report_directory.exists() and not report_directory.is_dir()
+        ):
+            return unavailable(
+                "weekly_report_directory_invalid",
+                "The current report path is not an owner-local directory.",
+            )
+        report_tree_key = self._report_tree_key(
+            report_directory,
+            self.owner_revisions()["weekly_report"]["sha256"],
+        )
+        workflow_fingerprint = _digest(
+            {
+                "target_source": evidence.fingerprint,
+                "report_id": report_id,
+                "source_root": source_root,
+                "coverage_days": selected_days,
+                "report_tree": report_tree_key,
+            }
+        )
+        try:
+            members = (
+                self._report_members(report_directory)
+                if report_directory.is_dir()
+                else []
+            )
+        except OperationsProjectionError as exc:
+            return {
+                **unavailable(exc.code, str(exc)),
+                "report_id": report_id,
+                "coverage": metrics.get("coverage"),
+                "coverage_days": selected_days,
+                "timezone": timezone_name,
+                "source_root": source_root,
+                "fingerprint": workflow_fingerprint,
+                "writer_task_id": evidence.policy.get("runtime", {}).get(
+                    "roundup_thread_id"
+                ),
+            }
+        member_names = {item["name"] for item in members}
+        metrics_path = report_directory / "metrics.json"
+        packet_path = report_directory / "review-packet.json"
+        prepare_files = (metrics_path, packet_path)
+        prepared = all(path.is_file() and not path.is_symlink() for path in prepare_files)
+        if any(path.exists() for path in prepare_files):
+            if not prepared:
+                prepared = False
+            else:
+                try:
+                    prepared = bool(
+                        _read_bounded(metrics_path, MAX_REPORT_ARTIFACT_BYTES)
+                        == self._exact_report_json(metrics)
+                        and _read_bounded(packet_path, MAX_REPORT_ARTIFACT_BYTES)
+                        == self._exact_report_json(packet)
+                    )
+                except (OSError, OperationsProjectionError):
+                    prepared = False
+            if not prepared and all(path.exists() for path in prepare_files):
+                return unavailable(
+                    "weekly_report_prepare_conflict",
+                    "Existing deterministic report inputs differ from the current maintained source plan.",
+                )
+
+        verification: Mapping[str, Any] | None = None
+        delivery: dict[str, Any] = {
+            "status": "not-ready",
+            "configured": False,
+            "retryable": False,
+            "record_id": None,
+            "message_id": None,
+            "thread_id": None,
+            "reason": "Artifact verification has not completed.",
+        }
+        verification_error: str | None = None
+        final_member_names = set(expected_members[2:])
+        if prepared and final_member_names.issubset(member_names):
+            try:
+                report_status = self._owner_command(
+                    [
+                        "weekly-report",
+                        "--target-thread",
+                        evidence.target_thread_id,
+                        "--action",
+                        "status",
+                        "--report-id",
+                        report_id,
+                    ]
+                )
+                verification_value = report_status.get("verified")
+                delivery_value = report_status.get("delivery")
+                if not isinstance(verification_value, Mapping) or not isinstance(
+                    delivery_value, Mapping
+                ):
+                    raise OperationsProjectionError(
+                        "report_owner_output_invalid",
+                        "Maintained weekly report status omitted verification or delivery posture.",
+                        status=503,
+                    )
+                verification = verification_value
+                delivery = dict(delivery_value)
+            except Exception as exc:
+                verification_error = str(exc)
+        elif prepared and member_names.intersection(final_member_names):
+            review_path = report_directory / "review.json"
+            if review_path.is_file() and not review_path.is_symlink():
+                try:
+                    review = json.loads(
+                        _read_bounded(
+                            review_path, MAX_REPORT_ARTIFACT_BYTES
+                        ).decode("utf-8")
+                    )
+                    record_ids = {
+                        str(item.get("record_id"))
+                        for item in packet.get("event_records", [])
+                        if item.get("record_id")
+                    }
+                    weekly.validate_review(
+                        review,
+                        report_id=report_id,
+                        source_root=source_root,
+                        record_ids=record_ids,
+                    )
+                except Exception as exc:
+                    verification_error = (
+                        "The retained cognitive review is invalid: " + str(exc)
+                    )
+            elif member_names.intersection(final_member_names - {"review.json"}):
+                verification_error = (
+                    "Final report members exist without the canonical cognitive review."
+                )
+
+        if verification_error is not None:
+            return {
+                **unavailable(
+                    "weekly_report_artifact_invalid",
+                    verification_error,
+                ),
+                "report_id": report_id,
+                "coverage": metrics.get("coverage"),
+                "coverage_days": selected_days,
+                "timezone": timezone_name,
+                "source_root": source_root,
+                "fingerprint": workflow_fingerprint,
+                "writer_task_id": evidence.policy.get("runtime", {}).get(
+                    "roundup_thread_id"
+                ),
+                "members": members,
+            }
+
+        verified = isinstance(verification, Mapping) and verification.get("valid") is True
+        delivery_status = str(delivery.get("status", "not-ready"))
+        if not prepared:
+            stage = "prepare"
+            next_action = "prepare"
+        elif not verified:
+            stage = "review-finalize"
+            next_action = "review-finalize"
+        elif delivery_status == "pending":
+            stage = "delivery"
+            next_action = "deliver"
+        elif delivery_status == "stale":
+            stage = "delivery-stale"
+            next_action = None
+        elif delivery_status == "delivered":
+            stage = "delivered"
+            next_action = None
+        else:
+            stage = "verified"
+            next_action = None
+
+        review_complete = verified or "review.json" in member_names
+        finalized = verified or final_member_names.issubset(member_names)
+        display_complete = verified and all(
+            name in member_names
+            for name in ("report.json", "report.md", "report.pdf", "manifest.json")
+        )
+        stages = [
+            {
+                "id": "prepare",
+                "label": "Deterministic prepare",
+                "status": "complete" if prepared else "current",
+                "owner": "maintained weekly-report prepare owner",
+            },
+            {
+                "id": "source-currentness",
+                "label": "Source currentness",
+                "status": "complete" if prepared else "pending",
+                "owner": "canonical policy/event and report-source owner",
+            },
+            {
+                "id": "cognitive-review",
+                "label": "Cognitive review",
+                "status": "complete" if review_complete else (
+                    "current" if prepared else "pending"
+                ),
+                "owner": "configured Sol XHigh roundup writer",
+            },
+            {
+                "id": "finalize",
+                "label": "Finalize projections",
+                "status": "complete" if finalized else (
+                    "current" if prepared else "pending"
+                ),
+                "owner": "maintained weekly-report finalize owner",
+            },
+            {
+                "id": "verify",
+                "label": "Bundle verification",
+                "status": "complete" if verified else "pending",
+                "owner": "maintained weekly-report verifier",
+            },
+            {
+                "id": "display",
+                "label": "Artifact display",
+                "status": "complete" if display_complete else "pending",
+                "owner": "dashboard read-only report projection",
+            },
+            {
+                "id": "delivery",
+                "label": "Configured delivery",
+                "status": (
+                    "complete"
+                    if delivery_status == "delivered"
+                    else "current"
+                    if delivery_status == "pending"
+                    else "unavailable"
+                    if delivery_status in {"unavailable", "stale"}
+                    else "pending"
+                ),
+                "owner": "roundup writer + Gmail read-back + weekly delivery owner",
+            },
+        ]
+        limitations = list(metrics.get("limitations", []))
+        if delivery_status == "unavailable":
+            limitations.append(
+                "The report is verified locally; configured Gmail delivery is unavailable and remains separately retryable."
+            )
+        writer_task_id = evidence.policy.get("runtime", {}).get(
+            "roundup_thread_id"
+        )
+        writer_configured = bool(
+            isinstance(writer_task_id, str)
+            and writer_task_id
+            and writer_task_id != evidence.target_thread_id
+        )
+        workflow_error = None
+        if next_action is not None and not writer_configured:
+            workflow_error = {
+                "code": "weekly_report_writer_unavailable",
+                "message": (
+                    "The current report stage cannot advance because no distinct roundup writer is configured."
+                ),
+                "retryable": False,
+            }
+            limitations.append(workflow_error["message"])
+        return {
+            "status": "available",
+            "stage": stage,
+            "next_action": next_action,
+            "actionable": next_action is not None and writer_configured,
+            "report_id": report_id,
+            "coverage": metrics.get("coverage"),
+            "coverage_days": selected_days,
+            "timezone": timezone_name,
+            "source_root": source_root,
+            "manifest_root": (
+                verification.get("manifest_root") if verification else None
+            ),
+            "fingerprint": workflow_fingerprint,
+            "writer_role": "roundup_writer",
+            "writer_task_id": writer_task_id,
+            "expected_members": expected_members,
+            "members": members,
+            "stages": stages,
+            "delivery": delivery,
+            "limitations": limitations,
+            "error": workflow_error,
+        }
+
+    def weekly_report_workflow_snapshot(
+        self,
+        target_thread_id: str,
+        *,
+        coverage_days: int | None = None,
+    ) -> dict[str, Any]:
+        if not SAFE_ID.fullmatch(target_thread_id):
+            raise OperationsProjectionError(
+                "invalid_run_id", "Run target ID is invalid."
+            )
+        directory = self.supervision_root / target_thread_id
+        if directory.is_symlink():
+            raise OperationsProjectionError(
+                "supervision_target_symlink_rejected",
+                "Supervision target must not be a symlink.",
+                status=422,
+            )
+        try:
+            resolved = directory.resolve(strict=True)
+        except OSError as error:
+            raise OperationsProjectionError(
+                "run_not_found", "Supervision target is not discoverable.", status=404
+            ) from error
+        if resolved.parent != self.supervision_root or not resolved.is_dir():
+            raise OperationsProjectionError(
+                "supervision_target_invalid",
+                "Supervision target escaped its canonical owner root.",
+                status=422,
+            )
+        evidence, _cache = self._load_target(resolved)
+        return self._weekly_report_workflow(
+            evidence, coverage_days=coverage_days
+        )
+
     def _verify_report(
         self,
         *,
@@ -4157,9 +4654,19 @@ class OperationsProjectionService:
                 return dict(cached)
         try:
             if family == "weekly":
-                verification = self._owner_command(
-                    ["weekly-report", "--target-thread", target, "--action", "verify", "--report-id", report_id]
+                status_payload = self._owner_command(
+                    ["weekly-report", "--target-thread", target, "--action", "status", "--report-id", report_id]
                 )
+                verification = status_payload.get("verified")
+                delivery = status_payload.get("delivery")
+                if not isinstance(verification, Mapping) or not isinstance(
+                    delivery, Mapping
+                ):
+                    raise OperationsProjectionError(
+                        "report_owner_output_invalid",
+                        "Maintained weekly report status output is incomplete.",
+                        status=503,
+                    )
                 report_path = directory / "report.json"
                 report = json.loads(_read_bounded(report_path, MAX_REPORT_ARTIFACT_BYTES))
                 review = report.get("cognitive_review") if isinstance(report, Mapping) else None
@@ -4179,6 +4686,7 @@ class OperationsProjectionService:
                         "assessment": _bounded(review.get("executive_assessment"), 1_500),
                     } if isinstance(review, Mapping) else None,
                     "verification": verification,
+                    "delivery": delivery,
                     "members": self._report_members(directory),
                     "limitations": list(metrics.get("limitations", [])) if isinstance(metrics, Mapping) else [],
                     "error": None,
@@ -4199,6 +4707,7 @@ class OperationsProjectionService:
                     "coverage": None,
                     "review_summary": None,
                     "verification": verification,
+                    "delivery": None,
                     "members": self._report_members(directory),
                     "limitations": ["A verified terminal report is not lifecycle or observable-outcome authority."],
                     "error": None,
@@ -4219,6 +4728,7 @@ class OperationsProjectionService:
                     "coverage": None,
                     "review_summary": None,
                     "verification": verification,
+                    "delivery": None,
                     "members": self._report_members(directory),
                     "limitations": ["Factory-evolution disposition grants no implementation, adoption, deployment, or outcome authority."],
                     "error": None,
@@ -4243,6 +4753,7 @@ class OperationsProjectionService:
                 "coverage": None,
                 "review_summary": None,
                 "verification": None,
+                "delivery": None,
                 "members": members,
                 "limitations": ["This source-local report failure does not suppress independent run or report families."],
                 "error": {"code": error.code, "message": str(error), "retryable": error.retryable},
@@ -4279,6 +4790,7 @@ class OperationsProjectionService:
                 "coverage": None,
                 "review_summary": None,
                 "verification": None,
+                "delivery": None,
                 "members": [],
                 "limitations": [
                     "This source-local report inventory failure does not suppress independent run or report families."
@@ -4509,6 +5021,7 @@ class OperationsProjectionService:
         light = self._light(evidence, heads, anomalies, include_integration_gap=True)
         timeline, timeline_truncated = self._timeline(evidence)
         reports = self._reports(evidence, owners)
+        weekly_report_workflow = self._weekly_report_workflow(evidence)
         metrics = self._metrics(evidence)
         incidents = []
         for incident_id, head in sorted(heads["incidents"].items()):
@@ -4684,6 +5197,7 @@ class OperationsProjectionService:
             "timeline_truncated": timeline_truncated,
             "operating_history": self._operating_history(evidence),
             "reports": reports,
+            "weekly_report_workflow": weekly_report_workflow,
             "metrics": metrics,
             "source": {
                 "identity": "supervise-tracker-runs/scripts/supervision_log.py",
@@ -4758,6 +5272,39 @@ class OperationsProjectionService:
             "timeline_truncated": False,
             "operating_history": [],
             "reports": [],
+            "weekly_report_workflow": {
+                "status": "unavailable",
+                "stage": "unavailable",
+                "next_action": None,
+                "actionable": False,
+                "report_id": None,
+                "coverage": None,
+                "coverage_days": None,
+                "timezone": None,
+                "source_root": None,
+                "manifest_root": None,
+                "fingerprint": None,
+                "writer_role": "roundup_writer",
+                "writer_task_id": None,
+                "expected_members": [],
+                "members": [],
+                "stages": [],
+                "delivery": {
+                    "status": "not-ready",
+                    "configured": False,
+                    "retryable": False,
+                    "record_id": None,
+                    "message_id": None,
+                    "thread_id": None,
+                    "reason": "Run source is unavailable.",
+                },
+                "limitations": [],
+                "error": {
+                    "code": error.code,
+                    "message": str(error),
+                    "retryable": error.retryable,
+                },
+            },
             "metrics": {"status": "unavailable", "definition_owner": "supervise-tracker-runs/scripts/weekly_report.py", "metrics": None, "error": {"code": error.code, "message": str(error), "retryable": error.retryable}},
             "source": None,
             "coverage": {"status": "unavailable", "observed": [], "missing": ["supervision-integrity"]},

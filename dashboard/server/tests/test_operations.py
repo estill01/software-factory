@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime
+import base64
 from hashlib import sha256
 import importlib.util
 import json
@@ -483,6 +484,11 @@ class OperationsProjectionTests(unittest.TestCase):
         self.assertEqual(
             len(current["policy"]["adjustment_contract"]["fields"]),
             9,
+        )
+        self.assertFalse(current["weekly_report_workflow"]["actionable"])
+        self.assertEqual(
+            current["weekly_report_workflow"]["error"]["code"],
+            "weekly_report_writer_unavailable",
         )
         serialized = json.dumps(snapshot)
         self.assertNotIn("PRIVATE PROMPT", serialized)
@@ -1335,6 +1341,158 @@ class OperationsProjectionTests(unittest.TestCase):
             self.service._read_selected_report_member(
                 outside, member_name="outside-report.md"
             )
+
+    def test_weekly_report_workflow_advances_exact_stages_and_replans_changed_policy(self) -> None:
+        directory = self.supervision_root / TARGET
+        policy = self.owner.read_json(directory / "policy.json")
+        policy["runtime"]["roundup_thread_id"] = "roundup-writer-task-001"
+        policy["notifications"]["gmail_roundup"] = {
+            "enabled": True,
+            "project_key": "software-factory",
+            "reply_message_id": "gmail-seed-message-001",
+            "subject": "Software Factory weekly supervision report",
+        }
+        policy["permissions"]["gmail_roundup_notification"] = True
+        policy["policy_version"] += 1
+        policy["policy_sha256"] = self.owner.digest(
+            self.owner.policy_material(policy)
+        )
+        self.owner.atomic_json(directory / "policy.json", policy)
+        self.owner.append_raw(
+            directory / "policy-history.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": f"POLICY-{policy['policy_version']}",
+                "timestamp": "2026-08-09T10:14:00+00:00",
+                "kind": "policy-change",
+                "policy": policy,
+            },
+        )
+
+        planned = self.service.weekly_report_workflow_snapshot(
+            TARGET, coverage_days=7
+        )
+        self.assertEqual(planned["stage"], "prepare")
+        self.assertEqual(planned["next_action"], "prepare")
+        self.assertEqual(len(planned["stages"]), 7)
+        self.assertEqual(planned["writer_task_id"], "roundup-writer-task-001")
+
+        prepared = self._command(
+            "weekly-report",
+            "--target-thread",
+            TARGET,
+            "--action",
+            "prepare",
+            "--start",
+            planned["coverage"]["start"],
+            "--end",
+            planned["coverage"]["end"],
+        )
+        self.assertEqual(prepared["report_id"], planned["report_id"])
+        self.assertEqual(prepared["source_root"], planned["source_root"])
+
+        awaiting_review = self.service.weekly_report_workflow_snapshot(
+            TARGET, coverage_days=7
+        )
+        self.assertEqual(awaiting_review["stage"], "review-finalize")
+        self.assertEqual(awaiting_review["next_action"], "review-finalize")
+        self.assertEqual(
+            [item["status"] for item in awaiting_review["stages"][:2]],
+            ["complete", "complete"],
+        )
+
+        weekly = self.service._module("weekly")
+        sections = {
+            section: [
+                {
+                    "title": section.replace("_", " ").title(),
+                    "assessment": (
+                        "The exact supervision records support one bounded operational observation without claiming target quality."
+                    ),
+                    "evidence": ["EVT-000001"],
+                }
+            ]
+            for section in weekly.REVIEW_SECTIONS
+        }
+        review = {
+            "schema_version": 1,
+            "kind": "supervision-weekly-review-cognitive-review",
+            "report_id": planned["report_id"],
+            "source_root": planned["source_root"],
+            "reviewer_method": "bounded-full-window-cognitive-review",
+            "overall_posture": "effective-with-findings",
+            "headline": "Supervision retained one exact bounded finding",
+            "executive_assessment": (
+                "The retained source records support one bounded finding; the partial interval does not support a target-quality or causal claim."
+            ),
+            "sections": sections,
+        }
+        encoded_review = base64.b64encode(
+            json.dumps(review, sort_keys=True).encode("utf-8")
+        ).decode("ascii")
+        self._command(
+            "weekly-report",
+            "--target-thread",
+            TARGET,
+            "--action",
+            "finalize",
+            "--report-id",
+            planned["report_id"],
+            "--review-base64",
+            encoded_review,
+        )
+        verified = self.service.weekly_report_workflow_snapshot(
+            TARGET, coverage_days=7
+        )
+        self.assertEqual(verified["stage"], "delivery", verified)
+        self.assertEqual(verified["next_action"], "deliver")
+        self.assertEqual(verified["delivery"]["status"], "pending")
+        self.assertEqual(
+            [item["status"] for item in verified["stages"][:6]],
+            ["complete"] * 6,
+        )
+
+        old_report_id = verified["report_id"]
+        policy = self.owner.read_json(directory / "policy.json")
+        policy["schedule"]["routine_minutes"] = 21
+        policy["policy_version"] += 1
+        policy["policy_sha256"] = self.owner.digest(
+            self.owner.policy_material(policy)
+        )
+        self.owner.atomic_json(directory / "policy.json", policy)
+        self.owner.append_raw(
+            directory / "policy-history.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": f"POLICY-{policy['policy_version']}",
+                "timestamp": "2026-08-09T10:15:00+00:00",
+                "kind": "policy-change",
+                "policy": policy,
+            },
+        )
+        replanned = self.service.weekly_report_workflow_snapshot(
+            TARGET, coverage_days=7
+        )
+        self.assertEqual(replanned["stage"], "prepare")
+        self.assertNotEqual(replanned["report_id"], old_report_id)
+        self.assertTrue(
+            (directory / "reports" / "weekly" / str(old_report_id) / "manifest.json").is_file()
+        )
+        bounded_directory = (
+            directory / "reports" / "weekly" / str(replanned["report_id"])
+        )
+        bounded_directory.mkdir(parents=True)
+        for index in range(17):
+            (bounded_directory / f"extra-{index:02d}.txt").write_text(
+                "bounded fixture\n", encoding="utf-8"
+            )
+        bounded = self.service.weekly_report_workflow_snapshot(
+            TARGET, coverage_days=7
+        )
+        self.assertEqual(bounded["status"], "unavailable")
+        self.assertEqual(
+            bounded["error"]["code"], "report_member_limit_exceeded"
+        )
 
     def test_incompatible_metric_contracts_never_produce_cross_run_totals(self) -> None:
         second_target = "target-thread-0003"

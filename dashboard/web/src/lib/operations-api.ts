@@ -802,6 +802,67 @@ const weeklyVerificationSchema = z
   })
   .strict()
 
+const weeklyDeliverySchema = z
+  .object({
+    status: z.enum(["not-ready", "unavailable", "pending", "delivered", "stale"]),
+    configured: z.boolean(),
+    retryable: z.boolean(),
+    record_id: nullableString,
+    message_id: nullableString,
+    thread_id: nullableString,
+    reason: nullableString,
+  })
+  .strict()
+
+const weeklyReportWorkflowSchema = z
+  .object({
+    status: z.enum(["available", "unavailable"]),
+    stage: z.enum([
+      "prepare",
+      "review-finalize",
+      "delivery",
+      "delivery-stale",
+      "verified",
+      "delivered",
+      "unavailable",
+    ]),
+    next_action: z.enum(["prepare", "review-finalize", "deliver"]).nullable(),
+    actionable: z.boolean(),
+    report_id: nullableString,
+    coverage: metricCoverageSchema.nullable(),
+    coverage_days: nonnegativeInteger.nullable(),
+    timezone: nullableString,
+    source_root: fingerprintSchema.nullable(),
+    manifest_root: fingerprintSchema.nullable(),
+    fingerprint: fingerprintSchema.nullable(),
+    writer_role: z.literal("roundup_writer"),
+    writer_task_id: nullableString,
+    expected_members: z.array(z.string().min(1)),
+    members: z.array(reportMemberSchema),
+    stages: z.array(
+      z
+        .object({
+          id: z.enum([
+            "prepare",
+            "source-currentness",
+            "cognitive-review",
+            "finalize",
+            "verify",
+            "display",
+            "delivery",
+          ]),
+          label: z.string().min(1),
+          status: z.enum(["pending", "current", "complete", "unavailable"]),
+          owner: z.string().min(1),
+        })
+        .strict(),
+    ),
+    delivery: weeklyDeliverySchema,
+    limitations: z.array(z.string()),
+    error: projectionErrorSchema.nullable(),
+  })
+  .strict()
+
 const terminalVerificationSchema = z
   .object({
     valid: z.literal(true),
@@ -853,6 +914,7 @@ export const reportArtifactSchema = z
     verification: z
       .union([weeklyVerificationSchema, terminalVerificationSchema, evolutionVerificationSchema])
       .nullable(),
+    delivery: weeklyDeliverySchema.nullable(),
     members: z.array(reportMemberSchema),
     limitations: z.array(z.string()),
     error: projectionErrorSchema.nullable(),
@@ -890,6 +952,7 @@ export const runDetailSchema = runSummarySchema
     timeline_truncated: z.boolean(),
     operating_history: z.array(operatingTransitionSchema),
     reports: z.array(reportArtifactSchema),
+    weekly_report_workflow: weeklyReportWorkflowSchema,
     metrics: metricsProjectionSchema,
   })
   .strict()

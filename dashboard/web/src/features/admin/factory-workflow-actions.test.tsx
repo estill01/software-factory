@@ -109,6 +109,51 @@ const policy = {
   read_only: true,
 } as unknown as NonNullable<RunDetail["policy"]>
 
+const weeklyReportWorkflow = {
+  status: "available",
+  stage: "delivery",
+  next_action: "deliver",
+  actionable: true,
+  report_id: "weekly-20260801-20260808-test",
+  coverage: {
+    start: "2026-08-01T00:00:00+00:00",
+    end: "2026-08-08T00:00:00+00:00",
+    timezone: "America/Los_Angeles",
+    calendar_days: ["2026-08-01"],
+    elapsed_hours: 168,
+    partial_week: false,
+  },
+  coverage_days: 7,
+  timezone: "America/Los_Angeles",
+  source_root: hash,
+  manifest_root: hash,
+  fingerprint: hash,
+  writer_role: "roundup_writer",
+  writer_task_id: "roundup-writer-task",
+  expected_members: ["metrics.json", "review-packet.json", "review.json", "report.json", "report.md", "report.pdf", "manifest.json"],
+  members: [],
+  stages: [
+    { id: "prepare", label: "Prepare", status: "complete", owner: "weekly owner" },
+    { id: "source-currentness", label: "Source", status: "complete", owner: "source owner" },
+    { id: "cognitive-review", label: "Review", status: "complete", owner: "roundup writer" },
+    { id: "finalize", label: "Finalize", status: "complete", owner: "weekly owner" },
+    { id: "verify", label: "Verify", status: "complete", owner: "weekly owner" },
+    { id: "display", label: "Display", status: "complete", owner: "dashboard" },
+    { id: "delivery", label: "Delivery", status: "current", owner: "delivery owner" },
+  ],
+  delivery: {
+    status: "pending",
+    configured: true,
+    retryable: true,
+    record_id: null,
+    message_id: null,
+    thread_id: null,
+    reason: "Verified report awaits configured delivery.",
+  },
+  limitations: ["Delivery is a separate postcondition."],
+  error: null,
+} satisfies RunDetail["weekly_report_workflow"]
+
 function previewEnvelope(type: string): OperationPreviewEnvelope {
   return {
     data: {
@@ -303,6 +348,30 @@ describe("Factory workflow action strips", () => {
       input: {},
     })
     expect(await screen.findByText("One mechanical watcher check · no semantic conclusion")).toBeVisible()
+  })
+
+  it("previews only the first incomplete weekly report stage", async () => {
+    const user = userEvent.setup()
+    renderActions(
+      <RunSupervisionActions
+        targetId="task-demo"
+        projectId="demo"
+        openIncidentIds={[]}
+        policy={policy}
+        weeklyReportWorkflow={weeklyReportWorkflow}
+      />,
+    )
+
+    await user.click(screen.getByRole("button", { name: "Deliver report" }))
+    await waitFor(() => expect(mocks.previewOperation).toHaveBeenCalledOnce())
+    expect(mocks.previewOperation.mock.calls[0][0]).toEqual({
+      operation_type: "factory.weekly-supervision-report",
+      target: { kind: "run", id: "task-demo", project_id: "demo" },
+      input: { coverage_days: 7 },
+    })
+    expect(await screen.findByText("weekly-20260801-20260808-test")).toBeVisible()
+    expect(screen.getByText("delivery → deliver")).toBeVisible()
+    expect(screen.getByText(/Advance one stage only/)).toBeVisible()
   })
 
   it("maps a server expiry to the same re-preview posture", async () => {

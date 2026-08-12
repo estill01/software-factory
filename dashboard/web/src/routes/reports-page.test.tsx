@@ -101,6 +101,9 @@ function weeklyReport(id: string, end: string, status: "available" | "unavailabl
     review_summary: status === "available" ? { headline: "Exact review", assessment: "Evidence-bound assessment." } : null,
     verification: status === "available" ? { valid: true, report_id: id, source_root: hash("a"), manifest_root: hash("b"), page_count: 2, pdf_path: "/report.pdf", report_sha256: hash("c"), review_sha256: hash("d"), pdf_sha256: hash("e") } : null,
     members: [],
+    delivery: status === "available"
+      ? { status: "delivered", configured: true, retryable: false, record_id: "EVT-DELIVERY", message_id: "gmail-message", thread_id: "gmail-thread", reason: null }
+      : { status: "not-ready", configured: false, retryable: false, record_id: null, message_id: null, thread_id: null, reason: "Report is not verified." },
     limitations: ["Recorded activity is a lower bound."],
     error: status === "unavailable" ? { code: "report_verification_failed", message: "Manifest mismatch", retryable: false } : null,
   }

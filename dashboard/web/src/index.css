@@ -4900,6 +4900,16 @@ h3 {
 .workspace-record span,
 .workspace-record time,
 .workspace-record code { color: var(--text-faint); font-size: 0.59rem; }
+.weekly-report-progress { display: grid; gap: 0.55rem; border-bottom: 1px solid var(--border); padding: 0.68rem 0.72rem; }
+.weekly-report-progress > div { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 0.55rem; }
+.weekly-report-progress strong { overflow: hidden; font-size: 0.68rem; text-overflow: ellipsis; white-space: nowrap; }
+.weekly-report-progress > div:last-child { color: var(--text-faint); font-size: 0.58rem; }
+.weekly-report-stages { display: grid !important; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 0.24rem !important; }
+.weekly-report-stages > span { display: grid; min-width: 0; gap: 0.08rem; border-top: 2px solid var(--border-strong); padding-top: 0.28rem; color: var(--text-faint); font-size: 0.54rem; }
+.weekly-report-stages > span[data-status="complete"] { border-color: var(--green); color: var(--text-soft); }
+.weekly-report-stages > span[data-status="current"] { border-color: var(--primary); color: var(--text); }
+.weekly-report-stages > span[data-status="unavailable"] { border-color: var(--amber); color: var(--amber-contrast); }
+.weekly-report-stages small { overflow: hidden; color: inherit; font-size: 0.49rem; text-overflow: ellipsis; text-transform: capitalize; white-space: nowrap; }
 .successor-transition-facts { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.45rem; margin: 0; padding-top: 0.45rem; border-top: 1px solid var(--border); }
 .successor-transition-facts > div { display: grid; min-width: 0; gap: 0.12rem; }
 .successor-transition-facts dt { color: var(--text-faint); font-size: 0.54rem; text-transform: uppercase; letter-spacing: 0.06em; }
@@ -5045,6 +5055,7 @@ h3 {
 }
 
 @media (max-width: 44rem) {
+  .weekly-report-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .operation-preview-facts,
   .operation-preview-consequences {
     grid-template-columns: 1fr;

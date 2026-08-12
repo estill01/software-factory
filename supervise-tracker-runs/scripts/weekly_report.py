@@ -837,6 +837,7 @@ def build_metrics(
         "coverage_end": iso_time(end),
         "event_records": window_events,
         "policy_records": window_policy,
+        "current_policy_sha256": current_policy.get("policy_sha256"),
         "projection_inventory": projection_inventory,
         "pricing_profile_id": pricing_profile["profile_id"],
         "pricing_profile_sha256": pricing_profile["profile_sha256"],

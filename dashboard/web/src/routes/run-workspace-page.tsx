@@ -394,6 +394,7 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
             .map((role) => role.role)}
           currentMission={run.current_mission}
           successorTransitions={missionTransitions}
+          weeklyReportWorkflow={run.weekly_report_workflow}
         />
       )}
 
@@ -544,7 +545,16 @@ function RunWorkspace({ supervisorOnly = false }: { supervisorOnly?: boolean }) 
           <div className="workspace-split">
             <section className="workspace-panel">
               <div className="workspace-panel-heading"><h2>Reports</h2><span>{isCurrent ? run.reports.length : "Historical"}</span></div>
-              {!isCurrent ? <QueryState kind="empty" message="Report association is not carried into a predecessor mission" /> : run.reports.length ? <div className="workspace-record-list">{run.reports.map((report) => <article className="workspace-record" key={report.id}><div><strong>{report.family} · {report.stage}</strong><Identity value={report.id} /></div><StatusMark status={report.status} /><span>{report.disposition ?? report.error?.message ?? `${report.members.length} members`}</span><Identity value={report.manifest_root} /></article>)}</div> : <QueryState kind="empty" message="No report associated" />}
+              {!isCurrent ? <QueryState kind="empty" message="Report association is not carried into a predecessor mission" /> : <>
+                <article className="weekly-report-progress" aria-label="Current weekly report workflow">
+                  <div><strong>{run.weekly_report_workflow.report_id ?? "Weekly report"}</strong><StatusMark status={run.weekly_report_workflow.stage} /></div>
+                  <div className="weekly-report-stages">{run.weekly_report_workflow.stages.map((stage) => <span key={stage.id} data-status={stage.status}>{stage.label}<small>{stage.status}</small></span>)}</div>
+                  <div><span>{run.weekly_report_workflow.coverage ? `${run.weekly_report_workflow.coverage.start} — ${run.weekly_report_workflow.coverage.end} · ${run.weekly_report_workflow.timezone}` : "Report period unavailable"}</span><span>Writer <Identity value={run.weekly_report_workflow.writer_task_id} /></span></div>
+                  <div><Identity value={run.weekly_report_workflow.source_root} /><span>{run.weekly_report_workflow.delivery.status}{run.weekly_report_workflow.delivery.reason ? ` · ${run.weekly_report_workflow.delivery.reason}` : ""}</span></div>
+                  {run.weekly_report_workflow.error ? <div className="workspace-bound">{run.weekly_report_workflow.error.message}</div> : null}
+                </article>
+                {run.reports.length ? <div className="workspace-record-list">{run.reports.map((report) => <article className="workspace-record" key={report.id}><div><strong>{report.family} · {report.stage}</strong><Identity value={report.id} /></div><StatusMark status={report.status} /><span>{report.disposition ?? report.error?.message ?? `${report.members.length} members`}</span>{report.delivery ? <span>Delivery: {report.delivery.status}</span> : null}<Identity value={report.manifest_root} /><Link to="/reports">Artifacts</Link></article>)}</div> : <QueryState kind="empty" message="No report associated" />}
+              </>}
             </section>
             <section className="workspace-panel" id={isCurrent ? "current-metric" : undefined}>
               <div className="workspace-panel-heading"><h2>Metrics</h2><span>{isCurrent ? run.metrics.status : "Historical"}</span></div>

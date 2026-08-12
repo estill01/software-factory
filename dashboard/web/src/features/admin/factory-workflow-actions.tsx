@@ -35,9 +35,43 @@ type ListedRun = { target_thread_id: string } | undefined
 type TrackerBlock = TrackerDetail["blocks"][number]
 type RunPolicy = NonNullable<RunDetail["policy"]>
 type CurrentMission = NonNullable<RunDetail["current_mission"]>
+type WeeklyReportWorkflow = RunDetail["weekly_report_workflow"]
 type PolicyField = keyof RunPolicy["adjustable"]
 type AutomationRepairRow = RunPolicy["automation_reconciliation"][number]
 type SuccessorTransition = RunDetail["successor_transitions"][number]
+const unavailableWeeklyReportWorkflow: WeeklyReportWorkflow = {
+  status: "unavailable",
+  stage: "unavailable",
+  next_action: null,
+  actionable: false,
+  report_id: null,
+  coverage: null,
+  coverage_days: null,
+  timezone: null,
+  source_root: null,
+  manifest_root: null,
+  fingerprint: null,
+  writer_role: "roundup_writer",
+  writer_task_id: null,
+  expected_members: [],
+  members: [],
+  stages: [],
+  delivery: {
+    status: "unavailable",
+    configured: false,
+    retryable: false,
+    record_id: null,
+    message_id: null,
+    thread_id: null,
+    reason: "Weekly report workflow projection is unavailable.",
+  },
+  limitations: ["Weekly report workflow projection is unavailable."],
+  error: {
+    code: "weekly_report_workflow_unavailable",
+    message: "Weekly report workflow projection is unavailable.",
+    retryable: true,
+  },
+}
 const roleRepairLabels = {
   base_reviewer: "Base reviewer",
   notice_reviewer: "Notice reviewer",
@@ -456,6 +490,7 @@ export function RunSupervisionActions({
   roleRepairRoles = [],
   currentMission = null,
   successorTransitions = [],
+  weeklyReportWorkflow = unavailableWeeklyReportWorkflow,
 }: {
   targetId: string
   projectId: string | null
@@ -466,6 +501,7 @@ export function RunSupervisionActions({
   roleRepairRoles?: string[]
   currentMission?: CurrentMission | null
   successorTransitions?: SuccessorTransition[]
+  weeklyReportWorkflow?: WeeklyReportWorkflow
 }) {
   const runner = useOperationRunner()
   const [selectedIncident, setSelectedIncident] = useState("")
@@ -773,6 +809,43 @@ export function RunSupervisionActions({
       ],
     })
   }
+  const reportActionLabel = weeklyReportWorkflow.next_action === "prepare"
+    ? "Prepare report"
+    : weeklyReportWorkflow.next_action === "review-finalize"
+      ? "Review & finalize"
+      : weeklyReportWorkflow.next_action === "deliver"
+        ? "Deliver report"
+        : weeklyReportWorkflow.stage === "delivered"
+          ? "Report delivered"
+          : weeklyReportWorkflow.stage === "verified"
+            ? "Report verified"
+            : "Report unavailable"
+  const launchWeeklyReport = () => {
+    if (
+      !projectId
+      || !weeklyReportWorkflow.actionable
+      || weeklyReportWorkflow.coverage_days === null
+    ) return
+    runner.launch({
+      request: {
+        operation_type: "factory.weekly-supervision-report",
+        target: { kind: "run", id: targetId, project_id: projectId },
+        input: { coverage_days: weeklyReportWorkflow.coverage_days },
+      },
+      suppliedFacts: [
+        ["Report", weeklyReportWorkflow.report_id ?? "Current owner-derived report"],
+        ["Stage", `${weeklyReportWorkflow.stage} → ${weeklyReportWorkflow.next_action}`],
+        ["Period", weeklyReportWorkflow.coverage
+          ? `${weeklyReportWorkflow.coverage.start} → ${weeklyReportWorkflow.coverage.end} · ${weeklyReportWorkflow.timezone}`
+          : "Unavailable"],
+        ["Source root", weeklyReportWorkflow.source_root ?? "Unavailable"],
+        ["Writer", weeklyReportWorkflow.writer_task_id ?? "Unavailable"],
+        ["Bundle", weeklyReportWorkflow.expected_members.join(" · ")],
+        ["Delivery", `${weeklyReportWorkflow.delivery.status} · ${weeklyReportWorkflow.delivery.reason ?? "Current"}`],
+        ["Recovery", "Advance one stage only · retain every exact accepted prior stage · no automatic retry"],
+      ],
+    })
+  }
   return (
     <>
       <ActionStrip feedback={runner.feedback}>
@@ -824,6 +897,15 @@ export function RunSupervisionActions({
             {openSuccessorTransitions.length > 1 ? "Continuity conflict" : "Advance continuity"}
           </Button>
         )}
+        <Button
+          size="compact"
+          variant="outline"
+          disabled={unavailable || !weeklyReportWorkflow.actionable}
+          title={weeklyReportWorkflow.error?.message ?? weeklyReportWorkflow.delivery.reason ?? undefined}
+          onClick={launchWeeklyReport}
+        >
+          {reportActionLabel}
+        </Button>
         <Button size="compact" disabled={unavailable || !policy} onClick={openAdjustment}>Adjust supervision</Button>
         <Button
           size="compact"

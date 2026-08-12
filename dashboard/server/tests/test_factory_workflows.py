@@ -276,7 +276,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(duplicate_status, 409)
         self.assertEqual(duplicate["error"]["code"], "authoring_owner_conflict")
         self.assertEqual(executed["data"]["operation"]["state"], "applied")
-        self.assertEqual(len(supported), 21)
+        self.assertEqual(len(supported), 22)
         self.assertIn("factory.blocks-implement", supported)
         self.assertIn("factory.supervision-check-now", supported)
         self.assertIn("factory.supervision-adjust", supported)
@@ -286,6 +286,7 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertIn("factory.supervision-resume", supported)
         self.assertIn("factory.supervision-mission-successor", supported)
         self.assertIn("factory.successor-task-transition", supported)
+        self.assertIn("factory.weekly-supervision-report", supported)
         automation_repair = next(
             item
             for item in unavailable
@@ -310,6 +311,243 @@ class FactoryWorkflowIntegrationTests(unittest.TestCase):
         self.assertIn("Do not implement it.", prompt)
         self.assertFalse(executed["data"]["operation"]["verification_evidence"]["block_accepted"])
         self.assertNotIn("smallest exact demo", json.dumps(executed["data"]["operation"]))
+
+    def test_weekly_report_advances_one_exact_owner_stage_and_rechecks_writer(self) -> None:
+        project_root = self.root / "weekly-project"
+        writer_root = self.root / "weekly-writer"
+        project_root.mkdir()
+        writer_root.mkdir()
+        project = ProjectRecord(
+            id="weekly-project",
+            label="Weekly project",
+            root=str(project_root),
+        )
+        target_id = "weekly-target-001"
+        writer_id = "weekly-writer-001"
+        policy_sha = "a" * 64
+        execution_sha = "b" * 64
+        catalog_fingerprint = "c" * 64
+        binding_fingerprint = "d" * 64
+        workflow_fingerprint = "e" * 64
+        source_root = "f" * 64
+        tasks = {
+            writer_id: {
+                "id": writer_id,
+                "cwd": str(writer_root),
+                "status": {"type": "idle"},
+                "turns_truncated": False,
+                "turns": [],
+                "model_provider": "openai",
+                "execution_contract": {
+                    "model": "gpt-5.6-sol",
+                    "reasoning_effort": "xhigh",
+                    "source_record_sha256": execution_sha,
+                },
+            }
+        }
+        project_claim = {
+            "fingerprint": binding_fingerprint,
+            "project_binding": {
+                "status": "bound",
+                "project_id": project.id,
+            },
+        }
+        control = {
+            "fingerprint": "1" * 64,
+            "policy_sha256": policy_sha,
+            "policy_version": 4,
+            "source_record": "EVT-WEEKLY-SOURCE-001",
+            "policy": {"policy_sha256": policy_sha},
+            "runtime": {"roundup_thread_id": writer_id},
+        }
+        workflow = {
+            "status": "available",
+            "stage": "prepare",
+            "next_action": "prepare",
+            "actionable": True,
+            "report_id": "weekly-20260801-20260808-test",
+            "coverage": {
+                "start": "2026-08-01T00:00:00+00:00",
+                "end": "2026-08-08T00:00:00+00:00",
+                "timezone": "America/Los_Angeles",
+                "calendar_days": ["2026-08-01"],
+                "elapsed_hours": 168.0,
+                "partial_week": False,
+            },
+            "coverage_days": 7,
+            "timezone": "America/Los_Angeles",
+            "source_root": source_root,
+            "manifest_root": None,
+            "fingerprint": workflow_fingerprint,
+            "writer_role": "roundup_writer",
+            "writer_task_id": writer_id,
+            "expected_members": ["metrics.json", "review-packet.json"],
+            "members": [],
+            "stages": [
+                {
+                    "id": "prepare",
+                    "label": "Deterministic prepare",
+                    "status": "current",
+                    "owner": "weekly owner",
+                },
+                {
+                    "id": "source-currentness",
+                    "label": "Source currentness",
+                    "status": "pending",
+                    "owner": "source owner",
+                },
+            ],
+            "delivery": {
+                "status": "not-ready",
+                "configured": False,
+                "retryable": False,
+                "record_id": None,
+                "message_id": None,
+                "thread_id": None,
+                "reason": "Artifact verification has not completed.",
+            },
+            "limitations": [],
+            "error": None,
+        }
+        group = {"ids": [target_id]}
+
+        class OperationsStub:
+            supervision_root = self.supervision_root
+
+            @staticmethod
+            def project_binding_snapshot(_projects, selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong weekly project target")
+                return project_claim
+
+            @staticmethod
+            def policy_control_snapshot(selected_target, *, automation_roles=()):
+                if selected_target != target_id or automation_roles != ():
+                    raise AssertionError("wrong weekly policy source")
+                return control
+
+            @staticmethod
+            def weekly_report_workflow_snapshot(selected_target, *, coverage_days):
+                if selected_target != target_id or coverage_days != 7:
+                    raise AssertionError("wrong weekly report source")
+                return workflow
+
+            @staticmethod
+            def binding_group_ids(selected_target):
+                if selected_target != target_id:
+                    raise AssertionError("wrong weekly group target")
+                return list(group["ids"])
+
+        class AppServerStub:
+            prompt = None
+
+            @staticmethod
+            def integration_state():
+                return {
+                    "features": [
+                        {"capability": name, "status": "supported"}
+                        for name in ("task_read", "task_resume", "turn_start")
+                    ]
+                }
+
+            @staticmethod
+            def read_task_with_execution_contract(_projects, task_id):
+                if task_id != writer_id:
+                    raise AssertionError("wrong weekly writer read")
+                return {"task": tasks[writer_id]}
+
+            def start_configured_role_turn(
+                self,
+                _projects,
+                task_id,
+                text,
+                *,
+                expected_cwd,
+                expected_cwd_identity,
+            ):
+                metadata = writer_root.stat()
+                if (
+                    task_id != writer_id
+                    or expected_cwd != str(writer_root)
+                    or expected_cwd_identity != (metadata.st_dev, metadata.st_ino)
+                ):
+                    raise AssertionError("wrong weekly writer dispatch")
+                self.prompt = text
+                tasks[writer_id]["status"] = {"type": "active"}
+                tasks[writer_id]["turns"] = [
+                    {
+                        "id": "turn-weekly-001",
+                        "status": "inProgress",
+                        "items_truncated": False,
+                        "items": [{"type": "userMessage", "summary": text}],
+                    }
+                ]
+                return {
+                    "turn": {"id": "turn-weekly-001"},
+                    "task_resumed": False,
+                }
+
+        owner = object.__new__(FactoryWorkflowOwner)
+        owner.operations_service = OperationsStub()
+        owner.app_server_client = AppServerStub()
+        owner.route_gate = lambda request: RouteGateResult(
+            True,
+            route_action_fingerprint(request.required_action),
+            recipient=request.recipient,
+            purpose=request.purpose,
+            source_record=request.source_record,
+            policy_fingerprint=policy_sha,
+            target_thread=request.target_thread,
+        )
+        owner._weekly_report_dispatch_lock = RLock()
+        owner._active_projects = lambda: ((project,), catalog_fingerprint)
+        definition = owner._weekly_report_definition()
+        target = OperationTarget(kind="run", id=target_id, project_id=project.id)
+        inputs = {"coverage_days": 7}
+
+        source = definition.resolve_source(target, inputs)
+        self.assertEqual(source.evidence["action"], "prepare")
+        changes = {
+            item.id: item for item in definition.describe_effect(
+                target, inputs, source
+            ).semantic_changes
+        }
+        self.assertEqual(changes["weekly-report-stage"].kind, "changed")
+        self.assertEqual(changes["weekly-report-source"].kind, "preserved")
+        dispatched = definition.dispatch(target, inputs, source)
+        self.assertIn("Advance exactly one weekly supervision-report stage", owner.app_server_client.prompt)
+        self.assertIn("Do not perform cognitive review", owner.app_server_client.prompt)
+        pending = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(pending.state, "pending")
+        self.assertFalse(pending.evidence["direct_report_write"])
+        self.assertFalse(pending.evidence["direct_gmail_action"])
+
+        workflow["stage"] = "review-finalize"
+        workflow["next_action"] = "review-finalize"
+        workflow["stages"][0]["status"] = "complete"
+        workflow["stages"][1]["status"] = "complete"
+        tasks[writer_id]["status"] = {"type": "idle"}
+        tasks[writer_id]["turns"][0]["status"] = "completed"
+
+        tasks[writer_id]["execution_contract"]["source_record_sha256"] = "9" * 64
+        changed_writer = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(changed_writer.state, "pending")
+        self.assertFalse(changed_writer.evidence["writer_contract_current"])
+        tasks[writer_id]["execution_contract"]["source_record_sha256"] = execution_sha
+
+        group["ids"] = [target_id, "unrelated-target"]
+        changed_group = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(changed_group.state, "pending")
+        self.assertFalse(changed_group.evidence["supervision_group_current"])
+        group["ids"] = [target_id]
+
+        applied = definition.verify(target, inputs, source, dispatched)
+        self.assertEqual(applied.state, "applied", applied.evidence)
+        self.assertTrue(applied.evidence["weekly_report_applied"])
+        self.assertTrue(applied.evidence["writer_turn_completed"])
+        self.assertTrue(applied.evidence["writer_contract_current"])
+        self.assertTrue(applied.evidence["prior_stages_preserved"])
+        self.assertFalse(applied.evidence["automatic_retry"])
 
     def test_supervision_pause_requires_both_owners_and_preserves_target_state(self) -> None:
         project_root = self.root / "pause-project"
