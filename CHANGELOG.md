@@ -70,6 +70,8 @@ the completed program materially changes Software Factory.
   product: `5a83a46b498ab636ac79c5c0c79c1003308b3b04`; acceptance evidence:
   `4e1fbdd037729e94f3ed0fd1948e083e30b5cf31`. Post-acceptance Factory Floor
   progress correction: `f0b4546f0ff4c9d8d4c3534111f358f15ef5597e`.
+  Current outcome-projection correction: product `c49ca6368f608e51cb3fa001c005a5617f566b47`;
+  exact independent correction acceptance `79c411a7eafc011bfe709247b77f20a246a7f065`.
 - **Loopback operations-dashboard foundation.** Added an installable Python
   runtime and a responsive React/TypeScript/Vite shell for the planned Factory
   Floor, Projects, Trackers, Reports, and Admin workspaces. The service binds

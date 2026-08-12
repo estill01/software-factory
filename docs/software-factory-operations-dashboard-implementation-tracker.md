@@ -1,6 +1,6 @@
 # Software Factory Operations Dashboard Implementation Tracker
 
-- Tracker status: `in-progress`
+- Tracker status: `completed`
 - Tracker sequence: Blocks 0–31
 - Repository: `https://github.com/estill01/software-factory.git`
 - Governing objective: direct-user item
@@ -551,7 +551,7 @@ the relevant authority and evidence contract.
 | 28 | Factory evolution evaluation and disposition | 9, 10, 11, 13 | `completed` |
 | 29 | Terminal report workflow | 9, 10, 11, 13, 27 | `completed` |
 | 30 | Request-stop and terminal shutdown | 7, 9, 10, 11, 29 | `completed` |
-| 31 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 | `in-progress` |
+| 31 | Integrated outcome validation and operator handoff | 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30 | `completed` |
 
 Required order:
 
@@ -8430,7 +8430,7 @@ that the dashboard is ready.
 
 ## Block 31 — Integrated outcome validation and operator handoff
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -8684,6 +8684,27 @@ work solely to inflate coverage.
   running, the broad matrix was not replayed, and no consequential owner action
   or terminal workflow was invoked. Fresh independent outcome review remains
   required before Block 31 can close.
+- Three-boundary outcome correction acceptance — `2026-08-12T19:05:33Z`: an
+  independent read-only exact-revision review ACCEPTED evidence commit
+  `79c411a7eafc011bfe709247b77f20a246a7f065`, tree
+  `d3069435c2e42a69d32f0650ba62930f647ac5ee`, and product commit
+  `c49ca6368f608e51cb3fa001c005a5617f566b47`, tree
+  `622ccc24927814b3e885a533fc4f01b0041e639a`, with no material findings. The
+  reviewer independently observed 32 total Blocks, 31 terminal-complete and
+  Block 31 open on the candidate; rendered the current task's typed provenance
+  fields and retained turn detail without fallback; and confirmed that
+  historical failed lifecycle `EVT-000123` remains in history without driving
+  the current lifecycle or `lifecycle-failed` light. Separate current incidents
+  remain visible and keep attention red. Independent affected proof passed 4/4
+  backend projection/workflow rows, 5/5 strict task-schema tests, and the exact
+  desktop/tablet/mobile browser case; full-profile verification remained 32
+  Blocks with zero diagnostics and verifier tests passed 30/30. The review was
+  bounded to the supported correction, reused the earlier complete Block 31
+  product/UI/authority acceptance, preserved the broad matrix, and performed no
+  primary-owner, supervision, reporting, shutdown, or live consequential
+  mutation. Blocks 0–31 now have exact accepted evidence and completed tracker
+  status; final observable-outcome reconciliation remains a separate canonical
+  gate and is not inferred from this status change.
 
 ### Stop
 
