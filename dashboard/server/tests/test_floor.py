@@ -150,6 +150,7 @@ def tracker(
     path: str,
     blocks: list[dict[str, object]],
 ) -> dict[str, object]:
+    all_accepted = bool(blocks) and all(block["status"] == "accepted" for block in blocks)
     return {
         "id": tracker_id,
         "project_id": project_id,
@@ -159,6 +160,8 @@ def tracker(
         "observed_at": "2026-08-09T17:54:00.000Z",
         "fingerprint": tracker_id[0] * 64,
         "title": f"{project_id.title()} tracker",
+        "tracker_status": "accepted" if all_accepted else "in-progress",
+        "header_block_status_conflict": False,
         "blocks": blocks,
         "verifier": {
             "valid": bool(blocks),
@@ -484,6 +487,7 @@ class FactoryFloorCompositionTests(unittest.TestCase):
         alpha_tracker["verifier"] = {"valid": True, "blocks": [0]}
         alpha_tracker["counts"] = {"total": 1, "accepted": 1, "open": 0}
         alpha_tracker["current_blocks"] = []
+        alpha_tracker["tracker_status"] = "accepted"
         none_active = next(
             item for item in self.compose()["rows"] if item["id"] == "run:target-alpha"  # type: ignore[index]
         )
@@ -498,6 +502,27 @@ class FactoryFloorCompositionTests(unittest.TestCase):
                 "reason": "Maintained tracker counts for the exact canonical tracker binding.",
             },
         )
+
+        alpha_tracker["tracker_status"] = "in-progress"
+        alpha_tracker["header_block_status_conflict"] = True
+        conflicting_header = next(
+            item for item in self.compose()["rows"] if item["id"] == "run:target-alpha"  # type: ignore[index]
+        )
+        self.assertEqual(
+            conflicting_header["work"]["block_claims"]["tracker_progress"],
+            {
+                "accepted": 1,
+                "remaining": 0,
+                "posture": "conflict",
+                "is_complete": None,
+                "reason": "The tracker header status conflicts with its exact Block statuses; completion is withheld.",
+            },
+        )
+        self.assertIn(
+            "tracker header status conflicts",
+            conflicting_header["disagreements"][-1].lower(),
+        )
+        self.assertEqual(conflicting_header["light"]["posture"], "amber")
 
     def test_preserves_attention_precedence_and_partial_sources(self) -> None:
         floor = self.compose()

@@ -80,6 +80,20 @@ describe("Factory Floor API contract", () => {
     const falseCompletion = makeFactoryFloorEnvelope()
     falseCompletion.data.rows[0].work.block_claims.tracker_progress.is_complete = true
     expect(() => floorEnvelopeSchema.parse(falseCompletion)).toThrow()
+
+    const headerConflict = makeFactoryFloorEnvelope()
+    headerConflict.data.rows[0].work.block_claims.tracker_progress = {
+      accepted: 26,
+      remaining: 0,
+      posture: "conflict",
+      is_complete: null,
+      reason: "The tracker header status conflicts with its exact Block statuses; completion is withheld.",
+    }
+    expect(floorEnvelopeSchema.parse(headerConflict).data.rows[0].work.block_claims.tracker_progress)
+      .toMatchObject({ posture: "conflict", is_complete: null })
+
+    headerConflict.data.rows[0].work.block_claims.tracker_progress.is_complete = true
+    expect(() => floorEnvelopeSchema.parse(headerConflict)).toThrow()
   })
 
   it("parses the success envelope and structured failure before returning", async () => {

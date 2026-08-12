@@ -267,6 +267,7 @@ describe("Factory Floor", () => {
   it("makes an exactly completed tracker unmistakable in the collapsed row", async () => {
     const envelope = makeFactoryFloorEnvelope()
     const completed = envelope.data.rows[1]
+    const headerConflict = envelope.data.rows[0]
     completed.implementation.status = "idle"
     completed.implementation.status_label = "Idle"
     completed.supervision.status = "completed"
@@ -285,7 +286,25 @@ describe("Factory Floor", () => {
       claim.range = null
       claim.reason = `${claim.label} reports no active Block.`
     })
-    envelope.data.rows = [completed]
+    headerConflict.implementation.status = "idle"
+    headerConflict.implementation.status_label = "Idle"
+    headerConflict.supervision.status = "completed"
+    headerConflict.supervision.status_label = "Completed"
+    headerConflict.work.block_claims.posture = "none"
+    headerConflict.work.block_claims.tracker_progress = {
+      accepted: 26,
+      remaining: 0,
+      posture: "conflict",
+      is_complete: null,
+      reason: "The tracker header status conflicts with its exact Block statuses; completion is withheld.",
+    }
+    headerConflict.work.block_claims.claims.forEach((claim) => {
+      claim.status = "none"
+      claim.blocks = []
+      claim.range = null
+      claim.reason = `${claim.label} reports no active Block.`
+    })
+    envelope.data.rows = [completed, headerConflict]
 
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: true,
@@ -301,5 +320,11 @@ describe("Factory Floor", () => {
     expect(completedRow).toHaveTextContent("Tracker complete")
     expect(disclosure).toHaveAccessibleName(/Tracker complete/)
     expect(disclosure).toHaveAccessibleName(/None active/)
+
+    const conflictDisclosure = screen.getByRole("button", { name: /Alpha implementation/ })
+    const conflictRow = conflictDisclosure.closest("article")
+    expect(conflictRow).toHaveTextContent("26 done · 0 remaining · conflict")
+    expect(conflictRow).not.toHaveTextContent("Tracker complete")
+    expect(conflictDisclosure).not.toHaveAccessibleName(/Tracker complete/)
   })
 })

@@ -368,7 +368,7 @@ function FloorRow({ row, inspect, returnPath }: {
     : `${blockClaims.tracker_total.value} Blocks${blockClaims.tracker_total.posture === "exact" ? "" : " · partial"}`
   const progressLabel = trackerProgress.accepted === null || trackerProgress.remaining === null
     ? "Done and remaining unavailable"
-    : `${trackerProgress.accepted} done · ${trackerProgress.remaining} remaining${trackerProgress.posture === "partial" ? " · partial" : ""}`
+    : `${trackerProgress.accepted} done · ${trackerProgress.remaining} remaining${trackerProgress.posture === "exact" ? "" : ` · ${trackerProgress.posture}`}`
   const completionLabel = trackerProgress.is_complete === true ? "Tracker complete" : null
   const workspacePath = row.detail.kind === "run"
     ? `/runs/${encodeURIComponent(row.detail.id)}?return=${encodeURIComponent(returnPath)}`

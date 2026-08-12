@@ -101,7 +101,7 @@ const blockClaimsSchema = z
       .object({
         accepted: nonnegativeInteger.nullable(),
         remaining: nonnegativeInteger.nullable(),
-        posture: z.enum(["exact", "partial", "unavailable"]),
+        posture: z.enum(["exact", "partial", "conflict", "unavailable"]),
         is_complete: z.boolean().nullable(),
         reason: z.string().min(1),
       })

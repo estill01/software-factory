@@ -2279,6 +2279,10 @@ h3 {
   color: var(--text-faint);
 }
 
+.progress-conflict > strong {
+  color: var(--amber-contrast);
+}
+
 .tracker-complete-mark {
   display: inline-flex;
   align-items: center;
