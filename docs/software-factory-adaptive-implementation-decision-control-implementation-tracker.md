@@ -666,8 +666,8 @@ continuous cognition the price of ordinary execution.
 | 13 | Orchestrate one bounded Factory candidate through existing owners | 12 | `completed` |
 | 14 | Independently evaluate the Factory candidate | 13 | `completed` |
 | 15 | Adopt or retire the evaluated candidate under configurable policy | 14 | `completed` |
-| 16 | Feed current outcomes back, suppress recurrence, and support rollback | 15 | `in-progress` |
-| 17 | Dogfood autonomous evolution and document the integrated system | 16 | `not-started` |
+| 16 | Feed current outcomes back, suppress recurrence, and support rollback | 15 | `completed` |
+| 17 | Dogfood autonomous evolution and document the integrated system | 16 | `in-progress` |
 
 Required order:
 
@@ -3964,7 +3964,7 @@ integrated dogfood.
 
 ## Block 16 — Feed current outcomes back, suppress recurrence, and support rollback
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -4101,7 +4101,38 @@ suppression of materially new evidence.
 
 ### Completion evidence
 
-Pending.
+- Rejected exact source `c9e02d8b65ec2aa49a6fdc3c588297ad241a923f`:
+  `B16-F01` found that a structurally valid synthetic outcome could become the
+  current terminal/productive head and consume admission coverage without the
+  intrinsic admission, normal-owner, signed-evaluation, adoption, and current-
+  completion lineage. The source remains immutable rejected history.
+- Rejected exact corrective source
+  `7e4a7593682ec91c00afc540fa35fbc12857270d`: its intrinsic-chain validation
+  rejected synthetic and pre-outcome-corrected evidence, but a source
+  correction appended after the outcome could leave that outcome current.
+  `B16-F02` required full-ledger correction currentness for admission,
+  evaluation handoff, signed evaluation, and adoption evidence.
+- Accepted exact successor
+  `70e99e5b4116d731a8762b2c6641f03ca3d9be5a` (tree
+  `890a4f7f2f6560f1111b81125e6fbcba2d778dfa`): only an intrinsic ordered
+  admission-to-completion chain can become terminal, productive, or
+  coverage-consuming. A later correction of any bound source invalidates the
+  outcome; an exact outcome correction retains it as noncurrent history and
+  leaves materially changed evidence eligible for later adjudication.
+- Fresh independent exact-revision review found no issue. Its focused proof
+  passed `3/3`, including synthetic rejection, all four post-outcome source-
+  correction classes, exact outcome correction, and repeated correction/head
+  behavior. Author affected proof passed `9/9`; admission, weekly/terminal
+  projection, and Factory contract/CLI proof passed `76/76`; mapped
+  supervision passed `385/385`. Unchanged exact author and implementation
+  trees retain their mapped `42/42` and `115/115` proof; release-owner proof
+  remains `19/19`. All three fixed skill validators, full 18-Block tracker
+  verification, compilation, diff checks, clean worktree, push, and exact
+  upstream identity passed.
+- Outcome projection, recurrence suppression, append-only later-regression
+  lineage, rollback through the normal release owner, and human-readable
+  weekly/terminal summaries are implemented without a second ledger or live
+  release, policy, mission, lifecycle, Gmail, deployment, or external effect.
 
 ### Stop
 
@@ -4112,7 +4143,7 @@ candidate.
 
 ## Block 17 — Dogfood autonomous evolution and document the integrated system
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
