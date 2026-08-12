@@ -14816,8 +14816,22 @@ FACTORY_EVOLUTION_EVALUATION_EVENT_KIND = "factory-evolution-evaluation"
 FACTORY_EVOLUTION_EVALUATION_CORRECTION_EVENT_KIND = (
     "factory-evolution-evaluation-currentness-rejected"
 )
+FACTORY_EVOLUTION_ADOPTION_EVENT_KIND = "factory-evolution-adoption"
+FACTORY_EVOLUTION_ADOPTION_CORRECTION_EVENT_KIND = (
+    "factory-evolution-adoption-currentness-rejected"
+)
 FACTORY_EVOLUTION_OWNER_ACK_INPUT_KIND = (
     "software-factory-evolution-owner-acknowledgment-input"
+)
+FACTORY_RELEASE_ROOT = Path(
+    "/Users/ethanstillman/.codex/software-factory-releases"
+)
+FACTORY_SKILL_INSTALL_ROOT = Path("/Users/ethanstillman/.codex/skills")
+FACTORY_ADOPTION_REQUIRED_PERMISSIONS = (
+    "repository_write",
+    "allowlisted_skill_maintenance",
+    "release",
+    "production_promotion",
 )
 FACTORY_EVOLUTION_OWNER_SCOPE = {
     "author-implementation-trackers": (
@@ -14944,6 +14958,44 @@ def factory_evolution_owner_context(
     }
 
 
+def factory_release_module() -> Any:
+    path = Path(__file__).resolve().parents[2] / "scripts" / "skill_release.py"
+    spec = importlib.util.spec_from_file_location("supervision_skill_release", path)
+    if spec is None or spec.loader is None:
+        raise SupervisionLogError("Factory release owner is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    except (OSError, ValueError) as exc:
+        raise SupervisionLogError("Factory release owner cannot be loaded") from exc
+    finally:
+        sys.modules.pop(spec.name, None)
+    return module
+
+
+def factory_release_owner_state(module: Any | None = None) -> dict[str, Any]:
+    owner = module if module is not None else factory_release_module()
+    try:
+        value = owner.status(
+            argparse.Namespace(
+                release_root=str(FACTORY_RELEASE_ROOT),
+                install_root=str(FACTORY_SKILL_INSTALL_ROOT),
+            )
+        )
+    except (OSError, owner.ReleaseError) as exc:
+        raise SupervisionLogError(str(exc)) from exc
+    if (
+        not isinstance(value, Mapping)
+        or type(value.get("installed_complete")) is not bool
+        or not SHA256.fullmatch(
+            str(value.get("release_owner_state_root_sha256", ""))
+        )
+    ):
+        raise SupervisionLogError("Factory release-owner state differs")
+    return dict(value)
+
+
 def factory_evolution_admitted_event(
     directory: Path,
     policy: Mapping[str, Any],
@@ -15051,6 +15103,8 @@ def validate_factory_evolution_orchestration_record(
         FACTORY_EVOLUTION_EVALUATION_HANDOFF_CORRECTION_EVENT_KIND,
         FACTORY_EVOLUTION_EVALUATION_EVENT_KIND,
         FACTORY_EVOLUTION_EVALUATION_CORRECTION_EVENT_KIND,
+        FACTORY_EVOLUTION_ADOPTION_EVENT_KIND,
+        FACTORY_EVOLUTION_ADOPTION_CORRECTION_EVENT_KIND,
     }:
         raise SupervisionLogError("Factory evolution orchestration record kind differs")
     safe_id(str(value.get("record_id", "")), label="orchestration record ID")
@@ -15094,6 +15148,8 @@ def factory_evolution_orchestration_history(
             FACTORY_EVOLUTION_EVALUATION_HANDOFF_CORRECTION_EVENT_KIND,
             FACTORY_EVOLUTION_EVALUATION_EVENT_KIND,
             FACTORY_EVOLUTION_EVALUATION_CORRECTION_EVENT_KIND,
+            FACTORY_EVOLUTION_ADOPTION_EVENT_KIND,
+            FACTORY_EVOLUTION_ADOPTION_CORRECTION_EVENT_KIND,
         }:
             validated = validate_factory_evolution_orchestration_record(
                 item, policy=policy
@@ -17451,6 +17507,340 @@ def factory_candidate_ack_source(
     }
 
 
+def factory_evolution_adoption_gate(
+    policy: Mapping[str, Any], state: Mapping[str, Any]
+) -> dict[str, Any]:
+    evaluation = state.get("evaluation")
+    if not isinstance(evaluation, Mapping):
+        raise SupervisionLogError("Factory evolution adoption requires one evaluation")
+    range_state = implementation_range_state(policy)
+    if range_state is None or (
+        15 not in range_state["eligible_blocks"]
+        and 15 not in range_state["accepted_blocks"]
+    ):
+        raise SupervisionLogError("Factory evolution adoption is beyond the current Block Stop")
+    control = policy.get("adaptive_decision_control")
+    if not isinstance(control, Mapping):
+        raise SupervisionLogError("Factory evolution adoption policy is unavailable")
+    validate_adaptive_decision_control(control)
+    mode = str(control["adaptive_decision_mode"])
+    disposition = str(evaluation["disposition"])
+    permissions = policy.get("permissions", {})
+    permission_results = {
+        field: isinstance(permissions, Mapping) and permissions.get(field) is True
+        for field in FACTORY_ADOPTION_REQUIRED_PERMISSIONS
+    }
+    permission_granted = all(permission_results.values())
+    if disposition != "promote":
+        posture, next_action = {
+            "advisory": ("advisory-retained", "continue-with-incumbent"),
+            "revise": ("revision-required", "return-to-normal-owner"),
+            "reject": ("candidate-retired", "continue-with-incumbent"),
+        }[disposition]
+        application_ready = False
+    elif mode == "fixed":
+        posture = "record-only"
+        next_action = "continue-with-incumbent"
+        application_ready = False
+    elif mode == "recommend":
+        posture = "recommendation-only"
+        next_action = "continue-with-incumbent"
+        application_ready = False
+    else:
+        if mode not in {"reviewed-autonomous", "full-autonomous"}:
+            raise SupervisionLogError("Factory evolution adoption mode differs")
+        if not permission_granted:
+            raise SupervisionLogError(
+                "Factory evolution adoption exceeds its permission ceiling"
+            )
+        posture = "normal-release-owner-ready"
+        next_action = "apply-through-normal-release-owner"
+        application_ready = True
+    return {
+        "adaptive_decision_mode": mode,
+        "evaluation_disposition": disposition,
+        "adoption_eligible": disposition == "promote",
+        "required_permissions": list(FACTORY_ADOPTION_REQUIRED_PERMISSIONS),
+        "permission_results": permission_results,
+        "permission_granted": permission_granted,
+        "application_posture": posture,
+        "application_ready": application_ready,
+        "next_action": next_action,
+    }
+
+
+def factory_evolution_adoption_payload(
+    policy: Mapping[str, Any],
+    state: Mapping[str, Any],
+    *,
+    release_before: Mapping[str, Any],
+    release_after: Mapping[str, Any],
+    release_result: Mapping[str, Any] | None,
+    adoption_executor_id: str | None,
+) -> dict[str, Any]:
+    gate = factory_evolution_adoption_gate(policy, state)
+    evaluation = state["evaluation"]
+    review = state["review"]
+    acknowledgment = state["acknowledgment_record"]["payload"]
+    experiment = review["experiment"]
+    application_ready = bool(gate["application_ready"])
+    if application_ready != (release_result is not None):
+        raise SupervisionLogError("Factory evolution adoption owner result differs")
+    if release_result is not None:
+        if (
+            release_before.get("installed_complete") is not True
+            or release_before.get("source_commit")
+            not in {
+                evaluation["baseline_revision"],
+                evaluation["candidate_revision"],
+            }
+            or release_result.get("baseline_source_commit")
+            != evaluation["baseline_revision"]
+            or release_result.get("candidate_source_commit")
+            != evaluation["candidate_revision"]
+            or release_after.get("installed_complete") is not True
+            or release_after.get("source_commit") != evaluation["candidate_revision"]
+            or release_after.get("active_release_id")
+            != release_result.get("active_release_id")
+            or release_after.get("manifest_sha256")
+            != release_result.get("manifest_sha256")
+            or release_after.get("candidate_root_sha256")
+            != release_result.get("candidate_root_sha256")
+        ):
+            raise SupervisionLogError("Factory evolution adopted release differs")
+        roles = {
+            str(experiment["proposer_id"]),
+            str(experiment["implementer_id"]),
+            str(experiment["evaluator_id"]),
+            str(review["reviewer_id"]),
+            str(release_result["reviewer_id"]),
+        }
+        if (
+            len(roles) != 4
+            or not adoption_executor_id
+            or adoption_executor_id in roles
+            or adoption_executor_id == acknowledgment["owner_id"]
+        ):
+            raise SupervisionLogError("Factory evolution adoption executor is not distinct")
+    elif release_before != release_after or adoption_executor_id is not None:
+        raise SupervisionLogError("Factory evolution non-adoption changed release state")
+    application_authorized = release_result is not None
+    posture = "adopted" if application_authorized else gate["application_posture"]
+    next_action = (
+        "continue-to-current-outcome-reconciliation"
+        if application_authorized
+        else gate["next_action"]
+    )
+    material = {
+        "schema_version": 1,
+        "kind": "software-factory-evolution-adoption-result",
+        "evolution_id": state["context"]["evolution_id"],
+        "evaluation_id": evaluation["evaluation_id"],
+        "evaluation_root": evaluation["evaluation_root"],
+        "evaluation_disposition": evaluation["disposition"],
+        "baseline_revision": evaluation["baseline_revision"],
+        "candidate_revision": evaluation["candidate_revision"],
+        "candidate_root": evaluation["candidate_root"],
+        "adaptive_decision_mode": gate["adaptive_decision_mode"],
+        "required_permissions": gate["required_permissions"],
+        "permission_results": gate["permission_results"],
+        "permission_granted": gate["permission_granted"],
+        "adoption_eligible": gate["adoption_eligible"],
+        "application_posture": posture,
+        "application_authorized": application_authorized,
+        "human_request_count": 0,
+        "candidate_authoritative": application_authorized,
+        "incumbent_authoritative": not application_authorized,
+        "adoption_executor_id": adoption_executor_id,
+        "implementation_owner_id": acknowledgment["owner_id"],
+        "evaluator_id": evaluation["evaluator_id"],
+        "release_owner_state_before_root": release_before[
+            "release_owner_state_root_sha256"
+        ],
+        "release_owner_state_after_root": release_after[
+            "release_owner_state_root_sha256"
+        ],
+        "release_id": (
+            release_result.get("active_release_id") if release_result else None
+        ),
+        "release_manifest_sha256": (
+            release_result.get("manifest_sha256") if release_result else None
+        ),
+        "release_acceptance_record_id": (
+            release_result.get("acceptance_record_id") if release_result else None
+        ),
+        "release_reviewer_id": (
+            release_result.get("reviewer_id") if release_result else None
+        ),
+        "release_activation_record_id": (
+            release_result.get("activation_record_id") if release_result else None
+        ),
+        "release_activation_record_hmac_sha256": (
+            release_result.get("activation_record_hmac_sha256")
+            if release_result
+            else None
+        ),
+        "installed_verification_root_sha256": (
+            release_result.get("installed_verification_root_sha256")
+            if release_result
+            else None
+        ),
+        "release_adoption_root_sha256": (
+            release_result.get("adoption_root_sha256") if release_result else None
+        ),
+        "production_authority": "candidate" if application_authorized else "incumbent",
+        "next_action": next_action,
+    }
+    return {**material, "adoption_currentness_root": digest(material)}
+
+
+def validate_factory_evolution_adoption_payload(
+    value: Any,
+    *,
+    policy: Mapping[str, Any],
+    state: Mapping[str, Any],
+) -> dict[str, Any]:
+    fields = {
+        "schema_version",
+        "kind",
+        "evolution_id",
+        "evaluation_id",
+        "evaluation_root",
+        "evaluation_disposition",
+        "baseline_revision",
+        "candidate_revision",
+        "candidate_root",
+        "adaptive_decision_mode",
+        "required_permissions",
+        "permission_results",
+        "permission_granted",
+        "adoption_eligible",
+        "application_posture",
+        "application_authorized",
+        "human_request_count",
+        "candidate_authoritative",
+        "incumbent_authoritative",
+        "adoption_executor_id",
+        "implementation_owner_id",
+        "evaluator_id",
+        "release_owner_state_before_root",
+        "release_owner_state_after_root",
+        "release_id",
+        "release_manifest_sha256",
+        "release_acceptance_record_id",
+        "release_reviewer_id",
+        "release_activation_record_id",
+        "release_activation_record_hmac_sha256",
+        "installed_verification_root_sha256",
+        "release_adoption_root_sha256",
+        "production_authority",
+        "next_action",
+        "adoption_currentness_root",
+    }
+    if not isinstance(value, Mapping) or set(value) != fields:
+        raise SupervisionLogError("Factory evolution adoption result must be an object")
+    material = {
+        key: item for key, item in value.items() if key != "adoption_currentness_root"
+    }
+    if (
+        type(value.get("schema_version")) is not int
+        or value.get("schema_version") != 1
+        or value.get("kind") != "software-factory-evolution-adoption-result"
+        or value.get("adoption_currentness_root") != digest(material)
+    ):
+        raise SupervisionLogError("Factory evolution adoption result root differs")
+    gate = factory_evolution_adoption_gate(policy, state)
+    evaluation = state["evaluation"]
+    acknowledgment = state["acknowledgment_record"]["payload"]
+    common = {
+        "evolution_id": state["context"]["evolution_id"],
+        "evaluation_id": evaluation["evaluation_id"],
+        "evaluation_root": evaluation["evaluation_root"],
+        "evaluation_disposition": evaluation["disposition"],
+        "baseline_revision": evaluation["baseline_revision"],
+        "candidate_revision": evaluation["candidate_revision"],
+        "candidate_root": evaluation["candidate_root"],
+        "adaptive_decision_mode": gate["adaptive_decision_mode"],
+        "required_permissions": gate["required_permissions"],
+        "permission_results": gate["permission_results"],
+        "permission_granted": gate["permission_granted"],
+        "adoption_eligible": gate["adoption_eligible"],
+        "implementation_owner_id": acknowledgment["owner_id"],
+        "evaluator_id": evaluation["evaluator_id"],
+        "human_request_count": 0,
+    }
+    if any(value.get(key) != expected for key, expected in common.items()):
+        raise SupervisionLogError("Factory evolution adoption decision differs")
+    release_state = factory_release_owner_state()
+    current_root = release_state["release_owner_state_root_sha256"]
+    if value.get("release_owner_state_after_root") != current_root:
+        raise SupervisionLogError("Factory evolution adopted installation is stale")
+    authorized = value.get("application_authorized") is True
+    if authorized:
+        acceptance = release_state.get("acceptance_record")
+        activation = release_state.get("activation_record")
+        review = release_state.get("independent_review")
+        verification = release_state.get("current_verification")
+        if (
+            gate["application_ready"] is not True
+            or value.get("application_posture") != "adopted"
+            or value.get("candidate_authoritative") is not True
+            or value.get("incumbent_authoritative") is not False
+            or value.get("production_authority") != "candidate"
+            or value.get("next_action")
+            != "continue-to-current-outcome-reconciliation"
+            or release_state.get("installed_complete") is not True
+            or release_state.get("source_commit") != evaluation["candidate_revision"]
+            or value.get("release_id") != release_state.get("active_release_id")
+            or value.get("release_manifest_sha256")
+            != release_state.get("manifest_sha256")
+            or not isinstance(acceptance, Mapping)
+            or value.get("release_acceptance_record_id")
+            != acceptance.get("record_id")
+            or not isinstance(review, Mapping)
+            or value.get("release_reviewer_id") != review.get("reviewer_id")
+            or not isinstance(activation, Mapping)
+            or value.get("release_activation_record_id")
+            != activation.get("record_id")
+            or value.get("release_activation_record_hmac_sha256")
+            != activation.get("record_hmac_sha256")
+            or not isinstance(verification, Mapping)
+            or value.get("installed_verification_root_sha256")
+            != verification.get("verification_root_sha256")
+        ):
+            raise SupervisionLogError("Factory evolution adopted release differs")
+        for field in (
+            "release_owner_state_before_root",
+            "release_adoption_root_sha256",
+        ):
+            if not SHA256.fullmatch(str(value.get(field, ""))):
+                raise SupervisionLogError("Factory evolution adoption evidence differs")
+    else:
+        null_fields = (
+            "adoption_executor_id",
+            "release_id",
+            "release_manifest_sha256",
+            "release_acceptance_record_id",
+            "release_reviewer_id",
+            "release_activation_record_id",
+            "release_activation_record_hmac_sha256",
+            "installed_verification_root_sha256",
+            "release_adoption_root_sha256",
+        )
+        if (
+            gate["application_ready"] is True
+            or value.get("application_posture") != gate["application_posture"]
+            or value.get("candidate_authoritative") is not False
+            or value.get("incumbent_authoritative") is not True
+            or value.get("production_authority") != "incumbent"
+            or value.get("next_action") != gate["next_action"]
+            or value.get("release_owner_state_before_root") != current_root
+            or any(value.get(field) is not None for field in null_fields)
+        ):
+            raise SupervisionLogError("Factory evolution non-adoption result differs")
+    return dict(value)
+
+
 def factory_evolution_cycle_state(
     directory: Path,
     policy: Mapping[str, Any],
@@ -17498,6 +17888,8 @@ def factory_evolution_cycle_state(
             FACTORY_EVOLUTION_EVALUATION_HANDOFF_CORRECTION_EVENT_KIND,
             FACTORY_EVOLUTION_EVALUATION_EVENT_KIND,
             FACTORY_EVOLUTION_EVALUATION_CORRECTION_EVENT_KIND,
+            FACTORY_EVOLUTION_ADOPTION_EVENT_KIND,
+            FACTORY_EVOLUTION_ADOPTION_CORRECTION_EVENT_KIND,
         )
     }
     for item in history:
@@ -17616,6 +18008,43 @@ def factory_evolution_cycle_state(
                 "Factory evolution evaluation correction differs"
             )
         evaluation_record = None
+    adoption_record = (
+        grouped[FACTORY_EVOLUTION_ADOPTION_EVENT_KIND][0]
+        if grouped[FACTORY_EVOLUTION_ADOPTION_EVENT_KIND]
+        else None
+    )
+    adoption_correction_record = (
+        grouped[FACTORY_EVOLUTION_ADOPTION_CORRECTION_EVENT_KIND][0]
+        if grouped[FACTORY_EVOLUTION_ADOPTION_CORRECTION_EVENT_KIND]
+        else None
+    )
+    if adoption_correction_record is not None:
+        if adoption_record is None:
+            raise SupervisionLogError(
+                "Factory evolution adoption correction lacks its source"
+            )
+        correction = adoption_correction_record["payload"]
+        if (
+            not isinstance(correction, Mapping)
+            or set(correction)
+            != {
+                "schema_version",
+                "kind",
+                "supersedes_record_id",
+                "adoption_currentness_root",
+                "disposition",
+            }
+            or type(correction.get("schema_version")) is not int
+            or correction.get("schema_version") != 1
+            or correction.get("kind")
+            != "software-factory-evolution-adoption-currentness-rejected"
+            or correction.get("supersedes_record_id") != adoption_record["record_id"]
+            or correction.get("adoption_currentness_root")
+            != adoption_record["payload"].get("adoption_currentness_root")
+            or correction.get("disposition") != "currentness-rejected"
+        ):
+            raise SupervisionLogError("Factory evolution adoption correction differs")
+        adoption_record = None
     expected_review_handoff = factory_evolution_review_handoff(
         policy, packet=packet, context=context
     )
@@ -17710,6 +18139,35 @@ def factory_evolution_cycle_state(
             )
         except module.FactoryEvolutionError as exc:
             raise SupervisionLogError(str(exc)) from exc
+    state_basis = {
+        "admission_record_id": admitted["record_id"],
+        "packet": packet,
+        "review": review,
+        "context": context,
+        "review_record": review_record,
+        "owner_record": owner_record,
+        "acknowledgment_record": acknowledgment_record,
+        "comparison_start_record": comparison_start_record,
+        "evaluation_handoff_record": evaluation_handoff_record,
+        "evaluation_handoff_correction_record": (
+            evaluation_handoff_correction_record
+        ),
+        "evaluation_record": evaluation_record,
+        "evaluation_correction_record": evaluation_correction_record,
+        "adoption_record": adoption_record,
+        "adoption_correction_record": adoption_correction_record,
+        "expected_review_handoff": expected_review_handoff,
+        "expected_owner_handoff": handoff,
+        "evaluation_handoff": evaluation_handoff,
+        "evaluation": evaluation,
+    }
+    adoption = None
+    if adoption_record is not None:
+        if evaluation is None:
+            raise SupervisionLogError("Factory evolution adoption precedes evaluation")
+        adoption = validate_factory_evolution_adoption_payload(
+            adoption_record["payload"], policy=policy, state=state_basis
+        )
     try:
         action = module.build_cycle_action(
             packet,
@@ -17738,10 +18196,10 @@ def factory_evolution_cycle_state(
             evaluation_root = evaluation["evaluation_root"]
             adoption_eligible = bool(evaluation["adoption_eligible"])
             next_action = {
-                "promote": "stop-before-adoption",
-                "advisory": "retain-advisory",
-                "revise": "return-to-normal-owner",
-                "reject": "reject",
+                "promote": "apply-adoption-policy",
+                "advisory": "record-advisory-posture",
+                "revise": "record-revision-posture",
+                "reject": "record-retirement-posture",
             }[disposition]
         action_material = {
             **{
@@ -17763,27 +18221,25 @@ def factory_evolution_cycle_state(
             "production_authority": "incumbent",
         }
         action = {**action_material, "action_root": digest(action_material)}
-    return {
-        "admission_record_id": admitted["record_id"],
-        "packet": packet,
-        "review": review,
-        "context": context,
-        "review_record": review_record,
-        "owner_record": owner_record,
-        "acknowledgment_record": acknowledgment_record,
-        "comparison_start_record": comparison_start_record,
-        "evaluation_handoff_record": evaluation_handoff_record,
-        "evaluation_handoff_correction_record": (
-            evaluation_handoff_correction_record
-        ),
-        "evaluation_record": evaluation_record,
-        "evaluation_correction_record": evaluation_correction_record,
-        "expected_review_handoff": expected_review_handoff,
-        "expected_owner_handoff": handoff,
-        "evaluation_handoff": evaluation_handoff,
-        "evaluation": evaluation,
-        "action": action,
-    }
+    if adoption is not None:
+        action_material = {
+            **{key: value for key, value in action.items() if key != "action_root"},
+            "stage": (
+                "adopted"
+                if adoption["application_authorized"]
+                else adoption["application_posture"]
+            ),
+            "next_action": adoption["next_action"],
+            "adoption_authorized": adoption["application_authorized"],
+            "candidate_authoritative": adoption["candidate_authoritative"],
+            "incumbent_authoritative": adoption["incumbent_authoritative"],
+            "production_authority": adoption["production_authority"],
+            "adoption_currentness_root": adoption["adoption_currentness_root"],
+            "active_release_id": adoption["release_id"],
+            "human_request_count": adoption["human_request_count"],
+        }
+        action = {**action_material, "action_root": digest(action_material)}
+    return {**state_basis, "adoption": adoption, "action": action}
 
 
 def factory_evolution_other_active_candidate(
@@ -18086,6 +18542,257 @@ def append_factory_evolution_comparison_start(
     return {"duplicate": False, "record": refreshed[-1], "action": state["action"]}
 
 
+def append_factory_evolution_adoption(args: argparse.Namespace) -> dict[str, Any]:
+    directory, policy, policy_snapshot, directory_snapshot = (
+        load_policy_directory_snapshot(args)
+    )
+    all_events, event_snapshot = events_snapshot(directory / "events.jsonl")
+    evolution_id = safe_id(args.evolution_id, label="factory evolution ID")
+    state = factory_evolution_cycle_state(
+        directory, policy, all_events, evolution_id=evolution_id
+    )
+    if state["adoption_record"] is not None:
+        return {"duplicate": True, "action": state["action"]}
+    if state["action"]["stage"] != "evaluated" or state["evaluation"] is None:
+        raise SupervisionLogError("Factory evolution adoption requires an evaluated cycle")
+    gate = factory_evolution_adoption_gate(policy, state)
+    release_owner = factory_release_module()
+    release_before = factory_release_owner_state(release_owner)
+    if (
+        release_before.get("installed_complete") is not True
+        or release_before.get("source_commit")
+        not in {
+            state["evaluation"]["baseline_revision"],
+            state["evaluation"]["candidate_revision"],
+        }
+    ):
+        raise SupervisionLogError(
+            "Factory evolution adoption baseline is not the current installation"
+        )
+    adoption_executor_id: str | None = None
+    if gate["application_ready"]:
+        if not args.release_review_evidence or not args.quiescent_evidence:
+            raise SupervisionLogError(
+                "Factory evolution adoption requires exact review and operator evidence"
+            )
+        try:
+            quiescent = release_owner.load_bounded_json(
+                Path(args.quiescent_evidence),
+                label="Quiescent-boundary evidence",
+            )
+        except (OSError, release_owner.ReleaseError) as exc:
+            raise SupervisionLogError(str(exc)) from exc
+        adoption_executor_id = safe_id(
+            str(quiescent.get("operator_id", "")), label="adoption executor ID"
+        )
+    elif args.release_review_evidence or args.quiescent_evidence:
+        raise SupervisionLogError(
+            "Factory evolution non-adoption does not accept release inputs"
+        )
+    with owner_append_lock(
+        root_from(args), args.target_thread, directory_snapshot
+    ) as directory_fd:
+        require_bound_policy_at(
+            directory_fd,
+            expected_policy=policy,
+            expected_snapshot=policy_snapshot,
+        )
+        current_events, current_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        if current_events != all_events or current_snapshot != event_snapshot:
+            raise SupervisionLogError(
+                "Factory evolution adoption event head changed; retry current state"
+            )
+        current = factory_evolution_cycle_state(
+            directory, policy, current_events, evolution_id=evolution_id
+        )
+        if (
+            current["adoption_record"] is not None
+            or current["action"]["stage"] != "evaluated"
+            or current["evaluation"] != state["evaluation"]
+            or factory_evolution_adoption_gate(policy, current) != gate
+        ):
+            raise SupervisionLogError(
+                "Factory evolution adoption inputs changed before application"
+            )
+        current_release = factory_release_owner_state(release_owner)
+        if canonical(current_release) != canonical(release_before):
+            raise SupervisionLogError(
+                "Factory release-owner state changed before adoption"
+            )
+        release_result: dict[str, Any] | None = None
+        if gate["application_ready"]:
+            try:
+                release_result = release_owner.adopt_release(
+                    argparse.Namespace(
+                        repo=current["context"]["target_repository_root"],
+                        release_root=str(FACTORY_RELEASE_ROOT),
+                        install_root=str(FACTORY_SKILL_INSTALL_ROOT),
+                        source_commit=current["evaluation"]["candidate_revision"],
+                        baseline_source_commit=current["evaluation"][
+                            "baseline_revision"
+                        ],
+                        implementer_id=current["acknowledgment_record"]["payload"][
+                            "owner_id"
+                        ],
+                        review_evidence=args.release_review_evidence,
+                        quiescent_evidence=args.quiescent_evidence,
+                    )
+                )
+            except (OSError, release_owner.ReleaseError) as exc:
+                raise SupervisionLogError(str(exc)) from exc
+        release_after = factory_release_owner_state(release_owner)
+        payload = factory_evolution_adoption_payload(
+            policy,
+            current,
+            release_before=release_before,
+            release_after=release_after,
+            release_result=release_result,
+            adoption_executor_id=adoption_executor_id,
+        )
+        record = factory_evolution_orchestration_record(
+            kind=FACTORY_EVOLUTION_ADOPTION_EVENT_KIND,
+            record_id=f"EVT-{len(current_events) + 1:06d}",
+            policy=policy,
+            evolution_id=evolution_id,
+            payload=payload,
+        )
+        append_raw_locked_at(
+            directory_fd,
+            "events.jsonl",
+            record,
+            previous_record_sha256=str(current_events[-1]["record_sha256"]),
+            expected_file_snapshot=current_snapshot,
+            require_event_anchor=True,
+        )
+        current_release_after_append = factory_release_owner_state(release_owner)
+        if canonical(current_release_after_append) != canonical(release_after):
+            written_events, written_snapshot = events_snapshot(
+                Path("events.jsonl"), directory_fd=directory_fd
+            )
+            correction_payload = {
+                "schema_version": 1,
+                "kind": (
+                    "software-factory-evolution-adoption-currentness-rejected"
+                ),
+                "supersedes_record_id": record["record_id"],
+                "adoption_currentness_root": payload["adoption_currentness_root"],
+                "disposition": "currentness-rejected",
+            }
+            correction = factory_evolution_orchestration_record(
+                kind=FACTORY_EVOLUTION_ADOPTION_CORRECTION_EVENT_KIND,
+                record_id=f"EVT-{len(written_events) + 1:06d}",
+                policy=policy,
+                evolution_id=evolution_id,
+                payload=correction_payload,
+            )
+            append_raw_locked_at(
+                directory_fd,
+                "events.jsonl",
+                correction,
+                previous_record_sha256=str(written_events[-1]["record_sha256"]),
+                expected_file_snapshot=written_snapshot,
+                require_event_anchor=True,
+            )
+            raise SupervisionLogError(
+                "Factory release-owner state changed during adoption append"
+            )
+    refreshed = events(directory / "events.jsonl")
+    final_state = factory_evolution_cycle_state(
+        directory, policy, refreshed, evolution_id=evolution_id
+    )
+    return {
+        "duplicate": False,
+        "record": refreshed[-1],
+        "action": final_state["action"],
+    }
+
+
+def recover_factory_evolution_adoption_currentness(
+    args: argparse.Namespace,
+    *,
+    directory: Path,
+    policy: Mapping[str, Any],
+    all_events: list[dict[str, Any]],
+) -> bool:
+    evolution_id = safe_id(args.evolution_id, label="factory evolution ID")
+    history = factory_evolution_orchestration_history(
+        directory, policy, all_events, evolution_id=evolution_id
+    )
+    adoption_records = [
+        item for item in history if item["kind"] == FACTORY_EVOLUTION_ADOPTION_EVENT_KIND
+    ]
+    corrections = [
+        item
+        for item in history
+        if item["kind"] == FACTORY_EVOLUTION_ADOPTION_CORRECTION_EVENT_KIND
+    ]
+    if len(adoption_records) != 1 or corrections:
+        return False
+    source = adoption_records[0]
+    live_root = factory_release_owner_state()["release_owner_state_root_sha256"]
+    if source["payload"].get("release_owner_state_after_root") == live_root:
+        return False
+    (
+        current_directory,
+        current_policy,
+        policy_snapshot,
+        directory_snapshot,
+    ) = load_policy_directory_snapshot(args)
+    current_events, event_snapshot = events_snapshot(
+        current_directory / "events.jsonl"
+    )
+    if (
+        current_directory != directory
+        or current_policy != policy
+        or current_events != all_events
+    ):
+        raise SupervisionLogError(
+            "Factory evolution adoption recovery changed; retry current state"
+        )
+    with owner_append_lock(
+        root_from(args), args.target_thread, directory_snapshot
+    ) as directory_fd:
+        require_bound_policy_at(
+            directory_fd,
+            expected_policy=policy,
+            expected_snapshot=policy_snapshot,
+        )
+        current_events, current_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        if current_events != all_events or current_snapshot != event_snapshot:
+            raise SupervisionLogError(
+                "Factory evolution adoption recovery head changed; retry current state"
+            )
+        correction_payload = {
+            "schema_version": 1,
+            "kind": "software-factory-evolution-adoption-currentness-rejected",
+            "supersedes_record_id": source["record_id"],
+            "adoption_currentness_root": source["payload"][
+                "adoption_currentness_root"
+            ],
+            "disposition": "currentness-rejected",
+        }
+        correction = factory_evolution_orchestration_record(
+            kind=FACTORY_EVOLUTION_ADOPTION_CORRECTION_EVENT_KIND,
+            record_id=f"EVT-{len(current_events) + 1:06d}",
+            policy=policy,
+            evolution_id=evolution_id,
+            payload=correction_payload,
+        )
+        append_raw_locked_at(
+            directory_fd,
+            "events.jsonl",
+            correction,
+            previous_record_sha256=str(current_events[-1]["record_sha256"]),
+            expected_file_snapshot=current_snapshot,
+            require_event_anchor=True,
+        )
+    return True
+
+
 def cmd_factory_evolution_cycle_status(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     state = factory_evolution_cycle_state(
@@ -18101,9 +18808,33 @@ def cmd_factory_evolution_orchestrate(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     all_events = events(directory / "events.jsonl")
     evolution_id = safe_id(args.evolution_id, label="factory evolution ID")
+    if recover_factory_evolution_adoption_currentness(
+        args, directory=directory, policy=policy, all_events=all_events
+    ):
+        refreshed = events(directory / "events.jsonl")
+        state = factory_evolution_cycle_state(
+            directory, policy, refreshed, evolution_id=evolution_id
+        )
+        print(
+            json.dumps(
+                {
+                    "duplicate": False,
+                    "currentness_rejected": True,
+                    "action": state["action"],
+                },
+                sort_keys=True,
+            )
+        )
+        return
     state = factory_evolution_cycle_state(
         directory, policy, all_events, evolution_id=evolution_id
     )
+    if state["action"]["stage"] != "evaluated" and (
+        args.release_review_evidence or args.quiescent_evidence
+    ):
+        raise SupervisionLogError(
+            "Factory evolution release inputs precede the adoption stage"
+        )
     if state["action"]["stage"] == "review-required":
         if state["review_record"] is not None:
             print(json.dumps({"duplicate": True, "action": state["action"]}, sort_keys=True))
@@ -18191,6 +18922,10 @@ def cmd_factory_evolution_orchestrate(args: argparse.Namespace) -> None:
             ],
             proposed_payload=payload,
         )
+        print(json.dumps(result, sort_keys=True))
+        return
+    if state["action"]["stage"] == "evaluated":
+        result = append_factory_evolution_adoption(args)
         print(json.dumps(result, sort_keys=True))
         return
     factory_candidate_remove_completed_pending_comparison(directory, state)
@@ -18317,6 +19052,12 @@ def cmd_factory_evolution_admit(args: argparse.Namespace) -> None:
 
 
 def cmd_factory_evolution(args: argparse.Namespace) -> None:
+    if args.action != "orchestrate" and (
+        args.release_review_evidence or args.quiescent_evidence
+    ):
+        raise SupervisionLogError(
+            "Factory evolution release inputs require adoption orchestration"
+        )
     if args.action == "admit":
         cmd_factory_evolution_admit(args)
         return
@@ -18341,6 +19082,10 @@ def cmd_factory_evolution(args: argparse.Namespace) -> None:
             "Factory evolution cycle actions do not accept staged producer inputs"
         )
     if args.action == "status":
+        if args.release_review_evidence or args.quiescent_evidence:
+            raise SupervisionLogError(
+                "Factory evolution status does not accept release inputs"
+            )
         cmd_factory_evolution_cycle_status(args)
         return
     if args.action == "orchestrate":
@@ -18351,6 +19096,10 @@ def cmd_factory_evolution(args: argparse.Namespace) -> None:
         cmd_factory_evolution_orchestrate(args)
         return
     if args.action == "acknowledge":
+        if args.release_review_evidence or args.quiescent_evidence:
+            raise SupervisionLogError(
+                "Factory evolution acknowledgment does not accept release inputs"
+            )
         cmd_factory_evolution_acknowledge(args)
         return
     raise SupervisionLogError("Unsupported factory evolution action")
@@ -20495,6 +21244,8 @@ def parser() -> argparse.ArgumentParser:
     factory_evolution.add_argument("--review-json")
     factory_evolution.add_argument("--evaluation-json")
     factory_evolution.add_argument("--owner-ack-json")
+    factory_evolution.add_argument("--release-review-evidence")
+    factory_evolution.add_argument("--quiescent-evidence")
     factory_evolution.set_defaults(func=cmd_factory_evolution)
 
     terminal_report = subparsers.add_parser("terminal-report")

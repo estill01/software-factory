@@ -421,8 +421,12 @@ bounded reflog-file currentness, including same-HEAD events. A fixed-key
 independent evaluator can then submit one signed, revision-bound disposition covering every
 positive and exception case plus contrary and regression evidence. The
 canonical result retains raw baseline/candidate roots and exposes `promote`
-only as adoption eligibility. The incumbent remains authoritative and no
-adoption, installation, or cutover occurs in this evaluation stage. Any target
+only as adoption eligibility. The incumbent remains authoritative during that
+evaluation stage. A subsequent orchestration pass applies the configured
+adoption policy: fixed/recommend/lower dispositions remain nonauthorizing, while
+a current reviewed/full-autonomous winner with all existing release permissions
+and exact external review/operator evidence can continue through the normal
+atomic release owner. Any target
 currentness loss during the handoff or evaluation append is canonically
 corrected. The bound owner root keeps the stale source inactive even if that
 correction is interrupted or the target transiently changes and returns.

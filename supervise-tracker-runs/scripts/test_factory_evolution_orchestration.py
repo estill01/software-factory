@@ -411,6 +411,110 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
             },
         )
 
+    def configure_adoption_policy(
+        self, *, mode: str, permissions: bool
+    ) -> None:
+        policy = supervision_log.read_json(self.directory / "policy.json")
+        control = policy["adaptive_decision_control"]
+        policy["adaptive_decision_control"] = (
+            supervision_log.adaptive_decision_control_contract(
+                mode,
+                candidate_budget=control["candidate_budget"],
+                target_class=control["target_class"],
+                target_repository_root=control["target_repository_root"],
+            )
+        )
+        for field in supervision_log.FACTORY_ADOPTION_REQUIRED_PERMISSIONS:
+            policy["permissions"][field] = permissions
+        supervision_log.write_policy_version(
+            self.directory,
+            policy,
+            kind="test-block15-adoption-policy",
+            reason="Bind the focused Block 15 adoption policy fixture.",
+            evidence_values=[mode, f"permissions:{permissions}"],
+        )
+        self._record_admission()
+
+    class FakeReleaseOwner:
+        class ReleaseError(RuntimeError):
+            pass
+
+        def __init__(self, baseline: str, candidate: str) -> None:
+            self.baseline = baseline
+            self.candidate = candidate
+            self.active = baseline
+            self.adoption_calls = 0
+            self.activation_count = 0
+
+        def _status(self) -> dict[str, object]:
+            candidate_active = self.active == self.candidate
+            result: dict[str, object] = {
+                "active_release_id": "candidate-release-1234" if candidate_active else "baseline-release-1234",
+                "source_commit": self.active,
+                "manifest_sha256": "a" * 64 if candidate_active else "b" * 64,
+                "candidate_root_sha256": "c" * 64 if candidate_active else "d" * 64,
+                "independent_review": (
+                    {
+                        "reviewer_id": "release-reviewer-1234",
+                    }
+                    if candidate_active
+                    else {"reviewer_id": "baseline-reviewer-1234"}
+                ),
+                "installed_complete": True,
+                "acceptance_record": {
+                    "record_id": "RELEASE-ACCEPTANCE-2" if candidate_active else "RELEASE-ACCEPTANCE-1",
+                    "review_record_id": "release-review-record-1234",
+                },
+                "activation_record": {
+                    "record_id": "ACTIVATION-2" if candidate_active else "ACTIVATION-1",
+                    "record_hmac_sha256": "e" * 64 if candidate_active else "f" * 64,
+                },
+                "current_verification": {
+                    "verification_root_sha256": "1" * 64 if candidate_active else "2" * 64,
+                },
+            }
+            result["release_owner_state_root_sha256"] = supervision_log.digest(result)
+            return result
+
+        def status(self, _args: object) -> dict[str, object]:
+            return self._status()
+
+        def load_bounded_json(self, path: Path, *, label: str) -> dict[str, object]:
+            del label
+            return json.loads(path.read_text(encoding="utf-8"))
+
+        def adopt_release(self, args: object) -> dict[str, object]:
+            self.adoption_calls += 1
+            duplicate = self.active == self.candidate
+            if getattr(args, "baseline_source_commit") != self.baseline:
+                raise self.ReleaseError("baseline differs")
+            if not duplicate:
+                self.activation_count += 1
+                self.active = self.candidate
+            status = self._status()
+            result: dict[str, object] = {
+                "schema_version": 1,
+                "kind": "software-factory-skill-adoption",
+                "duplicate": duplicate,
+                "baseline_source_commit": self.baseline,
+                "candidate_source_commit": self.candidate,
+                "previous_release_id": "baseline-release-1234",
+                "active_release_id": status["active_release_id"],
+                "manifest_sha256": status["manifest_sha256"],
+                "candidate_root_sha256": status["candidate_root_sha256"],
+                "review_record_id": "release-review-record-1234",
+                "reviewer_id": "release-reviewer-1234",
+                "review_root_sha256": "3" * 64,
+                "acceptance_record_id": status["acceptance_record"]["record_id"],
+                "activation_record_id": status["activation_record"]["record_id"],
+                "activation_record_hmac_sha256": status["activation_record"]["record_hmac_sha256"],
+                "installed_verification_root_sha256": status["current_verification"]["verification_root_sha256"],
+            }
+            result["adoption_root_sha256"] = supervision_log.digest(
+                {key: value for key, value in result.items() if key != "duplicate"}
+            )
+            return result
+
     def review_submission(self, *, candidate_type: str = "skill-method") -> dict[str, object]:
         submission = copy.deepcopy(self.review_support.review_submission())
         selected_id = str(submission["selection"]["candidate_id"])
@@ -1252,7 +1356,7 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
         self.assertEqual(result["action"]["disposition"], "promote")
         self.assertTrue(result["action"]["adoption_eligible"])
         self.assertFalse(result["action"]["adoption_authorized"])
-        self.assertEqual(result["action"]["next_action"], "stop-before-adoption")
+        self.assertEqual(result["action"]["next_action"], "apply-adoption-policy")
         self.assertEqual(self.git("rev-parse", "HEAD"), before_head)
         duplicate = self.command(
             "factory-evolution",
@@ -1381,6 +1485,234 @@ class FactoryEvolutionOrchestrationIntegrationTests(unittest.TestCase):
                 self.assertFalse(evaluation["adoption_authorized"])
                 self.assertIn(disposition, {"advisory", "revise", "reject"})
                 self.assertIn(next_action, {"retain-advisory", "return-to-normal-owner", "reject"})
+
+    def test_adoption_gate_maps_modes_permissions_and_lower_dispositions(self) -> None:
+        _comparison, handoff = self.candidate_ready_for_evaluation()
+        source = self.admission.root / "evaluation-for-adoption-gate.json"
+        source.write_bytes(
+            supervision_log.canonical(self.evaluation_submission(handoff)) + b"\n"
+        )
+        self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "evaluate",
+            "--evolution-id",
+            self.evolution_id,
+            "--evaluation-json",
+            str(source),
+        )
+        policy = supervision_log.read_json(self.directory / "policy.json")
+        state = supervision_log.factory_evolution_cycle_state(
+            self.directory,
+            policy,
+            supervision_log.events(self.directory / "events.jsonl"),
+            evolution_id=self.evolution_id,
+        )
+        for mode, posture in (
+            ("fixed", "record-only"),
+            ("recommend", "recommendation-only"),
+        ):
+            changed = copy.deepcopy(policy)
+            control = changed["adaptive_decision_control"]
+            changed["adaptive_decision_control"] = (
+                supervision_log.adaptive_decision_control_contract(
+                    mode,
+                    candidate_budget=control["candidate_budget"],
+                    target_class=control["target_class"],
+                    target_repository_root=control["target_repository_root"],
+                )
+            )
+            result = supervision_log.factory_evolution_adoption_gate(changed, state)
+            self.assertFalse(result["application_ready"])
+            self.assertEqual(result["application_posture"], posture)
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "permission ceiling"
+        ):
+            supervision_log.factory_evolution_adoption_gate(policy, state)
+        with (
+            mock.patch.object(supervision_log, "factory_release_module") as release_owner,
+            self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, "permission ceiling"
+            ),
+        ):
+            self.command(
+                "factory-evolution",
+                "--target-thread",
+                self.target_thread,
+                "--action",
+                "orchestrate",
+                "--evolution-id",
+                self.evolution_id,
+            )
+        release_owner.assert_not_called()
+        for field in supervision_log.FACTORY_ADOPTION_REQUIRED_PERMISSIONS:
+            policy["permissions"][field] = True
+        ready = supervision_log.factory_evolution_adoption_gate(policy, state)
+        self.assertTrue(ready["application_ready"])
+        self.assertEqual(ready["application_posture"], "normal-release-owner-ready")
+
+        for disposition, posture in (
+            ("advisory", "advisory-retained"),
+            ("revise", "revision-required"),
+            ("reject", "candidate-retired"),
+        ):
+            changed_state = copy.deepcopy(state)
+            changed_state["evaluation"]["disposition"] = disposition
+            changed_state["evaluation"]["adoption_eligible"] = False
+            stopped = supervision_log.factory_evolution_adoption_gate(
+                policy, changed_state
+            )
+            self.assertFalse(stopped["application_ready"])
+            self.assertEqual(stopped["application_posture"], posture)
+
+    def test_full_autonomous_adoption_uses_normal_release_owner_once(self) -> None:
+        self.configure_adoption_policy(mode="full-autonomous", permissions=True)
+        _comparison, handoff = self.candidate_ready_for_evaluation()
+        source = self.admission.root / "evaluation-for-adoption.json"
+        source.write_bytes(
+            supervision_log.canonical(self.evaluation_submission(handoff)) + b"\n"
+        )
+        evaluated = self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "evaluate",
+            "--evolution-id",
+            self.evolution_id,
+            "--evaluation-json",
+            str(source),
+        )
+        self.assertEqual(evaluated["action"]["stage"], "evaluated")
+        fake = self.FakeReleaseOwner(
+            str(handoff["baseline_revision"]), str(handoff["candidate_revision"])
+        )
+        review_path = self.admission.root / "release-review.json"
+        review_path.write_text("{}", encoding="utf-8")
+        permit_path = self.admission.root / "quiescent.json"
+        permit_path.write_text(
+            json.dumps({"operator_id": "release-operator-1234"}), encoding="utf-8"
+        )
+        with mock.patch.object(
+            supervision_log, "factory_release_module", return_value=fake
+        ):
+            adopted = self.command(
+                "factory-evolution",
+                "--target-thread",
+                self.target_thread,
+                "--action",
+                "orchestrate",
+                "--evolution-id",
+                self.evolution_id,
+                "--release-review-evidence",
+                str(review_path),
+                "--quiescent-evidence",
+                str(permit_path),
+            )
+            self.assertEqual(adopted["action"]["stage"], "adopted")
+            self.assertTrue(adopted["action"]["candidate_authoritative"])
+            self.assertEqual(fake.activation_count, 1)
+            repeated = self.command(
+                "factory-evolution",
+                "--target-thread",
+                self.target_thread,
+                "--action",
+                "orchestrate",
+                "--evolution-id",
+                self.evolution_id,
+            )
+            self.assertTrue(repeated["duplicate"])
+            self.assertEqual(repeated["action"]["stage"], "adopted")
+            self.assertEqual(repeated["action"]["human_request_count"], 0)
+            fake.active = fake.baseline
+            corrected = self.command(
+                "factory-evolution",
+                "--target-thread",
+                self.target_thread,
+                "--action",
+                "orchestrate",
+                "--evolution-id",
+                self.evolution_id,
+            )
+        self.assertTrue(corrected["currentness_rejected"])
+        self.assertEqual(corrected["action"]["stage"], "evaluated")
+        self.assertFalse(corrected["action"]["adoption_authorized"])
+        self.assertEqual(fake.activation_count, 1)
+
+    def test_interrupted_adoption_append_rehydrates_one_activation(self) -> None:
+        self.configure_adoption_policy(mode="reviewed-autonomous", permissions=True)
+        _comparison, handoff = self.candidate_ready_for_evaluation()
+        source = self.admission.root / "evaluation-for-adoption-retry.json"
+        source.write_bytes(
+            supervision_log.canonical(self.evaluation_submission(handoff)) + b"\n"
+        )
+        self.command(
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "evaluate",
+            "--evolution-id",
+            self.evolution_id,
+            "--evaluation-json",
+            str(source),
+        )
+        fake = self.FakeReleaseOwner(
+            str(handoff["baseline_revision"]), str(handoff["candidate_revision"])
+        )
+        review_path = self.admission.root / "release-review-retry.json"
+        review_path.write_text("{}", encoding="utf-8")
+        permit_path = self.admission.root / "quiescent-retry.json"
+        permit_path.write_text(
+            json.dumps({"operator_id": "release-operator-1234"}), encoding="utf-8"
+        )
+        original = supervision_log.append_raw_locked_at
+        failed = False
+
+        def fail_before_adoption_event(*args: object, **kwargs: object) -> str:
+            nonlocal failed
+            record = args[2]
+            if (
+                not failed
+                and record.get("kind")
+                == supervision_log.FACTORY_EVOLUTION_ADOPTION_EVENT_KIND
+            ):
+                failed = True
+                raise OSError("simulated interruption before adoption record")
+            return original(*args, **kwargs)
+
+        arguments = (
+            "factory-evolution",
+            "--target-thread",
+            self.target_thread,
+            "--action",
+            "orchestrate",
+            "--evolution-id",
+            self.evolution_id,
+            "--release-review-evidence",
+            str(review_path),
+            "--quiescent-evidence",
+            str(permit_path),
+        )
+        with (
+            mock.patch.object(supervision_log, "factory_release_module", return_value=fake),
+            mock.patch.object(
+                supervision_log,
+                "append_raw_locked_at",
+                side_effect=fail_before_adoption_event,
+            ),
+            self.assertRaisesRegex(OSError, "interruption"),
+        ):
+            self.command(*arguments)
+        self.assertEqual(fake.activation_count, 1)
+        with mock.patch.object(
+            supervision_log, "factory_release_module", return_value=fake
+        ):
+            retried = self.command(*arguments)
+        self.assertEqual(retried["action"]["stage"], "adopted")
+        self.assertEqual(fake.activation_count, 1)
 
     def test_interrupted_evaluation_append_rehydrates_exact_disposition(self) -> None:
         _comparison, handoff = self.candidate_ready_for_evaluation()

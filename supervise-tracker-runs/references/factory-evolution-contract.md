@@ -302,14 +302,49 @@ regression findings, rationale, and exactly one existing disposition:
 `promote` requires complete passing candidate cases, passing raw candidate
 commands, preserved protected capabilities, no regression findings, distinct
 condition evidence, and the review's improvement or non-inferiority posture.
-It means only `adoption_eligible`; `adoption_authorized` remains false and the
-incumbent remains authoritative. `advisory`, `revise`, and `reject` route to
-their exact non-adoption Stop/owner posture. The canonical evaluation event is
+At the evaluation boundary it means only `adoption_eligible`;
+`adoption_authorized` remains false and the incumbent remains authoritative.
+`advisory`, `revise`, and `reject` route to their exact non-adoption
+Stop/owner posture. The canonical evaluation event is
 immutable and idempotent; retry rehydrates its exact disposition without
 rerunning comparison or performing a target write. Target-currentness loss
 during its physical append similarly records an exact correction. Its bound
 target-owner root leaves no active evaluation disposition across correction
 interruption or a transient ref change-and-return.
+
+## Governed adoption and retirement
+
+An evaluated cycle enters the existing supervision writer once more. The
+adoption gate revalidates the current mission, policy, implementation range,
+Factory target revision, exact evaluation, incumbent installation, permission
+ceilings, and role separation. `fixed` records only; `recommend` records a
+recommendation; `advisory`, `revise`, and `reject` retain their exact
+non-adoption posture. Only `promote` in `reviewed-autonomous` or
+`full-autonomous`, with `repository_write`, `allowlisted_skill_maintenance`,
+`release`, and `production_promotion` all already true, can call the normal
+release owner. Full autonomy creates no human request.
+
+The evolution artifact never writes an installed path. The existing local
+release owner independently rebuilds the candidate from its exact Git commit,
+requires an externally signed exact-candidate review, stages one sealed
+three-skill release, consumes one current separately signed operator boundary,
+and atomically replaces only the established release-root `current` pointer.
+Stable discovery links do not change. A fresh process resolves and hashes all
+three installed skills before success. The adoption executor, release
+reviewer, evolution reviewer/proposer, implementation owner, and evaluator
+remain separated by the applicable role constraints.
+
+The canonical adoption result binds the frozen evaluation, mode and four
+permission results, pre/post release-owner roots, accepted manifest, release
+acceptance and activation records, installed verification root, authority
+posture, and next outcome-reconciliation action. Retry after a completed
+activation but before the supervision append rehydrates the installed release
+without another activation or operator record. A release-owner change during
+append records an exact currentness correction; the stale source event cannot
+remain active. Exactly one installed release is authoritative after a
+successful adoption. This stage does not publish, deploy, expand policy,
+create a candidate, rerun the mapped comparison, or claim terminal outcome
+completion.
 
 ## Exact submission wire shapes
 

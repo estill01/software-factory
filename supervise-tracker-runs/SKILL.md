@@ -774,15 +774,26 @@ Keep the roles and authority sequence exact:
    exception case. `evaluate` verifies the fixed evaluator key, exact handoff,
    raw result roots, protected proof, contrary evidence, and regression posture,
    then records one immutable disposition: `promote`, `advisory`, `revise`, or
-   `reject`. `promote` is adoption eligibility only; every disposition preserves
-   incumbent authority and stops before adoption or installed-skill mutation.
+   `reject`. At the evaluation boundary, `promote` is adoption eligibility
+   only; every disposition preserves incumbent authority until the separately
+   governed adoption action runs.
    The handoff also binds the exact target-owner ref and bounded reflog-file
-   currentness root, including same-HEAD events.
-   Target-currentness loss at either canonical handoff or evaluation append is
-   followed by an exact correction event; the bound owner root keeps a stale
-   source inactive even if correction persistence is interrupted or the target
-   ref transiently changes and returns.
-6. Run `verify` against the stored set. Verification reopens the immutable
+   currentness root, including same-HEAD events. Target-currentness loss at
+   either canonical handoff or evaluation append is followed by an exact
+   correction event; the bound owner root keeps a stale source inactive even
+   if correction persistence is interrupted or the target ref transiently
+   changes and returns.
+6. For an evaluated cycle, run `factory-evolution --action orchestrate` again.
+   Fixed mode records only, recommend mode records a recommendation, and lower
+   dispositions record their exact retain/revise/retire posture without release
+   inputs or installed mutation. A current reviewed/full-autonomous `promote`
+   requires the four existing skill-release permissions plus
+   `--release-review-evidence <signed-review.json>` and
+   `--quiescent-evidence <signed-operator-boundary.json>`. The supervision
+   owner then calls the existing local release owner; it does not write a skill
+   itself. Retry rehydrates one activation, and successful full autonomy records
+   zero human requests before continuing to current-outcome reconciliation.
+7. Run `verify` against the stored set. Verification reopens the immutable
    packet, review, evaluation, report, and manifests and recomputes their hashes
    and schemas without rerunning a producer.
 

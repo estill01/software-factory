@@ -1717,6 +1717,109 @@ def rollback_release(args: argparse.Namespace) -> dict[str, Any]:
     return activate_release(args, action="rollback")
 
 
+def adopt_release(args: argparse.Namespace) -> dict[str, Any]:
+    """Stage and activate one reviewed candidate through the existing owner.
+
+    This is deliberately a composition of the existing immutable staging and
+    one-pointer activation boundaries.  A retry after activation rehydrates
+    the exact installed result without consuming a second operator record.
+    """
+    release_root = ensure_directory(Path(args.release_root), label="release root")
+    install_root = ensure_directory(Path(args.install_root), label="skill install root")
+    baseline_source_commit = exact_git_commit(args.baseline_source_commit)
+    before = status(
+        argparse.Namespace(
+            release_root=str(release_root),
+            install_root=str(install_root),
+        )
+    )
+    if (
+        before["active_release_id"] is None
+        or before["installed_complete"] is not True
+        or before["source_commit"] not in {baseline_source_commit, args.source_commit}
+    ):
+        raise ReleaseError("Adoption baseline is not the exact current installation")
+    staged = stage_release(args)
+    release_id = str(staged["release_id"])
+    if before["active_release_id"] == release_id:
+        installed = verify_installed(release_root, install_root, release_id)
+        records = history(release_root)
+        if not records or records[-1]["release_id"] != release_id:
+            raise ReleaseError("Adoption activation history is not current")
+        result = {
+            "schema_version": SCHEMA_VERSION,
+            "kind": "software-factory-skill-adoption",
+            "duplicate": True,
+            "baseline_source_commit": baseline_source_commit,
+            "candidate_source_commit": staged["source_commit"],
+            "previous_release_id": records[-1]["previous_release_id"],
+            "active_release_id": release_id,
+            "manifest_sha256": staged["manifest_sha256"],
+            "candidate_root_sha256": staged["candidate_root_sha256"],
+            "review_record_id": staged["independent_review"]["record_id"],
+            "reviewer_id": staged["independent_review"]["reviewer_id"],
+            "review_root_sha256": staged["independent_review"][
+                "review_root_sha256"
+            ],
+            "acceptance_record_id": accepted_release_record(
+                release_root, release_id
+            )["record_id"],
+            "activation_record_id": records[-1]["record_id"],
+            "activation_record_hmac_sha256": records[-1][
+                "record_hmac_sha256"
+            ],
+            "installed_verification_root_sha256": installed[
+                "verification_root_sha256"
+            ],
+        }
+        return {
+            **result,
+            "adoption_root_sha256": digest(
+                {key: value for key, value in result.items() if key != "duplicate"}
+            ),
+        }
+    if before["source_commit"] != baseline_source_commit:
+        raise ReleaseError("Adoption candidate does not descend from the active baseline")
+    activation = activate_release(
+        argparse.Namespace(
+            release_root=str(release_root),
+            install_root=str(install_root),
+            release_id=release_id,
+            quiescent_evidence=args.quiescent_evidence,
+        )
+    )
+    acceptance = accepted_release_record(release_root, release_id)
+    if acceptance is None:
+        raise ReleaseError("Adoption release acceptance is unavailable")
+    record = activation["activation_record"]
+    result = {
+        "schema_version": SCHEMA_VERSION,
+        "kind": "software-factory-skill-adoption",
+        "duplicate": False,
+        "baseline_source_commit": baseline_source_commit,
+        "candidate_source_commit": staged["source_commit"],
+        "previous_release_id": activation["previous_release_id"],
+        "active_release_id": activation["active_release_id"],
+        "manifest_sha256": staged["manifest_sha256"],
+        "candidate_root_sha256": staged["candidate_root_sha256"],
+        "review_record_id": staged["independent_review"]["record_id"],
+        "reviewer_id": staged["independent_review"]["reviewer_id"],
+        "review_root_sha256": staged["independent_review"]["review_root_sha256"],
+        "acceptance_record_id": acceptance["record_id"],
+        "activation_record_id": record["record_id"],
+        "activation_record_hmac_sha256": record["record_hmac_sha256"],
+        "installed_verification_root_sha256": activation["installed"][
+            "verification_root_sha256"
+        ],
+    }
+    return {
+        **result,
+        "adoption_root_sha256": digest(
+            {key: value for key, value in result.items() if key != "duplicate"}
+        ),
+    }
+
+
 def status(args: argparse.Namespace) -> dict[str, Any]:
     release_root = ensure_directory(Path(args.release_root), label="release root")
     install_root = ensure_directory(Path(args.install_root), label="skill install root")
@@ -1731,16 +1834,27 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
         result: dict[str, Any] = {
             "active_release_id": active,
             "source_commit": manifest.get("source_commit") if manifest else None,
+            "manifest_sha256": manifest.get("manifest_sha256") if manifest else None,
+            "candidate_root_sha256": (
+                manifest.get("candidate_root_sha256") if manifest else None
+            ),
+            "independent_review": (
+                manifest.get("independent_review") if manifest else None
+            ),
             "skills": manifest.get("skills") if manifest else None,
             "installed_links": installed,
             "installed_complete": bool(active)
             and all(item["stable"] for item in installed.values()),
             "activation_history_records": len(records),
+            "activation_record": records[-1] if records else None,
         }
+        acceptance = accepted_release_record(release_root, active) if active else None
+        result["acceptance_record"] = acceptance
         if active and result["installed_complete"]:
             result["current_verification"] = verify_installed(
                 release_root, install_root, active
             )
+        result["release_owner_state_root_sha256"] = digest(result)
         return result
 
 
@@ -1773,6 +1887,17 @@ def parser() -> argparse.ArgumentParser:
     activate.add_argument("release_id")
     activate.add_argument("--quiescent-evidence", required=True)
     activate.set_defaults(func=activate_release)
+
+    adopt = subcommands.add_parser(
+        "adopt", help="stage and activate one current independently reviewed candidate"
+    )
+    adopt.add_argument("--repo", required=True)
+    adopt.add_argument("--source-commit", required=True)
+    adopt.add_argument("--baseline-source-commit", required=True)
+    adopt.add_argument("--implementer-id", required=True)
+    adopt.add_argument("--review-evidence", required=True)
+    adopt.add_argument("--quiescent-evidence", required=True)
+    adopt.set_defaults(func=adopt_release)
 
     bootstrap = subcommands.add_parser(
         "bootstrap", help="install stable links for one content-identical baseline"
