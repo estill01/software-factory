@@ -184,7 +184,7 @@ make their composition automatic and fail closed.
 | 0 | Freeze integrated baseline and ownership contract | — | `completed` |
 | 1 | Make existing range admission and runtime gates unavoidable | 0 | `completed` |
 | 2 | Implement exact-acceptance-triggered release orchestration | 1 | `completed` |
-| 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `completed` |
+| 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `in-progress` |
 | 4 | Verify health and recover through release-owner rollback | 3 | `not-started` |
 | 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `completed` |
 | 6 | Freeze, validate, independently review, merge, and promote | 4, 5 | `not-started` |
@@ -196,7 +196,7 @@ Required order:
 
 ## Block 0 — Freeze integrated baseline and ownership contract
 
-Status: `completed`
+Status: `in-progress`
 
 ### Objective
 
@@ -744,7 +744,17 @@ Field-preservation and mid-action deferral regressions plus exact automation vie
 
 ### Completion evidence
 
-- Accepted implementation source
+- Rejected-history finding `EVT-000559`: invariant — the promotion selected by
+  the refresh planner must have been recorded under the current mission, not a
+  predecessor mission that happens to lead to the same live release. Input
+  condition — a canonical predecessor-mission promotion record names the live
+  release while the current mission owns the range and target. Expected
+  rejection — policy history must resolve the promotion policy to the current
+  mission before any refresh projection is returned. Verification evidence —
+  exact review observed `build_software_factory_supervisor_refresh_plan`
+  validate the promotion/live release and current range independently without
+  joining the selected promotion policy to current mission identity.
+- Rejected implementation source
   `adf0d1cee31be16424a47d89f834de96fb3387d8`, tree
   `41523f304d70b1583dae35cf751aa989714a6708`, sole parent accepted Block 5
   tracker checkpoint `4927cacc5ae8fbf7011758ce370d82d422dd9008`, is pushed on
@@ -776,7 +786,8 @@ Field-preservation and mid-action deferral regressions plus exact automation vie
   current policy-bound automation owners passed `2/2`; the independent reviewer
   additionally confirmed all five available current owner prompts project
   idempotently.
-- Independent exact review accepted `adf0d1c` with no material findings. It
+- The superseded independent exact review found no issue within its prior scope
+  at `adf0d1c`. It
   replayed canonical promotion/release-history, non-HEAD source, range/control,
   final automation currentness, manual-pin, paused-owner, and role-refresh
   invariants. Root/directory/file symlinks, hard links, oversized owner input,
