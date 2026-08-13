@@ -40,13 +40,14 @@ checkpoint. Caller-supplied authority fields are extra keys and reject.
 ## Derived identities
 
 `material_change_fingerprint` hashes mission, profile, repository revision/tree,
-product sources, tracker structural state, requested/accepted/remaining frontier,
-outcome, protected capabilities, decisions, incidents, reports, and resource
-evidence. It excludes packaging and raw paths.
+content identities for product sources, tracker structural state, the requested/
+accepted/remaining frontier, outcome, protected capabilities, decisions,
+incidents, and resource evidence. It excludes packaging, raw paths, and report
+prose.
 
-`currentness_root` additionally hashes exact owner/file identities, the tracker
-byte hash, repository root identity, supervision sources, and range head. It can
-change without inventing semantic novelty.
+`currentness_root` additionally hashes exact product, report, and resource owner/
+file identities, the tracker byte hash, repository root identity, supervision
+sources, and range head. It can change without inventing semantic novelty.
 
 `artifact_root` hashes the exact packet without `artifact_root`. Identical
 inputs produce byte-identical canonical JSON and the same packet ID. Packet

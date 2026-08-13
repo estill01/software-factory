@@ -119,6 +119,28 @@ class ProductProgramEvidenceTests(unittest.TestCase):
             "source_id": source_id,
         }
 
+    def reroot(self, packet: dict[str, object]) -> None:
+        packet["material_change_fingerprint"] = MODULE.digest(
+            {"kind": "product-program-material-change", "value": MODULE._semantic_material_from_packet(packet)}
+        )
+        packet["packet_id"] = f"program-packet-{packet['material_change_fingerprint'][:20]}"
+        packet["currentness_root"] = MODULE.digest(
+            {
+                "kind": "product-program-currentness",
+                "material_change_fingerprint": packet["material_change_fingerprint"],
+                "range_head": packet["range"]["range_head"],
+                "repository": packet["repository"],
+                "source_currentness": {
+                    "product_sources": packet["product_sources"],
+                    "reports": packet["reports"],
+                    "resource_sources": packet["resource_sources"],
+                },
+                "supervision": packet["supervision"],
+                "tracker_sha256": packet["tracker"]["sha256"],
+            }
+        )
+        packet["artifact_root"] = MODULE.digest({key: packet[key] for key in packet if key != "artifact_root"})
+
     def checkpoint(self, *, completed: bool = False) -> dict[str, object]:
         tracker_snapshot = MODULE.tracker_snapshot(self.tracker.read_bytes())
         revision = subprocess.run(
@@ -214,6 +236,12 @@ class ProductProgramEvidenceTests(unittest.TestCase):
         self.assertEqual(baseline["material_change_fingerprint"], currentness_packet["material_change_fingerprint"])
         self.assertNotEqual(baseline["currentness_root"], currentness_packet["currentness_root"])
 
+        self.report.write_text('{"report":"prose-only successor"}\n', encoding="utf-8")
+        report_changed = self.checkpoint()
+        report_packet = MODULE.prepare_packet(report_changed)
+        self.assertEqual(currentness_packet["material_change_fingerprint"], report_packet["material_change_fingerprint"])
+        self.assertNotEqual(currentness_packet["currentness_root"], report_packet["currentness_root"])
+
         self.events.write_text(
             self.events.read_text(encoding="utf-8")
             + '{"kind":"decision","record_id":"EVT-DECISION-2","summary":"changed"}\n',
@@ -251,6 +279,11 @@ class ProductProgramEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.ProductProgramError, "too broad"):
             MODULE.prepare_packet(broad)
 
+        actual_home = self.checkpoint()
+        actual_home["product_sources"][0]["owner_root"] = str(Path.home().resolve())
+        with self.assertRaisesRegex(MODULE.ProductProgramError, "too broad"):
+            MODULE.prepare_packet(actual_home)
+
         home = self.checkpoint()
         home["product_sources"][0]["path"] = "$HOME/product.json"
         with self.assertRaisesRegex(MODULE.ProductProgramError, "literal absolute"):
@@ -262,6 +295,16 @@ class ProductProgramEvidenceTests(unittest.TestCase):
         symlinked["product_sources"][0]["path"] = str(link)
         with self.assertRaisesRegex(MODULE.ProductProgramError, "symlink"):
             MODULE.prepare_packet(symlinked)
+
+        outside = self.root.parent / f"{self.root.name}-outside.json"
+        outside.write_text('{"outside":true}\n', encoding="utf-8")
+        self.addCleanup(outside.unlink)
+        escaped = self.checkpoint()
+        escaped["product_sources"][0] = self.source(outside, "product-escaped", "direct-authority")
+        escaped["product_sources"][0]["owner_root"] = str(self.root)
+        escaped["product_sources"][0]["path"] = str(self.root / ".." / outside.name)
+        with self.assertRaisesRegex(MODULE.ProductProgramError, "literal absolute"):
+            MODULE.prepare_packet(escaped)
 
     def test_missing_resource_class_caller_authority_and_hidden_output_reject(self) -> None:
         missing_product = self.checkpoint()
@@ -283,6 +326,20 @@ class ProductProgramEvidenceTests(unittest.TestCase):
         packet["raw_transcript"] = "hidden target output"
         with self.assertRaisesRegex(MODULE.ProductProgramError, "packet keys"):
             MODULE.verify_packet(packet)
+
+        missing_resource = MODULE.prepare_packet(self.checkpoint())
+        missing_resource["resource_sources"] = []
+        self.reroot(missing_resource)
+        with self.assertRaisesRegex(MODULE.ProductProgramError, "typed resource source"):
+            MODULE.verify_packet(missing_resource)
+
+        forged_frontier = MODULE.prepare_packet(self.checkpoint())
+        forged_frontier["range"]["accepted_blocks"] = [0, 1]
+        forged_frontier["range"]["remaining_blocks"] = []
+        forged_frontier["range"]["next_eligible_blocks"] = []
+        self.reroot(forged_frontier)
+        with self.assertRaisesRegex(MODULE.ProductProgramError, "range partition"):
+            MODULE.verify_packet(forged_frontier)
 
     def test_cli_prepare_and_verify_emit_canonical_results(self) -> None:
         checkpoint_path = self.root / "checkpoint.json"

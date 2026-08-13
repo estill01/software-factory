@@ -115,41 +115,42 @@ def _literal_absolute_path(value: Any, label: str) -> Path:
     if not isinstance(value, str) or not value or value.startswith("~") or "$HOME" in value:
         raise ProductProgramError(f"{label} must be a literal absolute path")
     path = Path(value)
-    if not path.is_absolute():
+    if not path.is_absolute() or ".." in path.parts:
         raise ProductProgramError(f"{label} must be a literal absolute path")
     return path
-
-
-def _reject_symlink_chain(path: Path, owner_root: Path, label: str) -> None:
-    try:
-        relative = path.relative_to(owner_root)
-    except ValueError as exc:
-        raise ProductProgramError(f"{label} escapes its owner root") from exc
-    current = owner_root
-    if stat.S_ISLNK(os.lstat(current).st_mode):
-        raise ProductProgramError(f"{label} owner root is symlinked")
-    for part in relative.parts:
-        current = current / part
-        if stat.S_ISLNK(os.lstat(current).st_mode):
-            raise ProductProgramError(f"{label} contains a symlink")
 
 
 def read_bounded_regular(path_value: Any, owner_value: Any, label: str) -> tuple[bytes, str]:
     path = _literal_absolute_path(path_value, f"{label} path")
     owner_root = _literal_absolute_path(owner_value, f"{label} owner root")
-    if owner_root == Path("/"):
+    if owner_root in {Path("/"), Path.home().resolve()}:
         raise ProductProgramError(f"{label} owner root is too broad")
     if not owner_root.is_dir() or owner_root.resolve() != owner_root:
         raise ProductProgramError(f"{label} owner root is not an exact directory")
-    if not path.exists():
-        raise ProductProgramError(f"{label} path is missing")
-    _reject_symlink_chain(path, owner_root, label)
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
-        descriptor = os.open(path, flags)
+        relative = path.relative_to(owner_root)
+    except ValueError as exc:
+        raise ProductProgramError(f"{label} escapes its owner root") from exc
+    if not relative.parts:
+        raise ProductProgramError(f"{label} is not a regular file")
+
+    nofollow = getattr(os, "O_NOFOLLOW", 0)
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | nofollow
+    open_directories: list[int] = []
+    descriptor: int | None = None
+    try:
+        directory = os.open(owner_root, directory_flags)
+        open_directories.append(directory)
+        for part in relative.parts[:-1]:
+            directory = os.open(part, directory_flags, dir_fd=directory)
+            open_directories.append(directory)
+        descriptor = os.open(relative.parts[-1], os.O_RDONLY | nofollow, dir_fd=directory)
     except OSError as exc:
-        raise ProductProgramError(f"{label} cannot be opened without following links") from exc
+        for directory in reversed(open_directories):
+            os.close(directory)
+        raise ProductProgramError(f"{label} cannot be opened without following symlinks") from exc
     try:
+        assert descriptor is not None
         before = os.fstat(descriptor)
         if not stat.S_ISREG(before.st_mode):
             raise ProductProgramError(f"{label} is not a regular file")
@@ -170,7 +171,10 @@ def read_bounded_regular(path_value: Any, owner_value: Any, label: str) -> tuple
         if identity_before != identity_after or len(raw) != before.st_size:
             raise ProductProgramError(f"{label} changed during its bounded read")
     finally:
-        os.close(descriptor)
+        if descriptor is not None:
+            os.close(descriptor)
+        for directory in reversed(open_directories):
+            os.close(directory)
     return raw, str(path)
 
 
@@ -373,12 +377,23 @@ def _validate_retained_sources(value: Any, label: str, *, resource_only: bool = 
 
 
 def _semantic_material_from_packet(packet: Mapping[str, Any]) -> dict[str, Any]:
+    def semantic_sources(sources: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+        return [
+            {
+                "byte_length": source["byte_length"],
+                "evidence_class": source["evidence_class"],
+                "sha256": source["sha256"],
+                "source_id": source["source_id"],
+            }
+            for source in sources
+        ]
+
     return {
-        "decisions": packet["decisions"],
-        "incidents": packet["incidents"],
+        "decisions": semantic_sources(packet["decisions"]),
+        "incidents": semantic_sources(packet["incidents"]),
         "mission": packet["mission"],
         "outcome": packet["outcome"],
-        "product_sources": packet["product_sources"],
+        "product_sources": semantic_sources(packet["product_sources"]),
         "profile": packet["profile"],
         "protected_capabilities": packet["protected_capabilities"],
         "range": {
@@ -387,12 +402,11 @@ def _semantic_material_from_packet(packet: Mapping[str, Any]) -> dict[str, Any]:
             "remaining_blocks": packet["range"]["remaining_blocks"],
             "requested_blocks": packet["range"]["requested_blocks"],
         },
-        "reports": packet["reports"],
         "repository": {
             "revision": packet["repository"]["revision"],
             "tree": packet["repository"]["tree"],
         },
-        "resource_sources": packet["resource_sources"],
+        "resource_sources": semantic_sources(packet["resource_sources"]),
         "tracker_structure_root": packet["tracker"]["structural_root"],
     }
 
@@ -537,7 +551,7 @@ def prepare_packet(checkpoint: Mapping[str, Any]) -> dict[str, Any]:
     if run_git(root, "rev-parse", "HEAD") != revision or run_git(root, "rev-parse", "HEAD^{tree}") != tree:
         raise ProductProgramError("repository changed during packet preparation")
 
-    semantic_material = {
+    packet_material = {
         "decisions": decisions,
         "incidents": incidents,
         "mission": mission,
@@ -545,17 +559,13 @@ def prepare_packet(checkpoint: Mapping[str, Any]) -> dict[str, Any]:
         "product_sources": product_sources,
         "profile": checkpoint["profile"],
         "protected_capabilities": protected,
-        "range": {
-            "accepted_blocks": accepted,
-            "next_eligible_blocks": eligible,
-            "remaining_blocks": remaining,
-            "requested_blocks": requested,
-        },
+        "range": range_value_retained,
         "reports": reports,
-        "repository": {"revision": revision, "tree": tree},
+        "repository": repository,
         "resource_sources": resource_sources,
-        "tracker_structure_root": parsed_tracker["structure_root"],
+        "tracker": tracker,
     }
+    semantic_material = _semantic_material_from_packet(packet_material)
     material_fingerprint = digest({"kind": "product-program-material-change", "value": semantic_material})
     currentness = digest(
         {
@@ -563,6 +573,11 @@ def prepare_packet(checkpoint: Mapping[str, Any]) -> dict[str, Any]:
             "material_change_fingerprint": material_fingerprint,
             "range_head": range_head,
             "repository": repository,
+            "source_currentness": {
+                "product_sources": product_sources,
+                "reports": reports,
+                "resource_sources": resource_sources,
+            },
             "supervision": supervision,
             "tracker_sha256": tracker_sha,
         }
@@ -628,11 +643,15 @@ def verify_packet(packet: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(repository["tree"], str) or HEX_40.fullmatch(repository["tree"]) is None:
         raise ProductProgramError("packet repository tree is invalid")
     exact_sha(repository["root_sha256"], "packet repository root hash")
-    _validate_retained_sources(packet["product_sources"], "product sources")
+    product_sources = _validate_retained_sources(packet["product_sources"], "product sources")
+    if not product_sources:
+        raise ProductProgramError("packet requires at least one exact product source")
     _validate_retained_sources(packet["reports"], "reports")
     _validate_retained_sources(packet["decisions"], "decisions")
     _validate_retained_sources(packet["incidents"], "incidents")
-    _validate_retained_sources(packet["resource_sources"], "resource sources", resource_only=True)
+    resource_sources = _validate_retained_sources(packet["resource_sources"], "resource sources", resource_only=True)
+    if not resource_sources:
+        raise ProductProgramError("packet requires at least one typed resource source")
     outcome = _normalize_outcome(packet["outcome"])
     if outcome != packet["outcome"]:
         raise ProductProgramError("packet outcome is not normalized")
@@ -646,14 +665,18 @@ def verify_packet(packet: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(tracker["blocks"], list) or not tracker["blocks"] or len(tracker["blocks"]) > MAX_BLOCKS:
         raise ProductProgramError("packet tracker Blocks are invalid")
     tracker_numbers: list[int] = []
+    tracker_by_number: dict[int, Mapping[str, Any]] = {}
     for raw_block in tracker["blocks"]:
         block = exact_keys(raw_block, {"dependencies", "number", "status"}, "packet tracker Block")
         if not isinstance(block["number"], int) or block["number"] < 0 or not isinstance(block["status"], str) or not block["status"]:
             raise ProductProgramError("packet tracker Block identity is invalid")
         exact_block_list(block["dependencies"], "packet tracker Block dependencies")
         tracker_numbers.append(block["number"])
+        tracker_by_number[block["number"]] = block
     if tracker_numbers != sorted(set(tracker_numbers)):
         raise ProductProgramError("packet tracker Blocks must be sorted and unique")
+    if any(set(block["dependencies"]) - set(tracker_numbers) or block["number"] in block["dependencies"] for block in tracker_by_number.values()):
+        raise ProductProgramError("packet tracker Block dependencies are invalid")
     range_value = exact_keys(
         packet["range"],
         {"accepted_blocks", "next_eligible_blocks", "range_head", "range_source", "remaining_blocks", "requested_blocks"},
@@ -663,7 +686,16 @@ def verify_packet(packet: Mapping[str, Any]) -> dict[str, Any]:
     accepted = exact_block_list(range_value["accepted_blocks"], "packet accepted Blocks")
     remaining = exact_block_list(range_value["remaining_blocks"], "packet remaining Blocks")
     eligible = exact_block_list(range_value["next_eligible_blocks"], "packet eligible Blocks")
-    if set(accepted) | set(remaining) != set(requested) or set(accepted) & set(remaining) or set(eligible) - set(remaining):
+    if set(requested) - set(tracker_numbers):
+        raise ProductProgramError("packet range references an absent tracker Block")
+    derived_accepted = sorted(number for number in requested if tracker_by_number[number]["status"] == "accepted")
+    derived_remaining = sorted(set(requested) - set(derived_accepted))
+    derived_eligible = [
+        number
+        for number in derived_remaining
+        if set(tracker_by_number[number]["dependencies"]) <= set(derived_accepted)
+    ]
+    if accepted != derived_accepted or remaining != derived_remaining or eligible != derived_eligible:
         raise ProductProgramError("packet range partition differs")
     exact_sha(range_value["range_head"], "packet range head")
     _validate_retained_sources([range_value["range_source"]], "range source")
@@ -680,6 +712,11 @@ def verify_packet(packet: Mapping[str, Any]) -> dict[str, Any]:
             "material_change_fingerprint": expected_material,
             "range_head": range_value["range_head"],
             "repository": repository,
+            "source_currentness": {
+                "product_sources": packet["product_sources"],
+                "reports": packet["reports"],
+                "resource_sources": packet["resource_sources"],
+            },
             "supervision": supervision,
             "tracker_sha256": tracker["sha256"],
         }
