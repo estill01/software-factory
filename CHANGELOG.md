@@ -44,7 +44,7 @@ the completed program materially changes Software Factory.
   because Software Factory carries it to the configured target through
   `codex_delegation`. The canonical delegation envelope binds the original
   task/turn/item and exact bytes, current target mission and policy, the exact
-  target-action route source and deterministic route projection, and an
+  owner-produced target-action route result and its source/projection, and an
   independent base-or-Max acceptance before the existing authority event,
   receipt, and range owner consume it. The recipient starts the full-tracker
   range automatically without a same-thread repetition or manual Resume.

@@ -372,6 +372,9 @@ DELEGATED_DIRECT_AUTHORITY_REVIEW_CATEGORY = (
 )
 DELEGATED_DIRECT_AUTHORITY_TRANSPORT_KIND = "codex-delegation"
 DELEGATED_DIRECT_AUTHORITY_ROUTE_PURPOSE = "target-action"
+DELEGATED_DIRECT_AUTHORITY_ROUTE_EVENT_KIND = (
+    "delegated-direct-authority-route"
+)
 LEGACY_DIRECT_AUTHORITY_PROVENANCE_KIND = (
     "legacy-direct-user-authority-provenance"
 )
@@ -2642,9 +2645,13 @@ def canonical_direct_authority_event(
         route_source_record_id, separator, route_source_record_sha256 = (
             route_source_value.partition(":")
         )
-        if not separator:
+        route_record_value = evidence_value(evidence, "route-record:")
+        route_record_id, record_separator, route_record_sha256 = (
+            route_record_value.partition(":")
+        )
+        if not separator or not record_separator:
             raise SupervisionLogError(
-                "Delegated authority route source evidence differs"
+                "Delegated authority route evidence differs"
             )
         provenance = {
             "target_thread_id": event["target_thread_id"],
@@ -2652,6 +2659,8 @@ def canonical_direct_authority_event(
             "route_purpose": route_purpose,
             "route_source_record_id": route_source_record_id,
             "route_source_record_sha256": route_source_record_sha256,
+            "route_record_id": route_record_id,
+            "route_record_sha256": route_record_sha256,
             "route_action_sha256": evidence_value(
                 evidence, "route-action-sha256:"
             ),
@@ -2667,7 +2676,7 @@ def canonical_direct_authority_event(
             raise SupervisionLogError(
                 "Canonical delegated-authority transport differs"
             )
-        delegated_direct_authority_route_source(
+        canonical_delegated_direct_authority_route(
             all_events,
             provenance=provenance,
             policy_sha256=source_policy_sha256,
@@ -4356,8 +4365,12 @@ def canonical_record_first_incident(
     }
 
 
-def cmd_thread_route_gate(args: argparse.Namespace) -> None:
-    directory, policy = load_policy(args)
+def thread_route_gate_result(
+    args: argparse.Namespace,
+    *,
+    directory: Path,
+    policy: Mapping[str, Any],
+) -> dict[str, Any]:
     routing = policy.get("cross_thread_routing")
     if routing != cross_thread_routing_contract():
         raise SupervisionLogError(
@@ -4441,6 +4454,16 @@ def cmd_thread_route_gate(args: argparse.Namespace) -> None:
         result["containment_sha256"] = digest(containment)
     if incident_head is not None:
         result["critical_incident_head"] = incident_head
+    return result
+
+
+def cmd_thread_route_gate(args: argparse.Namespace) -> None:
+    directory, policy = load_policy(args)
+    result = thread_route_gate_result(
+        args,
+        directory=directory,
+        policy=policy,
+    )
     print(json.dumps(result, sort_keys=True))
 
 
@@ -6800,6 +6823,13 @@ def direct_authority_review_evidence(
                         str(provenance["route_source_record_sha256"]),
                     )
                 ),
+                "route-record:"
+                + ":".join(
+                    (
+                        str(provenance["route_record_id"]),
+                        str(provenance["route_record_sha256"]),
+                    )
+                ),
                 "route-action-sha256:"
                 + str(provenance["route_action_sha256"]),
                 "route-projection-sha256:"
@@ -6826,17 +6856,25 @@ def delegated_direct_authority_route_projection(
     }
 
 
-def delegated_direct_authority_route_source(
+def canonical_delegated_direct_authority_route(
     all_events: list[dict[str, Any]],
     *,
     provenance: Mapping[str, Any],
     policy_sha256: str,
 ) -> dict[str, Any]:
     route_record_id = safe_id(
+        str(provenance["route_record_id"]),
+        label="delegated-authority route record",
+    )
+    route_record_sha256 = exact_sha256(
+        str(provenance["route_record_sha256"]),
+        label="delegated-authority route record SHA-256",
+    )
+    route_source_record_id = safe_id(
         str(provenance["route_source_record_id"]),
         label="delegated-authority route source record",
     )
-    route_record_sha256 = exact_sha256(
+    route_source_record_sha256 = exact_sha256(
         str(provenance["route_source_record_sha256"]),
         label="delegated-authority route source SHA-256",
     )
@@ -6844,7 +6882,7 @@ def delegated_direct_authority_route_source(
         (
             item
             for item in all_events
-            if item.get("record_id") == route_record_id
+            if item.get("record_id") == route_source_record_id
         ),
         None,
     )
@@ -6852,22 +6890,295 @@ def delegated_direct_authority_route_source(
         route_source is None
         or route_source.get("target_thread_id")
         != provenance.get("target_thread_id")
-        or route_source.get("record_sha256") != route_record_sha256
-        or route_source.get("policy_sha256") != policy_sha256
+        or route_source.get("record_sha256")
+        != route_source_record_sha256
     ):
         raise SupervisionLogError(
             "Delegated authority route source is not exact and current"
         )
+    route_record = next(
+        (
+            item
+            for item in all_events
+            if item.get("record_id") == route_record_id
+        ),
+        None,
+    )
     expected_projection = delegated_direct_authority_route_projection(
         provenance, policy_sha256=policy_sha256
     )
-    if provenance.get("route_projection_sha256") != digest(
-        expected_projection
+    required = {
+        "schema_version",
+        "record_id",
+        "timestamp",
+        "target_thread_id",
+        "kind",
+        "status",
+        "route_source_record_id",
+        "route_source_record_sha256",
+        "route_result",
+        "route_result_sha256",
+        "policy_sha256",
+        "previous_record_sha256",
+        "record_sha256",
+    }
+    if (
+        route_record is None
+        or set(route_record) != required
+        or route_record.get("schema_version") != 1
+        or route_record.get("kind")
+        != DELEGATED_DIRECT_AUTHORITY_ROUTE_EVENT_KIND
+        or route_record.get("status") != "allowed"
+        or route_record.get("target_thread_id")
+        != provenance.get("target_thread_id")
+        or route_record.get("policy_sha256") != policy_sha256
+        or route_record.get("record_sha256") != route_record_sha256
+        or route_record.get("route_source_record_id")
+        != route_source.get("record_id")
+        or route_record.get("route_source_record_sha256")
+        != route_source.get("record_sha256")
+        or route_record.get("route_result") != expected_projection
+        or route_record.get("route_result_sha256")
+        != digest(expected_projection)
+        or provenance.get("route_projection_sha256")
+        != route_record.get("route_result_sha256")
     ):
         raise SupervisionLogError(
-            "Delegated authority route projection differs"
+            "Delegated authority route record or projection differs"
         )
-    return route_source
+    event_order = {
+        str(item.get("record_id")): index
+        for index, item in enumerate(all_events)
+    }
+    if event_order[str(route_source["record_id"])] >= event_order[
+        str(route_record["record_id"])
+    ]:
+        raise SupervisionLogError(
+            "Delegated authority route source must precede its owner result"
+        )
+    return route_record
+
+
+def delegated_direct_authority_route_record_material(
+    *, route_source: Mapping[str, Any], route_result: Mapping[str, Any]
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "target_thread_id": route_result["target_thread_id"],
+        "kind": DELEGATED_DIRECT_AUTHORITY_ROUTE_EVENT_KIND,
+        "status": "allowed",
+        "route_source_record_id": route_source["record_id"],
+        "route_source_record_sha256": route_source["record_sha256"],
+        "route_result": dict(route_result),
+        "route_result_sha256": digest(route_result),
+        "policy_sha256": route_result["policy_sha256"],
+    }
+
+
+def matching_delegated_direct_authority_route_record(
+    all_events: list[dict[str, Any]],
+    *,
+    material: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    related = [
+        item
+        for item in all_events
+        if item.get("kind") == DELEGATED_DIRECT_AUTHORITY_ROUTE_EVENT_KIND
+        and item.get("route_source_record_id")
+        == material.get("route_source_record_id")
+        and isinstance(item.get("route_result"), Mapping)
+        and item["route_result"].get("action_sha256")
+        == material.get("route_result", {}).get("action_sha256")
+    ]
+    for item in related:
+        comparable = {
+            key: value
+            for key, value in item.items()
+            if key
+            not in {
+                "record_id",
+                "timestamp",
+                "previous_record_sha256",
+                "record_sha256",
+            }
+        }
+        if comparable == material:
+            return item
+    if related:
+        raise SupervisionLogError(
+            "Delegated authority route already exists with different owner evidence"
+        )
+    return None
+
+
+def delegated_direct_authority_route_result(
+    args: argparse.Namespace,
+    *,
+    directory: Path,
+    policy: Mapping[str, Any],
+    all_events: list[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    route_args = argparse.Namespace(
+        target_thread=args.target_thread,
+        recipient_thread=args.target_thread,
+        purpose=DELEGATED_DIRECT_AUTHORITY_ROUTE_PURPOSE,
+        source_record=args.source_record,
+        action=args.action,
+        containment=False,
+        severity="info",
+        incident_id=None,
+        failure_mode_id=None,
+    )
+    route_result = thread_route_gate_result(
+        route_args,
+        directory=directory,
+        policy=policy,
+    )
+    route_source = next(
+        (
+            item
+            for item in all_events
+            if item.get("record_id") == route_result["source_record"]
+        ),
+        None,
+    )
+    if (
+        route_source is None
+        or route_source.get("target_thread_id") != args.target_thread
+    ):
+        raise SupervisionLogError(
+            "Delegated authority route source is not in the canonical owner ledger"
+        )
+    exact_sha256(
+        str(route_source.get("record_sha256", "")),
+        label="delegated-authority route source SHA-256",
+    )
+    return route_result, route_source
+
+
+def cmd_delegated_direct_authority_route_record(
+    args: argparse.Namespace,
+) -> None:
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        all_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
+    validate_event_ledger_anchor(
+        directory, all_events, allow_missing=not all_events
+    )
+    route_result, route_source = delegated_direct_authority_route_result(
+        args,
+        directory=directory,
+        policy=policy,
+        all_events=all_events,
+    )
+    material = delegated_direct_authority_route_record_material(
+        route_source=route_source,
+        route_result=route_result,
+    )
+    duplicate = matching_delegated_direct_authority_route_record(
+        all_events, material=material
+    )
+    if duplicate is not None:
+        print(
+            json.dumps(
+                {
+                    "duplicate": True,
+                    "record_id": duplicate["record_id"],
+                    "record_sha256": duplicate["record_sha256"],
+                    "route_result_sha256": duplicate["route_result_sha256"],
+                },
+                sort_keys=True,
+            )
+        )
+        return
+    with owner_append_lock(
+        root_from(args), args.target_thread, directory_snapshot
+    ) as directory_fd:
+        require_bound_policy_at(
+            directory_fd,
+            expected_policy=policy,
+            expected_snapshot=policy_snapshot,
+        )
+        current_events, current_event_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        validate_event_ledger_anchor_at(
+            directory_fd,
+            current_events,
+            allow_missing=not current_events,
+        )
+        if current_event_snapshot != event_snapshot or current_events != all_events:
+            raise SupervisionLogError(
+                "Delegated authority route state changed before append"
+            )
+        current_result, current_source = (
+            delegated_direct_authority_route_result(
+                args,
+                directory=directory,
+                policy=policy,
+                all_events=current_events,
+            )
+        )
+        current_material = delegated_direct_authority_route_record_material(
+            route_source=current_source,
+            route_result=current_result,
+        )
+        if current_material != material:
+            raise SupervisionLogError(
+                "Delegated authority route changed before append"
+            )
+        duplicate = matching_delegated_direct_authority_route_record(
+            current_events, material=current_material
+        )
+        if duplicate is not None:
+            print(
+                json.dumps(
+                    {
+                        "duplicate": True,
+                        "record_id": duplicate["record_id"],
+                        "record_sha256": duplicate["record_sha256"],
+                        "route_result_sha256": duplicate[
+                            "route_result_sha256"
+                        ],
+                    },
+                    sort_keys=True,
+                )
+            )
+            return
+        record = {
+            "record_id": f"EVT-{len(current_events) + 1:06d}",
+            "timestamp": utc_now(),
+            **current_material,
+        }
+        previous = (
+            str(current_events[-1]["record_sha256"])
+            if current_events
+            else None
+        )
+        record["record_sha256"] = append_raw_locked_at(
+            directory_fd,
+            "events.jsonl",
+            record,
+            previous_record_sha256=previous,
+            expected_file_snapshot=current_event_snapshot,
+            require_event_anchor=bool(current_events),
+        )
+    print(
+        json.dumps(
+            {
+                "duplicate": False,
+                "record_id": record["record_id"],
+                "record_sha256": record["record_sha256"],
+                "route_result_sha256": record["route_result_sha256"],
+            },
+            sort_keys=True,
+        )
+    )
 
 
 def canonical_retained_direct_authority_review(
@@ -6978,6 +7289,8 @@ def validate_direct_authority_provenance(
                 "route_purpose",
                 "route_source_record_id",
                 "route_source_record_sha256",
+                "route_record_id",
+                "route_record_sha256",
                 "route_action_sha256",
                 "route_projection_sha256",
             }
@@ -7086,7 +7399,7 @@ def validate_direct_authority_provenance(
         raise SupervisionLogError("Direct-authority provenance policy is stale")
     route_source = None
     if delegated:
-        route_source = delegated_direct_authority_route_source(
+        route_source = canonical_delegated_direct_authority_route(
             all_events,
             provenance=provenance,
             policy_sha256=source_policy_sha256,
@@ -8749,9 +9062,13 @@ def retained_full_tracker_authority(
         route_source_record_id, route_separator, route_source_record_sha256 = (
             route_source_value.partition(":")
         )
-        if not route_separator:
+        route_record_value = evidence_value(evidence, "route-record:")
+        route_record_id, record_separator, route_record_sha256 = (
+            route_record_value.partition(":")
+        )
+        if not route_separator or not record_separator:
             raise SupervisionLogError(
-                "Delegated authority route source evidence differs"
+                "Delegated authority route evidence differs"
             )
         provenance.update(
             {
@@ -8764,6 +9081,8 @@ def retained_full_tracker_authority(
                 ),
                 "route_source_record_id": route_source_record_id,
                 "route_source_record_sha256": route_source_record_sha256,
+                "route_record_id": route_record_id,
+                "route_record_sha256": route_record_sha256,
                 "route_action_sha256": evidence_value(
                     evidence, "route-action-sha256:"
                 ),
@@ -18141,6 +18460,16 @@ def parser() -> argparse.ArgumentParser:
     direct_authority_ingest.add_argument("--target-thread", required=True)
     direct_authority_ingest.add_argument("--provenance-base64", required=True)
     direct_authority_ingest.set_defaults(func=cmd_direct_authority_ingest)
+
+    delegated_authority_route = subparsers.add_parser(
+        "delegated-direct-authority-route-record"
+    )
+    delegated_authority_route.add_argument("--target-thread", required=True)
+    delegated_authority_route.add_argument("--source-record", required=True)
+    delegated_authority_route.add_argument("--action", required=True)
+    delegated_authority_route.set_defaults(
+        func=cmd_delegated_direct_authority_route_record
+    )
 
     legacy_authority_ingest = subparsers.add_parser(
         "legacy-direct-authority-ingest"
