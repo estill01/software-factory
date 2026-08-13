@@ -111,16 +111,24 @@ to `releases/<release-id>` directories:
 ~/.codex/software-factory-releases/current/supervise-tracker-runs/scripts/supervision_log.py
 ```
 
-After an exact accepted commit is available locally, supervision retains its
-policy-bound `software-factory-release-acceptance` checkpoint and runs
+After an exact accepted commit is available locally, the independent release
+reviewer signs the exact `software-factory-release-acceptance` object and
+supervision ingests it with `supervision_log.py
+software-factory-release-accept`. The canonical event retains the signed source,
+tree, reviewer authority, root, and no-findings disposition; a generic
+caller-authored checkpoint is nonauthorizing. Supervision then runs
 `supervision_log.py software-factory-release-promote`. That seam accepts only
-the exact clean revision and current canonical acceptance record, invokes the ordinary
+the exact clean HEAD and canonical acceptance record, invokes the ordinary
 owner's flagless `skill_release.py promote --repo ... --source-commit ...`, and
 revalidates the returned active identity and three installed roots through live
 owner status. Identical accepted revisions reuse the one retained promotion;
-there is no caller active-release or pointer input. An explicit
-`--manual-pin-release` may hold only the verified current release. The atomic
-`current` swap updates the
+there is no caller active-release, pointer, or manual-pin input. An explicit
+manual pin is a separate policy-owned exception, not a promotion-command
+choice. Before invoking the owner, orchestration retains one canonical
+promotion requirement with the exact acceptance and prior live release
+identity. The event-owner lock serializes the bounded owner effect and result;
+an interrupted retry rehydrates the one completed transition from live owner
+status. The atomic `current` swap updates the
 next scheduled monitor wake while preserving its automation ID, target thread,
 schedule, model, reasoning, status, and notification posture. An already-running
 turn may finish with the instruction bytes loaded before the swap. Legacy
@@ -129,10 +137,12 @@ stable paths; later releases require no prompt rewrite. Each wake rehydrates
 policy, mission, requested range, active frontier, and lifecycle posture from
 the current helper instead of trusting copied prompt values.
 
-## Optional signed evidence
+## Independent acceptance and optional release-owner evidence
 
-Ordinary local promotion does not require external keys or signatures. The
-optional external review JSON has kind
+The signed `software-factory-release-acceptance` is the exact independent
+acceptance trigger itself. It is not a second promotion authorization, and the
+ordinary release-owner call still needs neither `--review-evidence` nor signed
+quiescence evidence. The release owner's optional external review JSON has kind
 `software-factory-skill-release-review`, disposition `accepted`, distinct
 `reviewer_id` and `implementer_id`, the exact source commit and candidate root,
 a timestamp, bounded exact evidence references, and `review_root_sha256` over

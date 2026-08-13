@@ -1140,28 +1140,41 @@ new instruction to an already configured runtime role; it cannot target the
 implementation thread or an unrelated conversation.
 
 The normal release path is automatic once the exact accepted commit is locally
-available. The canonical event ledger first retains one `checkpoint-review`
-with category `software-factory-release-acceptance`, status `accepted`, exact
-source commit/tree, `review-findings:none`, and the policy-bound base-or-Max
-reviewer. Invoke:
+available. The independent release reviewer first signs one exact
+`software-factory-release-acceptance` object. Ingest it into the canonical event
+ledger with `software-factory-release-accept`; the event retains the exact source
+commit/tree, `review-findings:none`, reviewer public-key identity, acceptance
+root, and signature. A generic caller-authored checkpoint is nonauthorizing.
+Then invoke:
 
 ```bash
+python3 <LOG_HELPER> software-factory-release-accept \
+  --target-thread <TARGET> \
+  --repo <REPOSITORY> \
+  --source-commit <EXACT_HEAD> \
+  --review-evidence <SIGNED_ACCEPTANCE_JSON>
+
 python3 <LOG_HELPER> software-factory-release-promote \
   --target-thread <TARGET> \
   --repo <REPOSITORY> \
   --source-commit <EXACT_HEAD> \
-  --acceptance-record <CHECKPOINT_REVIEW_EVENT>
+  --acceptance-record <SIGNED_ACCEPTANCE_EVENT>
 ```
 
-The command rejects dirty or unresolved source, changed tree, unbound or nonaccepted
+The command rejects dirty/non-HEAD source, changed tree, unbound or nonaccepted
 review, and caller-selected activated identity. It invokes exactly
 `scripts/skill_release.py promote --repo <repo> --source-commit <commit>` without
-another user confirmation, parses the bounded owner result, reopens live owner
+asking for another user confirmation, parses the bounded owner result, reopens live owner
 status, compares the active source/release/three installed roots, and appends one
 deduplicated promotion record. It accepts no caller-selected active identity,
-pointer, staging, or quiescence input. A configured `--manual-pin-release`
-explicitly holds the verified current release without promotion. Promotion retains
-the previous release, validates the exact commit, atomically changes only the
+pointer, staging, quiescence, or manual-pin input. An explicit manual pin is a
+separate policy-owned exception, not a promotion-command choice. Promotion
+first retains one canonical requirement binding the acceptance, source/tree,
+and prior live release/history identity. Keep the event-owner lock through the
+bounded owner effect, source/acceptance currentness recheck, and result append.
+An interrupted retry rehydrates an already completed one-transition effect
+from live owner status; changed currentness is retained as a rejection, never a
+successful promotion. The release owner retains the previous release, validates the exact commit, atomically changes only the
 stable `current` pointer, verifies the installed roots in a fresh process, and
 restores the prior pointer on failure. Existing scheduled automations must refer
 to the stable `current` skill, policy, and helper paths. A legacy prompt that

@@ -40,12 +40,15 @@ the completed program materially changes Software Factory.
 ### Implemented
 
 - **Exact-acceptance-triggered release orchestration.** The supervision owner
-  now consumes one canonical policy-bound base-or-Max acceptance for the exact
-  clean source revision/tree, invokes only the flagless `skill_release.py promote`
+  now consumes one reviewer-signed canonical acceptance for the exact
+  clean source HEAD/tree, invokes only the flagless `skill_release.py promote`
   owner, revalidates its returned active release and three installed roots
-  through live status, and retains one deduplicated result. Missing, stale,
-  changed-byte, unbound-review, divergent-result, and caller-selected release
-  identity cases reject before they can become canonical promotion evidence.
+  through live status, and retains one deduplicated result. A durable
+  requirement binds the prior live identity before the effect so interruption
+  recovery cannot lose or repeat the one activation. Missing, stale,
+  changed-byte, unverified or caller-asserted review, divergent-result, and
+  caller-selected release identity cases reject before they can become
+  canonical promotion evidence.
 
 - **Provenance-bound authority across internal task routing.** A direct-user
   implementation instruction no longer loses its actionable authority merely

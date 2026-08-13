@@ -601,9 +601,11 @@ reserved deferrals, safe frontier, and application posture.
   remote-durability claim; it never changes final-response permission, required
   target posture, local promotion eligibility, post-activation role-refresh
   eligibility, or local effectiveness. After the exact accepted commit is
-  available locally, retain one canonical `checkpoint-review` with category
-  `software-factory-release-acceptance`, status `accepted`, the exact source
-  commit/tree, no findings, and the policy-bound base-or-Max reviewer. Then use
+  available locally, have the independent release reviewer sign one exact
+  `software-factory-release-acceptance` object and ingest it with
+  `software-factory-release-accept`. The canonical event binds its exact source
+  commit/tree, no findings, reviewer public-key identity, root, and signature.
+  A generic caller-authored checkpoint cannot substitute for it. Then use
   `supervision_log.py software-factory-release-promote --target-thread <target>
   --repo <repo> --source-commit <commit> --acceptance-record <event>` without
   asking for another user confirmation.
@@ -612,13 +614,17 @@ reserved deferrals, safe frontier, and application posture.
   --source-commit <commit>` operation, revalidates its returned active release
   and three installed roots through live owner status, and records one
   deduplicated canonical result. It accepts no caller-selected active identity,
-  pointer, stage, or quiescence input. A configured `--manual-pin-release` is
-  the explicit hold exception and must equal the verified current release. The
-  release owner must run exact-commit checks, retain the
+  pointer, stage, quiescence, or manual-pin input. An explicit manual pin is a
+  separate policy-owned exception and is never selected by this promotion
+  command. Before the owner call, retain one canonical promotion requirement
+  binding the exact acceptance and prior live release identity. Serialize that
+  requirement, owner effect, currentness recheck, and result against later
+  acceptance/policy events; an interrupted retry rehydrates the one owner
+  transition from live status. The release owner must run exact-commit checks, retain the
   prior release, atomically swap the active pointer, verify it in a fresh
-  process, and restore the prior pointer on failure. Optional signed
-  review/cutover evidence is for a specifically required separation-of-duties
-  boundary, not ordinary local skill maintenance. Scheduled automations bind to
+  process, and restore the prior pointer on failure. The signed acceptance is
+  the independent acceptance itself, not a second promotion or quiescence
+  authorization. Scheduled automations bind to
   the stable `current` paths, so verified activation updates their next wakes
   without rewriting schedules or identities; migrate any legacy release-pinned
   prompt once after activation and refresh already-running role context through
