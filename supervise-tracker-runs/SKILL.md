@@ -635,6 +635,15 @@ reserved deferrals, safe frontier, and application posture.
   existing `role-refresh` gates, which deliver at role message boundaries. A
   supervisor may never create, select among
   ambiguous, rewrite, or force-push a remote.
+  After the automation-owner updates and role refreshes, run
+  `software-factory-supervisor-refresh-health` with the same exact promotion
+  record. It waits while automation migrations remain pending, then verifies
+  the three installed roots, stable links, current automation definitions, and
+  governing control posture. On failure it asks the unchanged release owner to
+  `rollback <prior-release>`, revalidates the restored roots, and routes the
+  existing roles to reload the restored stable release. Retry rehydrates a
+  completed rollback and never invokes that owner effect twice. Supervisors do
+  not write the release pointer or automation files directly.
 - Changes to models, target permissions, defect semantics, auto-steer
   authority, repository access, patent authority, or the skill allowlist still
   require the user. Skill maintenance never authorizes target-repository or

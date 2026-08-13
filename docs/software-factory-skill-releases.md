@@ -139,6 +139,16 @@ must preserve. Paused automations remain paused; explicit
 receive the same activated identity through the existing `role-refresh` route at
 their next message boundary.
 
+After the owner updates and role refreshes, run
+`software-factory-supervisor-refresh-health` with the exact promotion record.
+Pending owner migrations defer health without rollback. A current refresh
+records one verified receipt after comparing installed roots, stable links,
+automation definitions, and governing control posture. A failed refresh asks
+this same release owner to roll back the exact prior release, revalidates its
+installed roots, and routes the running roles to reload the restored stable
+release. Supervision never writes `current` or automation definitions directly,
+and retry rehydrates an already completed rollback rather than repeating it.
+
 ## Optional signed evidence
 
 Ordinary local promotion does not require external keys or signatures. The

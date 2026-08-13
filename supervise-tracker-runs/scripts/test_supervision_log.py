@@ -403,6 +403,9 @@ class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
             self.assertIn(stable_path, text)
             self.assertIn("next scheduled", text)
             self.assertIn("software-factory-release-promote", text)
+            self.assertIn(
+                "software-factory-supervisor-refresh-health", text
+            )
         self.assertIn("scripts/skill_release.py promote --repo <repo>", policy)
         self.assertIn("--source-commit <commit>", policy)
         self.assertIn("software-factory-release-acceptance", policy)

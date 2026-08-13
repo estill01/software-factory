@@ -1184,6 +1184,17 @@ without a per-release prompt rewrite. Every wake rehydrates mission, policy,
 event head, range, dependency-safe frontier, cursors, and lifecycle posture from
 the current helper rather than copied prompt prose.
 
+After those owner updates and role refreshes, invoke
+`software-factory-supervisor-refresh-health` with the same exact promotion
+record. It returns `refresh-pending` while migrations remain, otherwise verifies
+the three installed roots, stable links, automation definitions, and governing
+control posture and records one exact health receipt. If health fails, it asks
+the unchanged release owner to `rollback <prior-release>`, reopens the restored
+status and roots, records one rolled-back receipt, and routes role refresh for
+the restored stable release. Retry after an interrupted receipt append
+rehydrates the already-restored release and never repeats rollback. Supervision
+does not write the release pointer or automation files.
+
 Remote publication and signed local release activation are independent lanes.
 Use `skill-release-publication-gate` to project only the publication dimension.
 `published` permits the remote-durability claim. `unavailable` or `failed`
