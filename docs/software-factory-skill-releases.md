@@ -100,6 +100,27 @@ the same one-pointer cutover and fresh-process verification as activation.
 current resolved roots, and history length without scanning unrelated skills
 or repositories.
 
+## Automatic monitor updates
+
+Scheduled supervisor automations bind to the stable installed paths below, not
+to `releases/<release-id>` directories:
+
+```text
+~/.codex/software-factory-releases/current/supervise-tracker-runs/SKILL.md
+~/.codex/software-factory-releases/current/supervise-tracker-runs/references/supervision-policy.md
+~/.codex/software-factory-releases/current/supervise-tracker-runs/scripts/supervision_log.py
+```
+
+After an exact accepted commit is available locally, the ordinary owner runs
+`skill_release.py promote` automatically. The atomic `current` swap updates the
+next scheduled monitor wake while preserving its automation ID, target thread,
+schedule, model, reasoning, status, and notification posture. An already-running
+turn may finish with the instruction bytes loaded before the swap. Legacy
+release-pinned automation prompts receive one post-activation migration to the
+stable paths; later releases require no prompt rewrite. Each wake rehydrates
+policy, mission, requested range, active frontier, and lifecycle posture from
+the current helper instead of trusting copied prompt values.
+
 ## Optional signed evidence
 
 Ordinary local promotion does not require external keys or signatures. The

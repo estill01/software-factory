@@ -50,6 +50,11 @@
   20 minutes each.
 - Genuine input window: after attempt 1 remains unresolved, 20 minutes while
   all safe work and remaining useful attempts continue.
+- Installed runtime binding: scheduled supervisor automations use the stable
+  `~/.codex/software-factory-releases/current/supervise-tracker-runs/` paths and
+  rehydrate current policy/mission/range state on every wake. They never pin a
+  release directory, release hash, policy hash, active Block, or frontier in the
+  recurring prompt as authority.
 
 The scheduled wake is not a polling loop. Between runs, no model is active. A
 single scheduled run uses one configured model. Terra routes every changed state
@@ -1025,6 +1030,19 @@ next action, keep the evidence in the target thread and do not cross-post it.
 After an accepted policy or skill change, `role-refresh` may carry only the exact
 new instruction to an already configured runtime role; it cannot target the
 implementation thread or an unrelated conversation.
+
+The normal release path is automatic once the exact accepted commit is locally
+available: invoke `scripts/skill_release.py promote --repo <repo>
+--source-commit <commit>` without another user confirmation. Promotion retains
+the previous release, validates the exact commit, atomically changes only the
+stable `current` pointer, verifies the installed roots in a fresh process, and
+restores the prior pointer on failure. Existing scheduled automations must refer
+to the stable `current` skill, policy, and helper paths. A legacy prompt that
+names `releases/<release-id>` is migrated once after verified activation while
+preserving its automation ID, target thread, schedule, status, model, reasoning,
+and notification posture. Already-running role context receives the ordinary
+gated `role-refresh`; the next scheduled wake resolves the new release without a
+per-release prompt rewrite.
 
 Remote publication and signed local release activation are independent lanes.
 Use `skill-release-publication-gate` to project only the publication dimension.
@@ -2711,6 +2729,19 @@ tool:
 After creation, view all applicable automations and bind their IDs. Avoid
 standalone cron tasks: continuity, incident deduplication, and role context
 belong in the existing role threads.
+
+Every automation prompt uses these stable installed paths:
+
+```text
+~/.codex/software-factory-releases/current/supervise-tracker-runs/SKILL.md
+~/.codex/software-factory-releases/current/supervise-tracker-runs/references/supervision-policy.md
+~/.codex/software-factory-releases/current/supervise-tracker-runs/scripts/supervision_log.py
+```
+
+Do not embed a release ID, released file hash, policy SHA, active Block, or safe
+frontier as controlling prompt state. The automation reads current helper status
+at each wake. This stable-channel binding makes an atomic accepted release take
+effect on the next wake without changing the automation's identity or cadence.
 
 ## Stop conditions
 

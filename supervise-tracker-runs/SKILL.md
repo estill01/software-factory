@@ -84,7 +84,14 @@ supplied digest.
    ```
 
    Resolve `scripts/supervision_log.py` to its absolute path when using it from
-   another thread.
+   another thread. Scheduled automation prompts must use the stable installed
+   path under
+   `~/.codex/software-factory-releases/current/supervise-tracker-runs/`, never a
+   release-specific directory or copied release hashes. At every wake, read the
+   current helper status for policy, mission, range, and lifecycle state rather
+   than treating prompt-copied values as authority. An atomic release activation
+   therefore updates the next scheduled wake automatically; a turn already in
+   progress may finish with the instruction bytes it loaded before the swap.
    The mission root and source form the supervisor's independent charter. They
    may identify an ordinary goal document, implementation tracker, repository
    authority, or direct user/system source. The target does not need a native
@@ -588,14 +595,19 @@ reserved deferrals, safe frontier, and application posture.
   `durability-pending`, requires an autonomous retry trigger, and blocks only a
   remote-durability claim; it never changes final-response permission, required
   target posture, local promotion eligibility, post-activation role-refresh
-  eligibility, or local effectiveness. Promote only through the maintained
-  release owner, which must run exact-commit checks, retain the prior release,
-  atomically swap the active pointer, verify it in a fresh process, and restore
-  the prior pointer on failure. Optional signed review/cutover evidence is for a
-  specifically required separation-of-duties boundary, not ordinary local skill
-  maintenance. Refresh roles only after exact local activation is verified. A
-  supervisor may never create, select among ambiguous, rewrite, or force-push a
-  remote.
+  eligibility, or local effectiveness. After the exact accepted commit is
+  available locally, immediately invoke the maintained release owner's
+  `promote --repo <repo> --source-commit <commit>` operation without asking for
+  another user confirmation. That owner must run exact-commit checks, retain the
+  prior release, atomically swap the active pointer, verify it in a fresh
+  process, and restore the prior pointer on failure. Optional signed
+  review/cutover evidence is for a specifically required separation-of-duties
+  boundary, not ordinary local skill maintenance. Scheduled automations bind to
+  the stable `current` paths, so verified activation updates their next wakes
+  without rewriting schedules or identities; migrate any legacy release-pinned
+  prompt once after activation and refresh already-running role context through
+  the existing `role-refresh` gate. A supervisor may never create, select among
+  ambiguous, rewrite, or force-push a remote.
 - Changes to models, target permissions, defect semantics, auto-steer
   authority, repository access, patent authority, or the skill allowlist still
   require the user. Skill maintenance never authorizes target-repository or

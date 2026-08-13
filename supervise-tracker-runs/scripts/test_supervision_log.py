@@ -381,6 +381,35 @@ class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
         self.assertIn("report of\nreports", policy)
         self.assertIn("both verified PDFs attached", policy)
 
+    def test_automation_runtime_tracks_the_stable_accepted_release(self) -> None:
+        supervision_skill = HELPER_PATH.parent.parent.joinpath("SKILL.md").read_text(
+            encoding="utf-8"
+        )
+        policy = HELPER_PATH.parent.parent.joinpath(
+            "references", "supervision-policy.md"
+        ).read_text(encoding="utf-8")
+        release_contract = HELPER_PATH.parent.parent.parent.joinpath(
+            "docs", "software-factory-skill-releases.md"
+        ).read_text(encoding="utf-8")
+
+        stable_path = (
+            "~/.codex/software-factory-releases/current/"
+            "supervise-tracker-runs/"
+        )
+        for text in (supervision_skill, policy, release_contract):
+            self.assertIn(stable_path, text)
+            self.assertIn("next scheduled", text)
+        self.assertIn("scripts/skill_release.py promote --repo <repo>", policy)
+        self.assertIn("--source-commit <commit>", policy)
+        self.assertIn(
+            "without asking for another user confirmation",
+            " ".join(supervision_skill.split()),
+        )
+        self.assertIn(
+            "Legacy release-pinned automation prompts",
+            " ".join(release_contract.split()),
+        )
+
     def test_terminal_capability_reconciliation_is_documented_end_to_end(
         self,
     ) -> None:
