@@ -1741,33 +1741,45 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self,
         *,
         source_task_id: str = "origin-user-thread-5678",
-        source_record: str = "origin-user-item-5678",
-        request_text: str = "implement this tracker",
+        source_record: str | None = None,
+        request_text: str | None = None,
     ) -> dict[str, object]:
         directory = self.root / self.target
         policy = supervision_log.read_json(directory / "policy.json")
-        current_events = supervision_log.events(directory / "events.jsonl")
-        route_record_id = f"EVT-{len(current_events) + 1:06d}"
-        supervision_log.append_raw(
-            directory / "events.jsonl",
-            {
-                "schema_version": 1,
-                "record_id": route_record_id,
-                "timestamp": supervision_log.utc_now(),
-                "target_thread_id": self.target,
-                "kind": "mission-activation-route",
-                "status": "target-action-required",
-                "policy_sha256": policy["policy_sha256"],
-                "evidence": [source_record],
-            },
+        source_record = source_record or "origin-user-item-5678"
+        request_text = request_text or "implement this tracker"
+        self.complete_predecessor_and_start_successor(
+            retain_range_authority=False,
+            mission_source_record=source_record,
+            mission_source_sha256=hashlib.sha256(
+                request_text.encode("utf-8")
+            ).hexdigest(),
         )
-        route_source = supervision_log.events(directory / "events.jsonl")[-1]
+        policy = supervision_log.read_json(directory / "policy.json")
+        current_events = supervision_log.events(directory / "events.jsonl")
+        route_sources = [
+            item
+            for item in supervision_log.mission_activation_heads(
+                current_events
+            ).values()
+            if item.get("mission_root")
+            == policy["mission_binding"]["mission_root"]
+            and item.get("mission_source_record") == source_record
+        ]
+        self.assertEqual(len(route_sources), 1)
+        route_source = route_sources[0]
         route_record_result = self.call(
             "delegated-direct-authority-route-record",
             "--target-thread",
             self.target,
             "--source-record",
             str(route_source["record_id"]),
+            "--source-task",
+            source_task_id,
+            "--source-turn",
+            "origin-user-turn-5678",
+            "--source-item",
+            source_record,
             "--action",
             request_text,
         )
@@ -1875,6 +1887,8 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self,
         *,
         retain_range_authority: bool = True,
+        mission_source_record: str | None = None,
+        mission_source_sha256: str | None = None,
     ) -> tuple[str, str, str, dict[str, object]]:
         directory = self.root / self.target
         policy = supervision_log.read_json(directory / "policy.json")
@@ -1932,9 +1946,9 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 "--mission-source-class",
                 "direct-user",
                 "--mission-source-record",
-                self.successor_source,
+                mission_source_record or self.successor_source,
                 "--mission-source-sha256",
-                self.successor_mission_sha,
+                mission_source_sha256 or self.successor_mission_sha,
                 "--predecessor-disposition",
                 "completed",
                 "--first-eligible-work",
@@ -2420,8 +2434,57 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 self.target,
                 "--source-record",
                 str(route_source["record_id"]),
+                "--source-task",
+                "origin-user-thread-5678",
+                "--source-turn",
+                "origin-user-turn-5678",
+                "--source-item",
+                "origin-user-item-5678",
                 "--action",
                 long_action,
+            )
+
+        self.assertEqual((directory / "events.jsonl").read_bytes(), before)
+
+    def test_delegated_route_owner_rejects_unrelated_source_event(self) -> None:
+        directory = self.root / self.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        current_events = supervision_log.events(directory / "events.jsonl")
+        supervision_log.append_raw(
+            directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": f"EVT-{len(current_events) + 1:06d}",
+                "timestamp": supervision_log.utc_now(),
+                "target_thread_id": self.target,
+                "kind": "notification",
+                "category": "gmail",
+                "status": "observed",
+                "policy_sha256": policy["policy_sha256"],
+                "evidence": [self.initial_source],
+            },
+        )
+        route_source = supervision_log.events(directory / "events.jsonl")[-1]
+        before = (directory / "events.jsonl").read_bytes()
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "exact current-mission activation",
+        ):
+            self.call(
+                "delegated-direct-authority-route-record",
+                "--target-thread",
+                self.target,
+                "--source-record",
+                str(route_source["record_id"]),
+                "--source-task",
+                "origin-user-thread-5678",
+                "--source-turn",
+                "origin-user-turn-5678",
+                "--source-item",
+                self.initial_source,
+                "--action",
+                self.initial_mission_request,
             )
 
         self.assertEqual((directory / "events.jsonl").read_bytes(), before)

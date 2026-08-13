@@ -43,10 +43,11 @@ the completed program materially changes Software Factory.
   implementation instruction no longer loses its actionable authority merely
   because Software Factory carries it to the configured target through
   `codex_delegation`. The canonical delegation envelope binds the original
-  task/turn/item and exact bytes, current target mission and policy, the exact
-  owner-produced target-action route result and its source/projection, and an
-  independent base-or-Max acceptance before the existing authority event,
-  receipt, and range owner consume it. The recipient starts the full-tracker
+  task/turn/item and exact bytes, current target mission and policy, the current
+  mission-activation source, and the owner-produced target-action route result
+  and projection. Mission identity alone remains nonauthorizing; an
+  independent base-or-Max acceptance precedes the existing authority event,
+  receipt, and range-owner consumption. The recipient starts the full-tracker
   range automatically without a same-thread repetition or manual Resume.
   Unbound internal packets, changed route/action/source evidence, supervisor
   language, and scope expansion remain nonauthorizing.

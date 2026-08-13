@@ -2653,8 +2653,19 @@ def canonical_direct_authority_event(
             raise SupervisionLogError(
                 "Delegated authority route evidence differs"
             )
+        source_byte_count = evidence_value(evidence, "source-byte-count:")
+        if not source_byte_count.isdigit():
+            raise SupervisionLogError(
+                "Canonical delegated-authority source byte count differs"
+            )
         provenance = {
             "target_thread_id": event["target_thread_id"],
+            "source_task_id": evidence_value(evidence, "source-task:"),
+            "source_turn_id": evidence_value(evidence, "source-turn:"),
+            "source_item_id": evidence_value(evidence, "source-item:"),
+            "source_kind": evidence_value(evidence, "source-kind:"),
+            "source_byte_count": int(source_byte_count),
+            "source_sha256": evidence_value(evidence, "source-sha256:"),
             "transport_kind": transport_kind,
             "route_purpose": route_purpose,
             "route_source_record_id": route_source_record_id,
@@ -6916,6 +6927,12 @@ def canonical_delegated_direct_authority_route(
         "status",
         "route_source_record_id",
         "route_source_record_sha256",
+        "source_task_id",
+        "source_turn_id",
+        "source_item_id",
+        "source_kind",
+        "source_byte_count",
+        "source_sha256",
         "route_result",
         "route_result_sha256",
         "policy_sha256",
@@ -6937,6 +6954,18 @@ def canonical_delegated_direct_authority_route(
         != route_source.get("record_id")
         or route_record.get("route_source_record_sha256")
         != route_source.get("record_sha256")
+        or route_record.get("source_task_id")
+        != provenance.get("source_task_id")
+        or route_record.get("source_turn_id")
+        != provenance.get("source_turn_id")
+        or route_record.get("source_item_id")
+        != provenance.get("source_item_id")
+        or route_record.get("source_kind")
+        != provenance.get("source_kind")
+        or route_record.get("source_byte_count")
+        != provenance.get("source_byte_count")
+        or route_record.get("source_sha256")
+        != provenance.get("source_sha256")
         or route_record.get("route_result") != expected_projection
         or route_record.get("route_result_sha256")
         != digest(expected_projection)
@@ -6960,8 +6989,15 @@ def canonical_delegated_direct_authority_route(
 
 
 def delegated_direct_authority_route_record_material(
-    *, route_source: Mapping[str, Any], route_result: Mapping[str, Any]
+    *,
+    route_source: Mapping[str, Any],
+    route_result: Mapping[str, Any],
+    source_task_id: str,
+    source_turn_id: str,
+    source_item_id: str,
+    source_text: str,
 ) -> dict[str, Any]:
+    source_bytes = source_text.encode("utf-8")
     return {
         "schema_version": 1,
         "target_thread_id": route_result["target_thread_id"],
@@ -6969,6 +7005,12 @@ def delegated_direct_authority_route_record_material(
         "status": "allowed",
         "route_source_record_id": route_source["record_id"],
         "route_source_record_sha256": route_source["record_sha256"],
+        "source_task_id": source_task_id,
+        "source_turn_id": source_turn_id,
+        "source_item_id": source_item_id,
+        "source_kind": DIRECT_AUTHORITY_SOURCE_KIND,
+        "source_byte_count": len(source_bytes),
+        "source_sha256": hashlib.sha256(source_bytes).hexdigest(),
         "route_result": dict(route_result),
         "route_result_sha256": digest(route_result),
         "policy_sha256": route_result["policy_sha256"],
@@ -7018,6 +7060,11 @@ def delegated_direct_authority_route_result(
     policy: Mapping[str, Any],
     all_events: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    safe_id(args.source_task, label="delegated-authority source task")
+    safe_id(args.source_turn, label="delegated-authority source turn")
+    source_item_id = safe_id(
+        args.source_item, label="delegated-authority source item"
+    )
     route_args = argparse.Namespace(
         target_thread=args.target_thread,
         recipient_thread=args.target_thread,
@@ -7042,13 +7089,59 @@ def delegated_direct_authority_route_result(
         ),
         None,
     )
+    current_mission = bound_mission(dict(policy))
+    controlling = (
+        current_mission.get("mission_derivation", {}).get(
+            "controlling_source", {}
+        )
+        if current_mission is not None
+        else {}
+    )
+    activation_heads = mission_activation_heads(all_events)
+    required_source = {
+        "schema_version",
+        "record_id",
+        "timestamp",
+        "target_thread_id",
+        "kind",
+        "activation_id",
+        "phase",
+        "mission_root",
+        "mission_source_record",
+        "activation_policy_sha256",
+        "first_eligible_work",
+        "source_record",
+        "evidence",
+        "policy_sha256",
+        "previous_record_sha256",
+        "record_sha256",
+    }
     if (
         route_source is None
+        or set(route_source) != required_source
+        or route_source.get("schema_version") != 1
         or route_source.get("target_thread_id") != args.target_thread
+        or route_source.get("kind") != "mission-activation"
+        or route_source.get("phase") not in MISSION_ACTIVATION_PHASES
+        or current_mission is None
+        or route_source.get("mission_root")
+        != current_mission.get("mission_root")
+        or route_source.get("mission_source_record") != source_item_id
+        or source_item_id != current_mission.get("mission_source_record")
+        or source_item_id != controlling.get("record")
+        or hashlib.sha256(args.action.encode("utf-8")).hexdigest()
+        != controlling.get("sha256")
+        or activation_heads.get(str(route_source.get("activation_id")), {}).get(
+            "record_id"
+        )
+        != route_source.get("record_id")
     ):
         raise SupervisionLogError(
-            "Delegated authority route source is not in the canonical owner ledger"
+            "Delegated authority route source is not the exact current-mission activation"
         )
+    # These identities are retained in the owner-produced route record and
+    # independently reviewed before ingestion; none is inferred from the
+    # recipient task or the mission identity alone.
     exact_sha256(
         str(route_source.get("record_sha256", "")),
         label="delegated-authority route source SHA-256",
@@ -7079,6 +7172,10 @@ def cmd_delegated_direct_authority_route_record(
     material = delegated_direct_authority_route_record_material(
         route_source=route_source,
         route_result=route_result,
+        source_task_id=args.source_task,
+        source_turn_id=args.source_turn,
+        source_item_id=args.source_item,
+        source_text=args.action,
     )
     duplicate = matching_delegated_direct_authority_route_record(
         all_events, material=material
@@ -7127,6 +7224,10 @@ def cmd_delegated_direct_authority_route_record(
         current_material = delegated_direct_authority_route_record_material(
             route_source=current_source,
             route_result=current_result,
+            source_task_id=args.source_task,
+            source_turn_id=args.source_turn,
+            source_item_id=args.source_item,
+            source_text=args.action,
         )
         if current_material != material:
             raise SupervisionLogError(
@@ -7418,7 +7519,7 @@ def validate_direct_authority_provenance(
     controlling = current_mission.get("mission_derivation", {}).get(
         "controlling_source", {}
     )
-    if (
+    if not delegated and (
         provenance.get("source_item_id")
         == current_mission.get("mission_source_record")
         or provenance.get("source_item_id") == controlling.get("record")
@@ -8974,11 +9075,22 @@ def retained_full_tracker_authority(
         if current_mission is not None
         else {}
     )
+    delegated = any(
+        item.get("source_record") == source_record
+        and item.get("source_sha256") == source_sha256
+        and item.get("provenance_status") == "verified-delegated-before-entry"
+        for item in all_events
+    )
     if (
         current_mission is None
-        or source_record == current_mission.get("mission_source_record")
-        or source_record == controlling.get("record")
-        or source_sha256 == controlling.get("sha256")
+        or (
+            not delegated
+            and (
+                source_record == current_mission.get("mission_source_record")
+                or source_record == controlling.get("record")
+                or source_sha256 == controlling.get("sha256")
+            )
+        )
     ):
         raise SupervisionLogError(
             "Mission controlling source is identity only, not range authority"
@@ -9109,9 +9221,14 @@ def retained_full_tracker_authority(
         or source_mission is None
         or mission_binding_identity(current_mission)
         != mission_binding_identity(source_mission)
-        or source_record == current_mission.get("mission_source_record")
-        or source_record == controlling.get("record")
-        or source_sha256 == controlling.get("sha256")
+        or (
+            not delegated
+            and (
+                source_record == current_mission.get("mission_source_record")
+                or source_record == controlling.get("record")
+                or source_sha256 == controlling.get("sha256")
+            )
+        )
         or (
             not delegated
             and source_event.get("source_task_id")
@@ -18466,6 +18583,9 @@ def parser() -> argparse.ArgumentParser:
     )
     delegated_authority_route.add_argument("--target-thread", required=True)
     delegated_authority_route.add_argument("--source-record", required=True)
+    delegated_authority_route.add_argument("--source-task", required=True)
+    delegated_authority_route.add_argument("--source-turn", required=True)
+    delegated_authority_route.add_argument("--source-item", required=True)
     delegated_authority_route.add_argument("--action", required=True)
     delegated_authority_route.set_defaults(
         func=cmd_delegated_direct_authority_route_record
