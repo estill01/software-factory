@@ -297,6 +297,7 @@ class ProductProgramReflectionTests(unittest.TestCase):
         forged_packet["product_sources"][0]["sha256"] = MODULE.hashlib.sha256(
             MODULE.canonical(incomplete_inventory)
         ).hexdigest()
+        forged_packet["product_sources"][0]["byte_length"] = len(MODULE.canonical(incomplete_inventory))
         with self.assertRaisesRegex(MODULE.ProductProgramError, "every required tracker state"):
             MODULE.normalize_inventory(forged_packet, incomplete_inventory)
 
@@ -305,8 +306,25 @@ class ProductProgramReflectionTests(unittest.TestCase):
         forged_packet["product_sources"][0]["sha256"] = MODULE.hashlib.sha256(
             MODULE.canonical(empty_behavior)
         ).hexdigest()
+        forged_packet["product_sources"][0]["byte_length"] = len(MODULE.canonical(empty_behavior))
         with self.assertRaisesRegex(MODULE.ProductProgramError, "observable behaviors"):
             MODULE.normalize_inventory(forged_packet, empty_behavior)
+
+        duplicate_tracker = deepcopy(self.inventory)
+        active_tracker = duplicate_tracker["tracker_states"][1]["tracker_ids"][0]
+        duplicate_tracker["tracker_states"][3]["tracker_ids"].append(active_tracker)
+        duplicate_tracker["tracker_states"][3]["tracker_ids"].sort()
+        forged_packet["product_sources"][0]["sha256"] = MODULE.hashlib.sha256(
+            MODULE.canonical(duplicate_tracker)
+        ).hexdigest()
+        forged_packet["product_sources"][0]["byte_length"] = len(MODULE.canonical(duplicate_tracker))
+        with self.assertRaisesRegex(MODULE.ProductProgramError, "more than one state"):
+            MODULE.normalize_inventory(forged_packet, duplicate_tracker)
+
+        wrong_length_packet = deepcopy(self.packet)
+        wrong_length_packet["product_sources"][0]["byte_length"] += 1
+        with self.assertRaisesRegex(MODULE.ProductProgramError, "content differs"):
+            MODULE.normalize_inventory(wrong_length_packet, self.inventory)
 
     def test_counterexample_generalized_platform_and_role_conflicts_reject(self) -> None:
         missing_posture = base_submission(self.packet)

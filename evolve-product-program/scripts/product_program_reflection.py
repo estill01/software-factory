@@ -193,7 +193,11 @@ def normalize_inventory(packet: Mapping[str, Any], value: Any) -> dict[str, Any]
     product_sources = {entry["source_id"]: entry for entry in packet["product_sources"]}
     if source_id not in product_sources:
         raise ProductProgramError("inventory manifest is not bound to a packet product source")
-    if hashlib.sha256(canonical(value)).hexdigest() != product_sources[source_id]["sha256"]:
+    inventory_bytes = canonical(value)
+    if (
+        hashlib.sha256(inventory_bytes).hexdigest() != product_sources[source_id]["sha256"]
+        or len(inventory_bytes) != product_sources[source_id]["byte_length"]
+    ):
         raise ProductProgramError("inventory manifest content differs from its packet source")
     adjudicating, allowed_evidence = evidence_sets(packet)
 
@@ -311,6 +315,9 @@ def normalize_inventory(packet: Mapping[str, Any], value: Any) -> dict[str, Any]
     tracker_states.sort(key=lambda entry: entry["state"])
     if {entry["state"] for entry in tracker_states} != REQUIRED_TRACKER_STATES or len(tracker_states) != len(REQUIRED_TRACKER_STATES):
         raise ProductProgramError("inventory does not record every required tracker state exactly once")
+    tracker_ids = [tracker_id for entry in tracker_states for tracker_id in entry["tracker_ids"]]
+    if len(tracker_ids) != len(set(tracker_ids)):
+        raise ProductProgramError("inventory tracker ID appears in more than one state")
     return {
         "behaviors": behaviors,
         "capabilities": capabilities,
