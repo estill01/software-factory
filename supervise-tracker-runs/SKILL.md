@@ -606,7 +606,7 @@ reserved deferrals, safe frontier, and application posture.
   commit/tree, no findings, and the policy-bound base-or-Max reviewer. Then use
   `supervision_log.py software-factory-release-promote --target-thread <target>
   --repo <repo> --source-commit <commit> --acceptance-record <event>` without
-  another user confirmation.
+  asking for another user confirmation.
   That orchestration command invokes only the
   maintained release owner's exact flagless `promote --repo <repo>
   --source-commit <commit>` operation, revalidates its returned active release
