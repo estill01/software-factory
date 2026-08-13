@@ -226,10 +226,10 @@ accepted owner supersedes them.
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
 | 0 | Freeze writers and source-disposition ledger | — | `completed` |
-| 1 | Integrate automatic-release and supervision control-plane lines | 0 | `in-progress` |
-| 2 | Integrate and preserve the completed dashboard/evolution web app | 1 | `not-started` |
-| 3 | Integrate accepted product-program work and future tracker sources | 2 | `not-started` |
-| 4 | Validate and independently review the unified candidate | 3 | `not-started` |
+| 1 | Integrate automatic-release and supervision control-plane lines | 0 | `completed` |
+| 2 | Integrate and preserve the completed dashboard/evolution web app | 1 | `completed` |
+| 3 | Integrate accepted product-program work and future tracker sources | 2 | `completed` |
+| 4 | Validate and independently review the unified candidate | 3 | `in-progress` |
 | 5 | Publish canonical main and reconcile the installed release | 4 | `not-started` |
 | 6 | Prune stale branches, worktrees, and pull-request residue | 5 | `not-started` |
 | 7 | Recreate clean lanes and resume intended remaining work | 6 | `not-started` |
@@ -401,7 +401,7 @@ Stop before merging an implementation branch into the consolidation branch.
 
 ## Block 1 — Integrate automatic-release and supervision control-plane lines
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -479,7 +479,31 @@ between divergent accepted heads.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: corrected automatic-release integration begins at
+  `8951a45` and retains the accepted continuation and watcher histories through
+  `e2723fd` and `e4e0ba6`; integrated compatibility corrections end at
+  `a08012f`.
+- External/domain revision or root: accepted source heads `f13002e`,
+  `ad9fa66`, and `9c143e4` are ancestors of candidate `28d9ed3`.
+- Inputs: the corrected automatic-release line, accepted continuation, watcher
+  incident release, direct-authority/range repair histories, and current
+  tracker evidence.
+- Outputs: current release, range admission, terminal recovery, watcher report,
+  and supervisor refresh behavior coexist without selecting an older owner by
+  timestamp.
+- Focused validation: release-owner 23/23, authoring 42/42, product-program
+  67/67, Factory Evolution dogfood, and repaired focused supervision/range
+  regression sets passed.
+- Mapped validation: full supervision validation is recorded under Block 4.
+- Candidate freeze: automatic-release and supervision tree incorporated in
+  `28d9ed3` without post-merge dirty tracked files.
+- Remediation closure: legacy range admission and helper argument-shape
+  incompatibilities were reproduced and corrected at `a08012f`.
+- Resource posture: superseded repair tips are history-only parents of the
+  archival merge and have no active writer.
+- Independent review: combined-candidate review continues in Block 4.
+- Retained open work: automatic-release tracker Blocks 5–7 remain unaccepted
+  and are assigned by Block 7.
 
 ### Stop
 
@@ -489,7 +513,7 @@ Stop before integrating the dashboard/evolution branch.
 
 ## Block 2 — Integrate and preserve the completed dashboard/evolution web app
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -565,7 +589,29 @@ completed tracker and current canonical owners.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: dashboard/evolution history merged at `31c852e`; current
+  owner alignment and integrated compatibility corrections are `1a5c24c`,
+  `eed001e`, and `2e58954`.
+- External/domain revision or root: completed dashboard revision
+  `29b357d8465c9c5607da93d69fab392b8418ad45` is an ancestor of candidate
+  `28d9ed3`.
+- Inputs: the completed 32-Block dashboard line, current supervision owners,
+  and integrated Factory Evolution MVP.
+- Outputs: the dashboard remains on the unified tree; strict weekly-report and
+  degraded evolution-workflow envelopes now match the web schemas.
+- Focused validation: the two review-derived server regressions passed 2/2;
+  the serial web suite passed 117/117.
+- Mapped validation: full server suite and browser/runtime proof continue in
+  Block 4.
+- Candidate freeze: `28d9ed3` with dashboard tracked files clean.
+- Remediation closure: independent review findings for extra weekly metadata
+  and missing degraded-workflow fields were corrected at `2e58954`.
+- Resource posture: the old dashboard task and its writer are quiescent; its
+  watcher and reviewer schedules are paused.
+- Independent review: first combined review produced the two corrected
+  findings above; fresh exact-delta review continues in Block 4.
+- Retained open work: no dashboard implementation Block remains; runtime
+  verification and ordinary maintenance remain with Blocks 4–5.
 
 ### Stop
 
@@ -575,7 +621,7 @@ Stop before integrating product-program or future tracker branches.
 
 ## Block 3 — Integrate accepted product-program work and future tracker sources
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -655,7 +701,29 @@ product-program behavior or tracker structure.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: accepted product-program history merged at `09470d3` and
+  adapted at `961c4f8`; systemic recovery and selection-quality tracker
+  histories are retained through `0dcb4a5`/`9d20901` and
+  `4efb52d`/`e43bfda`.
+- External/domain revision or root: accepted product checkpoint `423ae8d`,
+  systemic tracker `448863f`, and selection tracker `4df42f7` are ancestors of
+  candidate `28d9ed3`.
+- Inputs: accepted product Blocks 0–4, two planning trackers, and the shared
+  `.program-revision/` evidence set.
+- Outputs: accepted implementation and planning sources are integrated without
+  claiming product Blocks 5–11 or systemic Blocks 0–6 complete.
+- Focused validation: product-program tests passed 67/67; tracker authoring
+  tests passed 42/42.
+- Mapped validation: broader combined proof continues in Block 4.
+- Candidate freeze: `28d9ed3`; the exact generated program revision is
+  separately checkpointed at `4e4b5e9` and reachable as an archival parent.
+- Remediation closure: the product revision fixture mission identity mismatch
+  was corrected and its focused regression passed.
+- Resource posture: the old product task is quiescent and its six-hour/four-hour
+  supervision schedules are paused.
+- Independent review: no open product-program finding in the combined review.
+- Retained open work: product Blocks 5–11, systemic recovery Blocks 0–6, and
+  selection-quality planning remain explicitly unaccepted for Block 7.
 
 ### Stop
 
@@ -665,7 +733,7 @@ Stop before broad unified candidate validation.
 
 ## Block 4 — Validate and independently review the unified candidate
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
