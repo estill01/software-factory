@@ -1,0 +1,42 @@
+{
+  "kind": "product-program-evolution-source-map",
+  "schema_version": 1,
+  "sources": [
+    {
+      "owner": "supervise-tracker-runs",
+      "path": "supervise-tracker-runs/references/factory-evolution-contract.md",
+      "sha256": "8c8748cb514a3a06bb604b7d9077ce7ed6fed9b59244ff1f79bd9792cde2225b",
+      "treatment": "extend-ladder-with-target-profile"
+    },
+    {
+      "owner": "implement-tracker-blocks",
+      "path": "implement-tracker-blocks/references/product-capability-review.md",
+      "sha256": "68d255c1cd7c03b61b9278e0d1a20290c7452abb661ba00ae47d15e60bfc3017",
+      "treatment": "reuse-product-and-protected-capability-frame"
+    },
+    {
+      "owner": "tracker",
+      "path": "docs/software-factory-recursive-product-program-evolution-implementation-tracker.md",
+      "sha256": "f33fd2b6b0dbafb93d85b64b2eaf58d4f539722f3f0523c3f11b90db2f649438",
+      "treatment": "governing-product-program-contract"
+    },
+    {
+      "owner": "author-implementation-trackers",
+      "path": "author-implementation-trackers/scripts/program_revision.py",
+      "sha256": "3c35f1dd66fb7f942f9c798e51a2ab1eb3571fae625c1e25bcf56291066f2e01",
+      "treatment": "preserve-sole-structural-writer"
+    },
+    {
+      "owner": "supervise-tracker-runs",
+      "path": "supervise-tracker-runs/scripts/supervision_log.py",
+      "sha256": "bb191411521f39c42a45e152a6eb6f8873045e049d2920be99333d02b14a9463",
+      "treatment": "preserve-canonical-policy-event-owner"
+    },
+    {
+      "owner": "skill-release",
+      "path": "scripts/skill_release.py",
+      "sha256": "df0850ba5a43856b9f7fa1a75edbf728dea266721a96dcd108d0197c85d0aa8e",
+      "treatment": "preserve-release-owner-for-later-block"
+    }
+  ]
+}

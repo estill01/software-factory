@@ -1,0 +1,52 @@
+{
+  "artifact_classes": [
+    "product-program-evidence-packet",
+    "product-program-placement-handoff",
+    "product-program-portfolio",
+    "product-program-reflection",
+    "product-program-resource-evidence",
+    "product-program-selection"
+  ],
+  "disposition_placements": {
+    "continue-program-unchanged": "none",
+    "remediate-current-block": "current-block-owner",
+    "request-material-goal-authority": "direct-user",
+    "revise-current-program": "current-program-author",
+    "run-bounded-experiment": "experiment-owner",
+    "safe-defer-open-fact-or-authority": "reserved-effect-owner",
+    "start-program-portfolio": "program-portfolio-author",
+    "start-successor-program": "successor-program-author"
+  },
+  "kind": "product-program-evolution-contract",
+  "non_authorizing_writes": [
+    "automation",
+    "external-effect",
+    "release",
+    "source",
+    "supervision",
+    "tracker"
+  ],
+  "roles": [
+    "consequential-adjudicator",
+    "evaluator",
+    "evidence-assembler",
+    "implementation-owner",
+    "portfolio-selector",
+    "reflection-generator",
+    "supervision-owner",
+    "tracker-author"
+  ],
+  "schema_version": 1,
+  "state_transitions": [
+    {"from": "checkpointed", "stop": "no-cognitive-or-downstream-work", "to": "unchanged"},
+    {"from": "checkpointed", "stop": "before-semantic-interpretation", "to": "packet-prepared"},
+    {"from": "packet-prepared", "stop": "before-ranking-budgeting-or-placement", "to": "reflected"},
+    {"from": "packet-prepared", "stop": "before-resource-allocation", "to": "resource-projected"},
+    {"from": "reflected+resource-projected", "stop": "before-downstream-writes", "to": "selected"},
+    {"from": "selected", "stop": "before-any-application-or-effect", "to": "handoff-ready"}
+  ],
+  "target_profiles": {
+    "software-factory-capability": "existing-factory-evolution-adoption-owner",
+    "target-product-program": "existing-target-program-owner-map"
+  }
+}
