@@ -141,6 +141,7 @@ and typed resource evidence:
   --reflection <reviewed-reflection.json> \
   --resource-source <resource-source.json> \
   --resource-evidence <resource-evidence.json> \
+  --capacity-source <operator-capacity.json> \
   --submission <selection-submission.json>
 ```
 
@@ -159,12 +160,14 @@ Verify or cheaply reuse the rooted selection/portfolio/handoff bundle:
   verify --packet <packet.json> --inventory <inventory.json> \
   --reflection <reviewed-reflection.json> \
   --resource-source <resource-source.json> \
-  --resource-evidence <resource-evidence.json> --bundle <bundle.json>
+  --resource-evidence <resource-evidence.json> \
+  --capacity-source <operator-capacity.json> --bundle <bundle.json>
 /usr/bin/python3 evolve-product-program/scripts/product_program_selection.py \
   reuse --packet <packet.json> --inventory <inventory.json> \
   --reflection <reviewed-reflection.json> \
   --resource-source <resource-source.json> \
-  --resource-evidence <resource-evidence.json> --bundle <bundle.json>
+  --resource-evidence <resource-evidence.json> \
+  --capacity-source <operator-capacity.json> --bundle <bundle.json>
 ```
 
 ## Authority boundary

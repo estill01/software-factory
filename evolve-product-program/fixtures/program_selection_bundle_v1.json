@@ -5,7 +5,7 @@
       "direct_effects_allowed": false,
       "posture": "derived-nonauthorizing"
     },
-    "currentness_root": "b64b4bb9d91589d018e8a82e6ce15f3faefa03c2d8edbeb3116cfa66b4736793",
+    "currentness_root": "b0437cbf3c424ab535c9a74a92fa1b1d9e2345ff75b52bb1444fa902b2ecedfb",
     "disposition": "revise-current-program",
     "expected_effect": {
       "candidate_ids": [
@@ -13,17 +13,17 @@
       ],
       "evidence_posture": "falsifiable-derived-projection"
     },
-    "handoff_root": "416d1439411322fccb28a55a0059843422a6dd66c984f85c1368a6a90eab2be6",
+    "handoff_root": "ad2e68881aea3a94da75ebda70f6acefe8267ed15e5e4679102f6310a8d98615",
     "kind": "product-program-placement-handoff",
     "nonauthorization": "receiving-owner-must-revalidate",
     "owner": "tracker-author",
     "placement": "current-program-author",
-    "portfolio_root": "965d872d79a97a16300fcd445d5fed260e5f1591a4f5fd4c7bf0f9fd1fca3f92",
+    "portfolio_root": "a4ddfb4e59460d2b37eb7ae820e50f4a021725766ee85b40657e0b8d189187d7",
     "preconditions": {
       "accepted_blocks": [
         0
       ],
-      "currentness_root": "b64b4bb9d91589d018e8a82e6ce15f3faefa03c2d8edbeb3116cfa66b4736793",
+      "currentness_root": "b0437cbf3c424ab535c9a74a92fa1b1d9e2345ff75b52bb1444fa902b2ecedfb",
       "requested_blocks": [
         0,
         1
@@ -38,13 +38,15 @@
         "concurrency_limit": 2,
         "evidence_class": "observed",
         "evidence_ids": [
-          "resource-a"
-        ]
+          "operator-capacity-1"
+        ],
+        "source_root": "cc43bb7e6b53d021cd458a2da3f6cb74903fb26aacd08d16b64318a74fd32074"
       },
       "source_roots": [
-        "5961ff6036cf23fc680e12d7d25a3aca904b0cfa950f1a87676585ea0b340c92",
-        "ce1d270dc93bd3cecdadcd27c3af9f1e0d29a99fbd610b91350a3bb5e43222c0",
-        "c8d44d36e7a7fa96442aebf920f7434f0b2f5cf068c804454ea8fcdef2dd63df"
+        "8f26d491cccf0d9bca5802d0045cb97ccfb8ba5083c39310fc7fb76d6432f8c6",
+        "0639e550e154818f6567a03191ea7d2004ab83c69f1cdcee470f1d0dcce16048",
+        "4605b64c1d308e47ef16f10c0db8d3caa87f4f396343b0c18a5f0388e5166f1b",
+        "cc43bb7e6b53d021cd458a2da3f6cb74903fb26aacd08d16b64318a74fd32074"
       ]
     },
     "schema_version": 1,
@@ -61,7 +63,7 @@
       "direct_effects_allowed": false,
       "posture": "derived-nonauthorizing"
     },
-    "currentness_root": "b64b4bb9d91589d018e8a82e6ce15f3faefa03c2d8edbeb3116cfa66b4736793",
+    "currentness_root": "b0437cbf3c424ab535c9a74a92fa1b1d9e2345ff75b52bb1444fa902b2ecedfb",
     "dependency_edges": [],
     "disposition": "revise-current-program",
     "early_stop_rules": [
@@ -98,7 +100,7 @@
       }
     ],
     "placement": "current-program-author",
-    "portfolio_root": "965d872d79a97a16300fcd445d5fed260e5f1591a4f5fd4c7bf0f9fd1fca3f92",
+    "portfolio_root": "a4ddfb4e59460d2b37eb7ae820e50f4a021725766ee85b40657e0b8d189187d7",
     "scheduling_groups": [
       {
         "group_id": "group-current",
@@ -109,7 +111,7 @@
       }
     ],
     "schema_version": 1,
-    "selection_root": "d092b319dc62528d63499cb467592f18e19e850cc0d07274407691d9e95a1c6f",
+    "selection_root": "40fd6cad7884f24d306dc3b8564c8bb36776735d55ee3871a74ef643ed8f659d",
     "unused_capacity": {
       "execution_units": 5,
       "exploration_units": 3,
@@ -123,7 +125,7 @@
       "direct_effects_allowed": false,
       "posture": "derived-nonauthorizing"
     },
-    "currentness_root": "b64b4bb9d91589d018e8a82e6ce15f3faefa03c2d8edbeb3116cfa66b4736793",
+    "currentness_root": "b0437cbf3c424ab535c9a74a92fa1b1d9e2345ff75b52bb1444fa902b2ecedfb",
     "dimensions": [
       {
         "candidate_id": "candidate-feature",
@@ -188,21 +190,26 @@
     ],
     "disposition": "revise-current-program",
     "kind": "product-program-selection",
-    "packet_root": "5961ff6036cf23fc680e12d7d25a3aca904b0cfa950f1a87676585ea0b340c92",
+    "packet_root": "8f26d491cccf0d9bca5802d0045cb97ccfb8ba5083c39310fc7fb76d6432f8c6",
     "rationale": {
       "adjudication": {
         "adjudicator_id": "none",
         "decision": "not-required",
-        "evidence_ids": [],
         "finding_ids": [],
         "required": false,
+        "review_root": "5ae9836131a61071515caf87df08e8b4b5b7f873020859f27d73b5d8d46e2a39",
+        "reviewed_input_root": "none",
         "tradeoff_ids": []
+      },
+      "authority_premise": {
+        "evidence_ids": [],
+        "kind": "none"
       },
       "selected_candidate_ids": [
         "candidate-feature"
       ]
     },
-    "reflection_root": "ce1d270dc93bd3cecdadcd27c3af9f1e0d29a99fbd610b91350a3bb5e43222c0",
+    "reflection_root": "0639e550e154818f6567a03191ea7d2004ab83c69f1cdcee470f1d0dcce16048",
     "rejected_candidates": [
       {
         "candidate_id": "candidate-no-change",
@@ -219,9 +226,9 @@
         "reason_id": "evidence-weaker-than-selected"
       }
     ],
-    "resource_evidence_root": "c8d44d36e7a7fa96442aebf920f7434f0b2f5cf068c804454ea8fcdef2dd63df",
+    "resource_evidence_root": "4605b64c1d308e47ef16f10c0db8d3caa87f4f396343b0c18a5f0388e5166f1b",
     "schema_version": 1,
-    "selection_root": "d092b319dc62528d63499cb467592f18e19e850cc0d07274407691d9e95a1c6f",
+    "selection_root": "40fd6cad7884f24d306dc3b8564c8bb36776735d55ee3871a74ef643ed8f659d",
     "selector_id": "portfolio-selector"
   }
 }

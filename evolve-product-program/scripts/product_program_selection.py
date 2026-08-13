@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -43,6 +44,14 @@ DIMENSIONS = (
     "expected_benefit",
 )
 DIMENSION_VALUES = {"adverse", "favorable", "mixed", "uncertain"}
+MATERIAL_ADJUDICATION_DIMENSIONS = {
+    "architecture_fit",
+    "integration_cost",
+    "opportunity_cost",
+    "protected_capability_effect",
+    "risk",
+    "uncertainty",
+}
 BUDGET_KEYS = {"execution_units", "exploration_units", "review_units"}
 DISPOSITION_PLACEMENTS = {
     "continue-program-unchanged": "none",
@@ -92,6 +101,11 @@ FORBIDDEN_KEYS = {
     "transcript",
     "weighted_score",
 }
+AUTHORITY_PREMISES = {
+    "irreversible-reserved-effect",
+    "product-purpose-change",
+    "user-specific-tradeoff",
+}
 
 
 def reject_forbidden(value: Any) -> None:
@@ -113,6 +127,17 @@ def id_list(value: Any, label: str, *, allowed: set[str] | None = None, empty: b
         raise ProductProgramError(f"{label} must not be empty")
     if result != sorted(set(result)):
         raise ProductProgramError(f"{label} must be sorted and unique")
+    if allowed is not None and not set(result) <= allowed:
+        raise ProductProgramError(f"{label} has a dangling reference")
+    return result
+
+
+def ordered_id_list(value: Any, label: str, *, allowed: set[str] | None = None) -> list[str]:
+    if not isinstance(value, list) or not value or len(value) > MAX_ITEMS:
+        raise ProductProgramError(f"{label} must be a bounded nonempty ID array")
+    result = [exact_id(item, f"{label} item") for item in value]
+    if len(result) != len(set(result)):
+        raise ProductProgramError(f"{label} must be unique")
     if allowed is not None and not set(result) <= allowed:
         raise ProductProgramError(f"{label} has a dangling reference")
     return result
@@ -155,20 +180,87 @@ def evidence_ids(packet: Mapping[str, Any]) -> set[str]:
     return result
 
 
+def normalize_capacity_source(packet: Mapping[str, Any], value: Any) -> dict[str, Any]:
+    item = exact_keys(
+        value,
+        {
+            "active_tracker_limit",
+            "budget",
+            "concurrency_limit",
+            "evidence_class",
+            "kind",
+            "schema_version",
+            "source_id",
+        },
+        "operator capacity source",
+    )
+    if item["schema_version"] != 1 or item["kind"] != "product-program-operator-capacity":
+        raise ProductProgramError("operator capacity source identity differs")
+    if item["evidence_class"] not in {"observed", "provider-reported"}:
+        raise ProductProgramError("operator capacity must not be presented from estimated evidence")
+    source_id = exact_id(item["source_id"], "operator capacity source ID")
+    retained = {entry["source_id"]: entry for entry in packet["resource_sources"]}
+    if source_id not in retained or retained[source_id]["evidence_class"] != item["evidence_class"]:
+        raise ProductProgramError("operator capacity source is not retained with its evidence class")
+    raw = canonical(value)
+    if retained[source_id]["sha256"] != hashlib.sha256(raw).hexdigest() or retained[source_id]["byte_length"] != len(raw):
+        raise ProductProgramError("operator capacity source bytes differ from the packet binding")
+    if type(item["active_tracker_limit"]) is not int or item["active_tracker_limit"] < 1 or type(item["concurrency_limit"]) is not int or item["concurrency_limit"] < 1:
+        raise ProductProgramError("operator tracker/concurrency ceilings are invalid")
+    return {
+        "active_tracker_limit": item["active_tracker_limit"],
+        "budget": budget(item["budget"], "operator budget ceiling"),
+        "concurrency_limit": item["concurrency_limit"],
+        "evidence_class": item["evidence_class"],
+        "evidence_ids": [source_id],
+        "source_root": hashlib.sha256(raw).hexdigest(),
+    }
+
+
+def adjudication_input_root(
+    packet: Mapping[str, Any],
+    reflection: Mapping[str, Any],
+    resource: Mapping[str, Any],
+    disposition: str,
+    selected: Sequence[str],
+    dimensions: Sequence[Mapping[str, Any]],
+    rejected: Sequence[Mapping[str, Any]],
+    ceiling: Mapping[str, Any],
+    lanes: Sequence[Mapping[str, Any]],
+    groups: Sequence[Mapping[str, Any]],
+) -> str:
+    """Root every consequential input without accepting an adjudicator assertion."""
+    return digest(
+        {
+            "capacity": ceiling,
+            "dimensions": list(dimensions),
+            "disposition": disposition,
+            "kind": "product-program-selection-adjudication-input",
+            "lanes": list(lanes),
+            "packet_root": packet["artifact_root"],
+            "reflection_root": reflection["artifact_root"],
+            "rejected_candidates": list(rejected),
+            "resource_evidence_root": resource["artifact_root"],
+            "scheduling_groups": list(groups),
+            "selected_candidate_ids": list(selected),
+        }
+    )
+
+
 def normalize_submission(
-    packet: Mapping[str, Any], reflection: Mapping[str, Any], resource: Mapping[str, Any], value: Any
+    packet: Mapping[str, Any], reflection: Mapping[str, Any], resource: Mapping[str, Any], capacity_source: Mapping[str, Any], value: Any
 ) -> dict[str, Any]:
     reject_forbidden(value)
     item = exact_keys(
         value,
         {
             "adjudication",
+            "authority_premise",
             "dimensions",
             "disposition",
             "early_stop_rules",
             "kind",
             "lanes",
-            "operator_ceiling",
             "packet_root",
             "reflection_root",
             "rejected_candidates",
@@ -248,29 +340,12 @@ def normalize_submission(
             "reason_id": entry["reason_id"],
         })
     rejected.sort(key=lambda entry: entry["candidate_id"])
-    if {entry["candidate_id"] for entry in rejected} != candidate_ids - set(selected):
+    if len({entry["candidate_id"] for entry in rejected}) != len(rejected) or {entry["candidate_id"] for entry in rejected} != candidate_ids - set(selected):
         raise ProductProgramError("selected and rejected candidates do not partition the candidate set")
 
-    ceiling_raw = exact_keys(item["operator_ceiling"], {"active_tracker_limit", "budget", "concurrency_limit", "evidence_class", "evidence_ids"}, "operator ceiling")
-    if ceiling_raw["evidence_class"] not in {"observed", "provider-reported"}:
-        raise ProductProgramError("operator capacity must not be presented from estimated evidence")
-    if type(ceiling_raw["active_tracker_limit"]) is not int or ceiling_raw["active_tracker_limit"] < 1 or type(ceiling_raw["concurrency_limit"]) is not int or ceiling_raw["concurrency_limit"] < 1:
-        raise ProductProgramError("operator tracker/concurrency ceilings are invalid")
-    ceiling = {
-        "active_tracker_limit": ceiling_raw["active_tracker_limit"],
-        "budget": budget(ceiling_raw["budget"], "operator budget ceiling"),
-        "concurrency_limit": ceiling_raw["concurrency_limit"],
-        "evidence_class": ceiling_raw["evidence_class"],
-        "evidence_ids": id_list(ceiling_raw["evidence_ids"], "operator ceiling evidence IDs", allowed=allowed_evidence),
-    }
-    retained_resource_classes = {
-        entry["source_id"]: entry["evidence_class"] for entry in packet["resource_sources"]
-    }
-    if not any(
-        retained_resource_classes.get(evidence_id) == ceiling["evidence_class"]
-        for evidence_id in ceiling["evidence_ids"]
-    ):
-        raise ProductProgramError("operator capacity class differs from retained resource evidence")
+    ceiling = normalize_capacity_source(packet, capacity_source)
+    placement = DISPOSITION_PLACEMENTS[disposition]
+    expected_owner = OWNER_BY_PLACEMENT[placement]
 
     lanes: list[dict[str, Any]] = []
     if not isinstance(item["lanes"], list) or len(item["lanes"]) > ceiling["active_tracker_limit"]:
@@ -281,8 +356,13 @@ def normalize_submission(
             raise ProductProgramError("portfolio lane Stop/rollback/revisit identifier is unsupported")
         lane_candidates = id_list(entry["candidate_ids"], "lane candidate IDs", allowed=set(selected))
         writer_id = exact_id(entry["writer_id"], "lane writer ID")
-        if writer_id == selector_id:
-            raise ProductProgramError("selector cannot become a portfolio writer")
+        integration_owner = exact_id(entry["integration_owner"], "lane integration owner")
+        if writer_id != expected_owner or integration_owner not in {"none", expected_owner}:
+            raise ProductProgramError("portfolio lane writer or integration owner differs from the fixed placement owner")
+        if placement == "current-block-owner" and any(candidates[candidate_id]["implementation_owner"] != writer_id for candidate_id in lane_candidates):
+            raise ProductProgramError("current-block lane writer differs from its candidate implementation owner")
+        if placement in {"current-program-author", "program-portfolio-author", "successor-program-author"} and any(candidates[candidate_id]["author_owner"] != writer_id for candidate_id in lane_candidates):
+            raise ProductProgramError("tracker lane writer differs from its candidate author owner")
         scopes = id_list(entry["writable_scopes"], "lane writable scopes")
         lanes.append({
             "budget": budget(entry["budget"], "lane budget"),
@@ -290,7 +370,7 @@ def normalize_submission(
             "dependency_lane_ids": id_list(entry["dependency_lane_ids"], "lane dependencies", empty=True),
             "evidence_ids": id_list(entry["evidence_ids"], "lane evidence IDs", allowed=allowed_evidence),
             "expected_effect_id": exact_id(entry["expected_effect_id"], "lane expected-effect ID"),
-            "integration_owner": exact_id(entry["integration_owner"], "lane integration owner"),
+            "integration_owner": integration_owner,
             "lane_id": exact_id(entry["lane_id"], "lane ID"),
             "revisit_id": entry["revisit_id"],
             "rollback_id": entry["rollback_id"],
@@ -326,11 +406,12 @@ def normalize_submission(
         raise ProductProgramError("scheduling groups must be an array")
     scheduled: list[str] = []
     lane_by_id = {entry["lane_id"]: entry for entry in lanes}
+    group_ids: list[str] = []
     for raw in item["scheduling_groups"]:
         entry = exact_keys(raw, {"group_id", "lane_ids", "mode"}, "scheduling group")
         if entry["mode"] not in {"parallel", "sequential"}:
             raise ProductProgramError("scheduling mode is unsupported")
-        ids = id_list(entry["lane_ids"], "scheduling group lanes", allowed=lane_ids)
+        ids = ordered_id_list(entry["lane_ids"], "scheduling group lanes", allowed=lane_ids)
         if entry["mode"] == "parallel" and len(ids) > ceiling["concurrency_limit"]:
             raise ProductProgramError("parallel group exceeds the concurrency ceiling")
         if entry["mode"] == "parallel":
@@ -344,30 +425,69 @@ def normalize_submission(
                     if overlap and (left["integration_owner"] == "none" or left["integration_owner"] != right["integration_owner"] or not overlap <= set(left["shared_resource_exclusions"]) or not overlap <= set(right["shared_resource_exclusions"])):
                         raise ProductProgramError("parallel lanes have overlapping writers without one integration owner and exclusions")
         scheduled.extend(ids)
-        groups.append({"group_id": exact_id(entry["group_id"], "scheduling group ID"), "lane_ids": ids, "mode": entry["mode"]})
+        group_id = exact_id(entry["group_id"], "scheduling group ID")
+        group_ids.append(group_id)
+        groups.append({"group_id": group_id, "lane_ids": ids, "mode": entry["mode"]})
+    if len(group_ids) != len(set(group_ids)):
+        raise ProductProgramError("scheduling group IDs must be unique")
     if scheduled != list(dict.fromkeys(scheduled)) or set(scheduled) != lane_ids:
         raise ProductProgramError("scheduling groups must cover every lane exactly once")
+    schedule_location = {
+        lane_id: (group_index, lane_index, group["mode"])
+        for group_index, group in enumerate(groups)
+        for lane_index, lane_id in enumerate(group["lane_ids"])
+    }
+    for lane in lanes:
+        group_index, lane_index, mode = schedule_location[lane["lane_id"]]
+        for dependency in lane["dependency_lane_ids"]:
+            dependency_group, dependency_index, _ = schedule_location[dependency]
+            if dependency_group > group_index or (dependency_group == group_index and (mode != "sequential" or dependency_index >= lane_index)):
+                raise ProductProgramError("portfolio schedule places a dependency after or alongside its dependent")
     if disposition == "continue-program-unchanged" and lanes:
         raise ProductProgramError("unchanged disposition cannot create a work lane")
     if disposition not in {"continue-program-unchanged", "safe-defer-open-fact-or-authority", "request-material-goal-authority"} and not lanes:
         raise ProductProgramError("active change disposition requires a portfolio lane")
 
-    adjudication_raw = exact_keys(item["adjudication"], {"adjudicator_id", "decision", "evidence_ids", "finding_ids", "required", "tradeoff_ids"}, "selection adjudication")
+    premise_raw = exact_keys(item["authority_premise"], {"evidence_ids", "kind"}, "authority premise")
+    premise_evidence = id_list(premise_raw["evidence_ids"], "authority premise evidence IDs", allowed=allowed_evidence, empty=True)
+    direct_authority_ids = {entry["source_id"] for entry in packet["product_sources"] if entry["evidence_class"] == "direct-authority"}
+    if disposition == "request-material-goal-authority":
+        if premise_raw["kind"] not in AUTHORITY_PREMISES or not set(premise_evidence) & direct_authority_ids:
+            raise ProductProgramError("material-goal authority request lacks a qualifying direct-authority premise")
+    elif premise_raw["kind"] != "none" or premise_evidence:
+        raise ProductProgramError("non-authority disposition must have an exact no-op authority premise")
+    authority_premise = {"evidence_ids": premise_evidence, "kind": premise_raw["kind"]}
+
+    material_tradeoffs = sorted(
+        f"{candidate_id}:{dimension}"
+        for candidate_id in selected
+        for dimension in MATERIAL_ADJUDICATION_DIMENSIONS
+        if by_candidate[candidate_id]["values"][dimension] in {"adverse", "uncertain"}
+    )
+    expected_reviewed_root = adjudication_input_root(packet, reflection, resource, disposition, selected, dimensions, rejected, ceiling, lanes, groups)
+    adjudication_raw = exact_keys(item["adjudication"], {"adjudicator_id", "decision", "finding_ids", "required", "review_root", "reviewed_input_root", "tradeoff_ids"}, "selection adjudication")
     if type(adjudication_raw["required"]) is not bool or adjudication_raw["decision"] not in {"accepted", "not-required", "rejected"}:
         raise ProductProgramError("selection adjudication state is invalid")
     adjudicator_id = exact_id(adjudication_raw["adjudicator_id"], "adjudicator ID")
     findings = id_list(adjudication_raw["finding_ids"], "adjudication finding IDs", empty=True)
     tradeoffs = id_list(adjudication_raw["tradeoff_ids"], "adjudication tradeoff IDs", empty=True)
-    adjudication_evidence = id_list(adjudication_raw["evidence_ids"], "adjudication evidence IDs", allowed=allowed_evidence, empty=True)
-    if adjudication_raw["required"]:
-        independent_reviews = {entry["source_id"] for entry in packet["reports"] if entry["evidence_class"] == "independent-review"}
-        if adjudicator_id in prohibited_roles | {selector_id} or adjudication_raw["decision"] != "accepted" or findings or not set(adjudication_evidence) & independent_reviews:
+    reviewed_input_root = exact_id(adjudication_raw["reviewed_input_root"], "adjudication reviewed-input root")
+    review_root = exact_id(adjudication_raw["review_root"], "adjudication review root")
+    required = bool(material_tradeoffs)
+    if adjudication_raw["required"] != required:
+        raise ProductProgramError("consequential adjudication requirement differs from the material dimension state")
+    if required:
+        if adjudicator_id != "consequential-max-adjudicator" or adjudicator_id in prohibited_roles | {selector_id} or adjudication_raw["decision"] != "accepted" or findings or tradeoffs != material_tradeoffs or reviewed_input_root != expected_reviewed_root:
             raise ProductProgramError("consequential adjudication is not independently accepted")
-    elif adjudication_raw["decision"] != "not-required" or adjudicator_id != "none" or findings or tradeoffs or adjudication_evidence:
+    elif adjudication_raw["decision"] != "not-required" or adjudicator_id != "none" or findings or tradeoffs or reviewed_input_root != "none":
         raise ProductProgramError("unneeded adjudication must be an exact no-op")
+    adjudication_without_root = {"adjudicator_id": adjudicator_id, "decision": adjudication_raw["decision"], "finding_ids": findings, "required": required, "reviewed_input_root": reviewed_input_root, "tradeoff_ids": tradeoffs}
+    if review_root != digest(adjudication_without_root):
+        raise ProductProgramError("selection adjudication review root is stale")
     early = id_list(item["early_stop_rules"], "early-stop rules", allowed=STOP_IDS)
     return {
-        "adjudication": {"adjudicator_id": adjudicator_id, "decision": adjudication_raw["decision"], "evidence_ids": adjudication_evidence, "finding_ids": findings, "required": adjudication_raw["required"], "tradeoff_ids": tradeoffs},
+        "adjudication": {**adjudication_without_root, "review_root": review_root},
+        "authority_premise": authority_premise,
         "dimensions": dimensions,
         "disposition": disposition,
         "early_stop_rules": early,
@@ -386,14 +506,14 @@ def authority() -> dict[str, Any]:
     return {"application_allowed": False, "direct_effects_allowed": False, "posture": "derived-nonauthorizing"}
 
 
-def build_artifacts(packet: Mapping[str, Any], inventory: Mapping[str, Any], reflection: Mapping[str, Any], resource_source: Mapping[str, Any], resource: Mapping[str, Any], submission: Mapping[str, Any]) -> dict[str, Any]:
+def build_artifacts(packet: Mapping[str, Any], inventory: Mapping[str, Any], reflection: Mapping[str, Any], resource_source: Mapping[str, Any], resource: Mapping[str, Any], capacity_source: Mapping[str, Any], submission: Mapping[str, Any]) -> dict[str, Any]:
     verify_packet(packet); verify_reflection(packet, reflection, inventory); verify_resource_evidence(packet, resource_source, resource)
-    normalized = normalize_submission(packet, reflection, resource, submission)
+    normalized = normalize_submission(packet, reflection, resource, capacity_source, submission)
     currentness_root = digest({"kind": "product-program-selection-currentness", "packet_currentness_root": packet["currentness_root"], "packet_root": packet["artifact_root"], "reflection_root": reflection["artifact_root"], "resource_evidence_root": resource["artifact_root"]})
     selection: dict[str, Any] = {
         "adjudicator_id": normalized["adjudication"]["adjudicator_id"], "authority": authority(), "currentness_root": currentness_root,
         "dimensions": normalized["dimensions"], "disposition": normalized["disposition"], "kind": "product-program-selection",
-        "packet_root": packet["artifact_root"], "rationale": {"adjudication": normalized["adjudication"], "selected_candidate_ids": normalized["selected_candidate_ids"]},
+        "packet_root": packet["artifact_root"], "rationale": {"adjudication": normalized["adjudication"], "authority_premise": normalized["authority_premise"], "selected_candidate_ids": normalized["selected_candidate_ids"]},
         "reflection_root": reflection["artifact_root"], "rejected_candidates": normalized["rejected_candidates"], "resource_evidence_root": resource["artifact_root"],
         "schema_version": 1, "selection_root": "", "selector_id": normalized["selector_id"],
     }
@@ -416,18 +536,18 @@ def build_artifacts(packet: Mapping[str, Any], inventory: Mapping[str, Any], ref
         "expected_effect": {"candidate_ids": normalized["selected_candidate_ids"], "evidence_posture": "falsifiable-derived-projection"},
         "handoff_root": "", "kind": "product-program-placement-handoff", "nonauthorization": "receiving-owner-must-revalidate",
         "owner": OWNER_BY_PLACEMENT[placement], "placement": placement, "portfolio_root": portfolio["portfolio_root"],
-        "preconditions": {"accepted_blocks": packet["range"]["accepted_blocks"], "currentness_root": currentness_root, "requested_blocks": packet["range"]["requested_blocks"], "resource_ceiling": normalized["operator_ceiling"], "source_roots": [packet["artifact_root"], reflection["artifact_root"], resource["artifact_root"]]},
+        "preconditions": {"accepted_blocks": packet["range"]["accepted_blocks"], "currentness_root": currentness_root, "requested_blocks": packet["range"]["requested_blocks"], "resource_ceiling": normalized["operator_ceiling"], "source_roots": [packet["artifact_root"], reflection["artifact_root"], resource["artifact_root"], normalized["operator_ceiling"]["source_root"]]},
         "schema_version": 1, "stop": "before-tracker-task-source-or-external-effect",
     }
     if set(handoff) != artifact_fields("product-program-placement-handoff"):
         raise ProductProgramError("handoff artifact differs from frozen schema")
     handoff["handoff_root"] = digest({key: handoff[key] for key in handoff if key != "handoff_root"})
     result = {"handoff": handoff, "portfolio": portfolio, "selection": selection}
-    verify_artifacts(packet, inventory, reflection, resource_source, resource, result)
+    verify_artifacts(packet, inventory, reflection, resource_source, resource, capacity_source, result)
     return result
 
 
-def verify_artifacts(packet: Mapping[str, Any], inventory: Mapping[str, Any], reflection: Mapping[str, Any], resource_source: Mapping[str, Any], resource: Mapping[str, Any], value: Mapping[str, Any]) -> dict[str, Any]:
+def verify_artifacts(packet: Mapping[str, Any], inventory: Mapping[str, Any], reflection: Mapping[str, Any], resource_source: Mapping[str, Any], resource: Mapping[str, Any], capacity_source: Mapping[str, Any], value: Mapping[str, Any]) -> dict[str, Any]:
     exact_keys(value, {"handoff", "portfolio", "selection"}, "selection artifact bundle")
     selection, portfolio, handoff = value["selection"], value["portfolio"], value["handoff"]
     exact_keys(selection, artifact_fields("product-program-selection"), "selection")
@@ -446,25 +566,25 @@ def verify_artifacts(packet: Mapping[str, Any], inventory: Mapping[str, Any], re
     rebuilt_submission = {
         "adjudication": selection["rationale"]["adjudication"], "dimensions": selection["dimensions"], "disposition": selection["disposition"],
         "early_stop_rules": portfolio["early_stop_rules"], "kind": "product-program-selection-submission", "lanes": portfolio["lanes"],
-        "operator_ceiling": handoff["preconditions"]["resource_ceiling"], "packet_root": selection["packet_root"], "reflection_root": selection["reflection_root"],
+        "authority_premise": selection["rationale"]["authority_premise"], "packet_root": selection["packet_root"], "reflection_root": selection["reflection_root"],
         "rejected_candidates": selection["rejected_candidates"], "resource_evidence_root": selection["resource_evidence_root"], "schema_version": 1,
         "scheduling_groups": portfolio["scheduling_groups"], "selected_candidate_ids": selection["rationale"]["selected_candidate_ids"], "selector_id": selection["selector_id"],
     }
-    rebuilt = build_artifacts_unverified(packet, reflection, resource, rebuilt_submission)
+    rebuilt = build_artifacts_unverified(packet, reflection, resource, capacity_source, rebuilt_submission)
     if rebuilt != value:
         raise ProductProgramError("selection bundle differs from deterministic reconstruction")
     return {"handoff_root": handoff["handoff_root"], "portfolio_root": portfolio["portfolio_root"], "selection_root": selection["selection_root"], "verified": True}
 
 
-def build_artifacts_unverified(packet: Mapping[str, Any], reflection: Mapping[str, Any], resource: Mapping[str, Any], submission: Mapping[str, Any]) -> dict[str, Any]:
-    normalized = normalize_submission(packet, reflection, resource, submission)
+def build_artifacts_unverified(packet: Mapping[str, Any], reflection: Mapping[str, Any], resource: Mapping[str, Any], capacity_source: Mapping[str, Any], submission: Mapping[str, Any]) -> dict[str, Any]:
+    normalized = normalize_submission(packet, reflection, resource, capacity_source, submission)
     currentness_root = digest({"kind": "product-program-selection-currentness", "packet_currentness_root": packet["currentness_root"], "packet_root": packet["artifact_root"], "reflection_root": reflection["artifact_root"], "resource_evidence_root": resource["artifact_root"]})
-    selection = {"adjudicator_id": normalized["adjudication"]["adjudicator_id"], "authority": authority(), "currentness_root": currentness_root, "dimensions": normalized["dimensions"], "disposition": normalized["disposition"], "kind": "product-program-selection", "packet_root": packet["artifact_root"], "rationale": {"adjudication": normalized["adjudication"], "selected_candidate_ids": normalized["selected_candidate_ids"]}, "reflection_root": reflection["artifact_root"], "rejected_candidates": normalized["rejected_candidates"], "resource_evidence_root": resource["artifact_root"], "schema_version": 1, "selection_root": "", "selector_id": normalized["selector_id"]}
+    selection = {"adjudicator_id": normalized["adjudication"]["adjudicator_id"], "authority": authority(), "currentness_root": currentness_root, "dimensions": normalized["dimensions"], "disposition": normalized["disposition"], "kind": "product-program-selection", "packet_root": packet["artifact_root"], "rationale": {"adjudication": normalized["adjudication"], "authority_premise": normalized["authority_premise"], "selected_candidate_ids": normalized["selected_candidate_ids"]}, "reflection_root": reflection["artifact_root"], "rejected_candidates": normalized["rejected_candidates"], "resource_evidence_root": resource["artifact_root"], "schema_version": 1, "selection_root": "", "selector_id": normalized["selector_id"]}
     selection["selection_root"] = digest({key: selection[key] for key in selection if key != "selection_root"})
     placement = DISPOSITION_PLACEMENTS[normalized["disposition"]]
     portfolio = {"aggregate_budget": normalized["aggregate_budget"], "authority": authority(), "currentness_root": currentness_root, "dependency_edges": sorted([[dependency, lane["lane_id"]] for lane in normalized["lanes"] for dependency in lane["dependency_lane_ids"]]), "disposition": normalized["disposition"], "early_stop_rules": normalized["early_stop_rules"], "kind": "product-program-portfolio", "lanes": normalized["lanes"], "placement": placement, "portfolio_root": "", "scheduling_groups": normalized["scheduling_groups"], "schema_version": 1, "selection_root": selection["selection_root"], "unused_capacity": normalized["unused_capacity"]}
     portfolio["portfolio_root"] = digest({key: portfolio[key] for key in portfolio if key != "portfolio_root"})
-    handoff = {"authority": authority(), "currentness_root": currentness_root, "disposition": normalized["disposition"], "expected_effect": {"candidate_ids": normalized["selected_candidate_ids"], "evidence_posture": "falsifiable-derived-projection"}, "handoff_root": "", "kind": "product-program-placement-handoff", "nonauthorization": "receiving-owner-must-revalidate", "owner": OWNER_BY_PLACEMENT[placement], "placement": placement, "portfolio_root": portfolio["portfolio_root"], "preconditions": {"accepted_blocks": packet["range"]["accepted_blocks"], "currentness_root": currentness_root, "requested_blocks": packet["range"]["requested_blocks"], "resource_ceiling": normalized["operator_ceiling"], "source_roots": [packet["artifact_root"], reflection["artifact_root"], resource["artifact_root"]]}, "schema_version": 1, "stop": "before-tracker-task-source-or-external-effect"}
+    handoff = {"authority": authority(), "currentness_root": currentness_root, "disposition": normalized["disposition"], "expected_effect": {"candidate_ids": normalized["selected_candidate_ids"], "evidence_posture": "falsifiable-derived-projection"}, "handoff_root": "", "kind": "product-program-placement-handoff", "nonauthorization": "receiving-owner-must-revalidate", "owner": OWNER_BY_PLACEMENT[placement], "placement": placement, "portfolio_root": portfolio["portfolio_root"], "preconditions": {"accepted_blocks": packet["range"]["accepted_blocks"], "currentness_root": currentness_root, "requested_blocks": packet["range"]["requested_blocks"], "resource_ceiling": normalized["operator_ceiling"], "source_roots": [packet["artifact_root"], reflection["artifact_root"], resource["artifact_root"], normalized["operator_ceiling"]["source_root"]]}, "schema_version": 1, "stop": "before-tracker-task-source-or-external-effect"}
     handoff["handoff_root"] = digest({key: handoff[key] for key in handoff if key != "handoff_root"})
     return {"handoff": handoff, "portfolio": portfolio, "selection": selection}
 
@@ -475,6 +595,7 @@ def parser() -> argparse.ArgumentParser:
         command = commands.add_parser(name)
         command.add_argument("--packet", required=True); command.add_argument("--inventory", required=True); command.add_argument("--reflection", required=True)
         command.add_argument("--resource-source", required=True); command.add_argument("--resource-evidence", required=True)
+        command.add_argument("--capacity-source", required=True)
         command.add_argument("--submission" if name == "build" else "--bundle", required=True)
     return result
 
@@ -484,9 +605,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         packet=read_json_file(args.packet,"packet"); inventory=read_json_file(args.inventory,"inventory"); reflection=read_json_file(args.reflection,"reflection")
         source=read_json_file(args.resource_source,"resource source"); resource=read_json_file(args.resource_evidence,"resource evidence")
-        if args.command == "build": output={"action":"portfolio-handoff-ready","bundle":build_artifacts(packet,inventory,reflection,source,resource,read_json_file(args.submission,"selection submission"))}
+        capacity=read_json_file(args.capacity_source,"operator capacity source")
+        if args.command == "build": output={"action":"portfolio-handoff-ready","bundle":build_artifacts(packet,inventory,reflection,source,resource,capacity,read_json_file(args.submission,"selection submission"))}
         else:
-            bundle=read_json_file(args.bundle,"selection bundle"); verified=verify_artifacts(packet,inventory,reflection,source,resource,bundle)
+            bundle=read_json_file(args.bundle,"selection bundle"); verified=verify_artifacts(packet,inventory,reflection,source,resource,capacity,bundle)
             output=verified if args.command == "verify" else {"action":"selection-bundle-reused","bundle":bundle,"cognitive_work_started":False,"model_calls":0,**verified}
     except (OSError,ProductProgramError) as exc:
         print(json.dumps({"error":str(exc)},sort_keys=True),file=sys.stderr); return 2

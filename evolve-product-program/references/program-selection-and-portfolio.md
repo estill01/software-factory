@@ -24,25 +24,43 @@ expected benefit, non-adverse coordination cost, and no adverse protected-
 capability effect. `continue-program-unchanged` selects only the no-change
 candidate and creates no lane.
 
-When current evidence cannot resolve a material placement or tradeoff, a
-separately attributed consequential adjudicator must accept the exact tradeoff
-set with no open findings. The adjudicator cannot be the selector or any upstream
-or downstream owner. Otherwise adjudication is an exact no-op.
+Adverse or uncertain risk, architecture-fit, integration-cost, opportunity-cost,
+protected-capability, or uncertainty dimensions on a selected candidate derive
+the exact material-tradeoff set; callers cannot suppress the review requirement.
+The fixed consequential Max adjudicator must accept the exact rooted selection
+input and tradeoff set with no open findings, and its receipt has its own exact
+root. The adjudicator cannot be the selector or any upstream or downstream
+owner. When the derived tradeoff set is empty, adjudication is an exact rooted
+no-op.
+
+`request-material-goal-authority` is available only with a closed, explicit
+irreversible-effect, product-purpose-change, or user-specific-tradeoff premise
+that cites retained direct-authority evidence. The output remains nonauthorizing
+and routes the exact premise to the direct user. Other dispositions require an
+exact no-op premise.
 
 ## Resource, DAG, and scheduling boundary
 
-Operator ceilings must be observed or provider-reported; estimated capacity
-cannot masquerade as actual availability. Each lane declares candidate IDs,
-one writer, writable scopes, evidence, expected effect, dependency lanes,
+Operator ceilings come from a separate canonical capacity manifest whose exact
+bytes, evidence class, and identity are hash- and length-bound to a retained
+packet resource source. Submission callers do not provide numeric ceilings.
+Capacity must be observed or provider-reported; estimated capacity cannot
+masquerade as actual availability. Each lane declares candidate IDs, one writer,
+writable scopes, evidence, expected effect, dependency lanes,
 exploration/execution/review budget, integration owner, shared-resource
 exclusions, Stop, rollback/retirement, and revisit trigger. Aggregate budgets
 must remain within current ceilings and unused capacity is retained explicitly.
+Lane writers and any integration owner must match the fixed placement owner and,
+for implementation or tracker-authoring placements, the candidate's declared
+implementation or author owner.
 
-The dependency graph must be acyclic. Scheduling groups cover every lane exactly
-once. Parallel lanes cannot depend on each other, cannot exceed concurrency, and
-must have disjoint writable scopes unless one exact integration owner plus
-explicit shared-resource exclusions contains the overlap. Capacity never creates
-relevance, authority, or a requirement to select multiple candidates.
+The dependency graph must be acyclic. Unique scheduling groups cover every lane
+exactly once, and each dependency must occur in an earlier group or earlier in
+the same sequential group. Parallel lanes cannot depend on each other, cannot
+exceed concurrency, and must have disjoint writable scopes unless one exact
+placement-bound integration owner plus explicit shared-resource exclusions
+contains the overlap. Capacity never creates relevance, authority, or a
+requirement to select multiple candidates.
 
 ## Placement and current work
 
