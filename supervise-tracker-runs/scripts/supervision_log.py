@@ -10490,12 +10490,12 @@ def software_factory_release_source(
         raise SupervisionLogError(
             "Software Factory release repository is not the exact Git top level"
         )
-    head = software_factory_release_git(
-        repository, "rev-parse", "--verify", "HEAD^{commit}"
+    resolved_commit = software_factory_release_git(
+        repository, "rev-parse", "--verify", f"{source_commit}^{{commit}}"
     )
-    if head != source_commit:
+    if resolved_commit != source_commit:
         raise SupervisionLogError(
-            "Software Factory release acceptance is stale for the current HEAD"
+            "Software Factory release source does not resolve exactly"
         )
     if software_factory_release_git(
         repository, "status", "--porcelain=v1", "--untracked-files=all"
@@ -10561,6 +10561,17 @@ def software_factory_release_acceptance(
     if not source_reviews or source_reviews[-1].get("record_id") != record_id:
         raise SupervisionLogError(
             "Software Factory release acceptance is not the current exact review"
+        )
+    accepted_reviews = [
+        item
+        for item in all_events
+        if item.get("kind") == "checkpoint-review"
+        and item.get("category") == SOFTWARE_FACTORY_RELEASE_ACCEPTANCE_CATEGORY
+        and item.get("status") == "accepted"
+    ]
+    if not accepted_reviews or accepted_reviews[-1].get("record_id") != record_id:
+        raise SupervisionLogError(
+            "Software Factory release acceptance was superseded by a newer accepted revision"
         )
     evidence = record.get("evidence")
     reviewer_values = [

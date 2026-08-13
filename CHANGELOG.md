@@ -41,7 +41,7 @@ the completed program materially changes Software Factory.
 
 - **Exact-acceptance-triggered release orchestration.** The supervision owner
   now consumes one canonical policy-bound base-or-Max acceptance for the exact
-  clean source HEAD/tree, invokes only the flagless `skill_release.py promote`
+  clean source revision/tree, invokes only the flagless `skill_release.py promote`
   owner, revalidates its returned active release and three installed roots
   through live status, and retains one deduplicated result. Missing, stale,
   changed-byte, unbound-review, divergent-result, and caller-selected release

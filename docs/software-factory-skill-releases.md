@@ -114,7 +114,7 @@ to `releases/<release-id>` directories:
 After an exact accepted commit is available locally, supervision retains its
 policy-bound `software-factory-release-acceptance` checkpoint and runs
 `supervision_log.py software-factory-release-promote`. That seam accepts only
-the exact clean HEAD and canonical acceptance record, invokes the ordinary
+the exact clean revision and current canonical acceptance record, invokes the ordinary
 owner's flagless `skill_release.py promote --repo ... --source-commit ...`, and
 revalidates the returned active identity and three installed roots through live
 owner status. Identical accepted revisions reuse the one retained promotion;

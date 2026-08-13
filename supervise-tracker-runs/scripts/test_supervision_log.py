@@ -4470,7 +4470,7 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
             self.promote(wrong_tree)
         self.assertEqual(self.owner_actions, [])
 
-    def test_acceptance_for_nonhead_commit_is_stale(self) -> None:
+    def test_newer_accepted_revision_supersedes_prior_acceptance(self) -> None:
         accepted = self.acceptance()
         self.repo.joinpath("later.txt").write_text("later\n", encoding="utf-8")
         subprocess.run(
@@ -4481,16 +4481,85 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
             ["/usr/bin/git", "-C", str(self.repo), "commit", "-qm", "later"],
             check=True,
         )
+        later_source = subprocess.run(
+            ["/usr/bin/git", "-C", str(self.repo), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        later_tree = subprocess.run(
+            ["/usr/bin/git", "-C", str(self.repo), "rev-parse", "HEAD^{tree}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        self.call(
+            "record",
+            "--target-thread",
+            self.target,
+            "--kind",
+            "checkpoint-review",
+            "--status",
+            "accepted",
+            "--category",
+            supervision_log.SOFTWARE_FACTORY_RELEASE_ACCEPTANCE_CATEGORY,
+            "--model",
+            "gpt-5.6-sol",
+            "--reasoning",
+            "max",
+            "--summary",
+            "A newer exact source revision was independently accepted.",
+            "--evidence",
+            f"source-commit:{later_source}",
+            "--evidence",
+            f"source-tree:{later_tree}",
+            "--evidence",
+            f"reviewer-thread:{self.reviewer}",
+            "--evidence",
+            "review-findings:none",
+        )
         with mock.patch.object(
             supervision_log,
             "run_software_factory_release_owner",
             side_effect=self.fake_owner,
         ):
             with self.assertRaisesRegex(
-                supervision_log.SupervisionLogError, "stale for the current HEAD"
+                supervision_log.SupervisionLogError, "superseded"
             ):
                 self.promote(accepted)
         self.assertEqual(self.owner_actions, [])
+
+    def test_later_unaccepted_push_does_not_block_exact_acceptance(self) -> None:
+        accepted = self.acceptance()
+        self.repo.joinpath("unaccepted.txt").write_text(
+            "unaccepted\n", encoding="utf-8"
+        )
+        subprocess.run(
+            ["/usr/bin/git", "-C", str(self.repo), "add", "unaccepted.txt"],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "/usr/bin/git",
+                "-C",
+                str(self.repo),
+                "commit",
+                "-qm",
+                "unaccepted successor",
+            ],
+            check=True,
+        )
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            result = self.promote(accepted)
+        self.assertFalse(result["duplicate"])
+        self.assertEqual(self.owner_actions, ["promote", "status"])
+        self.assertEqual(
+            result["promotion"]["source_commit"], self.source
+        )
 
     def test_owner_invocation_is_exactly_flagless(self) -> None:
         completed = subprocess.CompletedProcess(

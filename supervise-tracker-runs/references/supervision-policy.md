@@ -1153,7 +1153,7 @@ python3 <LOG_HELPER> software-factory-release-promote \
   --acceptance-record <CHECKPOINT_REVIEW_EVENT>
 ```
 
-The command rejects dirty/non-HEAD source, changed tree, unbound or nonaccepted
+The command rejects dirty or unresolved source, changed tree, unbound or nonaccepted
 review, and caller-selected activated identity. It invokes exactly
 `scripts/skill_release.py promote --repo <repo> --source-commit <commit>` without
 another user confirmation, parses the bounded owner result, reopens live owner
