@@ -183,7 +183,7 @@ make their composition automatic and fail closed.
 |---:|---|---:|---|
 | 0 | Freeze integrated baseline and ownership contract | — | `completed` |
 | 1 | Make existing range admission and runtime gates unavoidable | 0 | `completed` |
-| 2 | Implement exact-acceptance-triggered release orchestration | 1 | `in-progress` |
+| 2 | Implement exact-acceptance-triggered release orchestration | 1 | `completed` |
 | 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `not-started` |
 | 4 | Verify health and recover through release-owner rollback | 3 | `not-started` |
 | 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `not-started` |
@@ -456,7 +456,7 @@ Stop before invoking the release primitive.
 
 ## Block 2 — Implement exact-acceptance-triggered release orchestration
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -555,6 +555,120 @@ Mocked owner-boundary tests plus an exact local promotion in Block 6.
   `17/17`; mapped supervision passed `386/386`; all three fixed skill validators,
   Python compilation, diff checks, and the full eight-Block tracker verifier
   passed. Exact independent review is pending; Block 2 remains `in-progress`.
+- Rejected-review correction for `f1256468` (the earlier three-condition
+  summary was incomplete):
+  - `B2-F01` — Invariant: callers cannot select a release identity or bypass
+    the normal promotion owner. Input condition: public
+    `--manual-pin-release`. Expected rejection: parser rejects the caller
+    identity. Verification evidence: exact review observed the flag bypassing
+    promotion; the successor removes it and its negative regression passes.
+  - `B2-F02` — Invariant: accepted source HEAD/tree and clean bytes remain
+    current at the owner and append boundaries. Input condition: clean HEAD
+    advancement or dirty bytes after preflight. Expected rejection or retained
+    result: no stale success. Verification evidence: exact review promoted the
+    old source; successor races at both boundaries now reject or retain one
+    currentness-rejected result.
+  - `B2-F03` — Invariant: preflight and owner use one fixed runtime/Git and
+    installation identity. Input condition: ambient `PATH`, `HOME`,
+    `PYTHONPATH`, or `GIT_*`. Expected rejection or normalization: caller
+    environment cannot redirect the owner. Verification evidence: exact review
+    found an inherited owner environment; the accepted successor uses the
+    canonical operating-system home plus a minimal fixed environment.
+  - `B2-F04` — Invariant: frozen proof counts are exact. Input condition: the
+    claimed `16/16` orchestration/policy proof. Expected result: the exact tree
+    reproduces the stated count. Verification evidence: review obtained
+    `15/16`; maintained prose and policy regression were aligned before the
+    successor proof.
+  - `B2-F05` — Invariant: an owner effect is always durably reconciled even if
+    acceptance currentness changes during the call. Input condition: a later
+    rejecting review appears after promotion but before result append. Expected
+    result: one canonical success or currentness rejection and idempotent
+    recovery. Verification evidence: review observed an activation with no
+    record; the successor retains a pre-effect requirement, serializes the
+    boundary, and rehydrates completed effects from status.
+- Rejected evidence checkpoint:
+  `f505756386d78c2879c3622498b76d4a13c5a154`, tree
+  `d868d1a55ae081291809ad02ac56223acdf2610a`:
+  - `B2-F06` — alternate caller `HOME`/`PYTHONPATH` could redirect otherwise
+    valid owner results; the accepted successor fixes the canonical account and
+    minimal environment.
+  - `B2-F07` — policy could advance after acceptance without retiring it; the
+    accepted successor requires the event policy to remain current.
+  - `B2-F08` — tracker counts `17/17` and `386/386` did not match the exact tree;
+    the accepted successor records the executed and countable proof exactly.
+  - `B2-F09` — the prior `f125` summary omitted material findings; this current
+    record preserves all five as `B2-F01`–`B2-F05`.
+  Invariant: owner environment, acceptance policy, validation counts, and
+  rejected history are exact. Expected rejection: any mismatch prevents
+  completion. Verification evidence: independent review reproduced all four,
+  so `f505756` remains rejected.
+- Rejected source checkpoint:
+  `c7a92c7943938ebfe732ae1f1f361e402c49189f`, tree
+  `f547e8e9679fedd36e462dd3a4fdcc887e1eade5`. `B2-F10` invariant: the
+  requirement permits exactly one transition from its retained predecessor. Input condition: a
+  distinct release-owner transition changes that predecessor after status but
+  before promotion, yielding prior history plus two. Expected result: no
+  unrecorded effect or second retry. Verification evidence: review observed the
+  accepted source active with neither success nor rejection record; the
+  successor retains the observed predecessor/history mismatch as one canonical
+  currentness rejection and retry performs no owner call.
+- Accepted implementation source:
+  `f13002e9a8c2c17a7981aec9b74908d7f14ed0d6`, tree
+  `ff6615b1593c8ecf521225e7133b4d8ddca46ae4`. It consumes only a current
+  reviewer-signed exact acceptance, invokes the fixed-environment flagless
+  owner, retains the prior release/source/three installed roots/verification
+  root/history before the effect, permits a linear current-acceptance
+  supersession only before any effect, and records success or one durable
+  currentness rejection for every observed owner effect. Identical retries do
+  not repeat promotion.
+- Focused and mapped validation: orchestration `22/22`, user-facing policy
+  `6/6`, combined `28/28`, full supervision `391/391`, implementation range
+  `55/55`, release owner `21/21`, implementation skill `69/69`, and tracker
+  authoring `30/30`; full-profile tracker verification, Python compilation, and
+  diff checks passed. The latter three unchanged owner trees reuse their exact
+  passing proof because `f13002e` changes only supervision-owned surfaces.
+- Product-capability review:
+  - Trigger: Block 2 is consequential because it converts exact acceptance into
+    an ordinary local release effect without a manual activation handoff.
+  - Frame identity:
+    `docs/software-factory-automatic-release-and-supervisor-refresh-implementation-tracker.md`,
+    tracker-level capability frame SHA-256
+    `ec8d90164c440c07c612794ac1a5e0ca52dfd228b58dd3895fbf88437763942e`.
+  - Capability added or preserved: a current independently accepted exact
+    source enters one recoverable existing-owner promotion, while the release
+    pointer, installation, verification, and history remain solely release-owner
+    outputs.
+  - Paths compared: direct caller invocation of the primitive without durable
+    orchestration; a new release/pointer service; the selected canonical
+    supervision event owner composed with the existing flagless release owner.
+  - Selected level and owner: the existing architectural owners. Supervision
+    owns acceptance/currentness/requirement/result records; `skill_release.py`
+    alone owns validation, sealing, pointer mutation, installed-root
+    verification, and release history.
+  - Protected-capability result: caller release identities and manual-pin input
+    reject; exact source, policy, signed reviewer provenance, predecessor, three
+    installed roots, verification root, and one history transition are checked;
+    interruption and changed currentness retain an idempotent disposition.
+  - Rejected alternatives: a direct primitive call loses interruption and
+    acceptance lineage; a second release service duplicates pointer ownership;
+    supervisor pointer writes violate the single-writer boundary.
+  - Tradeoffs and uncertainty: the event-owner lock spans one bounded local
+    owner effect so acceptance cannot advance between check and result. A
+    concurrent normal release transition is not hidden; it becomes a durable
+    rejection requiring a later accepted source rather than inferred success.
+  - Frozen-candidate proof: exact `f13002e`, tree `ff6615b1…`, focused `28/28`,
+    full supervision `391/391`, range `55/55`, and independent exact review with
+    no material findings.
+- Independent review: exact `f13002e` accepted with no material findings after
+  replaying `B2-F01`–`B2-F10`, including the prior-plus-two release-owner
+  interleaving and idempotent rejected-effect retry.
+- Retained open work: Blocks 3–7 only; no running supervisor, release pointer,
+  policy, automation, or Gmail state changed in Block 2.
+- Post-block audit: accepted; Block 3 remains untouched and Block 5 remains the
+  other dependency-safe frontier.
+- Git durability: every source correction and this tracker closure are separate
+  cohesive non-force-pushed checkpoints on
+  `origin/codex/delegated-authority-integration-corrected`.
 
 ### Stop
 
