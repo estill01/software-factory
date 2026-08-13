@@ -69,6 +69,41 @@ EXPECTED_ARTIFACT_SCHEMA_FIELDS = {
         "resource_evidence_root schema_version selection_root selector_id".split()
     ),
 }
+EXPECTED_CHECKPOINT_INPUT_SCHEMA = set(
+    "current_outcome mission prior_checkpoint_identity product_sources profile "
+    "protected_capabilities range reports repository resource_sources "
+    "schema_version supervision tracker".split()
+)
+EXPECTED_INTERFACES = {
+    "author-implementation-trackers": {
+        "apply_effect": False,
+        "consumer": "tracker-author",
+        "input_kind": "product-program-placement-handoff",
+        "output_kind": "author-owned-program-revision-or-tracker",
+        "revalidates": ["authority", "currentness_root", "mission", "range", "source_roots"],
+    },
+    "implement-tracker-blocks": {
+        "apply_effect": False,
+        "consumer": "implementation-owner",
+        "input_kind": "product-program-placement-handoff",
+        "output_kind": "implementation-owner-decision",
+        "revalidates": ["authority", "currentness_root", "mission", "range", "stop"],
+    },
+    "release-and-external-effect-owners": {
+        "apply_effect": False,
+        "consumer": "release-external-effect-owner",
+        "input_kind": "none",
+        "output_kind": "none",
+        "revalidates": [],
+    },
+    "supervise-tracker-runs": {
+        "apply_effect": False,
+        "consumer": "supervision-owner",
+        "input_kind": "product-program-checkpoint-request",
+        "output_kind": "canonical-source-identities-only",
+        "revalidates": ["mission", "policy_head", "event_head", "target_identity"],
+    },
+}
 
 
 def validate_contract(value: dict[str, object]) -> None:
@@ -99,6 +134,13 @@ def validate_contract(value: dict[str, object]) -> None:
             raise ValueError(f"{kind} omits common identity fields")
         if not any(field.endswith("_root") for field in fields if field != "currentness_root"):
             raise ValueError(f"{kind} omits its artifact root")
+    checkpoint = value.get("checkpoint_input_schema")
+    if (
+        not isinstance(checkpoint, list)
+        or checkpoint != sorted(set(checkpoint))
+        or set(checkpoint) != EXPECTED_CHECKPOINT_INPUT_SCHEMA
+    ):
+        raise ValueError("checkpoint input schema differs")
     transitions = value.get("state_transitions")
     if not isinstance(transitions, list) or not transitions:
         raise ValueError("transitions missing")
@@ -106,19 +148,8 @@ def validate_contract(value: dict[str, object]) -> None:
         if not isinstance(transition, dict) or set(transition) != {"from", "stop", "to"} or not transition["stop"]:
             raise ValueError("every transition needs one exact Stop")
     interfaces = value.get("interfaces")
-    expected_interfaces = {
-        "author-implementation-trackers",
-        "implement-tracker-blocks",
-        "release-and-external-effect-owners",
-        "supervise-tracker-runs",
-    }
-    if not isinstance(interfaces, dict) or set(interfaces) != expected_interfaces:
+    if not isinstance(interfaces, dict) or interfaces != EXPECTED_INTERFACES:
         raise ValueError("sibling interfaces differ")
-    for interface in interfaces.values():
-        if set(interface) != {"apply_effect", "consumer", "input_kind", "output_kind", "revalidates"}:
-            raise ValueError("interface schema differs")
-        if interface["apply_effect"] is not False:
-            raise ValueError("derived interface cannot apply an effect")
 
 
 class ProductProgramContractTests(unittest.TestCase):
@@ -182,8 +213,18 @@ class ProductProgramContractTests(unittest.TestCase):
 
         effect = deepcopy(CONTRACT_FIXTURE)
         effect["interfaces"]["author-implementation-trackers"]["apply_effect"] = True
-        with self.assertRaisesRegex(ValueError, "cannot apply"):
+        with self.assertRaisesRegex(ValueError, "sibling interfaces"):
             validate_contract(effect)
+
+        changed_consumer = deepcopy(CONTRACT_FIXTURE)
+        changed_consumer["interfaces"]["implement-tracker-blocks"]["consumer"] = "portfolio-selector"
+        with self.assertRaisesRegex(ValueError, "sibling interfaces"):
+            validate_contract(changed_consumer)
+
+        missing_checkpoint_field = deepcopy(CONTRACT_FIXTURE)
+        missing_checkpoint_field["checkpoint_input_schema"].remove("range")
+        with self.assertRaisesRegex(ValueError, "checkpoint input"):
+            validate_contract(missing_checkpoint_field)
 
     def test_invalid_roles_and_stops_are_rejected(self) -> None:
         missing_role = deepcopy(CONTRACT_FIXTURE)
