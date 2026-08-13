@@ -581,7 +581,128 @@ class TerminalReportIntegrationTests(unittest.TestCase):
             ):
                 with redirect_stdout(shutdown_output):
                     supervision_log.cmd_terminal_shutdown(shutdown)
-            self.assertFalse(json.loads(shutdown_output.getvalue())["duplicate"])
+                shutdown_result = json.loads(shutdown_output.getvalue())
+                self.assertFalse(shutdown_result["duplicate"])
+                self.assertEqual(
+                    shutdown_result["record"]["supervision_status"], "terminated"
+                )
+                self.assertEqual(
+                    shutdown_result["record"]["automation_count"], 4
+                )
+                policy = supervision_log.read_json(root / TARGET / "policy.json")
+                self.assertTrue(
+                    supervision_log.terminal_shutdown_receipt_is_current(
+                        policy, shutdown_result["record"]
+                    )
+                )
+                changed = (
+                    automation_root
+                    / after["pause_automation_ids"][0]
+                    / "automation.toml"
+                )
+                changed.write_text(
+                    changed.read_text(encoding="utf-8").replace(
+                        'prompt = "terminal test"',
+                        'prompt = "changed after shutdown"',
+                    ),
+                    encoding="utf-8",
+                )
+                self.assertFalse(
+                    supervision_log.terminal_shutdown_receipt_is_current(
+                        policy, shutdown_result["record"]
+                    )
+                )
+
+    def test_shutdown_rejects_lifecycle_reopen_after_delivery(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prepared, _review, verified = self.finalized_reports(root)
+            policy = supervision_log.read_json(root / TARGET / "policy.json")
+            delivery = argparse.Namespace(
+                root=str(root),
+                target_thread=TARGET,
+                report_set_id=prepared["report_set_id"],
+                gmail_readback_base64=gmail_readback(
+                    verified=verified, policy=policy
+                ),
+            )
+            with redirect_stdout(io.StringIO()):
+                supervision_log.cmd_terminal_report_delivery(delivery)
+            supervision_log.append_raw(
+                root / TARGET / "events.jsonl",
+                {
+                    "schema_version": 1,
+                    "record_id": "EVT-000004",
+                    "timestamp": "2026-08-01T02:00:00+00:00",
+                    "target_thread_id": TARGET,
+                    "kind": "lifecycle",
+                    "state_fingerprint": "state-reopened-1234",
+                    "status": "in-progress",
+                    "policy_sha256": policy["policy_sha256"],
+                },
+            )
+            shutdown = argparse.Namespace(
+                root=str(root),
+                target_thread=TARGET,
+                lifecycle_record="EVT-000002",
+                report_set_id=prepared["report_set_id"],
+            )
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "current completed lifecycle",
+            ):
+                supervision_log.cmd_terminal_shutdown(shutdown)
+
+    def test_shutdown_rejects_remaining_range_or_nonterminal_control(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prepared, _review, verified = self.finalized_reports(root)
+            policy = supervision_log.read_json(root / TARGET / "policy.json")
+            delivery = argparse.Namespace(
+                root=str(root),
+                target_thread=TARGET,
+                report_set_id=prepared["report_set_id"],
+                gmail_readback_base64=gmail_readback(
+                    verified=verified, policy=policy
+                ),
+            )
+            with redirect_stdout(io.StringIO()):
+                supervision_log.cmd_terminal_report_delivery(delivery)
+            shutdown = argparse.Namespace(
+                root=str(root),
+                target_thread=TARGET,
+                lifecycle_record="EVT-000002",
+                report_set_id=prepared["report_set_id"],
+            )
+            with (
+                mock.patch.object(
+                    supervision_log,
+                    "implementation_range_state",
+                    return_value={"remaining_blocks": [7]},
+                ),
+                self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "complete implementation range",
+                ),
+            ):
+                supervision_log.cmd_terminal_shutdown(shutdown)
+            with (
+                mock.patch.object(
+                    supervision_log,
+                    "implementation_range_state",
+                    return_value=None,
+                ),
+                mock.patch.object(
+                    supervision_log,
+                    "reduce_control_posture",
+                    return_value={"required_target_posture": "in-progress"},
+                ),
+                self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "completed governing control posture",
+                ),
+            ):
+                supervision_log.cmd_terminal_shutdown(shutdown)
 
     def test_delivery_rejects_claim_without_gmail_readback(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

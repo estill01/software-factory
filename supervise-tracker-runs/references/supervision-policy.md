@@ -457,7 +457,12 @@ After that gate passes, pause every exact automation returned in
 reads each exact maintained Codex `automation.toml` owner directly; it accepts
 only the complete bound set in `PAUSED` state with owner update times no earlier
 than report delivery. Caller-asserted `ID=PAUSED` strings, missing owners, active
-states, path escapes, or stale pauses fail closed. The reports and email remain
+states, path escapes, or stale pauses fail closed. At that final write boundary
+it revalidates the latest completed lifecycle, current observable-outcome proof,
+complete implementation range when one is bound, and completed governing
+control posture. The receipt marks supervision `terminated`, and `status`
+projects that state only while the same completed lifecycle remains current.
+The reports and email remain
 derived evidence; they do not become another completion authority, patent
 record, legal conclusion, or filing/release approval.
 

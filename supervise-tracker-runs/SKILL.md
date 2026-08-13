@@ -292,6 +292,11 @@ Repeat independently for additional targets.
   supervision automation, then run `terminal-shutdown`. The helper reads the
   maintained Codex automation owner files directly and requires every exact
   bound automation to be paused by an update no earlier than report delivery.
+  At that final write boundary it revalidates the latest completed lifecycle,
+  current observable-outcome proof, complete implementation range when one is
+  bound, and completed governing control posture. Its canonical receipt marks
+  the supervision monitor `terminated`; `status` projects that state only while
+  the same completed lifecycle remains current.
   Do not claim that supervision stopped when an expected owner is missing,
   active, stale, or divergent.
 - Treat an unsupported goal-preventing stop as a critical operational event,

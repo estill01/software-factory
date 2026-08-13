@@ -380,6 +380,9 @@ class UserFacingBlockSummaryPolicyTests(unittest.TestCase):
         self.assertIn("terminal-report prepare", policy)
         self.assertIn("report of\nreports", policy)
         self.assertIn("both verified PDFs attached", policy)
+        for text in (supervision_skill, policy):
+            self.assertIn("complete implementation range", text)
+            self.assertIn("`terminated`", text)
 
     def test_automation_runtime_tracks_the_stable_accepted_release(self) -> None:
         supervision_skill = HELPER_PATH.parent.parent.joinpath("SKILL.md").read_text(

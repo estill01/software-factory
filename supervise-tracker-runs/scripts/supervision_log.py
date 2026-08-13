@@ -19638,15 +19638,85 @@ def terminal_automation_owner_states(
     return states
 
 
+def terminal_shutdown_receipt_is_current(
+    policy: Mapping[str, Any], receipt: Mapping[str, Any]
+) -> bool:
+    if (
+        receipt.get("kind") != "check"
+        or receipt.get("category") != TERMINAL_SHUTDOWN_CATEGORY
+        or receipt.get("status") != "verified"
+        or receipt.get("supervision_status") != "terminated"
+    ):
+        return False
+    expected = expected_terminal_automation_ids(policy)
+    if not expected or receipt.get("automation_count") != len(expected):
+        return False
+    try:
+        current = terminal_automation_owner_states(
+            expected,
+            not_before=dt.datetime.fromtimestamp(0, tz=dt.timezone.utc),
+        )
+    except (SupervisionLogError, OSError, ValueError):
+        return False
+    return bool(
+        receipt.get("automation_states") == current
+        and receipt.get("automation_state_root") == digest(current)
+    )
+
+
 def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
     all_events = events(directory / "events.jsonl")
+    latest_lifecycle = next(
+        (item for item in reversed(all_events) if item.get("kind") == "lifecycle"),
+        None,
+    )
     lifecycle = next(
         (item for item in all_events if item.get("record_id") == args.lifecycle_record),
         None,
     )
-    if lifecycle is None or lifecycle.get("status") != "completed":
-        raise SupervisionLogError("Terminal shutdown requires the completed lifecycle")
+    if (
+        lifecycle is None
+        or lifecycle.get("status") != "completed"
+        or latest_lifecycle is None
+        or latest_lifecycle.get("record_id") != args.lifecycle_record
+    ):
+        raise SupervisionLogError(
+            "Terminal shutdown requires the current completed lifecycle"
+        )
+    state_fingerprint = str(lifecycle.get("state_fingerprint", ""))
+    completion = latest_outcome_completion_record(
+        all_events, state_fingerprint=state_fingerprint
+    )
+    completion_permitted, completion_reason = assess_outcome_completion_record(
+        completion,
+        policy=policy,
+        state_fingerprint=state_fingerprint,
+    )
+    if (
+        not completion_permitted
+        or completion is None
+        or lifecycle.get("outcome_completion_record_id")
+        != completion.get("record_id")
+    ):
+        raise SupervisionLogError(
+            "Terminal shutdown completion proof is no longer current: "
+            + completion_reason
+        )
+    range_state = implementation_range_state(policy)
+    if range_state is not None and range_state["remaining_blocks"]:
+        raise SupervisionLogError(
+            "Terminal shutdown requires the complete implementation range"
+        )
+    control_posture = reduce_control_posture(
+        directory=directory,
+        policy=policy,
+        owner_events=all_events,
+    )
+    if control_posture["required_target_posture"] != "completed":
+        raise SupervisionLogError(
+            "Terminal shutdown requires completed governing control posture"
+        )
     delivery = latest_terminal_delivery(
         all_events, lifecycle_record_id=args.lifecycle_record
     )
@@ -19693,13 +19763,20 @@ def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
             "category": TERMINAL_SHUTDOWN_CATEGORY,
             "summary": "Viewed every bound supervision automation in paused state after terminal report delivery.",
             "evidence": [args.lifecycle_record, args.report_set_id, str(delivery.get("record_id"))],
+            "supervision_status": "terminated",
             "report_set_id": args.report_set_id,
             "manifest_root": verified["manifest_root"],
             "automation_states": states,
+            "automation_count": len(states),
             "automation_state_root": digest(states),
+            "control_posture_root_sha256": digest(control_posture),
             "policy_sha256": policy["policy_sha256"],
         }
         append_event_locked(args, directory, record)
+    if not terminal_shutdown_receipt_is_current(policy, record):
+        raise SupervisionLogError(
+            "Terminal automation owner changed across shutdown receipt append"
+        )
     print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
 
 
@@ -19912,6 +19989,20 @@ def cmd_status(args: argparse.Namespace) -> None:
         if item.get("kind") == "check"
         and item.get("category") == TERMINAL_SHUTDOWN_CATEGORY
     ]
+    last_lifecycle = lifecycle_events[-1] if lifecycle_events else None
+    last_terminal_shutdown = (
+        terminal_shutdown_events[-1] if terminal_shutdown_events else None
+    )
+    supervision_monitor_state = (
+        "terminated"
+        if last_lifecycle is not None
+        and last_lifecycle.get("status") == "completed"
+        and last_terminal_shutdown is not None
+        and last_lifecycle.get("record_id")
+        in last_terminal_shutdown.get("evidence", [])
+        and terminal_shutdown_receipt_is_current(policy, last_terminal_shutdown)
+        else "active"
+    )
     decision_heads: dict[str, dict[str, Any]] = {}
     for item in active_events:
         if item.get("kind") == "decision" and item.get("decision_id"):
@@ -19974,10 +20065,9 @@ def cmd_status(args: argparse.Namespace) -> None:
                     else None
                 ),
                 "last_terminal_shutdown": (
-                    terminal_shutdown_events[-1]
-                    if terminal_shutdown_events
-                    else None
+                    last_terminal_shutdown
                 ),
+                "supervision_monitor_state": supervision_monitor_state,
                 "decision_count": len(decision_heads),
                 "open_decisions": open_decisions,
                 "mission_activation_count": len(activation_heads),
