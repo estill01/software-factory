@@ -416,6 +416,37 @@ Focused range suite, real tracker cases, full supervision mapping, exact review.
   mutation. Current admission reuses one bounded tracker snapshot and the
   existing policy/range history; no second schema, ledger, parser, or lifecycle
   owner was added.
+- Product-capability review:
+  - Trigger: Block 1 declares a `consequential` operating-model change.
+  - Frame identity:
+    `docs/software-factory-automatic-release-and-supervisor-refresh-implementation-tracker.md`,
+    Block 1, tracker-level frame SHA-256
+    `ec8d90164c440c07c612794ac1a5e0ca52dfd228b58dd3895fbf88437763942e`.
+  - Capability added or preserved: exact full-tracker intent is admitted once
+    and mechanically prevents implementation or terminal return whenever its
+    current canonical binding cannot be established.
+  - Paths compared: local caller/agent convention; bounded-general wrapper or
+    compatibility parser; existing implementation-range admission, amendment,
+    gate, policy-history, and control-posture owners.
+  - Selected level and owner: the existing architectural owners, because they
+    already govern canonical source, range history, currentness, lifecycle, and
+    response boundaries without adding a competing state authority.
+  - Protected-capability result: exact source bytes, tracker structure, Blocks
+    0–7, inserted prerequisites, one-Block semantics, non-contraction, owner
+    history, and predecessor evidence are preserved; `55/55` focused tests and
+    the live current range prove the result.
+  - Rejected alternatives: a local convention cannot make runtime/final gates
+    unavoidable; a new wrapper/parser would duplicate ownership, accept broader
+    unsupported shapes, and create inconsistent currentness.
+  - Tradeoffs and uncertainty: supported maintained tracker shapes pay one
+    bounded snapshot/currentness check at each required boundary; unsupported or
+    ambiguous historical shapes fail closed rather than receiving generic
+    compatibility. No unresolved product fact changes the selected owner.
+  - Frozen-candidate proof: accepted mutating commit `80e4ec1d44bf981a2eec0ba7dddd5345171efb9e`,
+    candidate root
+    `41381b8f4d02f4f91fc433d6966f7f118a078791f2b67722e80130c44cb0d192`,
+    active release `80e4ec1d44bf-c6fe137ec65a`, focused `55/55`, mapped
+    `369/369`, and live accepted `[0,1]` / eligible `[2,5]` range evidence.
 
 ### Stop
 
