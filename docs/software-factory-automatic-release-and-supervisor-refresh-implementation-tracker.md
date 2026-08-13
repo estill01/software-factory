@@ -184,7 +184,7 @@ make their composition automatic and fail closed.
 | 0 | Freeze integrated baseline and ownership contract | — | `completed` |
 | 1 | Make existing range admission and runtime gates unavoidable | 0 | `completed` |
 | 2 | Implement exact-acceptance-triggered release orchestration | 1 | `completed` |
-| 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `not-started` |
+| 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `completed` |
 | 4 | Verify health and recover through release-owner rollback | 3 | `not-started` |
 | 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `completed` |
 | 6 | Freeze, validate, independently review, merge, and promote | 4, 5 | `not-started` |
@@ -678,7 +678,7 @@ Stop before updating a running supervisor.
 
 ## Block 3 — Implement stable-channel safe-boundary supervisor refresh
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -744,7 +744,78 @@ Field-preservation and mid-action deferral regressions plus exact automation vie
 
 ### Completion evidence
 
-Pending.
+- Accepted implementation source
+  `adf0d1cee31be16424a47d89f834de96fb3387d8`, tree
+  `41523f304d70b1583dae35cf751aa989714a6708`, sole parent accepted Block 5
+  tracker checkpoint `4927cacc5ae8fbf7011758ce370d82d422dd9008`, is pushed on
+  `origin/codex/block3-safe-boundary-refresh`. The six-file Block 3 delta adds
+  one read-only `software-factory-supervisor-refresh-plan` over the existing
+  release-status, implementation-range/control, Codex automation-owner, and
+  `thread-route-gate` owners; it adds no pointer, automation, scheduler,
+  policy/event, role, Gmail, lifecycle, or release writer.
+- The planner consumes one exact canonical promotion event, reopens its
+  accepted non-HEAD source in a detached checkout, and samples the release
+  owner twice. Source, release ID, all three installed roots, verification root,
+  and activation-history count must agree with the promotion and remain exact.
+  Current mission-owned range, policy/event heads, control currentness, and
+  every bounded no-follow automation-owner file are resampled before the
+  projection returns.
+- Active compatible legacy prompts migrate once to the three stable `current`
+  paths. Copied release hashes and mission/policy/Block/frontier prose cease to
+  be authority and each wake instead rehydrates mission, policy, event, range,
+  frontier, cursor, incident, Gmail, schedule, model, automation, and lifecycle
+  state. Every non-prompt field except owner-generated `updated_at` is retained.
+  Paused owners and explicit manual release pins remain held; eligible running
+  roles receive only existing `send_allowed` purpose-`role-refresh` projections
+  for their next message boundary. Already-loaded instruction bytes remain
+  unchanged.
+- Validation: exact focused release-orchestration/refresh proof `31/31`; mapped
+  supervision `410/410` under the maintained Python 3.14 runtime; all three
+  fixed Skill Creator validators; full-profile tracker verification `8` Blocks;
+  Python compilation and diff checks passed. Read-only parsing against the two
+  current policy-bound automation owners passed `2/2`; the independent reviewer
+  additionally confirmed all five available current owner prompts project
+  idempotently.
+- Independent exact review accepted `adf0d1c` with no material findings. It
+  replayed canonical promotion/release-history, non-HEAD source, range/control,
+  final automation currentness, manual-pin, paused-owner, and role-refresh
+  invariants. Root/directory/file symlinks, hard links, oversized owner input,
+  mixed releases, foreign role ownership, stale release/history or control
+  state, and caller-supplied boundary/release/automation identities reject.
+- Product-capability review:
+  - Trigger: Block 3 is consequential because it changes how compatible live
+    supervisors consume accepted behavior.
+  - Frame identity:
+    `docs/software-factory-automatic-release-and-supervisor-refresh-implementation-tracker.md`,
+    Block 3, exact frame SHA-256
+    `ec8d90164c440c07c612794ac1a5e0ca52dfd228b58dd3895fbf88437763942e`.
+  - Capability added or preserved: verified releases can reach the next
+    scheduled wake or role-message boundary without recreating policy, range,
+    cursor, automation identity, schedule, model, Gmail, incident, or lifecycle
+    state.
+  - Paths compared: a local prompt rewriter; a new generalized refresh service;
+    the selected bounded projection over existing release, automation, range,
+    control, and routing owners.
+  - Selected level and owner: the existing architectural owners, joined by one
+    read-only planner because they alone govern every current identity and write
+    boundary the refresh must preserve.
+  - Protected-capability result: exact release/history and current control state
+    are bound; owner files are read boundedly and rechecked; manual pins and
+    paused owners are preserved; no mid-action replacement or second state
+    authority is introduced.
+  - Rejected alternatives: a prompt-only local change cannot prove release or
+    range currentness, while a new scheduler/automation/release service would
+    duplicate canonical owners.
+  - Tradeoffs and uncertainty: application remains an owner action at the named
+    safe boundary and must rerun the projection there; a historical policy with
+    a missing mapped automation owner fails closed for later operational
+    reconciliation rather than receiving permissive compatibility.
+  - Frozen-candidate proof: exact `adf0d1c`, tree `41523f30…`, focused
+    `31/31`, mapped `410/410`, current owner prompt projection, and independent
+    exact review with no findings.
+- No live automation, role, release, policy/event, lifecycle, Gmail, or pointer
+  effect was performed in Block 3. Block 5 evidence at `ccb8e7e` / `4927cac`
+  remains byte-for-byte in history, and Block 4 was not started.
 
 ### Stop
 
