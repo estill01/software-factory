@@ -902,9 +902,12 @@ The split `target-turn:<id>` and `target-item:<id>` activation-boundary evidence
 remains the preferred and ordinary form. For an already-canonical activation
 source that instead retained exactly one combined `turn <SAFE_ID> items
 <comma-separated numeric item IDs>:` evidence string, recovery may parse only
-that strict compatibility form. The review's exact target turn must match and
-its exact numeric target item must be a member of the retained item set; the
-work-started activation must cite the same combined string byte-for-byte.
+that strict compatibility form. The two forms are mutually exclusive: split
+evidence requires exactly one turn token, exactly one item token, and zero
+combined candidates; combined evidence requires zero split tokens and exactly
+one strict combined candidate. The review's exact target turn must match and its
+exact numeric target item must be a member of the retained item set; the work-
+started activation must cite the same combined string byte-for-byte.
 Malformed, ambiguous, duplicate-item, changed, uncited, nonnumeric, or
 review-mismatched combined evidence rejects before mutation. Arbitrary prose
 and newly authored combined evidence are not substitutes for the split form.

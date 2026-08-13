@@ -11040,12 +11040,57 @@ def canonical_activation_recovery_review(
         raise SupervisionLogError(
             "Activation recovery target turn/item boundary is not canonical"
         )
-    split_boundary = (
-        isinstance(target_source_evidence, list)
-        and f"target-turn:{target_turn}" in target_source_evidence
-        and f"target-item:{target_item}" in target_source_evidence
+    source_turn_tokens = (
+        [
+            item
+            for item in target_source_evidence
+            if isinstance(item, str) and item.startswith("target-turn:")
+        ]
+        if isinstance(target_source_evidence, list)
+        else []
     )
-    if not split_boundary:
+    source_item_tokens = (
+        [
+            item
+            for item in target_source_evidence
+            if isinstance(item, str) and item.startswith("target-item:")
+        ]
+        if isinstance(target_source_evidence, list)
+        else []
+    )
+    source_combined_candidates = (
+        [
+            item
+            for item in target_source_evidence
+            if isinstance(item, str) and item.startswith("turn ")
+        ]
+        if isinstance(target_source_evidence, list)
+        else []
+    )
+    if source_turn_tokens or source_item_tokens:
+        if (
+            len(source_turn_tokens) != 1
+            or len(source_item_tokens) != 1
+            or source_combined_candidates
+        ):
+            raise SupervisionLogError(
+                "Activation recovery target source split boundary is partial, "
+                "duplicated, or mixed with combined evidence"
+            )
+        source_turn = safe_id(
+            source_turn_tokens[0][len("target-turn:"):],
+            label="activation recovery target source split turn",
+        )
+        source_item = safe_id(
+            source_item_tokens[0][len("target-item:"):],
+            label="activation recovery target source split item",
+        )
+        if source_turn != target_turn or source_item != target_item:
+            raise SupervisionLogError(
+                "Activation recovery target source split boundary differs "
+                "from its review"
+            )
+    else:
         source_turn, source_items, combined_boundary = (
             activation_recovery_combined_boundary(
                 target_source_evidence, label="target source"

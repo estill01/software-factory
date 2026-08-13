@@ -3327,6 +3327,70 @@ class ImplementationRangeControlTests(unittest.TestCase):
                     )
                 self.assertEqual(self.range_owner_bytes(), before)
 
+    def test_activation_recovery_boundary_forms_are_mutually_exclusive_without_mutation(
+        self,
+    ) -> None:
+        split_turn = f"target-turn:{self.combined_recovery_turn}"
+        split_item = f"target-item:{self.combined_recovery_item}"
+        conflicting = self.combined_recovery_evidence.replace(
+            "1680,1682,1683", "1680,1682,1684"
+        )
+        malformed = self.combined_recovery_evidence.replace(
+            "1680,1682,1683:", "1680,1682,1683"
+        )
+        second = self.combined_recovery_evidence.replace(
+            "items 1680,1682,1683", "items 1680,1681,1683"
+        )
+        cases = (
+            (
+                "matching-mixed",
+                [split_turn, split_item, self.combined_recovery_evidence],
+            ),
+            ("conflicting-mixed", [split_turn, split_item, conflicting]),
+            (
+                "partial-turn-mixed",
+                [split_turn, self.combined_recovery_evidence],
+            ),
+            (
+                "partial-item-mixed",
+                [split_item, self.combined_recovery_evidence],
+            ),
+            (
+                "multiple-mixed",
+                [
+                    split_turn,
+                    split_item,
+                    self.combined_recovery_evidence,
+                    second,
+                ],
+            ),
+            ("malformed-mixed", [split_turn, split_item, malformed]),
+            ("duplicate-split-turn", [split_turn, split_turn, split_item]),
+            ("duplicate-split-item", [split_turn, split_item, split_item]),
+            ("partial-split-turn", [split_turn]),
+            ("partial-split-item", [split_item]),
+        )
+        for index, (name, source_evidence) in enumerate(cases):
+            with self.subTest(name=name):
+                if index:
+                    self.setUp()
+                recovery = self.prepare_activation_recovery(
+                    source_evidence=source_evidence,
+                    head_evidence=source_evidence,
+                    review_turn=self.combined_recovery_turn,
+                    review_item=self.combined_recovery_item,
+                )
+                before = self.range_owner_bytes()
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "split boundary is partial, duplicated, or mixed",
+                ):
+                    self.recovery_admit(
+                        recovery,
+                        range_id=f"RANGE-MIXED-BOUNDARY-{index}",
+                    )
+                self.assertEqual(self.range_owner_bytes(), before)
+
     def test_work_started_range_rejects_missing_recovery_review_without_mutation(
         self,
     ) -> None:
