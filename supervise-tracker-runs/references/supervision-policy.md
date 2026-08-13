@@ -458,7 +458,9 @@ the retained Gmail provider-output object and its root. The signed object is
 validated and retained byte-for-byte so later currentness checks reproduce its
 exact root. It does not accept
 caller-supplied IDs, hashes, or a self-labeled provider object without that
-provider-output provenance. A plain email, a link without attachments, or
+provider-output provenance. `gmail-terminal-completion` is reserved to the
+dedicated delivery owner and generic notifications using it reject before
+append. A plain email, a link without attachments, or
 report files without a current read-back receipt does not satisfy delivery. `lifecycle-gate` returns
 `supervision_pause_permitted=true` only when the completion proof, completed
 lifecycle, verified reports, and recorded Gmail read-back all agree.
@@ -474,7 +476,9 @@ the roundup writer. It reopens exact owner state at the append boundary and
 records a rooted currentness rejection if any owner changes. Generic check
 records cannot impersonate or retire either shutdown record. Caller-asserted
 `ID=PAUSED` strings, wrong-role or missing owners, active states, path escapes,
-or stale pauses fail closed. The reports and email remain
+or stale pauses fail closed. Status returns a shutdown receipt only while its
+completed range, control posture, lifecycle, verified report set, delivery
+receipt, and live automation-owner states all remain current. The reports and email remain
 derived evidence; they do not become another completion authority, patent
 record, legal conclusion, or filing/release approval.
 

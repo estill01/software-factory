@@ -136,6 +136,7 @@ TERMINAL_SHUTDOWN_REJECTED_CATEGORY = (
     "terminal-supervision-shutdown-currentness-rejected"
 )
 TERMINAL_SHUTDOWN_RESERVED_CATEGORIES = {
+    TERMINAL_REPORT_DELIVERY_CATEGORY,
     TERMINAL_SHUTDOWN_CATEGORY,
     TERMINAL_SHUTDOWN_REJECTED_CATEGORY,
 }
@@ -20076,19 +20077,19 @@ def append_terminal_shutdown_rejection(
 
 
 def current_terminal_shutdown_records(
-    all_events: Sequence[Mapping[str, Any]],
+    active_events: Sequence[Mapping[str, Any]],
     *,
+    directory: Path,
     policy: Mapping[str, Any],
+    policy_snapshot: tuple[int, int, int, int],
+    owner_events: list[dict[str, Any]],
+    event_snapshot: tuple[int, int, int, int] | None,
+    directory_snapshot: tuple[int, int, int, int],
 ) -> list[dict[str, Any]]:
-    rejected_ids = terminal_shutdown_rejected_record_ids(all_events)
+    rejected_ids = terminal_shutdown_rejected_record_ids(active_events)
     owner_bindings = expected_terminal_automation_owners(policy)
-    by_id = {
-        str(item.get("record_id")): item
-        for item in all_events
-        if isinstance(item.get("record_id"), str)
-    }
     current: list[dict[str, Any]] = []
-    for item in all_events:
+    for item in active_events:
         if item.get("category") != TERMINAL_SHUTDOWN_CATEGORY:
             continue
         record = validate_terminal_shutdown_record(item)
@@ -20098,13 +20099,39 @@ def current_terminal_shutdown_records(
         ):
             continue
         evidence = record["evidence"]
-        delivery = by_id.get(str(evidence[2]))
-        if (
-            delivery is None
-            or delivery.get("category") != TERMINAL_REPORT_DELIVERY_CATEGORY
-        ):
-            continue
         try:
+            completion = require_current_terminal_completion(
+                directory=directory,
+                policy=dict(policy),
+                policy_snapshot=policy_snapshot,
+                all_events=owner_events,
+                event_snapshot=event_snapshot,
+                directory_snapshot=directory_snapshot,
+                lifecycle_record_id=str(evidence[0]),
+            )
+            delivery = latest_terminal_delivery(
+                active_events, lifecycle_record_id=str(evidence[0])
+            )
+            if (
+                delivery is None
+                or delivery.get("record_id") != evidence[2]
+                or delivery.get("report_set_id") != evidence[1]
+                or record.get("report_set_id") != evidence[1]
+                or record.get("target_thread_id") != policy.get("target_thread_id")
+                or record.get("state_fingerprint")
+                != completion["lifecycle"].get("state_fingerprint")
+            ):
+                continue
+            verified = verify_terminal_report_set(
+                directory, str(record["report_set_id"])
+            )
+            if (
+                record.get("manifest_root") != verified.get("manifest_root")
+                or not terminal_delivery_is_current(
+                    delivery, verified, policy=policy
+                )
+            ):
+                continue
             live_states = terminal_automation_owner_states(
                 owner_bindings,
                 not_before=parse_time(str(delivery.get("timestamp", ""))),
@@ -20485,7 +20512,13 @@ def cmd_status(args: argparse.Namespace) -> None:
         and item.get("category") == TERMINAL_REPORT_DELIVERY_CATEGORY
     ]
     terminal_shutdown_events = current_terminal_shutdown_records(
-        active_events, policy=policy
+        active_events,
+        directory=directory,
+        policy=policy,
+        policy_snapshot=policy_snapshot,
+        owner_events=all_events,
+        event_snapshot=event_snapshot,
+        directory_snapshot=directory_snapshot,
     )
     decision_heads: dict[str, dict[str, Any]] = {}
     for item in active_events:

@@ -289,7 +289,9 @@ Repeat independently for additional targets.
   returned bytes equal the verified PDFs. It also requires an independently
   signed exact review of the retained Gmail provider outputs and retains that
   signed object byte-for-byte after validation; caller-supplied
-  message, attachment, read-call IDs, or hashes alone are insufficient.
+  message, attachment, read-call IDs, or hashes alone are insufficient. The
+  delivery category is reserved to this dedicated owner path; a generic
+  notification cannot create or shadow its receipt.
 - Treat `supervision_pause_permitted=true` as the shutdown boundary. It requires
   the accepted completion record, exact completed lifecycle, both current report
   PDFs, and their recorded Gmail delivery. Pause every exact bound project
@@ -299,7 +301,9 @@ Repeat independently for additional targets.
   paused by an update no earlier than report delivery. It rechecks the owner
   files across the canonical append and records a rooted currentness rejection
   if they change. Generic check records cannot create or retire shutdown
-  evidence.
+  evidence. Status exposes a shutdown receipt only while that same completed
+  range, control posture, lifecycle, report bytes, delivery, and automation
+  owner state remain current.
   Do not claim that supervision stopped when an expected owner is missing,
   active, stale, or divergent.
 - Treat an unsupported goal-preventing stop as a critical operational event,
