@@ -39,106 +39,135 @@ the completed program materially changes Software Factory.
 
 ### Implemented
 
-- **Loopback operations-dashboard foundation.** Added an installable Python
-  runtime and a responsive React/TypeScript/Vite shell for the planned Factory
-  Floor, Projects, Trackers, Reports, and Admin workspaces. The service binds
-  only to loopback, serves a versioned health envelope and production SPA,
-  rejects non-loopback startup, and gates local writes by exact origin and a
-  per-launch nonce. The shell uses the
-  frozen reference stack, preserves keyboard, dark-mode, responsive, loading,
-  error, empty, and unavailable states, and labels all operational sources as
-  disconnected until their owning Blocks are accepted. Developer commands and
-  boundaries are documented in [`dashboard/README.md`](dashboard/README.md);
-  implementation scope is Block 1 of the operations-dashboard tracker.
-- **Bounded multi-project catalog and discovery.** Added a versioned,
-  atomically written owner-only project catalog with optimistic fingerprints,
-  prior-file recovery, canonical Git-root enforcement, duplicate and overlap
-  protection, deterministic ordering, and explicit archive/restore semantics.
-  The Admin and Projects views can register and independently refresh exact
-  local roots, show Git revision/branch and tracker candidate paths, and retain
-  per-project discovery failures without hiding healthy repositories. The
-  catalog stores presentation/discovery metadata only, never scans the
-  workstation, never reads tracker contents in this slice, and rejects copied
-  operational state, traversal, symlink escape, stale writes, and any wording
-  or behavior implying that archive deletes files or stops work. Implementation
-  scope is Block 2 of the operations-dashboard tracker.
-- **Read-only tracker truth and Git-currentness API.** Added closed Python and
-  Zod list/detail contracts that project discovered tracker header, capability
-  frames, owner/source maps, Blocks, exact status and evidence-posture counts,
-  dependency eligibility, source anchors, maintained-verifier diagnostics, and
-  Git HEAD/index/worktree/blob/history/upstream currentness. Full-profile and
-  explicitly approved inherited core trackers remain distinct; malformed,
-  dirty, untracked, stale-bound, and unavailable sources retain exact local
-  diagnostics without hiding healthy trackers. Unchanged analysis is keyed by
-  tracker content, verifier content, and profile, while Git reads are batched by
-  repository. This slice is read-only: it adds no tracker workspace, status
-  mutation, acceptance, task start, or synthetic progress percentage.
-  Implementation scope is Block 3 of the operations-dashboard tracker.
-- **Read-only supervision, report, and metrics projection.** Added closed
-  Python and Zod contracts for current and predecessor mission history,
-  supervisor topology, exact role/task/automation bindings, lifecycle and
-  successor continuity, incidents, decisions, activity, semantic conclusions,
-  verified weekly/terminal/evolution report bundles, and maintained-owner
-  metrics. Transparent attention reasons and red/amber/green/neutral rules keep
-  source-local failures and unmonitored projects visible without letting one
-  damaged target erase healthy data. Cross-run totals aggregate only additive
-  dimensions; API-equivalent cost remains an explicitly labeled estimate. This
-  slice is read-only and neither inspects automation prompts nor mutates runs,
-  lifecycle, supervision, or reports. Implementation scope is Block 4 of the
-  operations-dashboard tracker.
-- **Version-gated Codex task adapter.** Added one long-lived stdio App Server
-  child behind the loopback Python service. Startup requires exact
-  `codex-cli 0.145.0` and reproduces the frozen 273-file non-experimental schema
-  root before enabling typed task list/read/start/resume, turn start/steer/
-  interrupt, approval/input response, and ephemeral same-origin event-stream
-  capabilities. Task cwd binds only to canonical registered projects; stale
-  request fingerprints, unknown methods, schema drift, malformed or duplicate
-  responses, mismatched IDs, timeouts, and child failure disable mutations
-  without suppressing file-backed monitoring. Validated protocol errors retain
-  explicit not-found, provider-error, terminal, and bounded reconnect truth.
-  The event stream resumes from its last consumed cursor, signals replay-window
-  gaps before invalidating durable projections, and caps reconnect backoff;
-  completed callback records are evicted before live approval/input capacity is
-  refused. Adapter failures are generation-bound, so an in-flight request
-  cancelled by an intentional restart cannot downgrade or terminate the
-  healthy replacement child.
-  Admin exposes compact integration health and an adapter-only restart. Task/
-  turn mutations remain internal typed capabilities until owner-mediated
-  workflows register them; generic prompts, raw protocol, general tool/model
-  settings, remote transport, task forking, and permission-profile mutation
-  remain unavailable.
-  Implementation scope is Block 5 of the operations-dashboard tracker.
-- **Cross-project Factory Floor.** Added a read-only composed endpoint and the
-  default four-region operating view for implementation/supervisor rows,
-  ranked attention, semantic conclusions beside accepted tracker outcomes,
-  and bounded metrics/source freshness. It joins only exact current catalog,
-  tracker/Git, supervision/report/metric, and Codex task projections; preserves
-  unresolved, candidate, ambiguous, unmonitored, orphaned, partial, stale, and
-  disagreeing states; and stores no operational data. Every operating light has
-  text, reason, source time, and an explicit non-completion posture. Filters
-  keep hidden critical counts visible; row, attention, conclusion/outcome,
-  source-health, and metric cards retain source-bearing inspector routes; and
-  API-equivalent cost remains labeled as an estimate rather than spend. The
-  compact interface uses functional region labels without marketing subheaders
-  and is validated at desktop, tablet, and mobile widths. Implementation scope
-  is Block 6 of the operations-dashboard tracker.
-- **Source-grounded project, run, supervisor, and task workspaces.** Added a
-  compact Projects operating index; contextual project Overview, Work,
-  Trackers, Reports, and Sources views; exact run and supervisor-group
-  inspectors; and bounded Codex task detail. Factory Floor links preserve the
-  active project/time filters while each workspace keeps canonical task, run,
-  tracker, report, policy, role, automation, event, incident, decision, and
-  transition identities separate. Long-lived targets can select an exact
-  mission segment: predecessor views use only mission-scoped records and
-  historical hashes/timestamps, explicitly suppress current lifecycle,
-  topology, role-task, automation, report, metric, and source-head state, and
-  never issue current task reads for the historical projection. Event filters,
-  stable anchors, bounded turn summaries, independent source failures, and
-  explicit unavailable/lower-bound states keep the interface useful without a
-  dashboard-owned history store or inferred completion. The slice is read-only;
-  tracker deep review, report analytics, and owner-gated mutations remain in
-  later Blocks. Implementation scope is Block 7 of the operations-dashboard
-  tracker.
+- **Exact-acceptance-triggered release orchestration.** The supervision owner
+  now consumes one reviewer-signed canonical acceptance for the exact
+  clean source HEAD/tree, invokes only the flagless `skill_release.py promote`
+  owner in a fixed canonical-account/Python/Git environment, revalidates its
+  returned active release and three installed roots
+  through live status, and retains one deduplicated result. A durable
+  requirement binds the prior live identity before the effect so interruption
+  recovery cannot lose or repeat the one activation. When independent review
+  advances before any effect, an immutable successor requirement may bind the
+  newer acceptance only after exact prior release, installed-root,
+  verification-root, and history currentness is revalidated. Missing, stale,
+  changed-policy, changed-byte, unverified or caller-asserted review,
+  divergent-result, changed-predecessor, and
+  caller-selected release identity cases reject before they can become
+  canonical promotion evidence.
+
+- **Provenance-bound authority across internal task routing.** A direct-user
+  implementation instruction no longer loses its actionable authority merely
+  because Software Factory carries it to the configured target through
+  `codex_delegation`. The canonical delegation envelope binds the original
+  task/turn/item and exact bytes, current target mission and policy, the current
+  pending mission-activation source through fresh range admission, and the
+  owner-produced target-action route result
+  and projection. The mission retains the route owner's canonical action
+  digest while provenance separately retains the complete originating direct
+  instruction's raw UTF-8 byte count and SHA-256. The dedicated owner derives
+  the action identity from the current mission and accepts the source only as a
+  separate canonical-base64 input; no caller reconstructs action text from a
+  retained digest, and neither identity substitutes for the other. Mission identity alone
+  remains nonauthorizing; an independent base-or-Max acceptance precedes the
+  existing authority event, receipt, and range-owner consumption. The
+  recipient starts the full-tracker range automatically without a same-thread
+  repetition or manual Resume.
+  Unbound internal packets, changed route/action/source evidence, supervisor
+  language, and scope expansion remain nonauthorizing.
+
+- **Automated, self-checking local skill promotion.** Ordinary updates to the
+  three Software Factory skills now use one `promote` command over an exact
+  clean commit. The release owner runs the four repository-owned test suites,
+  validates and seals every skill, records deterministic assurance, atomically
+  swaps one `current` pointer, verifies the installed roots in a fresh process,
+  and restores the prior pointer automatically on failure. The prior signed
+  review and quiescent-permit path remains optional for a deliberately required
+  separation-of-duties boundary instead of blocking routine local maintenance.
+
+- **Current-authority reconciliation for stale decision deferrals.** A later
+  canonical direct-authority correction of the exact successor-topology premise
+  now retires the matching safe-deferral posture in the shared governing-outcome
+  reducer immediately. The relation is mission-, source-, state-, lineage-, and
+  currentness-bound: the transition genesis must predate and be cited by the
+  decision-ready record; every later decision phase preserves that frozen
+  identity; and exactly one cited lineage may match. Unrelated or ambiguous
+  later evidence remains ineligible. A new
+  append-only `corrected` decision phase preserves the explicit history while
+  the target continues without user scheduling or a manual Resume. The public
+  replay and focused decision/control regressions cover automatic convergence,
+  exact correction recording, and mismatched-source/state, uncited-later, and
+  ambiguous-lineage rejection.
+
+- **Reviewed three-skill releases with one-pointer activation.** Mutable
+  repository work no longer changes installed Codex behavior by default. A
+  bounded local release owner rebuilds exactly three skills from a clean Git
+  commit, runs content-pinned validators, requires a separately signed exact
+  review, stages an immutable complete set, and accepts only a current signed
+  quiescent permit from a distinct external operator-ledger head. Bootstrap
+  migrated the prior content-identical direct links; activation changed one
+  `current` pointer and fresh-process verification accepted release
+  `b7269cc0d71f-eb1269660b3e` with exact author, implementation, and supervision
+  roots. The sealed baseline `dba8274f3f06-f17ebeafde01` remains the eligible
+  rollback target. Already-loaded tasks keep their loaded instructions; new
+  resolutions see the active set.
+- **Replay-certified control-posture convergence.** The repeated early-return
+  history is now represented by one content-minimized immutable fixture rather
+  than private narrative. The observed transition sequence replays through the
+  public control gate from stale distinct-task requirement, unavailable
+  authority and safe deferral, through handoff/acknowledgement, current direct
+  correction, autonomous same-task continuation, and exact observable
+  completion. A 60-case state matrix covers absent/open/retired transitions,
+  safe/nonblocking/blocking decisions, current/stale completion, and authorized/
+  unauthorized stop claims. Every case returns one deterministic posture;
+  invalid terminal claims reconcile and ordinary continuation never asks the
+  human to schedule it. This demonstrates the Blocks 0–3 control plane only;
+  adaptive implementation and autonomous evolution remain later work.
+- **Adaptive implementation decision semantics.** The implementation owner now
+  maintains one exact four-disposition contract: reuse a sound unchanged path,
+  correct a bad approach inline inside the active Block, compare one isolated
+  bounded candidate only when behavior must decide, or package an exceptional
+  structural amendment when the Block contract or later graph is invalidated.
+  The contract fixes common evidence/currentness fields, candidate ceilings and
+  ownership, structural history preservation, four autonomy modes, and one
+  protocol for target repositories and Software Factory self-work with stricter
+  self-change role separation. This is the accepted Block 4 semantic boundary;
+  it does not yet activate correction, candidate execution, tracker mutation,
+  policy changes, or autonomous evolution owned by later Blocks. The reviewed
+  contract is installed in active release `96974ea056a9-bd814c616698` with
+  verification root
+  `e1f16091e78fd438423ceef7bc830773570b44cc686e744907375a7b0d293f19`.
+- **Autonomous inline correction during implementation.** The active
+  implementation skill now detects a source-backed wrong owner, lower-power
+  shortcut, unnecessary abstraction, wasteful retry, invalid validation, or
+  protected-capability regression that remains inside the current Block;
+  preserves valid work; compares the local, bounded-general, and architectural
+  owner paths; implements the lowest-complexity complete path; retains exact
+  staged decision/currentness evidence; and continues the Block automatically.
+  A sound or equivalent decision takes the O(1) no-review fast path. Fresh
+  installed-skill dogfood selected an existing naming owner over both duplicated
+  logic and an unsupported registry, produced the current observable filename,
+  preserved the later adapter, and passed independent retained-evidence review
+  plus 25 adversarial probes. Active release:
+  `75a3f3e4f39b-3adc588d1dbb`; accepted source:
+  `75a3f3e4f39bcdaaa809951e9c15db91af3d7de2`.
+- **Selective bounded candidate comparison.** The implementation owner can now
+  checkpoint a sound incumbent, freeze one pre-run hypothesis/workload/runtime/
+  materiality contract, and build exactly one safely isolated candidate when
+  read-only evidence cannot decide a materially better path. Focused proof
+  precedes mapped comparison; raw size, semantic, API, timing, cost,
+  compatibility, protected-capability, and restoration evidence is retained
+  for a distinct reviewer. A materially better result emits only a non-mutating
+  Block 9 handoff, while losing, inconclusive, failed, stale, cancelled,
+  over-ceiling, and late-review lanes retire without acquiring production
+  authority. The retained exercise demonstrates a bounded 88-byte improvement
+  under criteria frozen at pre-run revision
+  `c8b92ac48920b86587a1e39f5f16702de8b65554`; the accepted candidate remains
+  isolated and non-authoritative behind one immutable Block 9 handoff. Exact
+  repeat evidence now resolves the externally signed accepted head and reuses
+  that handoff without another lane, producer, or reviewer cycle. The method is
+  installed in active release `3d984d9094c3-c689901b7413` with verification
+  root `67703c07d630e9b10e9d47d55bc74484c3ec79c224524096bd9d67280cabc409`.
+
 - **Successor-transition continuity and structured failure-mode records.** A
   requested implementation that must cross into a distinct task now remains an
   open append-only transition through `required`, task creation, isolated
@@ -154,35 +183,28 @@ the completed program materially changes Software Factory.
   `INC-20260808-180850-C22F9D` / `EVT-000067`; focused regression coverage is in
   `SuccessorTransitionContractTests`.
 
+### Corrected
+
+- **Critical unauthorized early-return recurrence.** The root failure is
+  recorded as unauthorized requested-range contraction followed by false
+  terminalization at an internal Block or procedural boundary; later routed
+  authority precedence was contributory, not causal. A bare or unbounded
+  `implement-tracker-blocks` request now freezes the complete current tracker in
+  canonical policy history, survives prerequisite insertion and renumbering,
+  and must pass the same range/outcome gate at every Block Stop, terminal
+  lifecycle write, and final response. Exact one-Block requests remain bounded,
+  but incidental Block mentions cannot contract full-tracker intent. New direct
+  authority can narrow a range only after a separately ingested, hash-chained
+  owner event binds verified task/item provenance and content hash; the range
+  helper cannot mint that authority from caller strings. Concrete recurrence
+  fixtures include this run and task
+  `019fb18f-3d03-7ca0-9fe9-68353f0405ce`; behavioral coverage is in
+  `ImplementationRangeControlTests`.
+
 ### Planned
 
-- **Local Software Factory operations dashboard and factory floor.** A
-  thirty-two-Block implementation program plans a local React/TypeScript/Vite
-  command center that monitors current and historical work across registered
-  projects; pairs every discoverable implementation with its supervisor group,
-  target, roles, automations, current active-Block claims/checkpoints, issues,
-  actions, and conclusions; and exposes transparent red/amber/green/neutral
-  operating states
-  with exact reasons and source history. It also plans implementation-tracker
-  review, verified cross-project metrics and reports, version-gated Codex App
-  Server task control, and owner-gated author/implement/supervise/report/
-  evolution/lifecycle operations. Tracker rows expose maintained-verifier total
-  Block counts and every current task/tracker/supervision active-Block claim
-  without coalescing conflicts. Tracker Markdown, Git, Codex tasks, supervision
-  ledgers, automations, and reports remain their own authorities;
-  the dashboard stores only project discovery metadata and never treats a green
-  light, task terminality, test, commit, or report as completion. The planned
-  runtime is explicitly data-backed through loopback `/api/v1` typed adapters
-  to those primary owners, with no runtime demo-data or duplicated-owner
-  fallback. This is planning, not implemented functionality. Planning baseline:
-  `c7d4efce3e3bf5fb3a8dbc4d9ab0db0ef2cd89bd`; tracker:
-  [`docs/software-factory-operations-dashboard-implementation-tracker.md`](docs/software-factory-operations-dashboard-implementation-tracker.md).
-  The current plan also includes three future source-adaptation slices for
-  compact Factory Floor rows, truthful tracker filters/source diffs, and
-  owner-backed operation semantic diffs using the selected Beautiful UI
-  component sources without adopting its navigation or demo-product shell.
 - **Adaptive implementation decision control and autonomous Factory
-  evolution.** A fourteen-Block program plans a
+  evolution.** An eighteen-Block program plans a
   near-zero-overhead unchanged path, inline correction of bad implementation
   decisions, selective isolated candidate comparison, exceptional supervised
   tracker amendment, configurable full autonomy, single-authority cutover, and
@@ -253,6 +275,33 @@ the completed program materially changes Software Factory.
   `4a33cd9344f0fbb1d1feaa6caac13521eb3237f3`.
 
 ### Corrected
+
+- **Critical full-tracker continuation and early-return control.** Recorded the
+  recurring root failure as unauthorized requested-range contraction followed
+  by false terminalization at an internal Block/procedural boundary
+  (`FM-UNAUTHORIZED-EARLY-RETURN`), with routed-precedence shadowing retained as
+  a contributing mechanism. Added a canonical, policy-history-anchored direct
+  range binding, dynamic full-tracker amendment coverage, reviewed direct-user-
+  only contraction, dependency-safe continuation, reducer-derived terminal
+  currentness, and fail-closed lifecycle rules across tracker authoring,
+  implementation, and supervision. Regression fixtures include this Software
+  Factory run and task `019fb18f-3d03-7ca0-9fe9-68353f0405ce`, where a bare
+  skill invocation was incorrectly reduced to Block 0. Hardened the successor
+  correction against polarity-blind range parsing, caller-selected replacement
+  trackers, fabricated distinct-task topology, canonical range/mission drift,
+  event-ledger symlink escape, policy/event history truncation, and correction
+  evidence attached before a terminal disposition. The final hardening adds a
+  status-independent tracker structural root, exact distinct-task request-byte
+  proof, canonical range-history provenance, lazy legacy-root migration, and an
+  externally HMAC-bound append-only owner-root history that detects coordinated
+  policy/event/root replacement, pins its latest external sequence/head against
+  authentic-prefix rollback, and cannot be disabled by policy rewrite.
+  A surviving external head now rejects key loss as tampering instead of being
+  overwritten through legacy migration, and direct-task topology accepts only
+  unconditional exact source semantics rather than feasibility-dependent or
+  contradictory prose.
+  Frozen transition identity now survives status/evidence-only tracker
+  amendments while structural drift still fails closed.
 
 - **Adaptive tracker provenance.** Corrected the planned adaptive-decision
   tracker so routed `codex_delegation` advice remains advisory rather than being

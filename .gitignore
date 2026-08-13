@@ -2,8 +2,3 @@
 .system/
 **/__pycache__/
 *.py[cod]
-dashboard/server/.venv/
-dashboard/web/node_modules/
-dashboard/web/dist/
-dashboard/web/test-results/
-dashboard/web/playwright-report/

@@ -49,23 +49,56 @@ operator-visible behavior.
 
 ### 1. Install the skills
 
-This repository is a **reference Codex skill tree**, not a packaged hosted service or plugin.
+This repository is a **reference Codex skill tree**, not a packaged hosted
+service or plugin. Installed behavior is pinned to an accepted immutable local
+release; editing a checkout does not update the live skills.
 
 ```bash
 git clone https://github.com/estill01/software-factory.git
 cd software-factory
-mkdir -p "$HOME/.agents/skills"
-
-for skill in \
-  author-implementation-trackers \
-  implement-tracker-blocks \
-  supervise-tracker-runs
-do
-  ln -sfn "$(pwd)/$skill" "$HOME/.agents/skills/$skill"
-done
+/usr/bin/python3 scripts/skill_release.py --help
 ```
 
-Codex also supports repository-local `.agents/skills/` directories and follows symlinked skill folders. Invoke the skills as `$author-implementation-trackers`, `$implement-tracker-blocks`, and `$supervise-tracker-runs`. If a newly installed or updated skill does not appear, restart Codex. See the [Codex Skills documentation](https://developers.openai.com/codex/build-skills) for current discovery and distribution guidance.
+Promote one exact clean commit with the repository's fixed test suites. The
+command validates all three skills, runs their tests, seals the release, swaps
+one pointer atomically, verifies the installed roots in a fresh process, and
+restores the prior pointer automatically if verification fails:
+
+```bash
+/usr/bin/python3 scripts/skill_release.py promote \
+  --repo "$PWD" \
+  --source-commit "$(git rev-parse HEAD)"
+```
+
+On a new installation, `promote` establishes the three stable discovery links
+through the single release-root `current` pointer. On later runs it never
+rewrites those links; it replaces only
+`~/.codex/software-factory-releases/current`.
+
+```bash
+/usr/bin/python3 scripts/skill_release.py status
+/usr/bin/python3 scripts/skill_release.py rollback
+```
+
+An already-loaded Codex task continues with the instructions it loaded before
+the swap; start a new task or restart Codex after activation. The helper proves
+a fresh filesystem resolution but does not claim a transactional multi-skill
+snapshot inside an already-running host. Exact state, manifest fields, failure
+posture, and migration details are in
+[`docs/software-factory-skill-releases.md`](docs/software-factory-skill-releases.md).
+The guide also documents the optional signed-review and signed-cutover mode for
+cases that deliberately require separation of duties. It is not required for
+ordinary local skill maintenance.
+
+Directly symlinking the three discovery paths to a mutable checkout is an
+explicit **development-live/unsafe mode**. It is useful only when immediate
+instruction changes are intentionally desired and is not the default install
+or release workflow.
+
+Invoke the installed skills as `$author-implementation-trackers`,
+`$implement-tracker-blocks`, and `$supervise-tracker-runs`. See the
+[Codex Skills documentation](https://developers.openai.com/codex/build-skills)
+for current discovery behavior.
 
 ### 2. Choose the operating mode
 
@@ -81,7 +114,7 @@ Codex also supports repository-local `.agents/skills/` directories and follows s
 
 | Capability | Requirements |
 |---|---|
-| **Tracker authoring and execution** | Codex with local Skills support; Git; Python 3; a repository Codex can inspect and modify |
+| **Tracker authoring and execution** | Codex with local Skills support; Git; Python 3; `uv` for the fixed automated release checks; a repository Codex can inspect and modify. OpenSSL is needed only for the optional signed release mode. |
 | **Independent supervision and reporting** | Python 3.11+ in a POSIX environment; independent Codex-thread access; scheduled automation or heartbeat support; access to the roles named by the supervision policy; `reportlab` for PDF generation |
 | **Optional communication** | Gmail for project-scoped alerts, decision packets, roundups, replies, and report delivery; email is not required for authoring, execution, local incident state, or report generation |
 
@@ -126,32 +159,6 @@ Run in a dedicated Task:
 ```text
 $supervise-tracker-runs {session ID}
 ```
-
-### 5. Preview the local operations dashboard
-
-The operations dashboard currently provides its loopback runtime, responsive
-application shell, bounded multi-project catalog, and read-only tracker, Git,
-supervision, report, and owner-metrics APIs. Register exact local Git roots in
-Admin to expose per-project discovery health and source-local tracker
-projections. The adapters invoke maintained tracker and supervision owners,
-keep current missions separate from predecessor history, retain exact
-role/task/automation bindings and source-local failures, verify report bundles,
-and never edit operational truth or invent progress percentages. The
-operator-facing workspaces and task or lifecycle controls remain unavailable
-until their owning implementation Blocks are accepted.
-
-```bash
-npm --prefix dashboard/web ci
-npm --prefix dashboard/web run build
-uv sync --project dashboard/server
-uv run --project dashboard/server software-factory-dashboard --port 8787
-```
-
-Open `http://127.0.0.1:8787`. The port is selectable and the runtime refuses a
-non-loopback bind. Archiving a catalog record only hides it from normal views;
-it never deletes files or stops work. See the
-[dashboard developer guide](dashboard/README.md) for catalog storage, API,
-development, validation, and browser-test details.
 
 ## Architecture
 
@@ -250,6 +257,8 @@ When a narrow input is genuinely unresolved, the executor computes the affected 
 |---|---|
 | **A Block boundary becomes a human scheduling gate.** | Requested scope and Block control scope are represented separately, so full-tracker runs advance automatically after each accepted Block. |
 | **A source task hands off to a successor and treats the handoff as completion.** | The append-only successor-transition state machine preserves tracker, mission, authority, task, binding, acknowledgement, and first-Block start identity; source stop remains prohibited until current `work-started` evidence exists. |
+| **An implementation owner stops after one internal Block despite a standing full-tracker request.** | The canonical implementation-range binding preserves the original direct scope across renumbering and task/run/group boundaries; every Block Stop recomputes the ready frontier, and lifecycle/final-answer gates classify an early return as critical until all requested Blocks and the current outcome reconcile. |
+| **Successor, decision, lifecycle, stop, and completion records imply conflicting terminal states.** | One governing-outcome reducer owns the posture. A content-minimized public-gate replay plus a 60-case finite state matrix proves deterministic precedence, actionable reconciliation for invalid terminal claims, same-task continuation after direct correction, and zero ordinary human scheduling. |
 | **The agent treats a task list as the architecture.** | Tracker authoring inspects the live repository, identifies authoritative owners, and splits work at real dependency, mutation, review, recovery, and stopping boundaries. |
 | **Scope expands into attractive but unnecessary infrastructure.** | Every Block has one primary outcome, explicit non-goals, a feature-creep test, and a stop clause. |
 | **Tests pass, so the project is declared complete.** | Tests, commits, hashes, audits, and ledgers remain process evidence; terminal closure separately inspects operator-visible deliverables and expected effects. |
@@ -262,6 +271,13 @@ When a narrow input is genuinely unresolved, the executor computes the affected 
 | **The human must read thousands of agent turns to understand the run.** | Canonical event state is converted into deterministic metrics, evidence-bound synthesis, and verified human-readable reports. |
 
 The result is **human-in-the-loop without requiring a human in every loop**: people retain mission, judgment, reserved authority, and final oversight while the machinery handles routine decomposition, execution control, changed-state review, incident follow-through, and reporting.
+
+The three installed Software Factory skills are pinned through one immutable
+accepted release set and one atomically replaced `current` pointer. The active
+local release `b7269cc0d71f-eb1269660b3e` resolves exact reviewed roots for all
+three skills; its content-identical baseline remains accepted for rollback.
+Already-loaded tasks retain the instructions they loaded before a swap, while
+new skill resolutions traverse the stable links into the active release.
 
 ## Human control and reporting
 

@@ -5,9 +5,10 @@ description: Boot, attach, operate, inspect, pause, resume, stop, or report on b
 
 # Supervise Tracker Runs
 
-Create one isolated supervision group per target Codex thread. Keep the target
-thread authoritative for its direct mission and, when present, its tracker;
-supervisors inspect and steer but do not implement target work.
+Create one isolated supervision group per target implementation or main thread.
+Keep the implementation thread authoritative for its tracker; supervisors inspect and
+steer but do not implement tracker work. Every target thread remains authoritative
+for its direct mission, and supervisors do not implement target work.
 
 ## Load the contract
 
@@ -83,7 +84,14 @@ supplied digest.
    ```
 
    Resolve `scripts/supervision_log.py` to its absolute path when using it from
-   another thread.
+   another thread. Scheduled automation prompts must use the stable installed
+   path under
+   `~/.codex/software-factory-releases/current/supervise-tracker-runs/`, never a
+   release-specific directory or copied release hashes. At every wake, read the
+   current helper status for policy, mission, range, and lifecycle state rather
+   than treating prompt-copied values as authority. An atomic release activation
+   therefore updates the next scheduled wake automatically; a turn already in
+   progress may finish with the instruction bytes it loaded before the swap.
    The mission root and source form the supervisor's independent charter. They
    may identify an ordinary goal document, implementation tracker, repository
    authority, or direct user/system source. The target does not need a native
@@ -161,6 +169,18 @@ Repeat independently for additional targets.
 
 - Use the watcher for proactive 20-minute checks. Tighten to 15 minutes only
   during a concrete high-risk/expensive phase and restore 20 minutes afterward.
+- If the compact target read is unavailable, call `watcher-availability`
+  instead of writing an ordinary no-intervention record. At three consecutive
+  same-target, same-fingerprint unavailable reads, the helper opens or reuses
+  one supervision-owned incident and returns the exact autonomous retry and Max
+  route. It must suppress identical unavailable checks until availability or
+  the read trigger changes. Do not interpret an unavailable read as unchanged
+  target state.
+- Close that incident only after `watcher-availability --read-status
+  available-verified` retains one real compact read and one distinct next-state verification,
+  and the bound Max reviewer accepts the effectiveness evidence.
+  The helper's verified-read record is review-ready evidence, not self-closing
+  authority.
 - Use Terra only for the compact change gate, mechanical triage, and obvious
   emergency-stop conditions. Route every materially changed state to the Sol
   XHigh base reviewer; Terra must not be the semantic no-intervention authority.
@@ -181,6 +201,13 @@ Repeat independently for additional targets.
   source record, and required action, and require `send_allowed=true`. Never use
   an unrelated chat or side conversation as a status sink. User-facing email
   goes only through the maintained notification gates.
+- Record before routing a critical correction or reporting one handled. Mark
+  that route `--severity critical` and cite the exact current open incident head,
+  incident ID, and failure-mode ID. The head must already bind the complete
+  failure-mode envelope and correction, an autonomous target/supervisor owner,
+  `user_action_required=no`, and a nonempty autonomous next effectiveness
+  trigger. A missing, stale, mismatched, triggerless, or terminal head fails
+  closed; the route gate returns the exact accepted head and currentness root.
 - Bind every new supervision group to an exact content-minimized mission root
   and controlling source record before its first watcher check. The semantic
   mission remains in its direct goal, repository, or tracker sources: its
@@ -220,7 +247,11 @@ Repeat independently for additional targets.
   tradeoffs, current behavior, operator-visible effects, and any supported gap
   with its narrow owning skill or repository component. Hash the exact
   normalized reconciliation object and record that root with the other five
-  content-minimized roots through `completion-record --capability-reconciliation-json`.
+  content-minimized roots through `completion-record`, supplying exactly one of
+  `--capability-reconciliation-json` or `--capability-reconciliation-base64`.
+  Preserve the explicit-file path's fail-closed checks. When the reviewer role
+  forbids file creation, require the canonical base64 path rather than creating
+  a temporary file.
   The submitted JSON remains caller-owned and is not copied into the canonical
   ledger; the helper validates it first and retains its normalized root,
   revision, posture, gap count, and independent role identities. The helper must reject
@@ -250,17 +281,25 @@ Repeat independently for additional targets.
   implementation "report of reports." Send one completion email to the bound
   primary Gmail thread with both PDFs attached. Read the exact sent message with
   raw MIME, also read the bound seed message, and read both attachments through
-  Gmail. `record-delivery` must parse both MIME messages, prove the sent message
+  Gmail. Every prepare, finalize, verify, delivery, and shutdown boundary must
+  re-establish the exact completed implementation range, current lifecycle, and
+  completed governing-outcome posture. `record-delivery` must parse both MIME messages, prove the sent message
   is a reply in the seed's provider-owned thread, bind each attachment to that
   exact owner message/thread plus its attachment/read-call IDs, and prove the
-  returned bytes equal the verified PDFs. Caller-supplied message IDs or hashes
-  alone are insufficient.
+  returned bytes equal the verified PDFs. It also requires an independently
+  signed exact review of the retained Gmail provider outputs and retains that
+  signed object byte-for-byte after validation; caller-supplied
+  message, attachment, read-call IDs, or hashes alone are insufficient.
 - Treat `supervision_pause_permitted=true` as the shutdown boundary. It requires
   the accepted completion record, exact completed lifecycle, both current report
   PDFs, and their recorded Gmail delivery. Pause every exact bound project
   supervision automation, then run `terminal-shutdown`. The helper reads the
   maintained Codex automation owner files directly and requires every exact
-  bound automation to be paused by an update no earlier than report delivery.
+  bound automation to belong to its policy-bound runtime role task and be
+  paused by an update no earlier than report delivery. It rechecks the owner
+  files across the canonical append and records a rooted currentness rejection
+  if they change. Generic check records cannot create or retire shutdown
+  evidence.
   Do not claim that supervision stopped when an expected owner is missing,
   active, stale, or divergent.
 - Treat an unsupported goal-preventing stop as a critical operational event,
@@ -318,6 +357,18 @@ Repeat independently for additional targets.
   exact selected or safely deferred handoff, require automatic target
   acknowledgement and continuation at the next turn boundary. Only
   `blocking_permitted=true` may support a terminal blocked posture.
+- Treat every safe deferral as provisional and currentness-bound. If later
+  canonical direct authority corrects, cancels, or expires the exact successor-
+  topology premise that produced the deferral, the governing reducer must
+  reconcile that decision immediately, keep the target `in-progress`, and
+  return `record-decision-correction-and-continue-governing-outcome`. Append the
+  explicit `corrected` decision record from that same authority, but do not keep
+  the target blocked while waiting for the bookkeeping append. Mismatched
+  mission, source, state fingerprint, transition lineage, or authority remains
+  blocking. The exact transition genesis must predate and be cited by the
+  decision-ready record, every later decision phase must preserve the frozen
+  decision identity, and the cited matching lineage must be unique; a generic,
+  uncited, later-created, or ambiguous event is never enough.
 - Treat every unresolved Important/Critical notice as an incident, not a
   terminal notification. Route it immediately to the event-driven Sol XHigh
   notice reviewer. A corrective steer changes the incident to
@@ -365,6 +416,86 @@ Repeat independently for additional targets.
   to `blocked`, `failed`, and explicit `stopped`; the Pacific-time writer never
   delays or replaces it.
 
+Adaptive implementation authority is separately configurable through the same
+policy owner. New groups start `full-autonomous`; a legacy group without the
+field behaves as `fixed` until an explicit `bind` or `adjust` appends the
+migration. Operators may select `fixed`, `recommend`, `reviewed-autonomous`, or
+`full-autonomous` and adjust the one-lane file/change/command/time/mapped/review
+ceilings without changing code. The retained candidate interchange has fixed
+absolute caps of three files and six commands, so policy may tighten but cannot
+widen those two ceilings:
+
+```bash
+python3 scripts/supervision_log.py adjust \
+  --target-thread <target-thread-id> \
+  --adaptive-decision-mode <fixed|recommend|reviewed-autonomous|full-autonomous> \
+  --adaptive-target-class <target-repository|software-factory> \
+  --adaptive-target-repository-root <canonical-absolute-repository-root> \
+  --candidate-max-active-lanes 1 \
+  --candidate-max-files <n> \
+  --candidate-max-changed-lines <n> \
+  --candidate-max-commands <n> \
+  --candidate-max-elapsed-minutes <n> \
+  --candidate-max-mapped-comparisons 1 \
+  --candidate-max-review-passes 1 \
+  --reason <operator-directive> --evidence <source-record>
+```
+
+Before applying or exposing an adaptive choice, call
+`adaptive-decision-gate --decision-evidence` with one bounded canonical source
+packet. The helper recomputes the decision fingerprint and currentness from its
+mission/Block, target revision/state, adjudicating evidence, owner/scope,
+protected capability, Stop, safe-frontier, and revisit fields plus the current
+policy and governing event head. It derives target class from policy and effect
+class from target plus disposition; callers cannot supply a fingerprint or
+substitute a weaker target/effect permission. Candidate dispositions also
+require one bounded canonical
+`--candidate-evidence` JSON object that binds owner, source revision, candidate,
+usage, protected-capability, validation, comparison, and currentness roots.
+The repository root is canonical policy state: it must be the exact existing
+Git top level (never `/`, an ancestor, or a symlink), bind it at `init` or
+exactly once while migrating an older policy, and never widen or replace it.
+Candidate source revision and decision-basis root must bind the exact target
+revision, Block/capability/state, affected paths/content, and protected contract;
+candidate protected-capability evidence must cover all and only that contract.
+The gate rehydrates the policy-pinned tracker, exact Git HEAD, affected regular
+file bytes, candidate after-bytes, focused-before-mapped result sequence, six
+comparison dimensions, and elapsed/resource use. A separately sealed evaluator
+signature accepts that retained candidate packet. The canonical event ledger,
+not a candidate counter, supplies the one-active-lane-per-target frontier.
+Software Factory proposer and implementation-owner identities come from the
+configured owner roles and remain explicit in both reviewer/evaluator signatures
+and canonical events. Never replace any of these with caller flags or counts.
+The gate records the decision in the existing event ledger, but it never writes
+the target or publishes an unconditional cross-owner write grant. An otherwise
+applicable decision is `owner-application-ready` with
+`application_authorized=false` and an exact application-precondition root. Only
+the existing target Git/write owner may consume it, and that owner must
+atomically revalidate policy, target revision/state, affected bytes, candidate
+currentness, and owner identity in the same write transaction. When the gate
+returns `automated-independent-review-required`,
+the external reviewer signs the complete source-decision identity, fingerprint,
+currentness, semantics, candidate/owner, disposition, policy, and evidence
+result with the sealed reviewer authority. Import it exactly once through
+`adaptive-decision-review --review-json`, then rerun the gate with that canonical
+event ID. Software Factory mutations, including inline correction, additionally
+require a separately signed accepted evaluator result from the sealed evaluator
+authority; the reviewer signature then binds that exact evaluator result.
+Neither a boolean, caller ID, self-hash, nor reviewer prose proves review. In
+`full-autonomous`, the
+adaptive gate and the existing decision/notification owner both reject or
+suppress every human-request attempt: resolve
+ordinary judgment from current sources, choose the safest reversible supported
+option, or record `reserved-external` with exact blockers and continue the safe
+frontier. Do not send a Resume instruction.
+
+Adaptive mode never grants repository, command, credential, spend, destructive,
+Gmail, deployment, release, promotion, or skill-maintenance permission. A
+candidate still requires one lane, exact ceilings, focused-before-mapped proof,
+and independent review; ceiling exhaustion or protected regression retires it.
+Use `status` to inspect the mode, budget/use, decision and human-request counts,
+reserved deferrals, safe frontier, and application posture.
+
 ## Record and improve
 
 - Record every bounded check as one compact JSONL event. Create Markdown only for
@@ -378,8 +509,13 @@ Repeat independently for additional targets.
 - Preserve mission root, authority provenance, and non-scalar mission impact
   unchanged through every decision transition. `reserved-authority` may cite
   only an exact applicable direct-user, system, repository, or tracker source;
-  a supervisor steer, `codex_delegation`, or derived inference cannot create
-  it. Goal-blocking or goal-reversing posture requires commensurate direct
+  a supervisor steer, unbound `codex_delegation`, or derived inference cannot
+  create it. A helper-validated delegated-authority event and current receipt
+  carry the exact independently verified originating direct-user authority
+  through the current pending mission-activation source and the system's owner-produced
+  target-action route result; execute that bounded source
+  without asking the user to repeat it, and never expand it from the routing
+  packet. Goal-blocking or goal-reversing posture requires commensurate direct
   authority plus an independent mission-level challenge.
 - Use only `scripts/supervision_log.py` for supervisor filesystem writes. Never
   place patent prose, project paths, credentials, prompts, or copied tool output
@@ -466,11 +602,52 @@ Repeat independently for additional targets.
   preserve unrelated state, stage only the plan-bound files, and commit each
   coherent validated candidate before exact-change review. A rejected candidate
   remains immutable; remediation is a successor commit. After Sol Max accepts
-  the exact commit, push it non-force to the existing unambiguous upstream before
-  refreshing active roles. If the repository, upstream, authentication, or
-  policy is unavailable, preserve the local commit and report the concrete
-  durability blocker. A supervisor may never create, select among ambiguous,
-  rewrite, or force-push a remote.
+  the exact commit, normally attempt a non-force push to the existing unambiguous
+  upstream. Remote publication and the rollback-safe local release are separate
+  lanes. An unavailable or failed publication becomes
+  `durability-pending`, requires an autonomous retry trigger, and blocks only a
+  remote-durability claim; it never changes final-response permission, required
+  target posture, local promotion eligibility, post-activation role-refresh
+  eligibility, or local effectiveness. After the exact accepted commit is
+  available locally, have the independent release reviewer sign one exact
+  `software-factory-release-acceptance` object and ingest it with
+  `software-factory-release-accept`. The canonical event binds its exact source
+  commit/tree, no findings, reviewer public-key identity, root, and signature.
+  A generic caller-authored checkpoint cannot substitute for it, and its policy
+  version must remain current when promotion begins. Then use
+  `supervision_log.py software-factory-release-promote --target-thread <target>
+  --repo <repo> --source-commit <commit> --acceptance-record <event>` without
+  asking for another user confirmation.
+  That orchestration command invokes only the
+  maintained release owner's exact flagless `promote --repo <repo>
+  --source-commit <commit>` operation, revalidates its returned active release
+  and three installed roots through live owner status, and records one
+  deduplicated canonical result. Invoke that owner with the canonical
+  operating-system account home and a minimal fixed Python/Git environment;
+  ambient `HOME`, `PYTHONPATH`, and Git overrides must not select release or
+  installation roots. It accepts no caller-selected active identity,
+  pointer, stage, quiescence, or manual-pin input. An explicit manual pin is a
+  separate policy-owned exception and is never selected by this promotion
+  command. Before the owner call, retain one canonical promotion requirement
+  binding the exact acceptance and prior live release identity, three installed
+  roots, verification root, and history count. If review advances for the same
+  exact source before any effect, append one linear successor requirement only
+  after proving that complete prior state remains unchanged; never let the
+  retired acceptance invoke the owner. Serialize that
+  requirement, owner effect, currentness recheck, and result against later
+  acceptance/policy events; an interrupted retry rehydrates the one owner
+  transition from live status. A changed predecessor or activation-history
+  count after the effect is retained as a canonical currentness rejection and
+  cannot trigger another promotion. The release owner must run exact-commit checks, retain the
+  prior release, atomically swap the active pointer, verify it in a fresh
+  process, and restore the prior pointer on failure. The signed acceptance is
+  the independent acceptance itself, not a second promotion or quiescence
+  authorization. Scheduled automations bind to
+  the stable `current` paths, so verified activation updates their next wakes
+  without rewriting schedules or identities; migrate any legacy release-pinned
+  prompt once after activation and refresh already-running role context through
+  the existing `role-refresh` gate. A supervisor may never create, select among
+  ambiguous, rewrite, or force-push a remote.
 - Changes to models, target permissions, defect semantics, auto-steer
   authority, repository access, patent authority, or the skill allowlist still
   require the user. Skill maintenance never authorizes target-repository or
@@ -655,10 +832,16 @@ hidden reasoning into the review.
   exposed, and all safe scoped work is exhausted. Otherwise steer the target to
   continue or narrow the stop. Record when the blocker was first foreseeable
   and when it became decision-ready.
-- Before accepting any target `blocked` lifecycle, call `decision-gate` for
-  every open decision head. If any result has `blocking_permitted=false`, record
-  the target block as invalid, keep supervision active, steer the target to
-  report `in-progress`, and continue the state machine. A stale application
+- Before accepting any target `blocked`, `paused`, `stopped`, or `completed`
+  lifecycle, call `control-posture-gate` on the governing-outcome owner target.
+  It is the sole required target posture. The gate keeps governing outcome,
+  tracker/program, execution run, Codex task, supervision group, and Block
+  identities separate; follows at most eight exact acyclic successor-member
+  ledgers; and binds their policy/event heads into one currentness root. Use
+  `decision-gate`, `successor-transition-gate`, and `lifecycle-gate` only for
+  their local diagnostics. If any local result conflicts with the canonical
+  posture, preserve it as evidence and obey `control-posture-gate`.
+- A stale application
   `Goal blocked` card after target acknowledgement is not current target state;
   the exact active turn and supervision decision head control. The resumed
   notification must say that no manual Resume action is required.
@@ -673,6 +856,47 @@ hidden reasoning into the review.
   authority is unavailable, preserve that boundary as an open transition—do
   not invent authority, manufacture a successor ID, falsely close the source,
   or turn the internal orchestration obligation into routine human scheduling.
+  Reuse the current task by default through `same-task-new-run`; require an
+  exact, unconditional direct request or an independently accepted
+  technical-isolation decision for `distinct-task`; conditional, optional,
+  contradictory, or merely caller-described topology prose is not authority.
+  Reject self-successors. If the premise changes, preserve history and
+  append only `corrected`, `cancelled`, bounded `expired`, or `superseded` from
+  reviewed direct authority. A replacement is inactive until its predecessor
+  carries the exact supersession link, and no retired transition closes the
+  governing outcome.
+- Preserve the implementation owner's canonical direct requested-range
+  binding. A routed steer, reviewer Stop, task/run/group boundary, transition,
+  handoff, commit, push, or accepted checkpoint may constrain its own operation
+  but cannot narrow or cancel that range. Before any terminal lifecycle, call
+  `implementation-range-gate`. If it reports remaining Blocks or a noncurrent
+  governing outcome, classify a return as the critical
+  `FM-UNAUTHORIZED-EARLY-RETURN` failure, reject terminalization, and require
+  its immediate dependency-safe `next_action`. An absent or noncurrent range
+  binding also returns a structured nonterminal verdict: keep the target
+  `in-progress`, continue the local safe frontier, and repair the binding with
+  no manual Resume or ordinary human scheduling. Block, commit, review,
+  handoff, push, and final-response boundaries never imply completion. A Block
+  Stop inside a full-tracker request is an audit checkpoint, never a user-return
+  boundary.
+- At admission, distinguish an unbound internal packet from a canonical
+  delegated-authority envelope. The former cannot create scope. The latter
+  preserves exact originating user bytes, current mission/policy, the canonical
+  current pending mission-activation source, owner-produced target-action route
+  result/projection, and independent acceptance; ingest and
+  receipt it through the existing owner, bind the full tracker, and start its
+  first safe Block automatically. No same-thread repetition or manual Resume is
+  permitted.
+- Treat the content-minimized `control_posture_replay_v1.json` fixture and its
+  finite state matrix as the demonstrated convergence baseline for this failure
+  family. Replay it through the public `control-posture-gate`: an open or
+  acknowledged transition remains active; routed authority cannot create a
+  stop; direct correction can retire the stale transition and resume same-task
+  work; invalid terminal claims reconcile; and only exact current direct-stop
+  or observable-completion proof becomes terminal. Preserve one posture, no
+  self-successor, no terminal handoff inference, and no human scheduling leak.
+  The fixture is regression evidence, not a second ledger, private incident
+  transcript, or proof that later adaptive/evolution Blocks are implemented.
 - Before accepting `completed`, `paused`, or `stopped` after a same-target
   mission succession, require its derived mission activation to reach
   `work-started`. Use only exact later target evidence bound to the active
@@ -719,7 +943,8 @@ hidden reasoning into the review.
   bounded packet identifies the recipient's required action and must pass
   `thread-route-gate`; routine evidence and outcomes remain in the target thread
   or their helper-approved email lane. The gate is read-only and must not become
-  another message ledger or authorization system.
+  another message ledger or authorization system. A critical correction or
+  handled report must pass the record-first incident-head check described above.
 - Scheduled inactivity consumes no model tokens; each wake must remain bounded.
 - Supervision evidence is operational evidence, not patent authority, legal
   status, or proof of patent quality.

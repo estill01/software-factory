@@ -4,6 +4,7 @@
 
 - [Defaults](#defaults)
 - [Execution economy and reusable maintenance](#execution-economy-and-reusable-maintenance)
+- [Adaptive decision authority and input avoidance](#adaptive-decision-authority-and-input-avoidance)
 - [Factory capability-evolution workflow](#factory-capability-evolution-workflow)
 - [Mission binding and authority provenance](#mission-binding-and-authority-provenance)
 - [Continuation-first decision resolution](#continuation-first-decision-resolution)
@@ -49,6 +50,11 @@
   20 minutes each.
 - Genuine input window: after attempt 1 remains unresolved, 20 minutes while
   all safe work and remaining useful attempts continue.
+- Installed runtime binding: scheduled supervisor automations use the stable
+  `~/.codex/software-factory-releases/current/supervise-tracker-runs/` paths and
+  rehydrate current policy/mission/range state on every wake. They never pin a
+  release directory, release hash, policy hash, active Block, or frontier in the
+  recurring prompt as authority.
 
 The scheduled wake is not a polling loop. Between runs, no model is active. A
 single scheduled run uses one configured model. Terra routes every changed state
@@ -177,6 +183,130 @@ reference. `bind` or resume backfills a missing economy contract and
 allowlisted skill maintenance. Refresh the existing role and heartbeat prompts
 after that policy update and before the next target check.
 
+## Adaptive decision authority and input avoidance
+
+Adaptive implementation control is one versioned field in the canonical
+supervision policy, not a second controller. New policies default to
+`full-autonomous`. A legacy policy with no adaptive field continues as `fixed`
+until an explicit `bind` or `adjust` migration appends a new policy version;
+prior policy-history bytes and roots remain unchanged.
+
+The exact modes are:
+
+- `fixed` records supported bad-path evidence but applies no adaptive change;
+- `recommend` independently reviews the applicable recommendation, records at
+  most one exact lower-mode request, and continues the safe frontier without
+  treating the recommendation as applied;
+- `reviewed-autonomous` applies inline and low-to-moderate reviewed changes,
+  while consequential product application remains externally owned; and
+- `full-autonomous` applies reversible, mission-preserving, in-authority
+  decisions through their existing owners after any required automated review.
+  It emits zero human requests for ordinary engineering judgment.
+
+Candidate budgets admit at most one active lane per decision and target and
+bound files, changed lines, commands, elapsed minutes, mapped comparisons, and
+review passes. Independent review, resource-exhaustion Stop, and protected-
+regression Stop cannot be disabled. Exceeding a ceiling retires the candidate
+and continues unaffected safe work. The canonical retained-candidate envelope
+supports at most three files and six commands; an operator may tighten but may
+not configure a wider file or command ceiling. The mode never changes repository-write,
+command, skill-maintenance, Gmail, credential, spend, destructive, deployment,
+release, or promotion permissions. Each mutating disposition cites an exact
+effect class that deterministically expands to every applicable existing
+permission. Production cutover additionally requires promotion authority;
+skill maintenance requires the allowlisted-skill permission; skill-release
+cutover requires repository, allowlisted-skill, release, and promotion
+permissions. Deployment, destructive action, spend, credential access, and
+external action remain distinct ceilings and cannot be laundered through
+repository write. A missing permission becomes an exact reserved subject rather
+than an adaptive grant.
+
+Before a user-facing question in `full-autonomous`, resolve current sources,
+choose the safest reversible supported option, or retain a bounded assumption
+with a revisit trigger. A genuinely unavailable or out-of-authority act records
+`reserved-external`, exact blocked subjects, the remaining safe frontier, and a
+revisit trigger without requesting a human or Resume action. One bounded
+automated independent review is permitted when required. Equivalent decision
+and currentness state deduplicates in the existing event ledger. The existing
+`decision-record`, `decision-gate`, and decision-notification owner also reads
+the adaptive mode: under `full-autonomous`, unresolved attempts create no human
+deadline or notification and proceed after the bounded attempts to selection or
+safe deferral.
+
+Use the existing policy, event, and status owners:
+
+```bash
+python3 scripts/supervision_log.py adjust \
+  --target-thread <target-thread-id> \
+  --adaptive-decision-mode full-autonomous \
+  --adaptive-target-class <target-repository|software-factory> \
+  --adaptive-target-repository-root <canonical-absolute-repository-root> \
+  --candidate-max-active-lanes 1 \
+  --candidate-max-files 3 \
+  --candidate-max-changed-lines 120 \
+  --candidate-max-commands 6 \
+  --candidate-max-elapsed-minutes 20 \
+  --candidate-max-mapped-comparisons 1 \
+  --candidate-max-review-passes 1 \
+  --reason <operator-directive> --evidence <source-record>
+
+python3 scripts/supervision_log.py adaptive-decision-gate \
+  --target-thread <target-thread-id> \
+  --decision-evidence <canonical-decision-evidence.json>
+
+python3 scripts/supervision_log.py adaptive-decision-gate \
+  --target-thread <target-thread-id> \
+  --decision-evidence <canonical-candidate-decision-evidence.json> \
+  --candidate-evidence <canonical-candidate-evidence.json>
+
+python3 scripts/supervision_log.py adaptive-decision-review \
+  --target-thread <target-thread-id> \
+  --review-json <externally-signed-review.json>
+
+python3 scripts/supervision_log.py adaptive-decision-gate \
+  --target-thread <target-thread-id> \
+  --decision-evidence <same-canonical-decision-evidence.json> \
+  [--candidate-evidence <same-canonical-candidate-evidence.json>] \
+  --independent-review-record <canonical-review-event>
+
+python3 scripts/supervision_log.py status \
+  --target-thread <target-thread-id>
+```
+
+The decision evidence is exact canonical JSON; the helper recomputes rather
+than accepts its fingerprint and derives target/effect from canonical policy.
+The exact existing Git-top-level repository root is bound in policy at
+initialization or one legacy migration and is thereafter immutable; `/`, an
+ancestor/wrong worktree, and realpath/symlink-escaped affected scopes reject.
+The candidate evidence is canonical JSON binding the decision, candidate owner
+and exact decision target revision plus a Block/capability/state/scope decision
+basis, candidate and usage roots, all-and-only decision-contract
+protected-capability results, validation/comparison roots,
+and currentness. Candidate roots rehydrate exact before/after file content,
+focused-before-mapped canonical result payloads, the closed six-dimension
+comparison, and lane chronology; usage is derived from those records. The sealed
+evaluator authority signs the complete accepted candidate packet, and the
+canonical owner ledger rejects a second distinct active candidate regardless of
+caller-declared counts. Its
+review-pass use is zero; the separately owned canonical review event contributes
+the one review pass only after a sealed reviewer signature binds the complete
+reviewed semantics/currentness. A Software Factory mutation additionally needs
+a distinct sealed evaluator signature over the same source decision and its
+evaluation result; the reviewer cannot author or rewrite that result. Equivalent
+fingerprints and adjudicating semantics deduplicate before a
+second decision or reviewer cycle. `status` exposes the current mode and budget, legacy
+posture, decision and human-request counts across adaptive and existing decision
+paths, independent reviews, reserved deferrals, latest candidate use, safe
+frontier, and application posture. The adaptive gate and review command record
+their results in `events.jsonl`
+through the canonical owner-relative, currentness-checked append path.
+Because that ledger and the target Git worktree have different writers, an
+applicable event is nonauthorizing `owner-application-ready` evidence with an
+exact application-precondition root, never an unconditional repository grant.
+The existing target owner must atomically rehydrate that root with the target
+mutation; stale policy, revision, affected bytes, candidate currentness, or
+owner identity makes the ready event a no-op and requires currentness refresh.
+
 ## Factory capability-evolution workflow
 
 Factory capability evolution is explicit, on demand, and derived. It does not
@@ -275,6 +405,15 @@ exact state fingerprint and mission root, with exact SHA-256 roots for:
   current behavior, operator-visible effects, and every supported gap with its
   narrow owner.
 
+Supply that reconciliation through exactly one completion-record input:
+`--capability-reconciliation-json` for an explicit readable file, or canonical
+`--capability-reconciliation-base64` for a no-filesystem handoff. Preserve the
+file path's explicit-file fail-closed behavior. When the reviewer role forbids
+file creation, require the base64 path; never create a temporary file to bridge
+the role boundary. Both paths use the same decoded-byte ceiling, schema,
+evidence/currentness checks, normalization, and canonical root, and neither
+stores the raw object in the ledger.
+
 The helper rejects a completed lifecycle record when this evidence is absent,
 failed, stale, bound to another mission or fingerprint, produced by an
 ineligible reviewer, or missing any root. `lifecycle-gate` revalidates the same
@@ -301,24 +440,41 @@ verified prior report, or a PDF whose complete extracted projection differs
 from the canonical review. Every prior weekly report must pass its maintained
 verifier before it can enter the report-of-reports packet.
 
+Every terminal prepare, finalize, verify, delivery, and shutdown boundary
+revalidates the exact completed implementation range, latest completed
+lifecycle, observable-outcome record, and governing control posture. A missing
+range, reopened Block or lifecycle, open activation/transition/decision, or
+changed control member fails closed even when historical completion artifacts
+remain present.
+
 Reply once to the bound primary Gmail seed with both verified PDFs attached.
 The email is the completed lifecycle notice. Read that exact sent message with
 raw MIME, then read both Gmail attachments through their Gmail-owned attachment
 IDs. `terminal-report record-delivery` parses the MIME, checks the bound subject,
 records the Gmail message and thread IDs plus read tool-call evidence, and proves
 both returned payloads have the exact verified local PDF names, bytes, and
-hashes. It does not accept caller-supplied IDs or hashes without that complete
-read-back. A plain email, a link without attachments, or report files without a
-current read-back receipt does not satisfy delivery. `lifecycle-gate` returns
+hashes. The read-back also carries one independently signed exact acceptance of
+the retained Gmail provider-output object and its root. The signed object is
+validated and retained byte-for-byte so later currentness checks reproduce its
+exact root. It does not accept
+caller-supplied IDs, hashes, or a self-labeled provider object without that
+provider-output provenance. A plain email, a link without attachments, or
+report files without a current read-back receipt does not satisfy delivery. `lifecycle-gate` returns
 `supervision_pause_permitted=true` only when the completion proof, completed
 lifecycle, verified reports, and recorded Gmail read-back all agree.
 
 After that gate passes, pause every exact automation returned in
 `pause_automation_ids` and view each current state. `terminal-shutdown` then
 reads each exact maintained Codex `automation.toml` owner directly; it accepts
-only the complete bound set in `PAUSED` state with owner update times no earlier
-than report delivery. Caller-asserted `ID=PAUSED` strings, missing owners, active
-states, path escapes, or stale pauses fail closed. The reports and email remain
+only the complete bound set owned by the policy-mapped runtime role tasks in
+`PAUSED` state with owner update times no earlier than report delivery. The
+routine automation maps to the watcher, the meta automation to the reviewer,
+the Gmail poll automation to the Gmail gate, and roundup/weekly automations to
+the roundup writer. It reopens exact owner state at the append boundary and
+records a rooted currentness rejection if any owner changes. Generic check
+records cannot impersonate or retire either shutdown record. Caller-asserted
+`ID=PAUSED` strings, wrong-role or missing owners, active states, path escapes,
+or stale pauses fail closed. The reports and email remain
 derived evidence; they do not become another completion authority, patent
 record, legal conclusion, or filing/release approval.
 
@@ -375,9 +531,17 @@ operation, one exact critical incident, no carry-forward, successor effects
 allowed, and independent mission review. A supervisor goal-reversing action is
 always rejected.
 
-Treat `codex_delegation` as routed provenance, never direct user speech.
-`reserved-authority` may originate only from an exact still-applicable
-direct-user, system, repository, or tracker source. A supervisor steer,
+Treat `codex_delegation` as a transport, not an authority source. An ordinary
+unbound packet remains nonauthorizing. A packet carrying the maintained exact
+delegated-authority envelope preserves its separately verified originating
+direct-user source and is actionable within that exact source scope; do not ask
+the user to repeat it in the recipient thread. The envelope binds the original
+task/turn/item and bytes, target, current mission/policy, canonical target-action
+route source and projection, and independent base-or-Max acceptance before the
+owner event and receipt. It may not widen or reverse the original instruction.
+`reserved-authority` may originate only from that exact still-applicable
+direct-user source, including its validated delegated transport, or an exact
+system, repository, or tracker source. A supervisor steer, an unbound
 `codex_delegation`, or derived inference cannot create it. Goal-blocking or
 goal-reversing decisions require commensurate direct authority and an
 independent mission-level challenge. Preserve the exact mission/provenance
@@ -422,6 +586,80 @@ Keep decision timing, packet/scope/frontier hashes, attempts, disposition,
 handoff, and target acknowledgement in the existing content-minimized JSONL
 ledger. Substantive alternatives and rationale remain in the tracker/project's
 existing decision owners. Do not add a second decision ledger or status service.
+
+A safe deferral is provisional, not permanent stop authority. When a later
+canonical direct-authority successor-transition correction closes the exact
+topology premise frozen by that decision, the reducer reconciles the decision
+without waiting for another human or a manual Resume. The relation is exact:
+the unique matching transition genesis must predate and be cited by the
+decision-ready record; every later decision phase must preserve the frozen
+decision identity; the transition genesis and decision must share mission,
+governing source, and state fingerprint; the later correction must be the
+current transition head,
+cite its exact prior record, resolve through the canonical authority owner, and
+continue the governing outcome in the same task. `control-posture-gate` then
+returns `in-progress` and exposes the reconciliation source. The watcher appends
+one `corrected` decision successor record with the exact current prior decision,
+reason, canonical correction source/hash, and
+`continue-governing-outcome`. That append preserves history but is not allowed
+to hold progress after the reducer has already proven the exact correction.
+Unrelated later records, merely matching prose, changed missions, mismatched
+fingerprints, or unowned source strings do not reconcile a deferral.
+
+## Governing outcome identity and canonical posture
+
+The governing requested outcome persists across subordinate tracker/program,
+execution-run, Codex-task, supervision-group, and Block identities. The initial
+target/group ledger is its canonical locus. A successor-transition edge may
+join another target/group ledger only when it supplies the exact successor task,
+mission root, and group identity. `control-posture-gate` follows those edges
+acyclically to at most eight members; it never scans the supervision root for
+possible members or copies their state into a second ledger.
+
+For each member, the gate reads one policy and append-only event ledger, records
+the policy hash and event-head hash, and rechecks the event head after the
+bounded read. The ordered member set produces one governing-outcome currentness
+root. Missing, divergent, cyclic, duplicate, escaped, over-bound, or changed
+member state requires `in-progress` plus exact reconciliation/retry action. It
+never becomes an inferred stop.
+
+The reducer applies one precedence order:
+
+1. unstable or invalid membership/evidence remains `in-progress`;
+2. an owner-locus `stopped` lifecycle may return `stopped` and control
+   subordinate implementation/wait postures only when it cites the exact
+   acknowledged direct reserved-authority decision that supplied the stop,
+   binds the governing mission and same nonempty fingerprint, and has no safe
+   frontier;
+3. any open implementation/topology transition remains `in-progress`;
+4. any nonempty safe frontier or unresolved nonblocking decision remains
+   `in-progress`;
+5. an exact current safely deferred missing fact or reserved authority may
+   return `blocked` only when every safe frontier is empty, no transition
+   remains, and no later exact direct-authority correction reconciles the
+   frozen premise;
+6. current independently verified observable completion may return `completed`
+   only from the canonical owner locus and when no prior obligation remains;
+   subordinate task completion remains diagnostic evidence; and
+7. every other state remains `in-progress` under the governing outcome.
+
+New policies persist a stable supervision-group identity. Legacy policies stay
+readable: an exact successor-transition group claim remains the member identity
+for that legacy join, while a new policy-owned identity must match the claim.
+
+Run:
+
+```bash
+python3 <LOG_HELPER> control-posture-gate \
+  --target-thread <GOVERNING_OUTCOME_OWNER_TARGET>
+```
+
+`decision-gate`, `successor-transition-gate`, and `lifecycle-gate` retain their
+bounded local diagnostics and expose the canonical result, but they do not own
+a separate terminal posture. The `control-posture-gate` result is the sole
+required target posture. A task, group, Block, handoff, acknowledgement,
+tracker, test, review, or commit boundary cannot substitute for current outcome
+completion or an exact valid stop.
 
 ## Same-target mission activation
 
@@ -471,10 +709,34 @@ stable transition in the existing event ledger with these exact ordered phases:
 
 Every transition preserves prior identity and may advance only one phase. It
 cannot skip a phase, claim future evidence early, change the tracker or mission,
-or start at a different Block. The gate returns `source_stop_permitted=true`
-only at `work-started`. Before then, the required source posture is
-`in-progress`; a handoff, accepted tracker, created task, bound group, or target
-acknowledgement cannot close the user's requested scope.
+or start at a different Block. When a canonical implementation range is bound,
+the initial transition derives and compares the exact tracker hash, requested
+Block set, first dependency-safe Block, canonical range-history source record,
+and source mission root from that owner state; caller-shaped replacements fail
+closed. `same-task-new-run` is the
+default topology and moves directly from `required` to `work-started` without
+task creation or human scheduling. `distinct-task` is exceptional: a
+`direct-request` basis must supply the exact request bytes whose SHA-256 is the
+canonical direct-user governing source and whose one affirmative clause
+unambiguously requires a distinct task. Negation, same/current-task contrast,
+conditional, optional, or contradictory language fails closed,
+while `technical-isolation` must resolve a pre-existing hash-chained
+`successor-topology-decision` owner event binding the transition, rationale,
+authority, policy-history root, independent verifier, and evidence.
+`legacy-linear` is migration-only and cannot be selected for new records. Every
+topology rejects a successor equal to the source. The gate
+returns `source_stop_permitted=true` only when a distinct successor reaches
+`work-started`; same-task work continues under the governing outcome.
+
+When a transition premise becomes stale or wrong, append one `corrected`,
+`cancelled`, bounded `expired`, or `superseded` disposition. It must cite the
+exact current prior record, reason, reviewed direct authority, and governing-
+outcome effect. Supersession requires one already declared forward replacement
+whose genesis names the predecessor; it becomes current only after the exact
+supersession link. Correction, cancellation, and expiry resume the source task.
+Old records remain immutable and inspectable. Routed supervision may trigger
+review but cannot supply correction authority, and expiry ends only its bounded
+operation control—never the governing outcome.
 
 Create the initial record with the direct governing source, not the routed
 packet that happened to trigger the topology change:
@@ -491,6 +753,7 @@ python3 <LOG_HELPER> successor-transition-record \
   --source-mission-root <EXACT_SOURCE_MISSION_ROOT> \
   --governing-authority-source-class <direct-user|system|repository|tracker> \
   --governing-authority-source-record <EXACT_DIRECT_RECORD> \
+  --governing-authority-source-sha256 <EXACT_SOURCE_SHA256> \
   --state-fingerprint <CURRENT_FINGERPRINT> \
   --evidence <EXACT_EVIDENCE_REFERENCE>
 ```
@@ -509,9 +772,11 @@ python3 <LOG_HELPER> successor-transition-gate \
 ```
 
 Task-creation authority is an environmental fact, not something supervision may
-invent. A supervisor steer or `codex_delegation` packet can constrain or route
-an already authorized transition, but cannot become the direct authority for a
-user-owned successor. When authority is unavailable, the gate keeps the
+invent. A supervisor steer or unbound `codex_delegation` packet can constrain or
+route an already authorized transition, but cannot become the direct authority
+for a user-owned successor. A maintained delegated-authority envelope instead
+preserves the exact originating authority; it is not new supervisor authority.
+When authority is unavailable, the gate keeps the
 transition open and exposes that exact boundary. It must not fabricate a task
 ID, report a successful handoff as completion, or obscure the remaining
 obligation. In a surface where the governing direct request already authorizes
@@ -541,6 +806,259 @@ authority. For the initiating class here, use:
 `status` exposes every open successor transition. `lifecycle-gate` rejects a
 completed source and returns `source_stop_permitted=false` for paused, stopped,
 or completed postures while any transition remains before `work-started`.
+
+## Critical early-return prevention
+
+Freeze one direct requested-range binding in the canonical supervision policy
+before implementation begins. A bare `implement-tracker-blocks` invocation or
+an unbounded request to implement an established tracker binds the complete
+current tracker; exact numeric Block requests remain bounded. The policy-
+history chain anchors immutable genesis and every accepted range amendment. A
+full-tracker binding expands across accepted prerequisite insertion and
+renumbering. It can contract only through a later direct-user source already
+ingested as a hash-chained canonical owner event with verified task/item
+provenance. The receipt command only resolves that existing event and cannot
+accept source, hash, reviewer, or evidence claims from its caller. It never
+contracts from a caller string,
+routed supervision, `codex_delegation`, tracker or process evidence, a
+task/run/group transition, handoff, review, commit, push, or Block Stop.
+
+`FM-UNAUTHORIZED-EARLY-RETURN` is critical. Its root characterization is
+unauthorized requested-range contraction followed by false terminalization at
+an internal Block or procedural boundary. Routed-authority precedence may be a
+contributing mechanism but is not the causal root. At every Block Stop and
+immediately before a terminal lifecycle write or final response, call
+`implementation-range-gate`. It rehydrates the owner-pinned tracker, verifies
+policy-history and range-history currentness, derives accepted/remaining/
+dependency-safe Blocks, and consumes the canonical governing-outcome reducer;
+it accepts no caller-supplied terminal roots. Any nonterminal result requires
+immediate safe continuation and forbids terminalization. It never requests
+Resume or ordinary human scheduling. Only an exact one-Block request may
+normally return at that Block's Stop. An absent range binding, mission-
+mismatched binding, successor binding whose canonical source or receipt is
+absent/noncurrent, or a current binding whose tracker identity is stale returns
+a structured nonterminal verdict rather than a bare error:
+`implementation_start_permitted=false`, `final_response_permitted=false`,
+`required_target_posture=in-progress`, failure mode
+`FM-UNAUTHORIZED-EARLY-RETURN`, and
+`continue-local-safe-frontier-and-repair-binding`, with no human input or manual
+Resume. Ledger, policy-history, owner-root, and path-integrity failures still
+raise and fail closed; a structured repair verdict must not conceal corrupted
+canonical state. Remaining requested Blocks likewise force `in-progress` and
+their exact dependency-safe continuation action. Block, commit, review,
+handoff, push, and final-response boundaries do not alter that result.
+
+Bind once, amend only after an accepted tracker revision, and gate every Stop:
+
+`implementation-range-admit` is the pre-work owner. When no range exists it
+delegates to the ordinary canonical bind, which still requires one exact
+current reviewed, ingested, and receipted range-authority source; the mission
+source alone is ineligible at both public entry points. When the active range
+belongs to the same mission, admission may only rehydrate that exact range or
+advance status-only tracker bytes through the existing amendment owner. It
+must never replace a same-mission range.
+
+A pending same-target mission successor may replace one completed predecessor
+range only through the same policy owner. Under the policy-owner lock,
+admission must revalidate the predecessor's independently verified observable
+outcome and completed lifecycle, the unique still-pending current-mission
+activation, current policy and event heads, one exact independently reviewed
+and canonically ingested current-mission full-tracker authority source and its
+current receipt, and both exact tracker snapshots. Mission identity and range
+authority are separate: the mission source/root proves only which mission owns
+the range and can never substitute for the exact range-authority source. An
+unbound `codex_delegation`, delivery/readback/shutdown request, mission digest,
+historical predecessor source, or composition of retained sources is
+ineligible. A helper-validated delegated direct-user source is the original
+authority preserved through routing; once reviewed, ingested, receipted, and
+current, admission consumes it automatically without a same-thread repetition
+or manual Resume. The successor binding receives a fresh range ID, mission-bound
+genesis, exact source/receipt binding, and history sequence; it cites the
+predecessor range/genesis/head but never appends successor Blocks to predecessor
+history.
+The predecessor contract remains immutable in prior policy versions. A
+nonterminal predecessor, same-mission replacement, absent or ambiguous mission
+provenance, stale policy/event/tracker state, wrong or nonpending activation,
+structural drift, or historical range/genesis reuse rejects before policy
+mutation. A range owned by any mission other than the current policy is
+noncurrent at `implementation-range-gate` and can never yield
+`range_binding_current=true`.
+
+```bash
+python3 <LOG_HELPER> implementation-range-admit \
+  --target-thread <TARGET> --range-id <FRESH_RANGE_ID> \
+  --tracker <ABSOLUTE_TRACKER_PATH> --request-text <EXACT_DIRECT_REQUEST> \
+  --authority-source-record <CURRENT_RETAINED_RANGE_SOURCE> \
+  --authority-source-sha256 <CURRENT_RETAINED_RANGE_SOURCE_SHA256> \
+  --predecessor-outcome-record <EXACT_VERIFIED_OUTCOME> \
+  --predecessor-lifecycle-record <EXACT_COMPLETED_LIFECYCLE> \
+  --mission-activation-record <EXACT_PENDING_ACTIVATION>
+
+python3 <LOG_HELPER> implementation-range-bind \
+  --target-thread <TARGET> --range-id <STABLE_RANGE_ID> \
+  --tracker <ABSOLUTE_TRACKER_PATH> --request-text <EXACT_DIRECT_REQUEST> \
+  --authority-source-record <DIRECT_ITEM> \
+  --authority-source-sha256 <DIRECT_ITEM_SHA256>
+
+python3 <LOG_HELPER> implementation-range-amend \
+  --target-thread <TARGET> --tracker <ABSOLUTE_TRACKER_PATH> \
+  --amendment-event-record <CANONICAL_ACCEPTED_AMENDMENT_EVENT>
+
+python3 <LOG_HELPER> implementation-range-gate \
+  --target-thread <TARGET> \
+  --response-kind <block-boundary|commit-boundary|review-boundary|handoff-boundary|push-boundary|final-response|outcome-terminal>
+```
+
+Every new genesis, including the first range under a mission and a fresh
+mission-successor range, requires an already reviewed canonical authority
+receipt; mission identity alone is never range authority. For a nonlegacy exact direct
+source, its independent base-or-Max review must already bind one direct-user
+task/turn/item, exact UTF-8 bytes/count/SHA, current policy and mission, and
+full-tracker classification. When that source reached the target through the
+system's own routing, first bind the originating task/turn/item and exact source
+bytes to the current pending mission-activation head, then record the allowed route
+through the route owner. The review additionally binds the `codex-delegation`
+transport, exact canonical target-action route result and activation-source
+record hashes, action hash, and deterministic route projection. The origin task
+may differ from the
+recipient only in this delegated shape. The maintained owner then ingests only
+that one source as a canonical event; an unbound routed packet, changed
+route/source/action bytes, unrelated or wrong-kind source record, mission
+identity alone, non-full scope, generic
+local-path requests, stale policy/events, replay mismatch, and ineligible review
+reject before append:
+
+The mission controlling-source SHA is the canonical route-owner action digest
+returned by `thread-route-gate`. Delegated provenance separately retains and
+revalidates the exact raw UTF-8 byte count and SHA-256. The dedicated route
+owner derives the route action identity from the exact current mission binding;
+the input producer supplies only the complete originating direct instruction.
+Comparing either digest to the other, reconstructing action text from its
+digest, using an action as source text, or omitting the source bytes is an
+identity mismatch and must reject. Exact source text is passed as canonical
+base64 so multiline requests and their original bytes are retained without
+shell normalization.
+
+The retained activation source must remain the exact current head through
+ingestion, receipt, and fresh range admission. Actual first-Block work starts
+only afterward and advances that activation to `work-started`; later
+same-mission range gates retain the accepted history without treating the now
+historical pending source as current authority for another admission.
+
+```bash
+python3 <LOG_HELPER> delegated-direct-authority-route-record \
+  --target-thread <TARGET> --source-record <CANONICAL_ROUTE_SOURCE> \
+  --source-task <ORIGIN_TASK> --source-turn <ORIGIN_TURN> \
+  --source-item <ORIGIN_ITEM> \
+  --source-text-base64 <CANONICAL_BASE64_EXACT_DIRECT_SOURCE_TEXT>
+
+python3 <LOG_HELPER> direct-authority-ingest \
+  --target-thread <TARGET> \
+  --provenance-base64 <CANONICAL_BASE64_JSON>
+```
+
+This dedicated route owner derives the action SHA-256 from the exact current
+mission-activation head. It does not require a downstream input producer to
+replay route-action text that the canonical owner retained only by digest. The
+source item bytes, byte count, and raw UTF-8 SHA-256 remain separate reviewed
+provenance. The ordinary `thread-route-gate` keeps its bounded action input.
+
+A receipt resolves that separately ingested
+`direct-user-authority-source` owner event by exact ledger record:
+
+```bash
+python3 <LOG_HELPER> implementation-range-authority-receipt \
+  --target-thread <TARGET> --authority-event-record <CANONICAL_EVENT_ID>
+```
+
+The source event must already bind exact task/item provenance, content hash,
+eligible independent verifier, owner policy-history root, and evidence before
+entry. The resolver then cites that source record/hash on
+`implementation-range-amend`. Naming a new event or source string fails closed.
+Initial binding and contraction also hash the exact request text bytes and
+require equality with the accepted direct source SHA-256; authentic authority
+metadata cannot be paired with fabricated scope text.
+
+A pre-contract successor transition whose direct-user authority source was
+independently verified but never canonically ingested uses the legacy-only
+owner operation below. The caller supplies exact canonical JSON as canonical
+base64; the object binds the target/task, source turn and item, original UTF-8
+text and byte count, original SHA-256, current policy version/SHA, eligible
+base-or-Max verifier, prior reviewer-authorization record, and the single open
+legacy transition record/ID. The reviewer record must already be an accepted
+Sol XHigh-or-Max checkpoint/meta review with category
+`legacy-direct-authority-ingestion`, supervisor ownership, no user action, the
+current policy SHA, and exact source/transition evidence. Validation, duplicate
+and replay checks, policy/event currentness, and the legacy transition check all
+precede the locked event append. The canonical transition record must precede
+the reviewer authorization record; an earlier review cannot name a future
+transition and become retroactive authority:
+
+```bash
+python3 <LOG_HELPER> legacy-direct-authority-ingest \
+  --target-thread <TARGET> \
+  --provenance-base64 <CANONICAL_PROVENANCE_JSON_BASE64>
+```
+
+The operation appends only the existing `direct-user-authority-source` event
+shape through the canonical owner/event-anchor path. An exact duplicate is
+idempotent. Routed or fabricated review, wrong target/task/turn/item, changed
+bytes/hash, stale policy, review replay, a nonlegacy or non-open transition, or
+an ineligible verifier rejects without mutation. It does not issue the
+authority receipt, bind a range, reconcile the transition, or act on the
+target.
+
+Generic implementation-request classification continues to reject local paths.
+Only a receipt for an event produced by the legacy owner above may use the
+internal nonauthorizing classification seam: after canonical event, receipt,
+current-policy, reviewer, raw-byte/hash, and exact legacy-transition validation,
+the seam removes only the exact Markdown destinations of the allowlisted
+`author-implementation-trackers` then `implement-tracker-blocks` skill links.
+The exact clause ending in an unbounded `for that tracker` invocation classifies
+as `full-tracker`. The original source bytes and SHA remain the authority and
+`request_text_sha256`; caller-normalized replacement text, altered link labels,
+destinations, order, or clauses, generic local-path text, and generic unbounded
+requests cannot use this seam.
+Immediately before the range-policy write, the policy owner lock re-reads the
+current policy, accepted receipt, source event, reviewer authorization, event
+head, and still-open legacy transition. Any policy/event drift or intervening
+transition correction rejects before policy or policy-history mutation.
+After that exact legacy source has a current accepted receipt and full-tracker
+range, only a terminal disposition of the same still-open pre-contract
+transition may bypass the frozen-genesis range-history compatibility check.
+The helper still requires the exact transition head and identity, source event,
+review chronology, receipt, range authority, policy/event currentness, terminal
+correction authority, and governing-outcome effect; new, nonterminal, modern,
+or otherwise incompatible transitions retain ordinary compatibility checks.
+
+Ordinary tracker status and completion-evidence updates preserve the
+owner-pinned tracker path, exact Block-number set, and canonical structural
+root. Changing the path, Block set, dependencies, scope, acceptance, Stop, or
+other Block-contract content requires a
+pre-existing, independently accepted `implementation-tracker-amendment` owner
+event binding the old and new paths, hashes, complete Block sets, and an
+injective renumbering map. The event must predate the range amendment and match
+the current policy-history anchor; a caller-supplied map or replacement tracker
+is never amendment authority. Policy history is version-contiguous and the
+event ledger is pinned by a separately current, self-hashed head anchor, so
+truncation, re-rooting, stale suffixes, symlink substitution, and detached-owner
+writes fail closed before range or transition decisions. A separate append-only
+owner-root history binds both policy-history and event-ledger genesis, count,
+and current head. Each root is HMAC-bound by a private per-target key in the
+supervision root outside the mutable target directory; the key's existence
+forces enforcement even if policy is rewritten, and its path is not a caller
+input. An HMAC-authenticated external head file beside that key pins the latest
+root sequence and hash, so replaying an older authentic signed prefix also
+fails. Regenerating or re-rooting mutable sibling files cannot make a replaced
+ledger current. A true pre-key legacy transition receives one locked, lazy
+policy/root migration before it advances.
+
+The transition freezes its genesis tracker/range identity. Later phases preserve
+that identity and prove it still appears in the canonical range history with the
+same structural root, requested set, and mission. A status or completion-
+evidence-only tracker amendment may therefore advance normally; a structural or
+mission change requires correction/supersession instead of trapping both the old
+and new identities.
 
 ## Target-state fingerprint
 
@@ -597,6 +1115,30 @@ replace semantic review. A caller may not label routine status as an action to
 evade the rule. Email remains governed exclusively by `notice-gate`,
 `lifecycle-gate`, `decision-gate`, and the maintained roundup/reply contracts.
 
+Record-first ordering is mandatory for every critical correction route and
+every critical report that a correction was handled. Pass `--severity critical`,
+`--incident-id <INCIDENT>`, and `--failure-mode-id <FAILURE_MODE>` and use the
+current substantive incident head as `--source-record`. Before permitting the
+send, the gate validates the canonical event head and requires that source to be
+the exact current, open, critical incident head (including an exact-deduplicated
+head). The head must already contain the complete structured failure-mode
+envelope and correction, an autonomous `target` or `supervisor` resolution
+owner, `user_action_required=no`, and a nonempty `action` that owns the next
+effectiveness trigger. Missing incidents, stale source records, closed or other
+terminal heads, mismatched failure modes, incomplete ownership, and triggerless
+records reject. A successful result returns the exact incident head hash,
+failure-mode ID, hashed next trigger, and incident currentness root; it does not
+append or close the incident.
+
+```bash
+python3 <LOG_HELPER> thread-route-gate --target-thread <TARGET> \
+  --recipient-thread <RECIPIENT> --purpose <PURPOSE> \
+  --source-record <CURRENT_OPEN_INCIDENT_HEAD> \
+  --action "<EXACT_CRITICAL_CORRECTION_OR_HANDLED_REPORT>" \
+  --severity critical --incident-id <INCIDENT> \
+  --failure-mode-id <FAILURE_MODE>
+```
+
 For a containment `target-action`, pass the mission binding, authority
 provenance, non-scalar impact, exact scope identity, expiry, non-carry-forward,
 and successor posture to `thread-route-gate`. The gate validates and hashes the
@@ -613,6 +1155,79 @@ next action, keep the evidence in the target thread and do not cross-post it.
 After an accepted policy or skill change, `role-refresh` may carry only the exact
 new instruction to an already configured runtime role; it cannot target the
 implementation thread or an unrelated conversation.
+
+The normal release path is automatic once the exact accepted commit is locally
+available. The independent release reviewer first signs one exact
+`software-factory-release-acceptance` object. Ingest it into the canonical event
+ledger with `software-factory-release-accept`; the event retains the exact source
+commit/tree, `review-findings:none`, reviewer public-key identity, acceptance
+root, and signature. A generic caller-authored checkpoint is nonauthorizing.
+Its policy version must remain current when promotion begins. Then invoke:
+
+```bash
+python3 <LOG_HELPER> software-factory-release-accept \
+  --target-thread <TARGET> \
+  --repo <REPOSITORY> \
+  --source-commit <EXACT_HEAD> \
+  --review-evidence <SIGNED_ACCEPTANCE_JSON>
+
+python3 <LOG_HELPER> software-factory-release-promote \
+  --target-thread <TARGET> \
+  --repo <REPOSITORY> \
+  --source-commit <EXACT_HEAD> \
+  --acceptance-record <SIGNED_ACCEPTANCE_EVENT>
+```
+
+The command rejects dirty/non-HEAD source, changed tree, unbound or nonaccepted
+review, and caller-selected activated identity. It invokes exactly
+`scripts/skill_release.py promote --repo <repo> --source-commit <commit>` without
+asking for another user confirmation. The owner subprocess uses the canonical
+operating-system account home and a minimal fixed Python/Git environment;
+caller `HOME`, `PYTHONPATH`, and Git overrides cannot redirect the release or
+installation roots. It parses the bounded owner result, reopens live owner
+status, compares the active source/release/three installed roots, and appends one
+deduplicated promotion record. It accepts no caller-selected active identity,
+pointer, staging, quiescence, or manual-pin input. An explicit manual pin is a
+separate policy-owned exception, not a promotion-command choice. Promotion
+first retains one canonical requirement binding the acceptance, source/tree,
+and prior live release, installed roots, verification root, and history
+identity. If a newer signed acceptance for the same exact source becomes
+current before any effect, append one immutable successor requirement only
+after revalidating that complete prior state; the retired acceptance cannot
+invoke the owner. Keep the event-owner lock through the
+bounded owner effect, source/acceptance currentness recheck, and result append.
+An interrupted retry rehydrates an already completed one-transition effect
+from live owner status; changed currentness is retained as a rejection, never a
+successful promotion. A changed predecessor or activation-history count after
+the effect is also retained as a currentness rejection and cannot trigger a
+second owner call. The release owner retains the previous release, validates the exact commit, atomically changes only the
+stable `current` pointer, verifies the installed roots in a fresh process, and
+restores the prior pointer on failure. Existing scheduled automations must refer
+to the stable `current` skill, policy, and helper paths. A legacy prompt that
+names `releases/<release-id>` is migrated once after verified activation while
+preserving its automation ID, target thread, schedule, status, model, reasoning,
+and notification posture. Already-running role context receives the ordinary
+gated `role-refresh`; the next scheduled wake resolves the new release without a
+per-release prompt rewrite.
+
+Remote publication and signed local release activation are independent lanes.
+Use `skill-release-publication-gate` to project only the publication dimension.
+`published` permits the remote-durability claim. `unavailable` or `failed`
+requires an autonomous retry trigger and yields `durability-pending`; that state
+blocks only the remote-durability claim. It cannot change
+`final_response_permitted`, required target posture, signed local stage or
+activation eligibility, post-activation role-refresh eligibility, or local
+effectiveness. The projection does not authorize a release: exact review,
+signature, staging, currentness, atomic activation, retention of the prior
+release, and fresh-process verification remain exclusively owned by the signed
+local release owner.
+
+```bash
+python3 <LOG_HELPER> skill-release-publication-gate \
+  --target-thread <TARGET> \
+  --publication-status <published|unavailable|failed> \
+  [--publication-retry-trigger "<EXACT_AUTONOMOUS_RETRY>"]
+```
 
 ## Gmail notification channel
 
@@ -1219,6 +1834,24 @@ supervision; retain a retryable delivery posture.
 
 ## Watcher role prompt
 
+### Watcher read-availability contract
+
+An unavailable compact target read is coverage state, not semantic no-change
+evidence. Call `watcher-availability --read-status unavailable` with the exact
+state fingerprint and retry trigger. At three consecutive same-target,
+same-fingerprint unavailable reads, the helper appends or reuses one current
+incident, returns an autonomous retry plus bound Max route, and must suppress identical
+unavailable checks until availability or the trigger changes. One
+incident owns later trigger-specific recurrences until effectiveness is proven.
+
+Recovery requires two distinct retained reads: the real compact read and a
+distinct next-state verification. Call `watcher-availability --read-status
+available-verified` with both source records, both observed fingerprints, and
+both thread postures. The helper appends one idempotent verified-read record and
+routes it to the bound Max reviewer. It does not close the incident. Only a
+later independent effectiveness review may record the terminal incident
+resolution.
+
 Replace every angle-bracket placeholder before use.
 
 ```text
@@ -1243,9 +1876,11 @@ implementation or patent content through this exception.
 
 Preserve any containment's exact authority source, operation/Block scope,
 content-minimized identity, expiry, non-carry-forward, and successor posture in
-every routed packet or compacted role handoff. `codex_delegation` and supervisor
-language remain routed supervisor provenance; never relabel either as direct
-user authority.
+every routed packet or compacted role handoff. Never relabel supervisor language
+or an unbound `codex_delegation` as direct-user authority. When the packet
+contains a helper-validated delegated-authority event and current receipt,
+preserve and execute the exact originating direct-user instruction without a
+new prompt.
 
 You are running at Max reasoning. Avoid feature creep in both diagnosis and
 remedy. Focus on completing this bounded monitoring job efficiently and well:
@@ -1254,7 +1889,14 @@ prefer the narrowest correction that gets the intended implementation outcome.
 
 At each scheduled wake:
 1. Read only the target's compact listing/status markers and call the helper's
-   gate command. Read helper status for an open same-target mission activation.
+   gate command. If the compact read is unavailable, call
+   `watcher-availability`; never emit an ordinary no-intervention conclusion.
+   Let the helper enforce the three consecutive read threshold, suppress
+   identical unavailable records, and return any autonomous retry/Max route.
+   After availability returns, retain the real read plus a distinct next-state
+   verification through the same helper and route that record for independent
+   effectiveness review before closing its incident. Read helper status for an
+   open same-target mission activation.
    When one is pending, gate `target-action` and route the current target to its
    exact `first_eligible_work` immediately, keeping posture `in-progress`.
    Record `mission-activation-start` only after an exact later current-mission
@@ -1315,6 +1957,12 @@ At each scheduled wake:
    immediately gate the next attempt. If it is `choose-and-handoff` or
    `safe-defer-and-handoff`, route the final bounded disposition to Sol Max
    after purpose `semantic-escalation` is allowed.
+   If the action is
+   `record-decision-correction-and-continue-governing-outcome`, keep the target
+   `in-progress` immediately and append the exact `corrected` decision successor
+   using the returned transition correction and canonical authority source. Do
+   not wait for user input or a manual Resume, and do not accept a loosely
+   related later event as correction evidence.
    Send only helper-approved priority phase notices and keep the incident open
    until target acknowledgement.
 8. When the compact status or newest target turn explicitly reports `completed`,
@@ -1411,8 +2059,10 @@ files, run commands or tests, create subagents, or take over the target.
 
 Review consequential containment and decisions against the bound mission root.
 Challenge expired or carried-forward operation holds and any authority source
-lost or relabeled across compaction. A supervisor steer or `codex_delegation`
-packet cannot become direct user or reserved authority.
+lost or relabeled across compaction. A supervisor steer or unbound
+`codex_delegation` packet cannot become direct user or reserved authority. A
+helper-validated delegation envelope may carry, but never expand, the exact
+originating direct-user authority.
 Target-native alignment is optional corroboration only. If it is absent, review
 against the independent mission charter and observable effects; if it conflicts,
 route the discrepancy for challenge. Do not require target alignment machinery
@@ -1430,8 +2080,11 @@ reconcile expected versus actual effects, and classify every open item for
 compatibility with the primary outcome. Challenge whether the tracker omitted
 or deferred work needed for the direct goal. Passing process evidence cannot
 substitute. Record the six exact roots with `completion-record`; use `verified`
-only when the outcome is actually current. Otherwise record `failed`, escalate
-the false-completion defect, and keep the target active.
+only when the outcome is actually current. Supply exactly one of
+`--capability-reconciliation-json` or `--capability-reconciliation-base64`;
+when this reviewer role forbids file creation, use the canonical base64 input.
+Otherwise record `failed`, escalate the false-completion defect, and keep the
+target active.
 
 When the completion record is verified, remain responsible for the terminal
 report synthesis. Read the complete helper-prepared packet, produce both exact
@@ -1508,8 +2161,10 @@ The primary mission governs subordinate process optimization. Before accepting
 consequential containment or reserved authority, verify the exact current
 mission root, authority source class/record, impact, scope, expiry, and successor
 posture. Preserve those fields through compacted handoffs; never infer
-carry-forward or relabel supervisor or `codex_delegation` language as user
-authority.
+carry-forward or relabel supervisor or unbound `codex_delegation` language as
+user authority. Accept the helper-validated delegated form as transport of its
+exact independently verified originating authority, not as authority created by
+the supervisor.
 Treat target-native alignment as optional read-only corroboration. The
 independent charter and direct authority remain governing, especially while the
 target's own alignment implementation is absent, stale, broken, or under review.
@@ -1704,11 +2359,17 @@ independent acceptance before refreshing active roles or automations.
 If those skills are Git-tracked, inspect the exact worktree first, preserve
 unrelated state, stage only the plan-bound files, and commit the coherent
 validated candidate before review. Never amend a rejected candidate; append a
-remediation commit. After Sol Max accepts the exact commit, non-force push the
-existing branch to its unambiguous configured upstream, then refresh roles. If
-the repository, upstream, authentication, or policy is unavailable, preserve
-the local commit and report that blocker. Do not create or change a remote,
-guess among remotes, rewrite history, or force-push.
+remediation commit. After Sol Max accepts the exact commit, normally attempt a
+non-force push of the existing branch to its unambiguous configured upstream.
+Remote publication and the independently signed rollback-safe local release are
+separate lanes. Publication unavailable or failed is `durability-pending` with
+an autonomous retry trigger and blocks only remote-durability claims; it cannot
+change final-response permission, required target posture, signed local stage
+or activation eligibility, post-activation role refresh, or local
+effectiveness. Use only the maintained signed release owner, retain the prior
+release, and refresh roles only after exact local activation is verified. Do
+not create or change a remote, guess among remotes, rewrite history, or
+force-push.
 Never modify or run commands/tests in the implementation target, tracker,
 repository, patent workspace, or patent content. Do not execute a thread-only
 steer; Sol Max owns that action. Stop and return the plan when it would expand
@@ -1958,6 +2619,28 @@ Derive the current Gmail gate cadence from recorded conversation activity:
 python3 <LOG_HELPER> gmail-cadence --target-thread <TARGET>
 ```
 
+Record an unavailable compact read without manufacturing no-change evidence:
+
+```bash
+python3 <LOG_HELPER> watcher-availability --target-thread <TARGET> \
+  --read-status unavailable --state-fingerprint <HASH> \
+  --read-trigger <EXACT_RETRY_TRIGGER>
+```
+
+Retain the real read and distinct next-state verification before Max
+effectiveness review:
+
+```bash
+python3 <LOG_HELPER> watcher-availability --target-thread <TARGET> \
+  --read-status available-verified --state-fingerprint <CURRENT_HASH> \
+  --incident-id <CURRENT_INCIDENT> \
+  --read-source-record <REAL_READ_RECORD> \
+  --verification-source-record <NEXT_READ_RECORD> \
+  --observed-state-fingerprint <OBSERVED_HASH> \
+  --verification-state-fingerprint <VERIFIED_HASH> \
+  --observed-thread-status <STATUS> --verification-thread-status <STATUS>
+```
+
 Record a completed semantic base check:
 
 ```bash
@@ -1980,11 +2663,15 @@ python3 <LOG_HELPER> completion-record --target-thread <TARGET> \
   --effect-reconciliation-sha256 <SHA256> \
   --open-item-compatibility-sha256 <SHA256> \
   --independent-challenge-sha256 <SHA256> \
-  --capability-reconciliation-json <RECONCILIATION_JSON> \
+  --capability-reconciliation-json <EXPLICIT_RECONCILIATION_PATH> \
   --active-block <BLOCK> --checkpoint <CHECKPOINT> \
   --evidence <TARGET_TURN_OR_ITEM_ID> \
   --summary "Current operator-visible outcome was independently checked."
 ```
+
+Supply exactly one reconciliation input. Replace the explicit-file option above
+with `--capability-reconciliation-base64 <CANONICAL_BASE64_JSON>` when the
+reviewer role forbids file creation. Both or neither input fails closed.
 
 Only a current `verified` record allows the subsequent generic `record --kind
 lifecycle --status completed` command. A missing or failed record must produce
@@ -2030,12 +2717,16 @@ raw MIME. The sent MIME must reference the seed MIME's RFC message ID. Exactly
 two attachment rows bind filename, Gmail-owned attachment ID, owner message and
 thread IDs, attachment-read tool-call ID, returned byte count, and SHA-256. The
 helper parses both MIME messages, proves the reply/thread relationship, and
-rederives the payload hashes; do not construct a receipt from the local files
-or the send response alone.
+rederives the payload hashes. The object also includes a sealed independent
+provider-output review whose exact root binds the complete raw read result;
+obtain it only after the provider reads. Retain the signed review bytes exactly;
+do not normalize fields inside that rooted object. Do not construct a receipt
+from the local files, caller strings, or the send response alone.
 
 After `lifecycle-gate` returns `supervision_pause_permitted=true`, pause and view
 every returned automation. Then let the helper inspect the maintained Codex
-automation owner files directly:
+automation owner files directly. Each automation must name the policy-bound
+runtime role task that it wakes, not the monitored implementation task:
 
 ```bash
 python3 <LOG_HELPER> terminal-shutdown --target-thread <TARGET> \
@@ -2127,6 +2818,34 @@ the gate's exact action, attempt, deadline, priority-notification fields, and
 notice. Its unresolved record opens the user deadline and may simultaneously
 make attempt 2 and the complete priority decision brief eligible.
 
+When later canonical direct authority resolves the exact acknowledged safe-
+deferral premise, append its history-preserving correction:
+
+```bash
+python3 <LOG_HELPER> decision-record --target-thread <TARGET> \
+  --decision-id <DECISION_ID> --classification <missing-fact|reserved-authority> \
+  --phase corrected --safe-frontier <ORIGINAL_FRONTIER> \
+  --attempt <FINAL_ATTEMPT> --outcome safe-deferred \
+  --decision-packet-hash <ORIGINAL_HASH> \
+  --blocked-scope-hash <ORIGINAL_HASH> \
+  --safe-frontier-hash <ORIGINAL_HASH> \
+  --state-fingerprint <CURRENT_FINGERPRINT> \
+  --evidence <CURRENT_CORRECTION_RECORD> \
+  --mission-root <ORIGINAL_MISSION_ROOT> \
+  --authority-source-class <ORIGINAL_CLASS> \
+  --authority-source-record <ORIGINAL_SOURCE> \
+  --impact-class <ORIGINAL_IMPACT> --affected-width <ORIGINAL_WIDTH> \
+  --duration <ORIGINAL_DURATION> --reversibility <ORIGINAL_POSTURE> \
+  --ordinary-means-disabled <yes|no> \
+  --independent-mission-review <yes|no> \
+  --prior-record <EXACT_CURRENT_DECISION_RECORD> \
+  --disposition-reason <CURRENT_REASON> \
+  --correction-authority-source-class <CLASS> \
+  --correction-authority-source-record <SOURCE> \
+  --correction-authority-source-sha256 <SHA256> \
+  --governing-outcome-effect continue-governing-outcome
+```
+
 After a successful self-email reply, record its delivery:
 
 ```bash
@@ -2186,6 +2905,19 @@ tool:
 After creation, view all applicable automations and bind their IDs. Avoid
 standalone cron tasks: continuity, incident deduplication, and role context
 belong in the existing role threads.
+
+Every automation prompt uses these stable installed paths:
+
+```text
+~/.codex/software-factory-releases/current/supervise-tracker-runs/SKILL.md
+~/.codex/software-factory-releases/current/supervise-tracker-runs/references/supervision-policy.md
+~/.codex/software-factory-releases/current/supervise-tracker-runs/scripts/supervision_log.py
+```
+
+Do not embed a release ID, released file hash, policy SHA, active Block, or safe
+frontier as controlling prompt state. The automation reads current helper status
+at each wake. This stable-channel binding makes an atomic accepted release take
+effect on the next wake without changing the automation's identity or cadence.
 
 ## Stop conditions
 

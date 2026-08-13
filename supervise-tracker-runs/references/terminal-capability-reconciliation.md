@@ -74,7 +74,9 @@ requires `completion_posture: "reopen-narrow-owner"` and prevents a verified
 completion record. With no gaps, posture must be `verified`; the overall
 completion record may still be `failed` when another outcome root fails.
 
-Invoke the helper with both the current revision and the JSON path:
+Invoke the helper with the current revision and exactly one reconciliation
+input. The existing `--capability-reconciliation-json` path must name an
+explicit readable file and retains its fail-closed file checks:
 
 ```bash
 python3 <LOG_HELPER> completion-record --target-thread <TARGET> \
@@ -89,3 +91,17 @@ python3 <LOG_HELPER> completion-record --target-thread <TARGET> \
   --capability-reconciliation-json <PATH> \
   --evidence <EXACT_SOURCE_ID> --summary "Outcome independently checked."
 ```
+
+When the reviewer role forbids file creation, replace the file option with:
+
+```bash
+  --capability-reconciliation-base64 <CANONICAL_BASE64_JSON>
+```
+
+The base64 value is strict canonical standard base64 of the JSON bytes. Invalid
+or noncanonical base64, oversized decoded bytes, malformed JSON, and any schema,
+evidence, mission, state-fingerprint, revision, or reviewer-currentness failure
+are rejected before a completion record is appended. Both or neither input is
+also rejected. The two paths feed the same validator, normalization, and
+canonical-root logic; neither stores the raw reconciliation object in the
+ledger.

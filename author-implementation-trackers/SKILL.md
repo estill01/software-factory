@@ -188,6 +188,33 @@ renumbering mechanically, then inspect every dependency and semantic
 cross-reference. Do not mark newly introduced work complete merely because
 adjacent implementation exists.
 
+An accepted amendment changes the plan, not the standing direct implementation
+range. When the user authorized implementation of the tracker as a whole,
+inserted prerequisite Blocks, splits, merges, and renumbering remain inside the
+same full-tracker intent through the new terminal Block and observable outcome.
+Record the old-to-new map, but never reinterpret the amendment as authorization
+to implement only the newly inserted Blocks or to discard the previously
+requested remainder. Only a newer exact direct-user instruction may contract
+that range. Authoring Stop boundaries and authoring-review acceptance are
+internal prerequisites to implementation, not outcome completion.
+
+## Preserve replayable control convergence
+
+For a tracker that can cross tasks, runs, groups, or internal Block Stops,
+require one governing-outcome owner and one deterministic terminal-posture
+reducer. Keep task, run, group, tracker, Block, transition, and outcome
+identities separate. A handoff, acknowledgement, safe deferral, accepted
+tracker, commit, or review is process state and cannot become outcome closure.
+
+The demonstrated control-plane baseline is the content-minimized
+`control_posture_replay_v1.json` fixture owned by `supervise-tracker-runs`.
+It proves that an open transition, unavailable authority, safe deferral,
+handoff/acknowledgement, current direct correction, same-task continuation, and
+eventual observable completion converge without human scheduling. Authoring may
+require equivalent replay coverage for a new control state, but it must not copy
+private incident narrative into the tracker or infer that later adaptive
+decision-control Blocks are already implemented.
+
 ## Record status and evidence
 
 Read [references/evidence-and-status-rules.md](references/evidence-and-status-rules.md)
