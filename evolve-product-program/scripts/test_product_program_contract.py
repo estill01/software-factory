@@ -36,6 +36,39 @@ EXPECTED_ROLES = {
     "supervision-owner",
     "tracker-author",
 }
+EXPECTED_ARTIFACT_SCHEMA_FIELDS = {
+    "product-program-evidence-packet": set(
+        "artifact_root authority currentness_root decisions incidents kind "
+        "material_change_fingerprint mission outcome packet_id product_sources "
+        "profile protected_capabilities range reports repository resource_sources "
+        "schema_version supervision tracker transformation_version".split()
+    ),
+    "product-program-placement-handoff": set(
+        "authority currentness_root disposition expected_effect handoff_root kind "
+        "nonauthorization owner placement portfolio_root preconditions "
+        "schema_version stop".split()
+    ),
+    "product-program-portfolio": set(
+        "aggregate_budget authority currentness_root dependency_edges disposition "
+        "early_stop_rules kind lanes placement portfolio_root scheduling_groups "
+        "schema_version selection_root unused_capacity".split()
+    ),
+    "product-program-reflection": set(
+        "artifact_root authority candidate_ceiling candidates capability_gaps "
+        "counterexample_widening_used currentness_root generator_id kind lessons "
+        "meta_patterns observations packet_id packet_root schema_version".split()
+    ),
+    "product-program-resource-evidence": set(
+        "artifact_root authority currentness_root estimation_profile kind "
+        "limitations packet_id packet_root schema_version transformation_version "
+        "work_classes".split()
+    ),
+    "product-program-selection": set(
+        "adjudicator_id authority currentness_root dimensions disposition kind "
+        "packet_root rationale reflection_root rejected_candidates "
+        "resource_evidence_root schema_version selection_root selector_id".split()
+    ),
+}
 
 
 def validate_contract(value: dict[str, object]) -> None:
@@ -56,7 +89,11 @@ def validate_contract(value: dict[str, object]) -> None:
     if not isinstance(schemas, dict) or set(schemas) != EXPECTED_ARTIFACTS:
         raise ValueError("artifact schemas differ")
     for kind, fields in schemas.items():
-        if not isinstance(fields, list) or fields != sorted(set(fields)):
+        if (
+            not isinstance(fields, list)
+            or fields != sorted(set(fields))
+            or set(fields) != EXPECTED_ARTIFACT_SCHEMA_FIELDS[kind]
+        ):
             raise ValueError(f"{kind} fields are not exact and sorted")
         if {"schema_version", "kind", "authority", "currentness_root"} - set(fields):
             raise ValueError(f"{kind} omits common identity fields")
