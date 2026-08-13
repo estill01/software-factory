@@ -1880,6 +1880,8 @@ def activate_release(
     args: argparse.Namespace,
     *,
     action: str = "activate",
+    expected_previous_release_id: str | None = None,
+    expected_previous_activation_record_hmac_sha256: str | None = None,
 ) -> dict[str, Any]:
     release_root = ensure_directory(Path(args.release_root), label="release root")
     install_root = ensure_directory(Path(args.install_root), label="skill install root")
@@ -1893,6 +1895,16 @@ def activate_release(
         )
         if history_active != prior:
             raise ReleaseError("Current pointer and activation history differ")
+        if expected_previous_release_id is not None:
+            if (
+                prior != expected_previous_release_id
+                or not prior_history
+                or prior_history[-1]["record_hmac_sha256"]
+                != expected_previous_activation_record_hmac_sha256
+            ):
+                raise ReleaseError(
+                    "Release owner baseline changed before activation"
+                )
         quiescent_argument = getattr(args, "quiescent_evidence", None)
         quiescent = (
             validate_quiescent_evidence(
@@ -2091,6 +2103,199 @@ def promote_release(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def restore_adoption_release(args: argparse.Namespace) -> dict[str, Any]:
+    """Restore one frozen adopted release through the normal release owner.
+
+    A retry after the rollback rehydrates the unique rollback transition and
+    does not consume another operator record.
+    """
+    release_root = ensure_directory(Path(args.release_root), label="release root")
+    install_root = ensure_directory(Path(args.install_root), label="skill install root")
+    target_release_id = bounded_id(args.release_id, label="rollback release ID")
+    expected_candidate_release_id = bounded_id(
+        args.expected_candidate_release_id, label="adopted release ID"
+    )
+    expected_candidate_activation_hmac = exact_sha256(
+        args.expected_candidate_activation_hmac_sha256,
+        label="adopted activation HMAC",
+    )
+    before = status(
+        argparse.Namespace(
+            release_root=str(release_root),
+            install_root=str(install_root),
+        )
+    )
+    activation = before.get("activation_record")
+    if not isinstance(activation, Mapping):
+        raise ReleaseError("Adoption rollback history is unavailable")
+    if before["active_release_id"] == target_release_id:
+        matches = [
+            item
+            for item in history(release_root)
+            if item["action"] == "rollback"
+            and item["release_id"] == target_release_id
+            and item["previous_release_id"] == expected_candidate_release_id
+            and item["previous_record_hmac_sha256"]
+            == expected_candidate_activation_hmac
+        ]
+        if len(matches) != 1 or matches[0] != activation:
+            raise ReleaseError("Adoption rollback history is ambiguous")
+        installed = verify_installed(release_root, install_root, target_release_id)
+        return {
+            "action": "rollback",
+            "duplicate": True,
+            "active_release_id": target_release_id,
+            "previous_release_id": expected_candidate_release_id,
+            "installed": installed,
+            "activation_record": matches[0],
+        }
+    if (
+        before["active_release_id"] != expected_candidate_release_id
+        or activation.get("record_hmac_sha256")
+        != expected_candidate_activation_hmac
+    ):
+        raise ReleaseError("Adoption rollback baseline changed")
+    result = activate_release(
+        argparse.Namespace(
+            release_root=str(release_root),
+            install_root=str(install_root),
+            release_id=target_release_id,
+            quiescent_evidence=args.quiescent_evidence,
+        ),
+        action="rollback",
+        expected_previous_release_id=expected_candidate_release_id,
+        expected_previous_activation_record_hmac_sha256=(
+            expected_candidate_activation_hmac
+        ),
+    )
+    return {**result, "duplicate": False}
+
+
+def adopt_release(args: argparse.Namespace) -> dict[str, Any]:
+    """Stage and activate one reviewed candidate through the existing owner.
+
+    This is deliberately a composition of the existing immutable staging and
+    one-pointer activation boundaries.  A retry after activation rehydrates
+    the exact installed result without consuming a second operator record.
+    """
+    release_root = ensure_directory(Path(args.release_root), label="release root")
+    install_root = ensure_directory(Path(args.install_root), label="skill install root")
+    baseline_source_commit = exact_git_commit(args.baseline_source_commit)
+    before = status(
+        argparse.Namespace(
+            release_root=str(release_root),
+            install_root=str(install_root),
+        )
+    )
+    if (
+        before["active_release_id"] is None
+        or before["installed_complete"] is not True
+        or before["source_commit"] not in {baseline_source_commit, args.source_commit}
+    ):
+        raise ReleaseError("Adoption baseline is not the exact current installation")
+    staged = stage_release(args)
+    release_id = str(staged["release_id"])
+    if before["active_release_id"] == release_id:
+        installed = verify_installed(release_root, install_root, release_id)
+        records = history(release_root)
+        if not records or records[-1]["release_id"] != release_id:
+            raise ReleaseError("Adoption activation history is not current")
+        candidate_activations = [
+            record for record in records if record["release_id"] == release_id
+        ]
+        if len(candidate_activations) != 1:
+            raise ReleaseError("Adoption activation history is ambiguous")
+        activation_record = candidate_activations[0]
+        previous_release_id = activation_record["previous_release_id"]
+        if previous_release_id is None:
+            raise ReleaseError("Adoption activation baseline is unavailable")
+        previous_manifest = read_manifest(release_root, str(previous_release_id))
+        if previous_manifest["source_commit"] != baseline_source_commit:
+            raise ReleaseError("Adoption activation baseline differs")
+        result = {
+            "schema_version": SCHEMA_VERSION,
+            "kind": "software-factory-skill-adoption",
+            "duplicate": True,
+            "baseline_source_commit": baseline_source_commit,
+            "candidate_source_commit": staged["source_commit"],
+            "previous_release_id": activation_record["previous_release_id"],
+            "active_release_id": release_id,
+            "manifest_sha256": staged["manifest_sha256"],
+            "candidate_root_sha256": staged["candidate_root_sha256"],
+            "review_record_id": staged["independent_review"]["record_id"],
+            "reviewer_id": staged["independent_review"]["reviewer_id"],
+            "review_root_sha256": staged["independent_review"][
+                "review_root_sha256"
+            ],
+            "acceptance_record_id": accepted_release_record(
+                release_root, release_id
+            )["record_id"],
+            "activation_record_id": activation_record["record_id"],
+            "activation_record_hmac_sha256": activation_record[
+                "record_hmac_sha256"
+            ],
+            "previous_activation_record_hmac_sha256": activation_record[
+                "previous_record_hmac_sha256"
+            ],
+            "installed_verification_root_sha256": installed[
+                "verification_root_sha256"
+            ],
+        }
+        return {
+            **result,
+            "adoption_root_sha256": digest(
+                {key: value for key, value in result.items() if key != "duplicate"}
+            ),
+        }
+    if before["source_commit"] != baseline_source_commit:
+        raise ReleaseError("Adoption candidate does not descend from the active baseline")
+    activation = activate_release(
+        argparse.Namespace(
+            release_root=str(release_root),
+            install_root=str(install_root),
+            release_id=release_id,
+            quiescent_evidence=args.quiescent_evidence,
+        ),
+        expected_previous_release_id=str(before["active_release_id"]),
+        expected_previous_activation_record_hmac_sha256=str(
+            before["activation_record"]["record_hmac_sha256"]
+        ),
+    )
+    acceptance = accepted_release_record(release_root, release_id)
+    if acceptance is None:
+        raise ReleaseError("Adoption release acceptance is unavailable")
+    record = activation["activation_record"]
+    result = {
+        "schema_version": SCHEMA_VERSION,
+        "kind": "software-factory-skill-adoption",
+        "duplicate": False,
+        "baseline_source_commit": baseline_source_commit,
+        "candidate_source_commit": staged["source_commit"],
+        "previous_release_id": activation["previous_release_id"],
+        "active_release_id": activation["active_release_id"],
+        "manifest_sha256": staged["manifest_sha256"],
+        "candidate_root_sha256": staged["candidate_root_sha256"],
+        "review_record_id": staged["independent_review"]["record_id"],
+        "reviewer_id": staged["independent_review"]["reviewer_id"],
+        "review_root_sha256": staged["independent_review"]["review_root_sha256"],
+        "acceptance_record_id": acceptance["record_id"],
+        "activation_record_id": record["record_id"],
+        "activation_record_hmac_sha256": record["record_hmac_sha256"],
+        "previous_activation_record_hmac_sha256": record[
+            "previous_record_hmac_sha256"
+        ],
+        "installed_verification_root_sha256": activation["installed"][
+            "verification_root_sha256"
+        ],
+    }
+    return {
+        **result,
+        "adoption_root_sha256": digest(
+            {key: value for key, value in result.items() if key != "duplicate"}
+        ),
+    }
+
+
 def status(args: argparse.Namespace) -> dict[str, Any]:
     release_root = ensure_directory(Path(args.release_root), label="release root")
     install_root = ensure_directory(Path(args.install_root), label="skill install root")
@@ -2105,16 +2310,27 @@ def status(args: argparse.Namespace) -> dict[str, Any]:
         result: dict[str, Any] = {
             "active_release_id": active,
             "source_commit": manifest.get("source_commit") if manifest else None,
+            "manifest_sha256": manifest.get("manifest_sha256") if manifest else None,
+            "candidate_root_sha256": (
+                manifest.get("candidate_root_sha256") if manifest else None
+            ),
+            "independent_review": (
+                manifest.get("independent_review") if manifest else None
+            ),
             "skills": manifest.get("skills") if manifest else None,
             "installed_links": installed,
             "installed_complete": bool(active)
             and all(item["stable"] for item in installed.values()),
             "activation_history_records": len(records),
+            "activation_record": records[-1] if records else None,
         }
+        acceptance = accepted_release_record(release_root, active) if active else None
+        result["acceptance_record"] = acceptance
         if active and result["installed_complete"]:
             result["current_verification"] = verify_installed(
                 release_root, install_root, active
             )
+        result["release_owner_state_root_sha256"] = digest(result)
         return result
 
 
@@ -2149,6 +2365,17 @@ def parser() -> argparse.ArgumentParser:
     activate.add_argument("release_id")
     activate.add_argument("--quiescent-evidence")
     activate.set_defaults(func=activate_release)
+
+    adopt = subcommands.add_parser(
+        "adopt", help="stage and activate one current independently reviewed candidate"
+    )
+    adopt.add_argument("--repo", required=True)
+    adopt.add_argument("--source-commit", required=True)
+    adopt.add_argument("--baseline-source-commit", required=True)
+    adopt.add_argument("--implementer-id", required=True)
+    adopt.add_argument("--review-evidence", required=True)
+    adopt.add_argument("--quiescent-evidence", required=True)
+    adopt.set_defaults(func=adopt_release)
 
     bootstrap = subcommands.add_parser(
         "bootstrap", help="install stable links for one content-identical baseline"

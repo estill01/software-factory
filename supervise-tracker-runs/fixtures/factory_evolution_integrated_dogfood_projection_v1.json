@@ -1,0 +1,235 @@
+{
+  "authorizing": false,
+  "deployment_performed": false,
+  "eligible_adopted": {
+    "adoption_stage": "adopted",
+    "candidate_authoritative": true,
+    "evaluation_disposition": "promote",
+    "high_precision_evidence_present": true,
+    "human_request_count": 0,
+    "incumbent_authoritative": false,
+    "installed_effect": {
+      "guidance_observed": true,
+      "installed_release_id": "candidate-release-1234",
+      "installed_source_revision": "d007a9ae015560df52f78d67f4dbaf9515408a07",
+      "observed_effect_root": "d8ac3ef1baf11e339b628b81783658282e766b6b71539fd376f8290b80439390",
+      "proof_exit_code": 0,
+      "proof_stderr_sha256": "fb184ea57734512b1f088f9181209901b9cd46df3eb7eaa2500ea9e48dde20b5",
+      "proof_stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "skill_sha256": "1d722d6fa2c5991908a029a82d9eb7f9bd1920685dfad0816bdfd397fa78df1a"
+    },
+    "normal_owner": "implement-tracker-blocks",
+    "outcome_posture": "adopted-effective",
+    "outcome_retry_duplicate": true,
+    "rejected_paths": [
+      "lower-power-shortcut",
+      "generalized-detector"
+    ],
+    "release_activation_delta": 1,
+    "selected_path": "bounded-existing-skill-owner",
+    "structural_contract_changed": false,
+    "tracker_authoring_invoked": false
+  },
+  "external_effects_performed": false,
+  "gmail_action_performed": false,
+  "human_report_projection": {
+    "current_outcomes": [
+      {
+        "candidate_authoritative": true,
+        "incumbent_authoritative": false,
+        "next_action": "continue-with-current-adopted-evidence",
+        "outcome_posture": "adopted-effective"
+      },
+      {
+        "candidate_authoritative": false,
+        "incumbent_authoritative": true,
+        "next_action": "continue-with-incumbent",
+        "outcome_posture": "candidate-retired"
+      }
+    ],
+    "human_summary": [
+      "One bounded candidate was adopted and observed in the disposable release owner.",
+      "One independently rejected candidate retained the incumbent and history.",
+      "The identical consumed checkpoint created no new cycle or handoff."
+    ],
+    "terminal_cycle_count": 2
+  },
+  "kind": "software-factory-integrated-dogfood-semantic-projection",
+  "live_lifecycle_mutated": false,
+  "live_mission_mutated": false,
+  "live_policy_mutated": false,
+  "live_release_mutated": false,
+  "live_skill_identity": {
+    "live_skill_root": "5539d3827c32bbc3d2691e45c589dc5ba99d739137cf045e6958e7bdeb5e3428",
+    "shared_release": "d760d1f94e2e-02a0753bd06b",
+    "skills": [
+      {
+        "file_count": 8,
+        "instruction_invocation": "current-stable-entrypoint-validated",
+        "resolved_release": "d760d1f94e2e-02a0753bd06b",
+        "skill_id": "author-implementation-trackers",
+        "skill_sha256": "d93bc6634f555348a243ca589e6ff701f663f87b4b9935b25317b908df4944cd",
+        "tree_root": "5cc27b47d6e26a705ba587d3fcd3b907fc86c5797003286c697dec994a83eeba",
+        "validator_exit_code": 0,
+        "validator_stdout_sha256": "db349825903d66adffea3ecf1bd8e1803043e8a71cf1a051235dabc5371f5bb0"
+      },
+      {
+        "file_count": 17,
+        "instruction_invocation": "current-stable-entrypoint-validated",
+        "resolved_release": "d760d1f94e2e-02a0753bd06b",
+        "skill_id": "implement-tracker-blocks",
+        "skill_sha256": "ac559e5cb84fa0a5da26bf0857ce86b5272d59d5c0891ebbe0069d60909d73ea",
+        "tree_root": "a27961fe2a168d17418861542ff01ba392628bb521d3343e9512fe1f14502b10",
+        "validator_exit_code": 0,
+        "validator_stdout_sha256": "db349825903d66adffea3ecf1bd8e1803043e8a71cf1a051235dabc5371f5bb0"
+      },
+      {
+        "file_count": 18,
+        "instruction_invocation": "current-stable-entrypoint-validated",
+        "resolved_release": "d760d1f94e2e-02a0753bd06b",
+        "skill_id": "supervise-tracker-runs",
+        "skill_sha256": "02dcdf1aa706d804332c2e2f8b0c90046240b2bb1bd076cf68c99da49c540459",
+        "tree_root": "87092048efaf6805a6c1bb4ccb6745ae7121af0183e5cbbe16fffd3f711195cf",
+        "validator_exit_code": 0,
+        "validator_stdout_sha256": "db349825903d66adffea3ecf1bd8e1803043e8a71cf1a051235dabc5371f5bb0"
+      }
+    ],
+    "tracker_verifier_exit_code": 0,
+    "tracker_verifier_output_root": "4916da8677444b5d73001198f364fb5b36c7f6b72320a88f0e8beef62a92523a"
+  },
+  "losing_candidate": {
+    "adoption_stage": "candidate-retired",
+    "candidate_authoritative": false,
+    "candidate_created": true,
+    "evaluation_disposition": "reject",
+    "high_precision_evidence_present": true,
+    "human_request_count": 0,
+    "incumbent_authoritative": true,
+    "normal_owner": "implement-tracker-blocks",
+    "outcome_posture": "candidate-retired",
+    "outcome_retry_duplicate": true,
+    "rejected_paths": [
+      "lower-power-shortcut",
+      "generalized-detector"
+    ],
+    "release_activation_delta": 0,
+    "selected_path": "bounded-existing-skill-owner",
+    "structural_contract_changed": false,
+    "tracker_authoring_invoked": false
+  },
+  "operator_projection": {
+    "active_release_id": "candidate-release-1234",
+    "event_kind_counts": {
+      "check": 1,
+      "factory-evolution-admission": 2,
+      "factory-evolution-adoption": 2,
+      "factory-evolution-baseline-comparison-started": 2,
+      "factory-evolution-evaluation": 2,
+      "factory-evolution-evaluation-handoff": 2,
+      "factory-evolution-outcome": 2,
+      "factory-evolution-owner-acknowledgment": 2,
+      "factory-evolution-owner-handoff": 2,
+      "factory-evolution-review-handoff": 2,
+      "incident": 2,
+      "resolution": 2
+    },
+    "factory_active_cycle_count": 2,
+    "factory_admission_state": "active",
+    "operator_projection_root": "1276f7e19ca771dec5ba91c0f9009435768336e0f159ef72b18b02cef0c80321",
+    "release_activation_count": 1,
+    "release_rollback_count": 0,
+    "target_head": "d8a27eb8d5c18a1237f0132128d20e8343a2ef6e",
+    "target_status": ""
+  },
+  "projected_semantics_validated": true,
+  "projection_root": "ccd4c7ca8dbd99231911f9898240815c25859cb3088a932f18101e3690ebe114",
+  "raw_roots_validated": true,
+  "schema_version": 1,
+  "source_revision": "69a00124c0223666e55a711198e3385a1019f613",
+  "target_clean": true,
+  "temporary_release_effects_performed": true,
+  "temporary_target_effects_performed": true,
+  "unchanged_no_op": {
+    "admission_authorized": false,
+    "artifact_directory_delta": 0,
+    "authoring_handoff_created": false,
+    "candidate_created": false,
+    "disposition": "already-consumed-canonical-coverage",
+    "eligible": false,
+    "event_delta": 0,
+    "human_request_count": 0,
+    "inventory_unchanged": true,
+    "model_calls": 0,
+    "no_op_root": "a56bbcafa3283a67687d44a9e1d4e7e0cd68c79c6a6f618573d4f9b3162cc50c",
+    "packet_builds": 1,
+    "reused": true,
+    "reviewer_calls": 0
+  },
+  "within_run_compatibility": {
+    "authority_cases": [
+      {
+        "authorized": false,
+        "blocked_subjects": [],
+        "case_id": "fixed-record-only",
+        "human_request_count": 0,
+        "mode": "fixed",
+        "posture": "record-only"
+      },
+      {
+        "authorized": false,
+        "blocked_subjects": [],
+        "case_id": "recommend-review-pending",
+        "human_request_count": 0,
+        "mode": "recommend",
+        "posture": "automated-independent-review-required"
+      },
+      {
+        "authorized": false,
+        "blocked_subjects": [],
+        "case_id": "recommend-review-complete",
+        "human_request_count": 0,
+        "mode": "recommend",
+        "posture": "recommendation-only"
+      },
+      {
+        "authorized": false,
+        "blocked_subjects": [],
+        "case_id": "reviewed-autonomous-consequential",
+        "human_request_count": 0,
+        "mode": "reviewed-autonomous",
+        "posture": "external-application-authority-required"
+      },
+      {
+        "authorized": false,
+        "blocked_subjects": [],
+        "case_id": "full-autonomous-ordinary",
+        "human_request_count": 0,
+        "mode": "full-autonomous",
+        "posture": "owner-application-ready"
+      },
+      {
+        "authorized": false,
+        "blocked_subjects": [
+          "credential-boundary"
+        ],
+        "case_id": "full-autonomous-reserved-external",
+        "human_request_count": 0,
+        "mode": "full-autonomous",
+        "posture": "reserved-external"
+      }
+    ],
+    "authority_modes": [
+      "fixed",
+      "full-autonomous",
+      "recommend",
+      "reviewed-autonomous"
+    ],
+    "external_effects_performed": false,
+    "human_request_count": 0,
+    "lifecycle_mutated": false,
+    "mission_mutated": false,
+    "policy_mutated": false,
+    "release_mutated": false,
+    "temporary_target_effects_performed": true
+  }
+}

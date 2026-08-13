@@ -536,6 +536,224 @@ class SkillReleaseTests(unittest.TestCase):
         self.assertEqual(status["active_release_id"], first["release_id"])
         self.assertEqual(status["activation_history_records"], 3)
 
+    def test_adopt_composes_reviewed_stage_activation_and_retry(self) -> None:
+        baseline_commit = self.git("rev-parse", "HEAD")
+        baseline = self.stage(baseline_commit)
+        skill_release.bootstrap_release(
+            self.activate_args(str(baseline["release_id"]))
+        )
+        for name in skill_release.SKILLS:
+            (self.repo / name / "ADOPTED").write_text("yes\n", encoding="utf-8")
+        candidate_commit = self.commit("reviewed adoption candidate")
+        review = self.review_evidence(candidate_commit)
+        permit = self.activate_args(
+            "placeholder-release-1234",
+            operation="activate",
+            previous_release_id=str(baseline["release_id"]),
+        )
+        request = skill_release.review_request(
+            argparse.Namespace(repo=str(self.repo), source_commit=candidate_commit)
+        )
+        review_value = json.loads(review.read_text(encoding="utf-8"))
+        expected_release_id = (
+            f"{candidate_commit[:12]}-"
+            f"{skill_release.digest({'candidate_root_sha256': request['candidate_root_sha256'], 'review_root_sha256': review_value['review_root_sha256']})[:12]}"
+        )
+        permit_value = json.loads(
+            Path(permit.quiescent_evidence).read_text(encoding="utf-8")
+        )
+        permit_value["release_id"] = expected_release_id
+        permit_value = self.resign_authority_record(
+            permit_value,
+            root_field="evidence_root_sha256",
+            private_key=self.operator_private,
+        )
+        Path(permit.quiescent_evidence).write_bytes(
+            skill_release.canonical(permit_value) + b"\n"
+        )
+        ledger_path = (
+            self.authority_root
+            / "operators"
+            / f"{skill_release.TRUSTED_AUTHORITY_IDS['operators'][0]}.ledger.jsonl"
+        )
+        ledger_records = [
+            json.loads(line) for line in ledger_path.read_bytes().splitlines()
+        ]
+        ledger_records[-1] = permit_value
+        ledger_path.chmod(0o644)
+        ledger_path.write_bytes(
+            b"".join(skill_release.canonical(item) + b"\n" for item in ledger_records)
+        )
+        ledger_path.chmod(0o444)
+        args = argparse.Namespace(
+            repo=str(self.repo),
+            release_root=str(self.release_root),
+            install_root=str(self.install_root),
+            source_commit=candidate_commit,
+            baseline_source_commit=baseline_commit,
+            implementer_id="implementation-owner-1234",
+            review_evidence=str(review),
+            quiescent_evidence=str(permit.quiescent_evidence),
+        )
+        adopted = skill_release.adopt_release(args)
+        self.assertFalse(adopted["duplicate"])
+        self.assertEqual(adopted["active_release_id"], expected_release_id)
+        history_count = len(skill_release.history(self.release_root.resolve()))
+        repeated = skill_release.adopt_release(args)
+        self.assertTrue(repeated["duplicate"])
+        self.assertEqual(repeated["adoption_root_sha256"], adopted["adoption_root_sha256"])
+        self.assertEqual(
+            len(skill_release.history(self.release_root.resolve())), history_count
+        )
+        self.assertEqual(
+            skill_release.status(
+                argparse.Namespace(
+                    release_root=str(self.release_root),
+                    install_root=str(self.install_root),
+                )
+            )["source_commit"],
+            candidate_commit,
+        )
+        rollback = skill_release.restore_adoption_release(
+            argparse.Namespace(
+                release_root=str(self.release_root),
+                install_root=str(self.install_root),
+                release_id=str(baseline["release_id"]),
+                expected_candidate_release_id=expected_release_id,
+                expected_candidate_activation_hmac_sha256=adopted[
+                    "activation_record_hmac_sha256"
+                ],
+                quiescent_evidence=self.activate_args(
+                    str(baseline["release_id"]),
+                    operation="rollback",
+                    previous_release_id=expected_release_id,
+                ).quiescent_evidence,
+            )
+        )
+        self.assertFalse(rollback["duplicate"])
+        repeated_rollback = skill_release.restore_adoption_release(
+            argparse.Namespace(
+                release_root=str(self.release_root),
+                install_root=str(self.install_root),
+                release_id=str(baseline["release_id"]),
+                expected_candidate_release_id=expected_release_id,
+                expected_candidate_activation_hmac_sha256=adopted[
+                    "activation_record_hmac_sha256"
+                ],
+                quiescent_evidence=str(self.root / "already-consumed.json"),
+            )
+        )
+        self.assertTrue(repeated_rollback["duplicate"])
+        self.assertEqual(
+            rollback["activation_record"], repeated_rollback["activation_record"]
+        )
+
+    def test_adoption_activation_rejects_intervening_release_and_aba(self) -> None:
+        baseline_commit = self.git("rev-parse", "HEAD")
+        baseline = self.stage(baseline_commit)
+        bootstrapped = skill_release.bootstrap_release(
+            self.activate_args(str(baseline["release_id"]))
+        )
+        baseline_activation_hmac = bootstrapped["activation_record"][
+            "record_hmac_sha256"
+        ]
+
+        for name in skill_release.SKILLS:
+            (self.repo / name / "VERSION").write_text("2\n", encoding="utf-8")
+        intervening_commit = self.commit("intervening release")
+        intervening = self.stage(intervening_commit)
+
+        for name in skill_release.SKILLS:
+            (self.repo / name / "VERSION").write_text("3\n", encoding="utf-8")
+        candidate_commit = self.commit("adoption candidate")
+        candidate_review = self.review_evidence(candidate_commit)
+        candidate = skill_release.stage_release(
+            self.stage_args(candidate_commit, review_evidence=candidate_review)
+        )
+
+        skill_release.activate_release(
+            self.activate_args(
+                str(intervening["release_id"]),
+                operation="activate",
+                previous_release_id=str(baseline["release_id"]),
+            )
+        )
+        candidate_over_intervening = self.activate_args(
+            str(candidate["release_id"]),
+            operation="activate",
+            previous_release_id=str(intervening["release_id"]),
+        )
+        with self.assertRaisesRegex(skill_release.ReleaseError, "baseline changed"):
+            skill_release.activate_release(
+                candidate_over_intervening,
+                expected_previous_release_id=str(baseline["release_id"]),
+                expected_previous_activation_record_hmac_sha256=str(
+                    baseline_activation_hmac
+                ),
+            )
+        self.assertEqual(
+            skill_release.current_release_id(self.release_root.resolve()),
+            intervening["release_id"],
+        )
+
+        skill_release.rollback_release(
+            self.activate_args(
+                str(baseline["release_id"]),
+                operation="rollback",
+                previous_release_id=str(intervening["release_id"]),
+            )
+        )
+        candidate_after_aba = self.activate_args(
+            str(candidate["release_id"]),
+            operation="activate",
+            previous_release_id=str(baseline["release_id"]),
+        )
+        with self.assertRaisesRegex(skill_release.ReleaseError, "baseline changed"):
+            skill_release.activate_release(
+                candidate_after_aba,
+                expected_previous_release_id=str(baseline["release_id"]),
+                expected_previous_activation_record_hmac_sha256=str(
+                    baseline_activation_hmac
+                ),
+            )
+        self.assertEqual(
+            skill_release.current_release_id(self.release_root.resolve()),
+            baseline["release_id"],
+        )
+
+        skill_release.activate_release(candidate_after_aba)
+        skill_release.rollback_release(
+            self.activate_args(
+                str(baseline["release_id"]),
+                operation="rollback",
+                previous_release_id=str(candidate["release_id"]),
+            )
+        )
+        skill_release.activate_release(
+            self.activate_args(
+                str(candidate["release_id"]),
+                operation="activate",
+                previous_release_id=str(baseline["release_id"]),
+            )
+        )
+        history_count = len(skill_release.history(self.release_root.resolve()))
+        with self.assertRaisesRegex(skill_release.ReleaseError, "history is ambiguous"):
+            skill_release.adopt_release(
+                argparse.Namespace(
+                    repo=str(self.repo),
+                    release_root=str(self.release_root),
+                    install_root=str(self.install_root),
+                    source_commit=candidate_commit,
+                    baseline_source_commit=baseline_commit,
+                    implementer_id="implementation-owner-1234",
+                    review_evidence=str(candidate_review),
+                    quiescent_evidence=str(self.root / "not-consumed.json"),
+                )
+            )
+        self.assertEqual(
+            len(skill_release.history(self.release_root.resolve())), history_count
+        )
+
     def test_stage_rejects_dirty_missing_review_partial_and_symlinked_source(self) -> None:
         commit = self.git("rev-parse", "HEAD")
         (self.repo / "dirty.txt").write_text("dirty\n", encoding="utf-8")

@@ -1,0 +1,209 @@
+{
+  "artifact_classes": [
+    "product-program-evidence-packet",
+    "product-program-placement-handoff",
+    "product-program-portfolio",
+    "product-program-reflection",
+    "product-program-resource-evidence",
+    "product-program-selection"
+  ],
+  "artifact_owners": {
+    "product-program-evidence-packet": "evidence-assembler",
+    "product-program-placement-handoff": "portfolio-selector",
+    "product-program-portfolio": "portfolio-selector",
+    "product-program-reflection": "reflection-generator",
+    "product-program-resource-evidence": "resource-evidence-builder",
+    "product-program-selection": "portfolio-selector"
+  },
+  "artifact_schemas": {
+    "product-program-evidence-packet": [
+      "artifact_root",
+      "authority",
+      "currentness_root",
+      "decisions",
+      "incidents",
+      "kind",
+      "material_change_fingerprint",
+      "mission",
+      "outcome",
+      "packet_id",
+      "product_sources",
+      "profile",
+      "protected_capabilities",
+      "range",
+      "reports",
+      "repository",
+      "resource_sources",
+      "schema_version",
+      "supervision",
+      "tracker",
+      "transformation_version"
+    ],
+    "product-program-placement-handoff": [
+      "authority",
+      "currentness_root",
+      "disposition",
+      "expected_effect",
+      "handoff_root",
+      "kind",
+      "nonauthorization",
+      "owner",
+      "placement",
+      "portfolio_root",
+      "preconditions",
+      "schema_version",
+      "stop"
+    ],
+    "product-program-portfolio": [
+      "aggregate_budget",
+      "authority",
+      "currentness_root",
+      "dependency_edges",
+      "disposition",
+      "early_stop_rules",
+      "kind",
+      "lanes",
+      "placement",
+      "portfolio_root",
+      "scheduling_groups",
+      "schema_version",
+      "selection_root",
+      "unused_capacity"
+    ],
+    "product-program-reflection": [
+      "artifact_root",
+      "authority",
+      "candidate_ceiling",
+      "candidates",
+      "capability_gaps",
+      "counterexample_widening_used",
+      "currentness_root",
+      "generator_id",
+      "kind",
+      "lessons",
+      "meta_patterns",
+      "observations",
+      "packet_id",
+      "packet_root",
+      "schema_version"
+    ],
+    "product-program-resource-evidence": [
+      "artifact_root",
+      "authority",
+      "currentness_root",
+      "estimation_profile",
+      "kind",
+      "limitations",
+      "packet_id",
+      "packet_root",
+      "schema_version",
+      "transformation_version",
+      "work_classes"
+    ],
+    "product-program-selection": [
+      "adjudicator_id",
+      "authority",
+      "currentness_root",
+      "dimensions",
+      "disposition",
+      "kind",
+      "packet_root",
+      "rationale",
+      "reflection_root",
+      "rejected_candidates",
+      "resource_evidence_root",
+      "schema_version",
+      "selection_root",
+      "selector_id"
+    ]
+  },
+  "checkpoint_input_schema": [
+    "current_outcome",
+    "mission",
+    "prior_checkpoint_identity",
+    "product_sources",
+    "profile",
+    "protected_capabilities",
+    "range",
+    "reports",
+    "repository",
+    "resource_sources",
+    "schema_version",
+    "supervision",
+    "tracker"
+  ],
+  "disposition_placements": {
+    "continue-program-unchanged": "none",
+    "remediate-current-block": "current-block-owner",
+    "request-material-goal-authority": "direct-user",
+    "revise-current-program": "current-program-author",
+    "run-bounded-experiment": "experiment-owner",
+    "safe-defer-open-fact-or-authority": "reserved-effect-owner",
+    "start-program-portfolio": "program-portfolio-author",
+    "start-successor-program": "successor-program-author"
+  },
+  "kind": "product-program-evolution-contract",
+  "interfaces": {
+    "author-implementation-trackers": {
+      "apply_effect": false,
+      "consumer": "tracker-author",
+      "input_kind": "product-program-placement-handoff",
+      "output_kind": "author-owned-program-revision-or-tracker",
+      "revalidates": ["authority", "currentness_root", "mission", "range", "source_roots"]
+    },
+    "implement-tracker-blocks": {
+      "apply_effect": false,
+      "consumer": "implementation-owner",
+      "input_kind": "product-program-placement-handoff",
+      "output_kind": "implementation-owner-decision",
+      "revalidates": ["authority", "currentness_root", "mission", "range", "stop"]
+    },
+    "release-and-external-effect-owners": {
+      "apply_effect": false,
+      "consumer": "release-external-effect-owner",
+      "input_kind": "none",
+      "output_kind": "none",
+      "revalidates": []
+    },
+    "supervise-tracker-runs": {
+      "apply_effect": false,
+      "consumer": "supervision-owner",
+      "input_kind": "product-program-checkpoint-request",
+      "output_kind": "canonical-source-identities-only",
+      "revalidates": ["mission", "policy_head", "event_head", "target_identity"]
+    }
+  },
+  "non_authorizing_writes": [
+    "automation",
+    "external-effect",
+    "release",
+    "source",
+    "supervision",
+    "tracker"
+  ],
+  "roles": [
+    "consequential-adjudicator",
+    "evaluator",
+    "evidence-assembler",
+    "implementation-owner",
+    "portfolio-selector",
+    "reflection-generator",
+    "release-external-effect-owner",
+    "resource-evidence-builder",
+    "supervision-owner",
+    "tracker-author"
+  ],
+  "schema_version": 1,
+  "state_transitions": [
+    {"from": "checkpointed", "stop": "no-cognitive-or-downstream-work", "to": "unchanged"},
+    {"from": "checkpointed", "stop": "before-semantic-interpretation", "to": "packet-prepared"},
+    {"from": "packet-prepared", "stop": "before-ranking-budgeting-or-placement", "to": "reflected"},
+    {"from": "packet-prepared", "stop": "before-resource-allocation", "to": "resource-projected"},
+    {"from": "reflected+resource-projected", "stop": "before-downstream-writes", "to": "selected"},
+    {"from": "selected", "stop": "before-any-application-or-effect", "to": "handoff-ready"}
+  ],
+  "target_profiles": {
+    "software-factory-capability": "existing-factory-evolution-adoption-owner",
+    "target-product-program": "existing-target-program-owner-map"
+  }
+}

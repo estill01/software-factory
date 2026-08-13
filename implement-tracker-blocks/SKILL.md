@@ -272,6 +272,37 @@ binding before starting the expensive computation. If valid proof output
 already exists and only reporting fails, freeze and reuse that output and rerun
 only reporting; never rerun the producer solely for a reporting failure.
 
+## Reproduce the bounded adaptive-protocol dogfood evidence
+
+When an active tracker requires current paired evidence across the adaptive
+paths, read [references/adaptive-protocol-dogfood.md](references/adaptive-protocol-dogfood.md)
+and run the maintained temporary-target live-behavior matrix. It composes the existing inline,
+candidate, structural, target-class, self-target, no-change, autonomy, and
+recovery owners; do not treat it as a new controller or as application
+authority. Its fixture discloses raw input conditions but no intended
+disposition, and its result binds opaque raw review inputs separately from the
+observed path, executed temporary-target effects, applied reviewed structural
+revision and interruption-safe resume, accepted-Block remediation, all four
+authority modes, handoff, human-request count, and exact maintained recovery
+checks. It excludes volatile temporary paths and commit identities from its
+result projection so the exact root regenerates from either a checkout or a
+Git-less exact archive.
+
+Use the matrix only at an exact frozen source revision and obtain independent
+review of its raw cases and current effects before recording completion. It
+creates temporary canonical state only. It does not authorize a tracker edit,
+candidate cutover, Software Factory adoption, release, policy or mission
+change, lifecycle transition, or external action.
+
+When the terminal tracker Block requires the complete cross-run adoption and
+outcome path, the smaller matrix is compatibility input only. Read the current
+supervision skill plus its
+`references/integrated-factory-evolution-dogfood.md`, then invoke that maintained
+production-CLI runner. Its adopted and rejected candidates live only in the
+disposable target/release owner. Independently inspect the exact installed
+temporary behavior and stable live-skill identities before accepting the
+terminal Block; never infer terminal success from this within-run matrix alone.
+
 Preserve authority provenance exactly. A `codex_delegation` packet is a
 transport, not a new authority source. An unbound packet cannot authorize work;
 a helper-validated delegated-authority event and current receipt carry the
@@ -401,6 +432,20 @@ implicated path instead of blindly retrying, changing runtimes, or widening the
 suite.
 
 ## Implement one block
+
+Before the first implementation-producing action for a Block, change both the
+tracker status table and the Block's own status line from `not-started` to
+`in-progress`. A read-only orientation pass alone does not start a Block, but
+the first candidate edit, generated artifact, render, evidence-producing test,
+review handoff, or implementation checkpoint does. Make the status transition
+before that action when practical, or in the same first coherent checkpoint;
+never leave a Block `not-started` after work or review evidence exists. On
+resume and before every status report, reconcile the table and Block line with
+live work. Keep unaccepted remediation, review, dependency waits, and bounded
+safe-frontier continuation `in-progress`; use `completed-with-open-items` only
+when the Block's implementation is coherent but declared acceptance work or
+retained items remain. Use `blocked` only under the exceptional empty-safe-
+frontier rule below.
 
 1. Inspect the live tree before planning. Reconcile the tracker against current
    code, configuration, tests, generated artifacts, and Git state.

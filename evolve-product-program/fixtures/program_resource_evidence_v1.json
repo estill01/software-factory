@@ -1,0 +1,458 @@
+{
+  "artifact_root": "d36bd53e03db5a6f51322bb49a63aa0964e33d3441eb21a123936f873801fe47",
+  "authority": {
+    "allocation_allowed": false,
+    "billing_claim": false,
+    "direct_effects_allowed": false,
+    "posture": "derived-nonauthorizing",
+    "selection_allowed": false
+  },
+  "currentness_root": "5ec2e54fc46d4c4a45e15f90a20a659611934d7451c31928a7aefa5d285ae00c",
+  "estimation_profile": {
+    "evidence_ids": [
+      "resource-b-estimate"
+    ],
+    "method": "bounded-retained-event-counts-v1",
+    "profile_id": "bounded-resource-estimation",
+    "version": 1
+  },
+  "kind": "product-program-resource-evidence",
+  "limitations": [
+    "dimension-by-dimension-prior-not-an-aggregate-score",
+    "no-provider-billing-or-spend-authority",
+    "observed-association-is-not-causal-proof",
+    "rare-high-value-work-must-remain-visible"
+  ],
+  "packet_id": "program-packet-3a486908852dc8dd87a0",
+  "packet_root": "bcea622cb0ea6511bf99134bb647e2c1ce69d755dfc83560ff890a3a6822d21a",
+  "schema_version": 1,
+  "transformation_version": "product-program-resource-evidence-v1",
+  "work_classes": [
+    {
+      "outcomes": {
+        "completion": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "retained-observation-boundary",
+          "value": "completed"
+        },
+        "compounding_value": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "retained-observation-boundary",
+          "value": "reusable"
+        },
+        "opportunity_cost": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "retained-observation-boundary",
+          "value": "medium"
+        },
+        "product_effect": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "retained-observation-boundary",
+          "value": "beneficial"
+        },
+        "protected_capability_result": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "cold-start"
+          ],
+          "uncertainty": "retained-observation-boundary",
+          "value": "preserved"
+        },
+        "recurrence_reach": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "retained-observation-boundary",
+          "value": "recurrent"
+        },
+        "reuse": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "retained-observation-boundary",
+          "value": "partial"
+        },
+        "reversibility": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "retained-observation-boundary",
+          "value": "reversible"
+        }
+      },
+      "resources": {
+        "commands": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "exact-observed-measure",
+          "unit": "count",
+          "upper": 2
+        },
+        "elapsed_time": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "exact-observed-measure",
+          "unit": "seconds",
+          "upper": 2
+        },
+        "incidents": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "exact-observed-measure",
+          "unit": "count",
+          "upper": 2
+        },
+        "integration": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "exact-observed-measure",
+          "unit": "count",
+          "upper": 2
+        },
+        "reopened_findings": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "exact-observed-measure",
+          "unit": "count",
+          "upper": 2
+        },
+        "rework": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "exact-observed-measure",
+          "unit": "count",
+          "upper": 2
+        },
+        "rollbacks": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "exact-observed-measure",
+          "unit": "count",
+          "upper": 2
+        },
+        "tokens": {
+          "evidence_class": "provider-reported",
+          "evidence_ids": [
+            "resource-a-provider"
+          ],
+          "lower": 120,
+          "uncertainty": "exact-provider-reported-token-count",
+          "unit": "tokens",
+          "upper": 120
+        },
+        "tools": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "exact-observed-measure",
+          "unit": "count",
+          "upper": 2
+        },
+        "user_corrections": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "exact-observed-measure",
+          "unit": "count",
+          "upper": 2
+        },
+        "validation_review": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "exact-observed-measure",
+          "unit": "count",
+          "upper": 2
+        }
+      },
+      "row_root": "8e80f0623dc8e57071c99d9247ffd9918afc4fea8fd45087f185a3c16ef07072",
+      "source_input_root": "09934d1012fe9179b2152863e269aad0588fb6eb341962eb0ee0091cc5d9ffa0",
+      "useful_yield": {
+        "comparison_posture": "dimension-by-dimension-only",
+        "outcome_dimensions": [
+          "completion",
+          "product_effect",
+          "protected_capability_result",
+          "recurrence_reach",
+          "compounding_value",
+          "reuse",
+          "reversibility",
+          "opportunity_cost"
+        ],
+        "resource_dimensions": [
+          "elapsed_time",
+          "tokens",
+          "commands",
+          "tools",
+          "validation_review",
+          "integration",
+          "rework",
+          "reopened_findings",
+          "incidents",
+          "rollbacks",
+          "user_corrections"
+        ],
+        "uncertainties": [
+          "association-not-causal",
+          "rare-high-value-work-preserved"
+        ]
+      },
+      "work_class_id": "feature-delivery"
+    },
+    {
+      "outcomes": {
+        "completion": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "retained-observation-boundary",
+          "value": "completed"
+        },
+        "compounding_value": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "retained-observation-boundary",
+          "value": "reusable"
+        },
+        "opportunity_cost": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "retained-observation-boundary",
+          "value": "medium"
+        },
+        "product_effect": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "retained-observation-boundary",
+          "value": "beneficial"
+        },
+        "protected_capability_result": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "cold-start"
+          ],
+          "uncertainty": "retained-observation-boundary",
+          "value": "preserved"
+        },
+        "recurrence_reach": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "retained-observation-boundary",
+          "value": "recurrent"
+        },
+        "reuse": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "retained-observation-boundary",
+          "value": "partial"
+        },
+        "reversibility": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "retained-observation-boundary",
+          "value": "reversible"
+        }
+      },
+      "resources": {
+        "commands": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-b"
+          ],
+          "lower": 2,
+          "uncertainty": "exact-observed-measure",
+          "unit": "count",
+          "upper": 2
+        },
+        "elapsed_time": {
+          "evidence_class": "estimated",
+          "evidence_ids": [
+            "resource-b-estimate"
+          ],
+          "lower": 30,
+          "uncertainty": "bounded-estimate-range",
+          "unit": "seconds",
+          "upper": 60
+        },
+        "incidents": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-b"
+          ],
+          "lower": 2,
+          "uncertainty": "exact-observed-measure",
+          "unit": "count",
+          "upper": 2
+        },
+        "integration": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-b"
+          ],
+          "lower": 2,
+          "uncertainty": "exact-observed-measure",
+          "unit": "count",
+          "upper": 2
+        },
+        "reopened_findings": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-b"
+          ],
+          "lower": 2,
+          "uncertainty": "exact-observed-measure",
+          "unit": "count",
+          "upper": 2
+        },
+        "rework": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-b"
+          ],
+          "lower": 2,
+          "uncertainty": "exact-observed-measure",
+          "unit": "count",
+          "upper": 2
+        },
+        "rollbacks": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-b"
+          ],
+          "lower": 2,
+          "uncertainty": "exact-observed-measure",
+          "unit": "count",
+          "upper": 2
+        },
+        "tokens": {
+          "evidence_class": "estimated",
+          "evidence_ids": [
+            "resource-b-estimate"
+          ],
+          "lower": 80,
+          "uncertainty": "bounded-estimate-range",
+          "unit": "tokens",
+          "upper": 140
+        },
+        "tools": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-b"
+          ],
+          "lower": 2,
+          "uncertainty": "exact-observed-measure",
+          "unit": "count",
+          "upper": 2
+        },
+        "user_corrections": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-b"
+          ],
+          "lower": 2,
+          "uncertainty": "exact-observed-measure",
+          "unit": "count",
+          "upper": 2
+        },
+        "validation_review": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-b"
+          ],
+          "lower": 2,
+          "uncertainty": "exact-observed-measure",
+          "unit": "count",
+          "upper": 2
+        }
+      },
+      "row_root": "5eecce3ab08d0334719748c7ed20dc38424bd32b2575efa32f87e6f06afc50f1",
+      "source_input_root": "ed0844429fbbbfd10859773e74c3ac5b4fe14ee74414d25f495db9be0b15282f",
+      "useful_yield": {
+        "comparison_posture": "dimension-by-dimension-only",
+        "outcome_dimensions": [
+          "completion",
+          "product_effect",
+          "protected_capability_result",
+          "recurrence_reach",
+          "compounding_value",
+          "reuse",
+          "reversibility",
+          "opportunity_cost"
+        ],
+        "resource_dimensions": [
+          "elapsed_time",
+          "tokens",
+          "commands",
+          "tools",
+          "validation_review",
+          "integration",
+          "rework",
+          "reopened_findings",
+          "incidents",
+          "rollbacks",
+          "user_corrections"
+        ],
+        "uncertainties": [
+          "association-not-causal",
+          "rare-high-value-work-preserved"
+        ]
+      },
+      "work_class_id": "reliability-remediation"
+    }
+  ]
+}

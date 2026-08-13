@@ -62,6 +62,18 @@ class InvocationEnvelopeContractTests(unittest.TestCase):
         ):
             self.assertIn(prohibition, NORMALIZED_SKILL)
 
+    def test_block_status_changes_when_implementation_work_begins(self) -> None:
+        for requirement in (
+            "Before the first implementation-producing action for a Block",
+            "tracker status table and the Block's own status line",
+            "from `not-started` to `in-progress`",
+            "first candidate edit, generated artifact, render, evidence-producing test",
+            "never leave a Block `not-started` after work or review evidence exists",
+            "On resume and before every status report",
+            "Keep unaccepted remediation, review, dependency waits",
+        ):
+            self.assertIn(requirement, NORMALIZED_SKILL)
+
 
 if __name__ == "__main__":
     unittest.main()

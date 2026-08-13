@@ -1,0 +1,253 @@
+{
+  "schema_version": 1,
+  "kind": "software-factory-adaptive-protocol-dogfood",
+  "cases": [
+    {
+      "case_id": "external-inline-wrong-owner",
+      "owner": "inline-correction",
+      "source_case_id": "wrong-owner",
+      "input_condition": "Current evidence identifies an existing canonical owner outside the proposed local path."
+    },
+    {
+      "case_id": "external-inline-lower-power",
+      "owner": "inline-correction",
+      "source_case_id": "lower-power-shortcut",
+      "input_condition": "The proposed path supplies less capability than a bounded current owner."
+    },
+    {
+      "case_id": "external-inline-generalized-layer",
+      "owner": "inline-correction",
+      "source_case_id": "unnecessary-abstraction",
+      "input_condition": "A generalized layer has no current or accepted near-term consumer."
+    },
+    {
+      "case_id": "justified-no-correction",
+      "owner": "inline-correction",
+      "source_case_id": "justified-incumbent",
+      "input_condition": "The current local plan is complete, protected, and sufficient."
+    },
+    {
+      "case_id": "unchanged-fingerprint-repeat",
+      "owner": "inline-correction",
+      "source_case_id": "unchanged-repeat",
+      "input_condition": "The accepted decision fingerprint and currentness remain unchanged."
+    },
+    {
+      "case_id": "candidate-needed",
+      "owner": "inline-correction",
+      "source_case_id": "requires-candidate",
+      "input_condition": "A material outcome difference cannot be decided from read-only evidence."
+    },
+    {
+      "case_id": "structural-evidence",
+      "owner": "inline-correction",
+      "source_case_id": "requires-structural-amendment",
+      "input_condition": "Current evidence invalidates a later dependency and requires program review."
+    },
+    {
+      "case_id": "candidate-comparison-a",
+      "owner": "bounded-candidate",
+      "source_case_index": 0,
+      "input_condition": "Raw focused, mapped, outcome, cost, and protected-capability evidence is retained for independent comparison."
+    },
+    {
+      "case_id": "candidate-comparison-b",
+      "owner": "bounded-candidate",
+      "source_case_index": 1,
+      "input_condition": "Raw focused, mapped, outcome, cost, and protected-capability evidence is retained for independent comparison."
+    },
+    {
+      "case_id": "candidate-comparison-c",
+      "owner": "bounded-candidate",
+      "source_case_index": 3,
+      "input_condition": "Raw focused, mapped, outcome, cost, and protected-capability evidence is retained for independent comparison."
+    },
+    {
+      "case_id": "candidate-eligibility-a",
+      "owner": "bounded-candidate",
+      "source_case_index": 5,
+      "input_condition": "Canonical eligibility evidence is retained for lane-value review."
+    },
+    {
+      "case_id": "candidate-stop-a",
+      "owner": "bounded-candidate",
+      "source_case_index": 7,
+      "input_condition": "Canonical lane observations and resource use are retained for bounded Stop review."
+    },
+    {
+      "case_id": "candidate-stop-b",
+      "owner": "bounded-candidate",
+      "source_case_index": 10,
+      "input_condition": "Canonical lane observations and validation results are retained for bounded Stop review."
+    },
+    {
+      "case_id": "candidate-stop-c",
+      "owner": "bounded-candidate",
+      "source_case_index": 12,
+      "input_condition": "Canonical lane observations and review currentness are retained for bounded Stop review."
+    },
+    {
+      "case_id": "external-target-inline",
+      "owner": "target-class-protocol",
+      "target_class": "target-repository",
+      "source_case_id": "correct-inline",
+      "input_condition": "An ordinary target has a current in-Block correction for its normal owner."
+    },
+    {
+      "case_id": "external-target-structural",
+      "owner": "target-class-protocol",
+      "target_class": "target-repository",
+      "source_case_id": "amend-structure",
+      "input_condition": "An ordinary target requires an exact reviewed program amendment."
+    },
+    {
+      "case_id": "software-factory-inline",
+      "owner": "target-class-protocol",
+      "target_class": "software-factory",
+      "source_case_id": "correct-inline",
+      "input_condition": "A Software Factory skill change remains inside the current Block."
+    },
+    {
+      "case_id": "software-factory-structural",
+      "owner": "target-class-protocol",
+      "target_class": "software-factory",
+      "source_case_id": "amend-structure",
+      "input_condition": "A Software Factory skill change requires exact structural authoring review."
+    },
+    {
+      "case_id": "software-factory-candidate",
+      "owner": "target-class-protocol",
+      "target_class": "software-factory",
+      "source_case_id": "cutover-candidate",
+      "input_condition": "A separately evaluated Software Factory candidate is eligible only for its normal adoption owner."
+    },
+    {
+      "case_id": "target-current-no-change",
+      "owner": "target-class-protocol",
+      "target_class": "target-repository",
+      "source_case_id": "continue-unchanged",
+      "input_condition": "Canonical completion evidence proves current target behavior."
+    },
+    {
+      "case_id": "fixed-record-only",
+      "owner": "adaptive-decision-policy",
+      "source_case_id": "fixed",
+      "input_condition": "The policy fixes adaptive decisions to record-only posture."
+    },
+    {
+      "case_id": "recommend-review-pending",
+      "owner": "adaptive-decision-policy",
+      "source_case_id": "recommend-pending",
+      "input_condition": "Recommendation mode has current decision evidence and no independent review."
+    },
+    {
+      "case_id": "recommend-review-complete",
+      "owner": "adaptive-decision-policy",
+      "source_case_id": "recommend-reviewed",
+      "input_condition": "Recommendation mode has a current independently reviewed decision."
+    },
+    {
+      "case_id": "reviewed-autonomous-consequential",
+      "owner": "adaptive-decision-policy",
+      "source_case_id": "reviewed-autonomous",
+      "input_condition": "Reviewed-autonomous mode receives a consequential application choice."
+    },
+    {
+      "case_id": "full-autonomous-ordinary",
+      "owner": "adaptive-decision-policy",
+      "source_case_id": "ordinary-consequential",
+      "input_condition": "An ordinary consequential choice is within the current owner and sealed permissions."
+    },
+    {
+      "case_id": "full-autonomous-reserved-external",
+      "owner": "adaptive-decision-policy",
+      "source_case_id": "reserved-external",
+      "input_condition": "A credential-bound external act is unavailable while unaffected work remains safe."
+    }
+  ],
+  "target_effect": {
+    "schema_version": 1,
+    "kind": "software-factory-dogfood-target-effect",
+    "relative_path": "dogfood_target.py",
+    "baseline_source": "class UnsupportedGeneralLayer:\n    def resolve(self):\n        return 'local-shortcut'\n\nprint(UnsupportedGeneralLayer().resolve())\n",
+    "corrected_source": "def current_value():\n    return 'canonical-owner:bounded'\n\nprint(current_value())\n",
+    "expected_stdout": "canonical-owner:bounded\n"
+  },
+  "recovery_checks": [
+    {
+      "module": "implement-tracker-blocks/scripts/test_bounded_candidate_contract.py",
+      "class": "BoundedCandidateContractTests",
+      "method": "test_all_post_creation_stops_close_with_evidence_cleanup_and_no_authority"
+    },
+    {
+      "module": "implement-tracker-blocks/scripts/test_bounded_candidate_contract.py",
+      "class": "BoundedCandidateContractTests",
+      "method": "test_exact_accepted_lane_deduplicates_without_new_lane_review_or_handoff"
+    },
+    {
+      "module": "implement-tracker-blocks/scripts/test_bounded_candidate_contract.py",
+      "class": "BoundedCandidateContractTests",
+      "method": "test_focused_mapped_order_and_content_currentness_fail_closed"
+    },
+    {
+      "module": "author-implementation-trackers/scripts/test_program_revision.py",
+      "class": "ProgramRevisionTests",
+      "method": "test_accepted_history_rewrite_rejects"
+    },
+    {
+      "module": "author-implementation-trackers/scripts/test_program_revision.py",
+      "class": "ProgramRevisionTests",
+      "method": "test_packet_integrity_mismatch_and_self_review_reject"
+    },
+    {
+      "module": "supervise-tracker-runs/scripts/test_adaptive_decision_policy.py",
+      "class": "AdaptiveDecisionPolicyTests",
+      "method": "test_post_review_candidate_or_decision_currentness_change_rejects"
+    },
+    {
+      "module": "supervise-tracker-runs/scripts/test_adaptive_decision_policy.py",
+      "class": "AdaptiveDecisionPolicyTests",
+      "method": "test_post_recheck_target_drift_never_appends_write_authority"
+    },
+    {
+      "module": "implement-tracker-blocks/scripts/test_target_class_protocol_contract.py",
+      "class": "TargetClassProtocolTests",
+      "method": "test_current_behavior_requires_canonical_completion_event"
+    },
+    {
+      "module": "implement-tracker-blocks/scripts/test_target_class_protocol_contract.py",
+      "class": "TargetClassProtocolTests",
+      "method": "test_final_currentness_rejects_changed_evolution_artifacts"
+    },
+    {
+      "module": "implement-tracker-blocks/scripts/test_candidate_cutover_contract.py",
+      "class": "CandidateCutoverContractTests",
+      "method": "test_post_ref_and_post_effect_interruptions_recover_without_false_state"
+    },
+    {
+      "module": "implement-tracker-blocks/scripts/test_candidate_cutover_contract.py",
+      "class": "CandidateCutoverContractTests",
+      "method": "test_continuation_start_rehydrates_after_interrupted_return"
+    },
+    {
+      "module": "supervise-tracker-runs/scripts/test_program_revision_control.py",
+      "class": "ProgramRevisionControlTests",
+      "method": "test_accepted_revision_maps_full_range_and_resumes_dependency_safe_block"
+    },
+    {
+      "module": "supervise-tracker-runs/scripts/test_program_revision_control.py",
+      "class": "ProgramRevisionControlTests",
+      "method": "test_revise_disposition_is_retained_but_cannot_amend_range"
+    },
+    {
+      "module": "supervise-tracker-runs/scripts/test_program_revision_control.py",
+      "class": "ProgramRevisionControlTests",
+      "method": "test_revise_findings_require_exact_corrective_delta_lineage"
+    },
+    {
+      "module": "supervise-tracker-runs/scripts/test_program_revision_control.py",
+      "class": "ProgramRevisionControlTests",
+      "method": "test_application_currentness_change_during_policy_update_is_rejected"
+    }
+  ]
+}

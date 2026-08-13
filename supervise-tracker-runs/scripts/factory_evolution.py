@@ -953,6 +953,50 @@ CANDIDATE_TYPES = frozenset(
         "experiment",
     }
 )
+CANDIDATE_OWNER_ROUTES = {
+    "correction": "supervise-tracker-runs",
+    "detector": "supervise-tracker-runs",
+    "exculpator": "supervise-tracker-runs",
+    "resource-policy": "supervise-tracker-runs",
+    "supervision": "supervise-tracker-runs",
+    "architecture": "implement-tracker-blocks",
+    "evaluation": "implement-tracker-blocks",
+    "execution": "implement-tracker-blocks",
+    "experiment": "implement-tracker-blocks",
+    "removal": "implement-tracker-blocks",
+    "skill-method": "implement-tracker-blocks",
+    "tracker-method": "author-implementation-trackers",
+}
+FACTORY_SKILL_IDS = (
+    "author-implementation-trackers",
+    "implement-tracker-blocks",
+    "supervise-tracker-runs",
+)
+OWNER_HANDOFF_KIND = "software-factory-evolution-owner-handoff"
+OWNER_ACKNOWLEDGMENT_KIND = "software-factory-evolution-owner-acknowledgment"
+EVALUATION_HANDOFF_KIND = "software-factory-candidate-evaluation-handoff"
+ORCHESTRATED_EVALUATION_SUBMISSION_KIND = (
+    "software-factory-orchestrated-candidate-evaluation-submission"
+)
+ORCHESTRATED_EVALUATION_KIND = (
+    "software-factory-orchestrated-candidate-evaluation"
+)
+CYCLE_ACTION_KIND = "software-factory-evolution-cycle-action"
+HANDOFF_CONTEXT_FIELDS = frozenset(
+    {
+        "evolution_id",
+        "target_repository_root",
+        "target_revision",
+        "mission_root",
+        "policy_sha256",
+        "range_id",
+        "range_history_head_sha256",
+        "tracker_sha256",
+        "capability_frame_root",
+        "skill_source_roots",
+        "candidate_budget",
+    }
+)
 SELECTION_DIMENSIONS = (
     "effect",
     "recurrence",
@@ -1534,7 +1578,11 @@ def _normalize_review_material(
         },
         label="Evolution review submission",
     )
-    if submission.get("schema_version") != SCHEMA_VERSION or submission.get("kind") != REVIEW_KIND:
+    if (
+        type(submission.get("schema_version")) is not int
+        or submission.get("schema_version") != SCHEMA_VERSION
+        or submission.get("kind") != REVIEW_KIND
+    ):
         raise FactoryEvolutionError("Evolution review kind or schema is unsupported")
     if submission.get("packet_id") != packet.get("packet_id") or submission.get(
         "packet_root"
@@ -1641,6 +1689,865 @@ def verify_evolution_review(
     if rebuilt["review_root"] != recorded_root or rebuilt["review_id"] != review_id:
         raise FactoryEvolutionError("Evolution review identity is stale")
     return dict(review)
+
+
+def candidate_owner_route(candidate_type: Any) -> str:
+    if set(CANDIDATE_OWNER_ROUTES) != set(CANDIDATE_TYPES):
+        raise FactoryEvolutionError("Factory candidate owner map is incomplete")
+    if type(candidate_type) is not str or candidate_type not in CANDIDATE_TYPES:
+        raise FactoryEvolutionError("Candidate type is unsupported")
+    return CANDIDATE_OWNER_ROUTES[candidate_type]
+
+
+def selected_candidate(review: Mapping[str, Any]) -> dict[str, Any]:
+    selected_id = review["selection"]["candidate_id"]
+    return next(
+        dict(item) for item in review["candidates"] if item["candidate_id"] == selected_id
+    )
+
+
+def _handoff_context(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping):
+        raise FactoryEvolutionError("Factory owner-handoff context must be an object")
+    _exact_keys(value, HANDOFF_CONTEXT_FIELDS, label="Factory owner-handoff context")
+    repository_root = str(value.get("target_repository_root"))
+    if not repository_root.startswith("/") or Path(repository_root).as_posix() != repository_root:
+        raise FactoryEvolutionError("Factory owner-handoff repository root is not canonical")
+    skills = value.get("skill_source_roots")
+    if not isinstance(skills, Mapping) or tuple(sorted(skills)) != tuple(sorted(FACTORY_SKILL_IDS)):
+        raise FactoryEvolutionError("Factory owner-handoff skill source set differs")
+    skill_roots = {
+        name: _exact_revision(skills[name], label=f"{name} source root")
+        for name in FACTORY_SKILL_IDS
+    }
+    budget = value.get("candidate_budget")
+    integer_budget_fields = {
+        "max_files",
+        "max_changed_lines",
+        "max_commands",
+        "max_elapsed_minutes",
+        "max_active_lanes_per_decision",
+        "max_active_lanes_per_target",
+        "max_mapped_comparisons",
+        "max_review_passes",
+    }
+    boolean_budget_fields = {
+        "independent_review_required",
+        "stop_on_protected_regression",
+        "stop_on_resource_exhaustion",
+    }
+    budget_fields = integer_budget_fields | boolean_budget_fields
+    if (
+        not isinstance(budget, Mapping)
+        or set(budget) != budget_fields
+        or any(
+            type(budget[field]) is not int or budget[field] < 1
+            for field in integer_budget_fields
+        )
+        or any(type(budget[field]) is not bool for field in boolean_budget_fields)
+    ):
+        raise FactoryEvolutionError("Factory owner-handoff candidate budget differs")
+    return {
+        "evolution_id": _exact_identifier(value.get("evolution_id"), label="evolution_id"),
+        "target_repository_root": repository_root,
+        "target_revision": _exact_revision(value.get("target_revision"), label="target revision"),
+        "mission_root": _exact_sha256(value.get("mission_root"), label="mission root"),
+        "policy_sha256": _exact_sha256(value.get("policy_sha256"), label="policy SHA-256"),
+        "range_id": _exact_identifier(value.get("range_id"), label="range_id"),
+        "range_history_head_sha256": _exact_sha256(
+            value.get("range_history_head_sha256"), label="range history head"
+        ),
+        "tracker_sha256": _exact_sha256(value.get("tracker_sha256"), label="tracker SHA-256"),
+        "capability_frame_root": _exact_sha256(
+            value.get("capability_frame_root"), label="capability frame root"
+        ),
+        "skill_source_roots": skill_roots,
+        "candidate_budget": {field: budget[field] for field in sorted(budget_fields)},
+    }
+
+
+def build_candidate_owner_handoff(
+    packet: Mapping[str, Any],
+    review: Mapping[str, Any],
+    context: Mapping[str, Any],
+) -> dict[str, Any]:
+    verified_packet = verify_learning_packet(packet)
+    verified_review = verify_evolution_review(verified_packet, review)
+    selected = selected_candidate(verified_review)
+    experiment = dict(verified_review["experiment"])
+    normalized_context = _handoff_context(context)
+    normal_owner = candidate_owner_route(selected["candidate_type"])
+    if selected["implementation_owner"] != normal_owner:
+        raise FactoryEvolutionError(
+            "Factory candidate implementation owner differs from its normal owner"
+        )
+    if experiment["baseline_revision"] != normalized_context["target_revision"]:
+        raise FactoryEvolutionError(
+            "Factory candidate baseline revision is not current"
+        )
+    material = {
+        "schema_version": SCHEMA_VERSION,
+        "kind": OWNER_HANDOFF_KIND,
+        **normalized_context,
+        "packet_id": verified_packet["packet_id"],
+        "packet_root": verified_packet["packet_root"],
+        "review_id": verified_review["review_id"],
+        "review_root": verified_review["review_root"],
+        "candidate_id": selected["candidate_id"],
+        "candidate_type": selected["candidate_type"],
+        "candidate_contract_root": digest(selected),
+        "experiment_id": experiment["experiment_id"],
+        "experiment_root": digest(experiment),
+        "candidate_basis_revision": experiment["candidate_revision"],
+        "proposer_id": experiment["proposer_id"],
+        "implementation_owner_id": experiment["implementer_id"],
+        "evaluation_owner_id": experiment["evaluator_id"],
+        "normal_owner": normal_owner,
+        "owner_action": "author" if normal_owner == "author-implementation-trackers" else "implement",
+        "protected_capabilities": list(selected["protected_capabilities"]),
+        "expected_effects": list(experiment["expected_effects"]),
+        "resource_bounds": list(experiment["resource_bounds"]),
+        "stop_condition": experiment["stop_condition"],
+        "production_authority": "incumbent",
+    }
+    return {**material, "handoff_root": digest(material)}
+
+
+def verify_candidate_owner_handoff(
+    packet: Mapping[str, Any],
+    review: Mapping[str, Any],
+    context: Mapping[str, Any],
+    handoff: Mapping[str, Any],
+) -> dict[str, Any]:
+    expected = build_candidate_owner_handoff(packet, review, context)
+    if canonical(expected) != canonical(handoff):
+        raise FactoryEvolutionError("Factory candidate owner handoff differs")
+    return dict(handoff)
+
+
+def build_owner_acknowledgment(
+    handoff: Mapping[str, Any], submission: Mapping[str, Any]
+) -> dict[str, Any]:
+    expected = {
+        "schema_version",
+        "kind",
+        "owner_handoff_record_id",
+        "owner_handoff_orchestration_root",
+        "owner_handoff_record_sha256",
+        "handoff_root",
+        "evolution_id",
+        "candidate_id",
+        "candidate_type",
+        "normal_owner",
+        "owner_id",
+        "target_revision",
+        "candidate_basis_revision",
+        "candidate_revision",
+        "lane_started_at",
+        "observed_at",
+        "candidate_root",
+        "affected_paths",
+        "scope_root",
+        "capability_root",
+        "protected_capability_results",
+        "resource_usage",
+        "focused_test_paths",
+        "protected_capability_test_paths",
+        "validation_results",
+        "validation_root",
+        "owner_proof_root",
+        "isolated",
+        "production_authority",
+        "stop_disposition",
+        "currentness_root",
+    }
+    if not isinstance(submission, Mapping):
+        raise FactoryEvolutionError("Factory owner acknowledgment must be an object")
+    _exact_keys(submission, expected, label="Factory owner acknowledgment")
+    for field in (
+        "handoff_root",
+        "owner_handoff_orchestration_root",
+        "owner_handoff_record_sha256",
+        "candidate_root",
+        "scope_root",
+        "capability_root",
+        "validation_root",
+        "owner_proof_root",
+        "currentness_root",
+    ):
+        _exact_sha256(submission.get(field), label=field)
+    if (
+        type(submission.get("schema_version")) is not int
+        or submission.get("schema_version") != SCHEMA_VERSION
+        or submission.get("kind") != OWNER_ACKNOWLEDGMENT_KIND
+        or submission.get("handoff_root") != handoff.get("handoff_root")
+        or submission.get("evolution_id") != handoff.get("evolution_id")
+        or submission.get("candidate_id") != handoff.get("candidate_id")
+        or submission.get("candidate_type") != handoff.get("candidate_type")
+        or submission.get("normal_owner") != handoff.get("normal_owner")
+        or submission.get("owner_id") != handoff.get("implementation_owner_id")
+        or submission.get("target_revision") != handoff.get("target_revision")
+        or submission.get("candidate_basis_revision") != handoff.get("candidate_basis_revision")
+        or submission.get("production_authority") != "incumbent"
+        or type(submission.get("isolated")) is not bool
+        or not submission.get("isolated")
+    ):
+        raise FactoryEvolutionError("Factory owner acknowledgment binding differs")
+    _semantic_text(
+        submission.get("owner_handoff_record_id"),
+        label="owner handoff record ID",
+    )
+    _exact_revision(submission.get("candidate_revision"), label="candidate revision")
+    for field in ("lane_started_at", "observed_at"):
+        _semantic_text(submission.get(field), label=f"owner acknowledgment {field}")
+    affected_paths = submission.get("affected_paths")
+    if (
+        not isinstance(affected_paths, list)
+        or not affected_paths
+        or affected_paths != sorted(set(affected_paths))
+        or any(
+            type(item) is not str
+            or item.startswith("/")
+            or "." in Path(item).parts
+            or ".." in Path(item).parts
+            for item in affected_paths
+        )
+    ):
+        raise FactoryEvolutionError("Factory owner acknowledgment scope differs")
+    protected = submission.get("protected_capability_results")
+    if (
+        not isinstance(protected, list)
+        or not protected
+        or any(
+            not isinstance(item, Mapping)
+            or set(item) != {"capability_id", "result", "evidence_root"}
+            or type(item["capability_id"]) is not str
+            or item["result"] not in {"preserved", "regressed", "unverified"}
+            or not SHA256.fullmatch(str(item["evidence_root"]))
+            for item in protected
+        )
+        or [item["capability_id"] for item in protected]
+        != sorted({item["capability_id"] for item in protected})
+    ):
+        raise FactoryEvolutionError("Factory owner protected-capability results differ")
+    usage = submission.get("resource_usage")
+    usage_fields = {"files", "changed_lines", "commands", "elapsed_minutes"}
+    if (
+        not isinstance(usage, Mapping)
+        or set(usage) != usage_fields
+        or any(type(usage[field]) is not int or usage[field] < 0 for field in usage_fields)
+    ):
+        raise FactoryEvolutionError("Factory owner resource usage differs")
+    validation_results = submission.get("validation_results")
+    if (
+        not isinstance(validation_results, list)
+        or not validation_results
+        or len(validation_results) > 16
+        or any(
+            not isinstance(item, Mapping)
+            or set(item)
+            != {
+                "command_id",
+                "test_path",
+                "argv",
+                "runtime_sha256",
+                "started_at",
+                "finished_at",
+                "exit_code",
+                "timed_out",
+                "stdout_sha256",
+                "stderr_sha256",
+            }
+            or type(item["command_id"]) is not str
+            or type(item["test_path"]) is not str
+            or not isinstance(item["argv"], list)
+            or not item["argv"]
+            or any(type(argument) is not str for argument in item["argv"])
+            or not SHA256.fullmatch(str(item["runtime_sha256"]))
+            or type(item["started_at"]) is not str
+            or type(item["finished_at"]) is not str
+            or type(item["exit_code"]) is not int
+            or type(item["timed_out"]) is not bool
+            or type(item["stdout_sha256"]) is not str
+            or type(item["stderr_sha256"]) is not str
+            or not SHA256.fullmatch(item["stdout_sha256"])
+            or not SHA256.fullmatch(item["stderr_sha256"])
+            for item in validation_results
+        )
+        or [item["command_id"] for item in validation_results]
+        != sorted({item["command_id"] for item in validation_results})
+    ):
+        raise FactoryEvolutionError("Factory owner validation results differ")
+    if submission["validation_root"] != digest(validation_results):
+        raise FactoryEvolutionError("Factory owner validation root differs")
+    focused_test_paths = submission.get("focused_test_paths")
+    if (
+        not isinstance(focused_test_paths, list)
+        or not focused_test_paths
+        or focused_test_paths != sorted(set(focused_test_paths))
+        or len(validation_results) > len(focused_test_paths)
+        or any(type(item) is not str for item in focused_test_paths)
+    ):
+        raise FactoryEvolutionError("Factory owner focused validation plan differs")
+    if [item["test_path"] for item in validation_results] != focused_test_paths[
+        : len(validation_results)
+    ]:
+        raise FactoryEvolutionError("Factory owner validation path order differs")
+    protected_test_paths = submission.get("protected_capability_test_paths")
+    protected_ids = {
+        str(item["capability_id"])
+        for item in submission["protected_capability_results"]
+    }
+    if (
+        not isinstance(protected_test_paths, Mapping)
+        or set(protected_test_paths) != protected_ids
+        or sorted(protected_test_paths.values()) != focused_test_paths
+        or any(type(item) is not str for item in protected_test_paths.values())
+    ):
+        raise FactoryEvolutionError(
+            "Factory owner protected-capability proof map differs"
+        )
+    expected_owner_proof = digest(
+        {
+            "owner_handoff_record_sha256": submission[
+                "owner_handoff_record_sha256"
+            ],
+            "candidate_revision": submission["candidate_revision"],
+            "candidate_root": submission["candidate_root"],
+            "validation_root": submission["validation_root"],
+            "protected_capability_test_paths": submission[
+                "protected_capability_test_paths"
+            ],
+            "protected_capability_results": submission[
+                "protected_capability_results"
+            ],
+        }
+    )
+    if submission["owner_proof_root"] != expected_owner_proof:
+        raise FactoryEvolutionError("Factory owner proof root differs")
+    stop_disposition = submission.get("stop_disposition")
+    if stop_disposition not in {
+        "candidate-ready-for-comparison",
+        "ceiling-expired",
+        "protected-regression",
+        "hypothesis-falsified",
+        "owner-rejected",
+    }:
+        raise FactoryEvolutionError("Factory owner Stop disposition differs")
+    material = dict(submission)
+    material.pop("currentness_root")
+    if submission["currentness_root"] != digest(material):
+        raise FactoryEvolutionError("Factory owner acknowledgment currentness differs")
+    return dict(submission)
+
+
+def _normalize_execution_results(value: Any, *, label: str) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or not value or len(value) > 16:
+        raise FactoryEvolutionError(f"{label} must be one bounded result set")
+    expected = {
+        "command_id",
+        "test_path",
+        "argv",
+        "runtime_sha256",
+        "started_at",
+        "finished_at",
+        "exit_code",
+        "timed_out",
+        "stdout_sha256",
+        "stderr_sha256",
+    }
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    prior_finished: str | None = None
+    for item in value:
+        if not isinstance(item, Mapping) or set(item) != expected:
+            raise FactoryEvolutionError(f"{label} shape differs")
+        command_id = _exact_identifier(
+            item.get("command_id"), label=f"{label} command ID"
+        )
+        if command_id in seen:
+            raise FactoryEvolutionError(f"{label} command repeats")
+        seen.add(command_id)
+        test_path = str(item.get("test_path"))
+        if (
+            not test_path
+            or test_path.startswith("/")
+            or "." in Path(test_path).parts
+            or ".." in Path(test_path).parts
+        ):
+            raise FactoryEvolutionError(f"{label} test path differs")
+        argv = item.get("argv")
+        if (
+            not isinstance(argv, list)
+            or not argv
+            or any(type(argument) is not str or not argument for argument in argv)
+        ):
+            raise FactoryEvolutionError(f"{label} argv differs")
+        started_at = _semantic_text(
+            item.get("started_at"), label=f"{label} started_at"
+        )
+        finished_at = _semantic_text(
+            item.get("finished_at"), label=f"{label} finished_at"
+        )
+        if finished_at < started_at or (
+            prior_finished is not None and started_at < prior_finished
+        ):
+            raise FactoryEvolutionError(f"{label} chronology differs")
+        prior_finished = finished_at
+        if type(item.get("exit_code")) is not int or type(item.get("timed_out")) is not bool:
+            raise FactoryEvolutionError(f"{label} outcome differs")
+        normalized.append(
+            {
+                "command_id": command_id,
+                "test_path": test_path,
+                "argv": list(argv),
+                "runtime_sha256": _exact_sha256(
+                    item.get("runtime_sha256"), label=f"{label} runtime"
+                ),
+                "started_at": started_at,
+                "finished_at": finished_at,
+                "exit_code": item["exit_code"],
+                "timed_out": item["timed_out"],
+                "stdout_sha256": _exact_sha256(
+                    item.get("stdout_sha256"), label=f"{label} stdout"
+                ),
+                "stderr_sha256": _exact_sha256(
+                    item.get("stderr_sha256"), label=f"{label} stderr"
+                ),
+            }
+        )
+    if [item["command_id"] for item in normalized] != sorted(seen):
+        raise FactoryEvolutionError(f"{label} command order differs")
+    return normalized
+
+
+def build_candidate_evaluation_handoff(
+    packet: Mapping[str, Any],
+    review: Mapping[str, Any],
+    handoff: Mapping[str, Any],
+    acknowledgment: Mapping[str, Any],
+    baseline_validation_results: Any,
+    baseline_comparison_provenance_root: Any,
+    evaluator_authority_key_sha256: Any,
+    target_owner_currentness_root: Any,
+) -> dict[str, Any]:
+    """Bind one raw incumbent/candidate comparison to its distinct evaluator."""
+
+    verified_packet = verify_learning_packet(packet)
+    verified_review = verify_evolution_review(verified_packet, review)
+    context = {key: handoff[key] for key in HANDOFF_CONTEXT_FIELDS}
+    verified_handoff = verify_candidate_owner_handoff(
+        verified_packet, verified_review, context, handoff
+    )
+    verified_ack = build_owner_acknowledgment(verified_handoff, acknowledgment)
+    if verified_ack["stop_disposition"] != "candidate-ready-for-comparison":
+        raise FactoryEvolutionError("Factory candidate is not ready for evaluation")
+    protected = verified_ack["protected_capability_results"]
+    if any(item["result"] != "preserved" for item in protected):
+        raise FactoryEvolutionError(
+            "Factory candidate protected capability proof is incomplete"
+        )
+    baseline = _normalize_execution_results(
+        baseline_validation_results, label="baseline validation results"
+    )
+    provenance_root = _exact_sha256(
+        baseline_comparison_provenance_root,
+        label="baseline comparison provenance root",
+    )
+    evaluator_key_root = _exact_sha256(
+        evaluator_authority_key_sha256,
+        label="evaluator authority key SHA-256",
+    )
+    target_currentness_root = _exact_sha256(
+        target_owner_currentness_root,
+        label="target owner currentness root",
+    )
+    candidate = _normalize_execution_results(
+        verified_ack["validation_results"], label="candidate validation results"
+    )
+    expected_paths = verified_ack["focused_test_paths"]
+    if (
+        [item["test_path"] for item in baseline] != expected_paths
+        or [item["test_path"] for item in candidate] != expected_paths
+    ):
+        raise FactoryEvolutionError("Factory evaluation mapped comparison differs")
+    experiment = verified_review["experiment"]
+    evaluator_id = experiment["evaluator_id"]
+    if evaluator_id in {
+        verified_review["reviewer_id"],
+        experiment["proposer_id"],
+        experiment["implementer_id"],
+    }:
+        raise FactoryEvolutionError("Factory candidate evaluator is not independent")
+    material = {
+        "schema_version": SCHEMA_VERSION,
+        "kind": EVALUATION_HANDOFF_KIND,
+        "packet_id": verified_packet["packet_id"],
+        "packet_root": verified_packet["packet_root"],
+        "review_id": verified_review["review_id"],
+        "review_root": verified_review["review_root"],
+        "handoff_root": verified_handoff["handoff_root"],
+        "acknowledgment_root": verified_ack["currentness_root"],
+        "experiment_id": experiment["experiment_id"],
+        "experiment_root": digest(experiment),
+        "candidate_id": verified_ack["candidate_id"],
+        "candidate_contract_root": verified_handoff["candidate_contract_root"],
+        "baseline_revision": verified_ack["target_revision"],
+        "candidate_revision": verified_ack["candidate_revision"],
+        "candidate_root": verified_ack["candidate_root"],
+        "comparison_mode": experiment["comparison_mode"],
+        "minimum_expected_delta": experiment["minimum_expected_delta"],
+        "non_inferiority_justification": experiment[
+            "non_inferiority_justification"
+        ],
+        "positive_case_ids": list(experiment["positive_case_ids"]),
+        "exception_case_ids": list(experiment["exception_case_ids"]),
+        "expected_effects": list(experiment["expected_effects"]),
+        "evaluator_id": evaluator_id,
+        "evaluator_authority_key_sha256": evaluator_key_root,
+        "baseline_validation_results": baseline,
+        "candidate_validation_results": candidate,
+        "baseline_validation_root": digest(baseline),
+        "baseline_comparison_provenance_root": provenance_root,
+        "candidate_validation_root": digest(candidate),
+        "target_owner_currentness_root": target_currentness_root,
+        "protected_capability_results": list(protected),
+        "resource_usage": dict(verified_ack["resource_usage"]),
+        "reversibility_posture": "direct-child-isolated-candidate",
+        "production_authority": "incumbent",
+        "adoption_authorized": False,
+        "next_action": "evaluate",
+    }
+    return {**material, "evaluation_handoff_root": digest(material)}
+
+
+def verify_candidate_evaluation_handoff(
+    packet: Mapping[str, Any],
+    review: Mapping[str, Any],
+    handoff: Mapping[str, Any],
+    acknowledgment: Mapping[str, Any],
+    evaluation_handoff: Mapping[str, Any],
+) -> dict[str, Any]:
+    if not isinstance(evaluation_handoff, Mapping):
+        raise FactoryEvolutionError("Factory candidate evaluation handoff must be an object")
+    expected = build_candidate_evaluation_handoff(
+        packet,
+        review,
+        handoff,
+        acknowledgment,
+        evaluation_handoff.get("baseline_validation_results"),
+        evaluation_handoff.get("baseline_comparison_provenance_root"),
+        evaluation_handoff.get("evaluator_authority_key_sha256"),
+        evaluation_handoff.get("target_owner_currentness_root"),
+    )
+    if canonical(expected) != canonical(evaluation_handoff):
+        raise FactoryEvolutionError("Factory candidate evaluation handoff differs")
+    return dict(evaluation_handoff)
+
+
+def _normalize_orchestrated_case_results(
+    value: Any,
+    *,
+    label: str,
+    case_ids: set[str],
+    expected_revision: str,
+    source_evidence_root: str,
+    evaluation_handoff_root: str,
+) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or len(value) != len(case_ids):
+        raise FactoryEvolutionError(f"{label} must cover every experiment case")
+    expected = {
+        "case_id",
+        "outcome",
+        "observed_effect",
+        "resource_cost",
+        "regressions",
+        "condition_revision",
+        "source_evidence_root",
+        "evidence_root",
+    }
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, Mapping) or set(item) != expected:
+            raise FactoryEvolutionError(f"{label} result shape differs")
+        case_id = _exact_identifier(item.get("case_id"), label=f"{label} case ID")
+        if case_id not in case_ids or case_id in seen:
+            raise FactoryEvolutionError(f"{label} case coverage differs")
+        seen.add(case_id)
+        outcome = str(item.get("outcome"))
+        if outcome not in RESULT_OUTCOMES:
+            raise FactoryEvolutionError(f"{label} outcome differs")
+        revision = _exact_revision(
+            item.get("condition_revision"), label=f"{label} revision"
+        )
+        if revision != expected_revision or item.get("source_evidence_root") != source_evidence_root:
+            raise FactoryEvolutionError(f"{label} source evidence is stale")
+        material = {
+            "case_id": case_id,
+            "outcome": outcome,
+            "observed_effect": _semantic_text(
+                item.get("observed_effect"), label=f"{label} observed effect"
+            ),
+            "resource_cost": _semantic_text(
+                item.get("resource_cost"), label=f"{label} resource cost"
+            ),
+            "regressions": _semantic_strings(
+                item.get("regressions"), label=f"{label} regressions", allow_empty=True
+            ),
+            "condition_revision": revision,
+            "source_evidence_root": source_evidence_root,
+        }
+        evidence_root = _exact_sha256(
+            item.get("evidence_root"), label=f"{label} evidence root"
+        )
+        if evidence_root != digest(
+            {
+                "evaluation_handoff_root": evaluation_handoff_root,
+                "result": material,
+            }
+        ):
+            raise FactoryEvolutionError(f"{label} evidence root differs")
+        normalized.append({**material, "evidence_root": evidence_root})
+    return sorted(normalized, key=lambda item: item["case_id"])
+
+
+def build_orchestrated_candidate_evaluation(
+    evaluation_handoff: Mapping[str, Any], submission: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Validate one independent disposition over the exact retained comparison."""
+
+    if not isinstance(evaluation_handoff, Mapping):
+        raise FactoryEvolutionError("Factory evaluation handoff must be an object")
+    if not isinstance(submission, Mapping):
+        raise FactoryEvolutionError("Factory evaluation submission must be an object")
+    _reject_forbidden_source_keys(submission, label="orchestrated candidate evaluation")
+    _exact_keys(
+        submission,
+        {
+            "schema_version",
+            "kind",
+            "evaluation_handoff_root",
+            "evaluator_id",
+            "evaluator_authority_key_sha256",
+            "evaluation_signature_base64",
+            "baseline_results",
+            "candidate_results",
+            "contrary_evidence",
+            "regression_findings",
+            "disposition",
+            "rationale",
+        },
+        label="Orchestrated candidate evaluation submission",
+    )
+    if (
+        type(submission.get("schema_version")) is not int
+        or submission.get("schema_version") != SCHEMA_VERSION
+        or submission.get("kind") != ORCHESTRATED_EVALUATION_SUBMISSION_KIND
+        or submission.get("evaluation_handoff_root")
+        != evaluation_handoff.get("evaluation_handoff_root")
+        or submission.get("evaluator_id") != evaluation_handoff.get("evaluator_id")
+        or submission.get("evaluator_authority_key_sha256")
+        != evaluation_handoff.get("evaluator_authority_key_sha256")
+        or type(submission.get("evaluation_signature_base64")) is not str
+        or not submission.get("evaluation_signature_base64")
+    ):
+        raise FactoryEvolutionError("Factory evaluation submission binding differs")
+    case_ids = set(
+        evaluation_handoff["positive_case_ids"]
+        + evaluation_handoff["exception_case_ids"]
+    )
+    handoff_root = str(evaluation_handoff["evaluation_handoff_root"])
+    baseline = _normalize_orchestrated_case_results(
+        submission.get("baseline_results"),
+        label="orchestrated baseline results",
+        case_ids=case_ids,
+        expected_revision=str(evaluation_handoff["baseline_revision"]),
+        source_evidence_root=str(evaluation_handoff["baseline_validation_root"]),
+        evaluation_handoff_root=handoff_root,
+    )
+    candidate = _normalize_orchestrated_case_results(
+        submission.get("candidate_results"),
+        label="orchestrated candidate results",
+        case_ids=case_ids,
+        expected_revision=str(evaluation_handoff["candidate_revision"]),
+        source_evidence_root=str(evaluation_handoff["candidate_validation_root"]),
+        evaluation_handoff_root=handoff_root,
+    )
+    contrary = _semantic_strings(
+        submission.get("contrary_evidence"),
+        label="orchestrated contrary evidence",
+    )
+    findings = _semantic_strings(
+        submission.get("regression_findings"),
+        label="orchestrated regression findings",
+        allow_empty=True,
+    )
+    disposition = str(submission.get("disposition"))
+    if disposition not in DISPOSITIONS:
+        raise FactoryEvolutionError("Factory candidate disposition is unsupported")
+    if disposition == "promote":
+        if findings or any(item["regressions"] for item in candidate):
+            raise FactoryEvolutionError("Candidate with regression findings cannot be promoted")
+        if any(item["outcome"] != "pass" for item in candidate):
+            raise FactoryEvolutionError("Promoted candidate must pass every experiment case")
+        if any(
+            item["result"] != "preserved"
+            for item in evaluation_handoff["protected_capability_results"]
+        ):
+            raise FactoryEvolutionError("Promoted candidate protection is incomplete")
+        raw_candidate = evaluation_handoff["candidate_validation_results"]
+        if any(item["timed_out"] or item["exit_code"] != 0 for item in raw_candidate):
+            raise FactoryEvolutionError("Promoted candidate raw proof is incomplete")
+        if evaluation_handoff["baseline_validation_root"] == evaluation_handoff[
+            "candidate_validation_root"
+        ]:
+            raise FactoryEvolutionError("Promotion requires independent condition evidence")
+        if evaluation_handoff["comparison_mode"] == "improvement" and not any(
+            item["outcome"] != "pass" for item in baseline
+        ):
+            raise FactoryEvolutionError("Improvement promotion lacks a visible baseline delta")
+    material = {
+        "schema_version": SCHEMA_VERSION,
+        "kind": ORCHESTRATED_EVALUATION_KIND,
+        "evaluation_handoff_root": handoff_root,
+        "packet_root": evaluation_handoff["packet_root"],
+        "review_root": evaluation_handoff["review_root"],
+        "experiment_root": evaluation_handoff["experiment_root"],
+        "handoff_root": evaluation_handoff["handoff_root"],
+        "acknowledgment_root": evaluation_handoff["acknowledgment_root"],
+        "baseline_revision": evaluation_handoff["baseline_revision"],
+        "candidate_revision": evaluation_handoff["candidate_revision"],
+        "candidate_root": evaluation_handoff["candidate_root"],
+        "baseline_validation_root": evaluation_handoff["baseline_validation_root"],
+        "candidate_validation_root": evaluation_handoff["candidate_validation_root"],
+        "evaluator_id": evaluation_handoff["evaluator_id"],
+        "evaluator_authority_key_sha256": submission[
+            "evaluator_authority_key_sha256"
+        ],
+        "evaluation_signature_base64": submission["evaluation_signature_base64"],
+        "baseline_results": baseline,
+        "candidate_results": candidate,
+        "baseline_result_root": digest(baseline),
+        "candidate_result_root": digest(candidate),
+        "contrary_evidence": contrary,
+        "contrary_evidence_root": digest(contrary),
+        "regression_findings": findings,
+        "regression_findings_root": digest(findings),
+        "disposition": disposition,
+        "rationale": _semantic_text(
+            submission.get("rationale"), label="orchestrated evaluation rationale"
+        ),
+        "adoption_eligible": disposition == "promote",
+        "adoption_authorized": False,
+        "production_authority": "incumbent",
+    }
+    root = digest(material)
+    return {
+        **material,
+        "evaluation_id": "orchestrated-evaluation-" + root[:20],
+        "evaluation_root": root,
+    }
+
+
+def verify_orchestrated_candidate_evaluation(
+    evaluation_handoff: Mapping[str, Any], evaluation: Mapping[str, Any]
+) -> dict[str, Any]:
+    if not isinstance(evaluation, Mapping):
+        raise FactoryEvolutionError("Orchestrated candidate evaluation must be an object")
+    material = dict(evaluation)
+    recorded_root = _exact_sha256(
+        material.pop("evaluation_root", None), label="orchestrated evaluation root"
+    )
+    evaluation_id = _exact_identifier(
+        material.pop("evaluation_id", None), label="orchestrated evaluation ID"
+    )
+    submission = {
+        "schema_version": SCHEMA_VERSION,
+        "kind": ORCHESTRATED_EVALUATION_SUBMISSION_KIND,
+        "evaluation_handoff_root": material["evaluation_handoff_root"],
+        "evaluator_id": material["evaluator_id"],
+        "evaluator_authority_key_sha256": material[
+            "evaluator_authority_key_sha256"
+        ],
+        "evaluation_signature_base64": material["evaluation_signature_base64"],
+        "baseline_results": material["baseline_results"],
+        "candidate_results": material["candidate_results"],
+        "contrary_evidence": material["contrary_evidence"],
+        "regression_findings": material["regression_findings"],
+        "disposition": material["disposition"],
+        "rationale": material["rationale"],
+    }
+    rebuilt = build_orchestrated_candidate_evaluation(
+        evaluation_handoff, submission
+    )
+    if rebuilt["evaluation_root"] != recorded_root or rebuilt["evaluation_id"] != evaluation_id:
+        raise FactoryEvolutionError("Orchestrated candidate evaluation identity is stale")
+    if canonical(rebuilt) != canonical(evaluation):
+        raise FactoryEvolutionError("Orchestrated candidate evaluation differs")
+    return dict(evaluation)
+
+
+def build_cycle_action(
+    packet: Mapping[str, Any],
+    *,
+    review: Mapping[str, Any] | None = None,
+    handoff: Mapping[str, Any] | None = None,
+    acknowledgment: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    verified_packet = verify_learning_packet(packet)
+    if review is None:
+        stage = "review-required"
+        next_action = "review"
+        selected_id = None
+        normal_owner = None
+        review_root = None
+        handoff_root = None
+        acknowledgment_root = None
+    else:
+        verified_review = verify_evolution_review(verified_packet, review)
+        selected = selected_candidate(verified_review)
+        selected_id = selected["candidate_id"]
+        normal_owner = candidate_owner_route(selected["candidate_type"])
+        review_root = verified_review["review_root"]
+        handoff_root = handoff.get("handoff_root") if handoff is not None else None
+        acknowledgment_root = (
+            acknowledgment.get("currentness_root") if acknowledgment is not None else None
+        )
+        if handoff is None:
+            stage = "owner-handoff-required"
+            next_action = "author" if normal_owner == "author-implementation-trackers" else "implement"
+        elif acknowledgment is None:
+            stage = "owner-acknowledgment-required"
+            next_action = handoff["owner_action"]
+        else:
+            verify_candidate_owner_handoff(
+                verified_packet,
+                verified_review,
+                {key: handoff[key] for key in HANDOFF_CONTEXT_FIELDS},
+                handoff,
+            )
+            verified_ack = build_owner_acknowledgment(handoff, acknowledgment)
+            stage = (
+                "candidate-ready-for-comparison"
+                if verified_ack["stop_disposition"] == "candidate-ready-for-comparison"
+                else "candidate-stopped"
+            )
+            next_action = "compare" if stage == "candidate-ready-for-comparison" else "reject"
+    material = {
+        "schema_version": SCHEMA_VERSION,
+        "kind": CYCLE_ACTION_KIND,
+        "packet_id": verified_packet["packet_id"],
+        "packet_root": verified_packet["packet_root"],
+        "stage": stage,
+        "next_action": next_action,
+        "selected_candidate_id": selected_id,
+        "normal_owner": normal_owner,
+        "review_root": review_root,
+        "handoff_root": handoff_root,
+        "acknowledgment_root": acknowledgment_root,
+    }
+    return {**material, "action_root": digest(material)}
 
 
 def _normalize_results(

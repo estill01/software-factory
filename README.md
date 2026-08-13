@@ -325,6 +325,151 @@ python3 "$SKILL_VALIDATOR" ./implement-tracker-blocks
 python3 "$SKILL_VALIDATOR" ./supervise-tracker-runs
 ```
 
+### Bounded adaptive-protocol dogfood
+
+The repository includes one small, reproducible matrix for the demonstrated
+adaptive implementation paths:
+
+```bash
+/usr/bin/python3 implement-tracker-blocks/scripts/adaptive_protocol_dogfood.py --pretty
+```
+
+It exercises an ordinary-target inline correction, selective bounded candidate
+comparison and retirement, exceptional structural routing, Software Factory
+self-work, the cheap justified-no-change path, full-autonomous ordinary work,
+narrow reserved-external deferral, and maintained recovery cases. The output
+separates opaque raw comparison inputs from observed dispositions and includes
+executed temporary-target bytes/output, an applied reviewed structural revision
+with automatic resume, current protocol roots, normal-owner handoffs, bounded
+usage, accepted-Block remediation, all four adaptive authority modes, and the
+aggregate human-request count. The exact result projection excludes volatile
+temporary paths and commit identities, so a frozen checkout or Git-less archive
+regenerates the same rooted evidence.
+
+This is a live-behavior evidence runner confined to disposable repositories. It
+applies and executes only the temporary target corrections needed to prove the
+current effects. It does not apply a live handoff, cut over or adopt a live
+candidate, edit the governing tracker, mutate global configuration, release a
+skill, or perform an external action. Its bounded cases demonstrate the
+documented envelope only; they are not a statistical benchmark or unlimited
+autonomous authority. See
+[`adaptive-protocol-dogfood.md`](implement-tracker-blocks/references/adaptive-protocol-dogfood.md)
+for the evidence and review boundary.
+
+### Integrated Factory-evolution dogfood
+
+The terminal paired matrix exercises the coupled within-run and cross-run loops
+through the production supervision CLI while keeping every effect inside one
+disposable Git target and one disposable release owner:
+
+```bash
+uv run --python 3.14 python \
+  supervise-tracker-runs/scripts/factory_evolution_dogfood.py \
+  --pretty \
+  --output /tmp/software-factory-integrated-dogfood-result.json \
+  --evidence-output /tmp/software-factory-integrated-dogfood-evidence.json
+```
+
+It advances one supported signal through packet preparation, independent
+candidate review, the normal implementation owner, executed candidate and
+incumbent proofs, sealed evaluation, temporary adoption, installed-behavior
+observation, effective outcome, and consumed-input recurrence suppression. In
+the same disposable target it retires one independently rejected candidate
+without a second activation. It also invokes the three current stable skill
+entrypoints, reuses the smaller adaptive-protocol matrix for all four authority
+modes, and projects concise operator/report summaries separately from canonical
+rooted evidence.
+
+The default/stdout result is a closed, nonauthorizing semantic projection that
+is byte-reproducible for one exact source and installed three-skill identity.
+`--evidence-output` separately retains the exact high-precision run. Its
+currentness and provenance roots intentionally include the disposable Git ref
+and reflog filesystem identities and are therefore current and run-specific.
+Before emitting the projection, the runner validates all raw root consistency
+and every retained semantic leaf; it does not claim external authenticity for
+the self-contained disposable evidence.
+
+The result is a bounded demonstration, not a live release. Every live release,
+policy, mission, lifecycle, Gmail, deployment, and external-effect flag remains
+false. `promote` becomes authoritative only inside the temporary normal release
+owner; the command cannot install to the live skill store. See
+[`integrated-factory-evolution-dogfood.md`](supervise-tracker-runs/references/integrated-factory-evolution-dogfood.md)
+for exact evidence, reproducibility, and independent-review requirements.
+
+### Factory-evolution evidence admission
+
+The supervision owner can admit one evidence-bound Factory-improvement
+opportunity at three maintained checkpoints: explicit Factory maintenance,
+terminal report verification, and weekly report finalization. The gate derives
+novelty only from supported incident/gap records or independently verified
+observable-outcome completion records, including recurring meta-signals backed
+by two such exact outcomes. A generic positive label or praise-only check is
+not productive evidence. Report identity, prose, checkpoint, and Factory
+revision remain currentness context and cannot manufacture a second
+opportunity.
+
+Unchanged, unsupported, already-consumed, resource-exhausted, or conflicting
+evidence is a deterministic no-op. Fixed mode does not build a packet;
+recommend mode emits a nonauthorizing recommendation; reviewed-autonomous and
+full-autonomous modes may retain one prepared admission for later governed
+work. Admission never performs cognitive review, creates a candidate, writes a
+target, or adopts an outcome. Operators can run the same bounded gate directly
+with `supervision_log.py factory-evolution --action admit`; status and verified
+weekly projections expose the current result without turning report prose into
+authority.
+
+Once admitted, `factory-evolution --action orchestrate` records one exact
+packet-to-reviewer handoff and, after review finalization, one deterministic
+candidate-type-to-normal-owner handoff. The authoring, implementation, or
+supervision owner—not the evolution helper—creates the isolated candidate.
+That direct candidate commit binds the canonical owner-handoff record.
+`--action acknowledge --owner-ack-json <ack.json>` then reopens the current Git
+revision, executes the changed focused owner tests from its bounded archive,
+requires one distinct executed test for every protected capability, enforces
+one handoff-to-proof deadline, and derives exact scope, budget, validation,
+protected-capability, provenance, and Stop evidence. The input does not supply
+outcomes or owner claims. Only a current bounded candidate reaches comparison.
+One further `orchestrate` call runs the declared mapped incumbent proof and
+records the exact nonauthorizing evaluator handoff. The sealed evaluator
+interface is preflighted first. A canonical comparison-start event makes a
+missing completed result fail closed; the completed result binds that start's
+record identity, root, and chronology, so pre-start bytes reject. A per-cycle
+owner lock plus an
+owner-authenticated, file-and-directory-synced pending result makes concurrent
+or interrupted delivery reuse the one comparison. The handoff binds that
+provenance, the fixed evaluator-key root, and exact target-owner ref plus
+bounded reflog-file currentness, including same-HEAD events. A fixed-key
+independent evaluator can then submit one signed, revision-bound disposition covering every
+positive and exception case plus contrary and regression evidence. The
+canonical result retains raw baseline/candidate roots and exposes `promote`
+only as adoption eligibility. The incumbent remains authoritative during that
+evaluation stage. A subsequent orchestration pass applies the configured
+adoption policy: fixed/recommend/lower dispositions remain nonauthorizing, while
+a current reviewed/full-autonomous winner with all existing release permissions
+and exact external review/operator evidence can continue through the normal
+atomic release owner. Any target
+currentness loss during the handoff or evaluation append is canonically
+corrected. The bound owner root keeps the stale source inactive even if that
+correction is interrupted or the target transiently changes and returns.
+The release owner also compares the frozen prior release ID and activation
+history HMAC inside its activation lock, so intervening or A-to-B-to-A release
+activity cannot be folded into an older adoption decision.
+
+Each governed cycle then closes through one exact terminal outcome. An adopted
+candidate requires the latest independently verified observable result for the
+same evaluation and installed release; report prose or a `promote` disposition
+cannot establish effectiveness. A supported later regression appends a
+successor outcome, preserves the earlier effective record, and invokes the
+normal release owner once to restore the frozen baseline under an exact
+quiescent boundary. Interrupted rollback and outcome writes rehydrate without a
+second owner effect, while release-currentness loss records a nonauthorizing
+correction. Only the current terminal head consumes canonical admission
+coverage. Unchanged or repackaged coverage stays closed; a newly nominated
+canonical outcome/event may support one later bounded cycle. Existing weekly
+and terminal JSON, Markdown, and PDF reports project concise outcome posture,
+rollback, recurrence, and next-action summaries. No continuous monitor, score,
+or learning database is added.
+
 ## Full demonstrated operation
 
 The recorded implementation program and included supervision window show two complementary parts of the system. These are observations from specific runs, not general benchmarks for Codex or software engineering.

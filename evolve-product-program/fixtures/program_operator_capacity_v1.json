@@ -1,0 +1,1 @@
+{"active_tracker_limit":2,"budget":{"execution_units":8,"exploration_units":4,"review_units":4},"concurrency_limit":2,"evidence_class":"observed","kind":"product-program-operator-capacity","schema_version":1,"source_id":"operator-capacity-1"}

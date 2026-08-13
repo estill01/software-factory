@@ -310,13 +310,32 @@ owner identity makes the ready event a no-op and requires currentness refresh.
 
 ## Factory capability-evolution workflow
 
-Factory capability evolution is explicit, on demand, and derived. It does not
-run in watcher, heartbeat, Gmail, roundup, or scheduled automation roles. It
-does not add a canonical ledger. `supervision_log.py` remains the only public
-supervision filesystem writer and stores immutable-or-identical artifact sets
-under the target's `learning/factory-evolution/<evolution-id>/` directory.
+Factory capability evolution is derived and uses one deterministic admission
+gate at weekly finalization, terminal verification, or an explicit Factory-
+maintenance checkpoint. It does not run in watcher, heartbeat, Gmail, roundup,
+or a new scheduled automation role and adds no canonical ledger.
+`supervision_log.py` remains the only public supervision filesystem writer and
+stores immutable-or-identical artifact sets under the target's
+`learning/factory-evolution/<evolution-id>/` directory.
 
-Use the sequence `prepare → finalize → evaluate → verify`:
+Before the later cognitive sequence, the gate resolves report nominations to
+exact canonical event/outcome records and computes a canonical-evidence novelty
+key separately from its packet/mission/policy/checkpoint/Factory-revision
+context root. Report packaging, prose, checkpoint identity, overlapping
+coverage, and unrelated revisions cannot create novelty. `fixed` is a
+zero-producer no-op; `recommend` is non-authorizing; reviewed/full autonomy may
+admit one current cycle. The gate writes at most the existing prepared packet
+and one content-minimized canonical admission event. It never calls cognition,
+starts a candidate, requests a human, or writes a skill or target repository.
+Productive evidence is limited to exact independently reviewed
+`observable-outcome-completion` records; generic positive labels and prose are
+not adjudicating evidence. Recurring productive meta-patterns require at least
+two exact completion records.
+
+Use the staged artifact sequence `prepare → finalize → evaluate → verify`.
+For an admitted automatic cycle, insert the existing-owner orchestration
+sequence `orchestrate(review) → finalize → orchestrate(owner) → acknowledge →
+status(compare-or-reject)` before evaluation:
 
 1. `prepare` accepts explicit verified weekly `report.json` and canonical
    `events.jsonl` paths. Reports nominate hypotheses; exact source-bound events
@@ -333,6 +352,12 @@ Use the sequence `prepare → finalize → evaluate → verify`:
    selected candidate through their ordinary authority, tracker, validation,
    review, commit, and push contracts. This command family has no implementation
    or target-write action.
+   `orchestrate` derives the complete candidate-type owner map, binds the
+   packet/review/target/range/tracker/capability/skill/budget currentness, and
+   appends one nonauthorizing owner handoff. `acknowledge` rehydrates an exact
+   isolated Git candidate, recomputes its scope, usage, validations, protected
+   capabilities, and Stop, and appends one owner result while leaving the
+   incumbent authoritative.
 4. `evaluate` accepts condition- and revision-bound baseline/candidate evidence
    from a separate `gpt-5.6-sol` evaluator at `xhigh` (or Max for a
    consequential disposition), distinct from proposer and implementer. It records
@@ -346,8 +371,12 @@ Changed content under an existing evolution ID is an error. A `promote`
 disposition is evidence for the separately governed skill-maintenance path; it
 is not automatic adoption, editing, installation, notification, routing,
 scheduling, deployment, or authority expansion. No action in this workflow may
-write a target repository, canonical `events.jsonl`, `policy.json`, Gmail state,
-or automation configuration.
+write a target repository, `policy.json`, Gmail state, or automation
+configuration. `admit` may append its content-minimized eligibility result;
+`orchestrate` and `acknowledge` may append only their exact mission-scoped,
+nonauthorizing handoff or acknowledgment records. `prepare`, `finalize`,
+`evaluate`, `verify`, and `status` retain derived/read-only behavior and none of
+these actions performs the target mutation.
 
 ## Mission binding and authority provenance
 
@@ -739,6 +768,14 @@ Old records remain immutable and inspectable. Routed supervision may trigger
 review but cannot supply correction authority, and expiry ends only its bounded
 operation control—never the governing outcome.
 
+`work-started` normally closes the transition. The sole later transition
+allowed from that phase is `corrected` when the owner detects that the exact
+first-action currentness changed during the append boundary. The correction
+must name that `work-started` record as its prior, retain its immutable
+evidence, cite current direct correction provenance, and continue the governing
+outcome in the source task. The gate then reports the corrected head rather than
+continuing stale work.
+
 Create the initial record with the direct governing source, not the routed
 packet that happened to trigger the topology change:
 
@@ -897,13 +934,23 @@ python3 <LOG_HELPER> implementation-range-admit \
 
 python3 <LOG_HELPER> implementation-range-bind \
   --target-thread <TARGET> --range-id <STABLE_RANGE_ID> \
-  --tracker <ABSOLUTE_TRACKER_PATH> --request-text <EXACT_DIRECT_REQUEST> \
+  --tracker <ABSOLUTE_TRACKER_PATH> \
+  --request-text-base64 <EXACT_UTF8_DIRECT_REQUEST_BASE64> \
   --authority-source-record <DIRECT_ITEM> \
   --authority-source-sha256 <DIRECT_ITEM_SHA256>
 
+python3 <LOG_HELPER> implementation-program-revision \
+  --target-thread <TARGET> \
+  --previous-tracker <ABSOLUTE_CURRENT_TRACKER_PATH> \
+  --proposed-tracker <ISOLATED_PROPOSAL_PATH> \
+  --packet-json <CANONICAL_PROGRAM_REVISION_PACKET> \
+  --review-json <SEALED_SIGNED_AUTHORING_REVIEW> \
+  --decision-evidence <CURRENT_AMEND_STRUCTURE_DECISION_SOURCE>
+
 python3 <LOG_HELPER> implementation-range-amend \
   --target-thread <TARGET> --tracker <ABSOLUTE_TRACKER_PATH> \
-  --amendment-event-record <CANONICAL_ACCEPTED_AMENDMENT_EVENT>
+  --amendment-event-record <CANONICAL_ACCEPTED_AMENDMENT_EVENT> \
+  --application-commit <EXACT_COMMIT_CONTAINING_ACCEPTED_TRACKER>
 
 python3 <LOG_HELPER> implementation-range-gate \
   --target-thread <TARGET> \
@@ -968,17 +1015,82 @@ A receipt resolves that separately ingested
 `direct-user-authority-source` owner event by exact ledger record:
 
 ```bash
+python3 <LOG_HELPER> implementation-range-authority-source-ingest \
+  --target-thread <TARGET> \
+  --source-task <EXACT_SOURCE_TASK> --source-item <EXACT_SOURCE_ITEM> \
+  --source-record <EXACT_CODEX_SOURCE_TUPLE> \
+  --source-text-base64 <EXACT_UTF8_SOURCE_BYTES_BASE64> \
+  --provenance-review-record <SEALED_SIGNED_SOURCE_REVIEW_JSON> \
+  --expected-policy-sha256 <CURRENT_POLICY_SHA256>
+
 python3 <LOG_HELPER> implementation-range-authority-receipt \
   --target-thread <TARGET> --authority-event-record <CANONICAL_EVENT_ID>
 ```
 
-The source event must already bind exact task/item provenance, content hash,
-eligible independent verifier, owner policy-history root, and evidence before
-entry. The resolver then cites that source record/hash on
-`implementation-range-amend`. Naming a new event or source string fails closed.
-Initial binding and contraction also hash the exact request text bytes and
-require equality with the accepted direct source SHA-256; authentic authority
-metadata cannot be paired with fabricated scope text.
+The ingestion command is the only public owner for this event shape. It
+strictly decodes bounded UTF-8 bytes, computes their SHA-256 internally,
+requires the exact target/source-task/source-item record tuple and current
+policy, and verifies a bounded canonical source-review object signed by the
+sealed independent reviewer key. That signed review binds the exact bytes,
+tuple, eligible runtime reviewer thread, disposition, finding count, and policy
+root; an ordinary owner-ledger record or caller-supplied reviewer label is not
+review evidence. On a same-tuple, same-byte retry, the helper re-authenticates
+the supplied signed review against the event's source policy and requires exact
+equality with the signed payload already retained by the canonical event. The
+original exact review may therefore deduplicate after later policy or role
+versions; changed, invalid, or legacy provenance for that duplicate fails
+closed. Changed source bytes also fail closed. Do not create a temporary source
+file, reconstruct terminal bytes in shell text, or append this event directly.
+The receipt command then resolves the already-ingested event and cites its source
+record/hash on `implementation-range-bind` or `implementation-range-amend`.
+Initial binding accepts either legacy
+`--request-text` or mutually exclusive `--request-text-base64`; use base64 when
+terminal-byte fidelity matters. Both paths hash the exact supplied UTF-8 bytes
+and require equality with the accepted direct source SHA-256. Authentic
+authority metadata cannot be paired with fabricated scope text.
+
+The source-review file is exact canonical JSON plus one LF and contains only:
+`schema_version`, `kind`, `record_id`, `target_thread_id`, `source_task_id`,
+`source_item_id`, `source_record`, `source_sha256`, `source_byte_count`,
+`verifier_thread_id`, `reviewer_id`, `review_disposition`, `finding_count`,
+`policy_sha256`, `authority_key_sha256`, `observed_at`, `review_root`, and
+`signature_base64`. `kind` is
+`software-factory-direct-authority-source-review`; disposition must be
+`accepted` with zero findings. `review_root` is SHA-256 over the canonical
+object excluding `review_root` and `signature_base64`. The sealed reviewer signs
+the canonical object excluding only `signature_base64` with Ed25519. Ingestion
+retains the full signed payload in the canonical event and re-verifies it when
+the receipt or mission conversion is resolved. Signed event and receipt
+eligibility is anchored to that event's source policy and signed payload, so a
+later base-reviewer or reviewer role rebind does not invalidate authentic
+append-only proof; signer, verifier, payload, and receipt drift still fail
+closed. Legacy event and receipt shapes retain their existing current-runtime
+role checks.
+
+If an older derived mission binding made a false content-digest assertion but
+the exact mission root and source-record identity remain correct, first ingest
+and accept the canonical source receipt. Then convert only that same identity
+to the already-supported explicit exact-root contract:
+
+```bash
+python3 <LOG_HELPER> bind \
+  --target-thread <TARGET> \
+  --mission-root <UNCHANGED_EXACT_MISSION_ROOT> \
+  --mission-source-record <UNCHANGED_EXACT_SOURCE_RECORD> \
+  --exact-mission-root-conversion-only \
+  --expected-policy-sha256 <CURRENT_POLICY_SHA256>
+```
+
+This narrow conversion requires a derived predecessor whose controlling source
+is exactly `direct-user` with the unchanged source record and a well-formed
+historic digest. It then requires exactly one signed-review-backed accepted
+receipt whose canonical digest is distinct from that historic digest. A
+repository, system, or tracker predecessor cannot be relabeled, and an equal or
+malformed digest is not a correction. The helper rejects stale policy or any
+unrelated bind input and appends a policy version without rewriting the historic
+derived binding. It cannot change the mission root, source tuple, roles,
+permissions, automation, Gmail posture, or other policy defaults. An exact
+retry after valid conversion remains idempotent.
 
 A pre-contract successor transition whose direct-user authority source was
 independently verified but never canonically ingested uses the legacy-only
@@ -1035,12 +1147,37 @@ or otherwise incompatible transitions retain ordinary compatibility checks.
 Ordinary tracker status and completion-evidence updates preserve the
 owner-pinned tracker path, exact Block-number set, and canonical structural
 root. Changing the path, Block set, dependencies, scope, acceptance, Stop, or
-other Block-contract content requires a
-pre-existing, independently accepted `implementation-tracker-amendment` owner
-event binding the old and new paths, hashes, complete Block sets, and an
-injective renumbering map. The event must predate the range amendment and match
-the current policy-history anchor; a caller-supplied map or replacement tracker
-is never amendment authority. Policy history is version-contiguous and the
+other Block-contract content requires a pre-existing, independently accepted
+`implementation-program-revision` owner event. Its author-owned packet binds
+the exact current mission/policy/repository revision, canonical adaptive
+`amend-structure` decision and application precondition, old/proposed paths and
+hashes, complete Block sets, one-to-zero/one/many mapping, accepted-history
+root, affected dependency closure, safe frontier, and dependency-safe resume
+Block. A completed successor is exclusive to its accepted predecessor; an open
+predecessor cannot map onto completed work. Explicit mapped ranges include all
+incomplete prerequisites and cannot silently remove a requested predecessor.
+Its separate reviewer signs that exact delta, authoring-profile binding, and
+finding lineage with the sealed reviewer authority. The author cannot review
+itself; `revise` and `rejected` events are retained but cannot amend the range,
+and a later proposal must bind their exact review root, resolve every finding,
+and change the structural projection. That projection covers current control,
+source-map, verification-matrix, and tracker-wide Block/range/handoff prose as
+well as Block contracts; append-only history rows are excluded from the self-
+root. The event must predate the range
+amendment and match the current mission and policy-history anchor. At first
+application the current policy/decision is revalidated, and the supplied
+application commit must be a single-parent tracker-only commit whose parent is
+the exact packet target revision and whose parent/proposal tracker blobs match.
+It must remain current HEAD with matching live tracker bytes at the final
+policy-write boundary; a concurrent change restores the prior range through an
+append-only compensating policy version and requires retry-current-state. An
+identical event retry rehydrates the same installation action, and an identical
+range retry rehydrates the same program resume state. A caller-supplied
+map, replacement tracker, release label, routed packet, or stale mission root is
+never amendment provenance. The legacy one-to-one
+`implementation-tracker-amendment` event remains readable only for already
+accepted range history. New structural work uses the program-revision path.
+Policy history is version-contiguous and the
 event ledger is pinned by a separately current, self-hashed head anchor, so
 truncation, re-rooting, stale suffixes, symlink substitution, and detached-owner
 writes fail closed before range or transition decisions. A separate append-only

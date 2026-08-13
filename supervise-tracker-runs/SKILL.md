@@ -18,6 +18,9 @@ schedules, bounds, escalation rules, logging commands, and stop conditions.
 Before preparing or reviewing Factory capability-evolution artifacts, also read
 `references/factory-evolution-contract.md` completely, including its exact
 submission wire-shape section.
+Before running or accepting the terminal integrated dogfood, also read
+`references/integrated-factory-evolution-dogfood.md` completely. Keep its
+temporary target/release boundary and independent exact-revision review intact.
 Before recording terminal outcome completion, also read
 `references/terminal-capability-reconciliation.md` completely and validate its
 exact reconciliation object through the helper; never substitute a caller-
@@ -489,6 +492,42 @@ ordinary judgment from current sources, choose the safest reversible supported
 option, or record `reserved-external` with exact blockers and continue the safe
 frontier. Do not send a Resume instruction.
 
+An accepted `amend-structure` adaptive decision is only the trigger for the
+existing tracker-authoring owner. It is not tracker bytes or range authority.
+Before authoring begins, bind one immutable `tracker-authoring` policy profile
+to the exact authoring target thread through `adjust
+--program-revision-authoring-thread
+--program-revision-authoring-profile-review`; its policy-owned watcher, base
+reviewer, reviewer, and optional fix executor are authority, not caller labels.
+The supplied signed review must independently accept the exact Git revision and
+blob root only as the profile-design contract; it must explicitly make no claim
+that the separate tracker Blocks are implemented. The mechanical route
+cites the source adaptive decision, the
+semantic review cites the canonical signed review event, and adjudication cites
+the separately signed evaluation root.
+The author builds an exact active-program revision packet through
+`author-implementation-trackers/scripts/program_revision.py`; a distinct sealed
+reviewer signs the exact predecessor/proposal, accepted history, Block map,
+affected closure, finding lineage, profile source/binding, and resume Block.
+Import that result with
+`implementation-program-revision --previous-tracker --proposed-tracker
+--packet-json --review-json --decision-evidence`. The command records one
+append-only `implementation-program-revision` event and never edits the target.
+An identical event retry returns the same exact proposal-installation next
+action rather than only a duplicate marker.
+Only `accepted` permits the repository owner to install the exact proposal and
+then call `implementation-range-amend` with that event. `revise` and `rejected`
+remain history and continue unaffected safe work; a successor must bind and
+resolve their open findings before acceptance. Full-tracker intent expands
+across inserts/splits/renumbering; explicit ranges map to the successor union
+plus every incomplete inserted prerequisite. The application must be one
+single-parent tracker-only commit whose parent is the packet target revision,
+with exact predecessor/proposal blobs. Revalidate current policy, decision,
+current HEAD, and live tracker bytes at first application and again at the
+policy-write boundary, then resume the derived dependency-safe Block without a
+user scheduling step. An identical retry returns that same resume state. Do not
+use this path for status-only or local corrections.
+
 Adaptive mode never grants repository, command, credential, spend, destructive,
 Gmail, deployment, release, promotion, or skill-maintenance permission. A
 candidate still requires one lane, exact ceilings, focused-before-mapped proof,
@@ -755,10 +794,30 @@ reserved deferrals, safe frontier, and application posture.
 
 ### Factory capability evolution
 
-Use the explicit `factory-evolution` workflow only when an operator request or
-maintained plan calls for evidence-grounded improvement of the Factory's
-reusable capability set. This is an on-demand derived-artifact workflow, not a
-watcher loop, schedule, detector, or new supervision ledger.
+At weekly-report finalization, terminal-report verification, or an explicit
+Factory-maintenance checkpoint, run the deterministic eligibility gate once.
+It resolves report nominations to exact canonical event/outcome evidence,
+derives a novelty key distinct from its currentness context, and either prepares
+the existing packet or returns a reasoned no-op. `fixed` performs no packet
+build; `recommend` may prepare only a non-authorizing recommendation;
+`reviewed-autonomous` and `full-autonomous` may admit one cycle within the
+existing mission, permissions, and resource contract. Repackaged reports,
+overlapping windows, changed checkpoints, unrelated Factory revisions, and
+prose-only themes cannot create novelty. This gate performs no model/reviewer
+call, candidate work, human request, skill edit, or target write.
+Productive evidence must be an exact current `observable-outcome-completion`
+record that passes the existing independent capability-reconciliation contract;
+a generic check, positive category, or praise-only summary is not adjudicating
+evidence. A recurring productive meta-pattern requires at least two such exact
+outcomes.
+
+Use the later explicit `factory-evolution` workflow only after a supported
+admission or when an operator request or maintained plan calls for
+evidence-grounded improvement of the Factory's reusable capability set. This
+is an on-demand derived-artifact workflow, not a watcher loop, schedule,
+detector, or new supervision ledger. An explicit checkpoint uses
+`factory-evolution --action admit --report-json <report.json> --events-jsonl
+<events.jsonl>`; its safe evolution ID is derived rather than supplied.
 
 Keep the roles and authority sequence exact:
 
@@ -780,15 +839,97 @@ Keep the roles and authority sequence exact:
    `author-implementation-trackers`, `implement-tracker-blocks`, or
    `supervise-tracker-runs` owner under its ordinary tracker, review, Git, and
    authorization contract. The evolution command never edits a skill or target.
-4. A separate `gpt-5.6-sol` evaluator at `xhigh` (or Max for a consequential
-   disposition), independent of the proposer and implementer, submits
-   separately attributable, revision-bound baseline and candidate results for
-   every positive and exception case. `evaluate` validates the evaluation JSON
-   and records one evidence disposition: `promote`, `advisory`, `revise`, or
-   `reject`.
-5. Run `verify` against the stored set. Verification reopens the immutable
+   For an admitted cycle, run `factory-evolution --action orchestrate` once to
+   append the packet-to-reviewer handoff. After the exact review is finalized,
+   run it again to append the deterministic candidate-type-to-owner handoff.
+   The complete map and bound currentness fields are defined in
+   `references/factory-evolution-contract.md`; no prose classifier or detector
+   prerequisite may change the owner.
+4. After the canonical owner-handoff event, the normal owner creates at most
+   one direct isolated candidate revision while the incumbent stays current.
+   Bind that exact handoff record ID, orchestration root, and record SHA-256 in
+   the candidate commit and submit only the candidate revision plus one
+   distinct changed focused-test path for each exact protected capability with
+   `factory-evolution --action acknowledge --owner-ack-json <ack.json>`.
+   The supervision owner executes those tests from the exact candidate archive;
+   it does not accept submitted pass/fail, output-hash, protected-posture,
+   timestamp, owner, or Stop assertions. One aggregate deadline begins at the
+   canonical handoff; each test receives only the remaining time and execution
+   stops at the first failure or exhaustion. `status` returns `compare` only for a
+   current candidate within scope, protected-capability, command, file, line,
+   elapsed-time, and Stop ceilings; otherwise it returns a stopped/reject
+   posture. Retry rehydrates the one existing canonical stage without rerunning
+   its completed owner proof.
+5. Run `orchestrate` once more only after the owner proof is comparison-ready.
+   It first verifies the configured sealed evaluator interface, then the
+   supervision owner executes the one declared mapped incumbent comparison.
+   A canonical comparison-start event makes a missing completed result a Stop,
+   not permission to rerun. The pending result binds that exact start record ID,
+   record hash, root, and chronology, so pre-start bytes cannot become the
+   handoff. A per-cycle owner lock serializes duplicate
+   deliveries, while an
+   owner-authenticated, file-and-directory-synced pending result makes an
+   interrupted handoff append reuse that exact comparison instead of rerunning
+   it. The pending record is a transient owner artifact, not part of the
+   finalized evolution bundle; after the canonical handoff retains the exact
+   raw result and provenance, the owner verifies and removes the pending file
+   with parent-directory durability. The resulting
+   nonauthorizing evaluation handoff binds that provenance, the evaluator key,
+   the raw incumbent result, and the retained candidate proof. The sealed
+   adaptive evaluator, distinct from
+   proposer, reviewer, and implementer, signs separately attributable,
+   revision-bound baseline and candidate results for every positive and
+   exception case. `evaluate` verifies the fixed evaluator key, exact handoff,
+   raw result roots, protected proof, contrary evidence, and regression posture,
+   then records one immutable disposition: `promote`, `advisory`, `revise`, or
+   `reject`. At the evaluation boundary, `promote` is adoption eligibility
+   only; every disposition preserves incumbent authority until the separately
+   governed adoption action runs.
+   The handoff also binds the exact target-owner ref and bounded reflog-file
+   currentness root, including same-HEAD events. Target-currentness loss at
+   either canonical handoff or evaluation append is followed by an exact
+   correction event; the bound owner root keeps a stale source inactive even
+   if correction persistence is interrupted or the target ref transiently
+   changes and returns.
+6. For an evaluated cycle, run `factory-evolution --action orchestrate` again.
+   Fixed mode records only, recommend mode records a recommendation, and lower
+   dispositions record their exact retain/revise/retire posture without release
+   inputs or installed mutation. A current reviewed/full-autonomous `promote`
+   requires the four existing skill-release permissions plus
+   `--release-review-evidence <signed-review.json>` and
+   `--quiescent-evidence <signed-operator-boundary.json>`. The supervision
+   owner then calls the existing local release owner; it does not write a skill
+   itself. Retry rehydrates one activation, and successful full autonomy records
+   zero human requests before continuing to current-outcome reconciliation.
+7. Close the cycle with `factory-evolution --action outcome`. An installed
+   adoption requires the latest independently verified observable-outcome
+   completion record for the exact evaluation/adoption state. A verified
+   result becomes current `adopted-effective` evidence. A later supported
+   regression appends a successor outcome in the same lineage and, with exact
+   quiescent evidence, invokes the existing release owner once to restore the
+   frozen baseline. Retry rehydrates an interrupted rollback or outcome append;
+   currentness loss appends a correction and leaves no false authoritative
+   outcome. Non-adoption dispositions close against the incumbent without a
+   release input. Only a current terminal outcome consumes the admission's
+   canonical coverage; unchanged overlap is a no-op, while one newly nominated
+   canonical outcome/event may support a later bounded cycle. Weekly and
+   terminal JSON, Markdown, and PDF reports project concise current outcome
+   summaries without gaining authority or opening a monitor.
+8. Run `verify` against the stored set. Verification reopens the immutable
    packet, review, evaluation, report, and manifests and recomputes their hashes
    and schemas without rerunning a producer.
+
+For terminal integrated evidence only, run
+`scripts/factory_evolution_dogfood.py` exactly as documented in
+`references/integrated-factory-evolution-dogfood.md`. Inspect its raw rooted
+inputs, temporary installed bytes and executed output, current stable-skill
+identities, operator status, consumed-input no-op, rejected candidate, role
+separation, and false live-effect flags. Do not replace those observations with
+the test result, artifact count, evaluator disposition, changelog, or summary.
+The runner is not an alternate live release or supervision owner.
+Retain the run-specific raw JSON with `--evidence-output`; use the separately
+rooted default/stdout semantic projection only for deterministic replay. The
+projection is nonauthorizing and never substitutes for raw-currentness review.
 
 The evaluation disposition remains independent evidence. Before terminal
 completion, reconcile the resulting current Factory behavior against the
@@ -810,6 +951,11 @@ disposition is review evidence for a separately governed adoption path, not
 automatic adoption or permission to edit, install, route to a target, notify,
 schedule, deploy, or promote. Do not copy target files, transcripts, prompts, or
 hidden reasoning into the review.
+
+Stored evolution JSON is accepted only as a regular file under that owner, in
+the exact deterministic writer encoding and within the maintained four-megabyte
+per-artifact ceiling. Verification holds one stable identity through each read;
+path-type, byte-bound, encoding, or identity differences fail closed.
 
 ## Pause, resume, or stop
 
@@ -868,7 +1014,10 @@ hidden reasoning into the review.
   contradictory, or merely caller-described topology prose is not authority.
   Reject self-successors. If the premise changes, preserve history and
   append only `corrected`, `cancelled`, bounded `expired`, or `superseded` from
-  reviewed direct authority. A replacement is inactive until its predecessor
+  reviewed direct authority. A `work-started` record whose first-action
+  currentness fails at its write boundary may advance only to an exact
+  `corrected` disposition, preserving the stale start while preventing the
+  gate from continuing it. A replacement is inactive until its predecessor
   carries the exact supersession link, and no retired transition closes the
   governing outcome.
 - Preserve the implementation owner's canonical direct requested-range

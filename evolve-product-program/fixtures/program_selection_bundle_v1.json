@@ -1,0 +1,236 @@
+{
+  "handoff": {
+    "authority": {
+      "application_allowed": false,
+      "direct_effects_allowed": false,
+      "posture": "derived-nonauthorizing"
+    },
+    "currentness_root": "b0437cbf3c424ab535c9a74a92fa1b1d9e2345ff75b52bb1444fa902b2ecedfb",
+    "disposition": "revise-current-program",
+    "expected_effect": {
+      "candidate_ids": [
+        "candidate-feature"
+      ],
+      "evidence_posture": "falsifiable-derived-projection",
+      "revisit_id": "none"
+    },
+    "handoff_root": "6a94546a2e78053478f2d7d89f6bb8f771101bc3bf5ccbd7c118b8417139645d",
+    "kind": "product-program-placement-handoff",
+    "nonauthorization": "receiving-owner-must-revalidate",
+    "owner": "tracker-author",
+    "placement": "current-program-author",
+    "portfolio_root": "900b88aac92c70199fcda4dddba2ebbea927bd84c53479b58f3ae2bea9b8462d",
+    "preconditions": {
+      "accepted_blocks": [
+        0
+      ],
+      "currentness_root": "b0437cbf3c424ab535c9a74a92fa1b1d9e2345ff75b52bb1444fa902b2ecedfb",
+      "requested_blocks": [
+        0,
+        1
+      ],
+      "resource_ceiling": {
+        "active_tracker_limit": 2,
+        "budget": {
+          "execution_units": 8,
+          "exploration_units": 4,
+          "review_units": 4
+        },
+        "concurrency_limit": 2,
+        "evidence_class": "observed",
+        "evidence_ids": [
+          "operator-capacity-1"
+        ],
+        "source_root": "cc43bb7e6b53d021cd458a2da3f6cb74903fb26aacd08d16b64318a74fd32074"
+      },
+      "source_roots": [
+        "8f26d491cccf0d9bca5802d0045cb97ccfb8ba5083c39310fc7fb76d6432f8c6",
+        "0639e550e154818f6567a03191ea7d2004ab83c69f1cdcee470f1d0dcce16048",
+        "4605b64c1d308e47ef16f10c0db8d3caa87f4f396343b0c18a5f0388e5166f1b",
+        "cc43bb7e6b53d021cd458a2da3f6cb74903fb26aacd08d16b64318a74fd32074"
+      ]
+    },
+    "schema_version": 1,
+    "stop": "before-tracker-task-source-or-external-effect"
+  },
+  "portfolio": {
+    "aggregate_budget": {
+      "execution_units": 3,
+      "exploration_units": 1,
+      "review_units": 1
+    },
+    "authority": {
+      "application_allowed": false,
+      "direct_effects_allowed": false,
+      "posture": "derived-nonauthorizing"
+    },
+    "currentness_root": "b0437cbf3c424ab535c9a74a92fa1b1d9e2345ff75b52bb1444fa902b2ecedfb",
+    "dependency_edges": [],
+    "disposition": "revise-current-program",
+    "early_stop_rules": [
+      "outcome-disconfirmed",
+      "resource-ceiling-reached",
+      "stale-currentness"
+    ],
+    "kind": "product-program-portfolio",
+    "lanes": [
+      {
+        "budget": {
+          "execution_units": 3,
+          "exploration_units": 1,
+          "review_units": 1
+        },
+        "candidate_ids": [
+          "candidate-feature"
+        ],
+        "dependency_lane_ids": [],
+        "evidence_ids": [
+          "outcome-1"
+        ],
+        "expected_effect_id": "improve-operator-outcome",
+        "integration_owner": "tracker-author",
+        "lane_id": "lane-current-program",
+        "revisit_id": "material-outcome-change",
+        "rollback_id": "return-to-current-program",
+        "shared_resource_exclusions": [],
+        "stop_id": "outcome-disconfirmed",
+        "writable_scopes": [
+          "scope-current-program"
+        ],
+        "writer_id": "tracker-author"
+      }
+    ],
+    "placement": "current-program-author",
+    "portfolio_root": "900b88aac92c70199fcda4dddba2ebbea927bd84c53479b58f3ae2bea9b8462d",
+    "scheduling_groups": [
+      {
+        "group_id": "group-current",
+        "lane_ids": [
+          "lane-current-program"
+        ],
+        "mode": "sequential"
+      }
+    ],
+    "schema_version": 1,
+    "selection_root": "bb47e809b47a510f2f96d7bea209192c58bb4e702adbd49b496b1c8aae40be11",
+    "unused_capacity": {
+      "execution_units": 5,
+      "exploration_units": 3,
+      "review_units": 3
+    }
+  },
+  "selection": {
+    "adjudicator_id": "none",
+    "authority": {
+      "application_allowed": false,
+      "direct_effects_allowed": false,
+      "posture": "derived-nonauthorizing"
+    },
+    "currentness_root": "b0437cbf3c424ab535c9a74a92fa1b1d9e2345ff75b52bb1444fa902b2ecedfb",
+    "dimensions": [
+      {
+        "candidate_id": "candidate-feature",
+        "evidence_ids": [
+          "outcome-1"
+        ],
+        "values": {
+          "architecture_fit": "mixed",
+          "coordination_cost": "favorable",
+          "evidence_strength": "favorable",
+          "expected_benefit": "favorable",
+          "integration_cost": "mixed",
+          "opportunity_cost": "mixed",
+          "product_effect": "mixed",
+          "protected_capability_effect": "favorable",
+          "resource_cost": "mixed",
+          "reversibility": "mixed",
+          "risk": "mixed",
+          "uncertainty": "mixed"
+        }
+      },
+      {
+        "candidate_id": "candidate-no-change",
+        "evidence_ids": [
+          "outcome-1"
+        ],
+        "values": {
+          "architecture_fit": "mixed",
+          "coordination_cost": "favorable",
+          "evidence_strength": "favorable",
+          "expected_benefit": "mixed",
+          "integration_cost": "mixed",
+          "opportunity_cost": "mixed",
+          "product_effect": "mixed",
+          "protected_capability_effect": "favorable",
+          "resource_cost": "mixed",
+          "reversibility": "mixed",
+          "risk": "mixed",
+          "uncertainty": "mixed"
+        }
+      },
+      {
+        "candidate_id": "candidate-simplify",
+        "evidence_ids": [
+          "outcome-1"
+        ],
+        "values": {
+          "architecture_fit": "mixed",
+          "coordination_cost": "favorable",
+          "evidence_strength": "favorable",
+          "expected_benefit": "mixed",
+          "integration_cost": "mixed",
+          "opportunity_cost": "mixed",
+          "product_effect": "mixed",
+          "protected_capability_effect": "favorable",
+          "resource_cost": "mixed",
+          "reversibility": "mixed",
+          "risk": "mixed",
+          "uncertainty": "mixed"
+        }
+      }
+    ],
+    "disposition": "revise-current-program",
+    "kind": "product-program-selection",
+    "packet_root": "8f26d491cccf0d9bca5802d0045cb97ccfb8ba5083c39310fc7fb76d6432f8c6",
+    "rationale": {
+      "adjudication": {
+        "adjudicator_id": "none",
+        "decision": "not-required",
+        "finding_ids": [],
+        "required": false,
+        "review_root": "5ae9836131a61071515caf87df08e8b4b5b7f873020859f27d73b5d8d46e2a39",
+        "reviewed_input_root": "none",
+        "tradeoff_ids": []
+      },
+      "authority_premise": {
+        "evidence_ids": [],
+        "kind": "none"
+      },
+      "defer_revisit_id": "none",
+      "selected_candidate_ids": [
+        "candidate-feature"
+      ]
+    },
+    "reflection_root": "0639e550e154818f6567a03191ea7d2004ab83c69f1cdcee470f1d0dcce16048",
+    "rejected_candidates": [
+      {
+        "candidate_id": "candidate-no-change",
+        "evidence_ids": [
+          "outcome-1"
+        ],
+        "reason_id": "no-material-gain"
+      },
+      {
+        "candidate_id": "candidate-simplify",
+        "evidence_ids": [
+          "outcome-1"
+        ],
+        "reason_id": "evidence-weaker-than-selected"
+      }
+    ],
+    "resource_evidence_root": "4605b64c1d308e47ef16f10c0db8d3caa87f4f396343b0c18a5f0388e5166f1b",
+    "schema_version": 1,
+    "selection_root": "bb47e809b47a510f2f96d7bea209192c58bb4e702adbd49b496b1c8aae40be11",
+    "selector_id": "portfolio-selector"
+  }
+}

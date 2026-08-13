@@ -15,6 +15,14 @@ Prefer a small vocabulary defined once by the tracker. A useful default is:
 Use `complete` only when an inherited tracker already distinguishes it from
 `accepted`. Keep the status table and each block's status line identical.
 
+`not-started` means that no implementation-producing work exists for the
+Block. Change the table row and Block status to `in-progress` when the first
+candidate edit, generated artifact, render, evidence-producing validation,
+review handoff, or implementation checkpoint begins. A read-only orientation
+pass alone does not start a Block. Never retain `not-started` after work or
+review evidence exists; reconcile statuses on resume and before reporting
+progress.
+
 `completed-with-open-items` is not acceptance. A required independent review,
 blocking finding, unresolved dependency, reserved decision, missing migration,
 or absent exact evidence remains explicit.

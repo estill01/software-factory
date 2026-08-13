@@ -1342,7 +1342,12 @@ def markdown_report(metrics: Mapping[str, Any], review: Mapping[str, Any]) -> st
 
 
 def render_pdf(
-    output: Path, metrics: Mapping[str, Any], review: Mapping[str, Any]
+    output: Path,
+    metrics: Mapping[str, Any],
+    review: Mapping[str, Any],
+    *,
+    factory_evolution_eligibility: Mapping[str, Any] | None = None,
+    factory_evolution_outcomes: Mapping[str, Any] | None = None,
 ) -> None:
     validate_report_contrast()
     try:
@@ -1500,6 +1505,27 @@ def render_pdf(
         ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
     ]))
     story.extend([card_table, Spacer(1, 0.11 * inch), posture_box])
+    if factory_evolution_eligibility is not None:
+        story.append(paragraph("Factory evolution nomination", "H2Custom"))
+        story.append(
+            paragraph(factory_evolution_eligibility["summary"], "BodyCustom")
+        )
+    if factory_evolution_outcomes is not None:
+        story.append(paragraph("Factory evolution outcomes", "H2Custom"))
+        current_outcomes = factory_evolution_outcomes.get("current_outcomes", [])
+        if current_outcomes:
+            for item in current_outcomes:
+                story.append(
+                    paragraph(
+                        f"{item['evolution_id']}: {item['outcome_posture']}; "
+                        f"next {item['next_action']}.",
+                        "BodyCustom",
+                    )
+                )
+        else:
+            story.append(
+                paragraph("No current terminal Factory-evolution outcome.", "BodyCustom")
+            )
     story.append(paragraph("Executive supervisor assessment", "H2Custom"))
     for takeaway in executive_takeaways(review)[:4]:
         story.append(Paragraph(f"• {takeaway}", styles["BulletCustom"]))

@@ -1,6 +1,6 @@
 # Software Factory Adaptive Implementation Decision Control and Autonomous Evolution Implementation Tracker
 
-- Tracker status: `in-progress`
+- Tracker status: `completed`
 - Tracker sequence: Blocks 0–17
 - Repository: `https://github.com/estill01/software-factory`
 - Planning baseline: `4a33cd9344f0fbb1d1feaa6caac13521eb3237f3`
@@ -657,17 +657,17 @@ continuous cognition the price of ordinary execution.
 | 4 | Freeze the three-path adaptive decision-control contract | 3 | `completed` |
 | 5 | Correct bad implementation decisions inline and continue | 4 | `completed` |
 | 6 | Build and independently compare one bounded parallel candidate | 5 | `completed` |
-| 7 | Add configurable adaptive authority, budgets, and human-input posture | 5, 6 | `in-progress` |
-| 8 | Amend and apply the tracker only for structural invalidation | 4, 7 | `not-started` |
-| 9 | Cut over a winning candidate, reconcile currentness, and resume | 6, 7 | `not-started` |
-| 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `not-started` |
-| 11 | Dogfood all decision paths and document demonstrated operation | 10 | `not-started` |
-| 12 | Admit newly eligible Factory evidence automatically and economically | 11 | `not-started` |
-| 13 | Orchestrate one bounded Factory candidate through existing owners | 12 | `not-started` |
-| 14 | Independently evaluate the Factory candidate | 13 | `not-started` |
-| 15 | Adopt or retire the evaluated candidate under configurable policy | 14 | `not-started` |
-| 16 | Feed current outcomes back, suppress recurrence, and support rollback | 15 | `not-started` |
-| 17 | Dogfood autonomous evolution and document the integrated system | 16 | `not-started` |
+| 7 | Add configurable adaptive authority, budgets, and human-input posture | 5, 6 | `completed` |
+| 8 | Amend and apply the tracker only for structural invalidation | 4, 7 | `completed` |
+| 9 | Cut over a winning candidate, reconcile currentness, and resume | 6, 7 | `completed` |
+| 10 | Bind the same protocol to target repositories and Software Factory self-work | 8, 9 | `completed` |
+| 11 | Dogfood all decision paths and document demonstrated operation | 10 | `completed` |
+| 12 | Admit newly eligible Factory evidence automatically and economically | 11 | `completed` |
+| 13 | Orchestrate one bounded Factory candidate through existing owners | 12 | `completed` |
+| 14 | Independently evaluate the Factory candidate | 13 | `completed` |
+| 15 | Adopt or retire the evaluated candidate under configurable policy | 14 | `completed` |
+| 16 | Feed current outcomes back, suppress recurrence, and support rollback | 15 | `completed` |
+| 17 | Dogfood autonomous evolution and document the integrated system | 16 | `completed` |
 
 Required order:
 
@@ -1968,7 +1968,7 @@ Stop before cutover, tracker amendment, or policy-mode changes.
 
 ## Block 7 — Add configurable adaptive authority, budgets, and human-input posture
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -2094,7 +2094,94 @@ reversible defaults, and attempts to hide mission change behind full autonomy.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: exact accepted merge
+  `65757ec6f0c71b0b237d632c52e9600231f60f6d`, with parents
+  `2e932b926691dac38fb280e1f635ac7936a5022e` and
+  `6d497456be0b86a3a1c4e50b1707c38827a3cc06`, on
+  `codex/control-plane-foundation`, pushed to `origin`; active signed release
+  `65757ec6f0c7-07a23ea68087`.
+- Policy and authority: new policies default to `full-autonomous`; legacy
+  policies remain readable and unchanged until explicit bind/adjust. The
+  canonical policy exposes the four exact adaptive modes, one-lane and bounded
+  file/change/command/time/mapped/review ceilings, and separate repository,
+  allowlisted-skill, external-action, destructive, spend, release, deployment,
+  and production-promotion permissions. A higher adaptive mode never grants an
+  unrelated permission.
+- Application boundary: the public adaptive reducer never emits consumable
+  write authority. An applicable in-authority decision ends at
+  `owner-application-ready` with `application_authorized=false` and one exact
+  precondition root; only the target owner may rehydrate that precondition and
+  atomically revalidate current policy, mission, repository revision, tracker,
+  Block/capability roots, affected bytes, protected results, retained candidate
+  evidence, role separation, budgets, and event head before mutation. Stale or
+  post-validation target drift rejects without appending an authorizing event.
+- Autonomy posture: `full-autonomous` resolves ordinary reversible engineering
+  judgments without a human request. Unavailable external authority becomes a
+  content-minimized `reserved-external` posture with blocked subjects, safe
+  frontier, and revisit trigger; lower-mode request suppression is keyed to the
+  canonical decision fingerprint rather than caller decision IDs. Direct
+  policy, currentness, frontier, review, classification, and head assertions
+  cannot manufacture authority.
+- Candidate/resource posture: retained candidate artifacts, commands,
+  chronology, protected results, validation/comparison roots, and source basis
+  are rederived under the exact repository owner. One active lane is derived
+  from canonical mission-scoped events; configured ceilings are exact and
+  protected regression or exhaustion stops the lane. Equivalent candidate
+  decisions deduplicate before another producer or reviewer cycle.
+- Mission/invocation integration: mission succession preserves the adaptive
+  contract but scopes status, governing/currentness heads, active-lane
+  frontiers, review resolution, and deduplication to the current mission.
+  Predecessor adaptive history remains append-only but cannot block or authorize
+  the successor. Pending mission activation remains a terminal gate, and the
+  invocation-envelope behavior from the active predecessor release is
+  preserved.
+- Focused validation: adaptive-policy suite `26/26`; invocation-envelope suite
+  `5/5`; all focused tests passed.
+- Mapped validation: supervision suite `286/286` under the maintained Python
+  runtime; author suite `30/30`; all three fixed Skill Creator validators;
+  full-profile verifier found Blocks 0–17 with no errors or warnings;
+  `py_compile`, isolated-archive, exact-parent diff, and clean-tree checks
+  passed.
+- Independent source review: `/root/block2_review` found no issues on exact
+  merge `65757ec6f0c71b0b237d632c52e9600231f60f6d` after replaying policy,
+  permission, candidate, role, timing, currentness, mission-scoping, and
+  append-boundary attacks. Signed release-review record
+  `block7-release-candidate-65757ec6`, review root
+  `10ffdce9cc9c163ea669f2f15462a17761a8b6d56e8567355496efa6aef5c7e6`,
+  candidate root
+  `d58a19e167ff8160a42a44b2e9e68b96b09dba1519e021c40ca071812774abfa`,
+  and sealed record SHA-256
+  `fc77f4fed7d7ef2b3f52039cd992c8d729bf9d2e89b59a0dce7b8be98e04ab86`.
+- Release activation: manifest root
+  `7b2cedf8c6b59d85a78f7f13945aeacf2f5e1d58bac9d48bf8286161948a1bf2`;
+  sequence-8 one-use operator permit
+  `software-factory-activate-65757ec6f0c7-07a23ea68087`, permit/ledger head
+  `e8ae1bcc11b02c70e80188f276f6b7cda1b679cfeca122cea61cc9f59b803365`;
+  `RELEASE-ACCEPTANCE-8` HMAC
+  `d2d4dc68601af56d2f11bd3333a8dbc3cab3c925ad9dcf928ccd205a62cc17c2`;
+  `ACTIVATION-8` HMAC
+  `d2edb0d332204d4b22fd8292d497d91612e4294221339af02db7f0e0d5e55f30`;
+  post-swap reload root
+  `58d76fa777b1cf65bc32fdfabcc6cb2422cb11b355dd793b4823a8f70c56226b`.
+- Installed outcome: stable discovery links resolve author root
+  `343fb12d47d32537157baeb9aec72434c449df1c9c864438ead4bb97fc7851a3`
+  (8 files), implementation root
+  `d5290de89fb03cfd11de3653f7c90345fb766636a31ed7a95d225240e8c51eaf`
+  (17 files), and supervision root
+  `64f707c88537cc25a57f91fb3dbb7596b99204eb7f5f7fa175bff5fe7790b6ca`
+  (18 files). Fresh installed-only probes accepted target-drift rejection,
+  nonauthorizing owner readiness, stale-precondition rejection, predecessor
+  mission isolation, pending-activation terminal gating, zero ordinary human
+  requests, exact budget/status output, and intact invocation behavior.
+- Remediation closure: rejected revisions `1c76843`, `e5a2ba6`, and their
+  predecessors remain durable history for self-authorized policy/frontier/head
+  inputs, protected-regression gaps, chronology and budget assertions,
+  currentness races, permission laundering, review/source substitution, and
+  mission leakage. Exact successor regressions and installed probes close each
+  accepted finding without broadening repository or external authority.
+- Retained open work: Blocks 8–17 only. This Stop is an internal full-range
+  checkpoint; Block 8 is the next dependency-safe action and no human Resume is
+  required.
 
 ### Stop
 
@@ -2104,7 +2191,7 @@ Stop before structural tracker amendment or candidate cutover.
 
 ## Block 8 — Amend and apply the tracker only for structural invalidation
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -2251,7 +2338,141 @@ delta, and a local correction incorrectly escalated to structural change.
 
 ### Completion evidence
 
-Pending.
+- In-progress validator/runtime envelope for incident
+  `INC-20260810-044522-A943F2`: all three naturally required fixed Skill Creator
+  validator subprocesses produced exact output root
+  `db349825903d66adffea3ecf1bd8e1803043e8a71cf1a051235dabc5371f5bb0`
+  (`Skill is valid!`) under `/usr/bin/python3`, runtime root
+  `179301dcb41ea78accc3fa0048a7e6f6710d891945a751a34addd622020c1818`,
+  validator
+  `/Users/ethanstillman/.codex/skills/.system/skill-creator/scripts/quick_validate.py`,
+  validator root
+  `6cc9dc3199c935916cf6f73fcbbbb0e3bb1b58c8f5109fefa499978908164f51`.
+  Per-command identities were `author-implementation-trackers`,
+  `implement-tracker-blocks`, and `supervise-tracker-runs`. The first evidence
+  wrappers each exited `1` after validation because zsh rejected the reserved
+  assignment `status`; their bounded temp outputs were recovered with the
+  exact root above. The corrected wrappers used `validator_exit`; each validator
+  exited `0` with the same output root. This records the first-attempt envelope
+  explicitly rather than replacing it with the successful retry.
+- Rejected exact candidate `f298666b58c46cf9194aa896bbaaeba39aba4c35`
+  remains append-only history. Independent review retained ten open finding
+  IDs: `B8-F01` mapping collision, `B8-F02` stale application policy,
+  `B8-F03` application ancestry, `B8-F04` application path scope,
+  `B8-F05` inserted-prerequisite range retention, `B8-F06` tracker-wide
+  control/history verification, `B8-F07` revise/rejected finding lineage,
+  `B8-F08` live-Git historical-tracker presence, `B8-F09` authoring-profile
+  provenance/topology, and `B8-F10` retry resume rehydration. The corrective
+  successor must bind each ID to a focused negative regression and fresh
+  exact-revision review before acceptance.
+- Rejected corrective checkpoint
+  `af27d0e9b4527a42ebee589b64ade364fe667459` retained five open review
+  findings. `B8-F06` invariant: tracker-wide Block/range/handoff prose is part
+  of structural currentness; input: stale prose with unchanged control indexes;
+  expected: rejection; evidence: the focused builder accepted the changed
+  prose. `B8-F07` invariant: findings on any canonical current program surface
+  can be corrected; input: a source-map-only correction with exact lineage;
+  expected: acceptance; evidence: the Block-only projection rejected it.
+  `B8-F09` invariant: structural authoring resolves an independently accepted
+  tracker-authoring profile and exact runtime actors; input: a generic policy
+  blob plus substitute role IDs; expected: rejection; evidence: the binding
+  accepted that substitute. `B8-F10` invariant: an identical event retry
+  rehydrates its next action; input: retry after canonical event append;
+  expected: the original installation action; evidence: the duplicate response
+  omitted it. `B8-F11` invariant: application HEAD and tracker bytes remain
+  current at canonical policy write; input: repository change after validation;
+  expected: retry-current-state with the prior range restored; evidence: the
+  stale range amendment was recorded.
+- Routed correction `EVT-000211` acknowledged items 2115–2116 as delegated
+  provenance rather than direct-user authority. The diagnostic record is
+  retained, while its active nomenclature candidate was removed from runtime
+  identifiers, persisted fields, commands, fixtures, tests, and contracts.
+  The resumed delta contains only `B8-F06`, `B8-F07`, `B8-F09`, `B8-F10`, and
+  `B8-F11`; effectiveness evidence and exact independent review remain pending.
+- Narrow resumed proof before exact-revision review: authoring `42/42`,
+  implementation `69/69`, supervision `297/297`, release `17/17`, and focused
+  program-revision `11/11` passed; the full tracker verifier passed all 18
+  Blocks. Each naturally required fixed Skill Creator validator first attempt
+  exited `0` with output root `db349825903d66adffea3ecf1bd8e1803043e8a71cf1a051235dabc5371f5bb0`;
+  the per-command identities were `author-implementation-trackers`,
+  `implement-tracker-blocks`, and `supervise-tracker-runs`, using runtime root
+  `179301dcb41ea78accc3fa0048a7e6f6710d891945a751a34addd622020c1818`
+  and validator root
+  `6cc9dc3199c935916cf6f73fcbbbb0e3bb1b58c8f5109fefa499978908164f51`.
+- Exact independent review accepted source
+  `95a46b64923d1965f4ac40427abc1abd1454f7bd` (tree
+  `371ab36dc5040e345e1564967333c4042b2ac7c0`) with no findings.
+  `B8-F06`, `B8-F07`, `B8-F09`, `B8-F10`, and `B8-F11` each produced the
+  required rejection, correction, or idempotent next action in focused replay.
+  Review validation passed authoring `42/42`, implementation `69/69`,
+  supervision `297/297`, focused authoring `12/12`, focused program control
+  `11/11`, all three fixed validators, the full 18-Block tracker verifier,
+  compilation, and exact diff checks. The tracker-authoring source is accepted
+  only as `profile-design-contract-only` with implementation `not-claimed`;
+  its exact source revision is
+  `a01417376b458325b6554ab6007d2a7d145a785d`, Git blob
+  `fa3b0d6cbd599c3edbffa5eb1326d6758870e150`, and SHA-256
+  `dc87fde4b7fe4017a82426ad0199dd2ef226eb8d9a658d348ec0aea6ea2dd424`.
+- Rejected integrated candidate
+  `f0bba10d9ae7efcdd9181f52551a0687b59a25ac` retains finding `B8-F12`.
+  Invariant: exact range-source bytes and mission-root correction require
+  independently owned provenance. Input: a caller-created ordinary event with
+  source tuple, byte-count, and SHA claims plus a separately named runtime
+  reviewer. Expected: rejection before source ingestion. Verification evidence:
+  the public path accepted the source, receipt, and exact-root conversion
+  without an independently signed review. The correction removes the caller
+  reviewer input, requires one bounded canonical source-review object signed by
+  the sealed reviewer key, binds its exact source/tuple/policy/disposition and
+  zero findings, retains the full signed payload in the canonical event, and
+  re-verifies it on receipt and mission conversion. Corrective source
+  `bca4f4fadb6c9b60e3c4e61102f8f31056d0b18b` passes focused
+  source-ingestion and implementation-range coverage `26/26`, authoring
+  `42/42`, implementation `69/69`, supervision `305/305`, release `17/17`, all
+  three fixed validators, the full 18-Block tracker verifier, compilation, and
+  diff checks; exact-revision review remains pending.
+- Installed release `03b314fef51b-7a87a590fc9c` activated from the exact
+  sequence-9 operator permit with stable discovery links and post-swap
+  verification root
+  `ddb9c79e2a9c71eae009b03e56ef2fe7fe1c98532a231e110b3146403b190e7c`.
+  Installed-outcome finding `B8-F13` remains open. Invariant: maintained tests
+  run from both the live repository and the exact Git-less installed layout.
+  Input: run the installed focused source-ingestion/range suite. Expected:
+  `26/26`. Verification evidence: `25/26` passed; the remaining static test
+  attempted to read repository-only `CHANGELOG.md`. The correction retains the
+  changelog assertions in a live repository and, when it is absent, requires
+  the exact four-entry installed release layout before accepting the same
+  three-owner contract evidence. The corrected live-repository and exact
+  Git-less installed-layout focused suites each pass `27/27`; full supervision
+  passes `306/306`. Exact successor review and installation are pending.
+- Exact independent review accepted successor
+  `dfd7f1c3ca583f8743dded545105ad87c504f296` (tree
+  `79b67fc134259f149ef8a40b94d6b98b657cb3e5`) with no findings. Live and exact
+  four-entry Git-less focused suites passed `27/27`; authoring `42/42`,
+  implementation `69/69`, supervision `306/306`, release control `17/17`, all
+  three fixed validators, the full 18-Block tracker verifier, compilation, and
+  diff checks passed. Sequence-10 operator evidence activated release
+  `dfd7f1c3ca58-eaf9ebf23af4`; the stable links resolve to that release, source
+  commit equals the reviewed revision, installed verification root is
+  `9baf535cdfba71849834f1e18499ab304fb40b09847c4bc89d8824508aa48d66`,
+  and the installed public focused replay passed `27/27`. `B8-F13` is closed;
+  Block 8 is complete without lifecycle, Gmail, candidate-cutover, or
+  successor-mission action.
+- Post-activation currentness correction `EVT-000229` / incident
+  `INC-20260811-035702-260419` established that the sequence-9 `03b314f` and
+  sequence-10 `dfd7f1c` activations, although content- and operator-valid, lacked
+  a current mission-successor and work-start activation. Both releases and all
+  review/activation evidence remain preserved as noncurrent history and are
+  superseded by the sequence-11 rollback to accepted release
+  `65757ec6f0c7-07a23ea68087`. The atomic rollback left all three stable
+  discovery links unchanged, restored exact installed roots
+  `343fb12d47d32537157baeb9aec72434c449df1c9c864438ead4bb97fc7851a3`,
+  `d5290de89fb03cfd11de3653f7c90345fb766636a31ed7a95d225240e8c51eaf`,
+  and `64f707c88537cc25a57f91fb3dbb7596b99204eb7f5f7fa175bff5fe7790b6ca`,
+  and produced installed verification root
+  `58d76fa777b1cf65bc32fdfabcc6cb2422cb11b355dd793b4823a8f70c56226b`.
+  The installed Block 6 handoff smoke passed `1/1`. Block 9 remains
+  `in-progress`, with mutation and later activation held until exact current
+  mission succession plus work-start activation.
 
 ### Stop
 
@@ -2261,7 +2482,7 @@ Stop before candidate cutover, dual-target integration, or final dogfood.
 
 ## Block 9 — Cut over a winning candidate, reconcile currentness, and resume
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -2383,7 +2604,144 @@ accepted delta without absorbing optional work.
 
 ### Completion evidence
 
-Pending.
+- Rejected implementation checkpoint:
+  `0242c09de9795959809660cd1b615f04773b9eda` (tree
+  `84e2c20b5f867dcc7504420ed1857181afa74868`) passed its focused and mapped
+  suites but did not satisfy consequential acceptance. Independent exact review
+  found that owner/currentness roots and structural routing were caller-owned;
+  accepted target identity and current target proof were not rehydrated; affected
+  staged work and ordinary pre-ref failures were not preserved; current effect
+  and recovery could accept changed or uncommitted bytes; continuation state
+  could be synthetic, stale, or suppress execution; and no independent result
+  bound the generated integration commit/diff. Preserve this commit as rejected
+  history; no release review or installation was produced.
+- Corrective successor posture: prepare a detached candidate/proof commit from
+  canonical supervision and target-owner state; bind the accepted logical
+  target/path, exact current target, full tracker program, target proof
+  transition, commit, changed paths, and diff; require a distinct sealed exact
+  integration review; then promote only that reviewed commit and prove the live
+  committed effect before returning one replay-stable execution key. Exact
+  successor revision and independent review remain pending.
+- Rejected corrective checkpoint:
+  `860d13dc97adae46d79bdfbf449b8f4a4dd30639` (tree
+  `77d3516757294fdd5b1a1ffba5501e456d9d1966`) closed the original ownership,
+  target, structural-routing, Git, effect, proof-owner, and integration-review
+  defects and passed focused 11/11 plus mapped 80/80. Independent exact review
+  nevertheless found seven remaining gaps: no durable one-time continuation
+  start; no post-effect full-program recheck; no resolved policy-owned Block 9
+  range; an affected-path write race; incomplete review-copy recovery;
+  repeated observable-effect execution; and current proof allowed to depend on
+  stale proof. Preserve the checkpoint as rejected evidence; no release review
+  or installation was produced.
+- Second corrective posture: bind the exact eligible implementation range into
+  the proposal, sealed review, and continuation; compare-and-swap affected
+  paths without overwriting changed bytes; recheck the full program after the
+  single retained observable workload; repair and revalidate retained review
+  evidence on retry; reject incoherent proof currentness; and durably start one
+  replay-stable continuation with `start_count=1`. Exact successor revision and
+  independent review remain pending.
+- Rejected second corrective checkpoint:
+  `ad499a90216aba734d4dd3dea7f113be3efb9ac3` (tree
+  `f701fabe51793a02b72cd909e90272d80e6b9ba1`) passed focused `17/17`, mapped
+  implementation `86/86`, the three fixed validators, full 18-Block tracker
+  verification, compilation, and diff checks. Independent exact review retained
+  it as rejected evidence because producer completion was not durable across
+  the post-effect/pre-outcome interruption; one changed recovery path could
+  prevent restoration of another operation-owned path; currentness could change
+  before continuation persistence; the local continuation label did not prove
+  an owner-executed start; and post-promotion recovery could overwrite later
+  caller bytes. No release review or installation was produced.
+- Current corrective slice (`INC-20260811-062440-44D597`): retain and
+  directory-sync the one current-effect result before outcome/continuation,
+  designate that completed proof as the concrete first safe Block 9 action,
+  append its `work-started` evidence through the canonical supervision owner,
+  compare current target/proof/program/supervision state around that append,
+  and restore operation-owned replacements independently per path while
+  preserving changed bytes and path types. Focused producer-durability and
+  per-path recovery proof passed `5/5`; exact successor freeze, independent
+  challenge, and the required one-time affected-proof rerun remain pending.
+- Rejected durability checkpoint:
+  `3da7f11947822fc37fe677e7eb3e54f7624005ac` (tree
+  `11603ae9eaf84e42590c32cba2b31ec789fb86eb`) closed both per-path recovery
+  findings and passed its narrow proof `5/5`. Independent exact review rejected
+  it because a failed effect-record write after producer return reran the
+  producer, a predictable unsigned self-rooted effect record could substitute
+  for execution provenance, and target drift at the transition append left the
+  canonical gate at `work-started`. Preserve it as rejected evidence; no release
+  review or installation was produced.
+- Current durability correction: persist the complete effect first in a
+  directory-synced owner-keyed spool, accept only that separately proven
+  producer result, recover a failed final record write without rerunning the
+  workload, and append an exact `corrected` successor disposition if the
+  post-append target/proof/program/supervision check rejects currentness.
+  Pre-freeze focused Block 9 proof passed `23/23`, and the focused canonical
+  transition correction passed `1/1`. Exact successor
+  `21c045ad146a7efe5c9df2bba58504ffc5a0b40f` (tree
+  `4df8966369c436a5d84d21cf15865fbf4b941920`) then passed independent narrow
+  review with no findings: owner-signed spool recovery retained producer count
+  `1`; unsigned pending/final records rejected; target, proof, program, and
+  supervision drift ended `required -> work-started -> corrected`; and both
+  per-path recovery boundaries preserved later caller state. The required
+  one-time post-review affected-proof rerun passed `8/8` in `89.315s`. Broad
+  mapped acceptance then passed: author `42/42`, implementation `92/92`, and
+  supervision `307/307`; all three fixed Skill Creator validators passed; the
+  full-profile tracker verifier reported 18 Blocks with no errors or warnings;
+  all maintained Python compiled under the pinned runtime; and exact diff,
+  branch, and upstream checks passed. Exact final review remains pending.
+- Rejected final-review checkpoint:
+  `769848eef23eb9ef5b3e5c72236218cb0616d1ba` (tree
+  `58985eb7f1bf82259461427f8ebea2c4ff4aff68`) was the tracker-only evidence
+  child of `21c045a` and independently reproduced the full green validation
+  counts above. Final exact review nevertheless rejected its inherited Git
+  atomicity boundary: a concurrent ref move before or after promotion could
+  leave operation-owned candidate/proof bytes against the surviving commit,
+  and an affected index change during promotion or ordinary recovery could be
+  overwritten. Preserve this revision as rejected evidence; no release review
+  or installation was produced.
+- Current ref/index correction: snapshot exact index bytes, build the reviewed
+  index off-path, hold Git's index ownership lock across ref promotion, publish
+  only through exact ref/index compare-and-swap, preserve later caller-staged
+  state, and restore each still-operation-owned worktree/index path against the
+  actual surviving HEAD after pre- or post-ref movement. Focused atomicity and
+  retained recovery proof passed `9/9` at frozen checkpoint
+  `41728abc0e027103169703e613d3ac1708bac3f5` (tree
+  `ab4f68257790fdc671f2485addf4181f5215bc2e`). Independent review rejected
+  that checkpoint under `INC-20260811-062440-44D597`: an unrelated staged
+  entry caused whole-index recovery to skip still-operation-owned affected
+  entries, and the surviving tree's symlink mode was reduced to regular-file
+  bytes. Preserve `41728ab` as rejected evidence.
+- Current per-path correction: compare affected index entries independently
+  under Git's index lock, rebuild only still-operation-owned entries from the
+  surviving tree while preserving unrelated staged state, and carry exact
+  regular/executable/symlink mode through worktree recovery. Focused proof,
+  including retained durability and ordinary recovery boundaries, passed
+  `11/11`. Exact successor
+  `f2481a18ad84d4b9c21e29f70442944e3a4424a1` (tree
+  `d682ec0f50f16ce25f63db415db85183fc291613`) passed independent narrow
+  review with no findings: the maintained atomicity/recovery/normal set passed
+  `11/11`, retained owner-spool durability/provenance passed `2/2`, and custom
+  regular, executable, and symlink surviving-tree modes restored exactly.
+  The implementation thread then reran the affected proof exactly once after
+  review: `11/11` passed. Broad revalidation passed: the full Block 9 focused
+  suite passed `29/29`; the mapped implementation suite passed `98/98` under
+  its required `/usr/bin/python3` runtime; all three fixed skill validators
+  passed; the full-profile tracker verifier reported 18 Blocks with no errors
+  or warnings; maintained Python compiled under the pinned runtime; and exact
+  diff, branch, and upstream checks passed. The author and supervision trees
+  are byte-identical to the previously accepted `42/42` and `307/307` evidence
+  roots, so that unaffected proof remains current. Exact final evidence-child
+  review then accepted tracker-only child
+  `dcff60c25773bc308638e8c7bced4d3d35d15802` (tree
+  `661b83312845e2eb8d0fe68de6b62ac36d5a64b3`) with no findings. The reviewer
+  independently reproduced focused `29/29`, mapped implementation `98/98`,
+  and author `42/42`; resolved the unchanged supervision tree to the accepted
+  `307/307` evidence; and passed all three validators, the 18-Block verifier,
+  compilation, diff, clean-worktree, and upstream checks. Block 9 is accepted.
+  The transition check retained the governing target `in-progress` with no
+  human input or manual resume, while the legacy implementation range remained
+  unbound; therefore only source-safe Block 10 work continues and release,
+  installation, policy, mission, lifecycle, and other reserved effects remain
+  deferred.
 
 ### Stop
 
@@ -2393,7 +2751,7 @@ Stop before adding Software Factory self-target promotion behavior or dogfood.
 
 ## Block 10 — Bind the same protocol to target repositories and Software Factory self-work
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -2504,7 +2862,106 @@ claims.
 
 ### Completion evidence
 
-Pending.
+- Rejected checkpoint `d8d99b7b27b47014da22351a220e2030295fe02a`
+  established the first source-safe target-class composition but did not prove
+  canonical policy/target ownership, exact decision-to-evolution identity,
+  independently signed structural review, claim-bound findings, current
+  completion provenance, fully rooted owner handoff, or a final currentness
+  recheck. Its `7/7` focused result is diagnostic only.
+- Rejected checkpoint `2918ebc3014210bc413dacdcf39ee8b8b052bc4c`
+  closed the original owner/binding set but remained non-current across a newer
+  different-ID target decision, accepted caller-replaceable evolution results,
+  could cite an older verified completion after a later failure, derived
+  canonical roots from ambient `HOME`, routed non-promote dispositions through
+  an adoption-labeled action, hashed live skill content twice, and retained a
+  timing-sensitive candidate fixture. Its independent review, focused `8/8`,
+  planned-new-file positive, historical Block 9 `29/29`, and mapped
+  `105` pass/`1` chronology error are diagnostic.
+- Rejected checkpoint `6dcd1241c5a79554c35dced95ec6f19f17fee9b5`
+  closed the prior review set by loading canonical policy and mission-scoped
+  events, fixed target/supervision/skill/configuration roots, the latest target
+  decision and completion, and disposition-specific owner routing. It still
+  retained a time-sensitive future observation in the focused fixture, allowed
+  deletion and semantic replacement of the decision-derived evolution
+  directory under the same evolution identity, and did not reopen that exact
+  artifact set during the final currentness check.
+  Its focused `10/10`, mapped implementation `108/108`, fixed validators,
+  18-Block tracker verification, compilation, and diff evidence remain
+  diagnostic.
+- Rejected checkpoint `ccfd997e1f0cde5eb78f7e9aaf2e45e0fdb3ce4f`
+  used a truthful post-commit observation time, required the sealed evaluator
+  to accept the exact decision/currentness/evolution roots, rejected derived
+  artifact replacement, and reopened the evolution inventory at final
+  currentness. Exact review then found that its schema treated Boolean version
+  `true` as integer `1` and accepted byte-string signatures, while its artifact
+  reader followed externally resolving symlinks and did not bound or require
+  exact stored bytes. Its focused `11/11` and targeted `3/3` results remain
+  diagnostic; mapped validation was intentionally not repeated.
+- Rejected checkpoint `a0c6aab3819735ac005a30e64c1de8f5d6d11fde`
+  closed the signed-schema and canonical artifact-reader findings with exact
+  types, stable regular no-follow files, bounded/canonical stored JSON, and
+  in-memory verification from those bytes. Exact review
+  then found that artifact identity was not rechecked after in-memory bundle
+  verification, the top-level protocol schema still treated Boolean `true` as
+  integer `1`, and the canonical decision or target bytes could advance during
+  final evolution rehydration after the last decision-posture check. Its
+  focused `11/11` and mapped implementation `109/109` evidence remain
+  diagnostic.
+- The next corrective candidate rechecks the complete retained artifact and
+  directory snapshot after bundle verification, requires an exact integer at
+  the public packet boundary, and takes a final canonical control snapshot plus
+  exact decision-posture comparison after all evidence rehydration. Artifact
+  deletion, a newer decision, or changed target bytes during the final read now
+  rejects before any result is returned.
+- Rejected checkpoint `cb8af16629cbcd1006810db86881f4aea97409dc`
+  closed the post-verification artifact, public schema, and final decision/target
+  findings. Exact review then found that live-skill, evolution, or capability
+  evidence could change during that last decision-posture comparison because
+  their cheap identities were not retained through it. Its focused `11/11` and
+  mapped implementation `109/109` evidence remain diagnostic.
+- Rejected checkpoint `0e11bb26153e94eda3a7354104faa00749cb0775`
+  closed the post-decision ordering finding by retaining live-skill, evolution,
+  and capability identities across the final decision pass without repeating a
+  producer. Those identities contained only device, inode, size, and
+  modification time. Exact review showed that
+  same-length changed skill, evolution, or capability bytes with restored
+  modification time remained indistinguishable. Its focused `11/11` and mapped
+  implementation `109/109` evidence remain diagnostic.
+- The next corrective candidate adds path type/mode, link count, and change time
+  to every retained live-skill, evolution, and capability identity. Exact
+  same-length changed-byte cases with restored modification time now reject
+  without a content rehash or producer rerun.
+- Rejected checkpoint `4fc0f0cc593599cae0d74a37eef1388c678b839c`
+  closed the same-length/restored-time finding for retained files. Exact review
+  then found that the live-skill identity recorded the stable discovery symlink
+  and all descendants but omitted the resolved skill source directory itself,
+  so a source-root mode change remained invisible. Its focused `11/11` and
+  mapped implementation `109/109` evidence remain diagnostic.
+- The current corrective candidate records the discovery link and resolved
+  skill source root as separate full identities before the descendant entries;
+  a final-pass source-root mode change now rejects.
+- Exact independent review accepted
+  `5a1899a0d0d3d244f874a1c80f4f1d8a3d52931e` with no findings. The reviewer
+  revalidated separate discovery-link and resolved source-root identities,
+  final source-root mode/currentness rejection, the same-length/restored-time
+  skill/evolution/capability cases, and canonical decision/target currentness.
+  Focused Block 10 passed `11/11`; mapped implementation passed `109/109`; all
+  three fixed skill validators, the full 18-Block tracker verifier,
+  compilation, and exact diff checks passed.
+- Corrective focused coverage passes `11/11`, mapped implementation validation
+  passes `109/109`, and the historical Block 9 suite remains accepted at
+  `29/29` under `/usr/bin/python3`. It covers both target classes and all
+  five paths plus canonical owner substitution, evolution identity/replacement,
+  structural revision/owner/scope/review binding, finding evidence, latest
+  completion provenance, final target currentness, planned-new-file acceptance,
+  newer-decision invalidation, disposition-specific routing, ambient-home
+  substitution, exact candidate chronology, sealed-acceptance integrity, final
+  evolution currentness, and one-hash economy. Exact successor review remains
+  pending. All three fixed skill validators, the full
+  18-Block tracker verifier, compilation, and exact diff checks pass.
+- No target cutover, Factory evolution producer, skill release/installation,
+  policy, mission, lifecycle, Gmail, or later-Block effect was performed.
+  Block 10 introduced no target cutover or reserved effect and is complete.
 
 ### Stop
 
@@ -2514,7 +2971,7 @@ Stop before final dogfood, public documentation, or broader control learning.
 
 ## Block 11 — Dogfood all decision paths and document demonstrated operation
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -2660,7 +3117,65 @@ tests, packet population, commits, tracker status, or self-evaluation.
 
 ### Completion evidence
 
-Pending.
+- Rejected checkpoints `83e7fc2` and `2191f74` remain preserved: the first
+  inferred current behavior and exposed intended case labels; the second added
+  executed temporary-target effects but did not reproduce exact structural
+  identities from a Git-less archive or cover all authority modes,
+  accepted-Block remediation, and post-review structural recovery.
+- Frozen implementation revision `475e7a3fcc0fbc98fb1f04a93fc33ce45c943b6d`
+  produces exact dogfood result root
+  `d194c790f6aa263568d0a2a5e552e2dab791ffe4cac25976f7f6f924ef7f3eb6`.
+  Three independent Git-less runs reproduced that root; the first two also
+  produced byte-identical raw output SHA-256
+  `4cb369a901e6b420d7327e3da034290bf35d4784a269afa1a6b30e014a213f1a`.
+- The independent reviewer read all seven opaque rooted inputs before their
+  dispositions. The bounded comparison retained one eligible handoff without
+  cutover, retired losing/inconclusive paths, rejected the unsupported lane,
+  and closed all three Stop cases. Executed temporary targets changed
+  `local-shortcut` to `canonical-owner:bounded` and `VALUE = 1` to `VALUE = 2`
+  while preserving the governing tracker root.
+- The structural case retained one exact reviewed delta, rehydrated duplicate
+  delivery after both accepted review and range amendment, and resumed Block 7
+  automatically. The accepted-Block remediation preserved Blocks 0–1, closed
+  the narrow remediation Block against the current effect, resumed Block 3,
+  and preserved safe frontier Block 4.
+- Fixed, recommend, reviewed-autonomous, and full-autonomous modes all remain
+  distinct. Full-autonomous produced zero human requests, resolved the
+  in-authority temporary-target effect, and deferred only the unavailable
+  credential-bound act. Recovery passed `15/15`; release, installation,
+  policy, mission, lifecycle, Gmail, global-configuration, and live-target
+  effects remained false.
+- Validation at the frozen source: focused dogfood `6/6`; mapped
+  implementation `115/115`; reused unchanged authoring `42/42` and supervision
+  `307/307` trees; all three fixed skill validators; full tracker verification
+  `18` Blocks; Python compilation and exact diff checks. Independent exact
+  review returned no findings and confirmed the temporary-target-only boundary
+  and Block 12 Stop.
+- Product-capability review:
+  - Trigger: `consequential` Block posture and the requirement for
+    operator-visible current effects rather than populated records.
+  - Frame identity: this tracker, Block 11, SHA-256
+    `73dfa5eca19e8dcdd9b5878518a606608c6f924df8ec7bfb1ef9a22fc4790cf8`.
+  - Capability added or preserved: one exact, independently reproducible proof
+    of every adaptive path, all authority modes, automatic structural resume,
+    and accepted-Block remediation without live or reserved effects.
+  - Paths compared: inferred record-only proof; volatile temporary Git proof;
+    exact temporary-target live-behavior evidence through existing owners.
+  - Selected level and owner: the bounded matrix in the existing
+    implementation skill, composing the existing inline, candidate,
+    structural, target-class, policy, and recovery owners.
+  - Protected-capability result: accepted history, full-range continuation,
+    independent review, zero-human full autonomy, target ownership, and the
+    Block 12 Stop are preserved.
+  - Rejected alternatives: populated records could not establish current
+    behavior, while a new controller or live deployment would exceed this
+    Block and duplicate accepted owners.
+  - Tradeoffs and uncertainty: evidence is deliberately bounded to small
+    disposable targets and does not claim statistical superiority or unlimited
+    autonomy.
+  - Frozen-candidate proof: revision `475e7a3fcc0fbc98fb1f04a93fc33ce45c943b6d`,
+    result root `d194c790f6aa263568d0a2a5e552e2dab791ffe4cac25976f7f6f924ef7f3eb6`,
+    and independent three-run Git-less reproduction.
 
 ### Stop
 
@@ -2670,7 +3185,7 @@ Stop before automatic Factory-evolution eligibility or candidate orchestration.
 
 ## Block 12 — Admit newly eligible Factory evidence automatically and economically
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -2819,7 +3334,79 @@ leakage, and hidden recurring work at the exact candidate revision.
 
 ### Completion evidence
 
-Pending.
+- Rejected exact candidate `888fb73de79cdc59f528769ba8e22bb01c702917`
+  remains append-only history with six independently reproduced findings:
+  `B12-F01` report-parent currentness, `B12-F02` dedicated admission-event
+  semantics, `B12-F03` independently reviewed productive evidence,
+  `B12-F04` partial prepare recovery, `B12-F05` packaging-invariant novelty,
+  and `B12-F06` finite eligibility-result semantics.
+- Corrective lineage `c034aaaf9e398284f9a6258c172601d4aa99d9f3` through
+  `14f9d1e33e5082639aecd25cba08f20571c71351` binds source owners,
+  event/result semantics, partial-set recovery, exact retained-artifact reads,
+  and productive evidence to existing canonical outcome completion. Rejected
+  exact successor `936122f956cc563c7280d856a63bc33d43b9b67f` preserved
+  `B12-F07`: an unrecorded prepared set incorrectly consumed the active-cycle
+  ceiling after a context change.
+- Frozen accepted source `ef844b32c29cd9088501b1bd82dbda61daaf83f2`
+  (tree `4f556e0abf250e564d89abf3f781a89507eb5b01`) makes only
+  admission-event-backed evolution IDs authoritative active cycles. Exact
+  retry proof retained zero events after interruption, then admitted exactly
+  one event-backed cycle after an unrelated target-context change; same-context
+  reuse, admitted-cycle conflict, post-append correction, consumed coverage,
+  and mission ceilings remained current. Independent exact review returned no
+  findings.
+- Current behavior: verified weekly, terminal, and explicit-maintenance
+  checkpoints admit one new supported gap or independently reviewed productive
+  outcome under reviewed/full autonomy without a model, reviewer, human request,
+  target write, candidate, schedule, or new ledger. Identical adjudicating
+  coverage is one no-op across prose, packaging, checkpoint, and unrelated
+  revision changes. Fixed mode is zero-producer; recommend remains
+  non-authorizing.
+- Retained artifact and source ownership: report/event parent identities are
+  revalidated before and after the canonical append; evolution artifacts are
+  regular owner-contained files with stable identity, exact deterministic
+  encoding, and a four-megabyte stored-byte ceiling. A partial or unrecorded
+  prepared set remains recoverable but non-authoritative.
+- Validation at the frozen source: focused Block 12 `39/39`; mapped supervision
+  `334/334`; reused byte-identical authoring tree
+  `7f71cbc3cc7e46fa26575f7a0ef5a88ec8fcfcc8` with accepted `42/42`
+  evidence and implementation tree
+  `29bf4676cda10971077d9a01deb7dea2e715819b` with accepted `115/115`
+  evidence; all three fixed skill validators; full tracker verification `18`
+  Blocks; Python compilation and exact diff checks.
+- Product-capability review:
+  - Trigger: `consequential` Block posture and automatic admission of new
+    cross-run Factory evidence at maintained checkpoints.
+  - Frame identity: this tracker, Block 12, SHA-256
+    `73dfa5eca19e8dcdd9b5878518a606608c6f924df8ec7bfb1ef9a22fc4790cf8`.
+  - Capability added or preserved: one evidence-bound opportunity can enter the
+    existing evolution path automatically while unchanged, unsupported, stale,
+    or over-budget evidence remains a cheap no-op.
+  - Paths compared: local report-projection trigger; bounded checkpoint gate in
+    the existing supervision owner; new watcher/controller or learning store.
+  - Selected level and owner: the bounded-general gate in existing
+    `supervision_log.py`, because it serves the three named checkpoints while
+    preserving one canonical event/filesystem owner and no background process.
+  - Protected-capability result: report non-authority, exact source/currentness,
+    productive-signal preservation, immutable artifacts, one active canonical
+    cycle, zero-cognition no-op economy, and the Block 13 Stop are preserved.
+  - Rejected alternatives: a report-local trigger would fragment admission and
+    miss terminal/maintenance consumers; a watcher, second ledger, database, or
+    scoring model would be speculative and exceed the accepted architecture.
+  - Tradeoffs and uncertainty: each exact retry may retain a non-authoritative
+    derived prepared set, but only event-backed IDs consume canonical cycle and
+    mission resources; no claim is made beyond current bounded checkpoints.
+  - Frozen-candidate proof: revision
+    `ef844b32c29cd9088501b1bd82dbda61daaf83f2`, focused `39/39`, mapped
+    supervision `334/334`, and independent no-findings review.
+- Resource posture: one in-memory packet build per checkpoint attempt, zero
+  model/reviewer calls in no-op paths, one canonical admission per novelty/context,
+  and no producer rerun for unchanged event-backed coverage.
+- Decision/continuation posture: Block 12 Stop is satisfied; no cognitive review
+  or candidate implementation was started, and the exact next safe action is
+  Block 13 orchestration through existing owners.
+- Git durability: `codex/control-plane-foundation` is clean and pushed through
+  the frozen source before this tracker-only transition.
 
 ### Stop
 
@@ -2829,7 +3416,7 @@ Stop before generating cognitive review or implementing a candidate.
 
 ## Block 13 — Orchestrate one bounded Factory candidate through existing owners
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -2980,7 +3567,58 @@ owner/architecture is proportional before broad validation.
 
 ### Completion evidence
 
-Pending.
+- Rejected implementation checkpoint:
+  `778b71ce4fea32ef2fa6d6e84444f5ed178661ba` (tree
+  `9d2b4b5d197c94350c0298271dc38cac984addd9`) passed focused orchestration
+  `9/9`, preserved the complete 12-type owner map and current Block 13 Stop,
+  and remained clean/pushed. Independent exact review rejected it on two
+  validation-boundary findings. B13-F01: a candidate revision created before
+  the canonical owner handoff could be accepted because chronology used
+  submitted timestamps rather than the handoff event. B13-F02: submitted
+  owner, command outcome, output hashes, and protected postures were
+  self-asserted rather than derived from a canonical normal-owner proof.
+  Preserve this exact revision as rejected history; no evaluation, adoption,
+  installation, release, policy, mission, lifecycle, or later-Block effect was
+  produced.
+- Current corrective slice: require the candidate to be the one direct child
+  of the incumbent and bind the exact canonical owner-handoff record ID,
+  orchestration root, and record SHA-256 in its commit. Accept only that event
+  identity, candidate revision, and changed focused-test paths as public input.
+  Execute those tests from a bounded archive of the exact candidate revision,
+  retain actual runtime/argv/chronology/exit/timeout/output evidence, and derive
+  protected-capability, resource, owner-proof, and Stop roots under the
+  canonical supervision owner. Reject the prior submitted-result shape and
+  reuse the completed canonical proof on duplicate acknowledgment. Exact
+  successor `5bf479c13518680dc1285fc6c2a549ef8e7c6418` (tree
+  `c36d798894a01676e7bd75fe311b26ecc286db1b`) passed affected Factory proof
+  `65/65`, contract/CLI `16/16`, the supervision validator, full 18-Block
+  tracker verification, compilation, and diff checks. Independent exact
+  review confirmed B13-F01 and the submitted-assertion portion of B13-F02 were
+  closed, but retained the successor as rejected: one green test was
+  over-attributed to every protected capability, and each test independently
+  received the full lane timeout rather than a remaining aggregate deadline.
+  No later-Block or reserved effect was produced.
+- Accepted second correction: map every exact protected-capability ID to one
+  distinct changed owner test named for that capability, derive each posture
+  only from its own executed result, and stop when any mapped result remains
+  unverified. Compute one deadline from the canonical handoff timestamp, pass
+  only remaining time to each next test, and stop execution on first failure or
+  exhaustion. Exact successor `ca2c9da349a0610c2513209c802dd05ce085f42c`
+  (tree `2bae861de2f59a86cd2cff63d05fadf275102638`) passed independent
+  exact review with no findings and the affected orchestration suite `12/12`.
+  The post-review affected proof also passed `12/12`; mapped authoring passed
+  `42/42`, mapped supervision passed `347/347`, and all three fixed skill
+  validators, full 18-Block tracker verification, compilation, and diff checks
+  passed. The initial mapped implementation run exposed only a stale historical
+  Block 9 tracker-status fixture after the accepted frontier advanced. Exact
+  child `f5a01e026d5ee716b9b825da278e17192b343d40` (tree
+  `c1edd832770393f22c920f431a66f3ab01742ebd`) generalized that status-only
+  projection across exactly Blocks 9–17; focused Block 9 passed `29/29`, the
+  full mapped implementation suite passed `115/115`, and independent exact
+  review confirmed that every Block 13 implementation and contract blob
+  remained byte-identical to `ca2c9da` with no findings. One coherent isolated
+  candidate is comparison-ready under the incumbent authority; no evaluation,
+  adoption, installed-skill cutover, rollback, or reserved effect was produced.
 
 ### Stop
 
@@ -2991,7 +3629,7 @@ rollback.
 
 ## Block 14 — Independently evaluate the Factory candidate
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -3090,7 +3728,74 @@ effects before reading either implementer's narrative.
 
 ### Completion evidence
 
-Pending.
+- Rejected checkpoint `5bad12adf867fb0329fe78e55528b0b544b67c67`
+  first added the governed baseline/candidate comparison, exact evaluator
+  handoff, sealed disposition, four existing outcomes, nonauthorizing adoption
+  eligibility, status projection, legacy compatibility, and Block 14 Stop.
+  Exact independent review recorded `B14-F01`–`B14-F03`: interruption after
+  the raw comparison reran the producer; target currentness could change at the
+  evaluation append before a canonical correction; and evaluator availability
+  was not preflighted before the sole comparison. Its focused `17/17`, legacy
+  `30/30`, validator, compilation, and diff evidence remains diagnostic.
+- Rejected corrective checkpoint
+  `092d29b8f651528f7ac189e909a8e605e2cd1186` added an
+  owner-authenticated pending comparison, evaluator preflight/key binding, and
+  explicit currentness-correction events. Exact review recorded `B14-RF01`–
+  `B14-RF04`: interruption between the stale source and correction could
+  reactivate the source after target restoration; concurrent delivery could
+  run and replace two pending comparisons; pending bytes lacked file/directory
+  durability; and pre/post revision checks missed a transient target change and
+  return. Its focused `21/21` evidence remains diagnostic.
+- Rejected corrective checkpoint
+  `d6606a7` serialized one comparison under the per-cycle owner lock, persisted
+  its pending record with file/directory durability, and bound target ref plus
+  recent object-ID currentness into the handoff. Exact review recorded
+  `B14-RF05`–`B14-RF06`: repeated same-HEAD reflog events could leave that
+  projection unchanged, and deleting completed pending evidence before its
+  handoff caused a second producer run. Its focused `25/25` evidence remains
+  diagnostic.
+- Rejected corrective checkpoint `877b852` retained bounded reflog-file
+  identity/content and appended a canonical comparison-start event. Exact
+  review recorded `B14-RF07`: a valid retained pending result created before
+  that event lacked causal start provenance and was accepted afterward. Its
+  focused `27/27` evidence remains diagnostic.
+- Accepted corrective checkpoint
+  `46333551b0fa94705d6e84c2cf2947f399535c49` binds the exact start record ID,
+  record hash, root, and start-before-producer chronology into the pending
+  comparison and handoff provenance. Exact independent review reported no
+  findings: focused `28/28` passed and direct start-identity, chronology, and
+  provenance mutations rejected without producer execution. Broad author
+  validation passed `42/42`. The first mapped implementation run then exposed
+  a compatibility regression: treating the transient comparison sidecar as a
+  required finalized evolution artifact caused four errors and one failure in
+  the `109`-test suite. The narrow successor restores the finalized artifact
+  contract, permits the owner-authenticated sidecar only while the comparison
+  handoff is incomplete, and removes it with directory durability after the
+  canonical handoff. Affected target-class and dogfood proof plus exact
+  independent review at `91b2b3004cb7262b89cff3b29ef726208402b67b`
+  recorded `B14-RF08`: interruption after unlink but before directory sync
+  left retry unable to prove the removal durable because the already-absent
+  path returned early. The next successor always repeats the directory sync
+  after a canonical handoff, including the already-absent retry case. Exact
+  review accepted `4dff6faafb993516797cebfa092f164f0527cd55` with
+  focused `10/10`; mapped implementation then passed `115/115`. The first
+  mapped supervision run passed `364/365`: the only failure was a stale Block
+  13 contract assertion that still expected evaluation to remain later after
+  Block 14 had added read-only, nonauthorizing evaluation. The narrow test-only
+  successor updates that assertion to preserve the actual Stop before adoption,
+  installation, and cutover. That first mapped supervision run remains
+  diagnostic for the exact parent.
+- Final evidence-only checkpoint
+  `531c7a7b236fc8e9dc87758bb766942b46dc27e2` updates only the stale static
+  assertion and this tracker evidence. Exact independent review reported no
+  findings: the production diff from accepted `4dff6fa` is empty, the affected
+  assertion passed `1/1`, and the parent `364` passing supervision results
+  remain byte-current for the final `365/365` result. Mapped implementation
+  passed `115/115`; author remained current at `42/42`; the full 18-Block
+  tracker, Python compilation, exact diff checks, and all three fixed skill
+  validators passed. Evaluation remains read-only and nonauthorizing, the
+  incumbent remains authoritative, and no adoption, installation, cutover,
+  policy, mission, lifecycle, release, or external effect occurred.
 
 ### Stop
 
@@ -3101,7 +3806,7 @@ mutation.
 
 ## Block 15 — Adopt or retire the evaluated candidate under configurable policy
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -3214,7 +3919,41 @@ gate, atomic diff, live installed path, and current effects.
 
 ### Completion evidence
 
-Pending.
+- Rejected exact source `dc817b122eec8bbcaa1bd5bbbc5d5c30498b3b39`:
+  `B15-F01` found that separately locked status, staging, and activation could
+  accept a candidate after the frozen incumbent release changed. The source is
+  retained as rejected history; no live release, policy, mission, lifecycle,
+  or external effect was performed.
+- The correction adds a release-owner compare at the physical activation
+  boundary over both expected prior release ID and activation-history HMAC,
+  preserves the public activation interface, and adds intervening-release plus
+  A-to-B-to-A negative regressions. The supervision adoption payload separately
+  requires the returned prior release/HMAC to equal its frozen pre-effect owner
+  snapshot.
+- Rejected exact successor `3cce63aae93b1406c0079e45d5ceaccd77df0ef9`:
+  `B15-F02` found that a post-activation C-to-B-to-C history change could pair
+  the original activation fields with the later release-owner snapshot. The
+  correction requires the post-state activation record ID/HMAC to equal the
+  exact owner result before append and rejects duplicate rehydration when the
+  candidate has multiple activation records.
+- Exact review accepted `e39a9b4b8f394bbed20ff81fe9dafa600be7e586`
+  with focused `8/8`; direct release-owner `19/19`, adoption orchestration
+  `6/6`, author `42/42`, three validators, full tracker verification,
+  compilation, and diff checks passed. The broader supervision suite then
+  exposed `B15-F03`: direct staged-action callers without newly optional
+  release-input attributes raised before their unchanged flows. The narrow
+  correction treats absent optional attributes as not supplied and adds a
+  direct-call regression.
+- Accepted exact successor `df30ca65ce8eb6d292fe3da4cdbdf70b8bfef19a`
+  (tree `19e174d1008c4a03d3f17726636be41ba2962927`): independent
+  exact review found no issue; the direct compatibility class passed `8/8`
+  and explicit non-orchestration release inputs rejected `6/6`. The frozen
+  accepted proof includes release owner `19/19`, adoption orchestration `6/6`,
+  mapped implementation `115/115`, mapped supervision `376/376`, author
+  `42/42`, all three fixed validators, full 18-Block tracker verification,
+  compilation, exact diff, clean worktree, and exact upstream identity. One
+  normal release owner remains the sole installation writer; no live release,
+  policy, mission, lifecycle, or external effect was performed by this Block.
 
 ### Stop
 
@@ -3225,7 +3964,7 @@ integrated dogfood.
 
 ## Block 16 — Feed current outcomes back, suppress recurrence, and support rollback
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -3362,7 +4101,38 @@ suppression of materially new evidence.
 
 ### Completion evidence
 
-Pending.
+- Rejected exact source `c9e02d8b65ec2aa49a6fdc3c588297ad241a923f`:
+  `B16-F01` found that a structurally valid synthetic outcome could become the
+  current terminal/productive head and consume admission coverage without the
+  intrinsic admission, normal-owner, signed-evaluation, adoption, and current-
+  completion lineage. The source remains immutable rejected history.
+- Rejected exact corrective source
+  `7e4a7593682ec91c00afc540fa35fbc12857270d`: its intrinsic-chain validation
+  rejected synthetic and pre-outcome-corrected evidence, but a source
+  correction appended after the outcome could leave that outcome current.
+  `B16-F02` required full-ledger correction currentness for admission,
+  evaluation handoff, signed evaluation, and adoption evidence.
+- Accepted exact successor
+  `70e99e5b4116d731a8762b2c6641f03ca3d9be5a` (tree
+  `890a4f7f2f6560f1111b81125e6fbcba2d778dfa`): only an intrinsic ordered
+  admission-to-completion chain can become terminal, productive, or
+  coverage-consuming. A later correction of any bound source invalidates the
+  outcome; an exact outcome correction retains it as noncurrent history and
+  leaves materially changed evidence eligible for later adjudication.
+- Fresh independent exact-revision review found no issue. Its focused proof
+  passed `3/3`, including synthetic rejection, all four post-outcome source-
+  correction classes, exact outcome correction, and repeated correction/head
+  behavior. Author affected proof passed `9/9`; admission, weekly/terminal
+  projection, and Factory contract/CLI proof passed `76/76`; mapped
+  supervision passed `385/385`. Unchanged exact author and implementation
+  trees retain their mapped `42/42` and `115/115` proof; release-owner proof
+  remains `19/19`. All three fixed skill validators, full 18-Block tracker
+  verification, compilation, diff checks, clean worktree, push, and exact
+  upstream identity passed.
+- Outcome projection, recurrence suppression, append-only later-regression
+  lineage, rollback through the normal release owner, and human-readable
+  weekly/terminal summaries are implemented without a second ledger or live
+  release, policy, mission, lifecycle, Gmail, deployment, or external effect.
 
 ### Stop
 
@@ -3373,7 +4143,7 @@ candidate.
 
 ## Block 17 — Dogfood autonomous evolution and document the integrated system
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -3512,7 +4282,81 @@ narrative.
 
 ### Completion evidence
 
-Pending.
+- Accepted mutating source: exact commit
+  `69a00124c0223666e55a711198e3385a1019f613`, tree
+  `f8e56b565e5a4f399891eb10ec98273a9979b28d`. Independent exact review
+  found no issue after 16/16 root-consistent semantic mutation cases rejected,
+  removed run-instance leaves remained projection-invariant, exact Git-less
+  execution completed, and every live/reserved effect flag remained false.
+- Integrated current-effect evidence: the production supervision CLI used one
+  disposable Git target and one disposable release owner. The supported winner
+  progressed through packet, independent review, normal
+  `implement-tracker-blocks` owner, executed candidate/incumbent proofs, sealed
+  evaluation, one temporary release activation, installed-behavior observation,
+  and `adopted-effective`. The identical consumed checkpoint returned
+  `already-consumed-canonical-coverage` with zero event/artifact delta, zero
+  model/reviewer/human calls, no candidate, and no authoring handoff. The
+  independently rejected candidate reached `candidate-retired`, retained the
+  incumbent, and caused zero further activation.
+- Frozen evidence: run-specific high-precision JSON is retained at
+  `supervise-tracker-runs/fixtures/factory_evolution_integrated_dogfood_evidence_v1.json`;
+  result root
+  `f64d4733ae787302a64573829c94e3fbd0f31aa5ea5dbcaf5822a55a36302000`,
+  file SHA-256
+  `257eedf58201f030d1e7ec6d3aaf6aa1973b4c06e66d6ee75af9bf11d18e4102`.
+  Its closed nonauthorizing semantic projection is retained at
+  `supervise-tracker-runs/fixtures/factory_evolution_integrated_dogfood_projection_v1.json`;
+  projection root
+  `ccd4c7ca8dbd99231911f9898240815c25859cb3088a932f18101e3690ebe114`,
+  file SHA-256
+  `ca67b5a24683a676ff929bdc133cbe3e9d22d7f505f982ecddf8b4bba36e34a1`.
+  The fixture rebuild check proves the projection derives from the exact raw
+  evidence without normalizing production currentness/provenance roots.
+- Live-skill and compatibility proof: stable installed release
+  `d760d1f94e2e-02a0753bd06b` resolved all three entrypoints. Author tree
+  `5cc27b47d6e26a705ba587d3fcd3b907fc86c5797003286c697dec994a83eeba`
+  (8 files), implementation tree
+  `a27961fe2a168d17418861542ff01ba392628bb521d3343e9512fe1f14502b10`
+  (17 files), and supervision tree
+  `87092048efaf6805a6c1bb4ccb6745ae7121af0183e5cbbe16fffd3f711195cf`
+  (18 files) passed installed validator invocation. Fixed, recommend,
+  reviewed-autonomous, and full-autonomous postures remained exact; ordinary
+  full autonomy requested zero humans and reserved credential work deferred
+  narrowly.
+- Architecture/economy proof: `bounded-existing-skill-owner` was selected;
+  `lower-power-shortcut` and `generalized-detector` were rejected; the Block
+  contract did not change and tracker authoring was not invoked. Canonical raw
+  evidence remains run-specific because target-ref/reflog currentness retains
+  filesystem identity. The separate semantic projection is deterministic only
+  for the exact source, installed release, and fixed disposable workspace; it
+  is explicitly nonauthorizing.
+- Rejected history: `d5204382958278c36ac37d46e483684ebcfd59ae`
+  failed Git-less archive execution (B17-F01); `a267b48efc6ed0eabaf9fdbc4fe5a76e36aacfc4`
+  and `9e5e8991e8b8d76e7255195e51009dc87e1a89f3` exposed nondeterministic raw
+  evidence; `0c14b752a212442b30ead9dfaf67ed814c410ed4`,
+  `45557d65fd7dd6389ebf25c2087070513b113c92`, and
+  `6d44af3cd9b357b330e12204b9482e4eb3f44660` exposed incomplete semantic
+  validation. Every finding remains preserved as rejected history; the
+  accepted source keeps production currentness strict and narrows only the
+  nonauthorizing projection.
+- Broad frozen validation at the accepted mutating source: supervision
+  `394/394`, implementation `116/116`, authoring `42/42`, and release owner
+  `19/19`; all three fixed Skill Creator validators, full 18-Block tracker
+  verification, `py_compile`, exact diff, clean worktree, and HEAD/upstream
+  identity passed.
+- Effect boundary: temporary target/release effects were required and observed.
+  Live release, live policy, live mission, lifecycle, Gmail, deployment,
+  external-provider, and external effects were all false. No external release
+  or reserved effect is authorized by this evidence.
+- Final evidence-only exact review: exact commit
+  `af8dceb3674b5140edd8875a34ade9e875ac2b9a`, tree
+  `22b0d8778cdbc529e1a8e03f3923db478cb6dba0`, passed with no findings.
+  Review independently verified the two fixture files and modes, exact file and
+  semantic roots, projector rebuild equality, source/live-release/skill
+  identities, winner/no-op/loser/operator/report/effect semantics, broad counts,
+  rejected history, Stop boundary, focused fixture check, full tracker, all
+  three validators, compilation, diff, clean HEAD/upstream, and byte-unchanged
+  accepted production source. Block 17 is completed.
 
 ### Stop
 
