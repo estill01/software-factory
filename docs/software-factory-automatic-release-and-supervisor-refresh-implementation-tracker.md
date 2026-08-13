@@ -289,6 +289,11 @@ before work starts, and no execution/final-response boundary can bypass its gate
 - Add an admission command/path that binds once from canonical direct-user source,
   rehydrates current bindings, and advances status-only currentness through the
   existing amendment owner.
+- When a completed predecessor mission already owns a terminal range, replace it
+  only through the canonical policy owner as part of the new mission admission:
+  retain the predecessor binding/history as immutable evidence, create a fresh
+  range ID/genesis from the new direct source and tracker, and never reinterpret
+  or contract the predecessor Blocks into the successor range.
 - Invoke admission before implementation begins and range/control gates at Block,
   commit, review, handoff, push, final-response, and terminal lifecycle boundaries.
 - Cover maintained tracker shapes used by current repositories; reject ambiguous,
@@ -317,11 +322,16 @@ Focused range suite, real tracker cases, full supervision mapping, exact review.
 
 - Missing/noncurrent binding prevents implementation start and terminal return.
 - Current binding admits idempotently; status-only updates preserve full intent.
+- A completed predecessor range remains historical, while this mission resolves
+  one distinct current full-tracker binding for Blocks 0–7.
 
 ### Negative tests
 
 - Reject missing source bytes, unsupported tracker shape, unaccepted structural
   drift, range contraction, and a direct final return without the gate.
+- Reject cross-mission reuse of the predecessor range, replacement while its
+  mission is nonterminal, and any rollover that is not atomic with current
+  mission/policy/range ownership.
 
 ### Completion evidence
 
