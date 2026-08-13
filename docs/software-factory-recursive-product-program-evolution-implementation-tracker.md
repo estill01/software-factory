@@ -5,6 +5,10 @@
 - Repository: `/Users/ethanstillman/code/software_factory-control-plane-candidate`
 - Planning baseline: `4ae6a61b15f4c21604e7b9c9912a6272a3bf2330`
 - Governing objective: Direct-user request to add one fourth Software Factory skill that recursively reflects on implementation and supervision evidence, discovers and challenges materially useful product work, selects and budgets one or more current or successor implementation programs, and advances them through the existing tracker-authoring, implementation, and supervision owners without derailing already-canonical work.
+- Current direct implementation range: exactly Blocks 0–4. The direct-user
+  amendment `direct-user-019ff991-authoring-supervision-merge-annotation-1`
+  adds future program requirements but does not contract, expand, reopen, or
+  displace that bounded implementation range.
 
 ## 1. Purpose and intended outcome
 
@@ -31,6 +35,12 @@ Completion means:
 - selected work can revise the current tracker or create one or more dependent or
   parallel successor trackers through `author-implementation-trackers`, while
   accepted history and the current requested range remain interpretable;
+- consequential tracker authoring—whether RSI-generated or independently
+  user-seeded—can bind an explicit `tracker-authoring` supervision profile for
+  independent program/feature/Block review, repository-grounded owner and
+  architecture challenge, target-owned correction, and exact
+  implementation-readiness completion, while ordinary authoring retains its
+  one-shot independent review path;
 - time, token, command, tool, validation, and review budgets are allocated from
   transparent prior evidence and explicit uncertainty rather than an opaque score;
 - current canonical work continues unless new evidence proves a prerequisite,
@@ -177,6 +187,11 @@ Authority rules:
 9. New releases contain four skills. Historical accepted three-skill manifests
    remain readable and rollback-eligible, but new state emits only the current
    four-skill schema and no compatibility aliases.
+10. `author-implementation-trackers` remains the sole writer for both
+    RSI-generated and user-seeded trackers. `supervise-tracker-runs` owns the
+    explicit authoring target profile, canonical review/event state, changed-state
+    routing, implementation-readiness completion, and bounded lifecycle; a steer
+    remains open until later exact tracker evidence proves the target-owned fix.
 
 ## 3. Existing owners to reuse
 
@@ -191,6 +206,7 @@ Authority rules:
 | Changed-state and effectiveness observations | canonical supervision event ledger, Sol review roles, weekly/terminal reports | reuse |
 | Resource evidence | execution-economy records, candidate budget use, weekly-report elapsed/token/cost projections | adapt with evidence-class labels |
 | Skill installation, verification, rollback, and refresh | `scripts/skill_release.py` plus accepted automatic release/refresh line | extend from three to four skills |
+| Consequential tracker-authoring supervision | `supervise-tracker-runs` canonical policy/events/lifecycle plus `author-implementation-trackers` sole-writer contract | adapt through Blocks 5, 7, 10, and 11; preserve independent user-seeded operation |
 | Automation and external effects | existing automation, Gmail, release, deployment, credential, spend, and destructive owners | preserve; never infer |
 
 ## 4. Prior-work and source-adaptation map
@@ -205,6 +221,30 @@ Authority rules:
 | Existing fixed three-skill manifest implementation | `scripts/skill_release.py` `SKILLS` tuple and manifest validator | remediate | 9 | version exact release-set schema and stable fourth discovery link |
 | Current token/cost report evidence | `weekly_report.py` resource projection and limitation contract | adapt | 3 | distinguish observed actuals from estimates and measure useful yield |
 | Earlier “no fourth skill” MVP boundary | Factory Evolution MVP non-goal | retire | 0 | superseded by this exact direct-user fourth-skill instruction; retain as history |
+| Tracker-Authoring Supervision implementation tracker | `a01417376b458325b6554ab6007d2a7d145a785d`; document SHA-256 `dc87fde4b7fe4017a82426ad0199dd2ef226eb8d9a658d348ec0aea6ea2dd424` | merge and preserve as history | 5, 7, 10, 11 | implement the exact mapping below through existing authoring/supervision owners; keep the profile independently usable for consequential non-RSI authoring |
+
+### Direct-user amendment: tracker-authoring supervision capability map
+
+This exact old-to-new map preserves every still-valid requirement from
+`docs/software-factory-tracker-authoring-supervision-implementation-tracker.md`.
+That planning tracker is superseded as an execution plan only by this map; it
+remains unchanged historical design evidence. No accepted or in-flight RSI
+evidence is rewritten.
+
+| Standalone source capability | RSI destination | Preserved requirement and acceptance effect |
+|---|---|---|
+| Block 0: authoring target/profile, program-quality rubric, evidence-bound dispositions, checkpoints, writer separation, and implementation-run default | Blocks 5 and 7 | Block 5 makes the author-owned candidate/handoff implementation-ready; Block 7 owns the explicit profile, rubric, canonical review/event contract, and backward-compatible default. Structural validity remains necessary but insufficient. |
+| Block 1: explicit fail-closed target kind in canonical policy/status, blank active-Block support, legacy default, and read-only reviewer permissions | Block 7 | `tracker-authoring` and `implementation-run` remain distinct in the existing supervision owner; legacy state defaults without rewriting history; no supervisor tracker/repository write is allowed. |
+| Block 2: independent program, feature, Block, owner, architecture, dependency, acceptance, and Stop review with narrow target-owned correction | Block 7 | Terra remains mechanical; XHigh and Max independently review direct mission, exact tracker delta, and bounded live repository evidence; steers remain open until a later exact target delta proves effectiveness. |
+| Block 3: exact implementation-readiness completion, current verifier/repository roots, open-finding reconciliation, and proportionate authoring lifecycle | Blocks 5 and 7 | The author produces exact candidate/verifier/diff evidence; supervision owns independent completion roots, profile-aware lifecycle, and fail-closed shutdown without weakening implementation-run reporting. |
+| Block 4: underreach, overreach, malformed-Block, and sound-plan forward cases; one bounded lifecycle; mapped compatibility; demonstrated docs | Blocks 10 and 11 | Dogfood covers both RSI-generated and consequential user-seeded authoring, target-owned correction, no-intervention sound plans, completion, and lifecycle; terminal proof validates compatibility and documents only demonstrated behavior. |
+| Cross-cutting ordinary-authoring independence | Blocks 5, 7, 10, and 11 | Consequential user-seeded tracker authoring can invoke the same profile without RSI; routine/low-consequence authoring may retain one-shot `quality-check`; no mandatory continuous supervision or RSI prerequisite is created. |
+
+Range and dependency effect: accepted Block 0 and Block 1 evidence remain exact;
+Blocks 2–4 retain their current contracts and direct implementation range; the
+new work is prospective in Blocks 5, 7, 10, and 11. Existing dependencies already
+order those owners correctly (`4 → 5 → 7 → 8 → 10 → 11` transitively), so no
+renumbering, inserted prerequisite, or range amendment is required.
 
 ## 5. Scope, non-goals, and proportionality
 
@@ -225,6 +265,9 @@ Authority rules:
   elapsed time, tokens, commands, tools, validation, review, rework, incidents,
   rollbacks, user corrections, reuse, and uncertainty.
 - Cheap in-run and terminal invocation from implementation and supervision.
+- Explicit, independently operable tracker-authoring supervision for
+  consequential RSI-generated and user-seeded authoring, with exact
+  implementation-readiness completion and target-owned correction evidence.
 - Four-skill release, rollback, stable discovery, automatic refresh, and live-role
   currentness.
 
@@ -244,6 +287,9 @@ Authority rules:
   task scheduler, telemetry database, or permissions system.
 - Automatic external communication, deployment, credential use, destructive
   mutation, budget expansion, or material product-goal change.
+- Making continuous tracker-authoring supervision mandatory for routine or
+  low-consequence trackers, or treating RSI as a prerequisite for independently
+  user-seeded authoring.
 
 ### Proportionality
 
@@ -296,6 +342,14 @@ terminal trigger; unchanged state is O(1) identity comparison and a no-op.
     all integration hooks, four-skill release, installed roots, role refresh,
     dogfood portfolio, resource evidence, and unchanged replay. If work remains,
     continue without asking for manual Resume.
+16. Consequential authoring selected by the program binds the explicit
+    `tracker-authoring` supervision profile before authoring completion. The same
+    profile remains directly invocable for consequential user-seeded authoring;
+    routine work may use the existing one-shot independent quality check.
+17. Authoring corrections are target-owned and remain open in canonical
+    supervision state until a later exact tracker delta and independent review
+    prove effectiveness. A steer, green structural verifier, author commit, or
+    completion narrative cannot close them by itself.
 
 ### Program-evolution disposition and continuation contract
 
@@ -375,13 +429,13 @@ the mapped dependency closure of a concrete current defect.
 | 2 | Add self-reflection and divergent future-work generation | 1 | `not-started` |
 | 3 | Measure outcome quality, resource use, and useful-yield priors | 1 | `not-started` |
 | 4 | Select, budget, schedule, and place one program portfolio | 2, 3 | `not-started` |
-| 5 | Apply accepted current and successor tracker evolution | 4 | `not-started` |
+| 5 | Apply tracker evolution and authoring-readiness handoff | 4 | `not-started` |
 | 6 | Invoke evolution from implementation boundaries | 5 | `not-started` |
-| 7 | Invoke evolution from supervision and feed effectiveness evidence | 5 | `not-started` |
+| 7 | Supervise evolution and consequential tracker authoring | 5 | `not-started` |
 | 8 | Orchestrate sequential and parallel tracker portfolios | 6, 7 | `not-started` |
 | 9 | Extend release ownership from three to four skills | 1 | `not-started` |
-| 10 | Dogfood the recursive loop and recovery boundaries | 8, 9 | `not-started` |
-| 11 | Freeze, independently review, release, refresh, and prove effectiveness | 10 | `not-started` |
+| 10 | Dogfood recursion, authoring supervision, and recovery | 8, 9 | `not-started` |
+| 11 | Freeze, review, release, refresh, and prove effectiveness | 10 | `not-started` |
 
 Required order:
 
@@ -954,20 +1008,22 @@ Stop before modifying a tracker or starting any work lane.
 
 ---
 
-## Block 5 — Apply accepted current and successor tracker evolution
+## Block 5 — Apply tracker evolution with an authoring-readiness handoff
 
 Status: `not-started`
 
 ### Objective
 
 Convert an accepted placement handoff into exact current-tracker revisions or
-successor tracker artifacts through the existing authoring owner.
+successor tracker artifacts through the existing authoring owner, with the exact
+evidence needed to bind consequential authoring supervision.
 
 ### Target-product capability delta
 
 - Posture: `consequential`.
 - Intended capability gain: let the system add, remove, reorder, modify, split,
-  merge, reopen, retire, supersede, or create work as product evidence warrants.
+  merge, reopen, retire, supersede, or create work as product evidence warrants
+  and make consequential candidates independently implementation-ready.
 - Potential capability loss or regression: unsafe mapping could erase requested
   work, falsify history, deadlock dependencies, or terminalize an open range.
 - Protected-capability effect: preserves append-only evidence, direct semantic
@@ -987,6 +1043,12 @@ successor tracker artifacts through the existing authoring owner.
 
 - Extend authoring schemas and method guidance for all supported revision
   operations and one-to-many/many-to-one/retired mappings.
+- Extend the author-owned handoff for consequential tracker candidates with an
+  explicit `tracker-authoring` supervision profile request, exact direct mission,
+  tracker/repository roots, program/feature/Block proposal, verifier result, and
+  implementation-readiness evidence. Keep the same profile independently
+  invocable for consequential user-seeded authoring and preserve one-shot
+  `quality-check` for routine work.
 - Require dependency-valid order, exact affected scope, accepted-history
   preservation, current-range effect, resume frontier, and terminal-count updates.
 - Route active defects through existing remediation/structural amendment before
@@ -994,20 +1056,24 @@ successor tracker artifacts through the existing authoring owner.
   successor trackers.
 - Produce separately verified tracker artifacts for every selected portfolio node
   and retain rejected/deferred nodes only in the derived portfolio.
+- Keep every supervisor-requested correction in the authoring thread's sole
+  writable scope and emit a later exact candidate delta; do not treat a steer,
+  structural verifier, or author assertion as correction closure.
 - Add real maintained tracker fixtures for current revision, successor, and
   multi-tracker portfolio authoring.
 
 ### Scope and non-goals
 
 - In scope: tracker authoring and canonical program-revision application.
-- Not in scope: implementing Blocks, starting tasks, changing supervision policy,
-  or constructing a parallel tracker ledger.
+- Not in scope: implementing Blocks, starting tasks, implementing the supervision
+  profile owned by Block 7, or constructing a parallel tracker ledger.
 - Do not add permissive generic legacy parsing or aliases.
 
 ### Deliverables and recorded state
 
 - Updated authoring skill/contracts, program-revision schema, mappings, fixtures,
-  verifier rules, and exact tracker handoffs.
+  verifier rules, explicit authoring-supervision request/evidence handoffs, and
+  exact tracker handoffs.
 
 ### Resource and economy contract
 
@@ -1022,13 +1088,16 @@ retire/supersede, real trackers, interruption/retry, and full-range conservation
 ### Acceptance
 
 - Every accepted portfolio placement yields valid, current, independently reviewed
-  tracker state with an exact implementation range and first eligible frontier.
+  tracker state with an exact implementation range and first eligible frontier;
+  consequential candidates are ready for the explicit authoring supervision
+  profile without transferring tracker-write authority.
 
 ### Negative tests
 
 - Reject erased direct capability, completed-successor collision, unmapped required
   prerequisite, stale policy/target/tracker, unrelated application changes,
-  ambiguous merge/split, pre-finding retry, and false terminal contraction.
+  ambiguous merge/split, pre-finding retry, false terminal contraction,
+  self-attested implementation-readiness, and supervisor-authored tracker edits.
 
 ### Completion evidence
 
@@ -1036,7 +1105,8 @@ Pending.
 
 ### Stop
 
-Stop before invoking implementation or opening successor/parallel execution.
+Stop before invoking implementation, activating the Block 7 authoring-supervision
+lifecycle, or opening successor/parallel execution.
 
 ---
 
@@ -1121,20 +1191,22 @@ Stop before adding supervisor triggers or starting multiple tracker lanes.
 
 ---
 
-## Block 7 — Invoke evolution from supervision and feed effectiveness evidence
+## Block 7 — Invoke evolution and supervise consequential tracker authoring
 
 Status: `not-started`
 
 ### Objective
 
-Let supervision trigger product-program reflection from material observations and
-feed independently judged effectiveness/resource evidence into later cycles.
+Let supervision trigger product-program reflection from material observations,
+operate an explicit independent tracker-authoring profile, and feed independently
+judged effectiveness/resource evidence into later cycles.
 
 ### Target-product capability delta
 
 - Posture: `consequential`.
 - Intended capability gain: important opportunities or structural concerns can be
-  prepared during a run, and actual outcomes improve later selection/budgeting.
+  prepared during a run, consequential trackers can be independently challenged
+  before implementation, and actual outcomes improve later selection/budgeting.
 - Potential capability loss or regression: a supervisor could feature-creep from
   preference, self-validate its finding, or compete with active remediation.
 - Protected-capability effect: preserves mechanical/semantic role separation,
@@ -1151,6 +1223,27 @@ feed independently judged effectiveness/resource evidence into later cycles.
 
 ### Required work
 
+- Add the explicit, fail-closed `tracker-authoring` target profile to the existing
+  canonical supervision policy/status flow while preserving `implementation-run`
+  as the absent/legacy default. Bind profile permissions, allow a blank
+  `active_block`, and reuse existing events, incidents, routing, decisions,
+  completion, and lifecycle state.
+- Make the profile directly bootable for consequential user-seeded tracker
+  authoring as well as consumable from Block 5 RSI placement. It must not require
+  an evolution packet, candidate, or portfolio when direct mission and repository
+  sources already establish the authoring target.
+- Require independent program, feature, Block, owner, architecture, dependency,
+  acceptance, and Stop review against the exact mission, tracker delta, and
+  smallest necessary live repository evidence. Preserve Terra mechanical gating,
+  independent XHigh review, Max adjudication, and target-owned writing.
+- Keep supported corrections open after steering until a later exact tracker
+  delta proves the fix; review underreach, unsupported overreach, and a sound
+  proportionate alternative without turning optional ideas into findings.
+- Require exact implementation-readiness completion: current full verifier,
+  frozen tracker/repository roots, required/supported/deferred/rejected/
+  missing-required reconciliation, open-item compatibility, distinct independent
+  challenge, and profile-aware bounded lifecycle/shutdown. Do not weaken the
+  implementation-run terminal report contract.
 - Define material triggers from product gaps, protected regressions, repeated or
   costly implementation patterns, productive patterns, operator-visible outcomes,
   terminal reports, and accepted user feedback.
@@ -1165,36 +1258,51 @@ feed independently judged effectiveness/resource evidence into later cycles.
 
 ### Scope and non-goals
 
-- In scope: supervision triggers, routing, review, and feedback evidence.
+- In scope: authoring-profile binding/review/completion/lifecycle plus product-
+  program evolution triggers, routing, review, and feedback evidence.
 - Not in scope: supervisor-authored trackers/source, a new schedule, continuous
-  brainstorming, or automatic Gmail about ordinary candidates.
+  brainstorming, mandatory supervision for routine authoring, implementation of
+  proposed Blocks, or automatic Gmail about ordinary candidates.
 - One supervisor observation alone cannot establish broad product work without
   the declared evidence/counterexample posture.
 
 ### Deliverables and recorded state
 
-- Supervision policy/skill/helper/event/test changes and effectiveness projection.
+- Supervision policy/skill/helper/event/test changes, explicit authoring-profile
+  contract and completion receipts, and effectiveness projection.
 
 ### Resource and economy contract
 
-Reuse scheduled changed-state and effectiveness wakes. Deep reflection occurs only
-for new eligible evidence; quiet intervals consume no model tokens.
+Reuse scheduled changed-state and effectiveness wakes. Authoring reviewers read
+the exact delta first and widen only to the mission and repository owners needed
+for the question. Deep reflection occurs only for new eligible evidence; quiet
+intervals consume no model tokens.
 
 ### QA and independent review
 
-Role/provenance tests plus independent review of false triggers, self-selection,
-duplicate cycles, current-remediation substitution, and terminal ordering.
+Role/provenance tests plus paired underreach/overreach/sound-plan authoring cases
+and independent review of false triggers, self-selection, duplicate cycles,
+current-remediation substitution, correction closure, completion roots,
+implementation-run compatibility, and terminal ordering.
 
 ### Acceptance
 
 - Material evidence can trigger one current evolution cycle and later effectiveness
   updates its priors, while unchanged/unsupported observations remain cheap no-ops.
+- A consequential RSI-generated or user-seeded authoring run can bind the same
+  explicit profile, receive independent repository-grounded program review,
+  preserve target-owned correction, and close only at an exact implementation-
+  ready candidate; routine authoring and existing implementation supervision
+  remain independently operable.
 
 ### Negative tests
 
 - Reject supervisor preference without product evidence, generic praise, duplicate
   triggers, prospect replacing active correction, self-reviewed selection, stale
-  outcome/resource evidence, and shutdown before terminal evolution disposition.
+  outcome/resource evidence, inferred authoring kind, supervisor tracker writes,
+  green-verifier-only completion, premature correction closure, use of authoring
+  profile to bypass implementation reports, and shutdown before terminal
+  evolution disposition.
 
 ### Completion evidence
 
@@ -1202,7 +1310,8 @@ Pending.
 
 ### Stop
 
-Stop before opening or coordinating sequential/parallel tracker execution.
+Stop before opening or coordinating sequential/parallel tracker execution or
+claiming authoring-profile dogfood.
 
 ---
 
@@ -1377,14 +1486,15 @@ Stop before integrated dogfood, staging, activation, or live role refresh.
 
 ---
 
-## Block 10 — Dogfood the recursive loop and recovery boundaries
+## Block 10 — Dogfood recursion, authoring supervision, and recovery boundaries
 
 Status: `not-started`
 
 ### Objective
 
-Exercise one complete, reproducible recursive product-program cycle across current
-revision, successor, parallel portfolio, no-op, and recovery paths.
+Exercise one complete, reproducible recursive product-program cycle and bounded
+authoring-supervision lifecycle across current revision, successor, parallel
+portfolio, no-op, and recovery paths.
 
 ### Target-product capability delta
 
@@ -1421,6 +1531,12 @@ revision, successor, parallel portfolio, no-op, and recovery paths.
 - Exercise changed evidence/currentness, interruption after selection/authoring/
   work-start/outcome, failed lane, integration failure, and release rollback in
   isolated fixtures.
+- Dogfood the explicit authoring-supervision profile on both one RSI-generated
+  tracker and one consequential direct user-seeded tracker. Include blinded
+  underreach, unsupported-overreach, malformed-Block, and sound-plan cases;
+  demonstrate one narrow target-owned correction remaining open until a later
+  delta, exact implementation-readiness completion, profile-aware lifecycle,
+  and unchanged ordinary/implementation-run behavior.
 
 ### Scope and non-goals
 
@@ -1433,7 +1549,8 @@ revision, successor, parallel portfolio, no-op, and recovery paths.
 ### Deliverables and recorded state
 
 - Frozen raw run, deterministic semantic projection, portfolio/tracker artifacts,
-  current observable-outcome proof, and recovery/economy evidence.
+  authoring-profile review/completion/lifecycle receipts, current observable-
+  outcome proof, and recovery/economy evidence.
 
 ### Resource and economy contract
 
@@ -1443,9 +1560,10 @@ unchanged second pass must perform zero deep work.
 
 ### QA and independent review
 
-Separate product/program reviewer, exact source reviewer, and evaluator inspect raw
-evidence, retained projection, candidates, rejected alternatives, budgets, effects,
-and every Stop.
+Separate product/program reviewer, exact source reviewer, authoring-readiness
+reviewer, and evaluator inspect raw evidence, retained projection, candidates,
+rejected alternatives, authoring cases/corrections, budgets, effects, and every
+Stop.
 
 ### Acceptance
 
@@ -1457,7 +1575,9 @@ and every Stop.
 
 - Reject nonreproducible raw/projection claims, root-consistent synthetic semantic
   changes, hidden current-work displacement, overlap, resource overrun, candidate
-  self-adoption, process-only outcome, repeated producer work, and live effects.
+  self-adoption, authoring review pre-labeled with its expected conclusion,
+  supervisor tracker writes, oversteered sound plans, process-only outcome,
+  repeated producer work, and live effects.
 
 ### Completion evidence
 
@@ -1476,7 +1596,8 @@ Status: `not-started`
 ### Objective
 
 Accept one exact integrated successor, install it through the normal release owner,
-refresh compatible roles, and prove the recursive loop remains effective/current.
+refresh compatible roles, and prove the recursive loop plus consequential
+authoring-supervision profile remain effective/current.
 
 ### Target-product capability delta
 
@@ -1504,6 +1625,16 @@ refresh compatible roles, and prove the recursive loop remains effective/current
   Gmail, schedules, models, and policy fields.
 - Run one subsequent unchanged checkpoint and one later material evidence cycle;
   verify no-op economy, correct placement, resource feedback, and current outcome.
+- Verify the tracker-authoring supervision profile at the exact accepted source:
+  direct boot for consequential user-seeded authoring, RSI handoff consumption,
+  author/supervisor writer separation, repository-grounded independent review,
+  later-delta correction closure, exact implementation-readiness completion,
+  bounded lifecycle, ordinary one-shot authoring, and unchanged implementation-
+  run compatibility.
+- Preserve
+  `docs/software-factory-tracker-authoring-supervision-implementation-tracker.md`
+  as superseded planning history and verify its Block 0–4 requirements against
+  the amendment map in Section 4 before publishing demonstrated guidance.
 - On failed install/refresh/effectiveness verification, request owner rollback and
   restore prior role bindings; retain candidate/evidence truthfully.
 
@@ -1520,7 +1651,8 @@ refresh compatible roles, and prove the recursive loop remains effective/current
 ### Deliverables and recorded state
 
 - Accepted source/tree, four-skill release/manifest/roots, refreshed role receipts,
-  effectiveness evidence, rollback proof, and final tracker completion evidence.
+  authoring-profile compatibility/readiness evidence, effectiveness evidence,
+  rollback proof, and final tracker completion evidence.
 
 ### Resource and economy contract
 
@@ -1529,8 +1661,9 @@ once on the final frozen source, and perform no deep work on unchanged replay.
 
 ### QA and independent review
 
-Independent exact candidate, release, installed-root, role-refresh, dogfood semantic,
-resource/effectiveness, and final observable-outcome reviews.
+Independent exact candidate, release, installed-root, role-refresh, authoring-
+profile dogfood/readiness, resource/effectiveness, and final observable-outcome
+reviews.
 
 ### Acceptance
 
@@ -1542,8 +1675,9 @@ resource/effectiveness, and final observable-outcome reviews.
 
 - Reject stale review, changed candidate, partial four-skill install, mismatched
   active roots, unsafe refresh, lost mission/cursor/range, duplicate cycle, changed
-  evidence accepted as no-op, ineffective selected work, or terminal response with
-  an open program node.
+  evidence accepted as no-op, stale or self-attested authoring readiness, open
+  authoring corrections, weakened implementation-run lifecycle, ineffective
+  selected work, or terminal response with an open program node.
 
 ### Completion evidence
 
@@ -1564,6 +1698,11 @@ unselected next product program merely to demonstrate recursion.
 | Transparent quality/resource evidence and learned priors | 3 | 4, 7 | 10 |
 | Independent portfolio selection, budget, and placement | 4 | 5, 8 | 10 |
 | Full current/successor tracker evolution preserves history/range | 5 | 6, 8 | 10 |
+| Consequential RSI/user-seeded authoring binds an explicit independent supervision profile | 5 | 7, 10 | 11 |
+| Authoring review challenges program/features/Blocks against mission and live owners | 7 | 10 | 11 |
+| Target-owned authoring corrections remain open through later exact evidence | 7 | 10 | 11 |
+| Exact implementation-readiness completion and bounded authoring lifecycle | 7 | 10 | 11 |
+| Routine one-shot authoring and implementation-run supervision remain compatible | 7 | 10 | 11 |
 | Implementer invokes without derailing current work | 6 | 8 | 10 |
 | Supervisor triggers and feeds effectiveness without self-adoption | 7 | 8 | 10 |
 | Sequential/parallel portfolios preserve ownership and converge | 8 | 10 | 11 |
@@ -1578,9 +1717,15 @@ skill; the first user-intent loop remains direct; implementation and supervision
 invoke recursive reflection from material and terminal evidence; divergent
 candidate generation, independent portfolio selection, transparent resource
 allocation, current/successor tracker evolution, sequential/parallel execution,
-and effectiveness feedback are proven from exact dogfood evidence; unchanged
-replay performs no deep work; current commitments and protected capabilities are
-not displaced; historical three-skill rollback remains valid; and exact source,
-release, installed roots, refreshed roles, ranges, portfolios, and observable
-outcome reconcile. A candidate list, tracker amendment, completed task, release,
-or populated telemetry record alone is not recursive product improvement.
+and effectiveness feedback are proven from exact dogfood evidence; consequential
+RSI-generated and independently user-seeded tracker authoring bind the explicit
+supervision profile and prove repository-grounded program/feature/Block review,
+target-owned correction, exact implementation-readiness, and bounded lifecycle;
+routine one-shot authoring and implementation-run supervision remain compatible;
+unchanged replay performs no deep work; current commitments and protected
+capabilities are not displaced; historical three-skill rollback remains valid;
+the standalone authoring-supervision tracker is preserved as exactly mapped
+superseded planning history; and exact source, release, installed roots, refreshed
+roles, ranges, portfolios, authoring-readiness receipts, and observable outcome
+reconcile. A candidate list, tracker amendment, green verifier, completed task,
+release, or populated telemetry record alone is not recursive product improvement.

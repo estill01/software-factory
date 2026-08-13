@@ -1,10 +1,21 @@
 # Software Factory Tracker-Authoring Supervision Implementation Tracker
 
-- Tracker status: `planning`
+- Tracker status: `superseded`
 - Tracker sequence: Blocks 0–4
 - Repository: `https://github.com/estill01/software-factory`
 - Planning baseline: `123eb3880db8462342e876218c4d89c8110879fb`
 - Governing objective: `Extend the existing independent supervision plane so it can supervise consequential implementation-tracker authoring, independently challenge whether the proposed capabilities and Blocks form a good implementation program, and accept authoring only when the resulting tracker is repository-grounded and implementation-ready.`
+
+> Superseded planning history: direct-user amendment
+> `direct-user-019ff991-authoring-supervision-merge-annotation-1` merged every
+> still-valid Block 0–4 capability into future Blocks 5, 7, 10, and 11 of
+> `docs/software-factory-recursive-product-program-evolution-implementation-tracker.md`.
+> The exact old-to-new capability map in that tracker preserves independent
+> operation for consequential user-seeded authoring, one-shot review for routine
+> authoring, sole tracker writing by `author-implementation-trackers`, and
+> canonical review/event/lifecycle ownership by `supervise-tracker-runs`. This
+> document remains unchanged below as historical design evidence; none of its
+> unimplemented Blocks is claimed accepted.
 
 ## 1. Purpose and intended outcome
 
