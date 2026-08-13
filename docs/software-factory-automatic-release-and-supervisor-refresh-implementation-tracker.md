@@ -183,7 +183,7 @@ make their composition automatic and fail closed.
 |---:|---|---:|---|
 | 0 | Freeze integrated baseline and ownership contract | — | `completed` |
 | 1 | Make existing range admission and runtime gates unavoidable | 0 | `completed` |
-| 2 | Implement exact-acceptance-triggered release orchestration | 1 | `in-progress` |
+| 2 | Implement exact-acceptance-triggered release orchestration | 1 | `completed` |
 | 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `not-started` |
 | 4 | Verify health and recover through release-owner rollback | 3 | `not-started` |
 | 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `not-started` |
@@ -456,7 +456,7 @@ Stop before invoking the release primitive.
 
 ## Block 2 — Implement exact-acceptance-triggered release orchestration
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -534,7 +534,62 @@ Mocked owner-boundary tests plus an exact local promotion in Block 6.
   primitive, not the missing orchestration boundary.
 - Preserved proof: the actual `80e4ec1` promotion remains valid owner evidence,
   and Block 1 remains accepted at `289b1ec`; neither closes this missing Block 2
-  implementation. Remediation remains in progress and Blocks 3–4 stay closed.
+  implementation.
+- Repository commits: rejected documentation-only checkpoint
+  `9b910dad91fe54916f588be5d9bc361005195da3`; executable owner candidate
+  `f1256468034d323894149ce7e9dc0a770270a6f4`; accepted currentness correction
+  `c19c5751d1c70b5ca893da9c0e5f1976796305dc`; contract evidence successor
+  `7925405b7a2fd347368a32fec4c1adf12cbb553b` / tree
+  `e75f2a248549fd9cfb5a752353029dc481700d3d`.
+- Inputs: one current canonical `software-factory-release-acceptance`
+  checkpoint review, its policy-bound base-or-Max reviewer, exact source
+  revision/tree, clean canonical repository, and the unchanged
+  `scripts/skill_release.py` owner.
+- Outputs: `software-factory-release-promote` invokes exactly the flagless owner,
+  accepts no caller active-release identity, validates automated assurance plus
+  live active release/source/three installed roots, and appends one exact
+  deduplicated promotion result. `--manual-pin-release` is the explicit verified
+  current-release hold.
+- Focused validation: maintained Python 3.14 orchestration regressions `11/11`;
+  changed files compile and `git diff --check` passes.
+- Mapped validation: `test_supervision_log.py` `295/295` under maintained Python
+  3.14. The first mapped invocation exposed one exact documentation-phrase
+  regression; the corrected successor reran that case `1/1` and the full mapped
+  module `295/295`.
+- Remediation closure: a later rejection of the same source or a newer accepted
+  exact revision makes the prior trigger stale; a later unaccepted push does
+  not. Changed tree/bytes, dirty source, unbound reviewer, invalid assurance,
+  divergent live status, duplicate-divergent state, and caller-selected active
+  identity reject. Exact duplicate delivery reuses one stored result without a
+  second promotion call.
+- Product-capability review:
+  - Trigger: consequential release-operating-model change.
+  - Frame identity: this tracker, Block 2, SHA-256
+    `ec8d90164c440c07c612794ac1a5e0ca52dfd228b58dd3895fbf88437763942e`.
+  - Capability added or preserved: independent acceptance is the last semantic
+    gate; automatic local promotion remains exact, reversible, and single-owner.
+  - Paths compared: a direct caller wrapper; a new generalized release service;
+    the existing supervision ledger above the canonical release owner.
+  - Selected level and owner: existing supervision owner plus unchanged
+    `skill_release.py`, because it supplies canonical acceptance/currentness and
+    release ownership without a second pointer, ledger, or service.
+  - Protected-capability result: exact clean source, independent acceptance,
+    automated assurance, sealing/history, atomic activation, fresh verification,
+    rollback, and explicit pinning are preserved.
+  - Rejected alternatives: the direct wrapper could self-assert acceptance; the
+    generalized service would duplicate release authority.
+  - Tradeoffs and uncertainty: only maintained current acceptance records are
+    eligible; arbitrary historical formats remain unsupported. A newer
+    unaccepted push is not treated as revocation.
+  - Frozen-candidate proof: `7925405b7a2fd347368a32fec4c1adf12cbb553b`,
+    focused `11/11`, mapped `295/295`.
+- Retained open work: one exact real promotion and final independent release
+  review remain owned by Block 6; running-supervisor effects remain closed until
+  Block 3.
+- Post-block audit: accepted. Block 2 changes only trigger/result composition
+  above the existing owner and stops before any running-supervisor update.
+- Git durability: implementation and corrections are pushed without history
+  rewrite; this evidence checkpoint is pushed on the successor branch.
 
 ### Stop
 
