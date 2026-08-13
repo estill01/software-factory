@@ -74,6 +74,9 @@ exists, source identities, source hashes, currentness root, and its own root.
 checkpoint input, artifact field sets, producing roles, and sibling interfaces;
 unknown, omitted, or extra keys reject. Artifacts contain hashes and bounded
 facts, not transcripts, hidden reasoning, secrets, or copied repositories.
+The source map distinguishes a live owner path from an immutable `revision:path`
+snapshot so truthful tracker status/evidence updates do not rewrite the accepted
+planning source or create false currentness failures.
 
 1. `product-program-evidence-packet` is deterministic, content-minimized, and
    nonauthorizing.

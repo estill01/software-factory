@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 from copy import deepcopy
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -242,7 +243,18 @@ class ProductProgramContractTests(unittest.TestCase):
             path = ROOT / source["path"]
             self.assertTrue(path.is_file(), source["path"])
             self.assertFalse(path.is_symlink(), source["path"])
-            self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), source["sha256"])
+            revision = source.get("revision")
+            if revision is None:
+                raw = path.read_bytes()
+            else:
+                self.assertRegex(revision, r"^[0-9a-f]{40}$")
+                raw = subprocess.run(
+                    ["git", "show", f"{revision}:{source['path']}"],
+                    cwd=ROOT,
+                    check=True,
+                    capture_output=True,
+                ).stdout
+            self.assertEqual(hashlib.sha256(raw).hexdigest(), source["sha256"])
 
     def test_contract_rejects_duplicate_owner_surfaces(self) -> None:
         for phrase in (
