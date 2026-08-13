@@ -1360,6 +1360,11 @@ class SuccessorTransitionContractTests(unittest.TestCase):
 class ImplementationRangeControlTests(unittest.TestCase):
     target = "range-target-1234"
     initial_source = "direct-item-100"
+    initial_mission_request = "Begin the current implementation mission."
+    initial_mission_sha = hashlib.sha256(
+        initial_mission_request.encode("utf-8")
+    ).hexdigest()
+    initial_range_source = "direct-range-item-101"
     initial_request = "implement this tracker"
     initial_sha = hashlib.sha256(initial_request.encode("utf-8")).hexdigest()
     successor_source = "direct-mission-item-300"
@@ -1400,7 +1405,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 "--mission-source-record",
                 self.initial_source,
                 "--mission-source-sha256",
-                self.initial_sha,
+                self.initial_mission_sha,
             ]
         )
         with redirect_stdout(io.StringIO()):
@@ -1438,22 +1443,44 @@ class ImplementationRangeControlTests(unittest.TestCase):
         return json.loads(output.getvalue())
 
     def bind(self, request_text: str = initial_request) -> dict[str, object]:
-        source_record = self.initial_source
+        source_record = self.initial_range_source
         source_sha256 = self.initial_sha
-        if request_text != self.initial_request:
+        if request_text == self.initial_request:
+            policy = supervision_log.read_json(
+                self.root / self.target / "policy.json"
+            )
+            if not any(
+                item.get("source_record") == source_record
+                and item.get("source_sha256") == source_sha256
+                for item in policy.get("direct_authority_receipts", [])
+            ):
+                self.retain_successor_range_authority(
+                    source_record=source_record,
+                    request_text=request_text,
+                )
+        else:
             source_sha256 = hashlib.sha256(request_text.encode("utf-8")).hexdigest()
             source_record = f"direct-variant-{source_sha256[:16]}"
-            authority_event = self.ingest_direct_authority_event(
-                source_record=source_record,
-                source_sha256=source_sha256,
+            intent, _requested = supervision_log.classify_implementation_request(
+                request_text, set(range(32))
             )
-            self.call(
-                "implementation-range-authority-receipt",
-                "--target-thread",
-                self.target,
-                "--authority-event-record",
-                authority_event,
-            )
+            if intent == "full-tracker":
+                self.retain_successor_range_authority(
+                    source_record=source_record,
+                    request_text=request_text,
+                )
+            else:
+                authority_event = self.ingest_direct_authority_event(
+                    source_record=source_record,
+                    source_sha256=source_sha256,
+                )
+                self.call(
+                    "implementation-range-authority-receipt",
+                    "--target-thread",
+                    self.target,
+                    "--authority-event-record",
+                    authority_event,
+                )
         return self.call(
             "implementation-range-bind",
             "--target-thread",
@@ -1566,6 +1593,21 @@ class ImplementationRangeControlTests(unittest.TestCase):
         source_sha256: str | None = None,
         request_text: str | None = None,
     ) -> dict[str, object]:
+        if (
+            include_binding_inputs
+            and rollover_records is None
+            and source_record is None
+            and supervision_log.implementation_range_contract(
+                supervision_log.read_json(
+                    self.root / self.target / "policy.json"
+                )
+            )
+            is None
+        ):
+            self.retain_successor_range_authority(
+                source_record=self.initial_range_source,
+                request_text=self.initial_request,
+            )
         arguments = [
             "implementation-range-admit",
             "--target-thread",
@@ -1575,7 +1617,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
             bound_source_record = source_record or (
                 self.successor_range_source
                 if rollover_records is not None
-                else self.initial_source
+                else self.initial_range_source
             )
             bound_request_text = request_text or (
                 self.successor_range_request
@@ -1793,6 +1835,73 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.assertTrue(second["implementation_start_permitted"])
         self.assertTrue(second["final_response_gate_required"])
         self.assertEqual(second["range_state"]["remaining_blocks"], [1])
+
+    def test_absent_range_rejects_mission_source_on_bind_and_admit_without_mutation(
+        self,
+    ) -> None:
+        self.write_tracker(["not-started"])
+        directory = self.root / self.target
+        protected = (
+            "policy.json",
+            "policy-history.jsonl",
+            "events.jsonl",
+            supervision_log.EVENT_LEDGER_ANCHOR_NAME,
+            supervision_log.OWNER_ROOT_HISTORY_NAME,
+        )
+        before = {
+            name: (
+                (directory / name).read_bytes()
+                if (directory / name).exists()
+                else None
+            )
+            for name in protected
+        }
+        tracker_before = self.tracker.read_bytes()
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "identity only, not range authority",
+        ):
+            self.call(
+                "implementation-range-bind",
+                "--target-thread",
+                self.target,
+                "--range-id",
+                "RANGE-MISSION-SOURCE-REJECTED",
+                "--tracker",
+                str(self.tracker),
+                "--request-text",
+                self.initial_request,
+                "--authority-source-record",
+                self.initial_source,
+                "--authority-source-sha256",
+                self.initial_sha,
+            )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "identity only, not range authority",
+        ):
+            self.admit(
+                include_binding_inputs=True,
+                range_id="RANGE-MISSION-SOURCE-REJECTED",
+                source_record=self.initial_source,
+                source_sha256=self.initial_sha,
+                request_text=self.initial_request,
+            )
+
+        for name, raw in before.items():
+            self.assertEqual(
+                (directory / name).read_bytes()
+                if (directory / name).exists()
+                else None,
+                raw,
+            )
+        self.assertEqual(self.tracker.read_bytes(), tracker_before)
+        self.assertIsNone(
+            supervision_log.implementation_range_contract(
+                supervision_log.read_json(directory / "policy.json")
+            )
+        )
 
     def test_admission_rejects_missing_canonical_binding_inputs(self) -> None:
         self.write_tracker(["not-started"])
@@ -2777,9 +2886,9 @@ class ImplementationRangeControlTests(unittest.TestCase):
                     "--governing-authority-source-class",
                     "direct-user",
                     "--governing-authority-source-record",
-                    self.initial_source,
+                    str(binding["authority"]["source_record"]),
                     "--governing-authority-source-sha256",
-                    self.initial_sha,
+                    str(binding["authority"]["source_sha256"]),
                     "--topology-posture",
                     "same-task-new-run",
                     "--topology-basis",
@@ -2987,7 +3096,9 @@ class ImplementationRangeControlTests(unittest.TestCase):
             ledger,
             {
                 "schema_version": 1,
-                "record_id": "EVT-000002",
+                "record_id": (
+                    f"EVT-{len(supervision_log.events(ledger)) + 1:06d}"
+                ),
                 "timestamp": supervision_log.utc_now(),
                 "target_thread_id": self.target,
                 "kind": "check",
@@ -3013,15 +3124,15 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.write_tracker(["completed", "not-started"])
         self.bind()
         directory = self.root / self.target
-        current = supervision_log.read_json(directory / "policy.json")
-        fabricated_genesis = copy.deepcopy(current)
-        fabricated_genesis["policy_version"] = 1
-        fabricated_genesis["policy_sha256"] = supervision_log.digest(
-            supervision_log.policy_material(fabricated_genesis)
-        )
+        policy_snapshots = [
+            copy.deepcopy(item["policy"])
+            for item in supervision_log.events(
+                directory / "policy-history.jsonl"
+            )
+        ]
         records = []
         previous = None
-        for index, embedded in enumerate((fabricated_genesis, current), start=1):
+        for index, embedded in enumerate(policy_snapshots, start=1):
             material = {
                 "schema_version": 1,
                 "record_id": f"POLICY-{index}",

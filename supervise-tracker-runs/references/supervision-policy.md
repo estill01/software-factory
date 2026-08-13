@@ -819,10 +819,12 @@ handoff, push, and final-response boundaries do not alter that result.
 Bind once, amend only after an accepted tracker revision, and gate every Stop:
 
 `implementation-range-admit` is the pre-work owner. When no range exists it
-delegates to the ordinary canonical bind. When the active range belongs to the
-same mission, it may only rehydrate that exact range or advance status-only
-tracker bytes through the existing amendment owner. It must never replace a
-same-mission range.
+delegates to the ordinary canonical bind, which still requires one exact
+current reviewed, ingested, and receipted range-authority source; the mission
+source alone is ineligible at both public entry points. When the active range
+belongs to the same mission, admission may only rehydrate that exact range or
+advance status-only tracker bytes through the existing amendment owner. It
+must never replace a same-mission range.
 
 A pending same-target mission successor may replace one completed predecessor
 range only through the same policy owner. Under the policy-owner lock,
@@ -872,9 +874,10 @@ python3 <LOG_HELPER> implementation-range-gate \
   --response-kind <block-boundary|commit-boundary|review-boundary|handoff-boundary|push-boundary|final-response|outcome-terminal>
 ```
 
-The initial source must resolve to the bound direct mission or an already
-reviewed canonical authority receipt. A fresh mission-successor range always
-requires the latter. For a nonlegacy exact direct source, its independent
+Every new genesis, including the first range under a mission and a fresh
+mission-successor range, requires an already reviewed canonical authority
+receipt; mission identity is never range authority. For a nonlegacy exact
+direct source, its independent
 base-or-Max review must already bind one direct-user task/turn/item, exact UTF-8
 bytes/count/SHA, current policy and mission, and full-tracker classification.
 The maintained owner then ingests only that one source as a canonical event;

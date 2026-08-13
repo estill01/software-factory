@@ -8489,8 +8489,25 @@ def range_requires_retained_authority(
         isinstance(history, list)
         and history
         and isinstance(history[0], Mapping)
-        and history[0].get("operation") == "mission-successor-bound"
+        and history[0].get("operation")
+        in {"retained-authority-bound", "mission-successor-bound"}
     )
+
+
+def retained_range_genesis_authority(
+    contract: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    history = contract.get("history")
+    if (
+        not isinstance(history, list)
+        or not history
+        or not isinstance(history[0], Mapping)
+        or not isinstance(history[0].get("authority"), Mapping)
+    ):
+        raise SupervisionLogError(
+            "Implementation range retained genesis authority is malformed"
+        )
+    return history[0]["authority"]
 
 
 def legacy_terminal_range_compatibility_eligible(
@@ -8932,10 +8949,11 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
         raise SupervisionLogError(
             "Implementation request text does not match its canonical direct source"
         )
-    if not eligible_direct_authority(policy, source_record, source_sha256):
-        raise SupervisionLogError(
-            "Implementation range source is not canonical eligible direct authority"
-        )
+    policy_history = events(directory / "policy-history.jsonl")
+    all_events = events(directory / "events.jsonl")
+    event_head_sha256 = (
+        str(all_events[-1].get("record_sha256", "")) if all_events else ""
+    )
     (
         tracker_path,
         tracker_sha256,
@@ -8943,6 +8961,9 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
         blocks,
     ) = implementation_tracker_snapshot(args.tracker)
     legacy_event_head_sha256 = ""
+    retained_receipt: dict[str, Any] | None = None
+    retained_event: dict[str, Any] | None = None
+    retained_review: dict[str, Any] | None = None
     try:
         intent, requested = classify_implementation_request(
             args.request_text, set(blocks)
@@ -8964,6 +8985,43 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
             request_text=args.request_text,
             blocks=set(blocks),
         )
+    if not legacy_event_head_sha256:
+        if intent == "full-tracker":
+            (
+                retained_receipt,
+                retained_event,
+                retained_review,
+            ) = retained_full_tracker_authority(
+                policy,
+                all_events=all_events,
+                policy_history=policy_history,
+                source_record=source_record,
+                source_sha256=source_sha256,
+                require_current_receipt=True,
+                request_text=args.request_text,
+            )
+        else:
+            matching_receipts = [
+                dict(item)
+                for item in policy.get("direct_authority_receipts", [])
+                if isinstance(item, Mapping)
+                and item.get("accepted") is True
+                and item.get("source_record") == source_record
+                and item.get("source_sha256") == source_sha256
+                and item.get("accepted_policy_version")
+                == policy.get("policy_version")
+            ]
+            if len(matching_receipts) != 1:
+                raise SupervisionLogError(
+                    "New implementation range requires one exact current authority receipt"
+                )
+            retained_receipt = matching_receipts[0]
+            retained_event = canonical_direct_authority_event(
+                all_events,
+                event_record_id=str(retained_receipt["source_event_record_id"]),
+                policy=policy,
+                policy_history=policy_history,
+            )
     authority = {
         "source_class": "direct-user",
         "source_record": source_record,
@@ -8983,7 +9041,11 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
     entry = implementation_range_history_entry(
         sequence=1,
         prior_entry_sha256="",
-        operation="bound",
+        operation=(
+            "retained-authority-bound"
+            if retained_review is not None
+            else "bound"
+        ),
         request_text=args.request_text,
         tracker_sha256=tracker_sha256,
         tracker_structure_sha256=tracker_structure_sha256,
@@ -9026,7 +9088,14 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
     }
     validate_implementation_range_contract(policy["implementation_range"])
 
-    def revalidate_legacy_binding_before_mutation(
+    tracker_snapshot = (
+        tracker_path,
+        tracker_sha256,
+        tracker_structure_sha256,
+        blocks,
+    )
+
+    def revalidate_binding_before_mutation(
         directory_fd: int, current_policy: Mapping[str, Any]
     ) -> None:
         current_events, _event_snapshot = events_snapshot(
@@ -9045,37 +9114,105 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
             if current_events
             else ""
         )
-        if current_event_head != legacy_event_head_sha256:
+        if current_event_head != event_head_sha256:
             raise SupervisionLogError(
-                "Legacy implementation authority event state changed before range bind"
+                "Implementation authority event state changed before range bind"
             )
-        locked_intent, locked_requested = (
-            legacy_implementation_request_classification_from_state(
-                current_policy,
+        if implementation_range_contract(current_policy) is not None:
+            raise SupervisionLogError(
+                "Implementation range was bound before range mutation"
+            )
+        if current_mission_range_identity(current_policy) != mission_identity:
+            raise SupervisionLogError(
+                "Current mission identity changed before range bind"
+            )
+        if implementation_tracker_snapshot(str(tracker_path)) != tracker_snapshot:
+            raise SupervisionLogError(
+                "Implementation tracker changed before range bind"
+            )
+        if legacy_event_head_sha256:
+            locked_intent, locked_requested = (
+                legacy_implementation_request_classification_from_state(
+                    current_policy,
+                    all_events=current_events,
+                    policy_history=current_policy_history,
+                    source_record=source_record,
+                    source_sha256=source_sha256,
+                    request_text=args.request_text,
+                    blocks=set(blocks),
+                )
+            )
+            if locked_intent != intent or locked_requested != requested:
+                raise SupervisionLogError(
+                    "Legacy implementation authority changed before range bind"
+                )
+        elif intent == "full-tracker":
+            locked_receipt, locked_event, locked_review = (
+                retained_full_tracker_authority(
+                    current_policy,
+                    all_events=current_events,
+                    policy_history=current_policy_history,
+                    source_record=source_record,
+                    source_sha256=source_sha256,
+                    require_current_receipt=True,
+                    request_text=args.request_text,
+                )
+            )
+            if (
+                locked_receipt != retained_receipt
+                or locked_event != retained_event
+                or locked_review != retained_review
+            ):
+                raise SupervisionLogError(
+                    "Retained implementation authority changed before range bind"
+                )
+        else:
+            locked_receipts = [
+                dict(item)
+                for item in current_policy.get("direct_authority_receipts", [])
+                if isinstance(item, Mapping)
+                and item.get("accepted") is True
+                and item.get("source_record") == source_record
+                and item.get("source_sha256") == source_sha256
+                and item.get("accepted_policy_version")
+                == current_policy.get("policy_version")
+            ]
+            if len(locked_receipts) != 1:
+                raise SupervisionLogError(
+                    "New implementation range authority changed before range bind"
+                )
+            locked_event = canonical_direct_authority_event(
                 all_events=current_events,
+                event_record_id=str(
+                    locked_receipts[0]["source_event_record_id"]
+                ),
+                policy=current_policy,
                 policy_history=current_policy_history,
-                source_record=source_record,
-                source_sha256=source_sha256,
-                request_text=args.request_text,
-                blocks=set(blocks),
             )
-        )
-        if locked_intent != intent or locked_requested != requested:
-            raise SupervisionLogError(
-                "Legacy implementation authority changed before range bind"
-            )
+            if locked_receipts[0] != retained_receipt or locked_event != retained_event:
+                raise SupervisionLogError(
+                    "Retained implementation authority changed before range bind"
+                )
 
     write_policy_version(
         directory,
         policy,
         kind="implementation-range-bind",
         reason="Freeze the direct requested implementation range.",
-        evidence_values=[source_record, tracker_sha256, genesis],
-        pre_mutation_validator=(
-            revalidate_legacy_binding_before_mutation
-            if legacy_event_head_sha256
-            else None
-        ),
+        evidence_values=[
+            source_record,
+            *(
+                [
+                    str(retained_event["record_id"]),
+                    str(retained_event["record_sha256"]),
+                ]
+                if retained_event is not None
+                else []
+            ),
+            tracker_sha256,
+            genesis,
+        ],
+        pre_mutation_validator=revalidate_binding_before_mutation,
     )
     print(json.dumps({"binding": policy["implementation_range"]}, sort_keys=True))
 
@@ -9501,12 +9638,13 @@ def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
                     "Same-mission admission cannot replace range authority"
                 )
         if range_requires_retained_authority(contract):
+            genesis_authority = retained_range_genesis_authority(contract)
             retained_full_tracker_authority(
                 policy,
                 all_events=events(directory / "events.jsonl"),
                 policy_history=policy_history,
-                source_record=str(contract["authority"]["source_record"]),
-                source_sha256=str(contract["authority"]["source_sha256"]),
+                source_record=str(genesis_authority["source_record"]),
+                source_sha256=str(genesis_authority["source_sha256"]),
                 require_current_receipt=False,
                 request_text=(args.request_text or None),
             )
@@ -10022,13 +10160,14 @@ def cmd_implementation_range_gate(args: argparse.Namespace) -> None:
             print(json.dumps(result, sort_keys=True))
             return
         if range_requires_retained_authority(contract):
+            genesis_authority = retained_range_genesis_authority(contract)
             try:
                 retained_full_tracker_authority(
                     policy,
                     all_events=owner_events,
                     policy_history=policy_history,
-                    source_record=str(contract["authority"]["source_record"]),
-                    source_sha256=str(contract["authority"]["source_sha256"]),
+                    source_record=str(genesis_authority["source_record"]),
+                    source_sha256=str(genesis_authority["source_sha256"]),
                     require_current_receipt=False,
                 )
             except SupervisionLogError as exc:
