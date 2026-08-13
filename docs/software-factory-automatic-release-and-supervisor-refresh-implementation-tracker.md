@@ -248,8 +248,8 @@ Mechanical identity proof only; semantic review occurs at Block 6.
 
 ### Completion evidence
 
-- Repository commit: `80e4ec1d44bf981a2eec0ba7dddd5345171efb9e`;
-  tree `25d8e4160a53af405e8494618b3fda1a45c63b73`.
+- Repository commit: `32f45c82e09b1fbe1366f47960107a5afc3aaa26`;
+  tree `9d7ecf1855240813051c3735ce38f8174508abc7`.
 - Inputs: `origin/main` at
   `a2f86665842ad9514fa1c38ed8a405f148f2025b`, integrated baseline
   `df6a0e5c84bcca88a167dbed48759c56bbe940e9`, accepted delegated-authority
@@ -282,14 +282,22 @@ Mechanical identity proof only; semantic review occurs at Block 6.
 - Mapped validation: supervision `369/369`; all three skill validators and the
   full eight-Block tracker verifier pass.
 - Candidate freeze: exact source `80e4ec1d44bf981a2eec0ba7dddd5345171efb9e`.
+- Baseline integrity correction: tracker-evidence checkpoint `e430a7f` exposed
+  that historical merge `df6a0e5` retained the active-release tree verbatim
+  while attaching `origin/main` only as ancestry. Successor `32f45c8`
+  restored the 104 main-added dashboard and dashboard-contract paths with
+  byte-identical Git blobs; the complete 105-path main-added set now reports
+  zero missing and zero changed-byte mismatches. No accepted or rejected
+  history was rewritten.
 - Remediation closure: rejected `77faa6a` legacy-classification regressions
   are closed by `3481649`; routed action/source identity separation is closed
   by `80e4ec1`.
 - Independent review: exact `80e4ec1` accepted with no findings; actual routed
   item-3240 and the preserved negative cases replayed.
 - Retained open work: Blocks 1–7 only; Block 1 is the next eligible Block.
-- Post-block audit: `origin/main` is an ancestor; HEAD equals upstream; worktree
-  is clean; the release owner alone promoted and verified the active identity.
+- Post-block audit: `origin/main` is an ancestor; the baseline implementation
+  head/upstream were exact and clean at `32f45c8` before this evidence-only
+  child; the release owner alone promoted and verified the active identity.
 - Git durability: the integrated source is committed and non-force pushed;
   this tracker-only completion checkpoint is committed and pushed before the
   Block 1 transition.
