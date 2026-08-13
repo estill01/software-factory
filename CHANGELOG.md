@@ -44,7 +44,8 @@ the completed program materially changes Software Factory.
   because Software Factory carries it to the configured target through
   `codex_delegation`. The canonical delegation envelope binds the original
   task/turn/item and exact bytes, current target mission and policy, the current
-  mission-activation source, and the owner-produced target-action route result
+  pending mission-activation source through fresh range admission, and the
+  owner-produced target-action route result
   and projection. Mission identity alone remains nonauthorizing; an
   independent base-or-Max acceptance precedes the existing authority event,
   receipt, and range-owner consumption. The recipient starts the full-tracker

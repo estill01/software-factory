@@ -1852,6 +1852,49 @@ class ImplementationRangeControlTests(unittest.TestCase):
         )
         return provenance
 
+    def start_current_delegated_activation(self) -> dict[str, object]:
+        directory = self.root / self.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        all_events = supervision_log.events(directory / "events.jsonl")
+        activation = next(
+            item
+            for item in supervision_log.mission_activation_heads(
+                all_events
+            ).values()
+            if item.get("mission_root")
+            == policy["mission_binding"]["mission_root"]
+        )
+        work_record = f"EVT-{len(all_events) + 1:06d}"
+        supervision_log.append_raw(
+            directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": work_record,
+                "timestamp": supervision_log.utc_now(),
+                "target_thread_id": self.target,
+                "kind": "escalation",
+                "status": "changed-state-review",
+                "evidence": ["block-0-work-started"],
+                "policy_sha256": policy["policy_sha256"],
+            },
+        )
+        result = self.call(
+            "mission-activation-start",
+            "--target-thread",
+            self.target,
+            "--mission-root",
+            str(activation["mission_root"]),
+            "--activation-policy-sha256",
+            str(activation["activation_policy_sha256"]),
+            "--first-eligible-work",
+            str(activation["first_eligible_work"]),
+            "--source-record",
+            work_record,
+            "--evidence",
+            "block-0-work-started",
+        )
+        return dict(result["record"])
+
     def retain_successor_range_authority(
         self,
         *,
@@ -2400,6 +2443,84 @@ class ImplementationRangeControlTests(unittest.TestCase):
                     )
                 for name, raw in before.items():
                     self.assertEqual((directory / name).read_bytes(), raw)
+
+    def test_delegated_ingest_rejects_nonhead_activation_source(self) -> None:
+        provenance = self.append_delegated_range_authority_review()
+        self.start_current_delegated_activation()
+        directory = self.root / self.target
+        before = (directory / "events.jsonl").read_bytes()
+        encoded = base64.b64encode(
+            supervision_log.canonical(provenance)
+        ).decode("ascii")
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "current activation head",
+        ):
+            self.call(
+                "direct-authority-ingest",
+                "--target-thread",
+                self.target,
+                "--provenance-base64",
+                encoded,
+            )
+
+        self.assertEqual((directory / "events.jsonl").read_bytes(), before)
+
+    def test_delegated_admission_rejects_nonhead_activation_source(self) -> None:
+        self.write_tracker(["not-started"] * 8)
+        provenance = self.append_delegated_range_authority_review()
+        encoded = base64.b64encode(
+            supervision_log.canonical(provenance)
+        ).decode("ascii")
+        ingested = self.call(
+            "direct-authority-ingest",
+            "--target-thread",
+            self.target,
+            "--provenance-base64",
+            encoded,
+        )
+        self.call(
+            "implementation-range-authority-receipt",
+            "--target-thread",
+            self.target,
+            "--authority-event-record",
+            str(ingested["record_id"]),
+        )
+        self.start_current_delegated_activation()
+        directory = self.root / self.target
+        before = {
+            name: (directory / name).read_bytes()
+            for name in (
+                "policy.json",
+                "policy-history.jsonl",
+                "events.jsonl",
+                supervision_log.EVENT_LEDGER_ANCHOR_NAME,
+            )
+        }
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "current activation head",
+        ):
+            self.call(
+                "implementation-range-admit",
+                "--target-thread",
+                self.target,
+                "--range-id",
+                "RANGE-DELEGATED-STALE-5678",
+                "--tracker",
+                str(self.tracker),
+                "--request-text",
+                str(provenance["source_text"]),
+                "--authority-source-record",
+                str(provenance["source_item_id"]),
+                "--authority-source-sha256",
+                str(provenance["source_sha256"]),
+            )
+
+        for name, raw in before.items():
+            self.assertEqual((directory / name).read_bytes(), raw)
 
     def test_delegated_route_owner_rejects_action_beyond_gate_ceiling(
         self,

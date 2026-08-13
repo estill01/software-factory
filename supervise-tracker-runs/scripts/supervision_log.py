@@ -2543,6 +2543,7 @@ def canonical_direct_authority_event(
     event_record_id: str,
     policy: Mapping[str, Any],
     policy_history: list[dict[str, Any]],
+    require_current_route_source: bool = False,
 ) -> dict[str, Any]:
     event = next(
         (item for item in all_events if item.get("record_id") == event_record_id),
@@ -2691,6 +2692,7 @@ def canonical_direct_authority_event(
             all_events,
             provenance=provenance,
             policy_sha256=source_policy_sha256,
+            require_current_activation_head=require_current_route_source,
         )
     return event
 
@@ -6872,6 +6874,7 @@ def canonical_delegated_direct_authority_route(
     *,
     provenance: Mapping[str, Any],
     policy_sha256: str,
+    require_current_activation_head: bool = False,
 ) -> dict[str, Any]:
     route_record_id = safe_id(
         str(provenance["route_record_id"]),
@@ -6985,6 +6988,24 @@ def canonical_delegated_direct_authority_route(
         raise SupervisionLogError(
             "Delegated authority route source must precede its owner result"
         )
+    if require_current_activation_head:
+        activation_id = safe_id(
+            str(route_source.get("activation_id", "")),
+            label="delegated-authority activation ID",
+        )
+        activation_head = mission_activation_heads(all_events).get(
+            activation_id
+        )
+        if (
+            activation_head is None
+            or activation_head.get("record_id")
+            != route_source.get("record_id")
+            or activation_head.get("record_sha256")
+            != route_source.get("record_sha256")
+        ):
+            raise SupervisionLogError(
+                "Delegated authority route source is not the current activation head"
+            )
     return route_record
 
 
@@ -7122,7 +7143,7 @@ def delegated_direct_authority_route_result(
         or route_source.get("schema_version") != 1
         or route_source.get("target_thread_id") != args.target_thread
         or route_source.get("kind") != "mission-activation"
-        or route_source.get("phase") not in MISSION_ACTIVATION_PHASES
+        or route_source.get("phase") != "pending"
         or current_mission is None
         or route_source.get("mission_root")
         != current_mission.get("mission_root")
@@ -7504,6 +7525,7 @@ def validate_direct_authority_provenance(
             all_events,
             provenance=provenance,
             policy_sha256=source_policy_sha256,
+            require_current_activation_head=True,
         )
     current_mission = bound_mission(dict(policy))
     source_mission = bound_mission(dict(historical_policy))
@@ -9120,6 +9142,7 @@ def retained_full_tracker_authority(
         event_record_id=str(receipt["source_event_record_id"]),
         policy=policy,
         policy_history=policy_history,
+        require_current_route_source=require_current_receipt,
     )
     evidence = source_event["evidence"]
     if (
@@ -9476,6 +9499,7 @@ def legacy_implementation_request_classification_from_state(
         event_record_id=str(receipt["source_event_record_id"]),
         policy=policy,
         policy_history=policy_history,
+        require_current_route_source=True,
     )
     evidence = source_event["evidence"]
     if evidence_value(evidence, "classification:") != (
@@ -9602,6 +9626,7 @@ def cmd_implementation_authority_receipt(args: argparse.Namespace) -> None:
         ),
         policy=policy,
         policy_history=policy_history,
+        require_current_route_source=True,
     )
     source_record = str(source_event["source_record"])
     source_sha256 = str(source_event["source_sha256"])
@@ -9655,6 +9680,7 @@ def cmd_implementation_authority_receipt(args: argparse.Namespace) -> None:
             event_record_id=str(source_event["record_id"]),
             policy=current_policy,
             policy_history=current_policy_history,
+            require_current_route_source=True,
         )
         if current_source_event != source_event:
             raise SupervisionLogError(

@@ -899,7 +899,7 @@ source, its independent base-or-Max review must already bind one direct-user
 task/turn/item, exact UTF-8 bytes/count/SHA, current policy and mission, and
 full-tracker classification. When that source reached the target through the
 system's own routing, first bind the originating task/turn/item and exact source
-bytes to the current mission-activation head, then record the allowed route
+bytes to the current pending mission-activation head, then record the allowed route
 through the route owner. The review additionally binds the `codex-delegation`
 transport, exact canonical target-action route result and activation-source
 record hashes, action hash, and deterministic route projection. The origin task
@@ -910,6 +910,12 @@ route/source/action bytes, unrelated or wrong-kind source record, mission
 identity alone, non-full scope, generic
 local-path requests, stale policy/events, replay mismatch, and ineligible review
 reject before append:
+
+The retained activation source must remain the exact current head through
+ingestion, receipt, and fresh range admission. Actual first-Block work starts
+only afterward and advances that activation to `work-started`; later
+same-mission range gates retain the accepted history without treating the now
+historical pending source as current authority for another admission.
 
 ```bash
 python3 <LOG_HELPER> delegated-direct-authority-route-record \
