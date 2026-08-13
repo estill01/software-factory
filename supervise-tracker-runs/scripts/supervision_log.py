@@ -4817,37 +4817,18 @@ def ensure_watcher_availability_incident_report(
 
     existing, _snapshot = read_text_snapshot(path)
     marker_rows = WATCHER_INCIDENT_REPORT_MARKER.findall(existing)
-    marker_by_record: dict[str, str] = {}
-    for record_id_value, record_sha256 in marker_rows:
-        if record_id_value in marker_by_record:
-            raise SupervisionLogError(
-                "Watcher availability incident report contains duplicate event entries"
-            )
-        marker_by_record[record_id_value] = record_sha256
-    expected_ids = [str(item["record_id"]) for item in report_records]
-    unknown_ids = set(marker_by_record).difference(expected_ids)
-    if unknown_ids:
+    expected_marker_rows = [
+        (str(item["record_id"]), str(item["record_sha256"]))
+        for item in report_records
+    ]
+    present_count = len(marker_rows)
+    if marker_rows != expected_marker_rows[:present_count]:
         raise SupervisionLogError(
-            "Watcher availability incident report contains a noncanonical event entry"
+            "Watcher availability incident report markers are not the canonical ordered prefix"
         )
-    present_count = 0
-    for item in report_records:
-        record_id_value = str(item["record_id"])
-        recorded_sha256 = marker_by_record.get(record_id_value)
-        if recorded_sha256 is None:
-            break
-        if recorded_sha256 != item["record_sha256"]:
-            raise SupervisionLogError(
-                "Watcher availability incident report event identity differs"
-            )
-        present_count += 1
     if present_count == 0:
         raise SupervisionLogError(
             "Existing watcher availability incident report lacks canonical initiation"
-        )
-    if any(record_id in marker_by_record for record_id in expected_ids[present_count:]):
-        raise SupervisionLogError(
-            "Watcher availability incident report event order differs"
         )
     missing = report_records[present_count:]
     if not missing:
