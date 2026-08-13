@@ -184,7 +184,7 @@ make their composition automatic and fail closed.
 | 0 | Freeze integrated baseline and ownership contract | — | `completed` |
 | 1 | Make existing range admission and runtime gates unavoidable | 0 | `completed` |
 | 2 | Implement exact-acceptance-triggered release orchestration | 1 | `completed` |
-| 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `in-progress` |
+| 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `completed` |
 | 4 | Verify health and recover through release-owner rollback | 3 | `not-started` |
 | 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `completed` |
 | 6 | Freeze, validate, independently review, merge, and promote | 4, 5 | `not-started` |
@@ -678,7 +678,7 @@ Stop before updating a running supervisor.
 
 ## Block 3 — Implement stable-channel safe-boundary supervisor refresh
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -754,6 +754,19 @@ Field-preservation and mid-action deferral regressions plus exact automation vie
   exact review observed `build_software_factory_supervisor_refresh_plan`
   validate the promotion/live release and current range independently without
   joining the selected promotion policy to current mission identity.
+- Accepted corrective source `810c601691c6267901ca301dbadb83452c7bcf11`,
+  tree `b2c77ccfe1e35248359e50ee0c67ea257582c62d`, sole parent corrected
+  Block 3 reopen checkpoint `61b72bb43cb31dfdb5433ed94d950eb3d4fe8043`,
+  is pushed on `origin/codex/block3-safe-boundary-refresh`. The two-file
+  `+44/-0` delta resolves the selected promotion policy through canonical
+  policy history and requires its exact mission root and source record to
+  equal the current mission before any release-owner call.
+- Affected corrective proof passed `1/1`. Independent exact-object review
+  accepted `810c601`: same-mission later-policy promotion performs the two
+  expected status reads, while predecessor-mission, missing-history, and
+  ambiguous-history inputs reject with zero owner calls. Python compilation
+  and diff checks passed; the unaffected `adf0d1c` focused `31/31` and mapped
+  `410/410` evidence was reused without rerun.
 - Rejected implementation source
   `adf0d1cee31be16424a47d89f834de96fb3387d8`, tree
   `41523f304d70b1583dae35cf751aa989714a6708`, sole parent accepted Block 5
