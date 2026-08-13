@@ -51,6 +51,37 @@ Identical semantic and currentness identities return
 `continue-program-unchanged` with zero cognitive/model work. A changed identity
 prepares one successor packet; it does not itself start reflection.
 
+## Generate divergent reflection
+
+Read `references/program-reflection.md` completely. Before the one bounded
+high-resolution generation pass, ensure the packet's exact product sources cover
+current observable behavior, the feature/capability inventory, and relevant
+planned, active, completed, accepted, rejected, retired, or superseded tracker
+inventory.
+Use their retained IDs; do not copy the inventories into the output.
+
+Generate one semantic submission, then validate and root it:
+
+```bash
+/usr/bin/python3 evolve-product-program/scripts/product_program_reflection.py \
+  build --packet <packet.json> --submission <reflection-submission.json>
+```
+
+The generator must expose evidence-linked observations, lessons, meta-patterns,
+capability gaps, category searches, contrary posture, a no-change comparison,
+and bounded candidates. It does not rank or select. Use at most one widening
+pass for counterexamples. Generator, future selector, tracker author,
+implementation owner, and evaluator identities remain distinct.
+
+Verify or cheaply reuse an exact artifact:
+
+```bash
+/usr/bin/python3 evolve-product-program/scripts/product_program_reflection.py \
+  verify --packet <packet.json> --reflection <reflection.json>
+/usr/bin/python3 evolve-product-program/scripts/product_program_reflection.py \
+  reuse --packet <packet.json> --reflection <reflection.json>
+```
+
 ## Authority boundary
 
 Every output is derived and nonauthorizing. This skill does not write trackers,
@@ -62,5 +93,6 @@ placement handoff before any canonical application.
 ## Stop
 
 For packet preparation, stop after a verified packet or deterministic unchanged
-result. Do not interpret evidence, generate candidates, select work, allocate a
-portfolio, edit a tracker, create a task, or perform an external effect.
+result. For reflection, stop after a verified reflection or exact reuse result.
+Do not rank/select work, allocate a portfolio, edit a tracker, create a task, or
+perform an external effect.
