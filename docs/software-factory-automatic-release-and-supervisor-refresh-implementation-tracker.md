@@ -181,7 +181,7 @@ make their composition automatic and fail closed.
 
 | Block | Scope | Depends on | Status |
 |---:|---|---:|---|
-| 0 | Freeze integrated baseline and ownership contract | — | `not-started` |
+| 0 | Freeze integrated baseline and ownership contract | — | `completed` |
 | 1 | Make existing range admission and runtime gates unavoidable | 0 | `in-progress` |
 | 2 | Implement exact-acceptance-triggered release orchestration | 1 | `not-started` |
 | 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `not-started` |
@@ -196,7 +196,7 @@ Required order:
 
 ## Block 0 — Freeze integrated baseline and ownership contract
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -248,7 +248,51 @@ Mechanical identity proof only; semantic review occurs at Block 6.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: `80e4ec1d44bf981a2eec0ba7dddd5345171efb9e`;
+  tree `25d8e4160a53af405e8494618b3fda1a45c63b73`.
+- Inputs: `origin/main` at
+  `a2f86665842ad9514fa1c38ed8a405f148f2025b`, integrated baseline
+  `df6a0e5c84bcca88a167dbed48759c56bbe940e9`, accepted delegated-authority
+  correction, and active release predecessor `f9fbd97f6f10-35409d30612a`.
+- Outputs: clean upstream-exact branch
+  `origin/codex/delegated-authority-integration-corrected`; active accepted
+  release `80e4ec1d44bf-c6fe137ec65a`; canonical range
+  `RANGE-DIRECT-USER-AUTO-RELEASE-BLOCKS-0-7`; mission work-start
+  `EVT-000519` / activation `EVT-000520`.
+- Owned-delta classification:
+  - Block 1 owns the implementation-range admission/runtime/final-response
+    gates in `implement-tracker-blocks` and `supervise-tracker-runs`, including
+    their policy, contract, and focused regression surfaces.
+  - Block 2 owns exact-acceptance-triggered orchestration above the unchanged
+    `scripts/skill_release.py promote` owner and the release-contract prose.
+  - Block 3 owns stable-channel safe-boundary role refresh and preservation of
+    mission, policy, event, cursor, incident, Gmail, schedule, model, and
+    automation identities.
+  - Block 4 owns installed-root/health verification, owner-requested rollback,
+    and restoration of the prior effective supervisor binding.
+  - Block 5 owns default terminal report delivery, raw attachment readback,
+    automation-owner lookup, and delivery-before-shutdown enforcement.
+  - Shared `supervision_log.py`, supervision policy, SKILL, tests, CHANGELOG,
+    and README hunks remain assigned by the five behaviors above; no current
+    source hunk introduces a second release, range, scheduler, Gmail, policy,
+    or lifecycle owner.
+- Focused validation: delegated range/authority `69/69`; release-owner
+  assurance `21/21`; author assurance `30/30`; implementation assurance
+  `69/69`.
+- Mapped validation: supervision `369/369`; all three skill validators and the
+  full eight-Block tracker verifier pass.
+- Candidate freeze: exact source `80e4ec1d44bf981a2eec0ba7dddd5345171efb9e`.
+- Remediation closure: rejected `77faa6a` legacy-classification regressions
+  are closed by `3481649`; routed action/source identity separation is closed
+  by `80e4ec1`.
+- Independent review: exact `80e4ec1` accepted with no findings; actual routed
+  item-3240 and the preserved negative cases replayed.
+- Retained open work: Blocks 1–7 only; Block 1 is the next eligible Block.
+- Post-block audit: `origin/main` is an ancestor; HEAD equals upstream; worktree
+  is clean; the release owner alone promoted and verified the active identity.
+- Git durability: the integrated source is committed and non-force pushed;
+  this tracker-only completion checkpoint is committed and pushed before the
+  Block 1 transition.
 
 ### Stop
 
