@@ -183,8 +183,8 @@ make their composition automatic and fail closed.
 |---:|---|---:|---|
 | 0 | Freeze integrated baseline and ownership contract | — | `completed` |
 | 1 | Make existing range admission and runtime gates unavoidable | 0 | `completed` |
-| 2 | Implement exact-acceptance-triggered release orchestration | 1 | `in-progress` |
-| 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `not-started` |
+| 2 | Implement exact-acceptance-triggered release orchestration | 1 | `completed` |
+| 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `in-progress` |
 | 4 | Verify health and recover through release-owner rollback | 3 | `not-started` |
 | 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `not-started` |
 | 6 | Freeze, validate, independently review, merge, and promote | 4, 5 | `not-started` |
@@ -425,7 +425,7 @@ Stop before invoking the release primitive.
 
 ## Block 2 — Implement exact-acceptance-triggered release orchestration
 
-Status: `in-progress`
+Status: `completed`
 
 ### Objective
 
@@ -490,7 +490,37 @@ Mocked owner-boundary tests plus an exact local promotion in Block 6.
 
 ### Completion evidence
 
-Pending.
+- Accepted implementation source: `80e4ec1d44bf981a2eec0ba7dddd5345171efb9e`;
+  current reviewed tracker checkpoint
+  `c69cca49533107b6a9093a419ffa0510a395cfd5`.
+- Trigger: independent exact acceptance of `80e4ec1` with no findings preceded
+  the sole flagless owner invocation
+  `scripts/skill_release.py promote --repo ... --source-commit 80e4ec1...`.
+  A push, self-asserted activated identity, or caller-supplied release ID did
+  not trigger or parameterize activation.
+- Owner result: release `80e4ec1d44bf-c6fe137ec65a`, previous release
+  `f9fbd97f6f10-35409d30612a`, installed verification root
+  `a4adec4c9b5f4eb0decd67b11193eca2766e879713577a1673393a97e66b56af`,
+  and three stable installed roots. Assurance passed release-owner `21`, author
+  `30`, implementation `69`, and supervision `369` tests.
+- Focused validation: release-owner `21/21`, covering flagless promotion,
+  exact result shape, already-active idempotence, divergent evidence rejection,
+  fresh installed verification, and prior-pointer restoration after failed
+  post-swap reload.
+- Architecture evidence: `skill_release.py` remains the only `current` pointer
+  writer; the maintained execution/supervision contract supplies orchestration
+  above it and consumes only its parsed, revalidated returned identity. Another
+  command or ledger would duplicate release ownership.
+- Manual pinning: retained only as the explicit compatibility/refresh exception
+  owned by Blocks 3 and 7; it is not a second Block 2 activation path.
+- Independent review: accepted with no findings. The reviewer confirmed the
+  actual transaction, `already-active` no-op semantics, rejection of divergent
+  identities, rollback behavior, and single-writer boundary.
+- Retained open work: Blocks 3–7; Blocks 3 and 5 are dependency-safe.
+- Post-block audit: canonical range remains current and nonterminal; no running
+  supervisor, automation, policy, or schedule was changed by Block 2.
+- Git durability: implementation source and all preceding tracker checkpoints
+  remain committed, upstream-exact, and pushed.
 
 ### Stop
 
@@ -500,7 +530,7 @@ Stop before updating a running supervisor.
 
 ## Block 3 — Implement stable-channel safe-boundary supervisor refresh
 
-Status: `not-started`
+Status: `in-progress`
 
 ### Objective
 
