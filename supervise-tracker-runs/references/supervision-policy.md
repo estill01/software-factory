@@ -889,23 +889,28 @@ python3 <LOG_HELPER> implementation-range-gate \
 
 Every new genesis, including the first range under a mission and a fresh
 mission-successor range, requires an already reviewed canonical authority
-receipt; mission identity is never range authority. For a nonlegacy exact direct
+receipt; mission identity alone is never range authority. For a nonlegacy exact direct
 source, its independent base-or-Max review must already bind one direct-user
 task/turn/item, exact UTF-8 bytes/count/SHA, current policy and mission, and
 full-tracker classification. When that source reached the target through the
-system's own routing, first record the exact allowed route through the route
-owner. The review additionally binds the `codex-delegation` transport, exact
-canonical target-action route result and source record hashes, action hash, and
-deterministic route projection. The origin task may differ from the
+system's own routing, first bind the originating task/turn/item and exact source
+bytes to the current mission-activation head, then record the allowed route
+through the route owner. The review additionally binds the `codex-delegation`
+transport, exact canonical target-action route result and activation-source
+record hashes, action hash, and deterministic route projection. The origin task
+may differ from the
 recipient only in this delegated shape. The maintained owner then ingests only
 that one source as a canonical event; an unbound routed packet, changed
-route/source/action bytes, mission identity alone, non-full scope, generic
+route/source/action bytes, unrelated or wrong-kind source record, mission
+identity alone, non-full scope, generic
 local-path requests, stale policy/events, replay mismatch, and ineligible review
 reject before append:
 
 ```bash
 python3 <LOG_HELPER> delegated-direct-authority-route-record \
   --target-thread <TARGET> --source-record <CANONICAL_ROUTE_SOURCE> \
+  --source-task <ORIGIN_TASK> --source-turn <ORIGIN_TURN> \
+  --source-item <ORIGIN_ITEM> \
   --action <EXACT_DIRECT_SOURCE_TEXT>
 
 python3 <LOG_HELPER> direct-authority-ingest \
