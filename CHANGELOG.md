@@ -47,6 +47,14 @@ the completed program materially changes Software Factory.
   changed-byte, unbound-review, divergent-result, and caller-selected release
   identity cases reject before they can become canonical promotion evidence.
 
+- **Safe-boundary stable-channel supervisor refresh.** A verified promotion now
+  produces one owner-readable refresh plan for the exact policy-bound automation
+  and runtime roles. Maintained pinned prompts migrate once to the three stable
+  `current` paths while schedules, status, models, target/role identities, and
+  notification configuration remain unchanged. Copied release hashes and
+  policy/range/frontier prose lose authority; paused and explicitly pinned
+  automations remain held, and running roles refresh at message boundaries.
+
 - **Provenance-bound authority across internal task routing.** A direct-user
   implementation instruction no longer loses its actionable authority merely
   because Software Factory carries it to the configured target through

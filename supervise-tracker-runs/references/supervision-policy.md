@@ -1167,9 +1167,17 @@ restores the prior pointer on failure. Existing scheduled automations must refer
 to the stable `current` skill, policy, and helper paths. A legacy prompt that
 names `releases/<release-id>` is migrated once after verified activation while
 preserving its automation ID, target thread, schedule, status, model, reasoning,
-and notification posture. Already-running role context receives the ordinary
-gated `role-refresh`; the next scheduled wake resolves the new release without a
-per-release prompt rewrite.
+and notification posture. Derive the exact update through
+`software-factory-supervisor-refresh-plan --target-thread <target> --repo <repo>
+--promotion-record <event>`, then apply its full preserved configuration only
+through the Codex automation owner. The plan rejects foreign role ownership,
+mixed release identities, unsupported copied authority, or a stale activated
+release; a maintained `manual-release-pin:<release-id>` remains unchanged.
+Already-running role context receives the plan's ordinary gated `role-refresh`;
+the next scheduled wake or role message boundary resolves the new release
+without a per-release prompt rewrite. Every wake rehydrates mission, policy,
+event head, range, dependency-safe frontier, cursors, and lifecycle posture from
+the current helper rather than copied prompt prose.
 
 Remote publication and signed local release activation are independent lanes.
 Use `skill-release-publication-gate` to project only the publication dimension.

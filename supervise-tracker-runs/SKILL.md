@@ -620,9 +620,15 @@ reserved deferrals, safe frontier, and application posture.
   review/cutover evidence is for a specifically required separation-of-duties
   boundary, not ordinary local skill maintenance. Scheduled automations bind to
   the stable `current` paths, so verified activation updates their next wakes
-  without rewriting schedules or identities; migrate any legacy release-pinned
-  prompt once after activation and refresh already-running role context through
-  the existing `role-refresh` gate. A supervisor may never create, select among
+  without rewriting schedules or identities. After promotion, run
+  `software-factory-supervisor-refresh-plan` with the exact promotion record.
+  It reads the configured automation owner files, rejects foreign roles or mixed
+  release identities, emits one full field-preserving migration for each
+  maintained release-pinned prompt, and retains explicit manual pins. Apply each
+  update only through the Codex automation owner; the next scheduled wake is the
+  safe runtime boundary. Route already-running role context through the plan's
+  existing `role-refresh` gates, which deliver at role message boundaries. A
+  supervisor may never create, select among
   ambiguous, rewrite, or force-push a remote.
 - Changes to models, target permissions, defect semantics, auto-steer
   authority, repository access, patent authority, or the skill allowlist still

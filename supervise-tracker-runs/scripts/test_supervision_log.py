@@ -4301,6 +4301,97 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         self.owner_actions.append(action)
         return copy.deepcopy(self.promotion if action == "promote" else self.status)
 
+    def pinned_automation_prompt(self, *, manual_pin: bool = False) -> str:
+        release_id = f"{'a' * 12}-{'b' * 12}"
+        root = supervision_log.SOFTWARE_FACTORY_RELEASE_ROOT
+        paths = [
+            root
+            / "releases"
+            / release_id
+            / "supervise-tracker-runs"
+            / name
+            for name in (
+                "SKILL.md",
+                "references/supervision-policy.md",
+                "scripts/supervision_log.py",
+            )
+        ]
+        pin = f" manual-release-pin:{release_id}." if manual_pin else ""
+        return (
+            "Run one bounded scheduled watcher check now. Use the released "
+            f"contract at {paths[0]} and {paths[1]} with helper {paths[2]} under "
+            f"maintained Python 3.14.{pin} Released hashes: SKILL {'1' * 64}; "
+            f"policy {'2' * 64}; helper {'3' * 64}. Target {self.target}; "
+            f"mission root {'4' * 64}; source tracker:release-refresh:1234; "
+            f"source SHA-256 {'5' * 64}; policy v3 SHA-256 {'6' * 64}. "
+            "The full Blocks 0-7 range remains active; derive the current active "
+            "frontier on every wake. Required target posture is in-progress. "
+            "Follow the exact watcher role and route changed state."
+        )
+
+    def write_automation(
+        self,
+        prompt: str,
+        *,
+        target_thread_id: str = "release-orchestration-watcher-1234",
+        status: str = "ACTIVE",
+    ) -> str:
+        automation_id = "release-refresh-automation-1234"
+        automation_root = Path(self.temporary.name) / "automations"
+        directory = automation_root / automation_id
+        directory.mkdir(parents=True)
+        directory.joinpath("automation.toml").write_text(
+            "\n".join(
+                (
+                    "version = 1",
+                    f'id = "{automation_id}"',
+                    'kind = "heartbeat"',
+                    'name = "Release refresh test"',
+                    f"prompt = {json.dumps(prompt)}",
+                    f'status = "{status}"',
+                    'rrule = "RRULE:FREQ=MINUTELY;INTERVAL=20"',
+                    f'target_thread_id = "{target_thread_id}"',
+                    'model = "gpt-5.6-terra"',
+                    'reasoning_effort = "max"',
+                    "created_at = 1",
+                    "updated_at = 2",
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+        self.call(
+            "bind",
+            "--target-thread",
+            self.target,
+            "--routine-automation",
+            automation_id,
+        )
+        return automation_id
+
+    def refresh_plan(
+        self, promotion_record: str, automation_root: Path
+    ) -> dict[str, object]:
+        with (
+            mock.patch.object(
+                supervision_log, "CODEX_AUTOMATIONS_ROOT", automation_root
+            ),
+            mock.patch.object(
+                supervision_log,
+                "run_software_factory_release_owner",
+                side_effect=self.fake_owner,
+            ),
+        ):
+            return self.call(
+                "software-factory-supervisor-refresh-plan",
+                "--target-thread",
+                self.target,
+                "--repo",
+                str(self.repo),
+                "--promotion-record",
+                promotion_record,
+            )
+
     def test_exact_acceptance_invokes_flagless_owner_and_deduplicates(self) -> None:
         accepted = self.acceptance()
         with mock.patch.object(
@@ -4635,6 +4726,117 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
                         "caller-release-1234",
                     ]
                 )
+
+    def test_refresh_plan_migrates_only_prompt_at_next_wake(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.owner_actions.clear()
+        automation_id = self.write_automation(self.pinned_automation_prompt())
+        automation_root = Path(self.temporary.name) / "automations"
+        plan = self.refresh_plan(
+            str(promoted["promotion"]["record_id"]), automation_root
+        )
+        self.assertEqual(self.owner_actions, ["status"])
+        self.assertEqual(
+            plan["refresh_boundary"],
+            "next-scheduled-wake-or-role-message-boundary",
+        )
+        self.assertEqual(len(plan["automation_updates"]), 1)
+        update = plan["automation_updates"][0]
+        self.assertEqual(update["automation_id"], automation_id)
+        self.assertEqual(
+            update["preserved_config"]["rrule"],
+            "RRULE:FREQ=MINUTELY;INTERVAL=20",
+        )
+        self.assertEqual(update["preserved_config"]["status"], "ACTIVE")
+        stable = update["stable_prompt"]
+        self.assertEqual(
+            stable.count(
+                str(supervision_log.SOFTWARE_FACTORY_RELEASE_ROOT / "current")
+                + "/"
+            ),
+            3,
+        )
+        for stale in (
+            "/releases/",
+            "Released hashes:",
+            "mission root ",
+            "source SHA-256 ",
+            "policy v",
+            "The full Blocks ",
+            "Required target posture ",
+        ):
+            self.assertNotIn(stale, stable)
+        self.assertIn("Rehydrate the current mission", stable)
+        self.assertTrue(plan["role_refreshes"])
+
+    def test_refresh_plan_is_noop_for_stable_prompt(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.owner_actions.clear()
+        stable, pin = supervision_log.software_factory_stable_automation_prompt(
+            self.pinned_automation_prompt(), target_thread=self.target
+        )
+        self.assertIsNone(pin)
+        self.write_automation(stable)
+        plan = self.refresh_plan(
+            str(promoted["promotion"]["record_id"]),
+            Path(self.temporary.name) / "automations",
+        )
+        self.assertEqual(plan["automation_updates"], [])
+        self.assertEqual(len(plan["current_automations"]), 1)
+
+    def test_refresh_plan_retains_explicit_manual_pin(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.owner_actions.clear()
+        self.write_automation(self.pinned_automation_prompt(manual_pin=True))
+        plan = self.refresh_plan(
+            str(promoted["promotion"]["record_id"]),
+            Path(self.temporary.name) / "automations",
+        )
+        self.assertEqual(plan["automation_updates"], [])
+        self.assertEqual(len(plan["manual_pins"]), 1)
+        self.assertEqual(
+            plan["manual_pins"][0]["release_id"],
+            f"{'a' * 12}-{'b' * 12}",
+        )
+
+    def test_refresh_plan_rejects_foreign_automation_role(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        self.owner_actions.clear()
+        self.write_automation(
+            self.pinned_automation_prompt(),
+            target_thread_id="foreign-role-thread-1234",
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "not bound to a configured role"
+        ):
+            self.refresh_plan(
+                str(promoted["promotion"]["record_id"]),
+                Path(self.temporary.name) / "automations",
+            )
 
 
 class LegacyDirectAuthorityIngestTests(unittest.TestCase):
