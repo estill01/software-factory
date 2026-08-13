@@ -3,7 +3,7 @@
     "evidence_ids": [
       "resource-b-estimate"
     ],
-    "method": "bounded token and elapsed-time ranges from retained event counts",
+    "method": "bounded-retained-event-counts-v1",
     "profile_id": "bounded-resource-estimation",
     "version": 1
   },
@@ -25,7 +25,7 @@
           "evidence_ids": [
             "outcome-1"
           ],
-          "uncertainty": "bounded by retained outcome evidence",
+          "uncertainty": "retained-observation-boundary",
           "value": "completed"
         },
         "compounding_value": {
@@ -33,7 +33,7 @@
           "evidence_ids": [
             "outcome-1"
           ],
-          "uncertainty": "bounded by retained outcome evidence",
+          "uncertainty": "retained-observation-boundary",
           "value": "reusable"
         },
         "opportunity_cost": {
@@ -41,7 +41,7 @@
           "evidence_ids": [
             "outcome-1"
           ],
-          "uncertainty": "bounded by retained outcome evidence",
+          "uncertainty": "retained-observation-boundary",
           "value": "medium"
         },
         "product_effect": {
@@ -49,7 +49,7 @@
           "evidence_ids": [
             "outcome-1"
           ],
-          "uncertainty": "bounded by retained outcome evidence",
+          "uncertainty": "retained-observation-boundary",
           "value": "beneficial"
         },
         "protected_capability_result": {
@@ -57,7 +57,7 @@
           "evidence_ids": [
             "cold-start"
           ],
-          "uncertainty": "bounded by retained outcome evidence",
+          "uncertainty": "retained-observation-boundary",
           "value": "preserved"
         },
         "recurrence_reach": {
@@ -65,7 +65,7 @@
           "evidence_ids": [
             "outcome-1"
           ],
-          "uncertainty": "bounded by retained outcome evidence",
+          "uncertainty": "retained-observation-boundary",
           "value": "recurrent"
         },
         "reuse": {
@@ -73,7 +73,7 @@
           "evidence_ids": [
             "outcome-1"
           ],
-          "uncertainty": "bounded by retained outcome evidence",
+          "uncertainty": "retained-observation-boundary",
           "value": "partial"
         },
         "reversibility": {
@@ -81,7 +81,7 @@
           "evidence_ids": [
             "outcome-1"
           ],
-          "uncertainty": "bounded by retained outcome evidence",
+          "uncertainty": "retained-observation-boundary",
           "value": "reversible"
         }
       },
@@ -92,7 +92,7 @@
             "resource-a"
           ],
           "lower": 2,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-observed-measure",
           "unit": "count",
           "upper": 2
         },
@@ -102,7 +102,7 @@
             "resource-a"
           ],
           "lower": 2,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-observed-measure",
           "unit": "seconds",
           "upper": 2
         },
@@ -112,7 +112,7 @@
             "resource-a"
           ],
           "lower": 2,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-observed-measure",
           "unit": "count",
           "upper": 2
         },
@@ -122,7 +122,7 @@
             "resource-a"
           ],
           "lower": 2,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-observed-measure",
           "unit": "count",
           "upper": 2
         },
@@ -132,7 +132,7 @@
             "resource-a"
           ],
           "lower": 2,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-observed-measure",
           "unit": "count",
           "upper": 2
         },
@@ -142,7 +142,7 @@
             "resource-a"
           ],
           "lower": 2,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-observed-measure",
           "unit": "count",
           "upper": 2
         },
@@ -152,7 +152,7 @@
             "resource-a"
           ],
           "lower": 2,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-observed-measure",
           "unit": "count",
           "upper": 2
         },
@@ -162,7 +162,7 @@
             "resource-a-provider"
           ],
           "lower": 120,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-provider-reported-token-count",
           "unit": "tokens",
           "upper": 120
         },
@@ -172,7 +172,7 @@
             "resource-a"
           ],
           "lower": 2,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-observed-measure",
           "unit": "count",
           "upper": 2
         },
@@ -182,7 +182,7 @@
             "resource-a"
           ],
           "lower": 2,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-observed-measure",
           "unit": "count",
           "upper": 2
         },
@@ -192,7 +192,7 @@
             "resource-a"
           ],
           "lower": 2,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-observed-measure",
           "unit": "count",
           "upper": 2
         }
@@ -223,8 +223,8 @@
           "user_corrections"
         ],
         "uncertainties": [
-          "association does not prove causation",
-          "rare high-value work remains visible"
+          "association-not-causal",
+          "rare-high-value-work-preserved"
         ]
       },
       "work_class_id": "feature-delivery"
@@ -236,7 +236,7 @@
           "evidence_ids": [
             "outcome-1"
           ],
-          "uncertainty": "bounded by retained outcome evidence",
+          "uncertainty": "retained-observation-boundary",
           "value": "completed"
         },
         "compounding_value": {
@@ -244,7 +244,7 @@
           "evidence_ids": [
             "outcome-1"
           ],
-          "uncertainty": "bounded by retained outcome evidence",
+          "uncertainty": "retained-observation-boundary",
           "value": "reusable"
         },
         "opportunity_cost": {
@@ -252,7 +252,7 @@
           "evidence_ids": [
             "outcome-1"
           ],
-          "uncertainty": "bounded by retained outcome evidence",
+          "uncertainty": "retained-observation-boundary",
           "value": "medium"
         },
         "product_effect": {
@@ -260,7 +260,7 @@
           "evidence_ids": [
             "outcome-1"
           ],
-          "uncertainty": "bounded by retained outcome evidence",
+          "uncertainty": "retained-observation-boundary",
           "value": "beneficial"
         },
         "protected_capability_result": {
@@ -268,7 +268,7 @@
           "evidence_ids": [
             "cold-start"
           ],
-          "uncertainty": "bounded by retained outcome evidence",
+          "uncertainty": "retained-observation-boundary",
           "value": "preserved"
         },
         "recurrence_reach": {
@@ -276,7 +276,7 @@
           "evidence_ids": [
             "outcome-1"
           ],
-          "uncertainty": "bounded by retained outcome evidence",
+          "uncertainty": "retained-observation-boundary",
           "value": "recurrent"
         },
         "reuse": {
@@ -284,7 +284,7 @@
           "evidence_ids": [
             "outcome-1"
           ],
-          "uncertainty": "bounded by retained outcome evidence",
+          "uncertainty": "retained-observation-boundary",
           "value": "partial"
         },
         "reversibility": {
@@ -292,7 +292,7 @@
           "evidence_ids": [
             "outcome-1"
           ],
-          "uncertainty": "bounded by retained outcome evidence",
+          "uncertainty": "retained-observation-boundary",
           "value": "reversible"
         }
       },
@@ -303,7 +303,7 @@
             "resource-b"
           ],
           "lower": 2,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-observed-measure",
           "unit": "count",
           "upper": 2
         },
@@ -313,7 +313,7 @@
             "resource-b-estimate"
           ],
           "lower": 30,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "bounded-estimate-range",
           "unit": "seconds",
           "upper": 60
         },
@@ -323,7 +323,7 @@
             "resource-b"
           ],
           "lower": 2,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-observed-measure",
           "unit": "count",
           "upper": 2
         },
@@ -333,7 +333,7 @@
             "resource-b"
           ],
           "lower": 2,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-observed-measure",
           "unit": "count",
           "upper": 2
         },
@@ -343,7 +343,7 @@
             "resource-b"
           ],
           "lower": 2,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-observed-measure",
           "unit": "count",
           "upper": 2
         },
@@ -353,7 +353,7 @@
             "resource-b"
           ],
           "lower": 2,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-observed-measure",
           "unit": "count",
           "upper": 2
         },
@@ -363,7 +363,7 @@
             "resource-b"
           ],
           "lower": 2,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-observed-measure",
           "unit": "count",
           "upper": 2
         },
@@ -373,7 +373,7 @@
             "resource-b-estimate"
           ],
           "lower": 80,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "bounded-estimate-range",
           "unit": "tokens",
           "upper": 140
         },
@@ -383,7 +383,7 @@
             "resource-b"
           ],
           "lower": 2,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-observed-measure",
           "unit": "count",
           "upper": 2
         },
@@ -393,7 +393,7 @@
             "resource-b"
           ],
           "lower": 2,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-observed-measure",
           "unit": "count",
           "upper": 2
         },
@@ -403,7 +403,7 @@
             "resource-b"
           ],
           "lower": 2,
-          "uncertainty": "bounded by retained source and evidence class",
+          "uncertainty": "exact-observed-measure",
           "unit": "count",
           "upper": 2
         }
@@ -434,8 +434,8 @@
           "user_corrections"
         ],
         "uncertainties": [
-          "association does not prove causation",
-          "rare high-value work remains visible"
+          "association-not-causal",
+          "rare-high-value-work-preserved"
         ]
       },
       "work_class_id": "reliability-remediation"

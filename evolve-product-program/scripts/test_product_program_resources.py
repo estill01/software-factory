@@ -53,7 +53,7 @@ class ProductProgramResourceTests(unittest.TestCase):
         return {
             "evidence_class": "observed",
             "evidence_ids": [evidence_id],
-            "uncertainty": "bounded by retained outcome evidence",
+            "uncertainty": "retained-observation-boundary",
             "value": values[dimension],
         }
 
@@ -72,7 +72,7 @@ class ProductProgramResourceTests(unittest.TestCase):
             "evidence_class": evidence_class,
             "evidence_ids": [evidence_id],
             "lower": lower,
-            "uncertainty": "bounded by retained source and evidence class",
+            "uncertainty": MODULE.RESOURCE_UNCERTAINTY_BY_CLASS[evidence_class],
             "unit": MODULE.RESOURCE_UNITS[dimension],
             "upper": upper,
         }
@@ -103,8 +103,8 @@ class ProductProgramResourceTests(unittest.TestCase):
                 "outcome_dimensions": list(MODULE.OUTCOME_DIMENSIONS),
                 "resource_dimensions": list(MODULE.RESOURCE_DIMENSIONS),
                 "uncertainties": [
-                    "association does not prove causation",
-                    "rare high-value work remains visible",
+                    "association-not-causal",
+                    "rare-high-value-work-preserved",
                 ],
             },
             "work_class_id": work_class_id,
@@ -114,7 +114,7 @@ class ProductProgramResourceTests(unittest.TestCase):
         return {
             "estimation_profile": {
                 "evidence_ids": ["resource-b-estimate"],
-                "method": "bounded token and elapsed-time ranges from retained event counts",
+                "method": "bounded-retained-event-counts-v1",
                 "profile_id": "bounded-resource-estimation",
                 "version": 1,
             },
@@ -233,7 +233,18 @@ class ProductProgramResourceTests(unittest.TestCase):
     def test_estimate_cannot_fabricate_product_effect(self) -> None:
         invalid = deepcopy(self.source)
         invalid["work_classes"][0]["outcomes"]["product_effect"]["evidence_class"] = "estimated"
+        invalid["work_classes"][0]["outcomes"]["product_effect"]["uncertainty"] = (
+            "bounded-estimate-not-observed"
+        )
         self.assert_rejected(invalid, "cannot be fabricated")
+
+    def test_provider_reported_is_token_resource_only(self) -> None:
+        invalid = deepcopy(self.source)
+        invalid["work_classes"][0]["outcomes"]["product_effect"].update(
+            evidence_class="provider-reported",
+            uncertainty="exact-provider-reported-token-count",
+        )
+        self.assert_rejected(invalid, "supported only for token resources")
 
     def test_outcome_cannot_rely_only_on_resource_or_report_hypotheses(self) -> None:
         invalid = deepcopy(self.source)
@@ -260,10 +271,58 @@ class ProductProgramResourceTests(unittest.TestCase):
         aggregate = deepcopy(self.source)
         aggregate["work_classes"][0]["score"] = 0.9
         self.assert_rejected(aggregate, "aggregate, billing, spend, or ranking")
+        hidden = deepcopy(self.source)
+        hidden["estimation_profile"]["method"] = (
+            "Provider actual billing cost with weighted utility chooses fastest work"
+        )
+        self.assert_rejected(hidden, "aggregate, billing, spend, or ranking")
+        hidden_uncertainty = deepcopy(self.source)
+        hidden_uncertainty["work_classes"][0]["useful_yield"]["uncertainties"] = [
+            "aggregate-score-ranks-fast-work"
+        ]
+        self.assert_rejected(hidden_uncertainty, "aggregate, billing, spend, or ranking")
+
+    def test_profile_change_rebuilds_estimated_rows_only(self) -> None:
+        prior = MODULE.build_resource_evidence(self.packet, self.source)
+        changed = deepcopy(self.source)
+        changed["estimation_profile"]["version"] = 2
+        self.source = changed
+        self.rebind()
+        successor = MODULE.build_resource_evidence(self.packet, self.source, prior)
+        self.assertEqual(
+            prior["work_classes"][0]["row_root"], successor["work_classes"][0]["row_root"]
+        )
+        self.assertNotEqual(
+            prior["work_classes"][1]["row_root"], successor["work_classes"][1]["row_root"]
+        )
+
+    def test_estimated_or_inferred_point_precision_rejects(self) -> None:
+        estimated = deepcopy(self.source)
+        estimated["work_classes"][1]["resources"]["tokens"]["upper"] = 80
+        self.assert_rejected(estimated, "requires a range")
+        inferred = deepcopy(self.source)
+        inferred["work_classes"][1]["resources"]["tokens"].update(
+            evidence_class="inferred",
+            uncertainty="bounded-inference-range",
+            upper=80,
+        )
+        self.source = inferred
+        self.rebind()
+        next(
+            entry
+            for entry in self.packet["resource_sources"]
+            if entry["source_id"] == "resource-b-estimate"
+        )["evidence_class"] = "inferred"
+        self.reroot_packet()
+        with self.assertRaisesRegex(MODULE.ProductProgramError, "requires a range"):
+            MODULE.build_resource_evidence(self.packet, self.source)
 
     def test_unavailable_evidence_cannot_carry_a_value(self) -> None:
         invalid = deepcopy(self.source)
         invalid["work_classes"][0]["resources"]["incidents"]["evidence_class"] = "unavailable"
+        invalid["work_classes"][0]["resources"]["incidents"]["uncertainty"] = (
+            "unavailable-after-bounded-search"
+        )
         self.assert_rejected(invalid, "unavailable evidence has a numeric value")
 
     def test_stale_packet_or_manifest_binding_rejects(self) -> None:

@@ -21,7 +21,8 @@ currentness root, canonical source-manifest root, and transformation version.
 ## Evidence classes and dimensions
 
 Every value is explicitly `observed`, `provider-reported`, `estimated`,
-`inferred`, or `unavailable`. `provider-reported` is supported only for tokens.
+`inferred`, or `unavailable`. `provider-reported` is supported only for token
+resources and rejects for every outcome.
 Observed and provider-reported numeric values are exact bounds; estimated or
 inferred values remain ranges. Unavailable dimensions retain the evidence for
 the bounded search but carry no numeric or categorical result.
@@ -35,8 +36,18 @@ Each work class keeps these outcome dimensions separate:
 Each work class separately records elapsed time, tokens, commands, tools,
 validation/review, integration, rework, reopened findings, incidents, rollbacks,
 and user corrections. Estimated values require the exact retained versioned
-estimation profile. An estimate cannot fabricate completion, product effect, or
-protected-capability results.
+estimation profile. Every estimated or inferred row root binds that exact profile
+identity, while all-observed rows may be reused across a profile-only change.
+Estimates and inferences require genuine lower/upper intervals; point precision
+is reserved for observed or provider-reported evidence. An estimate cannot
+fabricate completion, product effect, or protected-capability results.
+
+Semantic method and uncertainty values are closed identifiers rather than free
+prose. The only v1 estimation method is
+`bounded-retained-event-counts-v1`; evidence-class uncertainty identifiers are
+fixed by the builder; useful yield requires `association-not-causal` and
+`rare-high-value-work-preserved`. Billing, utility, score, ranking, or speed
+claims therefore cannot hide in otherwise valid text.
 
 ## Useful-yield and economy boundary
 

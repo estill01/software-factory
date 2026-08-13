@@ -1,11 +1,11 @@
 {
-  "artifact_root": "3f26ac71eefde59ad5253ed51f943aeab35f57cc72137ce31b478bbdf927eb04",
+  "artifact_root": "bcea622cb0ea6511bf99134bb647e2c1ce69d755dfc83560ff890a3a6822d21a",
   "authority": {
     "direct_effects_allowed": false,
     "posture": "derived-nonauthorizing",
     "source_record": "direct-user-fixture"
   },
-  "currentness_root": "5cc4914f81141244e9fade23b3f80a2b61aeb45088e7bbb16259c2d1deb61437",
+  "currentness_root": "06a0ed0ceea20ea0af9151fd32b61d3e823c92957c5e54ec2e688d0a6d9a7011",
   "decisions": [
     {
       "byte_length": 68,
@@ -25,7 +25,7 @@
     }
   ],
   "kind": "product-program-evidence-packet",
-  "material_change_fingerprint": "922825ad4423ca0cdb4870582a3ed874c971c547ce772792ff3e0c4a29f43b43",
+  "material_change_fingerprint": "3a486908852dc8dd87a079f26777a557170c1982d45a330b6224614eeb3a7334",
   "mission": {
     "mission_root": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
     "source_record": "direct-user-fixture",
@@ -38,7 +38,7 @@
     "root": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "status": "completed"
   },
-  "packet_id": "program-packet-922825ad4423ca0cdb48",
+  "packet_id": "program-packet-3a486908852dc8dd87a0",
   "product_sources": [
     {
       "byte_length": 22,
@@ -123,10 +123,10 @@
       "source_id": "resource-b-estimate"
     },
     {
-      "byte_length": 7908,
+      "byte_length": 7231,
       "evidence_class": "estimated",
       "path_sha256": "28e0a69d48dae76355f01c7efed9328f6f8767046a03a58863354429690a7ec9",
-      "sha256": "edb4c070ed1c84911cdc8fc8f3667712eb6136fc17ac636d5e6bd519f9ed1347",
+      "sha256": "b877339de39e37dfbc46793c66fdd97144c11a5b1ef60f873c135a3a7a4c8172",
       "source_id": "resource-manifest"
     }
   ],

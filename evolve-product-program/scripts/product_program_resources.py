@@ -85,6 +85,24 @@ LIMITATIONS = [
     "observed-association-is-not-causal-proof",
     "rare-high-value-work-must-remain-visible",
 ]
+ESTIMATION_METHOD_IDS = {"bounded-retained-event-counts-v1"}
+OUTCOME_UNCERTAINTY_BY_CLASS = {
+    "estimated": "bounded-estimate-not-observed",
+    "inferred": "bounded-inference-not-causal",
+    "observed": "retained-observation-boundary",
+    "unavailable": "unavailable-after-bounded-search",
+}
+RESOURCE_UNCERTAINTY_BY_CLASS = {
+    "estimated": "bounded-estimate-range",
+    "inferred": "bounded-inference-range",
+    "observed": "exact-observed-measure",
+    "provider-reported": "exact-provider-reported-token-count",
+    "unavailable": "unavailable-after-bounded-search",
+}
+USEFUL_YIELD_UNCERTAINTIES = [
+    "association-not-causal",
+    "rare-high-value-work-preserved",
+]
 FORBIDDEN_INPUT_KEYS = {
     "actual_cost",
     "billing",
@@ -160,10 +178,14 @@ def normalize_outcome_measure(
         f"{dimension} outcome",
     )
     evidence_class = normalize_evidence_class(item["evidence_class"], f"{dimension} outcome")
+    if evidence_class == "provider-reported":
+        raise ProductProgramError("provider-reported evidence is supported only for token resources")
     outcome_value = item["value"]
     if outcome_value not in OUTCOME_VALUES[dimension]:
         raise ProductProgramError(f"{dimension} outcome value is unsupported")
     uncertainty = bounded_text(item["uncertainty"], f"{dimension} uncertainty")
+    if uncertainty != OUTCOME_UNCERTAINTY_BY_CLASS[evidence_class]:
+        raise ProductProgramError(f"{dimension} outcome uncertainty identifier differs")
     ids = evidence_ids(item["evidence_ids"], f"{dimension} evidence IDs", allowed_evidence)
     if evidence_class == "unavailable":
         if outcome_value != "unavailable":
@@ -195,6 +217,8 @@ def normalize_resource_measure(
     evidence_class = normalize_evidence_class(item["evidence_class"], f"{dimension} resource")
     ids = evidence_ids(item["evidence_ids"], f"{dimension} evidence IDs", allowed_evidence)
     uncertainty = bounded_text(item["uncertainty"], f"{dimension} uncertainty")
+    if uncertainty != RESOURCE_UNCERTAINTY_BY_CLASS[evidence_class]:
+        raise ProductProgramError(f"{dimension} resource uncertainty identifier differs")
     if item["unit"] != RESOURCE_UNITS[dimension]:
         raise ProductProgramError(f"{dimension} resource unit differs")
     lower, upper = item["lower"], item["upper"]
@@ -209,6 +233,8 @@ def normalize_resource_measure(
             or upper < lower
         ):
             raise ProductProgramError(f"{dimension} resource bounds are invalid")
+        if evidence_class in {"estimated", "inferred"} and lower == upper:
+            raise ProductProgramError(f"{dimension} estimated or inferred resource requires a range")
         if evidence_class in {"observed", "provider-reported"} and lower != upper:
             raise ProductProgramError(f"{dimension} direct evidence cannot claim an estimated range")
     if evidence_class == "provider-reported" and dimension != "tokens":
@@ -231,7 +257,7 @@ def normalize_estimation_profile(value: Any, allowed_evidence: set[str]) -> dict
     )
     if type(item["version"]) is not int or item["version"] < 1:
         raise ProductProgramError("estimation profile version must be a positive integer")
-    return {
+    result = {
         "evidence_ids": evidence_ids(
             item["evidence_ids"], "estimation profile evidence IDs", allowed_evidence
         ),
@@ -239,6 +265,9 @@ def normalize_estimation_profile(value: Any, allowed_evidence: set[str]) -> dict
         "profile_id": exact_id(item["profile_id"], "estimation profile ID"),
         "version": item["version"],
     }
+    if result["method"] not in ESTIMATION_METHOD_IDS:
+        raise ProductProgramError("estimation profile method identifier is unsupported")
+    return result
 
 
 def normalize_useful_yield(value: Any) -> dict[str, Any]:
@@ -259,18 +288,13 @@ def normalize_useful_yield(value: Any) -> dict[str, Any]:
     if item["resource_dimensions"] != list(RESOURCE_DIMENSIONS):
         raise ProductProgramError("useful yield omits or reorders a resource dimension")
     uncertainties = item["uncertainties"]
-    if (
-        not isinstance(uncertainties, list)
-        or not uncertainties
-        or len(uncertainties) > 16
-        or uncertainties != sorted(set(uncertainties))
-    ):
-        raise ProductProgramError("useful-yield uncertainties must be a sorted nonempty array")
+    if uncertainties != USEFUL_YIELD_UNCERTAINTIES:
+        raise ProductProgramError("useful-yield uncertainty identifiers differ")
     return {
         "comparison_posture": "dimension-by-dimension-only",
         "outcome_dimensions": list(OUTCOME_DIMENSIONS),
         "resource_dimensions": list(RESOURCE_DIMENSIONS),
-        "uncertainties": [bounded_text(item, "useful-yield uncertainty") for item in uncertainties],
+        "uncertainties": list(USEFUL_YIELD_UNCERTAINTIES),
     }
 
 
@@ -408,21 +432,36 @@ def authority() -> dict[str, Any]:
     }
 
 
-def normalize_prior_row(value: Any) -> dict[str, Any]:
+def work_source_input_root(entry: Mapping[str, Any], estimation_profile: Mapping[str, Any]) -> str:
+    derived = any(
+        measure["evidence_class"] in {"estimated", "inferred"}
+        for group in (entry["outcomes"], entry["resources"])
+        for measure in group.values()
+    )
+    return digest(
+        {
+            "estimation_profile": estimation_profile if derived else None,
+            "work_class": entry,
+        }
+    )
+
+
+def normalize_prior_row(
+    value: Any, estimation_profile: Mapping[str, Any]
+) -> dict[str, Any]:
     item = exact_keys(
         value,
         {"outcomes", "resources", "row_root", "source_input_root", "useful_yield", "work_class_id"},
         "prior work-class row",
     )
     exact_id(item["work_class_id"], "prior work-class ID")
-    if item["source_input_root"] != digest(
-        {
-            "outcomes": item["outcomes"],
-            "resources": item["resources"],
-            "useful_yield": item["useful_yield"],
-            "work_class_id": item["work_class_id"],
-        }
-    ):
+    source_entry = {
+        "outcomes": item["outcomes"],
+        "resources": item["resources"],
+        "useful_yield": item["useful_yield"],
+        "work_class_id": item["work_class_id"],
+    }
+    if item["source_input_root"] != work_source_input_root(source_entry, estimation_profile):
         raise ProductProgramError("prior work-class source root is stale")
     expected = digest({key: item[key] for key in item if key != "row_root"})
     if item["row_root"] != expected:
@@ -444,7 +483,7 @@ def normalize_prior_artifact(value: Mapping[str, Any]) -> list[dict[str, Any]]:
         raise ProductProgramError("prior resource evidence artifact root is stale")
     if not isinstance(value["work_classes"], list):
         raise ProductProgramError("prior resource evidence work classes differ")
-    rows = [normalize_prior_row(row) for row in value["work_classes"]]
+    rows = [normalize_prior_row(row, value["estimation_profile"]) for row in value["work_classes"]]
     rows.sort(key=lambda row: row["work_class_id"])
     if rows != value["work_classes"] or len({row["work_class_id"] for row in rows}) != len(rows):
         raise ProductProgramError("prior resource evidence rows are not normalized")
@@ -462,7 +501,7 @@ def build_resource_evidence(
         prior_by_id = {row["work_class_id"]: row for row in normalize_prior_artifact(prior)}
     rows: list[dict[str, Any]] = []
     for entry in normalized["work_classes"]:
-        source_input_root = digest(entry)
+        source_input_root = work_source_input_root(entry, normalized["estimation_profile"])
         prior_row = prior_by_id.get(entry["work_class_id"])
         if prior_row is not None and prior_row["source_input_root"] == source_input_root:
             rows.append(prior_row)
@@ -529,7 +568,10 @@ def verify_resource_evidence(
         raise ProductProgramError("resource evidence currentness is stale")
     if not isinstance(artifact["work_classes"], list):
         raise ProductProgramError("resource evidence work classes differ")
-    actual_rows = [normalize_prior_row(row) for row in artifact["work_classes"]]
+    actual_rows = [
+        normalize_prior_row(row, artifact["estimation_profile"])
+        for row in artifact["work_classes"]
+    ]
     actual_rows.sort(key=lambda row: row["work_class_id"])
     if actual_rows != artifact["work_classes"]:
         raise ProductProgramError("resource evidence rows are not normalized")
@@ -537,7 +579,9 @@ def verify_resource_evidence(
     if [row["work_class_id"] for row in actual_rows] != [row["work_class_id"] for row in expected_inputs]:
         raise ProductProgramError("resource evidence work classes differ from source")
     for row, source_row in zip(actual_rows, expected_inputs):
-        if row["source_input_root"] != digest(source_row):
+        if row["source_input_root"] != work_source_input_root(
+            source_row, normalized["estimation_profile"]
+        ):
             raise ProductProgramError("resource evidence row is stale")
         for key in ("outcomes", "resources", "useful_yield", "work_class_id"):
             if row[key] != source_row[key]:
