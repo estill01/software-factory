@@ -1,0 +1,56 @@
+diff --git a/author-implementation-trackers/scripts/program_revision.py b/author-implementation-trackers/scripts/program_revision.py
+index d52ec29..c619d93 100644
+--- a/author-implementation-trackers/scripts/program_revision.py
++++ b/author-implementation-trackers/scripts/program_revision.py
+@@ -745,12 +745,13 @@ def build_revision_packet(
+         and number not in completed_new
+         and set(block["dependencies"]).issubset(completed_new)
+     )
+-    resume_candidates = sorted(
++    affected_resume_candidates = sorted(
+         number
+         for number in affected_new
+         if number not in completed_new
+         and set(proposed["blocks"][number]["dependencies"]).issubset(completed_new)
+     )
++    resume_candidates = sorted(set(safe_frontier) | set(affected_resume_candidates))
+     if not resume_candidates:
+         raise ProgramRevisionError("Structural revision has no dependency-safe resume Block")
+     proposed_control = proposed["program_revision_control"]
+diff --git a/author-implementation-trackers/scripts/test_program_revision.py b/author-implementation-trackers/scripts/test_program_revision.py
+index 5b74378..1b4d318 100644
+--- a/author-implementation-trackers/scripts/test_program_revision.py
++++ b/author-implementation-trackers/scripts/test_program_revision.py
+@@ -324,6 +324,32 @@ Stop before the next Block.
+         self.assertEqual([0, 1], packet["accepted_history_blocks"])
+         self.assertEqual(2, packet["resume_block"])
+ 
++    def test_future_insertion_preserves_earlier_safe_frontier(self) -> None:
++        self.write_tracker(
++            self.proposed,
++            [
++                ("Accepted 0", [], "completed"),
++                ("Accepted 1", [0], "completed"),
++                ("Current work", [1], "in-progress"),
++                ("Later work", [2], "not-started"),
++                ("Inserted future work", [3], "not-started"),
++            ],
++        )
++        self.install_program_control(
++            {"0": [0], "1": [1], "2": [2], "3": [3]},
++            affected=[4],
++            resume=2,
++        )
++        packet = program_revision.build_revision_packet(
++            previous_tracker=self.previous,
++            proposed_tracker=self.proposed,
++            target_tracker_path=self.previous,
++            metadata=self.metadata({"0": [0], "1": [1], "2": [2], "3": [3]}),
++        )
++        self.assertEqual([2], packet["safe_frontier_blocks"])
++        self.assertEqual([4], packet["affected_proposed_blocks"])
++        self.assertEqual(2, packet["resume_block"])
++
+     def test_local_or_status_only_change_cannot_escalate(self) -> None:
+         with self.assertRaisesRegex(
+             program_revision.ProgramRevisionError, "not a structural revision"
