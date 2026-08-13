@@ -2375,7 +2375,18 @@ python3 <LOG_HELPER> bind --target-thread <TARGET> \
   --mission-source-record <EXACT_CONTROLLING_SOURCE>
 ```
 
-When Gmail self-notification is enabled, add:
+Every supervision group binds one primary self-email seed for terminal report
+delivery. This required terminal-only lane does not enable intermediate alerts:
+
+```bash
+python3 <LOG_HELPER> bind --target-thread <TARGET> \
+  --gmail-terminal-reply-message-id <SEED_MESSAGE_ID> \
+  --gmail-terminal-project-key <PROJECT_KEY> \
+  --gmail-terminal-subject "Codex Tracker Supervision - <PROJECT_KEY>"
+```
+
+When ordinary intermediate Gmail self-notification is additionally enabled,
+use the broader primary-lane binding:
 
 ```bash
 python3 <LOG_HELPER> bind --target-thread <TARGET> \
@@ -2541,6 +2552,9 @@ root itself. It retains only the root and content-minimized identity/posture
 fields in the ledger; the source JSON remains caller-owned.
 
 Prepare, finalize, and verify the two required terminal implementation reports:
+
+The terminal-only primary Gmail seed must already be bound. `prepare` rejects
+before report generation when that default completion lane is absent.
 
 ```bash
 python3 <LOG_HELPER> terminal-report --target-thread <TARGET> \

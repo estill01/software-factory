@@ -294,23 +294,43 @@ class TerminalReportUnitTests(unittest.TestCase):
                 self.assertGreaterEqual(len(reader.pages), 3)
                 self.assertIn(expected, text)
 
+    def test_gmail_attachment_id_accepts_provider_owned_opaque_length(self) -> None:
+        provider_id = "A" * 512
+        self.assertEqual(
+            supervision_log.gmail_attachment_id(provider_id), provider_id
+        )
+        for invalid in ("not a provider id", "A" * 2049):
+            with self.subTest(invalid_length=len(invalid)):
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError,
+                    "Invalid Gmail attachment ID",
+                ):
+                    supervision_log.gmail_attachment_id(invalid)
+
+    def test_automation_owner_root_is_codex_runtime_state(self) -> None:
+        self.assertEqual(
+            supervision_log.CODEX_AUTOMATIONS_ROOT,
+            supervision_log.DEFAULT_ROOT.parents[1] / "automations",
+        )
+
 
 class TerminalReportIntegrationTests(unittest.TestCase):
-    def prepare_root(self, root: Path) -> Path:
+    def prepare_root(self, root: Path, *, bind_gmail: bool = True) -> Path:
         directory = root / TARGET
         directory.mkdir(parents=True)
         policy = supervision_log.default_policy(init_args())
         policy["mission_binding"] = supervision_log.mission_binding_contract(
             MISSION, "mission-source-terminal"
         )
-        policy["notifications"]["gmail"].update(
-            {
-                "enabled": True,
-                "reply_message_id": "gmail-seed-terminal",
-                "project_key": "Terminal",
-                "subject": "Codex Tracker Supervision - Terminal",
-            }
-        )
+        if bind_gmail:
+            policy["notifications"]["gmail"].update(
+                {
+                    "enabled": False,
+                    "reply_message_id": "gmail-seed-terminal",
+                    "project_key": "Terminal",
+                    "subject": "Codex Tracker Supervision - Terminal",
+                }
+            )
         policy["runtime"].update(
             {
                 "routine_automation_id": "watcher-automation-terminal",
@@ -369,6 +389,76 @@ class TerminalReportIntegrationTests(unittest.TestCase):
         supervision_log.append_raw(directory / "events.jsonl", completion)
         supervision_log.append_raw(directory / "events.jsonl", lifecycle)
         return directory
+
+    def test_terminal_delivery_is_default_without_enabling_routine_email(self) -> None:
+        policy = supervision_log.default_policy(init_args())
+        self.assertTrue(policy["reports"]["terminal"]["enabled"])
+        self.assertTrue(policy["permissions"]["gmail_self_notification"])
+        self.assertTrue(
+            policy["notifications"]["gmail"]["terminal_report_enabled"]
+        )
+        self.assertFalse(policy["notifications"]["gmail"]["enabled"])
+
+        args = supervision_log.parser().parse_args(
+            [
+                "bind",
+                "--target-thread",
+                TARGET,
+                "--gmail-terminal-reply-message-id",
+                "gmail-seed-terminal",
+                "--gmail-terminal-project-key",
+                "Terminal",
+                "--gmail-terminal-subject",
+                "Codex Tracker Supervision - Terminal",
+            ]
+        )
+        with (
+            mock.patch.object(
+                supervision_log,
+                "load_policy",
+                return_value=(Path("/tmp/terminal-default"), policy),
+            ),
+            mock.patch.object(supervision_log, "write_policy_version"),
+            redirect_stdout(io.StringIO()),
+        ):
+            supervision_log.cmd_bind(args)
+        gmail = policy["notifications"]["gmail"]
+        self.assertTrue(gmail["terminal_report_enabled"])
+        self.assertFalse(gmail["enabled"])
+        self.assertEqual(gmail["reply_message_id"], "gmail-seed-terminal")
+
+    def test_missing_terminal_email_binding_is_an_explicit_completion_action(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.prepare_root(root, bind_gmail=False)
+            gate_args = argparse.Namespace(
+                root=str(root),
+                target_thread=TARGET,
+                lifecycle_state="completed",
+                source_record="EVT-000002",
+                state_fingerprint=FINGERPRINT,
+            )
+            output = io.StringIO()
+            with redirect_stdout(output):
+                supervision_log.cmd_lifecycle_gate(gate_args)
+            gate = json.loads(output.getvalue())
+            self.assertTrue(gate["completion_permitted"])
+            self.assertFalse(gate["supervision_pause_permitted"])
+            self.assertEqual(
+                gate["completion_action"], "bind-terminal-report-email-lane"
+            )
+            prepare_args = argparse.Namespace(
+                root=str(root),
+                target_thread=TARGET,
+                lifecycle_record="EVT-000002",
+            )
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "default bound primary Gmail lane",
+            ):
+                supervision_log.cmd_terminal_report_prepare(prepare_args)
 
     def finalized_reports(
         self, root: Path
@@ -525,6 +615,31 @@ class TerminalReportIntegrationTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 supervision_log.SupervisionLogError,
                 "attachment read-back differs",
+            ):
+                supervision_log.cmd_terminal_report_delivery(args)
+
+    def test_delivery_rejects_duplicate_provider_attachment_id(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            prepared, _review, verified = self.finalized_reports(root)
+            policy = supervision_log.read_json(root / TARGET / "policy.json")
+            receipt = json.loads(
+                base64.b64decode(gmail_readback(verified=verified, policy=policy))
+            )
+            receipt["attachments"][1]["attachment_id"] = receipt["attachments"][0][
+                "attachment_id"
+            ]
+            args = argparse.Namespace(
+                root=str(root),
+                target_thread=TARGET,
+                report_set_id=prepared["report_set_id"],
+                gmail_readback_base64=base64.b64encode(
+                    json.dumps(receipt, separators=(",", ":")).encode()
+                ).decode(),
+            )
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "repeats an attachment ID",
             ):
                 supervision_log.cmd_terminal_report_delivery(args)
 
