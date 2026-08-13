@@ -3783,9 +3783,9 @@ def write_policy_version(
 
 def cmd_bind(args: argparse.Namespace) -> None:
     directory, policy = load_policy(args)
-    if args.exact_mission_root_conversion_only:
+    if getattr(args, "exact_mission_root_conversion_only", False):
         expected_policy_sha256 = exact_sha256(
-            args.expected_policy_sha256,
+            getattr(args, "expected_policy_sha256", None),
             label="expected policy SHA-256",
         )
         if policy.get("policy_sha256") != expected_policy_sha256:
@@ -3902,7 +3902,7 @@ def cmd_bind(args: argparse.Namespace) -> None:
         )
         print(json.dumps({"changed": True, "policy": policy}, sort_keys=True))
         return
-    if args.expected_policy_sha256:
+    if getattr(args, "expected_policy_sha256", None):
         raise SupervisionLogError(
             "Expected policy SHA-256 is only valid for exact mission-root conversion"
         )
