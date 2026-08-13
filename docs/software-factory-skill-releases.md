@@ -147,6 +147,16 @@ stable paths; later releases require no prompt rewrite. Each wake rehydrates
 policy, mission, requested range, active frontier, and lifecycle posture from
 the current helper instead of trusting copied prompt values.
 
+`software-factory-supervisor-refresh-plan` reads only the exact automation IDs
+bound by the current supervisor policy. It verifies that each heartbeat belongs
+to a configured runtime role, projects the prompt onto the three stable
+`current` paths, removes copied release hashes and policy/range/frontier claims,
+and emits the complete non-prompt configuration that the Codex automation owner
+must preserve. Paused automations remain paused; explicit
+`manual-release-pin:<release-id>` prompts remain pinned. Already-running roles
+receive the same activated identity through the existing `role-refresh` route at
+their next message boundary.
+
 ## Independent acceptance and optional release-owner evidence
 
 The signed `software-factory-release-acceptance` is the exact independent

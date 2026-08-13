@@ -34,6 +34,9 @@ except ModuleNotFoundError:  # Python 3.9 maintained host runtime.
 
 DEFAULT_ROOT = Path.home() / ".codex" / "supervision" / "tracker-runs"
 CODEX_AUTOMATIONS_ROOT = Path.home() / ".codex" / "automations"
+SOFTWARE_FACTORY_RELEASE_ROOT = (
+    Path.home() / ".codex" / "software-factory-releases"
+)
 MISSION_META_CHARTER_PATH = (
     Path(__file__).resolve().parents[1]
     / "references"
@@ -377,6 +380,9 @@ SOFTWARE_FACTORY_RELEASE_PROMOTION_KIND = (
 )
 SOFTWARE_FACTORY_RELEASE_REJECTED_KIND = (
     "software-factory-release-promotion-currentness-rejected"
+)
+SOFTWARE_FACTORY_SUPERVISOR_REFRESH_PLAN_KIND = (
+    "software-factory-supervisor-refresh-plan"
 )
 SOFTWARE_FACTORY_RELEASE_SKILLS = (
     "author-implementation-trackers",
@@ -11839,6 +11845,284 @@ def cmd_software_factory_release_promote(args: argparse.Namespace) -> None:
             print(json.dumps({"duplicate": False, "promotion": record}, sort_keys=True))
 
 
+def software_factory_automation_config(
+    automation_id: str,
+) -> tuple[dict[str, Any], str]:
+    selected = safe_id(automation_id, label="automation ID")
+    owner_root = CODEX_AUTOMATIONS_ROOT.resolve(strict=True)
+    directory = owner_root / selected
+    path = directory / "automation.toml"
+    if directory.is_symlink() or path.is_symlink():
+        raise SupervisionLogError(
+            "Software Factory automation owner path is symlinked"
+        )
+    try:
+        resolved = path.resolve(strict=True)
+    except OSError as exc:
+        raise SupervisionLogError(
+            f"Software Factory automation owner is unavailable: {selected}"
+        ) from exc
+    if resolved.parent.parent != owner_root:
+        raise SupervisionLogError(
+            "Software Factory automation owner path escaped"
+        )
+    raw = resolved.read_bytes()
+    try:
+        config = tomllib.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise SupervisionLogError(
+            "Software Factory automation owner is invalid"
+        ) from exc
+    if (
+        not isinstance(config, dict)
+        or config.get("id") != selected
+        or config.get("kind") != "heartbeat"
+        or str(config.get("status", "")).upper() not in {"ACTIVE", "PAUSED"}
+        or not isinstance(config.get("prompt"), str)
+        or not isinstance(config.get("target_thread_id"), str)
+    ):
+        raise SupervisionLogError(
+            "Software Factory automation owner shape differs"
+        )
+    return config, hashlib.sha256(raw).hexdigest()
+
+
+def software_factory_stable_automation_prompt(
+    prompt: str, *, target_thread: str
+) -> tuple[str, str | None]:
+    release_root = str(SOFTWARE_FACTORY_RELEASE_ROOT)
+    pinned_pattern = re.compile(
+        re.escape(release_root)
+        + r"/releases/([0-9a-f]{12}-[0-9a-f]{12})/"
+    )
+    pinned_releases = pinned_pattern.findall(prompt)
+    stable_prefix = release_root + "/current/"
+    manual_pins = re.findall(
+        r"manual-release-pin:([0-9a-f]{12}-[0-9a-f]{12})", prompt
+    )
+    if manual_pins:
+        if (
+            len(set(manual_pins)) != 1
+            or not pinned_releases
+            or set(pinned_releases) != set(manual_pins)
+        ):
+            raise SupervisionLogError(
+                "Software Factory manual automation pin is inconsistent"
+            )
+        return prompt, manual_pins[0]
+    if pinned_releases and len(set(pinned_releases)) != 1:
+        raise SupervisionLogError(
+            "Software Factory automation prompt mixes release identities"
+        )
+    if not pinned_releases and prompt.count(stable_prefix) != 3:
+        raise SupervisionLogError(
+            "Software Factory automation prompt is not on a maintained release channel"
+        )
+    value = pinned_pattern.sub(stable_prefix, prompt)
+    value = re.sub(
+        r"Released hashes:.*?helper [0-9a-f]{64}\.\s*",
+        "",
+        value,
+    )
+    mission_pattern = re.compile(
+        rf"Target {re.escape(target_thread)}; mission root [0-9a-f]{{64}}; "
+        r"source [^;]+; source SHA-256 [0-9a-f]{64}; "
+        r"policy v[0-9]+ SHA-256 [0-9a-f]{64}\.\s*"
+    )
+    mission_replacement = (
+        f"Target {target_thread}. Rehydrate the current mission, policy, event "
+        "head, implementation range, dependency-safe frontier, and lifecycle "
+        "posture from the helper on every wake. "
+    )
+    value = mission_pattern.sub(mission_replacement, value)
+    value = re.sub(r"The full Blocks [^.]*\.\s*", "", value)
+    value = re.sub(
+        r"Blocks [^.]* current dependency-safe frontier\.\s*", "", value
+    )
+    value = re.sub(r"Required target posture [^.]*\.\s*", "", value)
+    value = " ".join(value.split())
+    forbidden = (
+        "/releases/",
+        "Released hashes:",
+        "mission root ",
+        "source SHA-256 ",
+        "policy v",
+        "The full Blocks ",
+        "Required target posture ",
+    )
+    if (
+        any(item in value for item in forbidden)
+        or value.count(stable_prefix) != 3
+        or f"Target {target_thread}." not in value
+    ):
+        raise SupervisionLogError(
+            "Software Factory automation prompt contains unsupported copied authority"
+        )
+    return value, None
+
+
+def cmd_software_factory_supervisor_refresh_plan(
+    args: argparse.Namespace,
+) -> None:
+    directory, policy = load_policy(args)
+    all_events = events(directory / "events.jsonl")
+    matches = [
+        item
+        for item in all_events
+        if item.get("record_id") == args.promotion_record
+        and item.get("kind") == SOFTWARE_FACTORY_RELEASE_PROMOTION_KIND
+    ]
+    if len(matches) != 1:
+        raise SupervisionLogError(
+            "Software Factory supervisor refresh lacks one exact promotion"
+        )
+    promotion = validate_software_factory_release_promotion_record(matches[0])
+    repository, source_tree, _committed_at = software_factory_release_source(
+        args.repo, str(promotion["source_commit"])
+    )
+    if source_tree != promotion["source_tree"]:
+        raise SupervisionLogError(
+            "Software Factory supervisor refresh source tree differs"
+        )
+    with software_factory_release_exact_checkout(
+        repository, str(promotion["source_commit"])
+    ) as owner_repository:
+        status = run_software_factory_release_owner(
+            owner_repository,
+            source_commit=str(promotion["source_commit"]),
+            action="status",
+        )
+    current = status.get("current_verification") if isinstance(status, Mapping) else None
+    roots, verification_root = validate_software_factory_installed_result(
+        current, release_id=str(promotion["release_id"])
+    )
+    links = status.get("installed_links")
+    skills = status.get("skills")
+    if (
+        status.get("active_release_id") != promotion["release_id"]
+        or status.get("source_commit") != promotion["source_commit"]
+        or status.get("installed_complete") is not True
+        or roots != promotion["installed_roots"]
+        or verification_root != promotion["verification_root_sha256"]
+        or not isinstance(links, Mapping)
+        or set(links) != set(SOFTWARE_FACTORY_RELEASE_SKILLS)
+        or any(
+            not isinstance(links[name], Mapping)
+            or links[name].get("stable") is not True
+            for name in SOFTWARE_FACTORY_RELEASE_SKILLS
+        )
+        or not isinstance(skills, Mapping)
+        or set(skills) != set(SOFTWARE_FACTORY_RELEASE_SKILLS)
+        or any(
+            not isinstance(skills[name], Mapping)
+            or skills[name].get("content_root_sha256") != roots[name]
+            for name in SOFTWARE_FACTORY_RELEASE_SKILLS
+        )
+    ):
+        raise SupervisionLogError(
+            "Software Factory supervisor refresh release is not current"
+        )
+    runtime = policy.get("runtime", {})
+    automation_ids = expected_terminal_automation_ids(policy)
+    if not automation_ids:
+        raise SupervisionLogError(
+            "Software Factory supervisor refresh has no configured automations"
+        )
+    configured_role_threads = {
+        str(runtime.get(field))
+        for field in THREAD_ROUTE_ROLE_FIELDS.values()
+        if runtime.get(field)
+    }
+    updates: list[dict[str, Any]] = []
+    current_automations: list[dict[str, Any]] = []
+    manual_pins: list[dict[str, Any]] = []
+    paused: list[dict[str, Any]] = []
+    for automation_id in automation_ids:
+        config, config_sha256 = software_factory_automation_config(automation_id)
+        if config["target_thread_id"] not in configured_role_threads:
+            raise SupervisionLogError(
+                "Software Factory automation is not bound to a configured role"
+            )
+        stable_prompt, manual_pin = software_factory_stable_automation_prompt(
+            str(config["prompt"]), target_thread=args.target_thread
+        )
+        item = {
+            "automation_id": automation_id,
+            "config_sha256": config_sha256,
+            "target_thread_id": config["target_thread_id"],
+        }
+        if str(config["status"]).upper() == "PAUSED":
+            paused.append(item)
+        elif manual_pin is not None:
+            manual_pins.append({**item, "release_id": manual_pin})
+        elif stable_prompt == config["prompt"]:
+            current_automations.append(item)
+        else:
+            preserved = {
+                key: member
+                for key, member in config.items()
+                if key not in {"prompt", "updated_at"}
+            }
+            updates.append(
+                {
+                    **item,
+                    "prior_prompt_sha256": hashlib.sha256(
+                        str(config["prompt"]).encode("utf-8")
+                    ).hexdigest(),
+                    "stable_prompt": stable_prompt,
+                    "stable_prompt_sha256": hashlib.sha256(
+                        stable_prompt.encode("utf-8")
+                    ).hexdigest(),
+                    "preserved_config": preserved,
+                }
+            )
+    roles = []
+    for role, field in sorted(THREAD_ROUTE_ROLE_FIELDS.items()):
+        thread_id = runtime.get(field)
+        if thread_id:
+            roles.append(
+                {
+                    "role": role,
+                    "thread_id": thread_id,
+                    "purpose": "role-refresh",
+                    "source_record": promotion["record_id"],
+                    "required_action": (
+                        "At the next message boundary, reload the current stable "
+                        f"Software Factory release {promotion['release_id']} and "
+                        "rehydrate canonical mission, policy, range, cursor, and "
+                        "lifecycle state before the next owned action."
+                    ),
+                }
+            )
+    range_state = implementation_range_state(policy)
+    material = {
+        "schema_version": 1,
+        "kind": SOFTWARE_FACTORY_SUPERVISOR_REFRESH_PLAN_KIND,
+        "target_thread_id": args.target_thread,
+        "promotion_record_id": promotion["record_id"],
+        "promotion_result_root_sha256": promotion["result_root_sha256"],
+        "release_id": promotion["release_id"],
+        "source_commit": promotion["source_commit"],
+        "installed_roots": roots,
+        "verification_root_sha256": verification_root,
+        "policy_sha256": policy["policy_sha256"],
+        "event_head_sha256": all_events[-1]["record_sha256"],
+        "implementation_range": range_state,
+        "refresh_boundary": "next-scheduled-wake-or-role-message-boundary",
+        "automation_updates": updates,
+        "current_automations": current_automations,
+        "manual_pins": manual_pins,
+        "paused_automations": paused,
+        "role_refreshes": roles,
+    }
+    print(
+        json.dumps(
+            {**material, "refresh_plan_root_sha256": digest(material)},
+            sort_keys=True,
+        )
+    )
+
+
 def current_mission_range_identity(
     policy: Mapping[str, Any],
 ) -> dict[str, str]:
@@ -21018,6 +21302,14 @@ def parser() -> argparse.ArgumentParser:
     release_promote.add_argument("--source-commit", required=True)
     release_promote.add_argument("--acceptance-record", required=True)
     release_promote.set_defaults(func=cmd_software_factory_release_promote)
+
+    refresh_plan = subparsers.add_parser(
+        "software-factory-supervisor-refresh-plan"
+    )
+    refresh_plan.add_argument("--target-thread", required=True)
+    refresh_plan.add_argument("--repo", required=True)
+    refresh_plan.add_argument("--promotion-record", required=True)
+    refresh_plan.set_defaults(func=cmd_software_factory_supervisor_refresh_plan)
 
     publication_gate = subparsers.add_parser("skill-release-publication-gate")
     publication_gate.add_argument("--target-thread", required=True)
