@@ -1362,6 +1362,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
     initial_source = "direct-item-100"
     initial_request = "implement this tracker"
     initial_sha = hashlib.sha256(initial_request.encode("utf-8")).hexdigest()
+    successor_source = "direct-item-300"
     later_source = "direct-item-200"
     later_request = "Block 0"
     later_sha = hashlib.sha256(later_request.encode("utf-8")).hexdigest()
@@ -1544,6 +1545,399 @@ class ImplementationRangeControlTests(unittest.TestCase):
             self.target,
             "--response-kind",
             response_kind,
+        )
+
+    def admit(
+        self,
+        *,
+        include_binding_inputs: bool = False,
+        range_id: str = "RANGE-ADMISSION-1234",
+        rollover_records: tuple[str, str, str] | None = None,
+    ) -> dict[str, object]:
+        arguments = [
+            "implementation-range-admit",
+            "--target-thread",
+            self.target,
+        ]
+        if include_binding_inputs:
+            source_record = (
+                self.successor_source
+                if rollover_records is not None
+                else self.initial_source
+            )
+            arguments.extend(
+                [
+                    "--range-id",
+                    range_id,
+                    "--tracker",
+                    str(self.tracker),
+                    "--request-text",
+                    self.initial_request,
+                    "--authority-source-record",
+                    source_record,
+                    "--authority-source-sha256",
+                    self.initial_sha,
+                ]
+            )
+        if rollover_records is not None:
+            outcome, lifecycle, activation = rollover_records
+            arguments.extend(
+                [
+                    "--predecessor-outcome-record",
+                    outcome,
+                    "--predecessor-lifecycle-record",
+                    lifecycle,
+                    "--mission-activation-record",
+                    activation,
+                ]
+            )
+        return self.call(*arguments)
+
+    def complete_predecessor_and_start_successor(
+        self,
+    ) -> tuple[str, str, str, dict[str, object]]:
+        directory = self.root / self.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        predecessor_root = policy["mission_binding"]["mission_root"]
+        outcome_record = "EVT-RANGE-OUTCOME-100"
+        lifecycle_record = "EVT-RANGE-LIFECYCLE-100"
+        fingerprint = "a" * 64
+        outcome: dict[str, object] = {
+            "schema_version": 1,
+            "record_id": outcome_record,
+            "timestamp": supervision_log.utc_now(),
+            "target_thread_id": self.target,
+            "kind": "check",
+            "category": supervision_log.OUTCOME_COMPLETION_CATEGORY,
+            "status": "verified",
+            "model": "gpt-5.6-sol",
+            "reasoning": "max",
+            "state_fingerprint": fingerprint,
+            "mission_root": predecessor_root,
+            "capability_reconciliation_reviewer_id": self.reviewer,
+            "capability_reconciliation_implementation_owner_id": self.target,
+            "capability_reconciliation_revision": "b" * 40,
+            "capability_reconciliation_posture": "verified",
+            "capability_reconciliation_gap_count": 0,
+            "evidence": ["predecessor-range-complete"],
+            "policy_sha256": policy["policy_sha256"],
+        }
+        for field in supervision_log.OUTCOME_COMPLETION_HASH_FIELDS:
+            outcome[field] = "c" * 64
+        supervision_log.append_raw(directory / "events.jsonl", outcome)
+        supervision_log.append_raw(
+            directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": lifecycle_record,
+                "timestamp": supervision_log.utc_now(),
+                "target_thread_id": self.target,
+                "kind": "lifecycle",
+                "status": "completed",
+                "state_fingerprint": fingerprint,
+                "outcome_completion_record_id": outcome_record,
+                "evidence": [outcome_record],
+                "policy_sha256": policy["policy_sha256"],
+            },
+        )
+        successor = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "mission-successor",
+                "--target-thread",
+                self.target,
+                "--from-mission-root",
+                predecessor_root,
+                "--mission-source-class",
+                "direct-user",
+                "--mission-source-record",
+                self.successor_source,
+                "--mission-source-sha256",
+                self.initial_sha,
+                "--predecessor-disposition",
+                "completed",
+                "--first-eligible-work",
+                "Block-0-freeze-current-baseline",
+                "--reason",
+                "The completed predecessor is followed by a new direct mission.",
+                "--evidence",
+                lifecycle_record,
+            ]
+        )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            successor.func(successor)
+        result = json.loads(output.getvalue())
+        activation = result["mission_activation"]["record_id"]
+        return outcome_record, lifecycle_record, activation, result
+
+    def test_admission_binds_once_from_canonical_direct_request(self) -> None:
+        self.write_tracker(["completed", "not-started"])
+
+        first = self.admit(include_binding_inputs=True)
+        second = self.admit()
+
+        self.assertEqual(first["binding"]["range_intent"], "full-tracker")
+        self.assertIn("mission_identity", first["binding"])
+        self.assertTrue(second["admitted"])
+        self.assertTrue(second["duplicate"])
+        self.assertTrue(second["implementation_start_permitted"])
+        self.assertTrue(second["final_response_gate_required"])
+        self.assertEqual(second["range_state"]["remaining_blocks"], [1])
+
+    def test_admission_rejects_missing_canonical_binding_inputs(self) -> None:
+        self.write_tracker(["not-started"])
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "cannot start without canonical range binding inputs",
+        ):
+            self.admit()
+
+    def test_completed_predecessor_rolls_to_fresh_mission_range_atomically(
+        self,
+    ) -> None:
+        self.write_tracker(["completed", "completed"])
+        predecessor = self.bind()["binding"]
+        records = self.complete_predecessor_and_start_successor()[:3]
+        directory = self.root / self.target
+        events_before = (directory / "events.jsonl").read_bytes()
+        history_before = supervision_log.events(
+            directory / "policy-history.jsonl"
+        )
+        self.tracker = self.root / "successor-tracker.md"
+        self.write_tracker(["not-started"] * 8)
+
+        result = self.admit(
+            include_binding_inputs=True,
+            range_id="RANGE-SUCCESSOR-5678",
+            rollover_records=records,
+        )
+
+        current = supervision_log.read_json(directory / "policy.json")
+        history_after = supervision_log.events(
+            directory / "policy-history.jsonl"
+        )
+        self.assertEqual((directory / "events.jsonl").read_bytes(), events_before)
+        self.assertEqual(len(history_after), len(history_before) + 1)
+        self.assertEqual(
+            history_after[-2]["policy"]["implementation_range"], predecessor
+        )
+        self.assertEqual(
+            current["implementation_range"]["range_id"],
+            "RANGE-SUCCESSOR-5678",
+        )
+        self.assertNotEqual(
+            current["implementation_range"]["genesis_sha256"],
+            predecessor["genesis_sha256"],
+        )
+        self.assertEqual(
+            current["implementation_range"]["history"][0]["sequence"], 1
+        )
+        self.assertEqual(
+            current["implementation_range"]["history"][0][
+                "predecessor_range"
+            ]["range_id"],
+            predecessor["range_id"],
+        )
+        self.assertEqual(result["mission_activation_record"], records[2])
+        gate = self.gate("final-response")
+        self.assertTrue(gate["range_binding_current"])
+        self.assertEqual(gate["requested_blocks"], list(range(8)))
+        self.assertEqual(gate["accepted_blocks"], [])
+        self.assertEqual(gate["eligible_blocks"], [0])
+        self.assertFalse(gate["final_response_permitted"])
+
+    def test_gate_reports_predecessor_range_noncurrent_after_mission_change(
+        self,
+    ) -> None:
+        self.write_tracker(["completed", "completed"])
+        self.bind()
+        self.complete_predecessor_and_start_successor()
+
+        result = self.gate("final-response")
+
+        self.assertFalse(result["range_binding_current"])
+        self.assertEqual(result["range_binding_posture"], "noncurrent")
+        self.assertIn("different mission", result["suppression_cause"])
+        self.assertFalse(result["final_response_permitted"])
+        self.assertEqual(result["required_target_posture"], "in-progress")
+
+    def test_same_mission_replacement_is_rejected_without_policy_mutation(
+        self,
+    ) -> None:
+        self.write_tracker(["completed"])
+        self.bind()
+        directory = self.root / self.target
+        policy_before = (directory / "policy.json").read_bytes()
+        history_before = (directory / "policy-history.jsonl").read_bytes()
+        self.tracker = self.root / "same-mission-replacement.md"
+        self.write_tracker(["not-started"])
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "Same-mission admission cannot replace",
+        ):
+            self.admit(
+                include_binding_inputs=True,
+                rollover_records=("EVT-A", "EVT-B", "EVT-C"),
+            )
+
+        self.assertEqual((directory / "policy.json").read_bytes(), policy_before)
+        self.assertEqual(
+            (directory / "policy-history.jsonl").read_bytes(), history_before
+        )
+
+    def test_nonterminal_predecessor_rejects_rollover_without_policy_mutation(
+        self,
+    ) -> None:
+        self.write_tracker(["completed", "not-started"])
+        self.bind()
+        records = self.complete_predecessor_and_start_successor()[:3]
+        directory = self.root / self.target
+        policy_before = (directory / "policy.json").read_bytes()
+        history_before = (directory / "policy-history.jsonl").read_bytes()
+        self.tracker = self.root / "successor-tracker.md"
+        self.write_tracker(["not-started"] * 8)
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "requires a completed predecessor range",
+        ):
+            self.admit(
+                include_binding_inputs=True,
+                rollover_records=records,
+            )
+
+        self.assertEqual((directory / "policy.json").read_bytes(), policy_before)
+        self.assertEqual(
+            (directory / "policy-history.jsonl").read_bytes(), history_before
+        )
+
+    def test_wrong_activation_and_reused_range_id_reject_without_mutation(
+        self,
+    ) -> None:
+        self.write_tracker(["completed"])
+        predecessor = self.bind()["binding"]
+        outcome, lifecycle, _activation, _successor = (
+            self.complete_predecessor_and_start_successor()
+        )
+        directory = self.root / self.target
+        policy_before = (directory / "policy.json").read_bytes()
+        history_before = (directory / "policy-history.jsonl").read_bytes()
+        self.tracker = self.root / "successor-tracker.md"
+        self.write_tracker(["not-started"] * 8)
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "pending current-mission activation|evidence chronology",
+        ):
+            self.admit(
+                include_binding_inputs=True,
+                rollover_records=(outcome, lifecycle, lifecycle),
+            )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "cannot reuse an implementation range ID",
+        ):
+            self.admit(
+                include_binding_inputs=True,
+                range_id=predecessor["range_id"],
+                rollover_records=(outcome, lifecycle, _activation),
+            )
+
+        self.assertEqual((directory / "policy.json").read_bytes(), policy_before)
+        self.assertEqual(
+            (directory / "policy-history.jsonl").read_bytes(), history_before
+        )
+
+    def test_rollover_revalidates_event_head_and_tracker_under_owner_lock(
+        self,
+    ) -> None:
+        self.write_tracker(["completed"])
+        self.bind()
+        records = self.complete_predecessor_and_start_successor()[:3]
+        directory = self.root / self.target
+        self.tracker = self.root / "successor-tracker.md"
+        self.write_tracker(["not-started"] * 8)
+        policy_before = (directory / "policy.json").read_bytes()
+        history_before = (directory / "policy-history.jsonl").read_bytes()
+
+        with mock.patch.object(
+            supervision_log, "write_policy_version"
+        ) as write_policy:
+            self.admit(
+                include_binding_inputs=True,
+                rollover_records=records,
+            )
+        validator = write_policy.call_args.kwargs["pre_mutation_validator"]
+        current_policy = supervision_log.read_json(directory / "policy.json")
+        supervision_log.append_raw(
+            directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": "EVT-CONCURRENT-RANGE-CHANGE",
+                "timestamp": supervision_log.utc_now(),
+                "target_thread_id": self.target,
+                "kind": "check",
+                "category": "concurrent-state",
+                "policy_sha256": current_policy["policy_sha256"],
+            },
+        )
+        directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "event state changed before range rollover",
+            ):
+                validator(directory_fd, current_policy)
+        finally:
+            os.close(directory_fd)
+
+        self.assertEqual((directory / "policy.json").read_bytes(), policy_before)
+        self.assertEqual(
+            (directory / "policy-history.jsonl").read_bytes(), history_before
+        )
+
+    def test_rollover_rejects_tracker_drift_under_owner_lock(self) -> None:
+        self.write_tracker(["completed"])
+        self.bind()
+        records = self.complete_predecessor_and_start_successor()[:3]
+        directory = self.root / self.target
+        self.tracker = self.root / "successor-tracker.md"
+        self.write_tracker(["not-started"] * 8)
+        policy_before = (directory / "policy.json").read_bytes()
+        history_before = (directory / "policy-history.jsonl").read_bytes()
+
+        with mock.patch.object(
+            supervision_log, "write_policy_version"
+        ) as write_policy:
+            self.admit(
+                include_binding_inputs=True,
+                rollover_records=records,
+            )
+        validator = write_policy.call_args.kwargs["pre_mutation_validator"]
+        current_policy = supervision_log.read_json(directory / "policy.json")
+        self.tracker.write_text(
+            self.tracker.read_text(encoding="utf-8").replace(
+                "Scope 7", "Drifted scope 7", 1
+            ),
+            encoding="utf-8",
+        )
+        directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "tracker changed before range rollover",
+            ):
+                validator(directory_fd, current_policy)
+        finally:
+            os.close(directory_fd)
+
+        self.assertEqual((directory / "policy.json").read_bytes(), policy_before)
+        self.assertEqual(
+            (directory / "policy-history.jsonl").read_bytes(), history_before
         )
 
     def test_absent_range_returns_structured_nonterminal_repair(self) -> None:
@@ -2290,6 +2684,9 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 "initial_tracker_blocks": contract["history"][0]["tracker_blocks"],
                 "initial_range_intent": "explicit-blocks",
                 "initial_explicit_blocks": [0],
+                "mission_identity": contract["history"][0][
+                    "mission_identity"
+                ],
             }
         )
         policy["policy_sha256"] = supervision_log.digest(

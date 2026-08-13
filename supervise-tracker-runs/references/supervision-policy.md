@@ -816,7 +816,38 @@ handoff, push, and final-response boundaries do not alter that result.
 
 Bind once, amend only after an accepted tracker revision, and gate every Stop:
 
+`implementation-range-admit` is the pre-work owner. When no range exists it
+delegates to the ordinary canonical bind. When the active range belongs to the
+same mission, it may only rehydrate that exact range or advance status-only
+tracker bytes through the existing amendment owner. It must never replace a
+same-mission range.
+
+A pending same-target mission successor may replace one completed predecessor
+range only through the same policy owner. Under the policy-owner lock,
+admission must revalidate the predecessor's independently verified observable
+outcome and completed lifecycle, the unique still-pending current-mission
+activation, current policy and event heads, the current direct mission source,
+and both exact tracker snapshots. The successor binding receives a fresh range
+ID, mission-bound genesis, and history sequence; it cites the predecessor
+range/genesis/head but never appends successor Blocks to predecessor history.
+The predecessor contract remains immutable in prior policy versions. A
+nonterminal predecessor, same-mission replacement, absent or ambiguous mission
+provenance, stale policy/event/tracker state, wrong or nonpending activation,
+structural drift, or historical range/genesis reuse rejects before policy
+mutation. A range owned by any mission other than the current policy is
+noncurrent at `implementation-range-gate` and can never yield
+`range_binding_current=true`.
+
 ```bash
+python3 <LOG_HELPER> implementation-range-admit \
+  --target-thread <TARGET> --range-id <FRESH_RANGE_ID> \
+  --tracker <ABSOLUTE_TRACKER_PATH> --request-text <EXACT_DIRECT_REQUEST> \
+  --authority-source-record <CURRENT_DIRECT_SOURCE> \
+  --authority-source-sha256 <CURRENT_DIRECT_SOURCE_SHA256> \
+  --predecessor-outcome-record <EXACT_VERIFIED_OUTCOME> \
+  --predecessor-lifecycle-record <EXACT_COMPLETED_LIFECYCLE> \
+  --mission-activation-record <EXACT_PENDING_ACTIVATION>
+
 python3 <LOG_HELPER> implementation-range-bind \
   --target-thread <TARGET> --range-id <STABLE_RANGE_ID> \
   --tracker <ABSOLUTE_TRACKER_PATH> --request-text <EXACT_DIRECT_REQUEST> \
