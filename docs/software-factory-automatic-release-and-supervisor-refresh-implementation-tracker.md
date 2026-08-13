@@ -186,7 +186,7 @@ make their composition automatic and fail closed.
 | 2 | Implement exact-acceptance-triggered release orchestration | 1 | `completed` |
 | 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `completed` |
 | 4 | Verify health and recover through release-owner rollback | 3 | `completed` |
-| 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `not-started` |
+| 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `completed` |
 | 6 | Freeze, validate, independently review, merge, and promote | 4, 5 | `not-started` |
 | 7 | Refresh real monitors and prove effective automatic operation | 6 | `not-started` |
 
@@ -840,7 +840,7 @@ Stop before final integrated release/promotion.
 
 ## Block 5 — Integrate terminal report delivery, readback, and shutdown defaults
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -905,7 +905,48 @@ Focused terminal/Gmail/shutdown suite plus full supervision mapping.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: `d398d108b4bd4ac8af9c62e68e0b424ce1c2ea4a` /
+  tree `38865e7ebc1b49b629d267595a90873ff261050a`.
+- Inputs: inherited default terminal-report contract and current Gmail lane,
+  current completed lifecycle/outcome proof, verified delta/full report set,
+  provider-owned seed/sent raw MIME, both provider attachment reads, current
+  range/control posture, and policy-bound automation-owner files.
+- Outputs: terminal delivery remains default even when routine mail is disabled;
+  both PDFs must be sent on the bound primary lane and read back byte-for-byte.
+  `terminal-shutdown` then revalidates the latest completed lifecycle, current
+  observable outcome, empty remaining bound range, completed control posture,
+  and every paused automation-owner identity before recording
+  `supervision_status=terminated`. `status` projects termination only while that
+  lifecycle and automation receipt remain current.
+- Ordering: report prepare/finalize/verify, Gmail send, seed/sent raw readback,
+  both attachment reads, delivery receipt, automation-owner pause, and shutdown
+  receipt remain strictly ordered. No completion email or pause is possible for
+  an incomplete, reopened, failed, blocked, or noncurrent range.
+- Focused validation: terminal reporting/delivery/readback/shutdown `18/18` plus
+  documentation contract `1/1` under maintained Python 3.14 with ReportLab and
+  pypdf; changed files compile and `git diff --check` passes.
+- Mapped validation: `test_supervision_log.py` `303/303` under maintained Python
+  3.14.
+- Negative regressions: missing Gmail lane, invalid/duplicate/foreign attachment
+  evidence, missing or active automation owner, lifecycle reopen after delivery,
+  remaining range, nonterminal control posture, and automation changed bytes
+  after shutdown all reject or project supervision active.
+- Product-capability review:
+  - Trigger: consequential external completion delivery and monitor shutdown.
+  - Capability added or preserved: a genuine tracker completion becomes
+    operator-visible exactly once and leaves no running monitor/automation cost.
+  - Selected owners: existing terminal-report producer, Gmail owner/readback,
+    implementation-range/control reducers, and Codex automation owner; no new
+    mail, lifecycle, or scheduler authority was added.
+  - Protected-capability result: range non-contraction, observable completion,
+    attachment ownership, report byte identity, and shutdown ordering remain
+    fail closed.
+- Retained open work: integrated freeze/review/main merge/promotion and live
+  monitor effectiveness remain Blocks 6–7.
+- Post-block audit: accepted. The implementation stops before promoting or
+  mutating live automations.
+- Git durability: `d398d10` and this evidence successor are pushed without
+  history rewrite to `origin/codex/autonomous-accepted-release-final`.
 
 ### Stop
 
