@@ -186,7 +186,7 @@ make their composition automatic and fail closed.
 | 2 | Implement exact-acceptance-triggered release orchestration | 1 | `completed` |
 | 3 | Implement stable-channel safe-boundary supervisor refresh | 2 | `not-started` |
 | 4 | Verify health and recover through release-owner rollback | 3 | `not-started` |
-| 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `not-started` |
+| 5 | Integrate terminal report delivery, readback, and shutdown defaults | 1 | `completed` |
 | 6 | Freeze, validate, independently review, merge, and promote | 4, 5 | `not-started` |
 | 7 | Refresh real monitors and prove effective automatic operation | 6 | `not-started` |
 
@@ -825,7 +825,7 @@ Stop before final integrated release/promotion.
 
 ## Block 5 — Integrate terminal report delivery, readback, and shutdown defaults
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -890,7 +890,40 @@ Focused terminal/Gmail/shutdown suite plus full supervision mapping.
 
 ### Completion evidence
 
-Pending.
+- Rejected source `ba9d80171bd21397b970977267c192ae101d994f`, tree
+  `8601baddf200cb96553824b7207d3cdd6ad6105e`, remains preserved. `B5-F1`
+  invariant: only the dedicated delivery owner may append
+  `gmail-terminal-completion`. Input condition: a generic notification used the
+  reserved category after a valid delivery. Expected rejection: reject before
+  append and retain the valid delivery/pause projection. Verification evidence:
+  independent exact review appended the generic record and observed it shadow
+  the valid receipt. `B5-F2` invariant: status exposes terminal shutdown only
+  while the completed range/control/lifecycle, verified report bytes/delivery,
+  and live automation owners remain current. Input condition: later lifecycle
+  reopening or changed PDF bytes. Expected rejection: the shutdown receipt is
+  omitted as stale. Verification evidence: exact review observed the stale
+  receipt remain visible in both cases.
+- Accepted corrective source
+  `ccb8e7e5825bb659957a5a8d1bcea9a17407b43b`, tree
+  `48a512f313b4d2e5b014201aca0d96c2e7e2aa5d`, parent `ba9d801`, is pushed on
+  `origin/codex/block5-currentness-corrected`. It reserves delivery and shutdown
+  categories to their dedicated owners, retains signed Gmail provider-review
+  bytes exactly, binds automation IDs to policy-mapped runtime role tasks,
+  validates no-follow bounded owner files, roots shutdown/correction records,
+  and makes status revalidate the full terminal boundary before exposing a
+  receipt.
+- Validation: pre-correction focused terminal/lifecycle proof `40/40`; exact
+  successor correction regressions `2/2`; mapped supervision `399/399`; all
+  three fixed skill validators; full-profile tracker verification `8` Blocks;
+  Python compilation and diff checks passed. Product-capability frame
+  `ec8d90164c440c07c612794ac1a5e0ca52dfd228b58dd3895fbf88437763942e`
+  selected the existing terminal delivery, event, automation-owner, and status
+  owners rather than another ledger or service.
+- Independent exact review accepted `ccb8e7e` with no findings. Generic
+  delivery/shutdown/shutdown-rejection inputs reject without mutation; valid
+  delivery remains current; and range, lifecycle, report-byte, or live
+  automation-owner drift makes `last_terminal_shutdown` null. No live Gmail,
+  automation, lifecycle, release, or unrelated repository effect was performed.
 
 ### Stop
 
