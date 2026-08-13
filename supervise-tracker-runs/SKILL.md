@@ -113,18 +113,21 @@ supplied digest.
    `supervision_log.py bind`. Binding also backfills the current execution-
    economy baseline into a legacy group without granting cross-skill write
    authority; a missing mode becomes `propose-only`.
-9. When the user requests Gmail delivery, resolve the monitored project key and
-   create or reuse its primary self-email thread. When blocked/stopped priority
-   delivery is requested, also create or reuse exactly one separate priority
+9. Resolve the monitored project key and create or reuse its primary self-email
+   thread for the default terminal-completion report delivery. Bind it with the
+   terminal-only Gmail options so this required final delivery does not enable
+   ordinary intermediate alerts. When blocked/stopped priority delivery is
+   requested, also create or reuse exactly one separate priority
    lifecycle thread for that project and bind it with
    `--gmail-priority-reply-message-id` and `--gmail-priority-project-key`.
    `blocked`, `failed`, and explicit `stopped` transitions use only that
    priority thread; `completed` and noncritical `paused` remain on the primary
    thread. Add both bindings to the heartbeat and reviewer role prompts.
    Multiple supervised targets in one project reuse the same seeds; different
-   projects never share them. Do not enable email by default, substitute the
-   primary or roundup thread for a missing priority binding, or create a
-   replacement thread during recovery.
+   projects never share them. Terminal report email is enabled by default;
+   ordinary intermediate, priority, inbound-reply, and roundup delivery remain
+   opt-in. Do not substitute the primary or roundup thread for a missing
+   priority binding, or create a replacement thread during recovery.
 10. When the user requests Gmail reply processing, create one projectless
    `gpt-5.6-luna` thread at `low` reasoning using the Gmail gate prompt and one
    projectless `gpt-5.6-sol` thread at `xhigh` reasoning using the Gmail reply
