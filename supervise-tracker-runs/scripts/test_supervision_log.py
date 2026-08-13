@@ -11891,6 +11891,52 @@ class WatcherAvailabilityContractTests(unittest.TestCase):
             1,
         )
 
+    def test_swapped_report_markers_reject_without_mutation(self) -> None:
+        incident_id = self.open_incident()
+        self.unavailable("compact-swapped-marker-recurrence-1234")
+        report = self.directory / "incidents" / f"{incident_id}.md"
+        event_rows = supervision_log.events(self.directory / "events.jsonl")
+        lineage = supervision_log.watcher_availability_incident_report_records(
+            event_rows, incident_id
+        )
+        self.assertGreaterEqual(len(lineage), 2)
+        first_marker = supervision_log.watcher_incident_report_marker(lineage[0])
+        second_marker = supervision_log.watcher_incident_report_marker(lineage[1])
+        placeholder = "<!-- swapped-watcher-marker-placeholder -->\n"
+        swapped = (
+            report.read_text(encoding="utf-8")
+            .replace(first_marker, placeholder, 1)
+            .replace(second_marker, first_marker, 1)
+            .replace(placeholder, second_marker, 1)
+        )
+        report.write_text(swapped, encoding="utf-8")
+        before = {
+            "report": report.read_bytes(),
+            "events": (self.directory / "events.jsonl").read_bytes(),
+            "head": (self.directory / "events-head.json").read_bytes(),
+            "policy": (self.directory / "policy.json").read_bytes(),
+            "history": (self.directory / "policy-history.jsonl").read_bytes(),
+        }
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError, "canonical ordered prefix"
+        ):
+            supervision_log.ensure_watcher_availability_incident_report(
+                self.directory, event_rows, incident_id
+            )
+
+        self.assertEqual(report.read_bytes(), before["report"])
+        self.assertEqual(
+            (self.directory / "events.jsonl").read_bytes(), before["events"]
+        )
+        self.assertEqual(
+            (self.directory / "events-head.json").read_bytes(), before["head"]
+        )
+        self.assertEqual((self.directory / "policy.json").read_bytes(), before["policy"])
+        self.assertEqual(
+            (self.directory / "policy-history.jsonl").read_bytes(), before["history"]
+        )
+
     def test_backfill_rejects_absent_ambiguous_mismatched_and_nonwatcher_origins(
         self,
     ) -> None:
