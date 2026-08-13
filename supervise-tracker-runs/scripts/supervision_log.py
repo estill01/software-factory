@@ -10520,7 +10520,7 @@ def cmd_implementation_range_bind(args: argparse.Namespace) -> None:
     source_sha256 = exact_sha256(
         args.authority_source_sha256, label="range authority source SHA-256"
     )
-    if args.request_text_base64 is not None:
+    if getattr(args, "request_text_base64", None) is not None:
         request_bytes, request_text = decode_exact_utf8_base64(
             args.request_text_base64,
             label="implementation request bytes",

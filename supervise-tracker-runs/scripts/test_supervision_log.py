@@ -2773,6 +2773,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 authority_event = self.ingest_direct_authority_event(
                     source_record=source_record,
                     source_sha256=source_sha256,
+                    source_text=request_text,
                 )
                 self.call(
                     "implementation-range-authority-receipt",

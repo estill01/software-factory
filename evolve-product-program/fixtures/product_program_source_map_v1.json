@@ -30,7 +30,7 @@
     {
       "owner": "supervise-tracker-runs",
       "path": "supervise-tracker-runs/scripts/supervision_log.py",
-      "sha256": "401d2847dec853da10bcc98f53d14144dc46f6454f7f48004d6b5af246c54289",
+      "sha256": "2a3c523184f79cf1d51c6545376d1285ed144703dd93006c6c15e3d25a07f4a6",
       "treatment": "preserve-canonical-policy-event-owner"
     },
     {
