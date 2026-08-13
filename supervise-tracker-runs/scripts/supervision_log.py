@@ -132,6 +132,14 @@ ADAPTIVE_EVALUATOR_PUBLIC_KEY_SHA256 = (
 )
 TERMINAL_REPORT_DELIVERY_CATEGORY = "gmail-terminal-completion"
 TERMINAL_SHUTDOWN_CATEGORY = "terminal-supervision-shutdown"
+TERMINAL_SHUTDOWN_REJECTED_CATEGORY = (
+    "terminal-supervision-shutdown-currentness-rejected"
+)
+TERMINAL_SHUTDOWN_RESERVED_CATEGORIES = {
+    TERMINAL_SHUTDOWN_CATEGORY,
+    TERMINAL_SHUTDOWN_REJECTED_CATEGORY,
+}
+TERMINAL_GMAIL_PROVIDER_REVIEW_KIND = "gmail-terminal-provider-readback-review"
 GMAIL_CONVERSATION_NOTIFICATION_CATEGORIES = {
     "gmail-user-ack",
     "gmail-user-outcome",
@@ -5666,6 +5674,10 @@ def cmd_record(args: argparse.Namespace) -> None:
         directory, policy = load_policy(args)
     if args.kind not in KINDS:
         raise SupervisionLogError("Unsupported event kind")
+    if args.category in TERMINAL_SHUTDOWN_RESERVED_CATEGORIES:
+        raise SupervisionLogError(
+            "Terminal shutdown records require the dedicated owner command"
+        )
     evidence_values = [clean(item, label="evidence", maximum=160) for item in args.evidence]
     if len(evidence_values) > 16:
         raise SupervisionLogError("Too many evidence references")
@@ -6327,9 +6339,8 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
     )
     range_state = implementation_range_state(policy)
     range_completion_conflict = bool(
-        range_state is not None
-        and range_state["remaining_blocks"]
-        and lifecycle_state == "completed"
+        lifecycle_state == "completed"
+        and (range_state is None or range_state["remaining_blocks"])
     )
 
     completion_permitted = True
@@ -6364,8 +6375,8 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
         if range_completion_conflict:
             completion_permitted = False
             completion_reason = (
-                "Critical implementation-range gate retains requested Blocks; "
-                "continue the dependency-safe frontier before terminalization."
+                "Critical implementation-range gate is absent or retains requested "
+                "Blocks; continue the dependency-safe frontier before terminalization."
             )
         elif activation_stop_conflict:
             completion_permitted = False
@@ -6401,7 +6412,7 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                 )
                 terminal_reports_delivered = bool(
                     terminal_delivery_is_current(
-                        terminal_delivery, verified_terminal
+                        terminal_delivery, verified_terminal, policy=policy
                     )
                     and terminal_delivery.get("state_fingerprint")
                     == source.get("state_fingerprint")
@@ -6497,14 +6508,16 @@ def cmd_lifecycle_gate(args: argparse.Namespace) -> None:
                     else "primary-status" if send_now else "none"
                 ),
                 "completion_action": (
-                    "continue-next-eligible-block"
+                    MISSION_ACTIVATION_START_ACTION
+                    if activation_stop_conflict
+                    else "establish-current-implementation-range-without-final-response"
+                    if range_completion_conflict and range_state is None
+                    else "continue-next-eligible-block"
                     if range_completion_conflict
                     and range_state is not None
                     and range_state["eligible_blocks"]
                     else "reconcile-unmet-dependencies-without-final-response"
                     if range_completion_conflict
-                    else MISSION_ACTIVATION_START_ACTION
-                    if activation_stop_conflict
                     else "resume-successor-transition"
                     if transition_stop_conflict
                     else "open-critical-false-completion-review"
@@ -18824,12 +18837,125 @@ def terminal_packet(directory: Path, report_set_id: str) -> tuple[Path, dict[str
     return report_directory, packet
 
 
+def require_current_terminal_completion(
+    *,
+    directory: Path,
+    policy: dict[str, Any],
+    policy_snapshot: tuple[int, int, int, int],
+    all_events: list[dict[str, Any]],
+    event_snapshot: tuple[int, int, int, int] | None,
+    directory_snapshot: tuple[int, int, int, int],
+    lifecycle_record_id: str,
+) -> dict[str, Any]:
+    """Require the exact current full-range/control completion boundary."""
+
+    range_state = implementation_range_state(policy)
+    if range_state is None:
+        raise SupervisionLogError(
+            "Terminal completion requires the canonical implementation range"
+        )
+    contract = implementation_range_contract(policy)
+    if (
+        contract is None
+        or contract.get("mission_identity")
+        != current_mission_range_identity(policy)
+    ):
+        raise SupervisionLogError(
+            "Terminal completion implementation range belongs to another mission"
+        )
+    if range_state["remaining_blocks"]:
+        raise SupervisionLogError(
+            "Terminal completion rejected by the current implementation range"
+        )
+    active_events = mission_scoped_events(directory, policy, all_events)
+    lifecycle_events = [
+        item for item in active_events if item.get("kind") == "lifecycle"
+    ]
+    lifecycle = lifecycle_events[-1] if lifecycle_events else None
+    if (
+        lifecycle is None
+        or lifecycle.get("record_id") != lifecycle_record_id
+        or lifecycle.get("status") != "completed"
+    ):
+        raise SupervisionLogError(
+            "Terminal completion lifecycle is not the current mission head"
+        )
+    if successor_transition_heads(all_events, open_only=True):
+        raise SupervisionLogError(
+            "Terminal completion has an open successor transition"
+        )
+    if mission_activation_heads(active_events, open_only=True):
+        raise SupervisionLogError(
+            "Terminal completion has an open mission activation"
+        )
+    state_fingerprint = str(lifecycle.get("state_fingerprint", ""))
+    completion = latest_outcome_completion_record(
+        all_events, state_fingerprint=state_fingerprint
+    )
+    permitted, reason = assess_outcome_completion_record(
+        completion, policy=policy, state_fingerprint=state_fingerprint
+    )
+    if (
+        not permitted
+        or completion is None
+        or lifecycle.get("outcome_completion_record_id")
+        != completion.get("record_id")
+    ):
+        raise SupervisionLogError(
+            f"Terminal completion proof is not current: {reason}"
+        )
+    posture = reduce_control_posture(
+        directory=directory,
+        policy=policy,
+        owner_events=all_events,
+        owner_policy_snapshot=policy_snapshot,
+        owner_event_snapshot=event_snapshot,
+        owner_directory_snapshot=directory_snapshot,
+    )
+    matching_completion = any(
+        item.get("lifecycle_record_id") == lifecycle_record_id
+        and item.get("completion_record_id") == completion.get("record_id")
+        for item in posture["completion_candidates"]
+    )
+    if (
+        posture["required_target_posture"] != "completed"
+        or posture["issues"]
+        or posture["open_transition_records"]
+        or posture["open_decision_records"]
+        or not matching_completion
+    ):
+        raise SupervisionLogError(
+            "Terminal completion rejected by current governing-outcome control"
+        )
+    return {
+        "range": range_state,
+        "control_posture": posture,
+        "lifecycle": lifecycle,
+        "completion": completion,
+    }
+
+
 def cmd_terminal_report_prepare(args: argparse.Namespace) -> None:
-    directory, policy = load_policy(args)
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        all_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
     if policy.get("reports", {}).get("terminal") != terminal_report_contract():
         raise SupervisionLogError("Terminal implementation reporting is not enabled")
     require_terminal_gmail_lane(policy)
-    all_events = events(directory / "events.jsonl")
+    require_current_terminal_completion(
+        directory=directory,
+        policy=policy,
+        policy_snapshot=policy_snapshot,
+        all_events=all_events,
+        event_snapshot=event_snapshot,
+        directory_snapshot=directory_snapshot,
+        lifecycle_record_id=args.lifecycle_record,
+    )
     lifecycle_record = next(
         (item for item in all_events if item.get("record_id") == args.lifecycle_record),
         None,
@@ -18888,9 +19014,25 @@ def cmd_terminal_report_prepare(args: argparse.Namespace) -> None:
 
 
 def cmd_terminal_report_finalize(args: argparse.Namespace) -> None:
-    directory, _policy = load_policy(args)
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        all_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
     module = terminal_report_module()
     report_directory, packet = terminal_packet(directory, args.report_set_id)
+    require_current_terminal_completion(
+        directory=directory,
+        policy=policy,
+        policy_snapshot=policy_snapshot,
+        all_events=all_events,
+        event_snapshot=event_snapshot,
+        directory_snapshot=directory_snapshot,
+        lifecycle_record_id=str(packet["lifecycle_record_id"]),
+    )
     try:
         review_bytes = base64.b64decode(args.review_base64, validate=True)
         raw_review = json.loads(review_bytes.decode("utf-8"))
@@ -19078,8 +19220,25 @@ def verify_terminal_report_set(
 
 
 def cmd_terminal_report_verify(args: argparse.Namespace) -> None:
-    directory, _policy = load_policy(args)
-    print(json.dumps(verify_terminal_report_set(directory, args.report_set_id), sort_keys=True))
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        all_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
+    verified = verify_terminal_report_set(directory, args.report_set_id)
+    require_current_terminal_completion(
+        directory=directory,
+        policy=policy,
+        policy_snapshot=policy_snapshot,
+        all_events=all_events,
+        event_snapshot=event_snapshot,
+        directory_snapshot=directory_snapshot,
+        lifecycle_record_id=str(verified["lifecycle_record_id"]),
+    )
+    print(json.dumps(verified, sort_keys=True))
 
 
 def decode_terminal_gmail_readback(value: str) -> dict[str, Any]:
@@ -19101,6 +19260,86 @@ def decode_urlsafe_payload(value: Any, *, label: str) -> bytes:
         return base64.urlsafe_b64decode((value + padding).encode("ascii"))
     except (ValueError, UnicodeEncodeError) as exc:
         raise SupervisionLogError(f"{label} is invalid") from exc
+
+
+def terminal_gmail_provider_review_root_material(
+    value: Mapping[str, Any]
+) -> dict[str, Any]:
+    return {
+        key: member
+        for key, member in value.items()
+        if key not in {"review_root", "signature_base64"}
+    }
+
+
+def terminal_gmail_readback_core(
+    *,
+    seed_message: Mapping[str, Any],
+    sent_message: Mapping[str, Any],
+    attachments: Sequence[Mapping[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "seed_message": dict(seed_message),
+        "sent_message": dict(sent_message),
+        "attachments": [dict(item) for item in attachments],
+    }
+
+
+def validate_terminal_gmail_provider_review(
+    value: Any,
+    *,
+    target_thread_id: str,
+    report_set_id: str,
+    readback_core_sha256: str,
+) -> dict[str, Any]:
+    fields = {
+        "schema_version",
+        "kind",
+        "record_id",
+        "reviewer_id",
+        "disposition",
+        "target_thread_id",
+        "report_set_id",
+        "readback_core_sha256",
+        "reviewed_at",
+        "evidence",
+        "authority_key_sha256",
+        "review_root",
+        "signature_base64",
+    }
+    if (
+        not isinstance(value, Mapping)
+        or set(value) != fields
+        or type(value.get("schema_version")) is not int
+        or value.get("schema_version") != 1
+        or value.get("kind") != TERMINAL_GMAIL_PROVIDER_REVIEW_KIND
+        or value.get("reviewer_id") != ADAPTIVE_REVIEWER_ID
+        or value.get("disposition") != "accepted"
+        or value.get("target_thread_id") != target_thread_id
+        or value.get("report_set_id") != report_set_id
+        or value.get("readback_core_sha256") != readback_core_sha256
+        or value.get("authority_key_sha256")
+        != ADAPTIVE_REVIEW_PUBLIC_KEY_SHA256
+        or value.get("evidence") != ["gmail-provider-output-observed"]
+        or value.get("review_root")
+        != digest(terminal_gmail_provider_review_root_material(value))
+    ):
+        raise SupervisionLogError(
+            "Terminal Gmail read-back lacks independent provider-output provenance"
+        )
+    safe_id(str(value.get("record_id", "")), label="Gmail provider review")
+    try:
+        reviewed_at = parse_time(str(value.get("reviewed_at", "")))
+    except SupervisionLogError as exc:
+        raise SupervisionLogError(
+            "Terminal Gmail provider review time is invalid"
+        ) from exc
+    verify_adaptive_review_signature(value)
+    # The exact signed review is retained as provenance.  Normalizing even a
+    # semantically equivalent timestamp here changes its rooted bytes and makes
+    # a later delivery-currentness check reject the record that was accepted at
+    # ingestion.
+    return dict(value)
 
 
 def validate_gmail_message_owner(
@@ -19167,6 +19406,7 @@ def validate_terminal_gmail_readback(
         "seed_message",
         "sent_message",
         "attachments",
+        "provider_review",
     }
     if set(readback) != required:
         raise SupervisionLogError("Terminal Gmail read-back shape differs")
@@ -19272,11 +19512,24 @@ def validate_terminal_gmail_readback(
             }
         )
     normalized_attachments.sort(key=lambda item: item["filename"])
-    normalized = {
-        "seed_message": seed,
-        "sent_message": sent,
-        "attachments": normalized_attachments,
-    }
+    normalized_core = terminal_gmail_readback_core(
+        seed_message=seed,
+        sent_message=sent,
+        attachments=normalized_attachments,
+    )
+    provider_review = validate_terminal_gmail_provider_review(
+        readback.get("provider_review"),
+        target_thread_id=str(policy.get("target_thread_id", "")),
+        report_set_id=str(verified.get("report_set_id", "")),
+        readback_core_sha256=digest(normalized_core),
+    )
+    normalized = {**normalized_core, "provider_review": provider_review}
+    if parse_time(provider_review["reviewed_at"]) < max(
+        parse_time(seed["fetched_at"]), parse_time(sent["fetched_at"])
+    ):
+        raise SupervisionLogError(
+            "Terminal Gmail provider review predates the provider read-back"
+        )
     return {**normalized, "readback_root": digest(normalized)}
 
 
@@ -19292,7 +19545,37 @@ def append_terminal_delivery(
     sent_message = readback["sent_message"]
     message_id = str(sent_message["message_id"])
     with append_lock(directory):
-        current_events = events(directory / "events.jsonl")
+        (
+            current_directory,
+            current_policy,
+            current_policy_snapshot,
+            current_events,
+            current_event_snapshot,
+            current_directory_snapshot,
+        ) = load_control_snapshot(args)
+        if (
+            current_directory.resolve() != directory.resolve()
+            or current_policy.get("policy_sha256") != policy.get("policy_sha256")
+        ):
+            raise SupervisionLogError(
+                "Terminal delivery policy changed before the canonical append"
+            )
+        require_current_terminal_completion(
+            directory=current_directory,
+            policy=current_policy,
+            policy_snapshot=current_policy_snapshot,
+            all_events=current_events,
+            event_snapshot=current_event_snapshot,
+            directory_snapshot=current_directory_snapshot,
+            lifecycle_record_id=str(verified["lifecycle_record_id"]),
+        )
+        current_verified = verify_terminal_report_set(
+            directory, str(verified["report_set_id"])
+        )
+        if current_verified != verified:
+            raise SupervisionLogError(
+                "Terminal report set changed before delivery append"
+            )
         prior = next(
             (
                 item
@@ -19349,8 +19632,24 @@ def append_terminal_delivery(
 
 
 def cmd_terminal_report_delivery(args: argparse.Namespace) -> None:
-    directory, policy = load_policy(args)
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        all_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
     verified = verify_terminal_report_set(directory, args.report_set_id)
+    require_current_terminal_completion(
+        directory=directory,
+        policy=policy,
+        policy_snapshot=policy_snapshot,
+        all_events=all_events,
+        event_snapshot=event_snapshot,
+        directory_snapshot=directory_snapshot,
+        lifecycle_record_id=str(verified["lifecycle_record_id"]),
+    )
     readback = validate_terminal_gmail_readback(
         decode_terminal_gmail_readback(args.gmail_readback_base64),
         policy=policy,
@@ -19383,24 +19682,59 @@ def latest_terminal_delivery(
 
 
 def terminal_delivery_is_current(
-    delivery: Mapping[str, Any], verified: Mapping[str, Any]
+    delivery: Mapping[str, Any],
+    verified: Mapping[str, Any],
+    *,
+    policy: Mapping[str, Any],
 ) -> bool:
     readback = delivery.get("gmail_readback")
-    if not isinstance(readback, Mapping):
+    if not isinstance(readback, Mapping) or set(readback) != {
+        "seed_message",
+        "sent_message",
+        "attachments",
+        "provider_review",
+        "readback_root",
+    }:
         return False
     material = {key: value for key, value in readback.items() if key != "readback_root"}
     if readback.get("readback_root") != digest(material):
+        return False
+    provider_review = readback.get("provider_review")
+    seed_message = readback.get("seed_message")
+    sent_message = readback.get("sent_message")
+    attachments_source = readback.get("attachments")
+    if (
+        not isinstance(provider_review, Mapping)
+        or not isinstance(seed_message, Mapping)
+        or not isinstance(sent_message, Mapping)
+        or not isinstance(attachments_source, list)
+        or not all(isinstance(item, Mapping) for item in attachments_source)
+    ):
+        return False
+    readback_core = terminal_gmail_readback_core(
+        seed_message=seed_message,
+        sent_message=sent_message,
+        attachments=attachments_source,
+    )
+    try:
+        retained_review = validate_terminal_gmail_provider_review(
+            provider_review,
+            target_thread_id=str(policy.get("target_thread_id", "")),
+            report_set_id=str(verified.get("report_set_id", "")),
+            readback_core_sha256=digest(readback_core),
+        )
+    except SupervisionLogError:
+        return False
+    if retained_review != provider_review:
         return False
     attachments = {
         str(item.get("filename")): item
         for item in readback.get("attachments", [])
         if isinstance(item, Mapping)
     }
-    sent_message = readback.get("sent_message")
-    if not isinstance(sent_message, Mapping):
-        return False
     return bool(
         delivery.get("manifest_root") == verified["manifest_root"]
+        and delivery.get("policy_sha256") == policy.get("policy_sha256")
         and delivery.get("delta_pdf_sha256") == verified["delta_pdf_sha256"]
         and delivery.get("full_pdf_sha256") == verified["full_pdf_sha256"]
         and delivery.get("gmail_readback_root") == readback.get("readback_root")
@@ -19414,25 +19748,53 @@ def terminal_delivery_is_current(
     )
 
 
-def expected_terminal_automation_ids(policy: Mapping[str, Any]) -> list[str]:
+def expected_terminal_automation_owners(
+    policy: Mapping[str, Any],
+) -> dict[str, str]:
     runtime = policy.get("runtime", {})
-    values = [
-        runtime.get("routine_automation_id"),
-        runtime.get("meta_automation_id"),
-        runtime.get("gmail_poll_automation_id"),
-        runtime.get("roundup_automation_id"),
-        policy.get("reports", {}).get("weekly", {}).get("automation_id"),
+    if not isinstance(runtime, Mapping):
+        raise SupervisionLogError("Terminal automation runtime binding is invalid")
+    bindings = [
+        (runtime.get("routine_automation_id"), runtime.get("watcher_thread_id")),
+        (runtime.get("meta_automation_id"), runtime.get("reviewer_thread_id")),
+        (runtime.get("gmail_poll_automation_id"), runtime.get("gmail_gate_thread_id")),
+        (runtime.get("roundup_automation_id"), runtime.get("roundup_thread_id")),
+        (
+            policy.get("reports", {}).get("weekly", {}).get("automation_id"),
+            runtime.get("roundup_thread_id"),
+        ),
     ]
-    return sorted({str(item) for item in values if item})
+    owners: dict[str, str] = {}
+    for automation_value, owner_value in bindings:
+        if not automation_value:
+            continue
+        automation_id = safe_id(str(automation_value), label="automation ID")
+        if not owner_value:
+            raise SupervisionLogError(
+                f"Terminal automation lacks a runtime owner: {automation_id}"
+            )
+        owner_id = safe_id(str(owner_value), label="automation owner task ID")
+        prior = owners.get(automation_id)
+        if prior is not None and prior != owner_id:
+            raise SupervisionLogError(
+                f"Terminal automation has divergent runtime owners: {automation_id}"
+            )
+        owners[automation_id] = owner_id
+    return dict(sorted(owners.items()))
+
+
+def expected_terminal_automation_ids(policy: Mapping[str, Any]) -> list[str]:
+    return list(expected_terminal_automation_owners(policy))
 
 
 def terminal_automation_owner_states(
-    automation_ids: list[str], *, not_before: dt.datetime
+    automation_owners: Mapping[str, str], *, not_before: dt.datetime
 ) -> dict[str, dict[str, Any]]:
     owner_root = CODEX_AUTOMATIONS_ROOT.resolve()
     states: dict[str, dict[str, Any]] = {}
-    for automation_id in automation_ids:
+    for automation_id, target_thread_id in sorted(automation_owners.items()):
         safe_id(automation_id, label="automation ID")
+        safe_id(target_thread_id, label="automation owner task ID")
         automation_directory = owner_root / automation_id
         config_path = automation_directory / "automation.toml"
         if automation_directory.is_symlink() or config_path.is_symlink():
@@ -19445,13 +19807,71 @@ def terminal_automation_owner_states(
             ) from exc
         if resolved.parent.parent != owner_root:
             raise SupervisionLogError("Terminal automation owner path escaped")
-        raw = resolved.read_bytes()
+        descriptor = -1
+        try:
+            descriptor = os.open(
+                resolved, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            )
+            before = os.fstat(descriptor)
+            if not stat.S_ISREG(before.st_mode) or before.st_size > 65536:
+                raise SupervisionLogError(
+                    "Terminal automation owner file posture differs"
+                )
+            with os.fdopen(descriptor, "rb") as handle:
+                descriptor = -1
+                raw = handle.read(65537)
+                after = os.fstat(handle.fileno())
+            before_identity = (
+                before.st_dev,
+                before.st_ino,
+                before.st_size,
+                stat.S_IMODE(before.st_mode),
+                before.st_nlink,
+                before.st_mtime_ns,
+                before.st_ctime_ns,
+            )
+            after_identity = (
+                after.st_dev,
+                after.st_ino,
+                after.st_size,
+                stat.S_IMODE(after.st_mode),
+                after.st_nlink,
+                after.st_mtime_ns,
+                after.st_ctime_ns,
+            )
+            path_metadata = resolved.lstat()
+            path_identity = (
+                path_metadata.st_dev,
+                path_metadata.st_ino,
+                path_metadata.st_size,
+                stat.S_IMODE(path_metadata.st_mode),
+                path_metadata.st_nlink,
+                path_metadata.st_mtime_ns,
+                path_metadata.st_ctime_ns,
+            )
+            if (
+                len(raw) > 65536
+                or before_identity != after_identity
+                or path_identity != after_identity
+            ):
+                raise SupervisionLogError(
+                    "Terminal automation owner changed while reading"
+                )
+        except OSError as exc:
+            raise SupervisionLogError(
+                f"Terminal automation owner cannot be read: {automation_id}"
+            ) from exc
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
         try:
             config = tomllib.loads(raw.decode("utf-8"))
         except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
             raise SupervisionLogError("Terminal automation owner is invalid") from exc
         if config.get("id") != automation_id:
             raise SupervisionLogError("Terminal automation owner identity differs")
+        if config.get("target_thread_id") != target_thread_id:
+            raise SupervisionLogError("Terminal automation owner target differs")
         if str(config.get("status", "")).upper() != "PAUSED":
             raise SupervisionLogError(
                 "Every terminal supervision automation must be paused"
@@ -19472,13 +19892,251 @@ def terminal_automation_owner_states(
             "kind": str(config.get("kind", "")),
             "target_thread_id": str(config.get("target_thread_id", "")),
             "config_sha256": hashlib.sha256(raw).hexdigest(),
+            "file_identity": {
+                "device": after.st_dev,
+                "inode": after.st_ino,
+                "size": after.st_size,
+                "mode": stat.S_IMODE(after.st_mode),
+                "nlink": after.st_nlink,
+                "mtime_ns": after.st_mtime_ns,
+                "ctime_ns": after.st_ctime_ns,
+            },
         }
     return states
 
 
+def terminal_shutdown_rejected_record_ids(
+    all_events: Sequence[Mapping[str, Any]],
+) -> set[str]:
+    rejected: set[str] = set()
+    for item in all_events:
+        if item.get("category") != TERMINAL_SHUTDOWN_REJECTED_CATEGORY:
+            continue
+        validated = validate_terminal_shutdown_rejection_record(item)
+        rejected.add(str(validated["supersedes_record_id"]))
+    return rejected
+
+
+def terminal_shutdown_record_material(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    keys = (
+        "schema_version",
+        "record_id",
+        "timestamp",
+        "target_thread_id",
+        "kind",
+        "model",
+        "reasoning",
+        "state_fingerprint",
+        "status",
+        "severity",
+        "category",
+        "summary",
+        "evidence",
+        "report_set_id",
+        "manifest_root",
+        "automation_states",
+        "automation_state_root",
+        "policy_sha256",
+    )
+    return {key: value.get(key) for key in keys}
+
+
+def validate_terminal_shutdown_record(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    material = terminal_shutdown_record_material(value)
+    core_fields = {*material, "shutdown_root_sha256"}
+    retained_fields = {*core_fields, "previous_record_sha256", "record_sha256"}
+    automation_states = value.get("automation_states")
+    if (
+        frozenset(value) not in {frozenset(core_fields), frozenset(retained_fields)}
+        or type(value.get("schema_version")) is not int
+        or value.get("schema_version") != 1
+        or value.get("kind") != "check"
+        or value.get("category") != TERMINAL_SHUTDOWN_CATEGORY
+        or value.get("status") != "verified"
+        or value.get("severity") != "info"
+        or not isinstance(value.get("record_id"), str)
+        or not isinstance(value.get("target_thread_id"), str)
+        or not isinstance(value.get("state_fingerprint"), str)
+        or not isinstance(value.get("summary"), str)
+        or not isinstance(value.get("evidence"), list)
+        or len(value["evidence"]) != 3
+        or not isinstance(value.get("report_set_id"), str)
+        or not isinstance(automation_states, Mapping)
+        or not automation_states
+        or value.get("automation_state_root") != digest(automation_states)
+        or value.get("shutdown_root_sha256") != digest(material)
+    ):
+        raise SupervisionLogError("Canonical terminal shutdown record is invalid")
+    for label in ("manifest_root", "policy_sha256"):
+        exact_sha256(str(value.get(label, "")), label=label.replace("_", " "))
+    for automation_id, state in automation_states.items():
+        safe_id(str(automation_id), label="terminal automation ID")
+        if not isinstance(state, Mapping) or state.get("status") != "PAUSED":
+            raise SupervisionLogError(
+                "Canonical terminal shutdown automation state is invalid"
+            )
+    return dict(value)
+
+
+def terminal_shutdown_rejection_material(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    keys = (
+        "schema_version",
+        "record_id",
+        "timestamp",
+        "target_thread_id",
+        "kind",
+        "model",
+        "reasoning",
+        "state_fingerprint",
+        "status",
+        "severity",
+        "category",
+        "summary",
+        "evidence",
+        "supersedes_record_id",
+        "report_set_id",
+        "policy_sha256",
+    )
+    return {key: value.get(key) for key in keys}
+
+
+def validate_terminal_shutdown_rejection_record(
+    value: Mapping[str, Any],
+) -> dict[str, Any]:
+    material = terminal_shutdown_rejection_material(value)
+    core_fields = {*material, "rejection_root_sha256"}
+    retained_fields = {*core_fields, "previous_record_sha256", "record_sha256"}
+    if (
+        frozenset(value) not in {frozenset(core_fields), frozenset(retained_fields)}
+        or type(value.get("schema_version")) is not int
+        or value.get("schema_version") != 1
+        or value.get("kind") != "check"
+        or value.get("category") != TERMINAL_SHUTDOWN_REJECTED_CATEGORY
+        or value.get("status") != "rejected"
+        or value.get("severity") != "high"
+        or not isinstance(value.get("record_id"), str)
+        or not isinstance(value.get("target_thread_id"), str)
+        or not isinstance(value.get("state_fingerprint"), str)
+        or not isinstance(value.get("summary"), str)
+        or not isinstance(value.get("evidence"), list)
+        or len(value["evidence"]) != 1
+        or value["evidence"] != [value.get("supersedes_record_id")]
+        or not isinstance(value.get("supersedes_record_id"), str)
+        or not isinstance(value.get("report_set_id"), str)
+        or value.get("rejection_root_sha256") != digest(material)
+    ):
+        raise SupervisionLogError(
+            "Canonical terminal shutdown rejection record is invalid"
+        )
+    exact_sha256(
+        str(value.get("policy_sha256", "")),
+        label="terminal shutdown rejection policy SHA-256",
+    )
+    return dict(value)
+
+
+def append_terminal_shutdown_rejection(
+    *,
+    args: argparse.Namespace,
+    directory: Path,
+    policy: Mapping[str, Any],
+    current_events: list[dict[str, Any]],
+    source_record: Mapping[str, Any],
+) -> dict[str, Any]:
+    record = {
+        "schema_version": 1,
+        "record_id": f"EVT-{len(current_events) + 1:06d}",
+        "timestamp": utc_now(),
+        "target_thread_id": args.target_thread,
+        "kind": "check",
+        "model": "gpt-5.6-sol",
+        "reasoning": "xhigh",
+        "state_fingerprint": str(source_record.get("state_fingerprint", "")),
+        "status": "rejected",
+        "severity": "high",
+        "category": TERMINAL_SHUTDOWN_REJECTED_CATEGORY,
+        "summary": "Rejected a terminal shutdown receipt whose automation owner state changed at the append boundary.",
+        "evidence": [str(source_record.get("record_id", ""))],
+        "supersedes_record_id": str(source_record.get("record_id", "")),
+        "report_set_id": str(source_record.get("report_set_id", "")),
+        "policy_sha256": policy["policy_sha256"],
+    }
+    record["rejection_root_sha256"] = digest(
+        terminal_shutdown_rejection_material(record)
+    )
+    validate_terminal_shutdown_rejection_record(record)
+    append_event_locked(args, directory, record)
+    return record
+
+
+def current_terminal_shutdown_records(
+    all_events: Sequence[Mapping[str, Any]],
+    *,
+    policy: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    rejected_ids = terminal_shutdown_rejected_record_ids(all_events)
+    owner_bindings = expected_terminal_automation_owners(policy)
+    by_id = {
+        str(item.get("record_id")): item
+        for item in all_events
+        if isinstance(item.get("record_id"), str)
+    }
+    current: list[dict[str, Any]] = []
+    for item in all_events:
+        if item.get("category") != TERMINAL_SHUTDOWN_CATEGORY:
+            continue
+        record = validate_terminal_shutdown_record(item)
+        if (
+            record.get("record_id") in rejected_ids
+            or record.get("policy_sha256") != policy.get("policy_sha256")
+        ):
+            continue
+        evidence = record["evidence"]
+        delivery = by_id.get(str(evidence[2]))
+        if (
+            delivery is None
+            or delivery.get("category") != TERMINAL_REPORT_DELIVERY_CATEGORY
+        ):
+            continue
+        try:
+            live_states = terminal_automation_owner_states(
+                owner_bindings,
+                not_before=parse_time(str(delivery.get("timestamp", ""))),
+            )
+        except SupervisionLogError:
+            continue
+        if (
+            live_states == record.get("automation_states")
+            and digest(live_states) == record.get("automation_state_root")
+        ):
+            current.append(record)
+    return current
+
+
 def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
-    directory, policy = load_policy(args)
-    all_events = events(directory / "events.jsonl")
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        all_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
+    require_current_terminal_completion(
+        directory=directory,
+        policy=policy,
+        policy_snapshot=policy_snapshot,
+        all_events=all_events,
+        event_snapshot=event_snapshot,
+        directory_snapshot=directory_snapshot,
+        lifecycle_record_id=args.lifecycle_record,
+    )
     lifecycle = next(
         (item for item in all_events if item.get("record_id") == args.lifecycle_record),
         None,
@@ -19491,32 +20149,90 @@ def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
     if delivery is None or delivery.get("report_set_id") != args.report_set_id:
         raise SupervisionLogError("Terminal shutdown requires delivered report attachments")
     verified = verify_terminal_report_set(directory, args.report_set_id)
-    if not terminal_delivery_is_current(delivery, verified):
+    if not terminal_delivery_is_current(delivery, verified, policy=policy):
         raise SupervisionLogError("Terminal shutdown report delivery is stale")
-    expected = expected_terminal_automation_ids(policy)
-    if not expected:
+    expected_owners = expected_terminal_automation_owners(policy)
+    if not expected_owners:
         raise SupervisionLogError("Terminal shutdown has no bound automations")
     states = terminal_automation_owner_states(
-        expected, not_before=parse_time(str(delivery.get("timestamp", "")))
+        expected_owners,
+        not_before=parse_time(str(delivery.get("timestamp", ""))),
     )
     with append_lock(directory):
-        current_events = events(directory / "events.jsonl")
+        (
+            current_directory,
+            current_policy,
+            current_policy_snapshot,
+            current_events,
+            current_event_snapshot,
+            current_directory_snapshot,
+        ) = load_control_snapshot(args)
+        if (
+            current_directory.resolve() != directory.resolve()
+            or current_policy.get("policy_sha256") != policy.get("policy_sha256")
+        ):
+            raise SupervisionLogError(
+                "Terminal shutdown policy changed before the canonical append"
+            )
+        require_current_terminal_completion(
+            directory=current_directory,
+            policy=current_policy,
+            policy_snapshot=current_policy_snapshot,
+            all_events=current_events,
+            event_snapshot=current_event_snapshot,
+            directory_snapshot=current_directory_snapshot,
+            lifecycle_record_id=args.lifecycle_record,
+        )
+        current_delivery = latest_terminal_delivery(
+            current_events, lifecycle_record_id=args.lifecycle_record
+        )
+        current_verified = verify_terminal_report_set(
+            directory, args.report_set_id
+        )
+        if (
+            current_delivery is None
+            or current_delivery.get("record_id") != delivery.get("record_id")
+            or current_verified != verified
+            or not terminal_delivery_is_current(
+                current_delivery, current_verified, policy=current_policy
+            )
+        ):
+            raise SupervisionLogError(
+                "Terminal shutdown delivery changed before the canonical append"
+            )
+        locked_states = terminal_automation_owner_states(
+            expected_owners,
+            not_before=parse_time(str(delivery.get("timestamp", ""))),
+        )
+        if locked_states != states:
+            raise SupervisionLogError(
+                "Terminal automation owner state changed before shutdown append"
+            )
+        rejected_ids = terminal_shutdown_rejected_record_ids(current_events)
         prior = next(
             (
-                item
+                validate_terminal_shutdown_record(item)
                 for item in reversed(current_events)
                 if item.get("kind") == "check"
                 and item.get("category") == TERMINAL_SHUTDOWN_CATEGORY
                 and item.get("report_set_id") == args.report_set_id
                 and item.get("status") == "verified"
+                and item.get("record_id") not in rejected_ids
             ),
             None,
         )
         if prior is not None:
-            if prior.get("automation_states") != states:
-                raise SupervisionLogError("Terminal shutdown receipt already differs")
-            print(json.dumps({"duplicate": True, "record": prior}, sort_keys=True))
-            return
+            if prior.get("automation_states") == locked_states:
+                print(json.dumps({"duplicate": True, "record": prior}, sort_keys=True))
+                return
+            append_terminal_shutdown_rejection(
+                args=args,
+                directory=directory,
+                policy=policy,
+                current_events=current_events,
+                source_record=prior,
+            )
+            current_events = events(directory / "events.jsonl")
         record = {
             "schema_version": 1,
             "record_id": f"EVT-{len(current_events) + 1:06d}",
@@ -19533,11 +20249,35 @@ def cmd_terminal_shutdown(args: argparse.Namespace) -> None:
             "evidence": [args.lifecycle_record, args.report_set_id, str(delivery.get("record_id"))],
             "report_set_id": args.report_set_id,
             "manifest_root": verified["manifest_root"],
-            "automation_states": states,
-            "automation_state_root": digest(states),
+            "automation_states": locked_states,
+            "automation_state_root": digest(locked_states),
             "policy_sha256": policy["policy_sha256"],
         }
+        record["shutdown_root_sha256"] = digest(
+            terminal_shutdown_record_material(record)
+        )
+        validate_terminal_shutdown_record(record)
         append_event_locked(args, directory, record)
+        retained_states: dict[str, dict[str, Any]] | None = None
+        retained_error: SupervisionLogError | None = None
+        try:
+            retained_states = terminal_automation_owner_states(
+                expected_owners,
+                not_before=parse_time(str(delivery.get("timestamp", ""))),
+            )
+        except SupervisionLogError as exc:
+            retained_error = exc
+        if retained_error is not None or retained_states != locked_states:
+            append_terminal_shutdown_rejection(
+                args=args,
+                directory=directory,
+                policy=policy,
+                current_events=events(directory / "events.jsonl"),
+                source_record=record,
+            )
+            raise SupervisionLogError(
+                "Terminal automation owner state changed during shutdown append"
+            ) from retained_error
     print(json.dumps({"duplicate": False, "record": record}, sort_keys=True))
 
 
@@ -19744,12 +20484,9 @@ def cmd_status(args: argparse.Namespace) -> None:
         if item.get("kind") == "notification"
         and item.get("category") == TERMINAL_REPORT_DELIVERY_CATEGORY
     ]
-    terminal_shutdown_events = [
-        item
-        for item in active_events
-        if item.get("kind") == "check"
-        and item.get("category") == TERMINAL_SHUTDOWN_CATEGORY
-    ]
+    terminal_shutdown_events = current_terminal_shutdown_records(
+        active_events, policy=policy
+    )
     decision_heads: dict[str, dict[str, Any]] = {}
     for item in active_events:
         if item.get("kind") == "decision" and item.get("decision_id"):

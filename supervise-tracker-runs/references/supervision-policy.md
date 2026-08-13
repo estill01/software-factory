@@ -440,24 +440,41 @@ verified prior report, or a PDF whose complete extracted projection differs
 from the canonical review. Every prior weekly report must pass its maintained
 verifier before it can enter the report-of-reports packet.
 
+Every terminal prepare, finalize, verify, delivery, and shutdown boundary
+revalidates the exact completed implementation range, latest completed
+lifecycle, observable-outcome record, and governing control posture. A missing
+range, reopened Block or lifecycle, open activation/transition/decision, or
+changed control member fails closed even when historical completion artifacts
+remain present.
+
 Reply once to the bound primary Gmail seed with both verified PDFs attached.
 The email is the completed lifecycle notice. Read that exact sent message with
 raw MIME, then read both Gmail attachments through their Gmail-owned attachment
 IDs. `terminal-report record-delivery` parses the MIME, checks the bound subject,
 records the Gmail message and thread IDs plus read tool-call evidence, and proves
 both returned payloads have the exact verified local PDF names, bytes, and
-hashes. It does not accept caller-supplied IDs or hashes without that complete
-read-back. A plain email, a link without attachments, or report files without a
-current read-back receipt does not satisfy delivery. `lifecycle-gate` returns
+hashes. The read-back also carries one independently signed exact acceptance of
+the retained Gmail provider-output object and its root. The signed object is
+validated and retained byte-for-byte so later currentness checks reproduce its
+exact root. It does not accept
+caller-supplied IDs, hashes, or a self-labeled provider object without that
+provider-output provenance. A plain email, a link without attachments, or
+report files without a current read-back receipt does not satisfy delivery. `lifecycle-gate` returns
 `supervision_pause_permitted=true` only when the completion proof, completed
 lifecycle, verified reports, and recorded Gmail read-back all agree.
 
 After that gate passes, pause every exact automation returned in
 `pause_automation_ids` and view each current state. `terminal-shutdown` then
 reads each exact maintained Codex `automation.toml` owner directly; it accepts
-only the complete bound set in `PAUSED` state with owner update times no earlier
-than report delivery. Caller-asserted `ID=PAUSED` strings, missing owners, active
-states, path escapes, or stale pauses fail closed. The reports and email remain
+only the complete bound set owned by the policy-mapped runtime role tasks in
+`PAUSED` state with owner update times no earlier than report delivery. The
+routine automation maps to the watcher, the meta automation to the reviewer,
+the Gmail poll automation to the Gmail gate, and roundup/weekly automations to
+the roundup writer. It reopens exact owner state at the append boundary and
+records a rooted currentness rejection if any owner changes. Generic check
+records cannot impersonate or retire either shutdown record. Caller-asserted
+`ID=PAUSED` strings, wrong-role or missing owners, active states, path escapes,
+or stale pauses fail closed. The reports and email remain
 derived evidence; they do not become another completion authority, patent
 record, legal conclusion, or filing/release approval.
 
@@ -2700,12 +2717,16 @@ raw MIME. The sent MIME must reference the seed MIME's RFC message ID. Exactly
 two attachment rows bind filename, Gmail-owned attachment ID, owner message and
 thread IDs, attachment-read tool-call ID, returned byte count, and SHA-256. The
 helper parses both MIME messages, proves the reply/thread relationship, and
-rederives the payload hashes; do not construct a receipt from the local files
-or the send response alone.
+rederives the payload hashes. The object also includes a sealed independent
+provider-output review whose exact root binds the complete raw read result;
+obtain it only after the provider reads. Retain the signed review bytes exactly;
+do not normalize fields inside that rooted object. Do not construct a receipt
+from the local files, caller strings, or the send response alone.
 
 After `lifecycle-gate` returns `supervision_pause_permitted=true`, pause and view
 every returned automation. Then let the helper inspect the maintained Codex
-automation owner files directly:
+automation owner files directly. Each automation must name the policy-bound
+runtime role task that it wakes, not the monitored implementation task:
 
 ```bash
 python3 <LOG_HELPER> terminal-shutdown --target-thread <TARGET> \

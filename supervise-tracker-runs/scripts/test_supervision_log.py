@@ -12014,6 +12014,7 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
         records: list[dict[str, object]] | None = None,
         *,
         include_completion: bool = True,
+        include_range: bool = True,
     ) -> dict[str, object]:
         event_records = list(records or [])
         completion_record_id = None
@@ -12085,6 +12086,15 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
                     [*event_records, source],
                     None,
                     None,
+                ),
+            ),
+            mock.patch.object(
+                supervision_log,
+                "implementation_range_state",
+                return_value=(
+                    {"remaining_blocks": [], "eligible_blocks": []}
+                    if state == "completed" and include_range
+                    else None
                 ),
             ),
             redirect_stdout(output),
@@ -12172,6 +12182,19 @@ class PriorityLifecycleNotificationTests(unittest.TestCase):
             "prepare-finalize-verify-email-and-record-terminal-reports",
         )
         self.assertEqual(result["reply_message_id"], "gmail-primary-1234")
+
+    def test_completed_refuses_an_absent_implementation_range(self) -> None:
+        policy = supervision_log.default_policy(self.init_args())
+        result = self.run_lifecycle_gate(
+            policy, "completed", include_range=False
+        )
+
+        self.assertFalse(result["completion_permitted"])
+        self.assertFalse(result["supervision_pause_permitted"])
+        self.assertEqual(
+            result["completion_action"],
+            "establish-current-implementation-range-without-final-response",
+        )
 
     def test_completed_refuses_missing_outcome_completion(self) -> None:
         policy = supervision_log.default_policy(self.init_args())

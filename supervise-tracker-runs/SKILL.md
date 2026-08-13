@@ -281,17 +281,25 @@ Repeat independently for additional targets.
   implementation "report of reports." Send one completion email to the bound
   primary Gmail thread with both PDFs attached. Read the exact sent message with
   raw MIME, also read the bound seed message, and read both attachments through
-  Gmail. `record-delivery` must parse both MIME messages, prove the sent message
+  Gmail. Every prepare, finalize, verify, delivery, and shutdown boundary must
+  re-establish the exact completed implementation range, current lifecycle, and
+  completed governing-outcome posture. `record-delivery` must parse both MIME messages, prove the sent message
   is a reply in the seed's provider-owned thread, bind each attachment to that
   exact owner message/thread plus its attachment/read-call IDs, and prove the
-  returned bytes equal the verified PDFs. Caller-supplied message IDs or hashes
-  alone are insufficient.
+  returned bytes equal the verified PDFs. It also requires an independently
+  signed exact review of the retained Gmail provider outputs and retains that
+  signed object byte-for-byte after validation; caller-supplied
+  message, attachment, read-call IDs, or hashes alone are insufficient.
 - Treat `supervision_pause_permitted=true` as the shutdown boundary. It requires
   the accepted completion record, exact completed lifecycle, both current report
   PDFs, and their recorded Gmail delivery. Pause every exact bound project
   supervision automation, then run `terminal-shutdown`. The helper reads the
   maintained Codex automation owner files directly and requires every exact
-  bound automation to be paused by an update no earlier than report delivery.
+  bound automation to belong to its policy-bound runtime role task and be
+  paused by an update no earlier than report delivery. It rechecks the owner
+  files across the canonical append and records a rooted currentness rejection
+  if they change. Generic check records cannot create or retire shutdown
+  evidence.
   Do not claim that supervision stopped when an expected owner is missing,
   active, stale, or divergent.
 - Treat an unsupported goal-preventing stop as a critical operational event,
