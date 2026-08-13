@@ -12284,6 +12284,16 @@ def build_software_factory_supervisor_refresh_plan(
             "Software Factory supervisor refresh lacks one exact promotion"
         )
     promotion = validate_software_factory_release_promotion_record(matches[0])
+    promotion_policy = policy_snapshot_by_sha256(
+        events(directory / "policy-history.jsonl"),
+        str(promotion["policy_sha256"]),
+    )
+    if current_mission_range_identity(promotion_policy) != current_mission_range_identity(
+        policy
+    ):
+        raise SupervisionLogError(
+            "Software Factory supervisor refresh promotion belongs to another mission"
+        )
     repository, source_tree, _committed_at = software_factory_release_source(
         args.repo,
         str(promotion["source_commit"]),

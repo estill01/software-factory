@@ -5613,6 +5613,40 @@ class SoftwareFactoryReleaseOrchestrationTests(unittest.TestCase):
         ):
             self.refresh_plan(str(promoted["promotion"]["record_id"]))
 
+    def test_refresh_plan_rejects_predecessor_mission_promotion(self) -> None:
+        accepted = self.acceptance()
+        with mock.patch.object(
+            supervision_log,
+            "run_software_factory_release_owner",
+            side_effect=self.fake_owner,
+        ):
+            promoted = self.promote(accepted)
+        directory = self.root / self.target
+        policy = json.loads(
+            directory.joinpath("policy.json").read_text(encoding="utf-8")
+        )
+        policy["mission_binding"] = supervision_log.mission_binding_contract(
+            "b" * 64,
+            "release-orchestration-current-source-1234",
+        )
+        supervision_log.write_policy_version(
+            directory,
+            policy,
+            kind="test-current-mission-rollover",
+            reason="Move the planner to a distinct current mission.",
+            evidence_values=["current-mission-rollover-1234"],
+        )
+        self.write_automation(self.current_legacy_automation_prompt())
+        self.owner_actions.clear()
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "promotion belongs to another mission",
+        ):
+            self.refresh_plan(str(promoted["promotion"]["record_id"]))
+
+        self.assertEqual(self.owner_actions, [])
+
     def test_refresh_plan_rejects_control_drift_during_projection(self) -> None:
         accepted = self.acceptance()
         with mock.patch.object(
