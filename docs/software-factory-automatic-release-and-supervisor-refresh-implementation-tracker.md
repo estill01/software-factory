@@ -535,6 +535,26 @@ Mocked owner-boundary tests plus an exact local promotion in Block 6.
 - Preserved proof: the actual `80e4ec1` promotion remains valid owner evidence,
   and Block 1 remains accepted at `289b1ec`; neither closes this missing Block 2
   implementation. Remediation remains in progress and Blocks 3–4 stay closed.
+- Rejected corrective checkpoint:
+  `f1256468034d323894149ce7e9dc0a770270a6f4`, tree
+  `7dc20870d2532802ca247741a34c2f923bf9aa25`. Invariant: exact independent
+  acceptance must remain reviewer-owned and each accepted revision must retain
+  one recoverable release-owner effect. Input condition: a generic caller could
+  assert the policy reviewer ID; a later review could advance during the owner
+  call; or interruption after the owner result but before its event append could
+  cause retry to invoke `promote` again. Expected rejection: none of those cases
+  may authorize or repeat an activation. Verification evidence: independent
+  exact review reproduced all three cases despite the nominal `10/10` focused
+  suite, so the checkpoint remains rejected and unsigned.
+- Current corrective candidate:
+  `c65c894f97bee6dfe1cc95e6c5af2e4d5742bb43`, tree
+  `e210159ddcc7ed13965bfc3633b6d4e807f8b6f0`, with
+  signed reviewer-owned acceptance ingestion, one durable pre-effect promotion
+  requirement, serialized acceptance currentness, and status-based recovery
+  that does not repeat a completed `promote`. Focused orchestration passed
+  `17/17`; mapped supervision passed `386/386`; all three fixed skill validators,
+  Python compilation, diff checks, and the full eight-Block tracker verifier
+  passed. Exact independent review is pending; Block 2 remains `in-progress`.
 
 ### Stop
 
