@@ -98,6 +98,37 @@ Verify or cheaply reuse an exact artifact:
   --reflection <reflection.json>
 ```
 
+## Project resource and outcome evidence
+
+Read `references/program-resource-evidence.md` completely. Provide one canonical
+resource-source manifest whose exact bytes are retained by the packet, plus
+separate raw resource-source identities for every work-class attribution. Build
+the deterministic projection:
+
+```bash
+/usr/bin/python3 evolve-product-program/scripts/product_program_resources.py \
+  build --packet <packet.json> --source <resource-source.json> \
+  [--prior-evidence <prior-resource-evidence.json>]
+```
+
+The projection keeps product effect, protected-capability result, useful-yield
+dimensions, elapsed time, provider-reported or estimated tokens, commands/tools,
+validation/review, rework, reopened findings, incidents, rollbacks, user
+corrections, reuse, uncertainty, reversibility, and opportunity cost separate.
+It requires a versioned estimation profile and never emits a scalar score,
+billing claim, spend authority, selection, or allocation.
+
+Verify or cheaply reuse an exact projection:
+
+```bash
+/usr/bin/python3 evolve-product-program/scripts/product_program_resources.py \
+  verify --packet <packet.json> --source <resource-source.json> \
+  --resource-evidence <resource-evidence.json>
+/usr/bin/python3 evolve-product-program/scripts/product_program_resources.py \
+  reuse --packet <packet.json> --source <resource-source.json> \
+  --resource-evidence <resource-evidence.json>
+```
+
 ## Authority boundary
 
 Every output is derived and nonauthorizing. This skill does not write trackers,
@@ -110,6 +141,6 @@ placement handoff before any canonical application.
 
 For packet preparation, stop after a verified packet or deterministic unchanged
 result. For reflection, stop after an independently accepted verified reflection
-or exact reuse result.
-Do not rank/select work, allocate a portfolio, edit a tracker, create a task, or
-perform an external effect.
+or exact reuse result. For resource projection, stop after verified evidence or
+exact reuse. Do not rank/select work, allocate a portfolio, edit a tracker,
+create a task, authorize spend, or perform an external effect.

@@ -1,0 +1,458 @@
+{
+  "artifact_root": "08a439032ae7a8bacceb1382dc2f8a55d3a78fcdfc7c2a5a6d5b4551c4620c30",
+  "authority": {
+    "allocation_allowed": false,
+    "billing_claim": false,
+    "direct_effects_allowed": false,
+    "posture": "derived-nonauthorizing",
+    "selection_allowed": false
+  },
+  "currentness_root": "321b5b440df26f2f0228507aef980349a5e2ca1298b81a3c8538d49dc398309c",
+  "estimation_profile": {
+    "evidence_ids": [
+      "resource-b-estimate"
+    ],
+    "method": "bounded token and elapsed-time ranges from retained event counts",
+    "profile_id": "bounded-resource-estimation",
+    "version": 1
+  },
+  "kind": "product-program-resource-evidence",
+  "limitations": [
+    "dimension-by-dimension-prior-not-an-aggregate-score",
+    "no-provider-billing-or-spend-authority",
+    "observed-association-is-not-causal-proof",
+    "rare-high-value-work-must-remain-visible"
+  ],
+  "packet_id": "program-packet-922825ad4423ca0cdb48",
+  "packet_root": "3f26ac71eefde59ad5253ed51f943aeab35f57cc72137ce31b478bbdf927eb04",
+  "schema_version": 1,
+  "transformation_version": "product-program-resource-evidence-v1",
+  "work_classes": [
+    {
+      "outcomes": {
+        "completion": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "bounded by retained outcome evidence",
+          "value": "completed"
+        },
+        "compounding_value": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "bounded by retained outcome evidence",
+          "value": "reusable"
+        },
+        "opportunity_cost": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "bounded by retained outcome evidence",
+          "value": "medium"
+        },
+        "product_effect": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "bounded by retained outcome evidence",
+          "value": "beneficial"
+        },
+        "protected_capability_result": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "cold-start"
+          ],
+          "uncertainty": "bounded by retained outcome evidence",
+          "value": "preserved"
+        },
+        "recurrence_reach": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "bounded by retained outcome evidence",
+          "value": "recurrent"
+        },
+        "reuse": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "bounded by retained outcome evidence",
+          "value": "partial"
+        },
+        "reversibility": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "bounded by retained outcome evidence",
+          "value": "reversible"
+        }
+      },
+      "resources": {
+        "commands": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "count",
+          "upper": 2
+        },
+        "elapsed_time": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "seconds",
+          "upper": 2
+        },
+        "incidents": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "count",
+          "upper": 2
+        },
+        "integration": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "count",
+          "upper": 2
+        },
+        "reopened_findings": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "count",
+          "upper": 2
+        },
+        "rework": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "count",
+          "upper": 2
+        },
+        "rollbacks": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "count",
+          "upper": 2
+        },
+        "tokens": {
+          "evidence_class": "provider-reported",
+          "evidence_ids": [
+            "resource-a-provider"
+          ],
+          "lower": 120,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "tokens",
+          "upper": 120
+        },
+        "tools": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "count",
+          "upper": 2
+        },
+        "user_corrections": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "count",
+          "upper": 2
+        },
+        "validation_review": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-a"
+          ],
+          "lower": 2,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "count",
+          "upper": 2
+        }
+      },
+      "row_root": "491e1a5bfd27dba5677fc9a6e19286e0b25bee59a3c8bfc3829e63d1f52fb7c6",
+      "source_input_root": "0013032ee727e59c73a22d0c4c4a85448b8fd5cf505169d2f435bbedcdc1fe26",
+      "useful_yield": {
+        "comparison_posture": "dimension-by-dimension-only",
+        "outcome_dimensions": [
+          "completion",
+          "product_effect",
+          "protected_capability_result",
+          "recurrence_reach",
+          "compounding_value",
+          "reuse",
+          "reversibility",
+          "opportunity_cost"
+        ],
+        "resource_dimensions": [
+          "elapsed_time",
+          "tokens",
+          "commands",
+          "tools",
+          "validation_review",
+          "integration",
+          "rework",
+          "reopened_findings",
+          "incidents",
+          "rollbacks",
+          "user_corrections"
+        ],
+        "uncertainties": [
+          "association does not prove causation",
+          "rare high-value work remains visible"
+        ]
+      },
+      "work_class_id": "feature-delivery"
+    },
+    {
+      "outcomes": {
+        "completion": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "bounded by retained outcome evidence",
+          "value": "completed"
+        },
+        "compounding_value": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "bounded by retained outcome evidence",
+          "value": "reusable"
+        },
+        "opportunity_cost": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "bounded by retained outcome evidence",
+          "value": "medium"
+        },
+        "product_effect": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "bounded by retained outcome evidence",
+          "value": "beneficial"
+        },
+        "protected_capability_result": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "cold-start"
+          ],
+          "uncertainty": "bounded by retained outcome evidence",
+          "value": "preserved"
+        },
+        "recurrence_reach": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "bounded by retained outcome evidence",
+          "value": "recurrent"
+        },
+        "reuse": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "bounded by retained outcome evidence",
+          "value": "partial"
+        },
+        "reversibility": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "outcome-1"
+          ],
+          "uncertainty": "bounded by retained outcome evidence",
+          "value": "reversible"
+        }
+      },
+      "resources": {
+        "commands": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-b"
+          ],
+          "lower": 2,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "count",
+          "upper": 2
+        },
+        "elapsed_time": {
+          "evidence_class": "estimated",
+          "evidence_ids": [
+            "resource-b-estimate"
+          ],
+          "lower": 30,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "seconds",
+          "upper": 60
+        },
+        "incidents": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-b"
+          ],
+          "lower": 2,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "count",
+          "upper": 2
+        },
+        "integration": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-b"
+          ],
+          "lower": 2,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "count",
+          "upper": 2
+        },
+        "reopened_findings": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-b"
+          ],
+          "lower": 2,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "count",
+          "upper": 2
+        },
+        "rework": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-b"
+          ],
+          "lower": 2,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "count",
+          "upper": 2
+        },
+        "rollbacks": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-b"
+          ],
+          "lower": 2,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "count",
+          "upper": 2
+        },
+        "tokens": {
+          "evidence_class": "estimated",
+          "evidence_ids": [
+            "resource-b-estimate"
+          ],
+          "lower": 80,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "tokens",
+          "upper": 140
+        },
+        "tools": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-b"
+          ],
+          "lower": 2,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "count",
+          "upper": 2
+        },
+        "user_corrections": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-b"
+          ],
+          "lower": 2,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "count",
+          "upper": 2
+        },
+        "validation_review": {
+          "evidence_class": "observed",
+          "evidence_ids": [
+            "resource-b"
+          ],
+          "lower": 2,
+          "uncertainty": "bounded by retained source and evidence class",
+          "unit": "count",
+          "upper": 2
+        }
+      },
+      "row_root": "15d0087713176f579823b68eaec091f8652271f58e33fa6f1646ca947c4a9ac0",
+      "source_input_root": "ed3ac3a2c9b1467d14c42f795e7a9e02dc677aab9461a9d713fd66b70e48920c",
+      "useful_yield": {
+        "comparison_posture": "dimension-by-dimension-only",
+        "outcome_dimensions": [
+          "completion",
+          "product_effect",
+          "protected_capability_result",
+          "recurrence_reach",
+          "compounding_value",
+          "reuse",
+          "reversibility",
+          "opportunity_cost"
+        ],
+        "resource_dimensions": [
+          "elapsed_time",
+          "tokens",
+          "commands",
+          "tools",
+          "validation_review",
+          "integration",
+          "rework",
+          "reopened_findings",
+          "incidents",
+          "rollbacks",
+          "user_corrections"
+        ],
+        "uncertainties": [
+          "association does not prove causation",
+          "rare high-value work remains visible"
+        ]
+      },
+      "work_class_id": "reliability-remediation"
+    }
+  ]
+}
