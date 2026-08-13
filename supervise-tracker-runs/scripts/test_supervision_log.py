@@ -1362,7 +1362,16 @@ class ImplementationRangeControlTests(unittest.TestCase):
     initial_source = "direct-item-100"
     initial_request = "implement this tracker"
     initial_sha = hashlib.sha256(initial_request.encode("utf-8")).hexdigest()
-    successor_source = "direct-item-300"
+    successor_source = "direct-mission-item-300"
+    successor_mission_request = "Begin the separately authorized successor mission."
+    successor_mission_sha = hashlib.sha256(
+        successor_mission_request.encode("utf-8")
+    ).hexdigest()
+    successor_range_source = "direct-range-item-301"
+    successor_range_request = "implement this tracker"
+    successor_range_sha = hashlib.sha256(
+        successor_range_request.encode("utf-8")
+    ).hexdigest()
     later_source = "direct-item-200"
     later_request = "Block 0"
     later_sha = hashlib.sha256(later_request.encode("utf-8")).hexdigest()
@@ -1553,6 +1562,9 @@ class ImplementationRangeControlTests(unittest.TestCase):
         include_binding_inputs: bool = False,
         range_id: str = "RANGE-ADMISSION-1234",
         rollover_records: tuple[str, str, str] | None = None,
+        source_record: str | None = None,
+        source_sha256: str | None = None,
+        request_text: str | None = None,
     ) -> dict[str, object]:
         arguments = [
             "implementation-range-admit",
@@ -1560,10 +1572,20 @@ class ImplementationRangeControlTests(unittest.TestCase):
             self.target,
         ]
         if include_binding_inputs:
-            source_record = (
-                self.successor_source
+            bound_source_record = source_record or (
+                self.successor_range_source
                 if rollover_records is not None
                 else self.initial_source
+            )
+            bound_request_text = request_text or (
+                self.successor_range_request
+                if rollover_records is not None
+                else self.initial_request
+            )
+            bound_source_sha256 = source_sha256 or (
+                self.successor_range_sha
+                if rollover_records is not None
+                else self.initial_sha
             )
             arguments.extend(
                 [
@@ -1572,11 +1594,11 @@ class ImplementationRangeControlTests(unittest.TestCase):
                     "--tracker",
                     str(self.tracker),
                     "--request-text",
-                    self.initial_request,
+                    bound_request_text,
                     "--authority-source-record",
-                    source_record,
+                    bound_source_record,
                     "--authority-source-sha256",
-                    self.initial_sha,
+                    bound_source_sha256,
                 ]
             )
         if rollover_records is not None:
@@ -1593,8 +1615,92 @@ class ImplementationRangeControlTests(unittest.TestCase):
             )
         return self.call(*arguments)
 
+    def append_successor_range_authority_review(
+        self,
+        *,
+        source_record: str | None = None,
+        request_text: str | None = None,
+        source_kind: str = supervision_log.DIRECT_AUTHORITY_SOURCE_KIND,
+    ) -> dict[str, object]:
+        directory = self.root / self.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        current_events = supervision_log.events(directory / "events.jsonl")
+        source_record = source_record or self.successor_range_source
+        request_text = request_text or self.successor_range_request
+        source_bytes = request_text.encode("utf-8")
+        provenance: dict[str, object] = {
+            "schema_version": 1,
+            "kind": supervision_log.DIRECT_AUTHORITY_PROVENANCE_KIND,
+            "target_thread_id": self.target,
+            "source_task_id": self.target,
+            "source_turn_id": "direct-range-turn-301",
+            "source_item_id": source_record,
+            "source_kind": source_kind,
+            "source_text": request_text,
+            "source_byte_count": len(source_bytes),
+            "source_sha256": hashlib.sha256(source_bytes).hexdigest(),
+            "policy_version": policy["policy_version"],
+            "policy_sha256": policy["policy_sha256"],
+            "verifier_id": self.reviewer,
+            "authorization_record_id": f"EVT-{len(current_events) + 1:06d}",
+        }
+        supervision_log.append_raw(
+            directory / "events.jsonl",
+            {
+                "schema_version": 1,
+                "record_id": provenance["authorization_record_id"],
+                "timestamp": supervision_log.utc_now(),
+                "target_thread_id": self.target,
+                "kind": "meta-review",
+                "category": supervision_log.DIRECT_AUTHORITY_REVIEW_CATEGORY,
+                "status": "accepted",
+                "model": "gpt-5.6-sol",
+                "reasoning": "max",
+                "resolution_owner": "supervisor",
+                "user_action_required": "no",
+                "policy_sha256": policy["policy_sha256"],
+                "evidence": supervision_log.direct_authority_review_evidence(
+                    provenance
+                ),
+            },
+        )
+        return provenance
+
+    def retain_successor_range_authority(
+        self,
+        *,
+        source_record: str | None = None,
+        request_text: str | None = None,
+        source_kind: str = supervision_log.DIRECT_AUTHORITY_SOURCE_KIND,
+    ) -> tuple[dict[str, object], dict[str, object]]:
+        provenance = self.append_successor_range_authority_review(
+            source_record=source_record,
+            request_text=request_text,
+            source_kind=source_kind,
+        )
+        encoded = base64.b64encode(supervision_log.canonical(provenance)).decode(
+            "ascii"
+        )
+        ingested = self.call(
+            "direct-authority-ingest",
+            "--target-thread",
+            self.target,
+            "--provenance-base64",
+            encoded,
+        )
+        receipt = self.call(
+            "implementation-range-authority-receipt",
+            "--target-thread",
+            self.target,
+            "--authority-event-record",
+            str(ingested["record_id"]),
+        )
+        return ingested, receipt
+
     def complete_predecessor_and_start_successor(
         self,
+        *,
+        retain_range_authority: bool = True,
     ) -> tuple[str, str, str, dict[str, object]]:
         directory = self.root / self.target
         policy = supervision_log.read_json(directory / "policy.json")
@@ -1654,7 +1760,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 "--mission-source-record",
                 self.successor_source,
                 "--mission-source-sha256",
-                self.initial_sha,
+                self.successor_mission_sha,
                 "--predecessor-disposition",
                 "completed",
                 "--first-eligible-work",
@@ -1670,6 +1776,8 @@ class ImplementationRangeControlTests(unittest.TestCase):
             successor.func(successor)
         result = json.loads(output.getvalue())
         activation = result["mission_activation"]["record_id"]
+        if retain_range_authority:
+            self.retain_successor_range_authority()
         return outcome_record, lifecycle_record, activation, result
 
     def test_admission_binds_once_from_canonical_direct_request(self) -> None:
@@ -1742,12 +1850,221 @@ class ImplementationRangeControlTests(unittest.TestCase):
             predecessor["range_id"],
         )
         self.assertEqual(result["mission_activation_record"], records[2])
+        duplicate = self.admit(
+            include_binding_inputs=True,
+            range_id="RANGE-SUCCESSOR-5678",
+            source_record=self.successor_range_source,
+            source_sha256=self.successor_range_sha,
+            request_text=self.successor_range_request,
+        )
+        self.assertTrue(duplicate["duplicate"])
         gate = self.gate("final-response")
         self.assertTrue(gate["range_binding_current"])
         self.assertEqual(gate["requested_blocks"], list(range(8)))
         self.assertEqual(gate["accepted_blocks"], [])
         self.assertEqual(gate["eligible_blocks"], [0])
         self.assertFalse(gate["final_response_permitted"])
+
+    def test_mission_source_digest_cannot_substitute_for_range_authority(
+        self,
+    ) -> None:
+        self.write_tracker(["completed"])
+        self.bind()
+        records = self.complete_predecessor_and_start_successor(
+            retain_range_authority=False
+        )[:3]
+        directory = self.root / self.target
+        policy_before = (directory / "policy.json").read_bytes()
+        history_before = (directory / "policy-history.jsonl").read_bytes()
+        self.tracker = self.root / "successor-tracker.md"
+        self.write_tracker(["not-started"] * 8)
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "identity only, not range authority",
+        ):
+            self.admit(
+                include_binding_inputs=True,
+                rollover_records=records,
+                source_record=self.successor_source,
+                source_sha256=self.successor_mission_sha,
+                request_text=self.successor_mission_request,
+            )
+
+        self.assertEqual((directory / "policy.json").read_bytes(), policy_before)
+        self.assertEqual(
+            (directory / "policy-history.jsonl").read_bytes(), history_before
+        )
+
+    def test_terminal_delivery_and_routed_sources_cannot_be_ingested(
+        self,
+    ) -> None:
+        self.write_tracker(["completed"])
+        self.bind()
+        self.complete_predecessor_and_start_successor(
+            retain_range_authority=False
+        )
+        directory = self.root / self.target
+        cases = (
+            (
+                "direct-item-3209",
+                "Deliver the terminal reports, verify readback, and shut down supervision.",
+                supervision_log.DIRECT_AUTHORITY_SOURCE_KIND,
+                "does not establish full-tracker|does not authorize the full tracker",
+            ),
+            (
+                "routed-item-3209",
+                "codex_delegation: implement this tracker",
+                "codex-delegation",
+                "source kind|Routed codex_delegation",
+            ),
+        )
+        for source_record, request_text, source_kind, message in cases:
+            with self.subTest(source_record=source_record):
+                provenance = self.append_successor_range_authority_review(
+                    source_record=source_record,
+                    request_text=request_text,
+                    source_kind=source_kind,
+                )
+                before = {
+                    name: (directory / name).read_bytes()
+                    for name in (
+                        "policy.json",
+                        "policy-history.jsonl",
+                        "events.jsonl",
+                        supervision_log.EVENT_LEDGER_ANCHOR_NAME,
+                    )
+                }
+                encoded = base64.b64encode(
+                    supervision_log.canonical(provenance)
+                ).decode("ascii")
+                with self.assertRaisesRegex(
+                    supervision_log.SupervisionLogError, message
+                ):
+                    self.call(
+                        "direct-authority-ingest",
+                        "--target-thread",
+                        self.target,
+                        "--provenance-base64",
+                        encoded,
+                    )
+                for name, raw in before.items():
+                    self.assertEqual((directory / name).read_bytes(), raw)
+
+    def test_exact_direct_authority_ingestion_is_idempotent_and_one_source(
+        self,
+    ) -> None:
+        self.write_tracker(["completed"])
+        self.bind()
+        self.complete_predecessor_and_start_successor(
+            retain_range_authority=False
+        )
+        directory = self.root / self.target
+        provenance = self.append_successor_range_authority_review()
+        encoded = base64.b64encode(
+            supervision_log.canonical(provenance)
+        ).decode("ascii")
+
+        first = self.call(
+            "direct-authority-ingest",
+            "--target-thread",
+            self.target,
+            "--provenance-base64",
+            encoded,
+        )
+        first_events = (directory / "events.jsonl").read_bytes()
+        first_anchor = (
+            directory / supervision_log.EVENT_LEDGER_ANCHOR_NAME
+        ).read_bytes()
+        duplicate = self.call(
+            "direct-authority-ingest",
+            "--target-thread",
+            self.target,
+            "--provenance-base64",
+            encoded,
+        )
+
+        self.assertFalse(first["duplicate"])
+        self.assertTrue(duplicate["duplicate"])
+        self.assertEqual(duplicate["record_id"], first["record_id"])
+        self.assertEqual((directory / "events.jsonl").read_bytes(), first_events)
+        self.assertEqual(
+            (directory / supervision_log.EVENT_LEDGER_ANCHOR_NAME).read_bytes(),
+            first_anchor,
+        )
+
+        changed = copy.deepcopy(provenance)
+        changed["source_text"] = "implement this tracker!"
+        changed_bytes = changed["source_text"].encode("utf-8")
+        changed["source_byte_count"] = len(changed_bytes)
+        changed["source_sha256"] = hashlib.sha256(changed_bytes).hexdigest()
+        changed_encoded = base64.b64encode(
+            supervision_log.canonical(changed)
+        ).decode("ascii")
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "review does not bind|different provenance",
+        ):
+            self.call(
+                "direct-authority-ingest",
+                "--target-thread",
+                self.target,
+                "--provenance-base64",
+                changed_encoded,
+            )
+        self.assertEqual((directory / "events.jsonl").read_bytes(), first_events)
+
+    def test_stale_or_ambiguous_receipt_rejects_fresh_admission(
+        self,
+    ) -> None:
+        self.write_tracker(["completed"])
+        self.bind()
+        records = self.complete_predecessor_and_start_successor()[:3]
+        directory = self.root / self.target
+        policy = supervision_log.read_json(directory / "policy.json")
+        receipt = copy.deepcopy(policy["direct_authority_receipts"][-1])
+        ambiguous = copy.deepcopy(policy)
+        ambiguous["direct_authority_receipts"].append(receipt)
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "one exact retained authority receipt",
+        ):
+            supervision_log.retained_full_tracker_authority(
+                ambiguous,
+                all_events=supervision_log.events(directory / "events.jsonl"),
+                policy_history=supervision_log.events(
+                    directory / "policy-history.jsonl"
+                ),
+                source_record=self.successor_range_source,
+                source_sha256=self.successor_range_sha,
+                require_current_receipt=True,
+                request_text=self.successor_range_request,
+            )
+        supervision_log.write_policy_version(
+            directory,
+            policy,
+            kind="test-authority-currentness-drift",
+            reason="Advance policy to prove that a stale receipt cannot bind a range.",
+            evidence_values=[str(receipt["source_event_record_id"])],
+        )
+        policy_before = (directory / "policy.json").read_bytes()
+        history_before = (directory / "policy-history.jsonl").read_bytes()
+        self.tracker = self.root / "successor-tracker.md"
+        self.write_tracker(["not-started"] * 8)
+
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "authority receipt is stale",
+        ):
+            self.admit(
+                include_binding_inputs=True,
+                rollover_records=records,
+            )
+
+        self.assertEqual((directory / "policy.json").read_bytes(), policy_before)
+        self.assertEqual(
+            (directory / "policy-history.jsonl").read_bytes(), history_before
+        )
 
     def test_gate_reports_predecessor_range_noncurrent_after_mission_change(
         self,
@@ -1900,6 +2217,43 @@ class ImplementationRangeControlTests(unittest.TestCase):
             (directory / "policy-history.jsonl").read_bytes(), history_before
         )
 
+    def test_rollover_revalidates_retained_authority_under_owner_lock(
+        self,
+    ) -> None:
+        self.write_tracker(["completed"])
+        self.bind()
+        records = self.complete_predecessor_and_start_successor()[:3]
+        directory = self.root / self.target
+        self.tracker = self.root / "successor-tracker.md"
+        self.write_tracker(["not-started"] * 8)
+        policy_before = (directory / "policy.json").read_bytes()
+        history_before = (directory / "policy-history.jsonl").read_bytes()
+
+        with mock.patch.object(
+            supervision_log, "write_policy_version"
+        ) as write_policy:
+            self.admit(
+                include_binding_inputs=True,
+                rollover_records=records,
+            )
+        validator = write_policy.call_args.kwargs["pre_mutation_validator"]
+        current_policy = supervision_log.read_json(directory / "policy.json")
+        current_policy["direct_authority_receipts"] = []
+        directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            with self.assertRaisesRegex(
+                supervision_log.SupervisionLogError,
+                "retained authority receipt",
+            ):
+                validator(directory_fd, current_policy)
+        finally:
+            os.close(directory_fd)
+
+        self.assertEqual((directory / "policy.json").read_bytes(), policy_before)
+        self.assertEqual(
+            (directory / "policy-history.jsonl").read_bytes(), history_before
+        )
+
     def test_rollover_rejects_tracker_drift_under_owner_lock(self) -> None:
         self.write_tracker(["completed"])
         self.bind()
@@ -1946,6 +2300,7 @@ class ImplementationRangeControlTests(unittest.TestCase):
         self.assertFalse(result["range_binding_current"])
         self.assertEqual(result["range_binding_posture"], "absent")
         self.assertFalse(result["final_response_permitted"])
+        self.assertFalse(result["implementation_start_permitted"])
         self.assertEqual(result["required_target_posture"], "in-progress")
         self.assertEqual(
             result["next_action"],
@@ -1979,6 +2334,40 @@ class ImplementationRangeControlTests(unittest.TestCase):
             "continue-local-safe-frontier-and-repair-binding",
         )
         self.assertIn("changed without an accepted", result["suppression_cause"])
+
+    def test_fresh_range_with_missing_receipt_returns_structured_repair(
+        self,
+    ) -> None:
+        self.write_tracker(["completed"])
+        self.bind()
+        records = self.complete_predecessor_and_start_successor()[:3]
+        directory = self.root / self.target
+        self.tracker = self.root / "successor-tracker.md"
+        self.write_tracker(["not-started"] * 8)
+        self.admit(
+            include_binding_inputs=True,
+            range_id="RANGE-SUCCESSOR-5678",
+            rollover_records=records,
+        )
+        policy = supervision_log.read_json(directory / "policy.json")
+        policy["direct_authority_receipts"] = []
+        supervision_log.write_policy_version(
+            directory,
+            policy,
+            kind="test-authority-receipt-removal",
+            reason="Prove that a fresh range fails closed when its receipt is absent.",
+            evidence_values=["missing-range-authority-receipt"],
+        )
+
+        result = self.gate("final-response")
+
+        self.assertFalse(result["range_binding_current"])
+        self.assertFalse(result["implementation_start_permitted"])
+        self.assertFalse(result["final_response_permitted"])
+        self.assertEqual(result["required_target_posture"], "in-progress")
+        self.assertIn(
+            "retained authority receipt", result["suppression_cause"]
+        )
 
     def test_remaining_range_rejects_every_process_and_response_boundary(self) -> None:
         self.write_tracker(["completed", "not-started"])

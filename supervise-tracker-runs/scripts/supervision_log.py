@@ -360,6 +360,10 @@ SKILL_RELEASE_PUBLICATION_STATUSES = (
     "failed",
 )
 DIRECT_AUTHORITY_EVENT_KIND = "direct-user-authority-source"
+DIRECT_AUTHORITY_PROVENANCE_KIND = "direct-user-authority-provenance"
+DIRECT_AUTHORITY_REVIEW_CATEGORY = "direct-authority-ingestion"
+DIRECT_AUTHORITY_CLASSIFICATION = "full-tracker"
+DIRECT_AUTHORITY_SOURCE_KIND = "direct-user-message"
 LEGACY_DIRECT_AUTHORITY_PROVENANCE_KIND = (
     "legacy-direct-user-authority-provenance"
 )
@@ -375,6 +379,7 @@ EVENT_LEDGER_ANCHOR_NAME = "events-head.json"
 OWNER_ROOT_HISTORY_NAME = "owner-root-history.jsonl"
 OWNER_ROOT_KEY_DIRECTORY = ".owner-root-keys"
 MAX_IMPLEMENTATION_TRACKER_BYTES = 2 * 1024 * 1024
+MAX_DIRECT_AUTHORITY_PROVENANCE_BYTES = 4096
 MAX_LEGACY_DIRECT_AUTHORITY_PROVENANCE_BYTES = 4096
 IMPLEMENTATION_BLOCK_HEADING = re.compile(r"^## Block (\d+)\b", re.MULTILINE)
 IMPLEMENTATION_TABLE_ROW = re.compile(r"^\|\s*(\d+)\s*\|(.+)$")
@@ -6584,6 +6589,481 @@ def successor_transition_is_activated(
     )
 
 
+def decode_direct_authority_provenance(encoded_value: str) -> dict[str, Any]:
+    if not isinstance(encoded_value, str) or not encoded_value:
+        raise SupervisionLogError(
+            "Direct-authority provenance must be nonempty canonical base64"
+        )
+    try:
+        encoded = encoded_value.encode("ascii")
+        raw = base64.b64decode(encoded, validate=True)
+    except (UnicodeEncodeError, binascii.Error, ValueError) as exc:
+        raise SupervisionLogError(
+            "Direct-authority provenance is not valid canonical base64"
+        ) from exc
+    if base64.b64encode(raw) != encoded:
+        raise SupervisionLogError(
+            "Direct-authority provenance is not valid canonical base64"
+        )
+    if len(raw) > MAX_DIRECT_AUTHORITY_PROVENANCE_BYTES:
+        raise SupervisionLogError(
+            "Direct-authority provenance exceeds its byte bound"
+        )
+    try:
+        value = json.loads(raw, object_pairs_hook=reject_duplicate_json_pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise SupervisionLogError(
+            "Direct-authority provenance is not valid JSON"
+        ) from exc
+    if not isinstance(value, dict):
+        raise SupervisionLogError(
+            "Direct-authority provenance must be a JSON object"
+        )
+    validate_exact_json_value(value)
+    if raw != canonical(value):
+        raise SupervisionLogError(
+            "Direct-authority provenance is not exact canonical JSON"
+        )
+    return value
+
+
+def direct_authority_review_evidence(
+    provenance: Mapping[str, Any],
+) -> list[str]:
+    return [
+        f"source-kind:{provenance['source_kind']}",
+        f"source-task:{provenance['source_task_id']}",
+        f"source-turn:{provenance['source_turn_id']}",
+        f"source-item:{provenance['source_item_id']}",
+        f"source-byte-count:{provenance['source_byte_count']}",
+        f"source-sha256:{provenance['source_sha256']}",
+        f"verifier:{provenance['verifier_id']}",
+        f"classification:{DIRECT_AUTHORITY_CLASSIFICATION}",
+    ]
+
+
+def canonical_retained_direct_authority_review(
+    all_events: list[dict[str, Any]],
+    *,
+    provenance: Mapping[str, Any],
+    policy: Mapping[str, Any],
+) -> dict[str, Any]:
+    record_id = safe_id(
+        str(provenance["authorization_record_id"]),
+        label="direct-authority review record",
+    )
+    event = next(
+        (item for item in all_events if item.get("record_id") == record_id),
+        None,
+    )
+    if event is None:
+        raise SupervisionLogError(
+            "Direct-authority review is not in the canonical event ledger"
+        )
+    verifier_id = safe_id(
+        str(provenance["verifier_id"]),
+        label="direct-authority independent verifier",
+    )
+    runtime = policy.get("runtime", {})
+    eligible = {
+        runtime.get("base_reviewer_thread_id"),
+        runtime.get("reviewer_thread_id"),
+    }
+    disallowed = {
+        policy.get("target_thread_id"),
+        runtime.get("watcher_thread_id"),
+        runtime.get("fix_executor_thread_id"),
+    }
+    expected_kind = (
+        "checkpoint-review"
+        if verifier_id == runtime.get("base_reviewer_thread_id")
+        else "meta-review"
+    )
+    evidence = event.get("evidence")
+    if (
+        verifier_id not in eligible
+        or verifier_id in disallowed
+        or event.get("schema_version") != 1
+        or event.get("target_thread_id") != policy.get("target_thread_id")
+        or event.get("kind") != expected_kind
+        or event.get("category") != DIRECT_AUTHORITY_REVIEW_CATEGORY
+        or event.get("status") != "accepted"
+        or event.get("model") != "gpt-5.6-sol"
+        or event.get("reasoning") not in {"xhigh", "max"}
+        or event.get("resolution_owner") != "supervisor"
+        or event.get("user_action_required") != "no"
+        or event.get("policy_sha256") != provenance.get("policy_sha256")
+        or not isinstance(evidence, list)
+        or not all(
+            item in evidence
+            for item in direct_authority_review_evidence(provenance)
+        )
+    ):
+        raise SupervisionLogError(
+            "Direct-authority review does not bind independent exact provenance"
+        )
+    exact_sha256(
+        str(event.get("record_sha256", "")),
+        label="direct-authority review record SHA-256",
+    )
+    return event
+
+
+def validate_direct_authority_provenance(
+    provenance: Mapping[str, Any],
+    *,
+    policy: Mapping[str, Any],
+    policy_history: list[dict[str, Any]],
+    all_events: list[dict[str, Any]],
+    require_current_policy: bool,
+) -> tuple[dict[str, str], dict[str, Any]]:
+    expected = {
+        "schema_version",
+        "kind",
+        "target_thread_id",
+        "source_task_id",
+        "source_turn_id",
+        "source_item_id",
+        "source_kind",
+        "source_text",
+        "source_byte_count",
+        "source_sha256",
+        "policy_version",
+        "policy_sha256",
+        "verifier_id",
+        "authorization_record_id",
+    }
+    if set(provenance) != expected:
+        raise SupervisionLogError("Direct-authority provenance shape differs")
+    if (
+        provenance.get("schema_version") != 1
+        or provenance.get("kind") != DIRECT_AUTHORITY_PROVENANCE_KIND
+        or provenance.get("target_thread_id") != policy.get("target_thread_id")
+        or provenance.get("source_task_id") != policy.get("target_thread_id")
+        or provenance.get("source_kind") != DIRECT_AUTHORITY_SOURCE_KIND
+    ):
+        raise SupervisionLogError(
+            "Direct-authority target, source kind, or provenance kind differs"
+        )
+    for field, label in (
+        ("source_task_id", "direct-authority source task"),
+        ("source_turn_id", "direct-authority source turn"),
+        ("source_item_id", "direct-authority source item"),
+    ):
+        safe_id(str(provenance[field]), label=label)
+    source_text = provenance.get("source_text")
+    if not isinstance(source_text, str):
+        raise SupervisionLogError("Direct-authority source text is not exact")
+    if re.search(r"codex[_-]?delegation", source_text, re.I):
+        raise SupervisionLogError(
+            "Routed codex_delegation is not direct range authority"
+        )
+    source_bytes = source_text.encode("utf-8")
+    source_byte_count = provenance.get("source_byte_count")
+    if (
+        type(source_byte_count) is not int
+        or source_byte_count <= 0
+        or source_byte_count > 1200
+        or len(source_bytes) != source_byte_count
+    ):
+        raise SupervisionLogError("Direct-authority source byte count differs")
+    source_sha256 = exact_sha256(
+        str(provenance["source_sha256"]),
+        label="direct-authority source SHA-256",
+    )
+    if hashlib.sha256(source_bytes).hexdigest() != source_sha256:
+        raise SupervisionLogError(
+            "Direct-authority source bytes differ from their SHA-256"
+        )
+    source_policy_sha256 = exact_sha256(
+        str(provenance["policy_sha256"]),
+        label="direct-authority policy SHA-256",
+    )
+    policy_version = provenance.get("policy_version")
+    if type(policy_version) is not int or policy_version <= 0:
+        raise SupervisionLogError("Direct-authority policy version is invalid")
+    historical_policy = next(
+        (
+            item.get("policy")
+            for item in policy_history
+            if isinstance(item.get("policy"), Mapping)
+            and item["policy"].get("policy_version") == policy_version
+            and item["policy"].get("policy_sha256") == source_policy_sha256
+        ),
+        None,
+    )
+    if not isinstance(historical_policy, Mapping):
+        raise SupervisionLogError(
+            "Direct-authority provenance is not anchored to policy history"
+        )
+    if require_current_policy and (
+        policy_version != policy.get("policy_version")
+        or source_policy_sha256 != policy.get("policy_sha256")
+    ):
+        raise SupervisionLogError("Direct-authority provenance policy is stale")
+    current_mission = bound_mission(dict(policy))
+    source_mission = bound_mission(dict(historical_policy))
+    if (
+        current_mission is None
+        or source_mission is None
+        or mission_binding_identity(current_mission)
+        != mission_binding_identity(source_mission)
+    ):
+        raise SupervisionLogError(
+            "Direct-authority source does not belong to the current mission"
+        )
+    controlling = current_mission.get("mission_derivation", {}).get(
+        "controlling_source", {}
+    )
+    if (
+        provenance.get("source_item_id")
+        == current_mission.get("mission_source_record")
+        or provenance.get("source_item_id") == controlling.get("record")
+        or source_sha256 == controlling.get("sha256")
+    ):
+        raise SupervisionLogError(
+            "Mission controlling source is identity only, not range authority"
+        )
+    intent, _requested = classify_implementation_request(source_text, {0})
+    if intent != "full-tracker":
+        raise SupervisionLogError(
+            "Direct-authority source does not authorize the full tracker"
+        )
+    authorization = canonical_retained_direct_authority_review(
+        all_events,
+        provenance=provenance,
+        policy=policy,
+    )
+    return {"range_intent": intent}, authorization
+
+
+def direct_authority_event_evidence(
+    provenance: Mapping[str, Any], authorization: Mapping[str, Any]
+) -> list[str]:
+    return [
+        *direct_authority_review_evidence(provenance),
+        "authorization-record:"
+        + ":".join(
+            (
+                str(authorization["record_id"]),
+                str(authorization["record_sha256"]),
+            )
+        ),
+    ]
+
+
+def retained_direct_authority_event_material(
+    provenance: Mapping[str, Any], authorization: Mapping[str, Any]
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "target_thread_id": provenance["target_thread_id"],
+        "kind": DIRECT_AUTHORITY_EVENT_KIND,
+        "source_class": "direct-user",
+        "source_record": provenance["source_item_id"],
+        "source_sha256": provenance["source_sha256"],
+        "source_task_id": provenance["source_task_id"],
+        "source_item_id": provenance["source_item_id"],
+        "verifier_id": provenance["verifier_id"],
+        "provenance_status": "verified-before-entry",
+        "policy_sha256": provenance["policy_sha256"],
+        "evidence": direct_authority_event_evidence(
+            provenance, authorization
+        ),
+    }
+
+
+def matching_retained_direct_authority_event(
+    all_events: list[dict[str, Any]],
+    *,
+    provenance: Mapping[str, Any],
+    authorization: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    expected = retained_direct_authority_event_material(
+        provenance, authorization
+    )
+    authorization_token = (
+        "authorization-record:"
+        + str(authorization["record_id"])
+        + ":"
+        + str(authorization["record_sha256"])
+    )
+    related = [
+        item
+        for item in all_events
+        if item.get("kind") == DIRECT_AUTHORITY_EVENT_KIND
+        and (
+            item.get("source_record") == provenance.get("source_item_id")
+            or (
+                isinstance(item.get("evidence"), list)
+                and authorization_token in item["evidence"]
+            )
+        )
+    ]
+    for item in related:
+        comparable = {
+            key: value
+            for key, value in item.items()
+            if key
+            not in {
+                "record_id",
+                "timestamp",
+                "previous_record_sha256",
+                "record_sha256",
+            }
+        }
+        if comparable == expected:
+            return item
+    if related:
+        raise SupervisionLogError(
+            "Direct-authority source or review was already used with different provenance"
+        )
+    return None
+
+
+def cmd_direct_authority_ingest(args: argparse.Namespace) -> None:
+    provenance = decode_direct_authority_provenance(args.provenance_base64)
+    (
+        directory,
+        policy,
+        policy_snapshot,
+        all_events,
+        event_snapshot,
+        directory_snapshot,
+    ) = load_control_snapshot(args)
+    validate_event_ledger_anchor(
+        directory, all_events, allow_missing=not all_events
+    )
+    policy_history = events(directory / "policy-history.jsonl")
+    projection, authorization = validate_direct_authority_provenance(
+        provenance,
+        policy=policy,
+        policy_history=policy_history,
+        all_events=all_events,
+        require_current_policy=False,
+    )
+    duplicate = matching_retained_direct_authority_event(
+        all_events,
+        provenance=provenance,
+        authorization=authorization,
+    )
+    if duplicate is not None:
+        print(
+            json.dumps(
+                {
+                    "duplicate": True,
+                    "record_id": duplicate["record_id"],
+                    "record_sha256": duplicate["record_sha256"],
+                    "source_record": duplicate["source_record"],
+                    "source_sha256": duplicate["source_sha256"],
+                    "classification": projection["range_intent"],
+                },
+                sort_keys=True,
+            )
+        )
+        return
+    validate_direct_authority_provenance(
+        provenance,
+        policy=policy,
+        policy_history=policy_history,
+        all_events=all_events,
+        require_current_policy=True,
+    )
+    record = {
+        "record_id": "",
+        "timestamp": utc_now(),
+        **retained_direct_authority_event_material(
+            provenance, authorization
+        ),
+    }
+    with owner_append_lock(
+        root_from(args), args.target_thread, directory_snapshot
+    ) as directory_fd:
+        require_bound_policy_at(
+            directory_fd,
+            expected_policy=policy,
+            expected_snapshot=policy_snapshot,
+        )
+        current_events, current_event_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        current_policy_history, _history_snapshot = events_snapshot(
+            Path("policy-history.jsonl"), directory_fd=directory_fd
+        )
+        validate_event_ledger_anchor_at(
+            directory_fd,
+            current_events,
+            allow_missing=not current_events,
+        )
+        if current_event_snapshot != event_snapshot or current_events != all_events:
+            raise SupervisionLogError(
+                "Direct-authority event state changed before append"
+            )
+        current_projection, current_authorization = (
+            validate_direct_authority_provenance(
+                provenance,
+                policy=policy,
+                policy_history=current_policy_history,
+                all_events=current_events,
+                require_current_policy=True,
+            )
+        )
+        if (
+            current_projection != projection
+            or current_authorization != authorization
+        ):
+            raise SupervisionLogError(
+                "Direct-authority provenance changed before append"
+            )
+        duplicate = matching_retained_direct_authority_event(
+            current_events,
+            provenance=provenance,
+            authorization=current_authorization,
+        )
+        if duplicate is not None:
+            print(
+                json.dumps(
+                    {
+                        "duplicate": True,
+                        "record_id": duplicate["record_id"],
+                        "record_sha256": duplicate["record_sha256"],
+                        "source_record": duplicate["source_record"],
+                        "source_sha256": duplicate["source_sha256"],
+                        "classification": projection["range_intent"],
+                    },
+                    sort_keys=True,
+                )
+            )
+            return
+        record["record_id"] = f"EVT-{len(current_events) + 1:06d}"
+        previous = (
+            str(current_events[-1]["record_sha256"])
+            if current_events
+            else None
+        )
+        record["record_sha256"] = append_raw_locked_at(
+            directory_fd,
+            "events.jsonl",
+            record,
+            previous_record_sha256=previous,
+            expected_file_snapshot=current_event_snapshot,
+            require_event_anchor=bool(current_events),
+        )
+    print(
+        json.dumps(
+            {
+                "duplicate": False,
+                "record_id": record["record_id"],
+                "record_sha256": record["record_sha256"],
+                "source_record": provenance["source_item_id"],
+                "source_sha256": provenance["source_sha256"],
+                "classification": projection["range_intent"],
+            },
+            sort_keys=True,
+        )
+    )
+
+
 def decode_legacy_direct_authority_provenance(
     encoded_value: str,
 ) -> dict[str, Any]:
@@ -7851,9 +8331,166 @@ def evidence_value(evidence: Any, prefix: str) -> str:
     ] if isinstance(evidence, list) else []
     if len(matches) != 1 or not matches[0]:
         raise SupervisionLogError(
-            "Legacy direct-authority event evidence is incomplete"
+            "Direct-authority event evidence is incomplete"
         )
     return matches[0]
+
+
+def retained_full_tracker_authority(
+    policy: Mapping[str, Any],
+    *,
+    all_events: list[dict[str, Any]],
+    policy_history: list[dict[str, Any]],
+    source_record: str,
+    source_sha256: str,
+    require_current_receipt: bool,
+    request_text: str | None = None,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    current_mission = bound_mission(dict(policy))
+    controlling = (
+        current_mission.get("mission_derivation", {}).get(
+            "controlling_source", {}
+        )
+        if current_mission is not None
+        else {}
+    )
+    if (
+        current_mission is None
+        or source_record == current_mission.get("mission_source_record")
+        or source_record == controlling.get("record")
+        or source_sha256 == controlling.get("sha256")
+    ):
+        raise SupervisionLogError(
+            "Mission controlling source is identity only, not range authority"
+        )
+    receipts = [
+        item
+        for item in policy.get("direct_authority_receipts", [])
+        if isinstance(item, Mapping)
+        and item.get("accepted") is True
+        and item.get("source_class") == "direct-user"
+        and item.get("source_record") == source_record
+        and item.get("source_sha256") == source_sha256
+    ]
+    if len(receipts) != 1:
+        raise SupervisionLogError(
+            "Fresh implementation range requires one exact retained authority receipt"
+        )
+    receipt = dict(receipts[0])
+    if require_current_receipt and receipt.get(
+        "accepted_policy_version"
+    ) != policy.get("policy_version"):
+        raise SupervisionLogError(
+            "Fresh implementation range authority receipt is stale"
+        )
+    source_event = canonical_direct_authority_event(
+        all_events,
+        event_record_id=str(receipt["source_event_record_id"]),
+        policy=policy,
+        policy_history=policy_history,
+    )
+    evidence = source_event["evidence"]
+    if (
+        evidence_value(evidence, "source-kind:")
+        != DIRECT_AUTHORITY_SOURCE_KIND
+        or evidence_value(evidence, "classification:")
+        != DIRECT_AUTHORITY_CLASSIFICATION
+    ):
+        raise SupervisionLogError(
+            "Retained direct authority does not authorize the full tracker"
+        )
+    authorization_value = evidence_value(evidence, "authorization-record:")
+    authorization_record_id, separator, authorization_sha256 = (
+        authorization_value.partition(":")
+    )
+    if not separator:
+        raise SupervisionLogError(
+            "Direct-authority authorization evidence differs"
+        )
+    exact_sha256(
+        authorization_sha256,
+        label="direct-authority review record SHA-256",
+    )
+    source_byte_count = evidence_value(evidence, "source-byte-count:")
+    if not source_byte_count.isdigit():
+        raise SupervisionLogError(
+            "Direct-authority event evidence is incomplete"
+        )
+    provenance = {
+        "source_kind": evidence_value(evidence, "source-kind:"),
+        "source_task_id": evidence_value(evidence, "source-task:"),
+        "source_turn_id": evidence_value(evidence, "source-turn:"),
+        "source_item_id": evidence_value(evidence, "source-item:"),
+        "source_byte_count": int(source_byte_count),
+        "source_sha256": evidence_value(evidence, "source-sha256:"),
+        "verifier_id": evidence_value(evidence, "verifier:"),
+        "policy_sha256": source_event["policy_sha256"],
+        "authorization_record_id": authorization_record_id,
+    }
+    authorization = canonical_retained_direct_authority_review(
+        all_events,
+        provenance=provenance,
+        policy=policy,
+    )
+    source_policy = policy_snapshot_by_sha256(
+        policy_history, str(source_event["policy_sha256"])
+    )
+    source_mission = bound_mission(source_policy)
+    event_order = {
+        str(item.get("record_id")): index
+        for index, item in enumerate(all_events)
+    }
+    if (
+        current_mission is None
+        or source_mission is None
+        or mission_binding_identity(current_mission)
+        != mission_binding_identity(source_mission)
+        or source_record == current_mission.get("mission_source_record")
+        or source_record == controlling.get("record")
+        or source_sha256 == controlling.get("sha256")
+        or source_event.get("source_task_id") != policy.get("target_thread_id")
+        or source_event.get("source_item_id") != source_record
+        or source_event.get("source_record") != source_record
+        or source_event.get("source_sha256") != source_sha256
+        or source_event.get("record_sha256")
+        != receipt.get("source_event_sha256")
+        or source_event.get("verifier_id") != receipt.get("reviewer_id")
+        or authorization.get("record_sha256") != authorization_sha256
+        or event_order[str(authorization["record_id"])]
+        >= event_order[str(source_event["record_id"])]
+    ):
+        raise SupervisionLogError(
+            "Retained direct authority is not current for this mission"
+        )
+    if request_text is not None:
+        request_bytes = request_text.encode("utf-8")
+        if (
+            len(request_bytes) != provenance["source_byte_count"]
+            or hashlib.sha256(request_bytes).hexdigest() != source_sha256
+        ):
+            raise SupervisionLogError(
+                "Implementation request text differs from retained direct authority"
+            )
+        intent, requested = classify_implementation_request(
+            request_text, {0}
+        )
+        if intent != "full-tracker" or requested != [0]:
+            raise SupervisionLogError(
+                "Retained direct authority does not authorize the full tracker"
+            )
+    return receipt, source_event, authorization
+
+
+def range_requires_retained_authority(
+    contract: Mapping[str, Any],
+) -> bool:
+    history = contract.get("history")
+    return bool(
+        isinstance(history, list)
+        and history
+        and isinstance(history[0], Mapping)
+        and history[0].get("operation") == "mission-successor-bound"
+    )
 
 
 def legacy_terminal_range_compatibility_eligible(
@@ -8146,10 +8783,17 @@ def legacy_implementation_request_classification(
 
 
 def cmd_implementation_authority_receipt(args: argparse.Namespace) -> None:
-    directory, policy = load_policy(args)
+    (
+        directory,
+        policy,
+        _policy_snapshot,
+        all_events,
+        event_snapshot,
+        _directory_snapshot,
+    ) = load_control_snapshot(args)
     policy_history = events(directory / "policy-history.jsonl")
     source_event = canonical_direct_authority_event(
-        events(directory / "events.jsonl"),
+        all_events,
         event_record_id=safe_id(
             args.authority_event_record,
             label="canonical direct-authority event record",
@@ -8182,6 +8826,39 @@ def cmd_implementation_authority_receipt(args: argparse.Namespace) -> None:
         "evidence": source_event["evidence"],
     }
     receipts.append(receipt)
+
+    def revalidate_authority_receipt_before_mutation(
+        directory_fd: int, current_policy: Mapping[str, Any]
+    ) -> None:
+        current_events, current_event_snapshot = events_snapshot(
+            Path("events.jsonl"), directory_fd=directory_fd
+        )
+        current_policy_history, _history_snapshot = events_snapshot(
+            Path("policy-history.jsonl"), directory_fd=directory_fd
+        )
+        validate_event_ledger_anchor_at(
+            directory_fd,
+            current_events,
+            allow_missing=False,
+        )
+        if (
+            current_event_snapshot != event_snapshot
+            or current_events != all_events
+        ):
+            raise SupervisionLogError(
+                "Direct-authority event state changed before receipt"
+            )
+        current_source_event = canonical_direct_authority_event(
+            current_events,
+            event_record_id=str(source_event["record_id"]),
+            policy=current_policy,
+            policy_history=current_policy_history,
+        )
+        if current_source_event != source_event:
+            raise SupervisionLogError(
+                "Direct-authority source changed before receipt"
+            )
+
     write_policy_version(
         directory,
         policy,
@@ -8191,6 +8868,7 @@ def cmd_implementation_authority_receipt(args: argparse.Namespace) -> None:
             str(source_event["record_id"]),
             str(source_event["record_sha256"]),
         ],
+        pre_mutation_validator=revalidate_authority_receipt_before_mutation,
     )
     print(json.dumps({"duplicate": False, "receipt": receipt}, sort_keys=True))
 
@@ -8611,31 +9289,13 @@ def policy_snapshot_by_sha256(
     return matches[0]
 
 
-def current_direct_mission_range_identity(
+def current_mission_range_identity(
     policy: Mapping[str, Any],
-    *,
-    source_record: str,
-    source_sha256: str,
 ) -> dict[str, str]:
     mission = bound_mission(dict(policy))
     if mission is None:
         raise SupervisionLogError(
             "Implementation range admission requires an exact current mission"
-        )
-    derivation = mission.get("mission_derivation")
-    controlling = (
-        derivation.get("controlling_source", {})
-        if isinstance(derivation, Mapping)
-        else {}
-    )
-    if (
-        controlling.get("class") != "direct-user"
-        or controlling.get("record") != source_record
-        or controlling.get("sha256") != source_sha256
-        or mission.get("mission_source_record") != source_record
-    ):
-        raise SupervisionLogError(
-            "Implementation range rollover lacks the current direct mission source"
         )
     return {
         "mission_root": str(mission["mission_root"]),
@@ -8840,6 +9500,16 @@ def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
                 raise SupervisionLogError(
                     "Same-mission admission cannot replace range authority"
                 )
+        if range_requires_retained_authority(contract):
+            retained_full_tracker_authority(
+                policy,
+                all_events=events(directory / "events.jsonl"),
+                policy_history=policy_history,
+                source_record=str(contract["authority"]["source_record"]),
+                source_sha256=str(contract["authority"]["source_sha256"]),
+                require_current_receipt=False,
+                request_text=(args.request_text or None),
+            )
         if args.tracker:
             supplied = Path(args.tracker).expanduser().resolve(strict=True)
             if str(supplied) != contract["tracker_path"]:
@@ -8917,16 +9587,19 @@ def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
         args.authority_source_sha256,
         label="range authority source SHA-256",
     )
-    if hashlib.sha256(args.request_text.encode("utf-8")).hexdigest() != source_sha256:
-        raise SupervisionLogError(
-            "Implementation request text does not match its canonical direct source"
-        )
-    mission_identity = current_direct_mission_range_identity(
-        policy,
-        source_record=source_record,
-        source_sha256=source_sha256,
-    )
+    mission_identity = current_mission_range_identity(policy)
     all_events = events(directory / "events.jsonl")
+    authority_receipt, authority_event, authority_review = (
+        retained_full_tracker_authority(
+            policy,
+            all_events=all_events,
+            policy_history=policy_history,
+            source_record=source_record,
+            source_sha256=source_sha256,
+            require_current_receipt=True,
+            request_text=args.request_text,
+        )
+    )
     event_head = str(all_events[-1].get("record_sha256", "")) if all_events else ""
     activation = validate_predecessor_range_completion(
         policy=policy,
@@ -9098,14 +9771,31 @@ def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
             raise SupervisionLogError(
                 "Predecessor range mission changed before rollover"
             )
-        locked_identity = current_direct_mission_range_identity(
-            current_policy,
-            source_record=source_record,
-            source_sha256=source_sha256,
-        )
+        locked_identity = current_mission_range_identity(current_policy)
         if locked_identity != mission_identity:
             raise SupervisionLogError(
                 "Current mission identity changed before range rollover"
+            )
+        (
+            locked_authority_receipt,
+            locked_authority_event,
+            locked_authority_review,
+        ) = retained_full_tracker_authority(
+            current_policy,
+            all_events=current_events,
+            policy_history=current_history,
+            source_record=source_record,
+            source_sha256=source_sha256,
+            require_current_receipt=True,
+            request_text=args.request_text,
+        )
+        if (
+            locked_authority_receipt != authority_receipt
+            or locked_authority_event != authority_event
+            or locked_authority_review != authority_review
+        ):
+            raise SupervisionLogError(
+                "Retained range authority changed before range rollover"
             )
         locked_activation = validate_predecessor_range_completion(
             policy=current_policy,
@@ -9155,6 +9845,8 @@ def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
             args.predecessor_outcome_record,
             args.predecessor_lifecycle_record,
             args.mission_activation_record,
+            str(authority_event["record_id"]),
+            str(authority_event["record_sha256"]),
             tracker_sha256,
             genesis,
         ],
@@ -9170,6 +9862,7 @@ def cmd_implementation_range_admit(args: argparse.Namespace) -> None:
                 "range_state": replacement_state,
                 "predecessor_range": predecessor_range,
                 "mission_activation_record": activation["record_id"],
+                "authority_event_record": authority_event["record_id"],
                 "implementation_start_permitted": True,
                 "final_response_gate_required": True,
             },
@@ -9195,6 +9888,7 @@ def implementation_range_repair_result(
         "range_binding_current": False,
         "range_binding_posture": posture,
         "response_kind": response_kind,
+        "implementation_start_permitted": False,
         "final_response_permitted": False,
         "required_target_posture": "in-progress",
         "next_action": "continue-local-safe-frontier-and-repair-binding",
@@ -9294,9 +9988,10 @@ def cmd_implementation_range_gate(args: argparse.Namespace) -> None:
     )
     contract = implementation_range_contract(policy)
     if contract is not None:
+        policy_history = events(directory / "policy-history.jsonl")
         try:
             range_mission = implementation_range_owner_mission(
-                contract, events(directory / "policy-history.jsonl")
+                contract, policy_history
             )
         except SupervisionLogError as exc:
             result = implementation_range_repair_result(
@@ -9326,6 +10021,26 @@ def cmd_implementation_range_gate(args: argparse.Namespace) -> None:
             )
             print(json.dumps(result, sort_keys=True))
             return
+        if range_requires_retained_authority(contract):
+            try:
+                retained_full_tracker_authority(
+                    policy,
+                    all_events=owner_events,
+                    policy_history=policy_history,
+                    source_record=str(contract["authority"]["source_record"]),
+                    source_sha256=str(contract["authority"]["source_sha256"]),
+                    require_current_receipt=False,
+                )
+            except SupervisionLogError as exc:
+                result = implementation_range_repair_result(
+                    response_kind=args.response_kind,
+                    policy=policy,
+                    control=control,
+                    posture="noncurrent",
+                    cause=str(exc),
+                )
+                print(json.dumps(result, sort_keys=True))
+                return
     try:
         state = implementation_range_state(policy)
     except SupervisionLogError as exc:
@@ -16931,6 +17646,13 @@ def parser() -> argparse.ArgumentParser:
     control_posture_gate = subparsers.add_parser("control-posture-gate")
     control_posture_gate.add_argument("--target-thread", required=True)
     control_posture_gate.set_defaults(func=cmd_control_posture_gate)
+
+    direct_authority_ingest = subparsers.add_parser(
+        "direct-authority-ingest"
+    )
+    direct_authority_ingest.add_argument("--target-thread", required=True)
+    direct_authority_ingest.add_argument("--provenance-base64", required=True)
+    direct_authority_ingest.set_defaults(func=cmd_direct_authority_ingest)
 
     legacy_authority_ingest = subparsers.add_parser(
         "legacy-direct-authority-ingest"

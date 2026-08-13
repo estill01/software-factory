@@ -802,9 +802,11 @@ dependency-safe Blocks, and consumes the canonical governing-outcome reducer;
 it accepts no caller-supplied terminal roots. Any nonterminal result requires
 immediate safe continuation and forbids terminalization. It never requests
 Resume or ordinary human scheduling. Only an exact one-Block request may
-normally return at that Block's Stop. An absent range binding or a current
-binding whose tracker identity is stale returns a structured nonterminal
-verdict rather than a bare error: `final_response_permitted=false`,
+normally return at that Block's Stop. An absent range binding, mission-
+mismatched binding, successor binding whose canonical source or receipt is
+absent/noncurrent, or a current binding whose tracker identity is stale returns
+a structured nonterminal verdict rather than a bare error:
+`implementation_start_permitted=false`, `final_response_permitted=false`,
 `required_target_posture=in-progress`, failure mode
 `FM-UNAUTHORIZED-EARLY-RETURN`, and
 `continue-local-safe-frontier-and-repair-binding`, with no human input or manual
@@ -826,10 +828,17 @@ A pending same-target mission successor may replace one completed predecessor
 range only through the same policy owner. Under the policy-owner lock,
 admission must revalidate the predecessor's independently verified observable
 outcome and completed lifecycle, the unique still-pending current-mission
-activation, current policy and event heads, the current direct mission source,
-and both exact tracker snapshots. The successor binding receives a fresh range
-ID, mission-bound genesis, and history sequence; it cites the predecessor
-range/genesis/head but never appends successor Blocks to predecessor history.
+activation, current policy and event heads, one exact independently reviewed
+and canonically ingested current-mission full-tracker authority source and its
+current receipt, and both exact tracker snapshots. Mission identity and range
+authority are separate: the mission source/root proves only which mission owns
+the range and can never substitute for the exact range-authority source. A
+routed `codex_delegation`, delivery/readback/shutdown request, mission digest,
+historical predecessor source, or composition of retained sources is
+ineligible. The successor binding receives a fresh range ID, mission-bound
+genesis, exact source/receipt binding, and history sequence; it cites the
+predecessor range/genesis/head but never appends successor Blocks to predecessor
+history.
 The predecessor contract remains immutable in prior policy versions. A
 nonterminal predecessor, same-mission replacement, absent or ambiguous mission
 provenance, stale policy/event/tracker state, wrong or nonpending activation,
@@ -842,8 +851,8 @@ noncurrent at `implementation-range-gate` and can never yield
 python3 <LOG_HELPER> implementation-range-admit \
   --target-thread <TARGET> --range-id <FRESH_RANGE_ID> \
   --tracker <ABSOLUTE_TRACKER_PATH> --request-text <EXACT_DIRECT_REQUEST> \
-  --authority-source-record <CURRENT_DIRECT_SOURCE> \
-  --authority-source-sha256 <CURRENT_DIRECT_SOURCE_SHA256> \
+  --authority-source-record <CURRENT_RETAINED_RANGE_SOURCE> \
+  --authority-source-sha256 <CURRENT_RETAINED_RANGE_SOURCE_SHA256> \
   --predecessor-outcome-record <EXACT_VERIFIED_OUTCOME> \
   --predecessor-lifecycle-record <EXACT_COMPLETED_LIFECYCLE> \
   --mission-activation-record <EXACT_PENDING_ACTIVATION>
@@ -864,8 +873,23 @@ python3 <LOG_HELPER> implementation-range-gate \
 ```
 
 The initial source must resolve to the bound direct mission or an already
-reviewed canonical authority receipt. A contraction first resolves a separately
-ingested `direct-user-authority-source` owner event by exact ledger record:
+reviewed canonical authority receipt. A fresh mission-successor range always
+requires the latter. For a nonlegacy exact direct source, its independent
+base-or-Max review must already bind one direct-user task/turn/item, exact UTF-8
+bytes/count/SHA, current policy and mission, and full-tracker classification.
+The maintained owner then ingests only that one source as a canonical event;
+routed/fabricated provenance, mission identity, non-full scope, generic local-
+path requests, stale policy/events, replay mismatch, and ineligible review
+reject before append:
+
+```bash
+python3 <LOG_HELPER> direct-authority-ingest \
+  --target-thread <TARGET> \
+  --provenance-base64 <CANONICAL_BASE64_JSON>
+```
+
+A receipt resolves that separately ingested
+`direct-user-authority-source` owner event by exact ledger record:
 
 ```bash
 python3 <LOG_HELPER> implementation-range-authority-receipt \
