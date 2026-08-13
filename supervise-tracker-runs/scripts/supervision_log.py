@@ -32,7 +32,7 @@ except ModuleNotFoundError:  # Python 3.9 maintained host runtime.
 
 
 DEFAULT_ROOT = Path.home() / ".codex" / "supervision" / "tracker-runs"
-CODEX_AUTOMATIONS_ROOT = Path(__file__).resolve().parents[3] / "automations"
+CODEX_AUTOMATIONS_ROOT = Path.home() / ".codex" / "automations"
 MISSION_META_CHARTER_PATH = (
     Path(__file__).resolve().parents[1]
     / "references"

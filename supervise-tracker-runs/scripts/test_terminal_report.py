@@ -304,6 +304,12 @@ class TerminalReportUnitTests(unittest.TestCase):
         ):
             supervision_log.gmail_attachment_id("not a provider id")
 
+    def test_automation_owner_root_is_codex_runtime_state(self) -> None:
+        self.assertEqual(
+            supervision_log.CODEX_AUTOMATIONS_ROOT,
+            supervision_log.DEFAULT_ROOT.parents[1] / "automations",
+        )
+
 
 class TerminalReportIntegrationTests(unittest.TestCase):
     def prepare_root(self, root: Path, *, bind_gmail: bool = True) -> Path:
