@@ -1357,6 +1357,141 @@ class SuccessorTransitionContractTests(unittest.TestCase):
         self.assertIn("human-scheduling leak", readme)
 
 
+class PolicyHistoryCompatibilityTests(unittest.TestCase):
+    target = "history-target-1234"
+
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        args = supervision_log.parser().parse_args(
+            [
+                "--root",
+                str(self.root),
+                "init",
+                "--target-thread",
+                self.target,
+                "--target-label",
+                "HistoryTarget",
+                "--watcher-thread",
+                "history-watcher-1234",
+                "--reviewer-thread",
+                "history-reviewer-1234",
+                "--mission-source-class",
+                "tracker",
+                "--mission-source-record",
+                "history-source-1234",
+                "--mission-source-sha256",
+                "a" * 64,
+            ]
+        )
+        with redirect_stdout(io.StringIO()):
+            args.func(args)
+        self.base_policy = supervision_log.read_json(
+            self.root / self.target / "policy.json"
+        )
+
+    def policy(self, version: int) -> dict[str, object]:
+        policy = copy.deepcopy(self.base_policy)
+        policy["policy_version"] = version
+        policy["updated_at"] = f"2026-08-01T00:{version:02d}:00+00:00"
+        policy["permissions"]["gmail_self_notification"] = True
+        if version >= 8:
+            gmail = {
+                "delivery_policy": "material-alerts-and-new-evidence-meta-digest",
+                "enabled": True,
+                "recipient": "me",
+                "reply_message_id": "gmail-seed-1234",
+                "subject": "Codex Tracker Supervision",
+            }
+            if version >= 9:
+                gmail.update(
+                    {
+                        "project_key": "MainProject",
+                        "thread_scope": "monitored-project",
+                    }
+                )
+            policy["notifications"] = {"gmail": gmail}
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+        return policy
+
+    def history(self) -> list[dict[str, object]]:
+        return [
+            {
+                "schema_version": 1,
+                "record_id": f"POLICY-{version}",
+                "timestamp": f"2026-08-01T00:{version:02d}:00+00:00",
+                "kind": "policy-bind",
+                "policy": self.policy(version),
+            }
+            for version in range(1, 35)
+        ]
+
+    def rehash(self, policy: dict[str, object]) -> None:
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+
+    def test_v34_history_accepts_exact_legacy_gmail_scope_upgrade_only(self) -> None:
+        history = self.history()
+        supervision_log.validate_policy_history_sequence(history, history[-1]["policy"])
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "Primary Gmail binding is incomplete",
+        ):
+            supervision_log.validate_policy(history[7]["policy"])
+
+    def test_v34_history_rejects_legacy_boundary_attacks(self) -> None:
+        cases: list[tuple[str, object, str]] = []
+
+        malformed = self.history()
+        malformed[7]["policy"]["notifications"]["gmail"]["recipient"] = "other"
+        self.rehash(malformed[7]["policy"])
+        cases.append(("malformed", malformed, "invalid embedded policy"))
+
+        stale_hash = self.history()
+        stale_hash[7]["policy"]["notifications"]["gmail"]["subject"] = "Changed"
+        cases.append(("stale-hash", stale_hash, "invalid embedded policy"))
+
+        re_rooted = self.history()[1:]
+        cases.append(("re-rooted", re_rooted, "truncated or re-rooted"))
+
+        reordered = self.history()
+        reordered[7], reordered[8] = reordered[8], reordered[7]
+        cases.append(("reordered", reordered, "sequence or owner differs"))
+
+        owner_divergent = self.history()
+        owner_divergent[7]["policy"]["target_thread_id"] = "other-target-1234"
+        self.rehash(owner_divergent[7]["policy"])
+        cases.append(("owner-divergent", owner_divergent, "sequence or owner differs"))
+
+        semantically_forged = self.history()
+        semantically_forged[8]["policy"]["permissions"]["bounded_thread_steer"] = False
+        self.rehash(semantically_forged[8]["policy"])
+        cases.append(
+            ("semantically-forged", semantically_forged, "invalid embedded policy")
+        )
+
+        current_incompatible = self.history()
+        current_incompatible[-1]["policy"]["notifications"]["gmail"] = copy.deepcopy(
+            current_incompatible[7]["policy"]["notifications"]["gmail"]
+        )
+        self.rehash(current_incompatible[-1]["policy"])
+        cases.append(
+            ("current-incompatible", current_incompatible, "invalid embedded policy")
+        )
+
+        for name, history, message in cases:
+            with self.subTest(name=name), self.assertRaisesRegex(
+                supervision_log.SupervisionLogError, message
+            ):
+                supervision_log.validate_policy_history_sequence(
+                    history, history[-1]["policy"]
+                )
+
+
 class ImplementationRangeControlTests(unittest.TestCase):
     target = "range-target-1234"
     initial_source = "direct-item-100"

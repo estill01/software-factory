@@ -1676,7 +1676,72 @@ def policy_material(policy: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in policy.items() if key != "policy_sha256"}
 
 
-def validate_policy(policy: dict[str, Any]) -> None:
+def legacy_primary_gmail_project_scope_upgrade(
+    predecessor: Mapping[str, Any], successor: Mapping[str, Any]
+) -> bool:
+    predecessor_notifications = predecessor.get("notifications")
+    successor_notifications = successor.get("notifications")
+    if not isinstance(predecessor_notifications, Mapping) or not isinstance(
+        successor_notifications, Mapping
+    ):
+        return False
+    predecessor_gmail = predecessor_notifications.get("gmail")
+    successor_gmail = successor_notifications.get("gmail")
+    if not isinstance(predecessor_gmail, Mapping) or not isinstance(
+        successor_gmail, Mapping
+    ):
+        return False
+    legacy_keys = {
+        "delivery_policy",
+        "enabled",
+        "recipient",
+        "reply_message_id",
+        "subject",
+    }
+    if set(predecessor_gmail) != legacy_keys or set(successor_gmail) != legacy_keys | {
+        "project_key",
+        "thread_scope",
+    }:
+        return False
+    project_key = successor_gmail.get("project_key")
+    try:
+        safe_id(
+            str(predecessor_gmail.get("reply_message_id", "")),
+            label="Gmail reply message ID",
+        )
+        safe_id(str(project_key or ""), label="Gmail monitored project key")
+        subject = str(predecessor_gmail.get("subject", ""))
+        if not subject or clean(subject, label="Gmail subject", maximum=160) != subject:
+            return False
+    except SupervisionLogError:
+        return False
+    if (
+        predecessor_gmail.get("enabled") is not True
+        or predecessor_gmail.get("recipient") != "me"
+        or predecessor_gmail.get("delivery_policy")
+        != "material-alerts-and-new-evidence-meta-digest"
+        or predecessor.get("permissions", {}).get("gmail_self_notification") is not True
+        or successor_gmail.get("thread_scope") != "monitored-project"
+        or successor.get("policy_version") != predecessor.get("policy_version", 0) + 1
+    ):
+        return False
+
+    expected = dict(predecessor)
+    expected_notifications = dict(predecessor_notifications)
+    expected_gmail = dict(predecessor_gmail)
+    expected_gmail.update(
+        {"project_key": project_key, "thread_scope": "monitored-project"}
+    )
+    expected_notifications["gmail"] = expected_gmail
+    expected["notifications"] = expected_notifications
+    for key in ("policy_version", "policy_sha256", "updated_at"):
+        expected[key] = successor.get(key)
+    return expected == successor
+
+
+def validate_policy(
+    policy: dict[str, Any], *, historical_successor: Mapping[str, Any] | None = None
+) -> None:
     expected = digest(policy_material(policy))
     if policy.get("policy_sha256") != expected:
         raise SupervisionLogError("Supervision policy hash is stale")
@@ -1849,7 +1914,12 @@ def validate_policy(policy: dict[str, Any]) -> None:
         identity_values = [
             gmail.get(key) for key in ("project_key", "reply_message_id", "subject")
         ]
-        if any(identity_values) and not all(identity_values):
+        if any(identity_values) and not all(identity_values) and not (
+            historical_successor is not None
+            and legacy_primary_gmail_project_scope_upgrade(
+                policy, historical_successor
+            )
+        ):
             raise SupervisionLogError("Primary Gmail binding is incomplete")
         if (gmail.get("enabled") is True or terminal_enabled is True) and policy.get(
             "permissions", {}
@@ -3071,8 +3141,16 @@ def validate_policy_history_sequence(
             raise SupervisionLogError(
                 "Canonical policy history sequence or owner differs"
             )
+        next_embedded = (
+            history[index].get("policy") if index < len(history) else None
+        )
         try:
-            validate_policy(dict(embedded))
+            validate_policy(
+                dict(embedded),
+                historical_successor=(
+                    next_embedded if isinstance(next_embedded, Mapping) else None
+                ),
+            )
         except SupervisionLogError as exc:
             raise SupervisionLogError(
                 "Canonical policy history contains an invalid embedded policy"
