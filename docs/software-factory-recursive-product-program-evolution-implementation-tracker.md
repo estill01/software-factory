@@ -246,6 +246,16 @@ new work is prospective in Blocks 5, 7, 10, and 11. Existing dependencies alread
 order those owners correctly (`4 → 5 → 7 → 8 → 10 → 11` transitively), so no
 renumbering, inserted prerequisite, or range amendment is required.
 
+Amendment acceptance evidence: exact candidate
+`5a0e8347f339d08aa66f00efb662c2f9cd647aab` was non-force pushed on
+`codex/product-program-evolution-blocks-0-4` and independently accepted by
+`/root/amendment_review` with no findings. The reviewer read both complete
+trackers, confirmed byte preservation of accepted Blocks 0–1 and prospective
+Blocks 2–4, verified every standalone Block 0–4 capability against the map,
+confirmed independent non-RSI operation and owner separation, and passed the RSI
+full verifier (12 Blocks), standalone inherited/core verifier (5 Blocks), diff
+checks, and clean exact worktree proof.
+
 ## 5. Scope, non-goals, and proportionality
 
 ### In scope
