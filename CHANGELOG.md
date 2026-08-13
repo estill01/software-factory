@@ -48,9 +48,10 @@ the completed program materially changes Software Factory.
   owner-produced target-action route result
   and projection. The mission retains the route owner's canonical action
   digest while provenance separately retains the complete originating direct
-  instruction's raw UTF-8 byte count and SHA-256. The bounded route action and
-  canonical-base64 source input are required separately; neither identity
-  substitutes for the other. Mission identity alone
+  instruction's raw UTF-8 byte count and SHA-256. The dedicated owner derives
+  the action identity from the current mission and accepts the source only as a
+  separate canonical-base64 input; no caller reconstructs action text from a
+  retained digest, and neither identity substitutes for the other. Mission identity alone
   remains nonauthorizing; an independent base-or-Max acceptance precedes the
   existing authority event, receipt, and range-owner consumption. The
   recipient starts the full-tracker range automatically without a same-thread

@@ -7197,27 +7197,14 @@ def delegated_direct_authority_route_result(
     source_item_id = safe_id(
         args.source_item, label="delegated-authority source item"
     )
-    route_args = argparse.Namespace(
-        target_thread=args.target_thread,
-        recipient_thread=args.target_thread,
-        purpose=DELEGATED_DIRECT_AUTHORITY_ROUTE_PURPOSE,
-        source_record=args.source_record,
-        action=args.action,
-        containment=False,
-        severity="info",
-        incident_id=None,
-        failure_mode_id=None,
-    )
-    route_result = thread_route_gate_result(
-        route_args,
-        directory=directory,
-        policy=policy,
+    route_source_record = safe_id(
+        args.source_record, label="delegated-authority route source"
     )
     route_source = next(
         (
             item
             for item in all_events
-            if item.get("record_id") == route_result["source_record"]
+            if item.get("record_id") == route_source_record
         ),
         None,
     )
@@ -7229,6 +7216,24 @@ def delegated_direct_authority_route_result(
         if current_mission is not None
         else {}
     )
+    action_sha256 = exact_sha256(
+        str(controlling.get("sha256", "")),
+        label="delegated-authority controlling action SHA-256",
+    )
+    if policy.get("cross_thread_routing") != cross_thread_routing_contract():
+        raise SupervisionLogError(
+            "Current cross-thread routing contract is not bound; run bind first"
+        )
+    route_result = {
+        "send_allowed": True,
+        "target_thread_id": policy["target_thread_id"],
+        "recipient_thread_id": policy["target_thread_id"],
+        "recipient_role": "target",
+        "purpose": DELEGATED_DIRECT_AUTHORITY_ROUTE_PURPOSE,
+        "source_record": route_source_record,
+        "action_sha256": action_sha256,
+        "policy_sha256": policy["policy_sha256"],
+    }
     activation_heads = mission_activation_heads(all_events)
     required_source = {
         "schema_version",
@@ -18800,7 +18805,6 @@ def parser() -> argparse.ArgumentParser:
     delegated_authority_route.add_argument("--source-task", required=True)
     delegated_authority_route.add_argument("--source-turn", required=True)
     delegated_authority_route.add_argument("--source-item", required=True)
-    delegated_authority_route.add_argument("--action", required=True)
     delegated_authority_route.add_argument(
         "--source-text-base64", required=True
     )

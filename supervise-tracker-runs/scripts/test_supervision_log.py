@@ -14,7 +14,7 @@ import sys
 import tempfile
 import threading
 import unittest
-from contextlib import contextmanager, nullcontext, redirect_stdout
+from contextlib import contextmanager, nullcontext, redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest import mock
 
@@ -1992,8 +1992,6 @@ class ImplementationRangeControlTests(unittest.TestCase):
             "origin-user-turn-5678",
             "--source-item",
             source_record,
-            "--action",
-            route_action,
             "--source-text-base64",
             base64.b64encode(request_text.encode("utf-8")).decode("ascii"),
         )
@@ -2650,8 +2648,6 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 str(provenance["source_turn_id"]),
                 "--source-item",
                 str(provenance["source_item_id"]),
-                "--action",
-                "continue-current-full-tracker",
                 "--source-text-base64",
                 base64.b64encode(b"implement the complete tracker").decode(
                     "ascii"
@@ -2789,49 +2785,36 @@ class ImplementationRangeControlTests(unittest.TestCase):
         for name, raw in before.items():
             self.assertEqual((directory / name).read_bytes(), raw)
 
-    def test_delegated_route_owner_rejects_action_beyond_gate_ceiling(
+    def test_delegated_route_owner_rejects_removed_action_input(
         self,
     ) -> None:
+        provenance = self.append_delegated_range_authority_review()
         directory = self.root / self.target
-        policy = supervision_log.read_json(directory / "policy.json")
-        current_events = supervision_log.events(directory / "events.jsonl")
-        supervision_log.append_raw(
-            directory / "events.jsonl",
-            {
-                "schema_version": 1,
-                "record_id": f"EVT-{len(current_events) + 1:06d}",
-                "timestamp": supervision_log.utc_now(),
-                "target_thread_id": self.target,
-                "kind": "mission-activation-route",
-                "status": "target-action-required",
-                "policy_sha256": policy["policy_sha256"],
-                "evidence": ["origin-user-item-5678"],
-            },
-        )
-        route_source = supervision_log.events(directory / "events.jsonl")[-1]
         before = (directory / "events.jsonl").read_bytes()
-        long_action = "implement this tracker; " + ("context " * 40)
 
-        with self.assertRaisesRegex(
-            supervision_log.SupervisionLogError,
-            "required action exceeds 240 characters",
-        ):
-            self.call(
-                "delegated-direct-authority-route-record",
-                "--target-thread",
-                self.target,
-                "--source-record",
-                str(route_source["record_id"]),
-                "--source-task",
-                "origin-user-thread-5678",
-                "--source-turn",
-                "origin-user-turn-5678",
-                "--source-item",
-                "origin-user-item-5678",
-                "--action",
-                long_action,
-                "--source-text-base64",
-                base64.b64encode(b"implement this tracker").decode("ascii"),
+        with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
+            supervision_log.parser().parse_args(
+                [
+                    "--root",
+                    str(self.root),
+                    "delegated-direct-authority-route-record",
+                    "--target-thread",
+                    self.target,
+                    "--source-record",
+                    str(provenance["route_source_record_id"]),
+                    "--source-task",
+                    str(provenance["source_task_id"]),
+                    "--source-turn",
+                    str(provenance["source_turn_id"]),
+                    "--source-item",
+                    str(provenance["source_item_id"]),
+                    "--action",
+                    "different-target-action",
+                    "--source-text-base64",
+                    base64.b64encode(
+                        str(provenance["source_text"]).encode("utf-8")
+                    ).decode("ascii"),
+                ]
             )
 
         self.assertEqual((directory / "events.jsonl").read_bytes(), before)
@@ -2873,8 +2856,6 @@ class ImplementationRangeControlTests(unittest.TestCase):
                 "origin-user-turn-5678",
                 "--source-item",
                 self.initial_source,
-                "--action",
-                self.initial_mission_request,
                 "--source-text-base64",
                 base64.b64encode(
                     self.initial_mission_request.encode("utf-8")

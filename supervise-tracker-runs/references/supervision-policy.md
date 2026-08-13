@@ -913,10 +913,11 @@ reject before append:
 
 The mission controlling-source SHA is the canonical route-owner action digest
 returned by `thread-route-gate`. Delegated provenance separately retains and
-revalidates the exact raw UTF-8 byte count and SHA-256. The route action is a
-bounded owner command and the source text is the complete originating direct
-instruction; they are distinct required inputs. Comparing either digest to the
-other, using the action as source text, or omitting the source bytes is an
+revalidates the exact raw UTF-8 byte count and SHA-256. The dedicated route
+owner derives the route action identity from the exact current mission binding;
+the input producer supplies only the complete originating direct instruction.
+Comparing either digest to the other, reconstructing action text from its
+digest, using an action as source text, or omitting the source bytes is an
 identity mismatch and must reject. Exact source text is passed as canonical
 base64 so multiline requests and their original bytes are retained without
 shell normalization.
@@ -932,13 +933,18 @@ python3 <LOG_HELPER> delegated-direct-authority-route-record \
   --target-thread <TARGET> --source-record <CANONICAL_ROUTE_SOURCE> \
   --source-task <ORIGIN_TASK> --source-turn <ORIGIN_TURN> \
   --source-item <ORIGIN_ITEM> \
-  --action <EXACT_BOUNDED_ROUTE_ACTION> \
   --source-text-base64 <CANONICAL_BASE64_EXACT_DIRECT_SOURCE_TEXT>
 
 python3 <LOG_HELPER> direct-authority-ingest \
   --target-thread <TARGET> \
   --provenance-base64 <CANONICAL_BASE64_JSON>
 ```
+
+This dedicated route owner derives the action SHA-256 from the exact current
+mission-activation head. It does not require a downstream input producer to
+replay route-action text that the canonical owner retained only by digest. The
+source item bytes, byte count, and raw UTF-8 SHA-256 remain separate reviewed
+provenance. The ordinary `thread-route-gate` keeps its bounded action input.
 
 A receipt resolves that separately ingested
 `direct-user-authority-source` owner event by exact ledger record:
