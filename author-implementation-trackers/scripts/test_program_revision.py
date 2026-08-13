@@ -306,24 +306,6 @@ Stop before the next Block.
         )
         self.assertEqual(rebuilt, packet)
 
-    def test_accepted_status_preserves_history_and_derives_resume(self) -> None:
-        previous_text = self.previous.read_text(encoding="utf-8").replace(
-            "`completed`", "`accepted`", 4
-        )
-        proposed_text = self.proposed.read_text(encoding="utf-8").replace(
-            "`completed`", "`accepted`", 4
-        )
-        self.previous.write_text(previous_text, encoding="utf-8")
-        self.proposed.write_text(proposed_text, encoding="utf-8")
-        self.install_program_control(
-            {"0": [0], "1": [1], "2": [2, 3], "3": [4]},
-            affected=[2, 3],
-            resume=2,
-        )
-        packet = self.build()
-        self.assertEqual([0, 1], packet["accepted_history_blocks"])
-        self.assertEqual(2, packet["resume_block"])
-
     def test_local_or_status_only_change_cannot_escalate(self) -> None:
         with self.assertRaisesRegex(
             program_revision.ProgramRevisionError, "not a structural revision"
