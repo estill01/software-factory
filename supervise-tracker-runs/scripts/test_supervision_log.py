@@ -2149,6 +2149,233 @@ class ImplementationRangeControlTests(unittest.TestCase):
         )
         return ingested, receipt
 
+    def retain_legacy_app_readback_authority(
+        self,
+        *,
+        source_record: str | None = None,
+        source_sha256: str | None = None,
+    ) -> tuple[dict[str, object], list[dict[str, object]], list[dict[str, object]]]:
+        source_record = source_record or self.initial_range_source
+        source_sha256 = source_sha256 or self.initial_sha
+        authority_event = self.ingest_direct_authority_event(
+            source_record=source_record,
+            source_sha256=source_sha256,
+        )
+        self.call(
+            "implementation-range-authority-receipt",
+            "--target-thread",
+            self.target,
+            "--authority-event-record",
+            authority_event,
+        )
+        directory = self.root / self.target
+        return (
+            supervision_log.read_json(directory / "policy.json"),
+            supervision_log.events(directory / "events.jsonl"),
+            supervision_log.events(directory / "policy-history.jsonl"),
+        )
+
+    def rehash_legacy_authority_state(
+        self,
+        policy: dict[str, object],
+        all_events: list[dict[str, object]],
+        policy_history: list[dict[str, object]],
+    ) -> None:
+        previous = None
+        for event in all_events:
+            event["previous_record_sha256"] = previous
+            event["record_sha256"] = supervision_log.digest(
+                {
+                    key: value
+                    for key, value in event.items()
+                    if key != "record_sha256"
+                }
+            )
+            previous = event["record_sha256"]
+        receipt = policy["direct_authority_receipts"][0]
+        source_event = all_events[0]
+        receipt["source_event_sha256"] = source_event["record_sha256"]
+        policy["policy_sha256"] = supervision_log.digest(
+            supervision_log.policy_material(policy)
+        )
+        policy_history[-1]["policy"] = copy.deepcopy(policy)
+        previous = None
+        for record in policy_history:
+            record["previous_record_sha256"] = previous
+            record["record_sha256"] = supervision_log.digest(
+                {
+                    key: value
+                    for key, value in record.items()
+                    if key != "record_sha256"
+                }
+            )
+            previous = record["record_sha256"]
+
+    def retained_legacy_authority(
+        self,
+        policy: dict[str, object],
+        all_events: list[dict[str, object]],
+        policy_history: list[dict[str, object]],
+        *,
+        source_record: str | None = None,
+        source_sha256: str | None = None,
+        request_text: str | None = None,
+    ) -> tuple[dict[str, object], dict[str, object], dict[str, object] | None]:
+        return supervision_log.retained_full_tracker_authority(
+            policy,
+            all_events=all_events,
+            policy_history=policy_history,
+            source_record=source_record or self.initial_range_source,
+            source_sha256=source_sha256 or self.initial_sha,
+            require_current_receipt=True,
+            request_text=request_text or self.initial_request,
+        )
+
+    def test_exact_legacy_app_readback_receipt_binds_full_tracker_without_invention(
+        self,
+    ) -> None:
+        self.write_tracker(["not-started"])
+        policy, all_events, policy_history = (
+            self.retain_legacy_app_readback_authority()
+        )
+        receipt, source_event, review = self.retained_legacy_authority(
+            policy, all_events, policy_history
+        )
+        self.assertEqual(receipt["source_event_record_id"], source_event["record_id"])
+        self.assertIsNone(review)
+
+        bound = self.bind()
+        self.assertEqual(
+            bound["binding"]["history"][0]["operation"],
+            "retained-authority-bound",
+        )
+        self.assertTrue(self.gate()["range_binding_current"])
+        self.assertNotIn("source_turn_id", receipt)
+        self.assertNotIn("authorization_record_id", receipt)
+
+    def test_legacy_app_readback_receipt_rejects_rehashed_attacks(self) -> None:
+        base_policy, base_events, base_history = (
+            self.retain_legacy_app_readback_authority()
+        )
+        expected = (
+            f"app-readback:{self.target}:{self.initial_range_source}"
+        )
+
+        def attacked(
+            mutation: object,
+            *,
+            source_record: str | None = None,
+            source_sha256: str | None = None,
+            request_text: str | None = None,
+        ) -> None:
+            policy = copy.deepcopy(base_policy)
+            all_events = copy.deepcopy(base_events)
+            policy_history = copy.deepcopy(base_history)
+            mutation(policy, all_events)
+            self.rehash_legacy_authority_state(policy, all_events, policy_history)
+            with self.assertRaises(supervision_log.SupervisionLogError):
+                self.retained_legacy_authority(
+                    policy,
+                    all_events,
+                    policy_history,
+                    source_record=source_record,
+                    source_sha256=source_sha256,
+                    request_text=request_text,
+                )
+
+        attacks = {
+            "ambiguous-evidence": lambda policy, events: (
+                events[0].__setitem__("evidence", [expected, "other-evidence"]),
+                policy["direct_authority_receipts"][0].__setitem__(
+                    "evidence", [expected, "other-evidence"]
+                ),
+            ),
+            "mismatched-evidence": lambda policy, events: (
+                policy["direct_authority_receipts"][0].__setitem__(
+                    "evidence", [f"app-readback:wrong-task:{self.initial_range_source}"]
+                ),
+            ),
+            "forged-evidence": lambda policy, events: (
+                events[0].__setitem__("evidence", [expected + ":forged"]),
+                policy["direct_authority_receipts"][0].__setitem__(
+                    "evidence", [expected + ":forged"]
+                ),
+            ),
+            "non-string-evidence": lambda policy, events: (
+                events[0].__setitem__("evidence", [1234]),
+                policy["direct_authority_receipts"][0].__setitem__(
+                    "evidence", [1234]
+                ),
+            ),
+            "non-string-source-identity": lambda policy, events: (
+                events[0].__setitem__("source_task_id", 1234),
+                policy["direct_authority_receipts"][0].__setitem__(
+                    "source_task_id", 1234
+                ),
+            ),
+            "duplicate-evidence": lambda policy, events: (
+                events[0].__setitem__("evidence", [expected, expected]),
+                policy["direct_authority_receipts"][0].__setitem__(
+                    "evidence", [expected, expected]
+                ),
+            ),
+            "stale-policy": lambda policy, events: policy[
+                "direct_authority_receipts"
+            ][0].__setitem__(
+                "accepted_policy_version", policy["policy_version"] - 1
+            ),
+            "missing-source-policy": lambda policy, events: (
+                events[0].__setitem__("policy_sha256", "f" * 64),
+                policy["direct_authority_receipts"][0].__setitem__(
+                    "source_policy_sha256", "f" * 64
+                ),
+            ),
+            "wrong-task": lambda policy, events: (
+                events[0].__setitem__("source_task_id", "wrong-task-1234"),
+                policy["direct_authority_receipts"][0].__setitem__(
+                    "source_task_id", "wrong-task-1234"
+                ),
+            ),
+            "wrong-item": lambda policy, events: (
+                events[0].__setitem__("source_item_id", "wrong-item-1234"),
+                policy["direct_authority_receipts"][0].__setitem__(
+                    "source_item_id", "wrong-item-1234"
+                ),
+            ),
+            "wrong-hash": lambda policy, events: (
+                events[0].__setitem__("source_sha256", "f" * 64),
+                policy["direct_authority_receipts"][0].__setitem__(
+                    "source_sha256", "f" * 64
+                ),
+            ),
+            "wrong-reviewer": lambda policy, events: (
+                events[0].__setitem__("verifier_id", "wrong-reviewer-1234"),
+                policy["direct_authority_receipts"][0].__setitem__(
+                    "reviewer_id", "wrong-reviewer-1234"
+                ),
+            ),
+        }
+        for name, mutation in attacks.items():
+            with self.subTest(name=name):
+                attacked(mutation)
+
+        duplicate_policy = copy.deepcopy(base_policy)
+        duplicate_events = copy.deepcopy(base_events)
+        duplicate_history = copy.deepcopy(base_history)
+        duplicate_policy["direct_authority_receipts"].append(
+            copy.deepcopy(duplicate_policy["direct_authority_receipts"][0])
+        )
+        self.rehash_legacy_authority_state(
+            duplicate_policy, duplicate_events, duplicate_history
+        )
+        with self.assertRaisesRegex(
+            supervision_log.SupervisionLogError,
+            "one exact retained authority receipt",
+        ):
+            self.retained_legacy_authority(
+                duplicate_policy, duplicate_events, duplicate_history
+            )
+
     def complete_predecessor_and_start_successor(
         self,
         *,
