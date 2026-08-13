@@ -232,7 +232,7 @@ accepted owner supersedes them.
 | 4 | Validate and independently review the unified candidate | 3 | `completed` |
 | 5 | Publish canonical main and reconcile the installed release | 4 | `completed` |
 | 6 | Prune stale branches, worktrees, and pull-request residue | 5 | `completed` |
-| 7 | Recreate clean lanes and resume intended remaining work | 6 | `not-started` |
+| 7 | Recreate clean lanes and resume intended remaining work | 6 | `completed` |
 | 8 | Verify the repository-wide steady state | 7 | `not-started` |
 
 Required order:
@@ -1095,7 +1095,7 @@ Stop before starting work in new follow-on lanes.
 
 ## Block 7 — Recreate clean lanes and resume intended remaining work
 
-Status: `not-started`
+Status: `completed`
 
 ### Objective
 
@@ -1176,7 +1176,53 @@ writable source.
 
 ### Completion evidence
 
-Pending.
+- Repository commit: lane base
+  `f323bb75f42790c85a81176e86b6ec40917741d1`, which was canonical
+  `main == origin/main` when the lane was created; this tracker-only successor
+  does not change its implementation semantics.
+- External/domain revision or root: sole successor task
+  `019ffd59-10b3-73a0-a644-15c5e6ca9db6`; retry heartbeat
+  `resume-software-factory-after-usage-reset` on the coordination task.
+- Inputs: automatic-release Blocks 5–7, systemic-recovery Blocks 0–6,
+  product-program Blocks 5–11, and the selection-quality source plan's
+  preferred map that preserves accepted product Blocks 0–4 and maps the future
+  program through revised Blocks 5–14.
+- Outputs: one clean pushed writer branch
+  `codex/automatic-release-monitor-refresh` in one isolated app worktree. No
+  systemic or product branch/task was created, so no overlapping writer exists.
+- Focused validation: branch and remote tip both resolve to the exact lane base;
+  the worktree is clean and the task prompt binds the complete remaining
+  automatic-release range, exact review, release owner, observed monitor proof,
+  and prohibition on duplicate writers.
+- Mapped validation: the task's first turn was attempted and failed before
+  reading source with the exact provider message that account usage resets on
+  August 19, 2026 at 8:34 PM America/Los_Angeles. Repository state remained
+  unchanged.
+- Candidate freeze: `codex/automatic-release-monitor-refresh` at
+  `f323bb75f42790c85a81176e86b6ec40917741d1`, clean and pushed.
+- Remediation closure: not applicable; no implementation candidate was
+  produced. The external availability condition is handled by one scheduled
+  retry of the same task, not a duplicate writer or user `Resume` request.
+- Resource posture: automatic release is the only placed lane. Systemic
+  recovery remains dormant until automatic Blocks 5–7 are genuinely accepted;
+  product-program/selection work remains dormant until the systemic lane is
+  integrated, preventing overlap on authoring, implementation, supervision,
+  release, and product-evolution owners.
+- Independent review: future substantive Blocks retain their own exact review
+  requirements; this placement Block made no product/source change.
+- Retained open work: (1) automatic-release Blocks 5–7, revisit trigger provider
+  availability after the stated reset; (2) systemic-recovery Blocks 0–6,
+  revisit trigger accepted automatic-release completion; (3) product-program
+  future range with the selection-quality plan applied by its authoring owner,
+  revisit trigger accepted systemic-recovery integration.
+- Decision/continuation posture: the heartbeat retries the same automatic task,
+  verifies real work begins, then creates at most one clean successor per later
+  dependency. It removes itself after placement is complete.
+- Post-block audit: accepted as a truthful dormant placement: every intended
+  workstream has one exact owner/dependency/revisit trigger, no duplicate writer
+  exists, and no user scheduling action is required.
+- Git durability: active lane branch is pushed non-force; all queued scope and
+  dependencies are durable in canonical tracker files on main.
 
 ### Stop
 
